@@ -153,6 +153,30 @@ async def _analyze_with_candidate_fallback(
         return _fallback_with_candidate_receipt(fallback, exc)
 
 
+async def analyze_with_established_reader(
+    reader,
+    front: bytes,
+    back: bytes | None,
+    *,
+    local_vision: LocalVisionEvidence | None = None,
+) -> ModelSuggestion:
+    """Run the established Ollama reader independently of the LoRA wrapper.
+
+    This is evidence-only and exists so an escalated scanner council can obtain
+    a genuinely separate local model read while website/cloud identity readers
+    remain disabled. The caller must still apply Registry and consensus gates.
+    """
+    original = getattr(type(reader), "_instacomp_established_analyze", None)
+    if not callable(original):
+        raise RuntimeError("Established InstaComp Ollama reader is unavailable")
+    return await original(
+        reader,
+        front,
+        back,
+        local_vision=local_vision,
+    )
+
+
 def install_lora_candidate_runtime() -> None:
     """Put the validated LoRA candidate ahead of Ollama in the same evidence slot.
 
@@ -167,6 +191,7 @@ def install_lora_candidate_runtime() -> None:
     if getattr(cls, "_instacomp_lora_candidate_installed", False):
         return
     original_analyze = cls.analyze
+    cls._instacomp_established_analyze = original_analyze
 
     async def analyze_with_candidate(
         self,

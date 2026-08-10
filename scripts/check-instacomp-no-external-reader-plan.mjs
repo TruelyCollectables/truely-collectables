@@ -15,5 +15,9 @@ assert.doesNotMatch(runtime, /return true;/);
 assert.doesNotMatch(route, /provider:\s*"openai_emergency"/);
 assert.match(route, /provider:\s*"instacomp_internal"/);
 assert.match(route, /const serialOcr = null as InstaCompSerialOcrResult \| null;/);
+assert.match(route, /analyzeWithInstaCompAiLocalSecondary/);
+assert.match(route, /secondary_vision_instacomp_local_established/);
+assert.match(route, /family: \"instacomp_local_established\"/);
+assert.match(route, /consensusEscalation\.runSecondaryVision && !primaryUsedEstablishedOllama/);
 
 console.log("InstaComp no-external-reader execution gate passed.");

@@ -121,6 +121,7 @@ export type InstaCompAiResultWithInternalReceipt = InstaCompAiResult & {
   internalInscription: boolean;
   internalInscriptionText: string | null;
   internalMemorabiliaType: string | null;
+  internalLocalSuggestionProvider: string | null;
   frontVisibleText: string[];
   backVisibleText: string[];
   backEvidence: string | null;
@@ -310,6 +311,7 @@ export function instaCompAiLocalScanToAi(
       internalInscription: false,
       internalInscriptionText: null,
       internalMemorabiliaType: null,
+      internalLocalSuggestionProvider: text(scan.local_suggestion?.provider),
       frontVisibleText: freshFrontVisibleText,
       backVisibleText: freshBackVisibleText,
       backEvidence: freshBackVisibleText.join(" | ") || null,
@@ -410,6 +412,7 @@ export function instaCompAiLocalScanToAi(
     internalInscription: boolean(identity.inscription),
     internalInscriptionText: text(identity.inscription_text),
     internalMemorabiliaType: text(identity.memorabilia_type),
+    internalLocalSuggestionProvider: text(scan.local_suggestion?.provider),
     frontVisibleText,
     backVisibleText,
     backEvidence,
@@ -487,6 +490,67 @@ export async function analyzeWithInstaCompAiLocal(params: {
   }
   return scan;
 }
+
+export async function analyzeWithInstaCompAiLocalSecondary(params: {
+  front: Blob;
+  back?: Blob | null;
+  timeoutMs?: number;
+}): Promise<InstaCompAiResult> {
+  if (!hasConfiguredInstaCompAiLocal()) {
+    throw new Error("InstaComp internal engine is not configured for this runtime.");
+  }
+  const body = new FormData();
+  body.append("front", params.front, "front.jpg");
+  if (params.back) body.append("back", params.back, "back.jpg");
+  const response = await fetch(`${baseUrl()}/v1/scans/secondary-witness`, {
+    method: "POST",
+    headers: requestHeaders(),
+    body,
+    cache: "no-store",
+    signal: AbortSignal.timeout(params.timeoutMs ?? 150_000),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { suggestion?: InstaCompAiLocalSuggestion; detail?: unknown }
+    | null;
+  if (!response.ok) {
+    throw new Error(
+      `InstaComp local secondary witness failed with HTTP ${response.status}${
+        payload?.detail ? `: ${String(payload.detail)}` : ""
+      }`,
+    );
+  }
+  const suggestion = payload?.suggestion;
+  if (!suggestion || !suggestion.identity) {
+    throw new Error("InstaComp local secondary witness returned no structured identity evidence.");
+  }
+  const identity = record(suggestion.identity);
+  return {
+    player: text(identity.player),
+    year: text(identity.year),
+    brand: text(identity.manufacturer ?? identity.brand),
+    setName: text(identity.set_name ?? identity.setName),
+    cardNumber: text(identity.card_number ?? identity.cardNumber),
+    parallel: text(identity.parallel),
+    serialNumber: text(identity.serial_number ?? identity.serialNumber),
+    gradingCompany: null,
+    gradeValue: null,
+    certificationNumber: null,
+    certificationLookupUrl: null,
+    gradingEvidence: null,
+    team: text(identity.team),
+    sport: text(identity.sport),
+    isRookie: boolean(identity.rookie ?? identity.isRookie),
+    isAuto: boolean(identity.autograph ?? identity.isAuto),
+    isRelic: boolean(identity.memorabilia ?? identity.isRelic),
+    conditionGuess: null,
+    confidence: confidence(suggestion.confidence),
+    notes: [
+      "Independent Mac-local established-model identity witness.",
+      text(suggestion.explanation),
+    ].filter(Boolean).join(" "),
+  };
+}
+
 
 export async function confirmInstaCompAiLocalLesson(params: {
   scanId: string;

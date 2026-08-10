@@ -77,6 +77,7 @@ import {
 } from "../../../../lib/instacomp-learning-server";
 import {
   analyzeWithInstaCompAiLocal,
+  analyzeWithInstaCompAiLocalSecondary,
   hasConfiguredInstaCompAiLocal,
   instaCompAiLocalScanToAi,
   type InstaCompAiResultWithInternalReceipt,
@@ -2171,6 +2172,8 @@ function buildInstaCompConsensusReaders(params: {
   mergedSerialAi: InstaCompAiResult;
   guardedAi: InstaCompAiResult;
   aiCouncil: InstaCompAiCouncilRun;
+  localSecondaryAi: InstaCompAiResult | null;
+  localSecondaryError: string | null;
   serialOcr: InstaCompSerialOcrResult | null;
   externalOcr: ExternalOcrResult | null;
 }) {
@@ -2221,6 +2224,24 @@ function buildInstaCompConsensusReaders(params: {
           `serial reader found ${params.serialOcr.serialNumber}`,
       ],
     });
+  }
+
+
+  if (params.localSecondaryAi) {
+    readers.push(
+      buildInstaCompReaderFindingFromAi({
+        readerId: "secondary_vision_instacomp_local_established",
+        label: "InstaComp local established-model witness",
+        kind: "secondary_vision",
+        family: "instacomp_local_established",
+        ai: params.localSecondaryAi,
+        evidence: [
+          "Independent Mac-local established Ollama model read",
+          "Website/cloud identity providers remained disabled",
+        ],
+        weight: 0.95,
+      }),
+    );
   }
 
   params.aiCouncil.readers
@@ -4242,6 +4263,35 @@ async function identifyCardWithConfiguredProviderFailover(params: {
     // Evidence-first scans never suppress independent readers because an early
     // model guess happened to match a checklist row.
     const consensusEscalation = baselineConsensusEscalation;
+
+    let localSecondaryAi: InstaCompAiResult | null = null;
+    let localSecondaryError: string | null = null;
+    const primaryUsedEstablishedOllama =
+      internalReceipt.internalLocalSuggestionProvider === "instacomp_ollama_backup";
+    if (consensusEscalation.runSecondaryVision && !primaryUsedEstablishedOllama) {
+      try {
+        const rawLocalSecondary = await analyzeWithInstaCompAiLocalSecondary({
+          front: frontImage,
+          back: backImageForScan,
+          timeoutMs: 150_000,
+        });
+        localSecondaryAi = applyInstaCompIdentityGuard(
+          applyOperatorSerialNumberOverride(
+            applyInstaCompSerialEvidenceGuard(
+              mergeGradingDetection(
+                mergeSerialOcrResult(rawLocalSecondary, serialOcr),
+                externalOcr,
+              ),
+              confirmedSerialNumbers,
+            ),
+            operatorSerialNumberOverride,
+          ),
+          { externalOcrText: externalOcr?.text || null },
+        );
+      } catch (error) {
+        localSecondaryError = sanitizeInstaCompProviderFailure(error);
+      }
+    }
     const aiCouncilRaw = await runInstaCompAiCouncil({
       runSecondaryVision:
         requestedAiCouncilTier !== "basic" && consensusEscalation.runSecondaryVision,
@@ -4278,6 +4328,8 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       mergedSerialAi,
       guardedAi,
       aiCouncil,
+      localSecondaryAi,
+      localSecondaryError,
       serialOcr: consensusSerialOcr,
       externalOcr,
     });
