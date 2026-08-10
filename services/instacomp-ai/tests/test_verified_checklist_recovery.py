@@ -46,22 +46,28 @@ def _status_error(url: str, status_code: int) -> httpx.HTTPStatusError:
 
 def test_verified_index_contains_official_topps_pdf() -> None:
     sources = verified_checklist_sources_for_target(TOPPS_TARGET)
-    assert len(sources) == 1
-    source = sources[0]
+    assert sources
+    source = next((item for item in sources if item.url == TOPPS_URL), None)
+    assert source is not None
     assert source.source_id == "topps"
     assert source.trust_score == 100
-    assert source.url == TOPPS_URL
     assert "Official Topps" in source.provenance
+    # Recovery may add audited fallbacks, but it must never displace the
+    # manufacturer PDF as the preferred exact source for this target.
+    assert sources[0].url == TOPPS_URL
 
 
 def test_verified_index_contains_full_beckett_page() -> None:
     sources = verified_checklist_sources_for_target(BECKETT_TARGET)
-    assert len(sources) == 1
-    source = sources[0]
+    assert sources
+    source = next((item for item in sources if item.url == BECKETT_URL), None)
+    assert source is not None
     assert source.source_id == "beckett"
     assert source.trust_score == 90
-    assert source.url == BECKETT_URL
     assert "Full Beckett" in source.provenance
+    # Additional exact XLSX/page fallbacks are allowed for recovery; the
+    # original verified Beckett source must remain present and exact-scoped.
+    assert all(item.target_key == BECKETT_TARGET for item in sources)
 
 
 def test_verified_index_unknown_target_fails_closed() -> None:

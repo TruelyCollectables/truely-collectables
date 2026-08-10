@@ -9,66 +9,109 @@ from .verified_checklist_sources import VerifiedChecklistSource
 # so each reconciliation remains reviewable; the module mutates the same
 # target-scoped index before runtime_compat snapshots the verified URL set.
 _EXTRA_SOURCES = (
-    VerifiedChecklistSource(
-        "baseball|2023|topps|topps",
-        "beckett",
-        "2023 Topps Baseball Factory Set Checklist",
-        "https://www.beckett.com/news/2023-topps-baseball-factory-sets/",
-        90,
-        "Full 660-card 2023 Topps flagship checklist from Beckett factory-set master list",
-    ),
-    VerifiedChecklistSource(
-        "basketball|2023-24|panini|donruss-optic-nba-trading-box-fast-break",
-        "beckett",
-        "2023-24 Donruss Optic Basketball Checklist",
-        "https://www.beckett.com/news/2023-24-donruss-optic-basketball-cards/",
-        90,
-        "Full Beckett master checklist; Fast Break is a configuration of the same Donruss Optic release",
-    ),
-    VerifiedChecklistSource(
-        "baseball|2024|topps|chrome-cosmic-x-cactus-jack-news-and",
-        "beckett",
-        "2024 Topps Cosmic Chrome x Cactus Jack Baseball Checklist",
-        "https://www.beckett.com/news/2024-topps-cosmic-chrome-cactus-jack-baseball-cards/",
-        90,
-        "Full 50-card Beckett checklist; target slug is a crawl artifact for this real release",
-    ),
-    VerifiedChecklistSource(
-        "baseball|2024|topps|spotlight",
-        "beckett",
-        "2024 Topps Spotlight Baseball Checklist",
-        "https://www.beckett.com/news/2024-topps-spotlight-baseball-cards/",
-        90,
-        "Full Beckett master checklist for the 100-card Topps Spotlight release",
-    ),
-    VerifiedChecklistSource(
-        "baseball|2024|topps|topps",
-        "beckett",
-        "2024 Topps Baseball Factory Set Checklist",
-        "https://www.beckett.com/news/2024-topps-baseball-factory-set-details/",
-        90,
-        "Full 700-card 2024 Topps flagship checklist from Beckett factory-set master list",
-    ),
-    VerifiedChecklistSource(
-        "baseball|2025|topps|topps",
-        "beckett",
-        "2025 Topps Baseball Factory Set Checklist",
-        "https://www.beckett.com/news/2025-topps-baseball-factory-set-details/",
-        90,
-        "Full 700-card 2025 Topps flagship checklist from Beckett factory-set master list",
-    ),
-    VerifiedChecklistSource(
-        "baseball|2026|topps|topps",
-        "beckett",
-        "2026 Topps Baseball Factory Set Checklist",
-        "https://www.beckett.com/news/2026-topps-baseball-factory-set/",
-        90,
-        "Full 700-card 2026 Topps flagship checklist from Beckett factory-set master list",
-    ),
+    VerifiedChecklistSource("baseball|2023|topps|topps", "beckett", "2023 Topps Baseball Factory Set Checklist", "https://www.beckett.com/news/2023-topps-baseball-factory-sets/", 90, "Full 660-card 2023 Topps flagship checklist from Beckett factory-set master list"),
+    VerifiedChecklistSource("basketball|2023-24|panini|donruss-optic-nba-trading-box-fast-break", "beckett", "2023-24 Donruss Optic Basketball Checklist", "https://www.beckett.com/news/2023-24-donruss-optic-basketball-cards/", 90, "Full Beckett master checklist; Fast Break is a configuration of the same Donruss Optic release"),
+    VerifiedChecklistSource("baseball|2024|topps|chrome-cosmic-x-cactus-jack-news-and", "beckett", "2024 Topps Cosmic Chrome x Cactus Jack Baseball Checklist", "https://www.beckett.com/news/2024-topps-cosmic-chrome-cactus-jack-baseball-cards/", 90, "Full 50-card Beckett checklist; target slug is a crawl artifact for this real release"),
+    VerifiedChecklistSource("baseball|2024|topps|spotlight", "beckett", "2024 Topps Spotlight Baseball Checklist", "https://www.beckett.com/news/2024-topps-spotlight-baseball-cards/", 90, "Full Beckett master checklist for the 100-card Topps Spotlight release"),
+    VerifiedChecklistSource("baseball|2024|topps|topps", "beckett", "2024 Topps Baseball Factory Set Checklist", "https://www.beckett.com/news/2024-topps-baseball-factory-set-details/", 90, "Full 700-card 2024 Topps flagship checklist from Beckett factory-set master list"),
+    VerifiedChecklistSource("baseball|2025|topps|topps", "beckett", "2025 Topps Baseball Factory Set Checklist", "https://www.beckett.com/news/2025-topps-baseball-factory-set-details/", 90, "Full 700-card 2025 Topps flagship checklist from Beckett factory-set master list"),
+    VerifiedChecklistSource("baseball|2026|topps|topps", "beckett", "2026 Topps Baseball Factory Set Checklist", "https://www.beckett.com/news/2026-topps-baseball-factory-set/", 90, "Full 700-card 2026 Topps flagship checklist from Beckett factory-set master list"),
 )
 
 
-for source in _EXTRA_SOURCES:
+# Complete-page fallbacks for targets whose first recovery pass produced a
+# bot-view teaser, a conflicting PDF parse, or a clearly incomplete row count.
+# These literal records are intentionally machine-auditable by the direct
+# recovery runner. They are recovery candidates only; Registry promotion still
+# requires parser, identity, plan, and persistence validation.
+_COMPLETE_PAGE_SOURCES = (
+    VerifiedChecklistSource("baseball|2023|topps|topps", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2023-topps-baseball-complete", 110, "Complete master-list page selected after incomplete prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|bowman|bowman", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-bowman-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|bowman|chrome", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-bowman-chrome-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|bowman|chrome-sapphire", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-bowman-chrome-sapphire-baseball", 110, "Complete master-list page selected after incomplete prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|bowman|draft", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-bowman-draft-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|donruss|donruss", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-donruss-baseball", 110, "Complete master-list page selected after incomplete prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|panini|crusade", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-crusade-baseball", 110, "Complete master-list page selected after incomplete prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|206", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-206-baseball", 110, "Complete master-list page selected after failed prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|allen-and-ginter", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-allen-and-ginter-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|chrome-cosmic-x-cactus-jack-news-and", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-cosmic-chrome-x-cactus-jack-baseball", 110, "Canonical complete page for the crawl-artifact target slug"),
+    VerifiedChecklistSource("baseball|2024|topps|chrome-sapphire", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-chrome-sapphire-baseball", 110, "Complete master-list page selected after failed prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|chrome-sapphire-edition", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-chrome-sapphire-baseball", 110, "Canonical duplicate slug mapped to the complete Chrome Sapphire master list"),
+    VerifiedChecklistSource("baseball|2024|topps|definitive", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-definitive-baseball", 110, "Complete page used to cross-check a suspiciously small PDF parse"),
+    VerifiedChecklistSource("baseball|2024|topps|diamond-icons", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-diamond-icons-baseball", 110, "Complete page used to replace an incomplete 13-row PDF parse"),
+    VerifiedChecklistSource("baseball|2024|topps|dynamic-duals", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-dynamic-duals-baseball", 110, "Complete master-list page selected after incomplete prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|five-star", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-five-star-baseball", 110, "Complete master-list page selected after failed prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|gilded-collection", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-gilded-collection-baseball", 110, "Complete master-list page selected after failed prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|heritage", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-heritage-baseball", 110, "Complete master-list page selected after incomplete prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|heritage-high-number", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-heritage-high-number-baseball", 110, "Complete master-list page selected after failed prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|heritage-mini", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-heritage-mini-baseball", 110, "Complete master-list page selected after incomplete prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|series-1", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-series-1-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|spotlight", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-spotlight-baseball", 110, "Complete 100-card-plus master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("baseball|2024|topps|sterling", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-sterling-baseball", 110, "Complete page used to cross-check a suspiciously small PDF parse"),
+    VerifiedChecklistSource("baseball|2024|topps|triple-threads", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-triple-threads-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2024|topps|update-series", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-update-series-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2025|topps|heritage", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2025-topps-heritage-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2025|topps|series-1", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2025-topps-series-1-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2025|topps|tribute", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2025-topps-tribute-baseball", 110, "Complete master-list page selected after conflicting prior recovery; page may expose a linked XLSX export"),
+    VerifiedChecklistSource("baseball|2026|topps|topps", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2026-topps-baseball-complete", 110, "Complete 704-card factory-set page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("basketball|2023-24|panini|donruss-optic-nba-trading-box-fast-break", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2023-24-donruss-optic-basketball", 110, "Complete Optic master list for the Fast Break configuration"),
+    VerifiedChecklistSource("basketball|2024-25|donruss|donruss", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-25-donruss-basketball", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("basketball|2024-25|panini|nba-hoops", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-25-panini-nba-hoops-basketball", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("basketball|2024-25|panini|origins", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-25-panini-origins-basketball", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("basketball|2024-25|panini|prizm", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-25-panini-prizm-basketball", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("basketball|2024-25|panini|revolution", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-25-panini-revolution-basketball", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|donruss|donruss", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-donruss-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|donruss|elite", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-donruss-elite-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|absolute", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-absolute-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|black", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-black-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|certified", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-certified-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|encore", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-encore-football", 110, "Complete 300-card-plus master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|gold-standard", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-gold-standard-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|illusions", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-illusions-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|luminance", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-luminance-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|mosaic", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-mosaic-football", 110, "Complete 400-card-plus master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|obsidian", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-obsidian-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|origins", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-origins-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|phoenix", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-phoenix-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|photogenic", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-photogenic-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|prestige", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-prestige-football", 110, "Complete 400-card-plus master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|prizm", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-prizm-football", 110, "Complete 400-card-plus master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|rookies-and-stars", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-rookies-stars-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|spectra", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-spectra-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|score|score", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-score-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|topps|cosmic-chrome", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-cosmic-chrome-football", 110, "Complete master-list page selected after conflicting prior recovery"),
+    VerifiedChecklistSource("football|2024|topps|inception", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-inception-football", 110, "Complete master-list page selected after conflicting prior recovery"),
+    VerifiedChecklistSource("hockey|2024-25|upper-deck|artifacts", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-25-upper-deck-artifacts-hockey", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("hockey|2025-26|upper-deck|star-rookies-box-set", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2025-26-upper-deck-star-rookies-hockey-box-set", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("soccer|2024-25|topps|uefa-club-competitions", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-25-topps-uefa-club-competitions-soccer", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("wrestling|2024|panini|select-wwe", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-select-wwe-wrestling", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("wrestling|2024|panini|three-count-wwe", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-three-count-wwe-wrestling", 110, "Complete master-list page selected after incomplete prior recovery"),
+)
+
+
+# Direct spreadsheet exports recovered from the live Checklist Insider pages.
+# These bypass page-rendering/anti-bot failures while still passing the same
+# parser, minimum-row, Registry-plan, archive, provenance, and persistence gates.
+_DIRECT_XLSX_SOURCES = (
+    VerifiedChecklistSource("football|2024|panini|black", "checklistinsider", "2024 Panini Black Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/11/2024-Panini-Black-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|certified", "checklistinsider", "2024 Panini Certified Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/11/2024-Panini-Certified-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|encore", "checklistinsider", "2024 Panini Encore Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/03/2024-Panini-Encore-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|gold-standard", "checklistinsider", "2024 Panini Gold Standard Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/09/2024-Panini-Gold-Standard-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|illusions", "checklistinsider", "2024 Panini Illusions Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/01/2024-Panini-Illusions-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|luminance", "checklistinsider", "2024 Panini Luminance Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/09/2024-Panini-Luminance-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|mosaic", "checklistinsider", "2024 Panini Mosaic Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/11/2024-Panini-Mosaic-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|obsidian", "checklistinsider", "2024 Panini Obsidian Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/02/2024-Panini-Obsidian-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|origins", "checklistinsider", "2024 Panini Origins Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/09/2024-Panini-Origins-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|phoenix", "checklistinsider", "2024 Panini Phoenix Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/04/2024-Panini-Phoenix-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|photogenic", "checklistinsider", "2024 Panini PhotoGenic Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/01/2024-Panini-PhotoGenic-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|prestige", "checklistinsider", "2024 Panini Prestige Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/10/2024-Panini-Prestige-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|prizm", "checklistinsider", "2024 Panini Prizm Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/12/2024-Panini-Prizm-Football-Checklist-Downloads-Excel-spreadsheet-SUBJECT-TO-CHANGE.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|rookies-and-stars", "checklistinsider", "2024 Panini Rookies & Stars Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/12/2024-Panini-Rookies-Stars-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|spectra", "checklistinsider", "2024 Panini Spectra Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/01/2024-Panini-Spectra-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+)
+
+
+for source in (*_DIRECT_XLSX_SOURCES, *_COMPLETE_PAGE_SOURCES, *_EXTRA_SOURCES):
     registry._SOURCES = (*registry._SOURCES, source)
     registry._BY_TARGET[source.target_key] = (
         *registry._BY_TARGET.get(source.target_key, ()),
