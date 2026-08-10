@@ -1,0 +1,45 @@
+name: Ops Deal Hunter Candidate Diagnostics 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-deal-hunter-candidate-diagnostics-20260810.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - name: Read current Deal Hunter candidate diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          curl -fsS --max-time 60 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" > diagnostics.json
+          node - <<'NODE'
+          const p=require('./diagnostics.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const latest=(Array.isArray(p.latestRuns)?p.latestRuns:[])[0]||null;
+          const runId=latest?.run_id||latest?.runId||null;
+          const mac=(Array.isArray(p.macCandidates)?p.macCandidates:[]).filter(r => !runId || r.runId===runId);
+          const prod=(Array.isArray(p.productionCandidates)?p.productionCandidates:[]).filter(r => !runId || r.run_id===runId);
+          const compact={
+            latestRun: latest,
+            macCandidateError:p.macCandidateError||null,
+            macErrorCounts:p.macErrorCounts||{},
+            macDealLabelCounts:p.macDealLabelCounts||{},
+            macCandidatesForLatestRun:mac,
+            productionCandidatesForLatestRun:prod,
+            checkedAt:p.checkedAt||null
+          };
+          console.log('DEAL_HUNTER_DIAGNOSTICS='+JSON.stringify(compact));
+          NODE
