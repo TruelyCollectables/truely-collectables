@@ -193,11 +193,10 @@ export async function POST(request: Request) {
       const item = objectValue(row);
       const identity = objectValue(item?.confirmed_identity);
       return Boolean(
+        item?.trusted === true &&
         item?.scan_id &&
         item?.front_sha256 &&
         item?.back_sha256 &&
-        item?.registry_identity_id &&
-        item?.registry_fingerprint_sha256 &&
         normalized(identity?.player) === "sonia citron" &&
         normalized(identity?.card_number) === "122",
       );
@@ -248,6 +247,7 @@ export async function POST(request: Request) {
         source_training_example_id: candidate.training_example_id || null,
         source_scan_id: scanId,
         source_card_uuid_present: Boolean(candidate.card_uuid),
+        source_verification_source: candidate.verification_source || null,
         source_registry_identity_id_present: Boolean(candidate.registry_identity_id),
         source_registry_fingerprint_present: Boolean(candidate.registry_fingerprint_sha256),
         source_identity: compactIdentity(candidate),
@@ -287,7 +287,7 @@ export async function POST(request: Request) {
 
     return response({
       ok: true,
-      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v4",
+      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v5",
       exact_frozen_raw_hashes_expected: true,
       trusted_training_readback: {
         http_status: examplesRes.status,
