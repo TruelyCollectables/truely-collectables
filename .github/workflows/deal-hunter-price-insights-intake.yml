@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -29,4 +31,8 @@ jobs:
       - name: TypeScript
         run: npx tsc --noEmit --pretty false
       - name: Diff check
-        run: git diff --check origin/main...HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git diff --check origin/main...HEAD
