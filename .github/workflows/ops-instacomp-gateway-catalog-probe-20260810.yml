@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - '.github/workflows/ops-instacomp-gateway-catalog-probe-20260810.yml'
+      - 'src/app/api/release/ops-oidc-presence/route.ts'
 
 permissions:
   contents: read
@@ -12,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
@@ -58,12 +59,33 @@ jobs:
             });
             const payload=await response.json().catch(()=>({}));
             const text=String(payload?.choices?.[0]?.message?.content||'').trim();
-            const citations=Array.isArray(payload?.citations)?payload.citations:Array.isArray(payload?.choices?.[0]?.message?.citations)?payload.choices[0].message.citations:[];
             let parsed=null; try{const s=text.indexOf('{'),e=text.lastIndexOf('}');if(s>=0&&e>=s)parsed=JSON.parse(text.slice(s,e+1));}catch{}
             const sold=Array.isArray(parsed?.sold)?parsed.sold:[];
-            const safe={http:response.status,ok:response.ok&&Boolean(text),model:payload?.model||'perplexity/sonar',textPresent:Boolean(text),citationCount:citations.length,returnedSoldCount:sold.length,error:response.ok?null:String(payload?.error?.message||'').replace(/Bearer\s+\S+/gi,'Bearer [redacted]').slice(0,700)};
-            console.log('GATEWAY_DIRECT_SONAR_SMOKE='+JSON.stringify(safe));
-            if(!safe.ok) process.exit(1);
+            console.log('GATEWAY_DIRECT_SONAR_SMOKE='+JSON.stringify({http:response.status,ok:response.ok&&Boolean(text),model:payload?.model||'perplexity/sonar',textPresent:Boolean(text),returnedSoldCount:sold.length,error:response.ok?null:String(payload?.error?.message||'').slice(0,500)}));
+            if(!response.ok||!text) process.exit(1);
           }
           main().catch(error=>{console.error(String(error?.message||error).slice(0,700));process.exit(1)});
           NODE
+
+      - name: Deploy preview and prove Function OIDC presence
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tail -n 1 | tr -d '\r')"
+          test -n "$DEPLOYMENT_URL"
+          echo "PREVIEW_DEPLOYMENT_CREATED=true"
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -o /tmp/oidc.json -w '%{http_code}' --max-time 30 "$DEPLOYMENT_URL/api/release/ops-oidc-presence" || true)"
+            if [ "$code" = "200" ]; then
+              node - <<'NODE'
+              const p=require('/tmp/oidc.json');
+              console.log('DEPLOYED_FUNCTION_OIDC='+JSON.stringify(p));
+              if(!p.success||!p.vercelRuntime||!p.vercelOidcPresent) process.exit(1);
+              NODE
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Preview OIDC presence endpoint did not become reachable.' >&2
+          cat /tmp/oidc.json 2>/dev/null || true
+          exit 1
