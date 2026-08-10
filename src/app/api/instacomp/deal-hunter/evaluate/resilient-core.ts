@@ -617,7 +617,7 @@ async function persistEvaluation(params: {
   return { id: data.id, fingerprint, delivery };
 }
 
-async function fallbackInput(request: NextRequest) {
+async function fallbackInput(request: Request) {
   const form = await request.formData();
   const listingJson = form.get("listingJson");
   const frontValue = form.get("frontImage");
