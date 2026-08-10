@@ -1,0 +1,41 @@
+name: Ops Groq Model Access 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-groq-model-access-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: List Groq models exposed to Production account
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env pull .env.production.local --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          set -a
+          source .env.production.local
+          set +a
+          test -n "${GROQ_API_KEY:-}"
+          echo "::add-mask::$GROQ_API_KEY"
+          code="$(curl -sS --max-time 30 -o models.json -w '%{http_code}' -H "Authorization: Bearer $GROQ_API_KEY" -H 'Content-Type: application/json' https://api.groq.com/openai/v1/models)"
+          test "$code" = 200
+          node - <<'NODE'
+          const p=require('./models.json');
+          const ids=(Array.isArray(p.data)?p.data:[]).map(x=>String(x.id||'')).filter(Boolean).sort();
+          const likelyVision=ids.filter(id=>/(qwen3\.6|llama-4|vision|vl)/i.test(id));
+          console.log('GROQ_MODEL_ACCESS='+JSON.stringify({count:ids.length,likelyVision,all:ids}));
+          if(likelyVision.length===0) throw new Error('No likely vision-capable Groq models are exposed to this account');
+          NODE
+          rm -f .env.production.local models.json
