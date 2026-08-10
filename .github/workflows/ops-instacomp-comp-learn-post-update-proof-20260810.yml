@@ -1,0 +1,82 @@
+name: Ops InstaComp Comp Learn Post Update Proof 20260810
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/ops-instacomp-comp-learn-post-update-proof-20260810.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REQUIRED_LEARN_COMMIT: b825dfb55277a3c07a6ae3967e73f049ee12c8fd
+      SITE_URL: https://truelycollectables.com
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lock current main containing comp learn mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$REQUIRED_LEARN_COMMIT" origin/main
+          git show origin/main:services/instacomp-ai/app/training_routes.py | grep -Fq '"online_comp_learn_mode": True'
+          git show origin/main:services/instacomp-ai/app/training_routes.py | grep -Fq '"student_hypothesis_endpoint": "/v1/training/student-comp-hypothesis"'
+          echo "CURRENT_MAIN=$(git rev-parse origin/main)" >> "$GITHUB_ENV"
+
+      - name: Read physical Mac comp learn runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          curl -fsS --max-time 90 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > runtime.json
+          node - <<'NODE'
+          const p = require('./runtime.json');
+          if (!p.success) throw new Error('Diagnostics route did not return success');
+          const c = p.configuration || {};
+          const mac = p.mac || {};
+          const learning = mac.teacherCompLearning || {};
+          const dataset = learning.dataset || {};
+          const receipt = {
+            currentMain: process.env.CURRENT_MAIN,
+            webOnlineCompLearnMode: Boolean(c.onlineCompLearnMode),
+            macLearningBridgeConfigured: Boolean(c.macLearningBridgeConfigured),
+            teacherConsensusOperational: Boolean(c.teacherConsensusOperational),
+            votingTeacherCount: Number(c.votingTeacherCount || 0),
+            requiredVotes: Number(c.requiredVotes || 0),
+            macReachable: Boolean(mac.reachable),
+            macTeacherLearningEndpointAvailable: Boolean(mac.teacherLearningEndpointAvailable),
+            macStatus: mac.status || null,
+            macOnlineCompLearnMode: Boolean(learning.online_comp_learn_mode),
+            studentHypothesisEndpoint: learning.student_hypothesis_endpoint || null,
+            datasetSchema: dataset.schema_version || null,
+            eligibleExampleCount: Number(dataset.eligible_example_count || 0),
+            studentMode: Boolean(dataset.student_mode),
+            pricingAuthority: dataset.pricing_authority === true,
+            autoPromotion: dataset.auto_promotion === true,
+            identityTrainingSeparated: Boolean(dataset.identity_training_separated),
+            checkedAt: p.checkedAt || null,
+          };
+          console.log('INSTACOMP_COMP_LEARN_POST_UPDATE=' + JSON.stringify(receipt));
+          if (!c.onlineCompLearnMode) throw new Error('Production web comp learn mode is not active');
+          if (!c.macLearningBridgeConfigured) throw new Error('Mac learning bridge is not configured');
+          if (!mac.reachable) throw new Error('Physical Mac is not reachable');
+          if (!mac.teacherLearningEndpointAvailable) throw new Error('Mac teacher learning endpoint is unavailable');
+          if (mac.status !== 'ready') throw new Error(`Mac training status is ${mac.status}`);
+          if (learning.online_comp_learn_mode !== true) throw new Error('Mac online comp learn mode is not active');
+          if (learning.student_hypothesis_endpoint !== '/v1/training/student-comp-hypothesis') throw new Error('Student hypothesis endpoint is not active');
+          if (dataset.student_mode !== true) throw new Error('Student mode is not active');
+          if (dataset.pricing_authority !== false) throw new Error('Pricing authority boundary changed');
+          if (dataset.auto_promotion !== false) throw new Error('Auto-promotion boundary changed');
+          if (dataset.identity_training_separated !== true) throw new Error('Identity training separation changed');
+          NODE
