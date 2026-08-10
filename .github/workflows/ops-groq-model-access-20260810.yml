@@ -24,13 +24,27 @@ jobs:
           set -euo pipefail
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx --yes vercel@56.2.0 env pull .env.production.local --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          set -a
-          source .env.production.local
-          set +a
-          test -n "${GROQ_API_KEY:-}"
+          GROQ_API_KEY="$(node - <<'NODE'
+          const fs=require('fs');
+          const lines=fs.readFileSync('.env.production.local','utf8').split(/\r?\n/);
+          const line=lines.find(v=>v.startsWith('GROQ_API_KEY='));
+          if(!line) process.exit(2);
+          let value=line.slice('GROQ_API_KEY='.length).trim();
+          if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'"))) value=value.slice(1,-1);
+          process.stdout.write(value);
+          NODE
+          )"
+          test -n "$GROQ_API_KEY"
           echo "::add-mask::$GROQ_API_KEY"
           code="$(curl -sS --max-time 30 -o models.json -w '%{http_code}' -H "Authorization: Bearer $GROQ_API_KEY" -H 'Content-Type: application/json' https://api.groq.com/openai/v1/models)"
-          test "$code" = 200
+          if [ "$code" != 200 ]; then
+            echo "groq_models_http=$code"
+            node - <<'NODE'
+            const p=require('./models.json');
+            console.log('GROQ_MODELS_ERROR='+JSON.stringify({error:p?.error?.message||p?.error||p}));
+            NODE
+            exit 3
+          fi
           node - <<'NODE'
           const p=require('./models.json');
           const ids=(Array.isArray(p.data)?p.data:[]).map(x=>String(x.id||'')).filter(Boolean).sort();
