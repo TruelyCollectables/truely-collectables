@@ -104,3 +104,122 @@ jobs:
             teacherConsensusOperational:Boolean(c.teacherConsensusOperational),
           }));
           NODE
+
+  gemini-recovery:
+    needs: probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT: truely-collectables
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pull Production env securely
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@latest env pull /tmp/truely-production.env --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s /tmp/truely-production.env
+
+      - name: Find a live search-capable Gemini teacher model
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/truely-production.env
+          set +a
+          export GEMINI_TEST_KEY="${GEMINI_API_KEY:-${GOOGLE_GEMINI_API_KEY:-}}"
+          test -n "$GEMINI_TEST_KEY"
+          node - <<'NODE'
+          const fs = require('fs');
+          const key = process.env.GEMINI_TEST_KEY;
+          const configured = String(process.env.INSTACOMP_TEACHER_GEMINI_MODEL || 'gemini-3.6-flash').trim();
+          const cleanName = n => String(n || '').replace(/^models\//, '');
+          async function main() {
+            const list = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`, {signal: AbortSignal.timeout(20000)});
+            const listPayload = await list.json().catch(() => ({}));
+            if (!list.ok) throw new Error(`Gemini model list HTTP ${list.status}`);
+            const available = (listPayload.models || [])
+              .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+              .map(m => cleanName(m.name))
+              .filter(n => /^gemini-/i.test(n));
+            const preferred = [
+              configured,
+              ...available.filter(n => /flash-lite/i.test(n)),
+              ...available.filter(n => /flash/i.test(n) && !/flash-lite/i.test(n)),
+              ...available.filter(n => /pro/i.test(n)),
+            ];
+            const candidates = [...new Set(preferred)].filter(n => available.includes(n)).slice(0, 6);
+            console.log('GEMINI_GENERATE_MODELS=' + JSON.stringify(available.slice(0, 40)));
+            const attempts = [];
+            for (const model of candidates) {
+              try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
+                  method: 'POST',
+                  headers: {'Content-Type':'application/json'},
+                  body: JSON.stringify({
+                    contents: [{role:'user', parts:[{text:'Use Google Search once, then return JSON only: {"ok":true}. This is a provider connectivity test.'}]}],
+                    tools: [{google_search:{}}],
+                    generationConfig: {temperature:0, responseMimeType:'application/json'}
+                  }),
+                  signal: AbortSignal.timeout(30000),
+                });
+                const payload = await response.json().catch(() => ({}));
+                const text = (payload?.candidates?.[0]?.content?.parts || []).map(p => p?.text || '').join('\n').trim();
+                const err = String(payload?.error?.message || '').replace(/\s+/g,' ').slice(0,220);
+                attempts.push({model, status: response.status, ok: response.ok && Boolean(text), error: err || null});
+                if (response.ok && text) {
+                  fs.writeFileSync('/tmp/gemini-model.txt', model + '\n');
+                  break;
+                }
+              } catch (error) {
+                attempts.push({model, status: 0, ok:false, error:String(error?.message || error).slice(0,220)});
+              }
+            }
+            console.log('GEMINI_SEARCH_MODEL_ATTEMPTS=' + JSON.stringify(attempts));
+            if (!fs.existsSync('/tmp/gemini-model.txt')) throw new Error('No tested Gemini model completed a search-capable generation.');
+            console.log('GEMINI_CHOSEN_MODEL=' + fs.readFileSync('/tmp/gemini-model.txt','utf8').trim());
+          }
+          main().catch(err => { console.error(err.message); process.exit(1); });
+          NODE
+
+      - name: Activate working Gemini teacher model in Production and redeploy current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHOSEN_MODEL="$(tr -d '\r\n' < /tmp/gemini-model.txt)"
+          test -n "$CHOSEN_MODEL"
+          printf '%s' "$CHOSEN_MODEL" | npx --yes vercel@latest env add INSTACOMP_TEACHER_GEMINI_MODEL production --force --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch --no-tags origin main
+          CURRENT_MAIN="$(git rev-parse origin/main)"
+          git checkout --detach origin/main
+          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/tmp/vercel-deploy.log
+          echo "GEMINI_RECOVERY_DEPLOYED_MAIN=$CURRENT_MAIN"
+          echo "GEMINI_RECOVERY_MODEL=$CHOSEN_MODEL"
+
+      - name: Prove Production teacher configuration still fail-closed
+        shell: bash
+        env:
+          SITE_URL: https://truelycollectables.com
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > /tmp/runtime.json 2>/dev/null; then
+              if node - <<'NODE'
+              const p=require('/tmp/runtime.json');
+              const c=p.configuration||{};
+              if(!p.success || !c.geminiConfigured || !c.groqConfigured || !c.teacherConsensusOperational) process.exit(1);
+              console.log('POST_RECOVERY_CONFIGURATION=' + JSON.stringify({geminiConfigured:c.geminiConfigured,groqConfigured:c.groqConfigured,votingTeacherCount:c.votingTeacherCount,requiredVotes:c.requiredVotes,teacherConsensusOperational:c.teacherConsensusOperational,onlineCompLearnMode:c.onlineCompLearnMode}));
+              NODE
+              then exit 0; fi
+            fi
+            sleep 3
+          done
+          echo 'Production teacher diagnostics did not become healthy after Gemini recovery.' >&2
+          exit 1
