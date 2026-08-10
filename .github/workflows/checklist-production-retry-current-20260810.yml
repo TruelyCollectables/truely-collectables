@@ -1,0 +1,187 @@
+name: Checklist Production Retry Current 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/checklist-production-retry-current-20260810.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-production-retry-current-20260810
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN: c031654f0a56efce58e37873faebff8f7115ed77
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  CHECKLIST_RECOVERY_BATCH_SIZE: "15"
+  CHECKLIST_RECOVERY_WORKERS: "2"
+
+jobs:
+  apply:
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        batch: [0, 1, 2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CHECKLIST_RECOVERY_BATCH_INDEX: ${{ matrix.batch }}
+      CHECKLIST_RECOVERY_APPLY: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_MAIN }}
+          fetch-depth: 0
+
+      - name: Prove exact Production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN"
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          test -s scripts/run-verified-checklist-recovery-production.mjs
+          test -s .github/workflows/verified-checklist-recovery-production.yml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Install checklist extraction dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python3 -m pip install --user --quiet openpyxl xlrd
+          command -v pdftotext
+
+      - name: Apply the merged recovery parser hardening exactly
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          runner = Path('scripts/run-verified-checklist-recovery-production.mjs')
+          text = runner.read_text('utf-8')
+          old = '  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'
+          new = '  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'
+          if old not in text:
+              raise SystemExit('capture guard anchor missing')
+          runner.write_text(text.replace(old, new, 1), 'utf-8')
+
+          source_tools = Path('scripts/mainstream-checklist/source-tools.mjs')
+          text = source_tools.read_text('utf-8')
+          if 'import sys\npath, mime = sys.argv[1], sys.argv[2]' not in text:
+              raise SystemExit('workbook python import anchor missing')
+          text = text.replace('import sys\npath, mime = sys.argv[1], sys.argv[2]', 'import sys, re\npath, mime = sys.argv[1], sys.argv[2]', 1)
+          old = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if vals: rows.append(' | '.join(vals))"""
+          new = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals:\n                continue\n            first = vals[0]\n            generic = first.lower().rstrip(':').strip()\n            cardish = re.match(r'^(?:#\\s*)?(?:\\d{1,4}[A-Za-z]?|[A-Z]{1,10}-?[A-Z0-9]{1,16}|NNO|NO#)$', first, re.I)\n            sectionish = (\n                not cardish\n                and re.search(r'\\b(?:checklist|base(?: set| rookies?)?|rookies?|autographs?|signatures?|inserts?|relics?|memorabilia|parallels?|variations?|short prints?|prospects?)\\b', ' '.join(vals), re.I)\n            )\n            headers = {'no', 'no.', '#', 'card no', 'card no.', 'card number', 'player', 'players', 'team', 'teams'}\n            if sectionish and generic not in headers:\n                rows.append('## ' + first)\n            else:\n                rows.append(' | '.join(vals))"""
+          if text.count(old) != 1:
+              raise SystemExit(f'workbook row anchor count changed: {text.count(old)}')
+          source_tools.write_text(text.replace(old, new, 1), 'utf-8')
+
+      - name: Prove parser safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx --input-type=module <<'NODE'
+          import { parseChecklist } from './scripts/mainstream-checklist/source-tools.mjs';
+          const separated = parseChecklist({ minimumCardRows: 4 }, ['## Sheet 1','## Base Checklist','1 | Alpha Player','2 | Beta Player','## Rookie Signatures Checklist','1 | Gamma Player','2 | Delta Player'].join('\n'));
+          if (separated.errors.length || separated.cards.length !== 4) throw new Error(`Named section scoping regression: ${JSON.stringify(separated)}`);
+          const conflict = parseChecklist({ minimumCardRows: 1 }, ['## Base Checklist','1 | Alpha Player','1 | Gamma Player'].join('\n'));
+          if (!conflict.errors.some((issue) => issue.code === 'reference_card_number_subject_conflict')) throw new Error('Same-section subject conflict guard was weakened.');
+          NODE
+
+      - name: Resolve protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/verified-checklist-recovery"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/verified-checklist-recovery/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$RUNNER_TEMP/verified-checklist-recovery/production.env"
+          echo "PRODUCTION_ENV_PATH=$RUNNER_TEMP/verified-checklist-recovery/production.env" >> "$GITHUB_ENV"
+
+      - name: Resolve protected Supabase service-role key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          project_ref="$(node -e 'const url=new URL(process.argv[1]);const ref=url.hostname.split(".")[0];if(!/^[a-z0-9]{16,40}$/.test(ref))throw new Error("Invalid Supabase project reference");process.stdout.write(ref)' "$NEXT_PUBLIC_SUPABASE_URL")"
+          keys_file="$RUNNER_TEMP/verified-checklist-recovery/api-keys.json"
+          curl --silent --show-error --fail --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$keys_file" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys_file")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Apply verified checklist batch to Production Registry with bounded transient retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          test -n "${RESOLVED_SUPABASE_SERVICE_ROLE_KEY:-}"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          log="$RUNNER_TEMP/checklist-batch-${CHECKLIST_RECOVERY_BATCH_INDEX}.log"
+          for attempt in 1 2 3 4; do
+            set +e
+            node --import tsx scripts/run-verified-checklist-recovery-production.mjs 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
+            set -e
+            if [ "$status" -eq 0 ]; then exit 0; fi
+            if ! grep -Eiq 'Cloudflare|HTTP (520|521|522|523|524|5[0-9][0-9])|ECONNRESET|ETIMEDOUT|fetch failed|network.*error|socket hang up' "$log"; then
+              echo "Non-transient failure; refusing retry."
+              exit "$status"
+            fi
+            if [ "$attempt" -eq 4 ]; then exit "$status"; fi
+            sleep $((attempt * 10))
+          done
+
+      - name: Require fail-closed Production receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="evidence/verified-checklist-recovery/batch-${CHECKLIST_RECOVERY_BATCH_INDEX}-receipt.json"
+          test -s "$receipt"
+          node - "$receipt" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (receipt.mode !== 'apply') throw new Error('Expected apply-mode receipt.');
+          const accepted = Number(receipt.statuses?.imported || 0) + Number(receipt.statuses?.already_live || 0);
+          const bad = (receipt.results || []).filter((r) => ['imported','already_live'].includes(r.status) && Number(r.counts?.cards || 0) < 25);
+          if (bad.length) throw new Error(`Incomplete checklist escaped Production gate: ${bad.map((r) => `${r.targetKey}=${r.counts?.cards || 0}`).join(', ')}`);
+          if (receipt.batch.selected > 0 && accepted < 1) throw new Error('Batch accepted no verified checklist target.');
+          console.log(JSON.stringify({batch: receipt.batch.index, selected: receipt.batch.selected, statuses: receipt.statuses, accepted, normalizedTotals: receipt.normalizedTotals}, null, 2));
+          NODE
+
+      - name: Upload Production receipts and spreadsheets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-production-retry-current-batch-${{ matrix.batch }}
+          path: evidence/verified-checklist-recovery/
+          retention-days: 90
+
+      - name: Remove protected Production files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/verified-checklist-recovery/production.env" "$RUNNER_TEMP/verified-checklist-recovery/api-keys.json" .env.local .env.production.local
