@@ -1,0 +1,43 @@
+name: Ops InstaComp First Comp Learning Readback 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-instacomp-first-comp-learning-readback-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  SITE_URL: https://truelycollectables.com
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read latest candidates and training state without running another hunt
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" > diagnostics.json
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > teacher.json
+          curl -sS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > status.json || true
+          node - <<'NODE'
+          const d=require('./diagnostics.json'); const t=require('./teacher.json');
+          if(!d.success||!t.success) throw new Error('readback endpoint failed');
+          const rows=Array.isArray(d.macCandidates)?d.macCandidates:[];
+          const latestRunId=rows[0]?.runId||null;
+          const latest=latestRunId?rows.filter(r=>r.runId===latestRunId):[];
+          const errors={}, labels={};
+          for(const r of latest){const e=r.errorCode||'NONE'; errors[e]=(errors[e]||0)+1; const l=r.dealLabel||'NONE'; labels[l]=(labels[l]||0)+1;}
+          const memory=latest.filter(r=>r.exactMarket?.historicalSoldMemory?.used===true||r.exactMarket?.paidSoldSearchesSkipped===true||r.exactMarket?.status==='ready_from_memory');
+          const actionable=latest.filter(r=>r.actionable||r.alertworthy);
+          const learning=t.mac?.teacherCompLearning||{}, dataset=learning.dataset||{};
+          let status=null; try{status=require('./status.json')}catch{}
+          console.log('FIRST_COMP_LEARNING_READBACK='+JSON.stringify({latestRunId,candidateCount:latest.length,errorCounts:errors,dealLabelCounts:labels,memoryReuseCount:memory.length,actionableCount:actionable.length,actionable,eligibleExampleCount:Number(dataset.eligible_example_count||0),onlineCompLearnMode:Boolean(learning.online_comp_learn_mode),studentMode:Boolean(dataset.student_mode),pricingAuthority:dataset.pricing_authority===true,latestDurableRun:Array.isArray(status?.runs)?status.runs[0]:null,sample:latest.slice(0,20).map(r=>({title:r.title,lane:r.lane,status:r.status,errorCode:r.errorCode,errorMessage:r.errorMessage,identity:r.identity,exactMarket:r.exactMarket,dealLabel:r.dealLabel,actionable:r.actionable,alertworthy:r.alertworthy}))}));
+          if(latest.length===0) throw new Error('No recent candidate rows');
+          NODE
