@@ -33,82 +33,37 @@ jobs:
           test -n "${VERCEL_OIDC_TOKEN:-}"
           echo 'VERCEL_OIDC_PRESENT=true'
 
-      - name: Read current AI Gateway teacher candidates
+      - name: Prove direct OpenAI-compatible Gateway Sonar path
         shell: bash
         run: |
           set -euo pipefail
           set -a
           source .env.local
           set +a
-          code="$(curl -sS -o /tmp/gateway-models.json -w '%{http_code}' --max-time 60 \
-            -H "Authorization: Bearer $VERCEL_OIDC_TOKEN" \
-            -H 'Accept: application/json' \
-            'https://ai-gateway.vercel.sh/v1/models' || true)"
-          echo "GATEWAY_MODEL_CATALOG_HTTP=$code"
           node - <<'NODE'
-          const p=require('/tmp/gateway-models.json');
-          const rows=Array.isArray(p.data)?p.data:[];
-          const wanted=new Set(['perplexity/sonar','inclusionai/ling-3.0-tiny-free','poolside/laguna-s-2.1-free','zai/glm-4.6v-flash']);
-          const candidates=rows.filter(m=>wanted.has(m.id)).map(m=>({id:m.id,owned_by:m.owned_by||null,type:m.type||null,pricing:m.pricing?{input:m.pricing.input??null,output:m.pricing.output??null}:null}));
-          console.log('GATEWAY_MODEL_COUNT='+rows.length);
-          console.log('GATEWAY_TEACHER_CANDIDATES='+JSON.stringify(candidates));
-          if(!rows.some(m=>m.id==='perplexity/sonar')) process.exit(2);
-          NODE
-
-      - name: Install isolated Gateway smoke dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --no-save --package-lock=false --ignore-scripts ai@7.0.58 @ai-sdk/gateway@4.0.46 >/dev/null
-
-      - name: Prove Perplexity Sonar is a live keyless search teacher
-        shell: bash
-        run: |
-          set -euo pipefail
-          set -a
-          source .env.local
-          set +a
-          node --input-type=module - <<'NODE'
-          import { generateText } from 'ai';
-          import { gateway } from '@ai-sdk/gateway';
-
-          const prompt = [
+          const token=String(process.env.VERCEL_OIDC_TOKEN||'').trim();
+          if(!token) throw new Error('Missing Vercel OIDC token.');
+          const prompt=[
             'You are an independent sports-card market teacher for InstaComp.',
             'Search the live web for this exact raw card: 2025 Panini Prizm WNBA Hailey Van Lith #139 Cracked Ice Prizm.',
             'Return JSON only with keys sold, active, notes.',
-            'For each sold row use only a direct https://www.ebay.com/itm/<item-id> URL, exact itemPrice, exact shippingPrice, and an ISO YYYY-MM-DD soldAt date.',
-            'For active rows use only direct eBay item URLs. Never guess. If exact evidence is unavailable return empty arrays.',
+            'For sold rows use only direct https://www.ebay.com/itm/<item-id> URLs with exact itemPrice, shippingPrice and YYYY-MM-DD soldAt. Never guess. Empty arrays are correct when exact proof is unavailable.'
           ].join('\n');
-
-          try {
-            const result=await generateText({
-              model:gateway('perplexity/sonar'),
-              prompt,
-              temperature:0,
-              maxOutputTokens:1800,
-              timeout:90000,
+          async function main(){
+            const response=await fetch('https://ai-gateway.vercel.sh/v1/chat/completions',{
+              method:'POST',
+              headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+              body:JSON.stringify({model:'perplexity/sonar',temperature:0,messages:[{role:'user',content:prompt}],max_tokens:1800}),
+              signal:AbortSignal.timeout(90000),
             });
-            const text=String(result.text||'').trim();
-            const sources=Array.isArray(result.sources)?result.sources:[];
-            const urls=sources.map(s=>String(s?.url||'')).filter(Boolean);
-            const ebaySources=urls.filter(url=>/(^|\.)ebay\.com\//i.test(url.replace(/^https?:\/\//,''))).length;
-            let parsed=null;
-            try{
-              const start=text.indexOf('{'); const end=text.lastIndexOf('}');
-              if(start>=0&&end>=start) parsed=JSON.parse(text.slice(start,end+1));
-            }catch{}
+            const payload=await response.json().catch(()=>({}));
+            const text=String(payload?.choices?.[0]?.message?.content||'').trim();
+            const citations=Array.isArray(payload?.citations)?payload.citations:Array.isArray(payload?.choices?.[0]?.message?.citations)?payload.choices[0].message.citations:[];
+            let parsed=null; try{const s=text.indexOf('{'),e=text.lastIndexOf('}');if(s>=0&&e>=s)parsed=JSON.parse(text.slice(s,e+1));}catch{}
             const sold=Array.isArray(parsed?.sold)?parsed.sold:[];
-            const validDirectSold=sold.filter(row=>{
-              try{
-                const u=new URL(String(row?.url||''));
-                return /(^|\.)ebay\.com$/i.test(u.hostname) && /\/itm\/(?:[^/]+\/)?\d{9,15}(?:\/|$)/i.test(u.pathname) && Number.isFinite(Number(row?.itemPrice)) && Number.isFinite(Number(row?.shippingPrice)) && /^20\d{2}-\d{2}-\d{2}$/.test(String(row?.soldAt||''));
-              }catch{return false;}
-            }).length;
-            const safe={model:'perplexity/sonar',ok:Boolean(text),textPresent:Boolean(text),sourceCount:sources.length,ebaySourceCount:ebaySources,returnedSoldCount:sold.length,validDirectSoldCount:validDirectSold,finishReason:result.finishReason||null};
-            console.log('GATEWAY_PERPLEXITY_SONAR_SMOKE='+JSON.stringify(safe));
-            if(!text) process.exit(2);
-          }catch(error){
-            console.log('GATEWAY_PERPLEXITY_SONAR_ERROR='+JSON.stringify({message:String(error?.message||error).replace(/Bearer\s+\S+/gi,'Bearer [redacted]').slice(0,900)}));
-            process.exit(1);
+            const safe={http:response.status,ok:response.ok&&Boolean(text),model:payload?.model||'perplexity/sonar',textPresent:Boolean(text),citationCount:citations.length,returnedSoldCount:sold.length,error:response.ok?null:String(payload?.error?.message||'').replace(/Bearer\s+\S+/gi,'Bearer [redacted]').slice(0,700)};
+            console.log('GATEWAY_DIRECT_SONAR_SMOKE='+JSON.stringify(safe));
+            if(!safe.ok) process.exit(1);
           }
+          main().catch(error=>{console.error(String(error?.message||error).slice(0,700));process.exit(1)});
           NODE
