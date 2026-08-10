@@ -1,0 +1,73 @@
+name: Ops InstaComp Gateway Catalog Probe 20260810
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/ops-instacomp-gateway-catalog-probe-20260810.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT: truely-collectables
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Obtain fresh Vercel deployment OIDC credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s .env.local
+          set -a
+          source .env.local
+          set +a
+          test -n "${VERCEL_OIDC_TOKEN:-}"
+          echo 'VERCEL_OIDC_PRESENT=true'
+
+      - name: Read current AI Gateway model catalog without exposing token
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .env.local
+          set +a
+          test -n "${VERCEL_OIDC_TOKEN:-}"
+          code="$(curl -sS -o /tmp/gateway-models.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer $VERCEL_OIDC_TOKEN" \
+            -H 'Accept: application/json' \
+            'https://ai-gateway.vercel.sh/v1/models' || true)"
+          echo "GATEWAY_MODEL_CATALOG_HTTP=$code"
+          node - <<'NODE'
+          const fs=require('fs');
+          const raw=fs.existsSync('/tmp/gateway-models.json')?fs.readFileSync('/tmp/gateway-models.json','utf8'):'';
+          let p={}; try{p=JSON.parse(raw)}catch{}
+          const rows=Array.isArray(p.data)?p.data:Array.isArray(p.models)?p.models:[];
+          const safe=rows.slice(0,500).map(m=>({
+            id:m.id||m.name||null,
+            owned_by:m.owned_by||m.provider||null,
+            type:m.type||null,
+            context_window:m.context_window||m.contextWindow||null,
+            max_tokens:m.max_tokens||m.maxTokens||null,
+            pricing:m.pricing?{
+              input:m.pricing.input??null,
+              output:m.pricing.output??null,
+            }:null,
+            capabilities:m.capabilities||m.supported_features||m.supportedFeatures||null,
+          })).filter(m=>m.id);
+          console.log('GATEWAY_MODEL_COUNT='+rows.length);
+          console.log('GATEWAY_MODEL_CATALOG_SAFE='+JSON.stringify(safe));
+          if(!rows.length){
+            const e=p.error||p;
+            console.log('GATEWAY_MODEL_CATALOG_ERROR='+JSON.stringify({message:String(e?.message||'').slice(0,500),code:e?.code||null,type:e?.type||null}));
+            process.exit(2);
+          }
+          NODE
