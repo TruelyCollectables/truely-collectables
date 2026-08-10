@@ -1,0 +1,258 @@
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text()
+    if old not in text:
+        raise SystemExit(f"expected patch anchor not found in {path}: {old[:120]!r}")
+    p.write_text(text.replace(old, new, 1))
+
+
+live = "src/app/api/instacomp/live-scan/route.ts"
+exact = "src/lib/instacomp-exact-market-provider.ts"
+
+replace_once(
+    live,
+    'import { sanitizeInstaCompProviderError } from "../../../../lib/instacomp-provider-safety";\n',
+    'import { sanitizeInstaCompProviderError } from "../../../../lib/instacomp-provider-safety";\n'
+    'import { loadExactCardMarketHistory } from "../../../../lib/instacomp-market-history";\n'
+    'import { trustedHistoricalSoldPricing } from "../../../../lib/deal-hunter-trusted-sold-history";\n',
+)
+
+memory_block = r'''
+  const memoryRegistryReceipt = ((base as any).checklistRegistry || {}) as Record<string, any>;
+  const memoryRegistryIdentityId = String(memoryRegistryReceipt.identityId || "").trim() || null;
+  const memoryRegistryFingerprintSha256 =
+    String(memoryRegistryReceipt.fingerprintSha256 || "").trim() || null;
+
+  if (
+    memoryRegistryReceipt.matched === true &&
+    memoryRegistryIdentityId &&
+    memoryRegistryFingerprintSha256
+  ) {
+    try {
+      const history = await loadExactCardMarketHistory(memoryRegistryIdentityId);
+      const historical = trustedHistoricalSoldPricing({
+        history,
+        registryIdentityId: memoryRegistryIdentityId,
+        registryFingerprintSha256: memoryRegistryFingerprintSha256,
+        maxAgeDays: 90,
+      });
+      if (historical) {
+        const officialEbayActive = (base.providers || []).find(
+          (provider) => provider.source === "ebay_active",
+        );
+        const activeProvider: InstaCompProviderResult =
+          officialEbayActive || {
+            source: "ebay_active",
+            label: "eBay Active",
+            status: "no_matches",
+            message: "The official eBay Browse search returned no exact active evidence.",
+            results: [],
+          };
+        const memoryProvider: InstaCompProviderResult = {
+          source: "instacomp_exact_market_memory",
+          label: "InstaComp Exact Sold Memory",
+          status: "live",
+          message: `${historical.soldCount} previously verified exact sold comp${historical.soldCount === 1 ? "" : "s"} were reused from the Registry-locked market history; paid sold searches were skipped.`,
+          results: [],
+        };
+        const memoryStats = {
+          low: null,
+          median: historical.medianDeliveredPrice,
+          average: historical.medianDeliveredPrice,
+          high: null,
+          suggestedPrice: historical.medianDeliveredPrice,
+        };
+        const memoryPricing = {
+          soldCount: historical.soldCount,
+          soldLow: null,
+          soldMedian: historical.medianDeliveredPrice,
+          soldAverage: historical.medianDeliveredPrice,
+          soldHigh: null,
+          activeCount: 0,
+          activeLow: null,
+          activeMedian: null,
+          activeAverage: null,
+          activeHigh: null,
+        };
+        const persistence = await persistExactMarketSummary({
+          scanId: base.scanId ? String(base.scanId) : null,
+          cardUuid,
+          query: exactTitle,
+          suggestedPrice: historical.medianDeliveredPrice,
+          soldSearchUrl: base.links?.ebaySoldUrl
+            ? String(base.links.ebaySoldUrl)
+            : null,
+          exactMarketEvidence: {
+            status: "ready",
+            query: exactTitle,
+            queries: [],
+            soldEvidenceCount: historical.soldCount,
+            pricingEligibleSoldCount: historical.soldCount,
+            activeEvidenceCount: activeProvider.results.length,
+            pricingEligibleActiveCount: 0,
+            trustedSuggestedPrice: historical.medianDeliveredPrice,
+            pricing: memoryPricing,
+            sold: [],
+            active: activeProvider.results.slice(0, 25),
+            historicalSoldMemory: {
+              used: true,
+              source: "trusted_exact_card_market_history",
+              soldCount: historical.soldCount,
+              medianDeliveredPrice: historical.medianDeliveredPrice,
+              oldestSoldAt: historical.oldestSoldAt,
+              newestSoldAt: historical.newestSoldAt,
+              maxAgeDays: historical.maxAgeDays,
+              registryIdentityId: memoryRegistryIdentityId,
+              registryFingerprintSha256: memoryRegistryFingerprintSha256,
+              paidSoldSearchesSkipped: true,
+              serpApiCalls: 0,
+            },
+          },
+        });
+
+        return json({
+          ...base,
+          ok: true,
+          cardUuid,
+          simulated: false,
+          searchQuery: exactTitle,
+          providers: [memoryProvider, activeProvider],
+          sourceCoverage: providerCoverage([memoryProvider, activeProvider], "sold"),
+          activeComps: activeProvider.results,
+          marketValueComps: [],
+          soldComps: [],
+          remainingCards: [],
+          stats: memoryStats,
+          soldStats: memoryStats,
+          note: `${historical.soldCount} Registry-locked exact sold comp${historical.soldCount === 1 ? "" : "s"} were reused from InstaComp market memory. No paid sold provider was called; official eBay Browse remains available for active-market context.`,
+          exactMarket: {
+            status: "ready",
+            query: exactTitle,
+            queries: [],
+            soldCount: historical.soldCount,
+            pricingEligibleSoldCount: historical.soldCount,
+            activeCount: activeProvider.results.length,
+            pricingEligibleActiveCount: 0,
+            trustedSuggestedPrice: historical.medianDeliveredPrice,
+            pricing: memoryPricing,
+            sold: [],
+            active: activeProvider.results,
+            providerMessages: [
+              {
+                label: memoryProvider.label,
+                status: memoryProvider.status,
+                results: 0,
+                message: memoryProvider.message,
+              },
+              {
+                label: activeProvider.label,
+                status: activeProvider.status,
+                results: activeProvider.results.length,
+                message: activeProvider.message || null,
+              },
+            ],
+            historicalSoldMemory: {
+              used: true,
+              source: "trusted_exact_card_market_history",
+              soldCount: historical.soldCount,
+              medianDeliveredPrice: historical.medianDeliveredPrice,
+              oldestSoldAt: historical.oldestSoldAt,
+              newestSoldAt: historical.newestSoldAt,
+              maxAgeDays: historical.maxAgeDays,
+              registryIdentityId: memoryRegistryIdentityId,
+              registryFingerprintSha256: memoryRegistryFingerprintSha256,
+              paidSoldSearchesSkipped: true,
+              serpApiCalls: 0,
+            },
+          },
+          pipelineDiagnostics: {
+            mode: "live",
+            simulated: false,
+            runtimeConfiguration: runtimeConfiguration(),
+            request: { frontReceived, backReceived },
+            identity: {
+              status: "complete",
+              confidence: ai.confidence,
+              missingFields: [],
+            },
+            exactMarket: {
+              status: "ready_from_memory",
+              soldCount: historical.soldCount,
+              activeCount: activeProvider.results.length,
+              paidSoldSearchesSkipped: true,
+              serpApiCalls: 0,
+              memoryRegistryIdentityId,
+              memoryRegistryFingerprintSha256,
+            },
+            persistence,
+            durationMs: Date.now() - startedAt,
+          },
+        });
+      }
+    } catch (error) {
+      console.warn(
+        "InstaComp exact sold memory preflight failed; continuing to live sold providers:",
+        sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
+'''
+replace_once(
+    live,
+    '  let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;\n',
+    memory_block + '  let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;\n',
+)
+
+replace_once(
+    exact,
+    'const SOLD_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;\n',
+    'const SOLD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;\nconst EMPTY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;\n',
+)
+replace_once(exact, 'const MAX_QUERY_ATTEMPTS = 6;\n', 'const MAX_QUERY_ATTEMPTS = 1;\n')
+replace_once(
+    exact,
+    '  return Array.isArray(payload.items) && payload.items.length ? payload.items : null;\n',
+    '  return Array.isArray(payload.items) ? payload.items : null;\n',
+)
+replace_once(
+    exact,
+    '  if (!SUPABASE_URL || !SUPABASE_KEY || !items.length) return;\n',
+    '  if (!SUPABASE_URL || !SUPABASE_KEY) return;\n',
+)
+replace_once(
+    exact,
+    '  const ttl = lane === "sold" ? SOLD_CACHE_TTL_MS : ACTIVE_CACHE_TTL_MS;\n',
+    '  const ttl = items.length\n    ? lane === "sold"\n      ? SOLD_CACHE_TTL_MS\n      : ACTIVE_CACHE_TTL_MS\n    : EMPTY_CACHE_TTL_MS;\n',
+)
+replace_once(
+    exact,
+    '    if (isSerpApiNoResultsMessage(payloadError)) {\n      return {\n',
+    '    if (isSerpApiNoResultsMessage(payloadError)) {\n      await writeCache(query, lane, []);\n      return {\n',
+)
+
+old_provider = '''  const [sold, active] = await Promise.all([\n    providerAcrossQueries({ queries, ai: params.ai, lane: "sold", targetExactCount: 8 }),\n    providerAcrossQueries({ queries, ai: params.ai, lane: "active", targetExactCount: 8 }),\n  ]);\n  return {\n    query: queries[0] || params.fallbackQuery,\n    queries,\n    sold,\n    active,\n  };\n'''
+new_provider = '''  const sold = await providerAcrossQueries({\n    queries,\n    ai: params.ai,\n    lane: "sold",\n    targetExactCount: 8,\n  });\n  const active: InstaCompProviderResult & { attempts: ProviderAttempt[] } = {\n    source: "ebay_active_serpapi_exact",\n    label: "eBay Active",\n    status: "not_configured",\n    message: "SerpApi active searches are disabled. Official eBay Browse is the active-listing source.",\n    results: [],\n    searchUrl: verificationUrl(queries[0] || params.fallbackQuery, "active"),\n    attempts: [],\n  };\n  return {\n    query: queries[0] || params.fallbackQuery,\n    queries,\n    sold,\n    active,\n  };\n'''
+replace_once(exact, old_provider, new_provider)
+
+Path("scripts/run-deal-hunter-market-memory-first-contract.mjs").write_text(r'''import assert from "node:assert/strict";
+import fs from "node:fs";
+const live = fs.readFileSync("src/app/api/instacomp/live-scan/route.ts", "utf8");
+const exact = fs.readFileSync("src/lib/instacomp-exact-market-provider.ts", "utf8");
+assert.ok(live.includes('loadExactCardMarketHistory'));
+assert.ok(live.includes('trustedHistoricalSoldPricing'));
+assert.ok(live.includes('source: "instacomp_exact_market_memory"'));
+assert.ok(live.includes('paidSoldSearchesSkipped: true'));
+assert.ok(live.includes('serpApiCalls: 0'));
+assert.ok(live.indexOf('source: "instacomp_exact_market_memory"') < live.indexOf('let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>>'));
+assert.ok(exact.includes('const MAX_QUERY_ATTEMPTS = 1;'));
+assert.ok(exact.includes('const SOLD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;'));
+assert.ok(exact.includes('const EMPTY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;'));
+assert.ok(exact.includes('await writeCache(query, lane, []);'));
+assert.ok(exact.includes('SerpApi active searches are disabled. Official eBay Browse is the active-listing source.'));
+assert.equal((exact.match(/providerAcrossQueries\(\{ queries, ai: params\.ai, lane: "active"/g) || []).length, 0);
+console.log(JSON.stringify({ok:true,marketMemoryFirst:true,serpApiSoldMaxQueriesPerMiss:1,serpApiActiveCalls:0,emptySoldMissCacheHours:24,soldHitCacheDays:30}, null, 2));
+''')
