@@ -44,7 +44,7 @@ jobs:
           changed="$(git diff --name-only "$CERTIFIED_RUNTIME_COMMIT"...HEAD | sort)"
           expected="$(printf '%s\n' '.github/workflows/instacomp-lora-mac-stage-isolation-20260810.yml' 'src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts' | sort)"
           test "$changed" = "$expected"
-          grep -Fq 'supervised-archive' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
+          grep -Fq 'v1/lessons/search' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
           grep -Fq 'training/examples?trusted_only=true&limit=5000' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
           grep -Fq 'scanner_logic_changed: false' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
           grep -Fq 'registry_truth_changed: false' src/app/api/instacomp/acceptance-mac-stage-isolation/route.ts
@@ -142,7 +142,7 @@ jobs:
           grep -Fq "InstaComp release manifest bound to $(git rev-parse HEAD)." "$log"
           touch "$TEMP_DIR/diagnostic-deployed"
 
-      - name: Isolate Mac scan stages with exact frozen Sonia pair
+      - name: Isolate read-only memory search from failing frozen analyze
         shell: bash
         run: |
           set -euo pipefail
@@ -161,7 +161,12 @@ jobs:
           const p=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/mac-stage-isolation.json`,'utf8'));
           console.log(JSON.stringify(p,null,2));
           if(p.ok!==true) throw new Error(`${p.code||'diagnostic_failed'} ${p.error||''}`);
-          if(p.trusted_training_readback?.exact_frozen_pair_present!==true) throw new Error('exact frozen pair is missing from trusted training memory');
+          if(!p.trusted_lesson_search_control || typeof p.trusted_lesson_search_control.http_status !== 'number') {
+            throw new Error('trusted lesson search control receipt missing');
+          }
+          if(!p.full_analyze_stage || typeof p.full_analyze_stage.http_status !== 'number') {
+            throw new Error('frozen full analyze receipt missing');
+          }
           NODE
 
       - name: Remove isolated diagnostic credential
