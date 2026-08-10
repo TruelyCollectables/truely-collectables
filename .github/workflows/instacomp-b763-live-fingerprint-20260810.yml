@@ -1,0 +1,101 @@
+name: InstaComp B763 Live Fingerprint 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-b763-live-fingerprint-20260810.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN: 2aa0f9a21692e9e79108aa552162ba64ce0eee52
+  HTTP500_FIX_COMMIT: b763f55098b50b2984083fb3355403f08737d75c
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_MAIN }}
+          fetch-depth: 2
+
+      - name: Prove current main contains HTTP 500 repair with no later InstaComp delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN"
+          git fetch --no-tags --depth=2 origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          git cat-file -e "$HTTP500_FIX_COMMIT^{commit}"
+          changed="$(git diff --name-only "$HTTP500_FIX_COMMIT" "$EXPECTED_MAIN" | sort)"
+          test "$changed" = 'scripts/repair-truely-full-backup-worker.sh'
+          test -f services/instacomp-ai/tests/test_local_vision_failover.py
+          grep -Fq '_empty_local_vision' services/instacomp-ai/app/__init__.py
+
+      - name: Compute exact six-file repaired Mac fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          root = Path('services/instacomp-ai')
+          files = (
+              'app/__init__.py',
+              'app/main.py',
+              'app/local_vision.py',
+              'app/ollama.py',
+              'app/lora_candidate_runtime.py',
+              'scripts/run_lora_candidate_server.py',
+          )
+          digest = sha256()
+          for relative in files:
+              digest.update(relative.encode('utf-8'))
+              digest.update(b'\0')
+              digest.update((root / relative).read_bytes())
+              digest.update(b'\0')
+          print(digest.hexdigest())
+          PY
+          )"
+          echo "EXPECTED_MAC_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
+          printf '{"expectedMain":"%s","http500FixCommit":"%s","expectedMacFingerprint":"%s","readOnly":true}\n' \
+            "$EXPECTED_MAIN" "$HTTP500_FIX_COMMIT" "$fingerprint" > "$RUNNER_TEMP/source-lock.json"
+          cat "$RUNNER_TEMP/source-lock.json"
+
+      - name: Read live physical Mac fingerprint through Production readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/readiness.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?http500-fix=b763&ts=$(date +%s)")"
+          test "$code" = "200"
+          cat "$out"
+          node - "$out" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs=require('node:fs');
+          const body=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const expected=process.argv[3];
+          const actual=String(body.runtimeSourceFingerprint||'');
+          for(const key of ['configured','reachable','internalMemoryReady','checklistReady','localModelReady']) {
+            if(body[key]!==true) throw new Error(`${key}=${body[key]}`);
+          }
+          console.log(JSON.stringify({
+            status: actual===expected ? 'repaired_runtime_live' : 'local_update_required',
+            expected,
+            actual,
+            reachable: body.reachable,
+            internalMemoryReady: body.internalMemoryReady,
+            checklistReady: body.checklistReady,
+            localModelReady: body.localModelReady,
+          },null,2));
+          if(!actual) throw new Error('physical Mac did not expose runtime fingerprint');
+          if(actual!==expected) process.exit(42);
+          NODE
