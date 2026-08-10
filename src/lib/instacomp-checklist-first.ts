@@ -78,6 +78,15 @@ function normalizedParallel(value: unknown) {
     .trim();
 }
 
+function normalizedSetName(value: unknown) {
+  const normalized = normalizedText(value);
+  // Older trusted-memory rows used set_name="Base" to mean the base card/type,
+  // not a literal Checklist Registry set. Treat only that exact legacy label as
+  // missing set evidence so brand/product + the remaining exact dimensions can
+  // disambiguate. Real named sets still have to match exactly below.
+  return normalized === "base" ? "" : normalized;
+}
+
 function yearStart(value: unknown) {
   return normalizedText(value).match(/\b((?:18|19|20)\d{2})\b/)?.[1] || "";
 }
@@ -125,7 +134,7 @@ function setMatches(
   input: InstaCompChecklistLookupInput,
   candidate: InstaCompChecklistCandidate,
 ) {
-  const target = normalizedText(input.setName);
+  const target = normalizedSetName(input.setName);
   if (!target) return false;
 
   const candidateSet = normalizedText(candidate.setName);
@@ -237,7 +246,7 @@ export function resolveInstaCompChecklistFirst(params: {
     );
   }
 
-  if (normalizedText(input.setName)) {
+  if (normalizedSetName(input.setName)) {
     productMatches = productMatches.filter((candidate) => setMatches(input, candidate));
     if (!productMatches.length) {
       return {
