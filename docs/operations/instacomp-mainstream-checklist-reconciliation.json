@@ -1,24 +1,24 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogReconciliation.v1",
-  "checkedAt": "2026-08-09T09:54:55.981Z",
+  "checkedAt": "2026-08-10T10:34:21.560Z",
   "expectedSources": 327,
   "catalogRows": 327,
   "rawArchived": 327,
   "statuses": {
-    "quarantined": 243,
-    "imported": 84
+    "quarantined": 240,
+    "imported": 87
   },
   "normalizedTotals": {
-    "cards": 154670,
-    "identities": 157693
+    "cards": 157303,
+    "identities": 160324
   },
   "missing": [],
   "complete": true,
   "workflowEvidence": {
-    "runId": "31305698966",
+    "runId": "31377182106",
     "runAttempt": "1",
     "workflow": "Ingest Mainstream Checklists 2000 Plus",
     "event": "schedule",
-    "sourceSha": "6e38b5375d7cfd0cd61ae1717d3d012fd8d0912f"
+    "sourceSha": "51f8320ff7f9e9baf540ea2399a38a91c8e24ee7"
   }
 }

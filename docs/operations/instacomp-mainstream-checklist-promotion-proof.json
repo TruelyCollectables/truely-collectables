@@ -1,16 +1,16 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogPromotionProof.v2",
-  "checkedAt": "2026-08-09T09:54:57.455Z",
+  "checkedAt": "2026-08-10T10:34:22.228Z",
   "expectedSources": 327,
   "expectedPromotedSources": 319,
   "expectedAttachmentOnly": 8,
   "catalogRows": 327,
   "counts": {
-    "imported": 84,
+    "imported": 87,
     "unchanged": 0,
     "attachments": 8,
-    "cards": 44928,
-    "identities": 47555
+    "cards": 45547,
+    "identities": 48174
   },
   "complete": false,
   "failures": [
@@ -72,23 +72,6 @@
     },
     {
       "id": "SR-0008",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
-    },
-    {
-      "id": "SR-0009",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
       "issues": [
@@ -1094,23 +1077,6 @@
       ]
     },
     {
-      "id": "SR-0085",
-      "code": "confirmed_checklist_not_promoted",
-      "status": "quarantined",
-      "issues": [
-        {
-          "code": "reference_parallel_rows_not_deterministic",
-          "message": "No deterministic parallel rows were parsed from this source.",
-          "severity": "warning"
-        },
-        {
-          "code": "reference_checklist_insufficient_rows",
-          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
-          "severity": "error"
-        }
-      ]
-    },
-    {
       "id": "SR-0086",
       "code": "confirmed_checklist_not_promoted",
       "status": "quarantined",
@@ -1742,6 +1708,35 @@
           "message": "No deterministic parallel rows were parsed from this source.",
           "severity": "warning"
         },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0143",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
+        {
+          "code": "reference_parallel_rows_not_deterministic",
+          "message": "No deterministic parallel rows were parsed from this source.",
+          "severity": "warning"
+        },
+        {
+          "code": "reference_checklist_insufficient_rows",
+          "message": "Only 0 deterministic card rows were parsed; 3 are required.",
+          "severity": "error"
+        }
+      ]
+    },
+    {
+      "id": "SR-0146",
+      "code": "confirmed_checklist_not_promoted",
+      "status": "quarantined",
+      "issues": [
         {
           "code": "reference_checklist_insufficient_rows",
           "message": "Only 0 deterministic card rows were parsed; 3 are required.",
