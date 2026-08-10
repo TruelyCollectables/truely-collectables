@@ -1,0 +1,128 @@
+name: Miss Mels Lot Image Sweep 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/miss-mels-lot-image-sweep-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Capture current listing pages and gallery images
+        shell: bash
+        run: |
+          python -m pip install --quiet requests beautifulsoup4
+          python - <<'PY'
+          import json, re, time
+          from pathlib import Path
+          import requests
+          from bs4 import BeautifulSoup
+
+          items = [
+            ("198545005958", "2025 Panini NCAA Donruss Rated Prospects Card Lot (14 Cards) Numbered, Auto"),
+            ("198544956062", "Paige Bueckers 2025 Select Score, En Fuego, Premier Level Card Lot (3 Cards) RC"),
+            ("198545010167", "2025 Panini NCAA Donruss Rated Prospects Card Lot (16 Cards) Auto, Color, Etc."),
+            ("198547360265", "2025 WNBA Select Prizm Card Lot (11 Cards) RC, Red Flash, Numbered, Score"),
+            ("198547942320", "2025 WNBA Select Prizm Card Lot (14 Cards) RC, Purple Flash, Courtside, Pink"),
+            ("198545000971", "Carla Leite 2025 Panini Prizm Card Lot (8 Cards) White Seismic, Green, Ice, RC"),
+            ("198547935970", "2025 WNBA Select Prizm Card Lot (12 Cards) RC, Flash, Red, Numbered"),
+            ("198547929761", "2025 WNBA Select Prizm Card Lot (14 Cards) RC, En Fuego, Flash, Pink"),
+            ("198547348251", "2025 WNBA Select Prizm Card Lot (10 Cards) RC, Pink Flash, Score, Numbered"),
+            ("198547365516", "2025 WNBA Select Prizm Card Lot (13 Cards) RC, Purple Flash, Courtside, Numbered"),
+            ("198547944077", "Caitlin Clark 2025 Select Prizm Base Card Lot (10 Cards) Concourse, Premier"),
+            ("198547355769", "2025 WNBA Select Prizm Card Lot (18 Cards) RC, All Stars, Flash, Silver, Premier"),
+            ("198547940478", "2025 WNBA Select Prizm Card Lot (22 Cards) RC, Silver, Concourse, Premier Level"),
+            ("198550485560", "2024-2025 WNBA Panini Prizm Mercury Card Lot (5 Cards) Rookies, Orange Ice"),
+            ("198547344358", "2025 WNBA Select Prizm Card Lot (18 Cards) RC, Premier Level, Silver, Concourse"),
+            ("198550483424", "2025 Donruss WNBA Chicago Sky Card Lot (6 Cards) Rated Rookies, Auto, Holo"),
+            ("198547930635", "2025 WNBA Select Prizm Card Lot (16 Cards) RC, Premier Level, Silver, Sun"),
+            ("198547954139", "2025 WNBA Donruss Card Lot (5 Cards) Rated Rookie, Holo, Sophie Cunningham"),
+            ("198547367190", "2025 WNBA Select Prizm Card Lot (14 Cards) Party, Silver, RC, Flash, Pink"),
+          ]
+
+          out = Path("evidence/miss-mels-20260810")
+          out.mkdir(parents=True, exist_ok=True)
+          headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+          }
+          s = requests.Session()
+          rows = []
+          image_re = re.compile(r'https://i\.ebayimg\.com/images/g/[^"\'<>\\]+?/s-l\d+\.(?:webp|jpg|jpeg)', re.I)
+          count_re = re.compile(r'Picture\s+1\s+of\s+(\d+)', re.I)
+
+          for item_id, expected_title in items:
+            url = f"https://www.ebay.com/itm/{item_id}"
+            r = s.get(url, headers=headers, timeout=30, allow_redirects=True)
+            html = r.text
+            (out / f"{item_id}.html").write_text(html, encoding="utf-8")
+            soup = BeautifulSoup(html, "html.parser")
+            og_title = soup.find("meta", attrs={"property": "og:title"})
+            title = (og_title.get("content") if og_title else None) or (soup.title.string.strip() if soup.title and soup.title.string else expected_title)
+            counts = [int(x) for x in count_re.findall(html)]
+            gallery_count = max(counts) if counts else None
+
+            raw_urls = image_re.findall(html.replace('\\u002F','/'))
+            normalized = []
+            seen = set()
+            for u in raw_urls:
+              u = re.sub(r'/s-l\d+\.(?:webp|jpg|jpeg)$', '/s-l1600.webp', u, flags=re.I)
+              if u not in seen:
+                seen.add(u); normalized.append(u)
+            if gallery_count and gallery_count <= 24:
+              gallery = normalized[:gallery_count]
+            else:
+              gallery = normalized[:8]
+
+            item_dir = out / item_id
+            item_dir.mkdir(exist_ok=True)
+            downloaded = []
+            for idx, img in enumerate(gallery, start=1):
+              try:
+                ir = s.get(img, headers=headers, timeout=30)
+                if ir.ok and ir.content:
+                  p = item_dir / f"picture-{idx}.webp"
+                  p.write_bytes(ir.content)
+                  downloaded.append(str(p))
+              except Exception as e:
+                print(f"image download error {item_id} {idx}: {e}")
+            rows.append({
+              "item_id": item_id,
+              "expected_title": expected_title,
+              "fetched_title": title,
+              "url": url,
+              "http_status": r.status_code,
+              "gallery_count": gallery_count,
+              "gallery_urls": gallery,
+              "downloaded": downloaded,
+              "response_bytes": len(r.content),
+            })
+            print(item_id, r.status_code, gallery_count, len(gallery), len(downloaded), title[:100])
+            time.sleep(0.35)
+
+          (out / "manifest.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+          good = sum(1 for x in rows if x["downloaded"])
+          print(f"captured images for {good}/{len(rows)} lots")
+          if good < 15:
+            raise SystemExit(f"insufficient live image capture: {good}/{len(rows)}")
+          PY
+      - name: Upload sweep evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miss-mels-lot-images-20260810
+          path: evidence/miss-mels-20260810
+          if-no-files-found: error
+          retention-days: 3
