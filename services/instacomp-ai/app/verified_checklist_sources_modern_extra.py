@@ -76,7 +76,7 @@ _COMPLETE_PAGE_SOURCES = (
     VerifiedChecklistSource("football|2024|panini|photogenic", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-photogenic-football", 110, "Complete master-list page selected after incomplete prior recovery"),
     VerifiedChecklistSource("football|2024|panini|prestige", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-prestige-football", 110, "Complete 400-card-plus master-list page selected after incomplete prior recovery"),
     VerifiedChecklistSource("football|2024|panini|prizm", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-prizm-football", 110, "Complete 400-card-plus master-list page selected after incomplete prior recovery"),
-    VerifiedChecklistSource("football|2024|panini|rookies-and-stars", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-rookies-and-stars-football", 110, "Complete master-list page selected after incomplete prior recovery"),
+    VerifiedChecklistSource("football|2024|panini|rookies-and-stars", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-rookies-stars-football", 110, "Complete master-list page selected after incomplete prior recovery"),
     VerifiedChecklistSource("football|2024|panini|spectra", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-panini-spectra-football", 110, "Complete master-list page selected after incomplete prior recovery"),
     VerifiedChecklistSource("football|2024|score|score", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-score-football", 110, "Complete master-list page selected after incomplete prior recovery"),
     VerifiedChecklistSource("football|2024|topps|cosmic-chrome", "checklistinsider", "Complete Checklist Insider master-list page", "https://www.checklistinsider.com/2024-topps-cosmic-chrome-football", 110, "Complete master-list page selected after conflicting prior recovery"),
@@ -89,7 +89,29 @@ _COMPLETE_PAGE_SOURCES = (
 )
 
 
-for source in (*_COMPLETE_PAGE_SOURCES, *_EXTRA_SOURCES):
+# Direct spreadsheet exports recovered from the live Checklist Insider pages.
+# These bypass page-rendering/anti-bot failures while still passing the same
+# parser, minimum-row, Registry-plan, archive, provenance, and persistence gates.
+_DIRECT_XLSX_SOURCES = (
+    VerifiedChecklistSource("football|2024|panini|black", "checklistinsider", "2024 Panini Black Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/11/2024-Panini-Black-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|certified", "checklistinsider", "2024 Panini Certified Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/11/2024-Panini-Certified-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|encore", "checklistinsider", "2024 Panini Encore Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/03/2024-Panini-Encore-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|gold-standard", "checklistinsider", "2024 Panini Gold Standard Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/09/2024-Panini-Gold-Standard-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|illusions", "checklistinsider", "2024 Panini Illusions Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/01/2024-Panini-Illusions-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|luminance", "checklistinsider", "2024 Panini Luminance Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/09/2024-Panini-Luminance-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|mosaic", "checklistinsider", "2024 Panini Mosaic Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/11/2024-Panini-Mosaic-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|obsidian", "checklistinsider", "2024 Panini Obsidian Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/02/2024-Panini-Obsidian-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|origins", "checklistinsider", "2024 Panini Origins Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/09/2024-Panini-Origins-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|phoenix", "checklistinsider", "2024 Panini Phoenix Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/04/2024-Panini-Phoenix-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|photogenic", "checklistinsider", "2024 Panini PhotoGenic Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/01/2024-Panini-PhotoGenic-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|prestige", "checklistinsider", "2024 Panini Prestige Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/10/2024-Panini-Prestige-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|prizm", "checklistinsider", "2024 Panini Prizm Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/12/2024-Panini-Prizm-Football-Checklist-Downloads-Excel-spreadsheet-SUBJECT-TO-CHANGE.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|rookies-and-stars", "checklistinsider", "2024 Panini Rookies & Stars Football direct XLSX", "https://xcdn.checklistinsider.com/public/2024/12/2024-Panini-Rookies-Stars-Football-Checklist-Downloads-Excel-Spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+    VerifiedChecklistSource("football|2024|panini|spectra", "checklistinsider", "2024 Panini Spectra Football direct XLSX", "https://xcdn.checklistinsider.com/public/2025/01/2024-Panini-Spectra-Football-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from the complete Checklist Insider release page"),
+)
+
+
+for source in (*_DIRECT_XLSX_SOURCES, *_COMPLETE_PAGE_SOURCES, *_EXTRA_SOURCES):
     registry._SOURCES = (*registry._SOURCES, source)
     registry._BY_TARGET[source.target_key] = (
         *registry._BY_TARGET.get(source.target_key, ()),
