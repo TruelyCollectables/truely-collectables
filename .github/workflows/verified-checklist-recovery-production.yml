@@ -75,17 +75,62 @@ jobs:
           command -v pdftotext
           command -v google-chrome || command -v chromium || command -v chromium-browser
 
-      - name: Keep literal checklist files on the direct extraction path
+      - name: Harden direct files and preserve workbook section namespaces
         shell: python3 {0}
         run: |
           from pathlib import Path
-          path = Path('scripts/run-verified-checklist-recovery-production.mjs')
-          text = path.read_text('utf-8')
+
+          runner = Path('scripts/run-verified-checklist-recovery-production.mjs')
+          text = runner.read_text('utf-8')
           old = '  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'
           new = '  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'
           if old not in text:
               raise SystemExit('capture guard anchor missing')
-          path.write_text(text.replace(old, new, 1), 'utf-8')
+          runner.write_text(text.replace(old, new, 1), 'utf-8')
+
+          source_tools = Path('scripts/mainstream-checklist/source-tools.mjs')
+          text = source_tools.read_text('utf-8')
+          old = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if vals: rows.append(' | '.join(vals))"""
+          new = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals:\n                continue\n            # Checklist Insider workbooks commonly keep an entire release in one\n            # generic worksheet and separate Base/insert/auto sets with one-cell\n            # title rows. Preserve those titles as semantic headings so repeated\n            # card numbers remain scoped to their true named checklist section.\n            if len(vals) == 1:\n                label = vals[0]\n                generic = label.lower().rstrip(':').strip()\n                if generic not in {'no', 'no.', '#', 'card no', 'card no.', 'card number', 'player', 'players', 'team', 'teams'}:\n                    rows.append('## ' + label)\n                else:\n                    rows.append(label)\n            else:\n                rows.append(' | '.join(vals))"""
+          occurrences = text.count(old)
+          if occurrences != 2:
+              raise SystemExit(f'workbook row anchor count changed: {occurrences}')
+          source_tools.write_text(text.replace(old, new), 'utf-8')
+
+      - name: Prove workbook section scoping stays fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx --input-type=module <<'NODE'
+          import { parseChecklist } from './scripts/mainstream-checklist/source-tools.mjs';
+          const separated = parseChecklist(
+            { minimumCardRows: 4 },
+            [
+              '## Sheet 1',
+              '## Base Set',
+              '1 | Alpha Player',
+              '2 | Beta Player',
+              '## Rookie Signatures',
+              '1 | Gamma Player',
+              '2 | Delta Player',
+            ].join('\n'),
+          );
+          if (separated.errors.length || separated.cards.length !== 4) {
+            throw new Error(`Named section scoping regression: ${JSON.stringify(separated)}`);
+          }
+          const names = new Set(separated.cards.map((card) => card.setName));
+          if (!names.has('Base Set') || !names.has('Rookie Signatures')) {
+            throw new Error(`Workbook section names were not preserved: ${JSON.stringify([...names])}`);
+          }
+          const conflict = parseChecklist(
+            { minimumCardRows: 1 },
+            ['## Base Set', '1 | Alpha Player', '1 | Gamma Player'].join('\n'),
+          );
+          if (!conflict.errors.some((issue) => issue.code === 'reference_card_number_subject_conflict')) {
+            throw new Error('Same-section subject conflict guard was weakened.');
+          }
+          console.log('Workbook section scoping and same-section conflict guard passed.');
+          NODE
 
       - name: Validate and spreadsheet verified checklist batch
         run: node --import tsx scripts/run-verified-checklist-recovery-production.mjs
@@ -160,17 +205,62 @@ jobs:
           command -v pdftotext
           command -v google-chrome || command -v chromium || command -v chromium-browser
 
-      - name: Keep literal checklist files on the direct extraction path
+      - name: Harden direct files and preserve workbook section namespaces
         shell: python3 {0}
         run: |
           from pathlib import Path
-          path = Path('scripts/run-verified-checklist-recovery-production.mjs')
-          text = path.read_text('utf-8')
+
+          runner = Path('scripts/run-verified-checklist-recovery-production.mjs')
+          text = runner.read_text('utf-8')
           old = '  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'
           new = '  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'
           if old not in text:
               raise SystemExit('capture guard anchor missing')
-          path.write_text(text.replace(old, new, 1), 'utf-8')
+          runner.write_text(text.replace(old, new, 1), 'utf-8')
+
+          source_tools = Path('scripts/mainstream-checklist/source-tools.mjs')
+          text = source_tools.read_text('utf-8')
+          old = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if vals: rows.append(' | '.join(vals))"""
+          new = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals:\n                continue\n            # Checklist Insider workbooks commonly keep an entire release in one\n            # generic worksheet and separate Base/insert/auto sets with one-cell\n            # title rows. Preserve those titles as semantic headings so repeated\n            # card numbers remain scoped to their true named checklist section.\n            if len(vals) == 1:\n                label = vals[0]\n                generic = label.lower().rstrip(':').strip()\n                if generic not in {'no', 'no.', '#', 'card no', 'card no.', 'card number', 'player', 'players', 'team', 'teams'}:\n                    rows.append('## ' + label)\n                else:\n                    rows.append(label)\n            else:\n                rows.append(' | '.join(vals))"""
+          occurrences = text.count(old)
+          if occurrences != 2:
+              raise SystemExit(f'workbook row anchor count changed: {occurrences}')
+          source_tools.write_text(text.replace(old, new), 'utf-8')
+
+      - name: Prove workbook section scoping stays fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx --input-type=module <<'NODE'
+          import { parseChecklist } from './scripts/mainstream-checklist/source-tools.mjs';
+          const separated = parseChecklist(
+            { minimumCardRows: 4 },
+            [
+              '## Sheet 1',
+              '## Base Set',
+              '1 | Alpha Player',
+              '2 | Beta Player',
+              '## Rookie Signatures',
+              '1 | Gamma Player',
+              '2 | Delta Player',
+            ].join('\n'),
+          );
+          if (separated.errors.length || separated.cards.length !== 4) {
+            throw new Error(`Named section scoping regression: ${JSON.stringify(separated)}`);
+          }
+          const names = new Set(separated.cards.map((card) => card.setName));
+          if (!names.has('Base Set') || !names.has('Rookie Signatures')) {
+            throw new Error(`Workbook section names were not preserved: ${JSON.stringify([...names])}`);
+          }
+          const conflict = parseChecklist(
+            { minimumCardRows: 1 },
+            ['## Base Set', '1 | Alpha Player', '1 | Gamma Player'].join('\n'),
+          );
+          if (!conflict.errors.some((issue) => issue.code === 'reference_card_number_subject_conflict')) {
+            throw new Error('Same-section subject conflict guard was weakened.');
+          }
+          console.log('Workbook section scoping and same-section conflict guard passed.');
+          NODE
 
       - name: Resolve protected Production environment
         shell: bash
