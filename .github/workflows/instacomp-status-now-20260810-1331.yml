@@ -1,0 +1,74 @@
+name: InstaComp Status Now 20260810 1331
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-status-now-20260810-1331.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c031654f0a56efce58e37873faebff8f7115ed77
+          fetch-depth: 1
+
+      - name: Compute current six-file runtime fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c031654f0a56efce58e37873faebff8f7115ed77"
+          fp="$(python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          root = Path('services/instacomp-ai')
+          files = (
+              'app/__init__.py',
+              'app/main.py',
+              'app/local_vision.py',
+              'app/ollama.py',
+              'app/lora_candidate_runtime.py',
+              'scripts/run_lora_candidate_server.py',
+          )
+          d = sha256()
+          for rel in files:
+              d.update(rel.encode('utf-8')); d.update(b'\0')
+              d.update((root / rel).read_bytes()); d.update(b'\0')
+          print(d.hexdigest())
+          PY
+          )"
+          echo "EXPECTED_MAC_FINGERPRINT=$fp" >> "$GITHUB_ENV"
+          echo "expected=$fp"
+
+      - name: Read current physical Mac readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/readiness.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' 'https://truelycollectables.com/api/instacomp/internal-readiness?status-now=20260810-1331&ts='$(date +%s))"
+          echo "http=$code"
+          cat "$out"
+          test "$code" = "200"
+          node - "$out" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs=require('node:fs');
+          const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const expected=process.argv[3];
+          const actual=String(b.runtimeSourceFingerprint||'');
+          console.log(JSON.stringify({
+            expected, actual,
+            exactMatch: actual===expected,
+            configured:b.configured,
+            reachable:b.reachable,
+            internalMemoryReady:b.internalMemoryReady,
+            checklistReady:b.checklistReady,
+            localModelReady:b.localModelReady,
+            app:b.app,
+            version:b.version
+          },null,2));
+          NODE
