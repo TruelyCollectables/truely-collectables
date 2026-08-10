@@ -46,10 +46,12 @@ jobs:
           node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
           node --import tsx scripts/run-instacomp-groq-runtime-status-simulations.ts
 
-      - name: Verify fail-closed Mac teacher credential sync
+      - name: Verify fail-closed Mac teacher credential sync and bootstrap
         run: |
           bash -n services/instacomp-ai/scripts/update-live-from-main.sh
+          bash -n services/instacomp-ai/scripts/bootstrap-teachers-and-update.sh
           node scripts/run-instacomp-mac-teacher-env-sync-simulations.mjs
+          node scripts/run-instacomp-teacher-bootstrap-contract.mjs
 
       - name: Run InstaComp AI teacher learning regressions
         run: |
