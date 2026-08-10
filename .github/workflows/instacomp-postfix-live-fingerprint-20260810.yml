@@ -1,0 +1,85 @@
+name: InstaComp Post-Fix Live Fingerprint 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-postfix-live-fingerprint-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-postfix-live-fingerprint-20260810
+  cancel-in-progress: true
+
+env:
+  EXPECTED_MAIN: d1fd96dac11f67001074e181aa07a8f70548e1ee
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_MAIN }}
+          fetch-depth: 1
+
+      - name: Compute exact repaired six-file Mac fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN"
+          fingerprint="$(python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          root = Path('services/instacomp-ai')
+          files = (
+              'app/__init__.py',
+              'app/main.py',
+              'app/local_vision.py',
+              'app/ollama.py',
+              'app/lora_candidate_runtime.py',
+              'scripts/run_lora_candidate_server.py',
+          )
+          digest = sha256()
+          for relative in files:
+              digest.update(relative.encode('utf-8'))
+              digest.update(b'\0')
+              digest.update((root / relative).read_bytes())
+              digest.update(b'\0')
+          print(digest.hexdigest())
+          PY
+          )"
+          echo "EXPECTED_MAC_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
+          echo "expected_mac_fingerprint=$fingerprint"
+
+      - name: Read live physical Mac fingerprint through Production readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/readiness.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?postfix-live=d1fd96&ts=$(date +%s)")"
+          test "$code" = "200"
+          cat "$out"
+          node - "$out" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const expected = process.argv[3];
+          const actual = String(body.runtimeSourceFingerprint || '');
+          if (body.reachable !== true) throw new Error('physical Mac is not reachable');
+          if (!actual) throw new Error('physical Mac did not expose a runtime fingerprint');
+          console.log(JSON.stringify({
+            status: actual === expected ? 'patched_runtime_live' : 'local_update_required',
+            expected,
+            actual,
+            reachable: body.reachable,
+            internalMemoryReady: body.internalMemoryReady,
+            checklistReady: body.checklistReady,
+            localModelReady: body.localModelReady,
+          }, null, 2));
+          if (actual !== expected) process.exit(42);
+          NODE
