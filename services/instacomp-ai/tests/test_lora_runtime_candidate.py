@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import app.lora_candidate_runtime as lora_runtime
 from app.config import Settings
 from app.lora_candidate_runtime import _candidate_response_to_suggestion
+from app.models import CardIdentity, ModelSuggestion
 
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -112,6 +116,52 @@ def test_candidate_response_requires_core_identity() -> None:
             },
             local_vision=None,
         )
+
+
+def test_unexpected_candidate_runtime_error_falls_back_without_mutating_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def broken_candidate(*args, **kwargs):
+        raise RuntimeError("candidate sidecar unexpected failure with noisy details")
+
+    fallback_result = ModelSuggestion(
+        provider="instacomp_ollama_backup",
+        model="qwen2.5vl:7b",
+        identity=CardIdentity(
+            year="2025",
+            manufacturer="Panini",
+            player="Sonia Citron",
+            card_number="122",
+        ),
+        confidence=0.91,
+        explanation="Established reader result.",
+        raw={"existing_receipt": "preserved"},
+    )
+
+    async def established_reader(self, front, back, *, local_vision=None):
+        return fallback_result
+
+    monkeypatch.setattr(lora_runtime, "_analyze_candidate", broken_candidate)
+    fake_reader = SimpleNamespace(
+        settings=SimpleNamespace(lora_candidate_enabled=True),
+    )
+    result = asyncio.run(
+        lora_runtime._analyze_with_candidate_fallback(
+            fake_reader,
+            established_reader,
+            b"front",
+            b"back",
+            local_vision=None,
+        )
+    )
+
+    assert result.provider == "instacomp_ollama_backup"
+    assert result.identity.player == "Sonia Citron"
+    assert result.raw["existing_receipt"] == "preserved"
+    assert result.raw["lora_candidate_fallback"] is True
+    assert result.raw["lora_candidate_error_type"] == "RuntimeError"
+    assert "candidate sidecar unexpected failure" in result.raw["lora_candidate_error"]
+    assert fallback_result.raw == {"existing_receipt": "preserved"}
 
 
 def test_sidecar_accepts_actual_validator_receipt_schema(tmp_path: Path) -> None:
