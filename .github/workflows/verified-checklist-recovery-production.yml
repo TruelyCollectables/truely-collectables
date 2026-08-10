@@ -75,6 +75,18 @@ jobs:
           command -v pdftotext
           command -v google-chrome || command -v chromium || command -v chromium-browser
 
+      - name: Keep literal checklist files on the direct extraction path
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          path = Path('scripts/run-verified-checklist-recovery-production.mjs')
+          text = path.read_text('utf-8')
+          old = '  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'
+          new = '  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'
+          if old not in text:
+              raise SystemExit('capture guard anchor missing')
+          path.write_text(text.replace(old, new, 1), 'utf-8')
+
       - name: Validate and spreadsheet verified checklist batch
         run: node --import tsx scripts/run-verified-checklist-recovery-production.mjs
 
@@ -147,6 +159,18 @@ jobs:
           python3 -m pip install --user --quiet openpyxl xlrd
           command -v pdftotext
           command -v google-chrome || command -v chromium || command -v chromium-browser
+
+      - name: Keep literal checklist files on the direct extraction path
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          path = Path('scripts/run-verified-checklist-recovery-production.mjs')
+          text = path.read_text('utf-8')
+          old = '  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'
+          new = '  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'
+          if old not in text:
+              raise SystemExit('capture guard anchor missing')
+          path.write_text(text.replace(old, new, 1), 'utf-8')
 
       - name: Resolve protected Production environment
         shell: bash
