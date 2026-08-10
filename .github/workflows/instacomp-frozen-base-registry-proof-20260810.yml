@@ -1,0 +1,202 @@
+name: InstaComp Frozen Base Registry Proof 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-frozen-base-registry-proof-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  PROOF_MAIN_SHA: 2f6599cbd9a190a02269da4a80064156c48e8a0a
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  SONIA_REGISTRY_ID: 2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f
+  SONIA_REGISTRY_FINGERPRINT: 4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59
+  EVIDENCE_DIR: evidence/instacomp-frozen-base-registry-proof-20260810
+  TEMP_DIR: /tmp/instacomp-frozen-base-registry-proof-20260810
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PROOF_MAIN_SHA }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Lock exact merged source and current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROOF_MAIN_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse origin/main)" = "$PROOF_MAIN_SHA"
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
+          grep -Fq 'Explicit Base is real' src/lib/instacomp-checklist-first.ts
+          grep -Fq 'return "base";' src/lib/instacomp-checklist-first.ts
+          printf '{"proofMain":"%s","frozenCard":"Sonia Citron #122 Base","expectedRegistryIdentityId":"%s","expectedRegistryFingerprintSha256":"%s","registryMutation":false,"macMutation":false,"inventoryMutation":false,"pricingMutation":false,"publishingMutation":false}\n' \
+            "$PROOF_MAIN_SHA" "$SONIA_REGISTRY_ID" "$SONIA_REGISTRY_FINGERPRINT" > "$EVIDENCE_DIR/source-lock.json"
+
+      - name: Install and link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npm ci >/dev/null
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Prove stale acceptance credential absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$TEMP_DIR/env-before.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          fi
+          ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"
+          rm -f "$list"
+
+      - name: Provision isolated acceptance credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"
+          chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
+
+      - name: Deploy exact merged explicit-Base source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse origin/main)" = "$PROOF_MAIN_SHA"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$EVIDENCE_DIR/proof-deploy.log"
+          touch "$TEMP_DIR/proof-deployed"
+
+      - name: Prove frozen Sonia Base locks exact Registry UUID and fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
+          cat > "$TEMP_DIR/request.json" <<'JSON'
+          {
+            "year": "2025",
+            "manufacturer": "Panini",
+            "brand": "Panini Prizm WNBA",
+            "setName": "Base",
+            "cardNumber": "122",
+            "player": "Sonia Citron",
+            "parallel": "Base",
+            "isAuto": false,
+            "isRelic": false
+          }
+          JSON
+          response="$EVIDENCE_DIR/sonia-base-registry.json"
+          code="$(curl -sS --max-time 45 -o "$response" -w '%{http_code}' -X POST \
+            -H 'content-type: application/json' \
+            -H "x-tcos-instacomp-service-token: $token" \
+            --data-binary "@$TEMP_DIR/request.json" \
+            "$PRODUCTION_ORIGIN/api/instacomp/checklist-lookup")"
+          test "$code" = "200"
+          SONIA_REGISTRY_ID="$SONIA_REGISTRY_ID" SONIA_REGISTRY_FINGERPRINT="$SONIA_REGISTRY_FINGERPRINT" node - "$response" <<'NODE'
+          const fs=require('node:fs');
+          const body=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          const id=String(body.registryIdentityId||body.identityId||'').trim();
+          const fp=String(body.registryFingerprintSha256||body.fingerprintSha256||'').trim().toLowerCase();
+          if(body.ok!==true) throw new Error(`ok=${body.ok}`);
+          if(body.status!=='exact_match') throw new Error(`status=${body.status}`);
+          if(body.aiRequired!==false) throw new Error(`aiRequired=${body.aiRequired}`);
+          if(body.candidateCount!==1) throw new Error(`candidateCount=${body.candidateCount}`);
+          if(id!==process.env.SONIA_REGISTRY_ID) throw new Error(`identityId=${id}`);
+          if(fp!==process.env.SONIA_REGISTRY_FINGERPRINT) throw new Error(`fingerprint=${fp}`);
+          const locked=body.lockedFields||{};
+          if(String(locked.player||'')!=='Sonia Citron') throw new Error(`player=${locked.player}`);
+          if(String(locked.cardNumber||'')!=='122') throw new Error(`cardNumber=${locked.cardNumber}`);
+          if(String(locked.parallel||'')!=='Base') throw new Error(`parallel=${locked.parallel}`);
+          const receipt={
+            status:'passed',
+            registryIdentityId:id,
+            registryFingerprintSha256:fp,
+            candidateCount:body.candidateCount,
+            identificationPath:body.identificationPath,
+            lockedFields:locked,
+            immutableFrozenTruthMatched:true,
+            nothingPublished:true
+          };
+          fs.writeFileSync(process.env.EVIDENCE_DIR+'/registry-proof.json',JSON.stringify(receipt,null,2)+'\n');
+          console.log(JSON.stringify(receipt,null,2));
+          NODE
+          touch "$TEMP_DIR/registry-proved"
+
+      - name: Remove isolated acceptance credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/token-provisioned" ]; then exit 0; fi
+          npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          list="$TEMP_DIR/env-after.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"
+          rm -f "$list"
+          touch "$TEMP_DIR/token-removed"
+
+      - name: Clean redeploy current main without proof credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/proof-deployed" ]; then exit 0; fi
+          test -f "$TEMP_DIR/token-removed"
+          git fetch --no-tags --depth=1 origin main
+          git checkout --detach origin/main
+          clean_sha="$(git rev-parse HEAD)"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$EVIDENCE_DIR/clean-deploy.log"
+          printf '{"clean":true,"deployedMain":"%s","acceptanceCredentialPresent":false}\n' "$clean_sha" > "$EVIDENCE_DIR/cleanup-proof.json"
+
+      - name: Final proof marker
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$TEMP_DIR/registry-proved" ] && [ -f "$TEMP_DIR/token-removed" ]; then
+            printf '{"status":"passed","registryExact":true,"temporaryCredentialRemoved":true,"macMutation":false,"nothingPublished":true}\n' > "$EVIDENCE_DIR/final.json"
+          else
+            printf '{"status":"incomplete_or_failed","registryExact":%s,"temporaryCredentialRemoved":%s,"macMutation":false,"nothingPublished":true}\n' \
+              "$([ -f "$TEMP_DIR/registry-proved" ] && echo true || echo false)" \
+              "$([ -f "$TEMP_DIR/token-removed" ] && echo true || echo false)" > "$EVIDENCE_DIR/final.json"
+          fi
+
+      - name: Upload Registry proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-frozen-base-registry-proof-20260810
+          path: evidence/instacomp-frozen-base-registry-proof-20260810
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR" .env.local .env.production.local
