@@ -52,15 +52,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR/proof" "$TEMP_DIR/frozen"
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           git fetch --no-tags --depth=1 origin main
           test "$(git rev-parse origin/main)" = "$PROOF_MAIN_SHA"
-          changed="$(git diff --name-only origin/main...HEAD | sort)"
+          changed="$(git diff --name-only origin/main HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/instacomp-frozen-sonia-memory-repair-20260810.yml' \
             'src/app/api/instacomp/acceptance-frozen-sonia-memory-repair/route.ts' | sort)"
           test "$changed" = "$expected"
-          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR/proof" "$TEMP_DIR/frozen"
           grep -Fq 'FROZEN_SONIA_MEMORY_REPAIR_FAILED' src/app/api/instacomp/acceptance-frozen-sonia-memory-repair/route.ts
           grep -Fq 'acceptance_token_rejected' src/app/api/instacomp/acceptance-frozen-sonia-memory-repair/route.ts
           grep -Fq 'FROZEN_IMAGE_HASH_MISMATCH' src/app/api/instacomp/acceptance-frozen-sonia-memory-repair/route.ts
@@ -68,7 +68,7 @@ jobs:
           grep -Fq 'nothing_published: true' src/app/api/instacomp/acceptance-frozen-sonia-memory-repair/route.ts
           printf '{"operationsSource":"%s","proofMain":"%s","registryProofArtifactId":%s,"frozenImageArtifactId":%s,"temporaryRoute":"/api/instacomp/acceptance-frozen-sonia-memory-repair","registryMutation":false,"inventoryMutation":false,"pricingMutation":false,"publishingMutation":false,"macRuntimeSourceMutation":false,"localKeyReadableByRunner":false}\n' \
             "$(git rev-parse HEAD)" "$PROOF_MAIN_SHA" "$REGISTRY_PROOF_ARTIFACT_ID" "$FROZEN_IMAGE_ARTIFACT_ID" > "$EVIDENCE_DIR/source-lock.json"
-          git diff --check origin/main...HEAD
+          git diff --check origin/main HEAD
 
       - name: Compile temporary route before Production deployment
         shell: bash
@@ -233,6 +233,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          mkdir -p "$EVIDENCE_DIR"
           if [ -f "$TEMP_DIR/repair-passed" ] && [ -f "$TEMP_DIR/token-removed" ] && [ -f "$TEMP_DIR/route-removed" ]; then
             printf '{"status":"passed","immutableRegistryProofConsumed":true,"rawFrozenImagesProved":true,"serverSideSensitiveKeyOnly":true,"directMacAnalyze200":true,"exactImagePairMemory":true,"temporaryCredentialRemoved":true,"temporaryRouteRemoved":true,"nothingPublished":true}\n' > "$EVIDENCE_DIR/final.json"
           else
