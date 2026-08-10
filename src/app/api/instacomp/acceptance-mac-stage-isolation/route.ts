@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
-const SONIA_FRONT_SHA256 = "eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1";
-const SONIA_BACK_SHA256 = "3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c";
+const SONIA_RAW_FRONT_SHA256 = "eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1";
+const SONIA_RAW_BACK_SHA256 = "3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c";
 
 function response(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
@@ -40,9 +40,9 @@ function boundedText(value: string, limit = 4000) {
 async function readBody(res: Response) {
   const raw = await res.text();
   try {
-    return { kind: "json", value: raw ? JSON.parse(raw) : null };
+    return { kind: "json" as const, value: raw ? JSON.parse(raw) : null };
   } catch {
-    return { kind: "text", value: boundedText(raw) };
+    return { kind: "text" as const, value: boundedText(raw) };
   }
 }
 
@@ -51,6 +51,26 @@ function imageForm(frontBytes: ArrayBuffer, backBytes: ArrayBuffer) {
   form.append("front", new Blob([frontBytes], { type: "image/jpeg" }), "front.jpg");
   form.append("back", new Blob([backBytes], { type: "image/jpeg" }), "back.jpg");
   return form;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function compactIdentity(example: Record<string, unknown> | undefined) {
+  const identity = objectValue(example?.confirmed_identity);
+  return identity ? {
+    player: identity.player || null,
+    year: identity.year || null,
+    manufacturer: identity.manufacturer || null,
+    brand: identity.brand || null,
+    set_name: identity.set_name || null,
+    subset: identity.subset || null,
+    card_number: identity.card_number || null,
+    parallel: identity.parallel || null,
+  } : null;
 }
 
 export async function POST(request: Request) {
@@ -85,14 +105,10 @@ export async function POST(request: Request) {
     });
     const examplesRaw = await examplesRes.json().catch(() => null) as null | { examples?: unknown[]; count?: number };
     const examples = Array.isArray(examplesRaw?.examples) ? examplesRaw.examples : [];
-    const exactExample = examples.find((row) => {
-      if (!row || typeof row !== "object") return false;
-      const item = row as Record<string, unknown>;
-      return item.front_sha256 === SONIA_FRONT_SHA256 && item.back_sha256 === SONIA_BACK_SHA256;
+    const rawHashExample = examples.find((row) => {
+      const item = objectValue(row);
+      return item?.front_sha256 === SONIA_RAW_FRONT_SHA256 && item?.back_sha256 === SONIA_RAW_BACK_SHA256;
     }) as Record<string, unknown> | undefined;
-    const identity = exactExample && exactExample.confirmed_identity && typeof exactExample.confirmed_identity === "object"
-      ? exactExample.confirmed_identity as Record<string, unknown>
-      : null;
 
     const archiveStartedAt = Date.now();
     const archiveRes = await fetch(`${localUrl}/v1/scans/supervised-archive`, {
@@ -104,6 +120,15 @@ export async function POST(request: Request) {
     });
     const archiveBody = await readBody(archiveRes);
     const archiveDurationMs = Date.now() - archiveStartedAt;
+    const archiveValue = archiveBody.kind === "json" ? objectValue(archiveBody.value) : null;
+    const normalizedFrontSha = typeof archiveValue?.front_sha256 === "string" ? archiveValue.front_sha256 : null;
+    const normalizedBackSha = typeof archiveValue?.back_sha256 === "string" ? archiveValue.back_sha256 : null;
+    const normalizedExample = normalizedFrontSha && normalizedBackSha
+      ? examples.find((row) => {
+          const item = objectValue(row);
+          return item?.front_sha256 === normalizedFrontSha && item?.back_sha256 === normalizedBackSha;
+        }) as Record<string, unknown> | undefined
+      : undefined;
 
     const analyzeStartedAt = Date.now();
     const analyzeRes = await fetch(`${localUrl}/v1/scans/analyze`, {
@@ -118,24 +143,20 @@ export async function POST(request: Request) {
 
     return response({
       ok: true,
-      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v1",
-      exact_frozen_hashes_expected: true,
+      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v2",
+      exact_frozen_raw_hashes_expected: true,
       trusted_training_readback: {
         http_status: examplesRes.status,
         http_ok: examplesRes.ok,
         total_trusted_examples: Number(examplesRaw?.count || examples.length || 0),
-        exact_frozen_pair_present: Boolean(exactExample),
-        exact_pair_card_uuid_present: Boolean(exactExample?.card_uuid),
-        exact_pair_identity: identity ? {
-          player: identity.player || null,
-          year: identity.year || null,
-          manufacturer: identity.manufacturer || null,
-          brand: identity.brand || null,
-          set_name: identity.set_name || null,
-          subset: identity.subset || null,
-          card_number: identity.card_number || null,
-          parallel: identity.parallel || null,
-        } : null,
+        raw_artifact_hash_pair_present: Boolean(rawHashExample),
+        normalized_hashes_from_mac: {
+          front_sha256: normalizedFrontSha,
+          back_sha256: normalizedBackSha,
+        },
+        exact_frozen_pair_present: Boolean(normalizedExample),
+        exact_pair_card_uuid_present: Boolean(normalizedExample?.card_uuid),
+        exact_pair_identity: compactIdentity(normalizedExample),
       },
       supervised_archive_stage: {
         purpose: "image_validation_persistence_exact_pair_uuid_and_scan_storage_only",
