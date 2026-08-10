@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { POST as runDealHunterCore } from "./core";
+import { POST as runDealHunterCore } from "./resilient-core";
 import {
   persistExactCardMarketHistory,
   type ExactMarketTargetListing,
