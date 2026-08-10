@@ -12,10 +12,11 @@ const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const SOLD_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const SOLD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const EMPTY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_CACHE_TTL_MS = 45 * 60 * 1000;
 const RESULT_LIMIT = 100;
-const MAX_QUERY_ATTEMPTS = 6;
+const MAX_QUERY_ATTEMPTS = 1;
 
 type EbayLane = "sold" | "active";
 
@@ -204,14 +205,18 @@ async function readCache(query: string, lane: EbayLane) {
     .maybeSingle();
   if (error || !data?.result_payload) return null;
   const payload = data.result_payload as CachedPayload;
-  return Array.isArray(payload.items) && payload.items.length ? payload.items : null;
+  return Array.isArray(payload.items) ? payload.items : null;
 }
 
 async function writeCache(query: string, lane: EbayLane, items: EbaySerpItem[]) {
-  if (!SUPABASE_URL || !SUPABASE_KEY || !items.length) return;
+  if (!SUPABASE_URL || !SUPABASE_KEY) return;
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   const now = new Date();
-  const ttl = lane === "sold" ? SOLD_CACHE_TTL_MS : ACTIVE_CACHE_TTL_MS;
+  const ttl = items.length
+    ? lane === "sold"
+      ? SOLD_CACHE_TTL_MS
+      : ACTIVE_CACHE_TTL_MS
+    : EMPTY_CACHE_TTL_MS;
   const { error } = await supabase.from("instacomp_search_cache").upsert(
     {
       query_hash: cacheKey(query, lane),
@@ -256,6 +261,7 @@ async function fetchLane(query: string, lane: EbayLane) {
       };
     }
     if (isSerpApiNoResultsMessage(payloadError)) {
+      await writeCache(query, lane, []);
       return {
         ok: true as const,
         items: [] as EbaySerpItem[],
@@ -540,10 +546,21 @@ export async function getExactEbayMarketProviders(params: {
   ai: InstaCompAiResult;
 }) {
   const queries = buildExactEbayQueryLadder(params);
-  const [sold, active] = await Promise.all([
-    providerAcrossQueries({ queries, ai: params.ai, lane: "sold", targetExactCount: 8 }),
-    providerAcrossQueries({ queries, ai: params.ai, lane: "active", targetExactCount: 8 }),
-  ]);
+  const sold = await providerAcrossQueries({
+    queries,
+    ai: params.ai,
+    lane: "sold",
+    targetExactCount: 8,
+  });
+  const active: InstaCompProviderResult & { attempts: ProviderAttempt[] } = {
+    source: "ebay_active_serpapi_exact",
+    label: "eBay Active",
+    status: "not_configured",
+    message: "SerpApi active searches are disabled. Official eBay Browse is the active-listing source.",
+    results: [],
+    searchUrl: verificationUrl(queries[0] || params.fallbackQuery, "active"),
+    attempts: [],
+  };
   return {
     query: queries[0] || params.fallbackQuery,
     queries,

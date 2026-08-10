@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+const live = fs.readFileSync("src/app/api/instacomp/live-scan/route.ts", "utf8");
+const exact = fs.readFileSync("src/lib/instacomp-exact-market-provider.ts", "utf8");
+assert.ok(live.includes('loadExactCardMarketHistory'));
+assert.ok(live.includes('trustedHistoricalSoldPricing'));
+assert.ok(live.includes('source: "instacomp_exact_market_memory"'));
+assert.ok(live.includes('paidSoldSearchesSkipped: true'));
+assert.ok(live.includes('serpApiCalls: 0'));
+assert.ok(live.indexOf('source: "instacomp_exact_market_memory"') < live.indexOf('let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>>'));
+assert.ok(exact.includes('const MAX_QUERY_ATTEMPTS = 1;'));
+assert.ok(exact.includes('const SOLD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;'));
+assert.ok(exact.includes('const EMPTY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;'));
+assert.ok(exact.includes('await writeCache(query, lane, []);'));
+assert.ok(exact.includes('SerpApi active searches are disabled. Official eBay Browse is the active-listing source.'));
+assert.equal((exact.match(/providerAcrossQueries\(\{ queries, ai: params\.ai, lane: "active"/g) || []).length, 0);
+console.log(JSON.stringify({ok:true,marketMemoryFirst:true,serpApiSoldMaxQueriesPerMiss:1,serpApiActiveCalls:0,emptySoldMissCacheHours:24,soldHitCacheDays:30}, null, 2));
