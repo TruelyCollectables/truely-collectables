@@ -5,7 +5,12 @@ async function main() {
   process.env.ANTHROPIC_API_KEY = "test-anthropic";
   process.env.XAI_API_KEY = "test-xai";
   process.env.GROQ_API_KEY = "test-groq";
+  process.env.OPENROUTER_API_KEY = "test-openrouter";
+  process.env.CLOUDFLARE_ACCOUNT_ID = "test-account";
+  process.env.CLOUDFLARE_AUTH_TOKEN = "test-cloudflare";
   delete process.env.PERPLEXITY_API_KEY;
+  delete process.env.INSTACOMP_AI_LOCAL_URL;
+  delete process.env.INSTACOMP_AI_LOCAL_KEY;
 
   const sharedSold = {
     title: "2025 Bowman Chrome Prospects Franklin Arias #BCP-67",
@@ -33,6 +38,8 @@ async function main() {
       assert.match(prompt, /Auction Prices Realized/i);
       assert.match(prompt, /PSA Estimate and PSA Price Guide values are reference-only/i);
       assert.match(prompt, /NEVER sold comps/i);
+      assert.equal(requestBody?.generationConfig?.responseMimeType, "application/json");
+      assert.equal(requestBody?.generationConfig?.responseSchema, undefined);
       psaGuardrailChecked = true;
       return new Response(
         JSON.stringify({
@@ -113,21 +120,25 @@ async function main() {
     }
     if (url.includes("api.groq.com")) {
       const requestBody = JSON.parse(String(init?.body || "{}"));
-      assert.equal(requestBody.model, "groq/compound");
-      assert.deepEqual(requestBody.response_format, { type: "json_object" });
-      assert.deepEqual(requestBody.compound_custom?.tools?.enabled_tools, [
-        "web_search",
-        "visit_website",
-      ]);
-      assert.deepEqual(requestBody.search_settings?.include_domains, expectedDomains);
-      assert.equal(requestBody.search_settings?.country, "united states");
-      const headers = new Headers(init?.headers);
-      assert.equal(headers.get("Groq-Model-Version"), "latest");
-      groqContractChecked = true;
-
       const groqSold = disagreement
-        ? { ...sharedSold, url: "https://www.ebay.com/itm/777777777777" }
+        ? { ...sharedSold, url: requestBody.model === "openai/gpt-oss-20b"
+            ? "https://www.ebay.com/itm/666666666666"
+            : "https://www.ebay.com/itm/777777777777" }
         : sharedSold;
+      if (requestBody.model === "openai/gpt-oss-20b") {
+        assert.deepEqual(requestBody.tools, [{ type: "browser_search" }]);
+        assert.equal(requestBody.tool_choice, "required");
+        assert.equal(requestBody.reasoning_effort, "low");
+      } else {
+        assert.equal(requestBody.model, "groq/compound-mini");
+        assert.deepEqual(requestBody.response_format, { type: "json_object" });
+        assert.deepEqual(requestBody.compound_custom?.tools?.enabled_tools, ["web_search"]);
+        assert.deepEqual(requestBody.search_settings?.include_domains, expectedDomains);
+        assert.equal(requestBody.search_settings?.country, "united states");
+        const headers = new Headers(init?.headers);
+        assert.equal(headers.get("Groq-Model-Version"), "latest");
+        groqContractChecked = true;
+      }
       return new Response(
         JSON.stringify({
           choices: [
@@ -136,7 +147,7 @@ async function main() {
                 content: JSON.stringify({
                   sold: [groqSold],
                   active: [],
-                  notes: "Groq Compound independently checked the sale.",
+                  notes: "Groq search independently checked the sale.",
                 }),
               },
             },
@@ -144,6 +155,15 @@ async function main() {
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
+    }
+    if (url.includes("openrouter.ai")) {
+      const requestBody = JSON.parse(String(init?.body || "{}"));
+      assert.equal(requestBody.model, "openrouter/free");
+      assert.equal(requestBody.provider?.require_parameters, true);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ sold: [sharedSold], active: [], notes: "OpenRouter critic retained supplied exact row." }) } }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("api.cloudflare.com")) {
+      return new Response(JSON.stringify({ success: true, result: { response: JSON.stringify({ sold: [sharedSold], active: [], notes: "Cloudflare critic retained supplied exact row." }) } }), { status: 200, headers: { "content-type": "application/json" } });
     }
     throw new Error(`Unexpected mocked fetch URL: ${url}`);
   }) as typeof fetch;
@@ -184,9 +204,13 @@ async function main() {
       "anthropic",
       "gemini",
       "groq",
+      "groq_browser",
       "xai",
     ]);
     assert.equal(agreed.requiredVotes, 3);
+    assert.equal(agreed.studentHypothesis.status, "skipped");
+    assert.ok(agreed.attempts.some((attempt) => attempt.teacher === "openrouter" && attempt.ok));
+    assert.ok(agreed.attempts.some((attempt) => attempt.teacher === "cloudflare" && attempt.ok));
     assert.equal(agreed.sold.status, "live");
     assert.equal(agreed.sold.results.length, 1);
     assert.equal(agreed.sold.results[0].source, "teacher_consensus_exact_sold");
@@ -205,7 +229,7 @@ async function main() {
     assert.equal(disagreed.requiredVotes, 3);
     assert.equal(disagreed.sold.status, "no_matches");
     assert.equal(disagreed.sold.results.length, 0);
-    assert.ok(disagreed.discovery.sold.length >= 4);
+    assert.ok(disagreed.discovery.sold.length >= 5);
 
     console.log("InstaComp outside-teacher market consensus regressions passed.");
   } finally {

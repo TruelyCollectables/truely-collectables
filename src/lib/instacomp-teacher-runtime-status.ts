@@ -3,6 +3,9 @@ export type InstaCompTeacherRuntimeConfiguration = {
   anthropicConfigured: boolean;
   xaiConfigured: boolean;
   groqConfigured: boolean;
+  groqBrowserConfigured: boolean;
+  openRouterConfigured: boolean;
+  cloudflareConfigured: boolean;
   perplexityConfigured: boolean;
   openAiConfigured: boolean;
   serpApiConfigured: boolean;
@@ -11,6 +14,7 @@ export type InstaCompTeacherRuntimeConfiguration = {
   requiredVotes: number;
   teacherConsensusOperational: boolean;
   macLearningBridgeConfigured: boolean;
+  onlineCompLearnMode: true;
 };
 
 function configured(value: unknown) {
@@ -34,6 +38,14 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const anthropicConfigured = configured(env.ANTHROPIC_API_KEY);
   const xaiConfigured = configured(env.XAI_API_KEY);
   const groqConfigured = configured(env.GROQ_API_KEY);
+  // Compound and GPT-OSS browser search are two discovery lanes, but both are
+  // backed by the same Groq credential/provider family and therefore count as
+  // one independent trust vote.
+  const groqBrowserConfigured = groqConfigured;
+  const openRouterConfigured = configured(env.OPENROUTER_API_KEY);
+  const cloudflareConfigured = Boolean(
+    configured(env.CLOUDFLARE_ACCOUNT_ID) && configured(env.CLOUDFLARE_AUTH_TOKEN || env.CLOUDFLARE_API_TOKEN),
+  );
   const perplexityConfigured = configured(env.PERPLEXITY_API_KEY);
   const openAiConfigured = configured(env.OPENAI_API_KEY);
   const serpApiConfigured = configured(env.SERPAPI_API_KEY);
@@ -57,6 +69,9 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     anthropicConfigured,
     xaiConfigured,
     groqConfigured,
+    groqBrowserConfigured,
+    openRouterConfigured,
+    cloudflareConfigured,
     perplexityConfigured,
     openAiConfigured,
     serpApiConfigured,
@@ -65,5 +80,6 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     requiredVotes,
     teacherConsensusOperational: votingTeacherCount >= requiredVotes,
     macLearningBridgeConfigured,
+    onlineCompLearnMode: true,
   };
 }

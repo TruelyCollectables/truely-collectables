@@ -789,6 +789,7 @@ export async function POST(request: NextRequest) {
           configuredTeachers: teacher.configuredTeachers,
           requiredVotes: teacher.requiredVotes,
           attempts: teacher.attempts,
+          studentHypothesis: teacher.studentHypothesis,
         }
       : null,
     discoveryCandidates: {
@@ -837,6 +838,7 @@ export async function POST(request: NextRequest) {
         registryIdentityId,
         registryFingerprintSha256,
         canonicalIdentity: ai as unknown as Record<string, unknown>,
+        studentHypothesis: teacher.studentHypothesis as unknown as Record<string, unknown>,
         teacherConsensus: {
           configuredTeachers: teacher.configuredTeachers,
           requiredVotes: teacher.requiredVotes,

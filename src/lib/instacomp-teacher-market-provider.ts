@@ -5,6 +5,16 @@ import type {
 } from "./instacomp";
 import { filterStrictExactMarketMatches } from "./instacomp-exact-market-provider";
 import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
+import {
+  buildFreeCriticPrompt,
+  runCloudflareCritic,
+  runGroqBrowserTeacher,
+  runOpenRouterCritic,
+} from "./instacomp-free-comp-teachers";
+import {
+  requestInstaCompStudentCompHypothesis,
+  type InstaCompStudentCompHypothesis,
+} from "./instacomp-student-comp-bridge";
 
 const GEMINI_API_KEY = String(
   process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || "",
@@ -24,13 +34,21 @@ const XAI_MODEL = String(
   process.env.INSTACOMP_TEACHER_XAI_MODEL || "grok-4.5",
 ).trim();
 const GROQ_MODEL = String(
-  process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound",
+  process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound-mini",
 ).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
-const MAX_ROWS_PER_TEACHER = 12;
+const MAX_ROWS_PER_TEACHER = 8;
 const TEACHER_MARKET_DOMAINS = ["ebay.com", "130point.com", "psacard.com"];
 
-export type TeacherName = "gemini" | "anthropic" | "xai" | "groq" | "perplexity";
+export type TeacherName =
+  | "gemini"
+  | "anthropic"
+  | "xai"
+  | "groq"
+  | "groq_browser"
+  | "perplexity"
+  | "openrouter"
+  | "cloudflare";
 
 type TeacherMarketRow = {
   title: string;
@@ -60,6 +78,7 @@ type TeacherAttempt = {
 };
 
 export type TeacherConsensusMarketResult = {
+  studentHypothesis: InstaCompStudentCompHypothesis;
   configuredTeachers: TeacherName[];
   requiredVotes: number;
   attempts: Array<{
@@ -237,7 +256,6 @@ async function runGemini(prompt: string): Promise<TeacherAttempt> {
           tools: [{ google_search: {} }, { url_context: {} }],
           generationConfig: {
             responseMimeType: "application/json",
-            responseSchema: geminiSchema(),
           },
         }),
         signal: AbortSignal.timeout(TEACHER_TIMEOUT_MS),
@@ -392,7 +410,7 @@ async function runGroq(prompt: string): Promise<TeacherAttempt> {
         response_format: { type: "json_object" },
         compound_custom: {
           tools: {
-            enabled_tools: ["web_search", "visit_website"],
+            enabled_tools: ["web_search"],
           },
         },
         search_settings: {
@@ -507,6 +525,14 @@ function itemKey(url: string) {
   return directEbayItemUrl(url) || url;
 }
 
+function teacherVoteFamily(teacher: TeacherName) {
+  // Groq Compound and Groq GPT-OSS browser search are distinct discovery
+  // methods, but they share one provider credential and therefore contribute
+  // at most one independent trust vote for any sold listing.
+  if (teacher === "groq" || teacher === "groq_browser") return "groq";
+  return teacher;
+}
+
 function requiredTeacherVotes(configuredCount: number) {
   if (configuredCount < 2) return 2;
   return Math.floor(configuredCount / 2) + 1;
@@ -519,14 +545,15 @@ function consensusSold(
 ) {
   const byItem = new Map<
     string,
-    Array<{ teacher: TeacherName; comp: InstaCompComp }>
+    Array<{ teacher: TeacherName; voteFamily: string; comp: InstaCompComp }>
   >();
   for (const attempt of attempts.filter((row) => row.ok)) {
+    const voteFamily = teacherVoteFamily(attempt.teacher);
     for (const comp of strictTeacherRows(attempt, "sold", ai)) {
       const key = itemKey(comp.url);
       const group = byItem.get(key) || [];
-      if (!group.some((row) => row.teacher === attempt.teacher)) {
-        group.push({ teacher: attempt.teacher, comp });
+      if (!group.some((row) => row.voteFamily === voteFamily)) {
+        group.push({ teacher: attempt.teacher, voteFamily, comp });
       }
       byItem.set(key, group);
     }
@@ -568,28 +595,46 @@ export async function getTeacherExactMarketProviders(params: {
   ai: InstaCompAiResult;
 }): Promise<TeacherConsensusMarketResult> {
   const prompt = teacherPrompt(params.exactTitle, params.ai);
-  const attempts = await Promise.all([
-    runGemini(prompt),
-    runAnthropic(prompt),
-    runXai(prompt),
-    runGroq(prompt),
-    runPerplexity(params.exactTitle),
+  const [studentHypothesis, searchAttempts] = await Promise.all([
+    requestInstaCompStudentCompHypothesis({ exactTitle: params.exactTitle, ai: params.ai }),
+    Promise.all([
+      runGemini(prompt),
+      runAnthropic(prompt),
+      runXai(prompt),
+      runGroq(prompt),
+      runGroqBrowserTeacher(prompt),
+      runPerplexity(params.exactTitle),
+    ]),
   ]);
-  const votingAttempts = attempts.filter((attempt) => attempt.teacher !== "perplexity");
+
+  const criticPrompt = buildFreeCriticPrompt({
+    exactTitle: params.exactTitle,
+    ai: params.ai,
+    soldCandidates: searchAttempts.flatMap((attempt) => attempt.ok ? attempt.sold : []).slice(0, 20),
+    activeCandidates: searchAttempts.flatMap((attempt) => attempt.ok ? attempt.active : []).slice(0, 20),
+  });
+  const criticAttempts = await Promise.all([
+    runOpenRouterCritic(criticPrompt),
+    runCloudflareCritic(criticPrompt),
+  ]);
+  const attempts: TeacherAttempt[] = [...searchAttempts, ...criticAttempts];
+  const votingAttempts = searchAttempts.filter((attempt) => attempt.teacher !== "perplexity");
   const configuredTeachers = votingAttempts
     .filter((attempt) => attempt.configured)
     .map((attempt) => attempt.teacher);
-  const requiredVotes = requiredTeacherVotes(configuredTeachers.length);
+  const configuredVoteFamilies = new Set(configuredTeachers.map(teacherVoteFamily));
+  const requiredVotes = requiredTeacherVotes(configuredVoteFamilies.size);
   const sold = consensusSold(votingAttempts, params.ai, requiredVotes);
-  const discoverySold = attempts.flatMap((attempt) =>
+  const discoverySold = searchAttempts.flatMap((attempt) =>
     attempt.ok ? strictTeacherRows(attempt, "sold", params.ai) : [],
   );
-  const discoveryActive = attempts.flatMap((attempt) =>
+  const discoveryActive = searchAttempts.flatMap((attempt) =>
     attempt.ok ? strictTeacherRows(attempt, "active", params.ai) : [],
   );
   const healthy = attempts.filter((attempt) => attempt.ok).length;
 
   return {
+    studentHypothesis,
     configuredTeachers,
     requiredVotes,
     attempts: attempts.map((attempt) => ({
