@@ -19,6 +19,7 @@ from .images import (
     validate_and_normalize_image,
 )
 from .local_vision import analyze_local_vision
+from .lora_candidate_runtime import analyze_with_established_reader
 from .models import (
     AnalyzeResponse,
     CardIdentity,
@@ -409,6 +410,68 @@ async def supervised_archive_scan(
         "image_pair_sha256": combined_hash,
         "identity_created": False,
         "nothing_published": True,
+    }
+
+
+@app.post(
+    "/v1/scans/secondary-witness",
+    dependencies=[Depends(require_api_key)],
+)
+async def secondary_identity_witness(
+    front: UploadFile = File(...),
+    back: UploadFile | None = File(default=None),
+):
+    """Return one independent established-model identity witness.
+
+    The endpoint is evidence-only. It bypasses the LoRA candidate wrapper so the
+    result is independent from a successful candidate primary read. It never
+    performs a Registry lookup, creates a lesson, enables pricing, or mutates
+    inventory/publishing state.
+    """
+    front_content = await front.read()
+    back_content = await back.read() if back else None
+    if len(front_content) + len(back_content or b"") > settings.max_total_image_bytes:
+        raise HTTPException(status_code=413, detail="Combined images are too large")
+    try:
+        front_image = validate_and_normalize_image(
+            front_content,
+            settings.max_image_bytes,
+        )
+        back_image = (
+            validate_and_normalize_image(
+                back_content,
+                settings.max_image_bytes,
+            )
+            if back_content
+            else None
+        )
+        local_vision = await analyze_local_vision(
+            front_image.content,
+            back_image.content if back_image else None,
+            settings,
+        )
+        suggestion = await analyze_with_established_reader(
+            reader,
+            front_image.content,
+            back_image.content if back_image else None,
+            local_vision=local_vision,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=503, detail="Established local identity reader timed out") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Established local identity reader is unavailable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {
+        "schema_version": "tcos.instacomp-ai.secondary-witness.v1",
+        "role": "independent_local_secondary_vision",
+        "suggestion": suggestion.model_dump(mode="json"),
+        "pricing_allowed": False,
+        "learning_allowed": False,
+        "registry_authority": False,
     }
 
 
