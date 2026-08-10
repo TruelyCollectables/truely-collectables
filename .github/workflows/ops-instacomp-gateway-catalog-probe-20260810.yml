@@ -51,23 +51,88 @@ jobs:
           const raw=fs.existsSync('/tmp/gateway-models.json')?fs.readFileSync('/tmp/gateway-models.json','utf8'):'';
           let p={}; try{p=JSON.parse(raw)}catch{}
           const rows=Array.isArray(p.data)?p.data:Array.isArray(p.models)?p.models:[];
-          const safe=rows.slice(0,500).map(m=>({
-            id:m.id||m.name||null,
+          const wanted=new Set([
+            'inclusionai/ling-3.0-tiny-free',
+            'poolside/laguna-s-2.1-free',
+            'zai/glm-4.6v-flash',
+            'perplexity/sonar',
+          ]);
+          const candidates=rows.filter(m=>wanted.has(m.id||m.name)).map(m=>({
+            id:m.id||m.name,
             owned_by:m.owned_by||m.provider||null,
             type:m.type||null,
-            context_window:m.context_window||m.contextWindow||null,
-            max_tokens:m.max_tokens||m.maxTokens||null,
-            pricing:m.pricing?{
-              input:m.pricing.input??null,
-              output:m.pricing.output??null,
-            }:null,
-            capabilities:m.capabilities||m.supported_features||m.supportedFeatures||null,
-          })).filter(m=>m.id);
+            pricing:m.pricing?{input:m.pricing.input??null,output:m.pricing.output??null}:null,
+          }));
           console.log('GATEWAY_MODEL_COUNT='+rows.length);
-          console.log('GATEWAY_MODEL_CATALOG_SAFE='+JSON.stringify(safe));
-          if(!rows.length){
-            const e=p.error||p;
-            console.log('GATEWAY_MODEL_CATALOG_ERROR='+JSON.stringify({message:String(e?.message||'').slice(0,500),code:e?.code||null,type:e?.type||null}));
-            process.exit(2);
+          console.log('GATEWAY_TEACHER_CANDIDATES='+JSON.stringify(candidates));
+          if(rows.length<1) process.exit(2);
+          NODE
+
+      - name: Install isolated Gateway smoke dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false --ignore-scripts ai@7.0.58 @ai-sdk/gateway@4.0.46 >/dev/null
+
+      - name: Smoke two independent current free Gateway teachers with different search backends
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .env.local
+          set +a
+          test -n "${VERCEL_OIDC_TOKEN:-}"
+          node --input-type=module - <<'NODE'
+          import { generateText, stepCountIs } from 'ai';
+          import { gateway } from '@ai-sdk/gateway';
+
+          const prompt = [
+            'You are a connectivity test for a sports-card market teacher.',
+            'Use the supplied web search tool exactly once.',
+            'Search ebay.com for 2025 Panini Prizm WNBA Hailey Van Lith #139 Cracked Ice.',
+            'Do not invent facts. Return a very short JSON object with keys ok and note.',
+          ].join('\n');
+
+          const plans = [
+            {
+              teacher:'gateway_inclusionai',
+              family:'inclusionai',
+              model:'inclusionai/ling-3.0-tiny-free',
+              toolName:'perplexity_search',
+              tool:()=>gateway.tools.perplexitySearch({searchDomainFilter:['ebay.com','130point.com']}),
+            },
+            {
+              teacher:'gateway_zai',
+              family:'zai',
+              model:'zai/glm-4.6v-flash',
+              toolName:'parallel_search',
+              tool:()=>gateway.tools.parallelSearch({mode:'one-shot',maxResults:5,sourcePolicy:{includeDomains:['ebay.com','130point.com']}}),
+            },
+          ];
+
+          const results=[];
+          for(const plan of plans){
+            try{
+              const result=await generateText({
+                model:gateway(plan.model),
+                prompt,
+                temperature:0,
+                maxOutputTokens:800,
+                timeout:90000,
+                tools:{[plan.toolName]:plan.tool()},
+                prepareStep:({stepNumber})=>stepNumber===0?{toolChoice:{type:'tool',toolName:plan.toolName}}:{},
+                stopWhen:stepCountIs(3),
+              });
+              const toolCalls=(result.steps||[]).flatMap(step=>step.toolCalls||[]).length;
+              const toolResults=(result.steps||[]).flatMap(step=>step.toolResults||[]).length;
+              results.push({teacher:plan.teacher,family:plan.family,model:plan.model,ok:Boolean(String(result.text||'').trim())&&toolCalls>0&&toolResults>0,toolCalls,toolResults,textPresent:Boolean(String(result.text||'').trim()),error:null});
+            }catch(error){
+              results.push({teacher:plan.teacher,family:plan.family,model:plan.model,ok:false,toolCalls:0,toolResults:0,textPresent:false,error:String(error?.message||error).replace(/Bearer\s+\S+/gi,'Bearer [redacted]').slice(0,700)});
+            }
+          }
+          console.log('GATEWAY_INDEPENDENT_TEACHER_SMOKE='+JSON.stringify(results));
+          const healthy=results.filter(row=>row.ok);
+          if(healthy.length<2 || new Set(healthy.map(row=>row.family)).size<2){
+            throw new Error('Two independent Gateway teacher families did not complete model + search-tool calls.');
           }
           NODE
