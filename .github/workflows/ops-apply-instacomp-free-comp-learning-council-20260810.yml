@@ -20,6 +20,19 @@ jobs:
           ref: feature/instacomp-free-comp-learning-council-20260810
           fetch-depth: 0
 
+      - name: Normalize exact readiness anchor in one-shot patcher
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/ops/patch-instacomp-free-comp-learning-council-20260810.py')
+          t=p.read_text()
+          old='''replace_once(\n    "services/instacomp-ai/app/teacher_comp_training.py",\n    '        "student_mode": True,\\n        "pricing_authority": False,\\n        "auto_promotion": False,\\n        "identity_training_separated": True,\\n',\n    '        "student_mode": True,\\n        "online_comp_learn_mode": True,\\n        "pricing_authority": False,\\n        "auto_promotion": False,\\n        "identity_training_separated": True,\\n',\n)'''
+          new='''replace_once(\n    "services/instacomp-ai/app/teacher_comp_training.py",\n    '        "ready_for_export": len(eligible) > 0,\\n        "student_mode": True,\\n        "pricing_authority": False,\\n        "auto_promotion": False,\\n        "identity_training_separated": True,\\n',\n    '        "ready_for_export": len(eligible) > 0,\\n        "student_mode": True,\\n        "online_comp_learn_mode": True,\\n        "pricing_authority": False,\\n        "auto_promotion": False,\\n        "identity_training_separated": True,\\n',\n)'''
+          if t.count(old)!=1:
+              raise SystemExit(f'patcher readiness anchor count={t.count(old)}')
+          p.write_text(t.replace(old,new,1))
+          PY
+
       - name: Apply bounded source patch
         run: python scripts/ops/patch-instacomp-free-comp-learning-council-20260810.py
 
