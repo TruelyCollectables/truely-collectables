@@ -84,8 +84,11 @@ jobs:
 
           source_tools = Path('scripts/mainstream-checklist/source-tools.mjs')
           text = source_tools.read_text('utf-8')
+          if 'import sys\npath, mime = sys.argv[1], sys.argv[2]' not in text:
+              raise SystemExit('workbook python import anchor missing')
+          text = text.replace('import sys\npath, mime = sys.argv[1], sys.argv[2]', 'import sys, re\npath, mime = sys.argv[1], sys.argv[2]', 1)
           old = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if vals: rows.append(' | '.join(vals))"""
-          new = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals:\n                continue\n            if len(vals) == 1:\n                label = vals[0]\n                generic = label.lower().rstrip(':').strip()\n                if generic not in {'no', 'no.', '#', 'card no', 'card no.', 'card number', 'player', 'players', 'team', 'teams'}:\n                    rows.append('## ' + label)\n                else:\n                    rows.append(label)\n            else:\n                rows.append(' | '.join(vals))"""
+          new = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals:\n                continue\n            first = vals[0]\n            generic = first.lower().rstrip(':').strip()\n            cardish = re.match(r'^(?:#\\s*)?(?:\\d{1,4}[A-Za-z]?|[A-Z]{1,10}-?[A-Z0-9]{1,16}|NNO|NO#)$', first, re.I)\n            sectionish = (\n                not cardish\n                and re.search(r'\\b(?:checklist|base(?: set| rookies?)?|rookies?|autographs?|signatures?|inserts?|relics?|memorabilia|parallels?|variations?|short prints?|prospects?)\\b', ' '.join(vals), re.I)\n            )\n            headers = {'no', 'no.', '#', 'card no', 'card no.', 'card number', 'player', 'players', 'team', 'teams'}\n            if sectionish and generic not in headers:\n                rows.append('## ' + first)\n            else:\n                rows.append(' | '.join(vals))"""
           occurrences = text.count(old)
           if occurrences != 1:
               raise SystemExit(f'workbook row anchor count changed: {occurrences}')
@@ -94,15 +97,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          grep -F "sectionish = (" scripts/mainstream-checklist/source-tools.mjs
           node --import tsx --input-type=module <<'NODE'
           import { parseChecklist } from './scripts/mainstream-checklist/source-tools.mjs';
-          const separated = parseChecklist({ minimumCardRows: 4 }, ['## Sheet 1','## Base Set','1 | Alpha Player','2 | Beta Player','## Rookie Signatures','1 | Gamma Player','2 | Delta Player'].join('\n'));
+          const separated = parseChecklist({ minimumCardRows: 4 }, ['## Sheet 1','## Base Checklist','1 | Alpha Player','2 | Beta Player','## Rookie Signatures Checklist','1 | Gamma Player','2 | Delta Player'].join('\n'));
           if (separated.errors.length || separated.cards.length !== 4) throw new Error(`Named section scoping regression: ${JSON.stringify(separated)}`);
           const names = new Set(separated.cards.map((card) => card.setName));
           if (!names.has('Base Set') || !names.has('Rookie Signatures')) throw new Error(`Workbook section names were not preserved: ${JSON.stringify([...names])}`);
-          const conflict = parseChecklist({ minimumCardRows: 1 }, ['## Base Set','1 | Alpha Player','1 | Gamma Player'].join('\n'));
+          const conflict = parseChecklist({ minimumCardRows: 1 }, ['## Base Checklist','1 | Alpha Player','1 | Gamma Player'].join('\n'));
           if (!conflict.errors.some((issue) => issue.code === 'reference_card_number_subject_conflict')) throw new Error('Same-section subject conflict guard was weakened.');
-          console.log('Workbook section scoping and same-section conflict guard passed.');
           NODE
       - name: Validate and spreadsheet verified checklist batch
         run: node --import tsx scripts/run-verified-checklist-recovery-production.mjs
@@ -175,10 +178,14 @@ jobs:
           if old not in text:
               raise SystemExit('capture guard anchor missing')
           runner.write_text(text.replace(old, new, 1), 'utf-8')
+
           source_tools = Path('scripts/mainstream-checklist/source-tools.mjs')
           text = source_tools.read_text('utf-8')
+          if 'import sys\npath, mime = sys.argv[1], sys.argv[2]' not in text:
+              raise SystemExit('workbook python import anchor missing')
+          text = text.replace('import sys\npath, mime = sys.argv[1], sys.argv[2]', 'import sys, re\npath, mime = sys.argv[1], sys.argv[2]', 1)
           old = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if vals: rows.append(' | '.join(vals))"""
-          new = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals:\n                continue\n            if len(vals) == 1:\n                label = vals[0]\n                generic = label.lower().rstrip(':').strip()\n                if generic not in {'no', 'no.', '#', 'card no', 'card no.', 'card number', 'player', 'players', 'team', 'teams'}:\n                    rows.append('## ' + label)\n                else:\n                    rows.append(label)\n            else:\n                rows.append(' | '.join(vals))"""
+          new = """            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals:\n                continue\n            first = vals[0]\n            generic = first.lower().rstrip(':').strip()\n            cardish = re.match(r'^(?:#\\s*)?(?:\\d{1,4}[A-Za-z]?|[A-Z]{1,10}-?[A-Z0-9]{1,16}|NNO|NO#)$', first, re.I)\n            sectionish = (\n                not cardish\n                and re.search(r'\\b(?:checklist|base(?: set| rookies?)?|rookies?|autographs?|signatures?|inserts?|relics?|memorabilia|parallels?|variations?|short prints?|prospects?)\\b', ' '.join(vals), re.I)\n            )\n            headers = {'no', 'no.', '#', 'card no', 'card no.', 'card number', 'player', 'players', 'team', 'teams'}\n            if sectionish and generic not in headers:\n                rows.append('## ' + first)\n            else:\n                rows.append(' | '.join(vals))"""
           occurrences = text.count(old)
           if occurrences != 1:
               raise SystemExit(f'workbook row anchor count changed: {occurrences}')
@@ -187,13 +194,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          grep -F "sectionish = (" scripts/mainstream-checklist/source-tools.mjs
           node --import tsx --input-type=module <<'NODE'
           import { parseChecklist } from './scripts/mainstream-checklist/source-tools.mjs';
-          const separated = parseChecklist({ minimumCardRows: 4 }, ['## Sheet 1','## Base Set','1 | Alpha Player','2 | Beta Player','## Rookie Signatures','1 | Gamma Player','2 | Delta Player'].join('\n'));
+          const separated = parseChecklist({ minimumCardRows: 4 }, ['## Sheet 1','## Base Checklist','1 | Alpha Player','2 | Beta Player','## Rookie Signatures Checklist','1 | Gamma Player','2 | Delta Player'].join('\n'));
           if (separated.errors.length || separated.cards.length !== 4) throw new Error(`Named section scoping regression: ${JSON.stringify(separated)}`);
           const names = new Set(separated.cards.map((card) => card.setName));
           if (!names.has('Base Set') || !names.has('Rookie Signatures')) throw new Error(`Workbook section names were not preserved: ${JSON.stringify([...names])}`);
-          const conflict = parseChecklist({ minimumCardRows: 1 }, ['## Base Set','1 | Alpha Player','1 | Gamma Player'].join('\n'));
+          const conflict = parseChecklist({ minimumCardRows: 1 }, ['## Base Checklist','1 | Alpha Player','1 | Gamma Player'].join('\n'));
           if (!conflict.errors.some((issue) => issue.code === 'reference_card_number_subject_conflict')) throw new Error('Same-section subject conflict guard was weakened.');
           NODE
       - name: Resolve protected Production environment
