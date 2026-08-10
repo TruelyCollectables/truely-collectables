@@ -1,0 +1,32 @@
+name: Deal Hunter Price Insights Intake
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-price-insights-capture.ts'
+      - 'src/app/api/admin/market-intel/deal-hunter/price-insights/route.ts'
+      - 'src/app/admin/market-intel/deal-hunter/price-insights/page.tsx'
+      - 'scripts/verify-deal-hunter-price-insights-intake.ts'
+      - '.github/workflows/deal-hunter-price-insights-intake.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Candidate-bound Price Insights regression
+        run: npx tsx scripts/verify-deal-hunter-price-insights-intake.ts
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
