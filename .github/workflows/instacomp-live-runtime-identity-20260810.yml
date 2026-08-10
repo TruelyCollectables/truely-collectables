@@ -1,0 +1,37 @@
+name: InstaComp Live Runtime Identity 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-live-runtime-identity-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read physical Mac runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/instacomp-live-runtime-identity-20260810
+          out=evidence/instacomp-live-runtime-identity-20260810/runtime-identity.json
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' https://instacomp.truelycollectables.com/v1/runtime-identity)"
+          test "$code" = "200"
+          python3 - "$out" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1],encoding='utf-8'))
+          print(json.dumps(data,indent=2,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: instacomp-live-runtime-identity-20260810
+          path: evidence/instacomp-live-runtime-identity-20260810
+          retention-days: 30
