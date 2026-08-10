@@ -1,0 +1,55 @@
+name: Ops Deploy Price Insights Intake 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-deploy-price-insights-intake-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  REQUIRED_FIX: 0221a4b8214c1564a1d35dcfa53a4a45539f66ff
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  SITE_URL: https://truelycollectables.com
+
+jobs:
+  deploy-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Lock exact current main containing Price Insights intake
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$REQUIRED_FIX" origin/main
+          git checkout --detach origin/main
+          echo "DEPLOYED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          test -f src/app/admin/market-intel/deal-hunter/price-insights/page.tsx
+          test -f src/app/api/admin/market-intel/deal-hunter/price-insights/route.ts
+          node --import tsx scripts/verify-deal-hunter-price-insights-intake.ts
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee deploy.log
+          grep -Fq 'https://' deploy.log
+      - name: Smoke Price Insights admin route exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 45 "$SITE_URL/admin/market-intel/deal-hunter/price-insights" || true)"
+          echo "PRICE_INSIGHTS_ADMIN_HTTP=$code"
+          case "$code" in
+            200|301|302|303|307|308|401|403) ;;
+            *) echo "Unexpected admin-route status: $code" >&2; exit 1 ;;
+          esac
+          echo "PRICE_INSIGHTS_INTAKE_PRODUCTION_PROOF={\"deployedSha\":\"$DEPLOYED_SHA\",\"adminHttp\":$code,\"status\":\"ready_for_real_sold_row\"}"
