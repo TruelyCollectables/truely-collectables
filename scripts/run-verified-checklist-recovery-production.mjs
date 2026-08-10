@@ -240,7 +240,8 @@ function needsCapture(entry, source, selected, error) {
   const host = (() => {
     try { return new URL(source.url).hostname.toLowerCase(); } catch { return ""; }
   })();
-  if (!host.endsWith("beckett.com")) return false;
+  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");
+  if (!browserCaptureHost) return false;
   if (error) return true;
   const parserErrors = selected?.parsed?.errors?.filter((issue) => issue.severity === "error") || [];
   return selectedYearMismatch(entry, selected)
