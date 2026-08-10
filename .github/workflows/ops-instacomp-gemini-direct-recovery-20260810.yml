@@ -1,0 +1,141 @@
+name: Ops InstaComp Gemini Direct Recovery 20260810
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/ops-instacomp-gemini-direct-recovery-20260810.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT: truely-collectables
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pull Production env securely
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@latest env pull /tmp/truely-production.env --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s /tmp/truely-production.env
+
+      - name: Directly test existing Gemini credential and search-capable models
+        id: gemini
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/truely-production.env
+          set +a
+          export GEMINI_TEST_KEY="${GEMINI_API_KEY:-${GOOGLE_GEMINI_API_KEY:-}}"
+          test -n "$GEMINI_TEST_KEY"
+          node - <<'NODE'
+          const fs = require('fs');
+          const key = process.env.GEMINI_TEST_KEY;
+          const configured = String(process.env.INSTACOMP_TEACHER_GEMINI_MODEL || 'gemini-3.6-flash').trim();
+          const candidates = [...new Set([
+            configured,
+            'gemini-3.6-flash',
+            'gemini-3-flash-preview',
+            'gemini-2.5-flash-lite',
+            'gemini-2.5-flash',
+            'gemini-2.0-flash',
+          ].filter(Boolean))];
+          function safeError(payload) {
+            const e = payload && typeof payload === 'object' ? payload.error || {} : {};
+            return {
+              code: Number(e.code || 0) || null,
+              status: String(e.status || '').slice(0,80) || null,
+              message: String(e.message || '').replace(/AIza[0-9A-Za-z_-]+/g,'[redacted-key]').replace(/\s+/g,' ').slice(0,350) || null,
+            };
+          }
+          async function call(model, useSearch) {
+            const body = {
+              contents: [{role:'user',parts:[{text: useSearch
+                ? 'Use Google Search once. Return JSON only with exactly {"ok":true}. This is a connectivity test.'
+                : 'Return JSON only with exactly {"ok":true}. This is a connectivity test.'}]}],
+              generationConfig: {temperature:0,responseMimeType:'application/json'},
+            };
+            if (useSearch) body.tools = [{google_search:{}}];
+            try {
+              const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+                method:'POST',
+                headers:{'Content-Type':'application/json','x-goog-api-key':key},
+                body:JSON.stringify(body),
+                signal:AbortSignal.timeout(30000),
+              });
+              const p = await r.json().catch(() => ({}));
+              const text=(p?.candidates?.[0]?.content?.parts||[]).map(x=>x?.text||'').join('\n').trim();
+              return {model,mode:useSearch?'search':'plain',http:r.status,ok:r.ok&&Boolean(text),error:r.ok?null:safeError(p)};
+            } catch (error) {
+              return {model,mode:useSearch?'search':'plain',http:0,ok:false,error:{code:null,status:'NETWORK_OR_TIMEOUT',message:String(error?.message||error).slice(0,350)}};
+            }
+          }
+          async function main(){
+            console.log('GEMINI_KEY_PRESENCE=' + JSON.stringify({GEMINI_API_KEY:Boolean(String(process.env.GEMINI_API_KEY||'').trim()),GOOGLE_GEMINI_API_KEY:Boolean(String(process.env.GOOGLE_GEMINI_API_KEY||'').trim()),configuredTeacherModel:configured}));
+            try {
+              const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models',{headers:{'x-goog-api-key':key},signal:AbortSignal.timeout(20000)});
+              const p=await r.json().catch(()=>({}));
+              console.log('GEMINI_MODEL_LIST_DIAGNOSTIC='+JSON.stringify({http:r.status,ok:r.ok,error:r.ok?null:safeError(p),modelCount:Array.isArray(p.models)?p.models.length:0}));
+            } catch(error) {
+              console.log('GEMINI_MODEL_LIST_DIAGNOSTIC='+JSON.stringify({http:0,ok:false,error:{status:'NETWORK_OR_TIMEOUT',message:String(error?.message||error).slice(0,350)}}));
+            }
+            const attempts=[];
+            let chosen='';
+            for(const model of candidates){
+              const plain=await call(model,false); attempts.push(plain);
+              if(!plain.ok) continue;
+              const search=await call(model,true); attempts.push(search);
+              if(search.ok){chosen=model;break;}
+            }
+            console.log('GEMINI_DIRECT_ATTEMPTS='+JSON.stringify(attempts));
+            console.log('GEMINI_SEARCH_CAPABLE_CHOSEN='+JSON.stringify(chosen||null));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `chosen=${chosen}\n`);
+          }
+          main().catch(error=>{console.error(String(error?.message||error));process.exit(1)});
+          NODE
+
+      - name: Activate proven Gemini teacher model in Production
+        if: steps.gemini.outputs.chosen != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHOSEN_MODEL='${{ steps.gemini.outputs.chosen }}'
+          printf '%s' "$CHOSEN_MODEL" | npx --yes vercel@latest env add INSTACOMP_TEACHER_GEMINI_MODEL production --force --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch --no-tags origin main
+          CURRENT_MAIN="$(git rev-parse origin/main)"
+          git checkout --detach origin/main
+          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/tmp/vercel-deploy.log
+          echo "GEMINI_RECOVERY_DEPLOYED_MAIN=$CURRENT_MAIN"
+          echo "GEMINI_RECOVERY_MODEL=$CHOSEN_MODEL"
+
+      - name: Verify Production teacher runtime
+        if: steps.gemini.outputs.chosen != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > /tmp/runtime.json 2>/dev/null; then
+              if node - <<'NODE'
+              const p=require('/tmp/runtime.json'); const c=p.configuration||{};
+              console.log('POST_RECOVERY_CONFIGURATION='+JSON.stringify({geminiConfigured:Boolean(c.geminiConfigured),groqConfigured:Boolean(c.groqConfigured),votingTeacherCount:Number(c.votingTeacherCount||0),requiredVotes:Number(c.requiredVotes||0),teacherConsensusOperational:Boolean(c.teacherConsensusOperational),onlineCompLearnMode:Boolean(c.onlineCompLearnMode)}));
+              if(!p.success||!c.geminiConfigured||!c.groqConfigured||!c.teacherConsensusOperational)process.exit(1);
+              NODE
+              then exit 0; fi
+            fi
+            sleep 3
+          done
+          exit 1
