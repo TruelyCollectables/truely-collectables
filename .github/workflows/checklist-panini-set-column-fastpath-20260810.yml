@@ -1,0 +1,123 @@
+name: Checklist Panini Set Column Fastpath 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/checklist-panini-set-column-fastpath-20260810.yml"
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_MAIN: 370f3eb178a22cf66c1240c82ffc05a84511040a
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  CHECKLIST_RECOVERY_BATCH_SIZE: "15"
+  CHECKLIST_RECOVERY_BATCH_INDEX: "4"
+  CHECKLIST_RECOVERY_WORKERS: "2"
+  CHECKLIST_RECOVERY_APPLY: "true"
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_MAIN }}
+          fetch-depth: 0
+      - name: Prove exact current main
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN"
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install extraction dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python3 -m pip install --user --quiet openpyxl xlrd
+      - name: Patch direct-file capture and explicit set-column rows
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          r=Path('scripts/run-verified-checklist-recovery-production.mjs')
+          t=r.read_text('utf-8')
+          a='  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'
+          b='  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'
+          if a not in t: raise SystemExit('capture anchor missing')
+          r.write_text(t.replace(a,b,1),'utf-8')
+          p=Path('scripts/mainstream-checklist/source-tools.mjs')
+          t=p.read_text('utf-8').replace('import sys\npath, mime = sys.argv[1], sys.argv[2]','import sys, re\npath, mime = sys.argv[1], sys.argv[2]',1)
+          old="""            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if vals: rows.append(' | '.join(vals))"""
+          new="""            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]\n            if not vals: continue\n            def cardish(v): return bool(re.match(r'^(?:#\\s*)?(?:\\d{1,4}[A-Za-z]?|[A-Z]{1,10}-?[A-Z0-9]{1,16}|NNO|NO#)$', v, re.I))\n            headers={'set','set name','subset','no','no.','#','card no','card no.','card number','player','players','team','teams'}\n            first=vals[0]; first_norm=first.lower().rstrip(':').strip()\n            if len(vals)>=3 and not cardish(first) and cardish(vals[1]) and first_norm not in headers:\n                rows.append('## '+first)\n                rows.append(' | '.join(vals[1:]))\n                continue\n            sectionish=len(vals)<=3 and not any(cardish(v) for v in vals[:3]) and re.search(r'\\b(?:checklist|base(?: set| rookies?)?|rookies?|autographs?|signatures?|inserts?|relics?|memorabilia|parallels?|variations?|short prints?|prospects?)\\b',' '.join(vals),re.I)\n            rows.append(('## '+' — '.join(vals)) if sectionish and first_norm not in headers else ' | '.join(vals))"""
+          if t.count(old)!=1: raise SystemExit(f'xlsx anchor count={t.count(old)}')
+          p.write_text(t.replace(old,new,1),'utf-8')
+      - name: Prove conflict boundary
+        run: |
+          node --import tsx --input-type=module <<'NODE'
+          import { parseChecklist } from './scripts/mainstream-checklist/source-tools.mjs';
+          const ok=parseChecklist({minimumCardRows:4},['## Spotlight Signatures Royal - Vertical','1 | Alpha Player','2 | Beta Player','## Spotlight Signatures Citrine - Vertical','1 | Gamma Player','2 | Delta Player'].join('\n'));
+          if(ok.errors.length||ok.cards.length!==4) throw new Error(JSON.stringify(ok));
+          const bad=parseChecklist({minimumCardRows:1},['## Base Checklist','1 | Alpha Player','1 | Gamma Player'].join('\n'));
+          if(!bad.errors.some(x=>x.code==='reference_card_number_subject_conflict')) throw new Error('conflict guard weakened');
+          NODE
+      - name: Resolve Production environment
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/verified-checklist-recovery"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json; else npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null; fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/verified-checklist-recovery/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_PATH=$RUNNER_TEMP/verified-checklist-recovery/production.env" >> "$GITHUB_ENV"
+      - name: Resolve Supabase service role
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          project_ref="$(node -e 'const u=new URL(process.argv[1]);process.stdout.write(u.hostname.split(".")[0])' "$NEXT_PUBLIC_SUPABASE_URL")"
+          keys="$RUNNER_TEMP/verified-checklist-recovery/api-keys.json"
+          curl --silent --show-error --fail -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" -o "$keys" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
+          test -n "$key"; echo "::add-mask::$key"; echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$key" >> "$GITHUB_ENV"
+      - name: Apply Batch 4 to Production
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          log="$RUNNER_TEMP/batch4.log"
+          for attempt in 1 2 3 4; do
+            set +e; node --import tsx scripts/run-verified-checklist-recovery-production.mjs 2>&1 | tee "$log"; s=${PIPESTATUS[0]}; set -e
+            [ "$s" -eq 0 ] && break
+            grep -Eiq 'Cloudflare|HTTP (520|521|522|523|524|5[0-9][0-9])|ECONNRESET|ETIMEDOUT|fetch failed|network.*error|socket hang up|schema cache.*retry|Could not query the database for the schema cache' "$log" || exit "$s"
+            [ "$attempt" -eq 4 ] && exit "$s"
+            sleep $((attempt*10))
+          done
+      - name: Require Batch 4 receipt
+        run: |
+          set -euo pipefail
+          f=evidence/verified-checklist-recovery/batch-4-receipt.json
+          test -s "$f"
+          node - "$f" <<'NODE'
+          const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if(r.mode!=='apply') throw new Error('not apply');
+          const bad=(r.results||[]).filter(x=>['imported','already_live'].includes(x.status)&&Number(x.counts?.cards||0)<25);if(bad.length)throw new Error('sub25 escaped');
+          console.log(JSON.stringify({statuses:r.statuses,normalizedTotals:r.normalizedTotals,results:(r.results||[]).map(x=>({targetKey:x.targetKey,status:x.status,counts:x.counts}))},null,2));
+          NODE
+      - name: Upload Batch 4 receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-panini-set-column-fastpath-batch-4
+          path: evidence/verified-checklist-recovery/
+          retention-days: 90
+      - name: Cleanup
+        if: always()
+        run: rm -f "$RUNNER_TEMP/verified-checklist-recovery/production.env" "$RUNNER_TEMP/verified-checklist-recovery/api-keys.json" .env.local .env.production.local
