@@ -65,17 +65,25 @@ function normalizedPlayer(value: unknown) {
 
 function normalizedParallel(value: unknown) {
   const normalized = normalizedText(value);
-  if (!normalized || normalized === "base") return "";
+  if (!normalized) return "";
+  if (
+    ["base", "base card", "none", "null", "standard", "regular"].includes(
+      normalized,
+    )
+  ) {
+    return "base";
+  }
 
   // Prizm/Prizms is a catalog spelling token, not the surface name itself.
   // Remove only that token so harmless word-order differences can match, while
   // Ice, Cracked Ice, Silver, White Seismic, Blue Velocity, Flash, etc. stay
   // separate. Never collapse distinct physical finishes into generic Ice.
-  return normalized
+  const withoutPrizm = normalized
     .split(" ")
     .filter((token) => token !== "prizm" && token !== "prizms")
     .join(" ")
     .trim();
+  return withoutPrizm || "base";
 }
 
 function normalizedSetName(value: unknown) {
@@ -147,9 +155,11 @@ function optionalTextMatches(input: unknown, candidate: unknown) {
 }
 
 function optionalParallelMatches(input: unknown, candidate: unknown) {
-  const target = normalizedParallel(input);
-  const candidateValue = normalizedParallel(candidate);
-  return !target || target === candidateValue;
+  // Omitted parallel means unknown and must not filter. Explicit Base is real
+  // evidence and must match only the canonical Base candidate; do not erase it
+  // into the same empty value used for missing input.
+  if (!normalizedText(input)) return true;
+  return normalizedParallel(input) === normalizedParallel(candidate);
 }
 
 function uniqueCompleteCandidateValue(
