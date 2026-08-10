@@ -1,0 +1,46 @@
+name: Ops Read Ivan Trusted Market Memory 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-read-ivan-trusted-memory-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  SITE_URL: https://truelycollectables.com
+
+jobs:
+  read:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Read Ivan Demidov trusted market-memory status
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          curl -fsS --max-time 90 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-demidov-status" > ivan.json
+          node - <<'NODE'
+          const p=require('./ivan.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const candidates=Array.isArray(p.candidates)?p.candidates:[];
+          const trusted=candidates.filter(c=>c.trustedHistory?.registryIdentityId);
+          const compact={
+            ivanCandidateCount:Number(p.ivanCandidateCount||candidates.length||0),
+            trustedIvanHistoryCount:Number(p.trustedIvanHistoryCount||trusted.length||0),
+            trusted:trusted.slice(0,20).map(c=>({
+              title:c.title,
+              listingItemId:c.listingItemId,
+              status:c.status,
+              dealLabel:c.dealLabel,
+              identity:c.identity,
+              trustedHistory:c.trustedHistory
+            })),
+            checkedAt:p.checkedAt||null
+          };
+          console.log('IVAN_TRUSTED_MEMORY='+JSON.stringify(compact));
+          NODE
