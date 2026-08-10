@@ -61,8 +61,8 @@ function objectValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function compactIdentity(example: Record<string, unknown> | undefined) {
-  const identity = objectValue(example?.confirmed_identity);
+function compactIdentityValue(identityValue: unknown) {
+  const identity = objectValue(identityValue);
   return identity ? {
     player: identity.player || null,
     year: identity.year || null,
@@ -73,6 +73,10 @@ function compactIdentity(example: Record<string, unknown> | undefined) {
     card_number: identity.card_number || null,
     parallel: identity.parallel || null,
   } : null;
+}
+
+function compactIdentity(example: Record<string, unknown> | undefined) {
+  return compactIdentityValue(example?.confirmed_identity);
 }
 
 function compactMemorySearchBody(body: Awaited<ReturnType<typeof readBody>>) {
@@ -86,24 +90,49 @@ function compactMemorySearchBody(body: Awaited<ReturnType<typeof readBody>>) {
       match_count: matches.length,
       first_match: matches.length ? (() => {
         const match = objectValue(matches[0]);
-        const identity = objectValue(match?.identity);
         return {
           score: match?.score || null,
           verification_state: match?.verification_state || null,
           verification_source: match?.verification_source || null,
-          identity: identity ? {
-            player: identity.player || null,
-            year: identity.year || null,
-            manufacturer: identity.manufacturer || null,
-            brand: identity.brand || null,
-            set_name: identity.set_name || null,
-            card_number: identity.card_number || null,
-            parallel: identity.parallel || null,
-          } : null,
+          identity: compactIdentityValue(match?.identity),
         };
       })() : null,
     },
   };
+}
+
+function compactAnalyzeBody(body: Awaited<ReturnType<typeof readBody>>) {
+  if (body.kind !== "json") return body;
+  const value = objectValue(body.value);
+  const checklist = objectValue(value?.checklist);
+  const localVision = objectValue(value?.local_vision);
+  const identityHints = objectValue(localVision?.identity_hints);
+  return {
+    kind: "json" as const,
+    value: {
+      schema_version: value?.schema_version || null,
+      status: value?.status || null,
+      match_source: value?.match_source || null,
+      pricing_allowed: value?.pricing_allowed ?? null,
+      learning_allowed: value?.learning_allowed ?? null,
+      trusted_identity: compactIdentityValue(value?.trusted_identity),
+      checklist: checklist ? {
+        outcome: checklist.outcome || null,
+        identity_id: checklist.identity_id || null,
+        source_receipts: Array.isArray(checklist.source_receipts) ? checklist.source_receipts : [],
+      } : null,
+      local_vision_present: Boolean(localVision),
+      apple_vision_available: localVision?.apple_vision_available ?? null,
+      opencv_available: localVision?.opencv_available ?? null,
+      local_identity_hints: identityHints ? compactIdentityValue(identityHints) : null,
+      local_suggestion_present: Boolean(value?.local_suggestion),
+      next_action: typeof value?.next_action === "string" ? boundedText(value.next_action, 700) : null,
+    },
+  };
+}
+
+function normalized(value: unknown) {
+  return String(value || "").trim().toLowerCase();
 }
 
 export async function POST(request: Request) {
@@ -138,6 +167,7 @@ export async function POST(request: Request) {
     });
     const examplesRaw = await examplesRes.json().catch(() => null) as null | { examples?: unknown[]; count?: number };
     const examples = Array.isArray(examplesRaw?.examples) ? examplesRaw.examples : [];
+    const examplesBefore = Number(examplesRaw?.count || examples.length || 0);
     const rawHashExample = examples.find((row) => {
       const item = objectValue(row);
       return item?.front_sha256 === SONIA_RAW_FRONT_SHA256 && item?.back_sha256 === SONIA_RAW_BACK_SHA256;
@@ -159,6 +189,91 @@ export async function POST(request: Request) {
     const memorySearchBody = await readBody(memorySearchRes);
     const memorySearchDurationMs = Date.now() - memorySearchStartedAt;
 
+    const trustedCandidates = examples.filter((row) => {
+      const item = objectValue(row);
+      const identity = objectValue(item?.confirmed_identity);
+      return Boolean(
+        item?.scan_id &&
+        item?.front_sha256 &&
+        item?.back_sha256 &&
+        item?.registry_identity_id &&
+        item?.registry_fingerprint_sha256 &&
+        normalized(identity?.player) === "sonia citron" &&
+        normalized(identity?.card_number) === "122",
+      );
+    }).slice(0, 25) as Record<string, unknown>[];
+
+    let trustedControl: Record<string, unknown> = {
+      purpose: "exact_trusted_memory_then_live_registry_then_fresh_local_vision_before_reader",
+      source_found: false,
+      candidate_count: trustedCandidates.length,
+      mutation_contract: "expected_scan_event_only_no_new_lesson_no_inventory_publication",
+    };
+
+    for (const candidate of trustedCandidates) {
+      const scanId = String(candidate.scan_id || "").trim();
+      if (!scanId) continue;
+      const encodedScanId = encodeURIComponent(scanId);
+      const [sourceFrontRes, sourceBackRes] = await Promise.all([
+        fetch(`${localUrl}/v1/scans/${encodedScanId}/images/front`, {
+          headers: authHeaders,
+          cache: "no-store",
+          signal: AbortSignal.timeout(90_000),
+        }),
+        fetch(`${localUrl}/v1/scans/${encodedScanId}/images/back`, {
+          headers: authHeaders,
+          cache: "no-store",
+          signal: AbortSignal.timeout(90_000),
+        }),
+      ]);
+      if (!sourceFrontRes.ok || !sourceBackRes.ok) continue;
+
+      const [sourceFrontBytes, sourceBackBytes] = await Promise.all([
+        sourceFrontRes.arrayBuffer(),
+        sourceBackRes.arrayBuffer(),
+      ]);
+      const controlStartedAt = Date.now();
+      const controlRes = await fetch(`${localUrl}/v1/scans/analyze`, {
+        method: "POST",
+        headers: authHeaders,
+        body: imageForm(sourceFrontBytes, sourceBackBytes),
+        cache: "no-store",
+        signal: AbortSignal.timeout(240_000),
+      });
+      const controlBody = await readBody(controlRes);
+      trustedControl = {
+        purpose: "exact_trusted_memory_then_live_registry_then_fresh_local_vision_before_reader",
+        source_found: true,
+        candidate_count: trustedCandidates.length,
+        source_training_example_id: candidate.training_example_id || null,
+        source_scan_id: scanId,
+        source_card_uuid_present: Boolean(candidate.card_uuid),
+        source_registry_identity_id_present: Boolean(candidate.registry_identity_id),
+        source_registry_fingerprint_present: Boolean(candidate.registry_fingerprint_sha256),
+        source_identity: compactIdentity(candidate),
+        archived_front_http_status: sourceFrontRes.status,
+        archived_back_http_status: sourceBackRes.status,
+        analyze_http_status: controlRes.status,
+        analyze_http_ok: controlRes.ok,
+        analyze_duration_ms: Date.now() - controlStartedAt,
+        analyze_body: compactAnalyzeBody(controlBody),
+        mutation_contract: "expected_scan_event_only_no_new_lesson_no_inventory_publication",
+      };
+      break;
+    }
+
+    const examplesAfterRes = await fetch(`${localUrl}/v1/training/examples?trusted_only=true&limit=5000`, {
+      headers: authHeaders,
+      cache: "no-store",
+      signal: AbortSignal.timeout(90_000),
+    });
+    const examplesAfterRaw = await examplesAfterRes.json().catch(() => null) as null | { examples?: unknown[]; count?: number };
+    const examplesAfterList = Array.isArray(examplesAfterRaw?.examples) ? examplesAfterRaw.examples : [];
+    const examplesAfter = Number(examplesAfterRaw?.count || examplesAfterList.length || 0);
+    trustedControl.trusted_example_count_before = examplesBefore;
+    trustedControl.trusted_example_count_after = examplesAfter;
+    trustedControl.no_new_trusted_lesson = examplesBefore === examplesAfter;
+
     const analyzeStartedAt = Date.now();
     const analyzeRes = await fetch(`${localUrl}/v1/scans/analyze`, {
       method: "POST",
@@ -172,12 +287,12 @@ export async function POST(request: Request) {
 
     return response({
       ok: true,
-      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v3",
+      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v4",
       exact_frozen_raw_hashes_expected: true,
       trusted_training_readback: {
         http_status: examplesRes.status,
         http_ok: examplesRes.ok,
-        total_trusted_examples: Number(examplesRaw?.count || examples.length || 0),
+        total_trusted_examples: examplesBefore,
         raw_artifact_hash_pair_present: Boolean(rawHashExample),
         normalized_hashes_from_prior_proven_archive_stage: {
           front_sha256: SONIA_NORMALIZED_FRONT_SHA256,
@@ -195,6 +310,7 @@ export async function POST(request: Request) {
         body: compactMemorySearchBody(memorySearchBody),
         mutation: false,
       },
+      trusted_memory_fresh_vision_control: trustedControl,
       full_analyze_stage: {
         http_status: analyzeRes.status,
         http_ok: analyzeRes.ok,
@@ -207,7 +323,7 @@ export async function POST(request: Request) {
       frozen_truth_changed: false,
       local_url_exposed: false,
       local_key_exposed: false,
-      diagnostic_local_mutation: "none from the lesson-search control; the failing frozen analyze remains unchanged and does not publish inventory",
+      diagnostic_local_mutation: "trusted-memory control may create one rescan event only; trusted-example count is compared before/after; no inventory publication; failing frozen analyze remains unchanged",
       nothing_published: true,
     });
   } catch (error) {
