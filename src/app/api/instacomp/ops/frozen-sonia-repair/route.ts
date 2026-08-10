@@ -13,6 +13,8 @@ const EXPECTED_NORMALIZED_BACK_SHA256 = "5feb7d055f8ba36c6b8f6e8ad9622d1587d1267
 const EXPECTED_REGISTRY_ID = "2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f";
 const EXPECTED_REGISTRY_FINGERPRINT = "4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59";
 
+type MacStage = "training_readback" | "supervised_archive" | "create_lesson" | "analyze";
+
 function json(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
     status,
@@ -44,7 +46,7 @@ function macConfig() {
   return { url, key };
 }
 
-async function macJson(path: string, init: RequestInit, timeoutMs: number) {
+async function macJson(stage: MacStage, path: string, init: RequestInit, timeoutMs: number) {
   const { url, key } = macConfig();
   const headers = new Headers(init.headers);
   headers.set("X-InstaComp-AI-Key", key);
@@ -63,13 +65,26 @@ async function macJson(path: string, init: RequestInit, timeoutMs: number) {
     payload = { parseError: true };
   }
   if (!response.ok) {
-    throw new Error(`MAC_HTTP_${response.status}:${String(payload?.detail || payload?.error || "request failed").slice(0, 180)}`);
+    const detail = String(payload?.detail || payload?.error || "request failed").slice(0, 180);
+    throw new Error(`STAGE_${stage.toUpperCase()}_MAC_HTTP_${response.status}:${detail}`);
   }
   return payload;
 }
 
 function sha256(bytes: Buffer) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function exactBaseExample(example: any) {
+  const identity = example?.confirmed_identity;
+  return (
+    String(example?.front_sha256 || "") === EXPECTED_NORMALIZED_FRONT_SHA256 &&
+    String(example?.back_sha256 || "") === EXPECTED_NORMALIZED_BACK_SHA256 &&
+    example?.trusted === true &&
+    identity?.player === "Sonia Citron" &&
+    String(identity?.card_number || "") === "122" &&
+    identity?.parallel === "Base"
+  );
 }
 
 export async function POST(request: Request) {
@@ -90,77 +105,114 @@ export async function POST(request: Request) {
       return json({ ok: false, code: "FROZEN_IMAGE_HASH_MISMATCH" }, 409);
     }
 
-    const archiveForm = new FormData();
-    archiveForm.append("front", new File([frontBytes], "front.jpg", { type: "image/jpeg" }));
-    archiveForm.append("back", new File([backBytes], "back.jpg", { type: "image/jpeg" }));
-    const archive = await macJson(
-      "/v1/scans/supervised-archive",
-      { method: "POST", body: archiveForm },
-      90_000,
-    );
-    if (
-      archive.identity_created !== false ||
-      archive.nothing_published !== true ||
-      String(archive.front_sha256 || "") !== EXPECTED_NORMALIZED_FRONT_SHA256 ||
-      String(archive.back_sha256 || "") !== EXPECTED_NORMALIZED_BACK_SHA256 ||
-      !String(archive.scan_id || "").trim()
-    ) {
-      throw new Error("SUPERVISED_ARCHIVE_BOUNDARY_REJECTED");
-    }
-
-    const lessonRequest = {
-      scan_id: archive.scan_id,
-      state: "operator_confirmed",
-      identity: {
-        sport: "Basketball",
-        year: "2025",
-        manufacturer: "Panini",
-        brand: "Prizm",
-        set_name: "Base",
-        player: "Sonia Citron",
-        team: "Washington Mystics",
-        card_number: "122",
-        parallel: "Base",
-        autograph: false,
-        memorabilia: false,
-      },
-      verification_source: `frozen_acceptance_v8_registry:${EXPECTED_REGISTRY_ID}`,
-      operator_id: "tcos_frozen_truth_repair_20260810",
-      notes: `Corrected exact frozen-image trusted memory after Production Registry locked canonical Base UUID ${EXPECTED_REGISTRY_ID} fingerprint ${EXPECTED_REGISTRY_FINGERPRINT}. No inventory, pricing, or publishing mutation.`,
-      rejected_identity: {
-        year: "2025",
-        manufacturer: "Panini",
-        brand: "Panini Prizm WNBA",
-        set_name: "Base",
-        player: "Sonia Citron",
-        card_number: "122",
-        parallel: "Orange Cracked Ice Prizm",
-      },
-    };
-    const lesson = await macJson(
-      "/v1/lessons",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(lessonRequest),
-      },
+    const readbackBefore = await macJson(
+      "training_readback",
+      "/v1/training/examples?trusted_only=true&limit=5000",
+      { method: "GET" },
       45_000,
     );
-    if (
-      lesson.trusted !== true ||
-      lesson.state !== "operator_confirmed" ||
-      lesson.scan_id !== archive.scan_id ||
-      lesson.identity?.player !== "Sonia Citron" ||
-      lesson.identity?.card_number !== "122" ||
-      lesson.identity?.parallel !== "Base"
-    ) {
-      throw new Error("CORRECTED_LESSON_REJECTED");
+    const beforeExamples = Array.isArray(readbackBefore?.examples) ? readbackBefore.examples : [];
+    let existingBase = beforeExamples.find(exactBaseExample) as any | undefined;
+    let correctionCreated = false;
+    let archive: any = null;
+    let lesson: any = existingBase
+      ? {
+          lesson_id: existingBase.lesson_id,
+          training_example_id: existingBase.training_example_id,
+          trusted: existingBase.trusted,
+          state: existingBase.state,
+          scan_id: existingBase.scan_id,
+          identity: existingBase.confirmed_identity,
+        }
+      : null;
+
+    if (!existingBase) {
+      const archiveForm = new FormData();
+      archiveForm.append("front", new File([frontBytes], "front.jpg", { type: "image/jpeg" }));
+      archiveForm.append("back", new File([backBytes], "back.jpg", { type: "image/jpeg" }));
+      archive = await macJson(
+        "supervised_archive",
+        "/v1/scans/supervised-archive",
+        { method: "POST", body: archiveForm },
+        90_000,
+      );
+      if (
+        archive.identity_created !== false ||
+        archive.nothing_published !== true ||
+        String(archive.front_sha256 || "") !== EXPECTED_NORMALIZED_FRONT_SHA256 ||
+        String(archive.back_sha256 || "") !== EXPECTED_NORMALIZED_BACK_SHA256 ||
+        !String(archive.scan_id || "").trim()
+      ) {
+        throw new Error("SUPERVISED_ARCHIVE_BOUNDARY_REJECTED");
+      }
+
+      const lessonRequest = {
+        scan_id: archive.scan_id,
+        state: "operator_confirmed",
+        identity: {
+          sport: "Basketball",
+          year: "2025",
+          manufacturer: "Panini",
+          brand: "Prizm",
+          set_name: "Base",
+          player: "Sonia Citron",
+          team: "Washington Mystics",
+          card_number: "122",
+          parallel: "Base",
+          autograph: false,
+          memorabilia: false,
+        },
+        verification_source: `frozen_acceptance_v8_registry:${EXPECTED_REGISTRY_ID}`,
+        operator_id: "tcos_frozen_truth_repair_20260810",
+        notes: `Corrected exact frozen-image trusted memory after Production Registry locked canonical Base UUID ${EXPECTED_REGISTRY_ID} fingerprint ${EXPECTED_REGISTRY_FINGERPRINT}. No inventory, pricing, or publishing mutation.`,
+        rejected_identity: {
+          year: "2025",
+          manufacturer: "Panini",
+          brand: "Panini Prizm WNBA",
+          set_name: "Base",
+          player: "Sonia Citron",
+          card_number: "122",
+          parallel: "Orange Cracked Ice Prizm",
+        },
+      };
+      lesson = await macJson(
+        "create_lesson",
+        "/v1/lessons",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(lessonRequest),
+        },
+        45_000,
+      );
+      correctionCreated = true;
+      if (
+        lesson.trusted !== true ||
+        lesson.state !== "operator_confirmed" ||
+        lesson.scan_id !== archive.scan_id ||
+        lesson.identity?.player !== "Sonia Citron" ||
+        lesson.identity?.card_number !== "122" ||
+        lesson.identity?.parallel !== "Base"
+      ) {
+        throw new Error("CORRECTED_LESSON_REJECTED");
+      }
+
+      const readbackAfter = await macJson(
+        "training_readback",
+        "/v1/training/examples?trusted_only=true&limit=5000",
+        { method: "GET" },
+        45_000,
+      );
+      const afterExamples = Array.isArray(readbackAfter?.examples) ? readbackAfter.examples : [];
+      existingBase = afterExamples.find(exactBaseExample);
+      if (!existingBase) throw new Error("CORRECTED_BASE_TRAINING_READBACK_MISSING");
     }
 
     const analyzeForm = new FormData();
     analyzeForm.append("front", new File([frontBytes], "front.jpg", { type: "image/jpeg" }));
     analyzeForm.append("back", new File([backBytes], "back.jpg", { type: "image/jpeg" }));
     const analyze = await macJson(
+      "analyze",
       "/v1/scans/analyze",
       { method: "POST", body: analyzeForm },
       210_000,
@@ -181,21 +233,25 @@ export async function POST(request: Request) {
 
     return json({
       ok: true,
-      schema: "tcos.instacomp.frozenSoniaRepair.v1",
+      schema: "tcos.instacomp.frozenSoniaRepair.v2",
       rawImageHashes: { front: frontHash, back: backHash },
       normalizedImageHashes: {
-        front: archive.front_sha256,
-        back: archive.back_sha256,
+        front: existingBase?.front_sha256 || archive?.front_sha256 || null,
+        back: existingBase?.back_sha256 || archive?.back_sha256 || null,
       },
       registry: {
         identityId: EXPECTED_REGISTRY_ID,
         fingerprintSha256: EXPECTED_REGISTRY_FINGERPRINT,
       },
+      correction: {
+        createdThisRun: correctionCreated,
+        exactBaseExamplePresentBeforeRun: !correctionCreated,
+      },
       lesson: {
-        lessonId: lesson.lesson_id,
-        trainingExampleId: lesson.training_example_id,
-        trusted: lesson.trusted,
-        state: lesson.state,
+        lessonId: lesson?.lesson_id || existingBase?.lesson_id || null,
+        trainingExampleId: lesson?.training_example_id || existingBase?.training_example_id || null,
+        trusted: lesson?.trusted ?? existingBase?.trusted ?? null,
+        state: lesson?.state || existingBase?.state || null,
       },
       analyze: {
         status: analyze.status,
@@ -214,11 +270,13 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
     const auth = message === "ACCEPTANCE_AUTH_REJECTED";
+    const stageMatch = message.match(/^STAGE_([A-Z_]+)_MAC_HTTP_/);
     return json(
       {
         ok: false,
         code: auth ? "ACCEPTANCE_AUTH_REJECTED" : "FROZEN_SONIA_REPAIR_FAILED",
-        error: auth ? "Acceptance authentication rejected." : message.slice(0, 220),
+        failedStage: stageMatch ? stageMatch[1].toLowerCase() : null,
+        error: auth ? "Acceptance authentication rejected." : message.slice(0, 260),
       },
       auth ? 401 : 500,
     );
