@@ -31,6 +31,7 @@ function requireAcceptanceToken(request: Request) {
   const expected = String(process.env.INSTACOMP_ACCEPTANCE_SERVICE_TOKEN || "").trim();
   const supplied = String(request.headers.get("x-tcos-instacomp-service-token") || "").trim();
   if (!expected || !exactSecretMatch(expected, supplied)) throw new Error("acceptance_token_rejected");
+  return supplied;
 }
 
 function boundedText(value: string, limit = 4000) {
@@ -68,9 +69,9 @@ function compactIdentityValue(identityValue: unknown) {
     year: identity.year || null,
     manufacturer: identity.manufacturer || null,
     brand: identity.brand || null,
-    set_name: identity.set_name || null,
+    set_name: identity.set_name || identity.setName || null,
     subset: identity.subset || null,
-    card_number: identity.card_number || null,
+    card_number: identity.card_number || identity.cardNumber || null,
     parallel: identity.parallel || null,
   } : null;
 }
@@ -131,13 +132,68 @@ function compactAnalyzeBody(body: Awaited<ReturnType<typeof readBody>>) {
   };
 }
 
+function compactRegistryBody(body: Awaited<ReturnType<typeof readBody>>) {
+  if (body.kind !== "json") return body;
+  const value = objectValue(body.value);
+  const locked = objectValue(value?.lockedFields);
+  return {
+    kind: "json" as const,
+    value: {
+      ok: value?.ok ?? null,
+      status: value?.status || null,
+      registry_identity_id_present: Boolean(value?.registryIdentityId || value?.identityId),
+      registry_fingerprint_present: Boolean(value?.registryFingerprintSha256 || value?.fingerprintSha256),
+      candidate_count: value?.candidateCount ?? null,
+      identification_path: value?.identificationPath || null,
+      locked_identity: compactIdentityValue(locked),
+      error: typeof value?.error === "string" ? boundedText(value.error, 700) : null,
+    },
+  };
+}
+
+async function registryControl(params: {
+  origin: string;
+  acceptanceToken: string;
+  label: string;
+  parallel: string | null;
+}) {
+  const startedAt = Date.now();
+  const res = await fetch(`${params.origin}/api/instacomp/checklist-lookup`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-tcos-instacomp-service-token": params.acceptanceToken,
+    },
+    body: JSON.stringify({
+      year: "2025",
+      manufacturer: "Panini",
+      brand: "Panini Prizm WNBA",
+      setName: "Base",
+      cardNumber: "122",
+      player: "Sonia Citron",
+      parallel: params.parallel,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(90_000),
+  });
+  const body = await readBody(res);
+  return {
+    label: params.label,
+    http_status: res.status,
+    http_ok: res.ok,
+    duration_ms: Date.now() - startedAt,
+    body: compactRegistryBody(body),
+    mutation: false,
+  };
+}
+
 function normalized(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
 export async function POST(request: Request) {
   try {
-    requireAcceptanceToken(request);
+    const acceptanceToken = requireAcceptanceToken(request);
     const localUrl = String(process.env.INSTACOMP_AI_LOCAL_URL || "").trim().replace(/\/+$/, "");
     const localKey = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
     if (!/^https:\/\//i.test(localUrl) || !localKey) {
@@ -159,6 +215,22 @@ export async function POST(request: Request) {
       back.arrayBuffer(),
     ]);
     const authHeaders = { "X-InstaComp-AI-Key": localKey };
+    const origin = new URL(request.url).origin;
+
+    const [registryBaseControl, registryParallelControl] = await Promise.all([
+      registryControl({
+        origin,
+        acceptanceToken,
+        label: "frozen_sonia_122_base",
+        parallel: null,
+      }),
+      registryControl({
+        origin,
+        acceptanceToken,
+        label: "trusted_sonia_122_orange_cracked_ice",
+        parallel: "Orange Cracked Ice Prizm",
+      }),
+    ]);
 
     const examplesRes = await fetch(`${localUrl}/v1/training/examples?trusted_only=true&limit=5000`, {
       headers: authHeaders,
@@ -189,91 +261,6 @@ export async function POST(request: Request) {
     const memorySearchBody = await readBody(memorySearchRes);
     const memorySearchDurationMs = Date.now() - memorySearchStartedAt;
 
-    const trustedCandidates = examples.filter((row) => {
-      const item = objectValue(row);
-      const identity = objectValue(item?.confirmed_identity);
-      return Boolean(
-        item?.trusted === true &&
-        item?.scan_id &&
-        item?.front_sha256 &&
-        item?.back_sha256 &&
-        normalized(identity?.player) === "sonia citron" &&
-        normalized(identity?.card_number) === "122",
-      );
-    }).slice(0, 25) as Record<string, unknown>[];
-
-    let trustedControl: Record<string, unknown> = {
-      purpose: "exact_trusted_memory_then_live_registry_then_fresh_local_vision_before_reader",
-      source_found: false,
-      candidate_count: trustedCandidates.length,
-      mutation_contract: "expected_scan_event_only_no_new_lesson_no_inventory_publication",
-    };
-
-    for (const candidate of trustedCandidates) {
-      const scanId = String(candidate.scan_id || "").trim();
-      if (!scanId) continue;
-      const encodedScanId = encodeURIComponent(scanId);
-      const [sourceFrontRes, sourceBackRes] = await Promise.all([
-        fetch(`${localUrl}/v1/scans/${encodedScanId}/images/front`, {
-          headers: authHeaders,
-          cache: "no-store",
-          signal: AbortSignal.timeout(90_000),
-        }),
-        fetch(`${localUrl}/v1/scans/${encodedScanId}/images/back`, {
-          headers: authHeaders,
-          cache: "no-store",
-          signal: AbortSignal.timeout(90_000),
-        }),
-      ]);
-      if (!sourceFrontRes.ok || !sourceBackRes.ok) continue;
-
-      const [sourceFrontBytes, sourceBackBytes] = await Promise.all([
-        sourceFrontRes.arrayBuffer(),
-        sourceBackRes.arrayBuffer(),
-      ]);
-      const controlStartedAt = Date.now();
-      const controlRes = await fetch(`${localUrl}/v1/scans/analyze`, {
-        method: "POST",
-        headers: authHeaders,
-        body: imageForm(sourceFrontBytes, sourceBackBytes),
-        cache: "no-store",
-        signal: AbortSignal.timeout(240_000),
-      });
-      const controlBody = await readBody(controlRes);
-      trustedControl = {
-        purpose: "exact_trusted_memory_then_live_registry_then_fresh_local_vision_before_reader",
-        source_found: true,
-        candidate_count: trustedCandidates.length,
-        source_training_example_id: candidate.training_example_id || null,
-        source_scan_id: scanId,
-        source_card_uuid_present: Boolean(candidate.card_uuid),
-        source_verification_source: candidate.verification_source || null,
-        source_registry_identity_id_present: Boolean(candidate.registry_identity_id),
-        source_registry_fingerprint_present: Boolean(candidate.registry_fingerprint_sha256),
-        source_identity: compactIdentity(candidate),
-        archived_front_http_status: sourceFrontRes.status,
-        archived_back_http_status: sourceBackRes.status,
-        analyze_http_status: controlRes.status,
-        analyze_http_ok: controlRes.ok,
-        analyze_duration_ms: Date.now() - controlStartedAt,
-        analyze_body: compactAnalyzeBody(controlBody),
-        mutation_contract: "expected_scan_event_only_no_new_lesson_no_inventory_publication",
-      };
-      break;
-    }
-
-    const examplesAfterRes = await fetch(`${localUrl}/v1/training/examples?trusted_only=true&limit=5000`, {
-      headers: authHeaders,
-      cache: "no-store",
-      signal: AbortSignal.timeout(90_000),
-    });
-    const examplesAfterRaw = await examplesAfterRes.json().catch(() => null) as null | { examples?: unknown[]; count?: number };
-    const examplesAfterList = Array.isArray(examplesAfterRaw?.examples) ? examplesAfterRaw.examples : [];
-    const examplesAfter = Number(examplesAfterRaw?.count || examplesAfterList.length || 0);
-    trustedControl.trusted_example_count_before = examplesBefore;
-    trustedControl.trusted_example_count_after = examplesAfter;
-    trustedControl.no_new_trusted_lesson = examplesBefore === examplesAfter;
-
     const analyzeStartedAt = Date.now();
     const analyzeRes = await fetch(`${localUrl}/v1/scans/analyze`, {
       method: "POST",
@@ -287,8 +274,13 @@ export async function POST(request: Request) {
 
     return response({
       ok: true,
-      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v5",
+      schema_version: "tcos.instacomp-ai.acceptance-mac-stage-isolation.v6",
       exact_frozen_raw_hashes_expected: true,
+      direct_registry_controls: {
+        purpose: "exercise_production_checklist_registry_without_mac_scan_or_lesson_mutation",
+        base: registryBaseControl,
+        named_parallel: registryParallelControl,
+      },
       trusted_training_readback: {
         http_status: examplesRes.status,
         http_ok: examplesRes.ok,
@@ -310,12 +302,11 @@ export async function POST(request: Request) {
         body: compactMemorySearchBody(memorySearchBody),
         mutation: false,
       },
-      trusted_memory_fresh_vision_control: trustedControl,
       full_analyze_stage: {
         http_status: analyzeRes.status,
         http_ok: analyzeRes.ok,
         duration_ms: analyzeDurationMs,
-        body: analyzeBody,
+        body: compactAnalyzeBody(analyzeBody),
       },
       local_source_changed: false,
       scanner_logic_changed: false,
@@ -323,7 +314,7 @@ export async function POST(request: Request) {
       frozen_truth_changed: false,
       local_url_exposed: false,
       local_key_exposed: false,
-      diagnostic_local_mutation: "trusted-memory control may create one rescan event only; trusted-example count is compared before/after; no inventory publication; failing frozen analyze remains unchanged",
+      diagnostic_local_mutation: "none beyond the unchanged failing frozen analyze scan attempt; Registry controls and lesson search are read-only; no lesson or inventory publication",
       nothing_published: true,
     });
   } catch (error) {
