@@ -48,6 +48,9 @@ def build_teacher_comp_training_example(row: dict[str, Any]) -> dict[str, Any]:
     accepted = receipt.get("acceptedSoldComps") or []
     discovery_sold = receipt.get("discoverySoldComps") or []
     discovery_active = receipt.get("discoveryActiveComps") or []
+    student_hypothesis = receipt.get("studentHypothesis")
+    if not isinstance(student_hypothesis, dict):
+        student_hypothesis = None
     if not isinstance(accepted, list):
         accepted = []
     if not isinstance(discovery_sold, list):
@@ -65,6 +68,7 @@ def build_teacher_comp_training_example(row: dict[str, Any]) -> dict[str, Any]:
             "canonical_identity": identity,
             "sold_candidates": discovery_sold[:100],
             "active_candidates": discovery_active[:100],
+            "student_pre_teacher_hypothesis": student_hypothesis,
         },
         "target": {
             "accepted_exact_sold_comps": accepted[:50],
@@ -93,6 +97,7 @@ def teacher_comp_training_readiness(rows: list[dict[str, Any]]) -> dict[str, Any
         "eligible_example_count": len(eligible),
         "ready_for_export": len(eligible) > 0,
         "student_mode": True,
+        "online_comp_learn_mode": True,
         "pricing_authority": False,
         "auto_promotion": False,
         "identity_training_separated": True,
@@ -148,6 +153,7 @@ def export_teacher_comp_training_dataset(
         "train_path": str(train_path),
         "validation_path": str(validation_path),
         "student_mode": True,
+        "online_comp_learn_mode": True,
         "pricing_authority": False,
         "auto_promotion": False,
         "identity_training_separated": True,

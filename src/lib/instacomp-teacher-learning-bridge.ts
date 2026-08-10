@@ -7,6 +7,7 @@ export type InstaCompTeacherReceipt = {
   registryIdentityId: string | null;
   registryFingerprintSha256: string | null;
   canonicalIdentity: Record<string, unknown>;
+  studentHypothesis?: Record<string, unknown> | null;
   teacherConsensus: {
     configuredTeachers: string[];
     requiredVotes: number;

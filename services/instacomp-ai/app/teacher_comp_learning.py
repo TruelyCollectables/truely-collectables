@@ -106,6 +106,30 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
         for field in ("player", "year", "brand", "setName", "cardNumber")
     )
 
+    student_hypothesis = body.get("studentHypothesis") or body.get("student_hypothesis")
+    if not isinstance(student_hypothesis, dict):
+        student_hypothesis = None
+    elif student_hypothesis:
+        student_hypothesis = {
+            "status": _text(student_hypothesis.get("status"), 40),
+            "studentMode": True,
+            "learnMode": True,
+            "pricingAuthority": False,
+            "marketTruth": False,
+            "model": _text(student_hypothesis.get("model"), 160) or None,
+            "trainingMemoryExamples": max(0, int(_number(student_hypothesis.get("trainingMemoryExamples")) or 0)),
+            "predictedMedian": _number(student_hypothesis.get("predictedMedian")),
+            "predictedLow": _number(student_hypothesis.get("predictedLow")),
+            "predictedHigh": _number(student_hypothesis.get("predictedHigh")),
+            "confidence": max(0.0, min(1.0, _number(student_hypothesis.get("confidence")) or 0.0)),
+            "rationale": _text(student_hypothesis.get("rationale"), 1800),
+            "uncertainty": [
+                _text(value, 300)
+                for value in (student_hypothesis.get("uncertainty") if isinstance(student_hypothesis.get("uncertainty"), list) else [])
+                if _text(value, 300)
+            ][:12],
+        }
+
     # Market truth can only become student training material when independent
     # teachers reached the vote threshold, a canonical Registry identity binds
     # the lesson to one exact card, and at least one pricing-eligible exact sold
@@ -127,6 +151,7 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
         "registryIdentityId": registry_identity_id,
         "registryFingerprintSha256": registry_fingerprint_sha256,
         "canonicalIdentity": canonical_identity,
+        "studentHypothesis": student_hypothesis,
         "teacherConsensus": {
             **consensus,
             "configuredTeachers": configured,
