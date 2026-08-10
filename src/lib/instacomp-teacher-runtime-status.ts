@@ -38,6 +38,9 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const anthropicConfigured = configured(env.ANTHROPIC_API_KEY);
   const xaiConfigured = configured(env.XAI_API_KEY);
   const groqConfigured = configured(env.GROQ_API_KEY);
+  // Compound and GPT-OSS browser search are two discovery lanes, but both are
+  // backed by the same Groq credential/provider family and therefore count as
+  // one independent trust vote.
   const groqBrowserConfigured = groqConfigured;
   const openRouterConfigured = configured(env.OPENROUTER_API_KEY);
   const cloudflareConfigured = Boolean(
@@ -55,7 +58,6 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     anthropicConfigured,
     xaiConfigured,
     groqConfigured,
-    groqBrowserConfigured,
   ].filter(Boolean).length;
   const requiredVotes = teacherRequiredVotes(votingTeacherCount);
   const macLearningBridgeConfigured = Boolean(
