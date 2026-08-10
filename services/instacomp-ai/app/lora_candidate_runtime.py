@@ -105,13 +105,27 @@ async def _analyze_candidate(
     return _candidate_response_to_suggestion(payload, local_vision=local_vision)
 
 
+def _fallback_with_candidate_receipt(
+    fallback: ModelSuggestion,
+    error: Exception,
+) -> ModelSuggestion:
+    """Return the established reader result without mutating it in place."""
+    raw = dict(fallback.raw)
+    raw["lora_candidate_fallback"] = True
+    raw["lora_candidate_error"] = _safe_error(error)
+    raw["lora_candidate_error_type"] = type(error).__name__[:80]
+    return fallback.model_copy(update={"raw": raw})
+
+
 def install_lora_candidate_runtime() -> None:
     """Put the validated LoRA candidate ahead of Ollama in the same evidence slot.
 
-    Disabled is the default. Candidate transport/parse failures fall back to the
-    exact pre-existing Ollama implementation. A successful candidate suggestion
-    never becomes identity authority here; main.py still performs the fresh
-    Registry UUID/fingerprint lock and otherwise fails closed.
+    Disabled is the default. Any ordinary candidate-side runtime failure falls
+    back to the exact pre-existing Ollama implementation. BaseException is not
+    caught, so cancellation, KeyboardInterrupt and process termination still
+    propagate normally. A successful candidate suggestion never becomes
+    identity authority here; main.py still performs the fresh Registry
+    UUID/fingerprint lock and otherwise fails closed.
     """
     from . import ollama as ollama_module
 
@@ -141,18 +155,18 @@ def install_lora_candidate_runtime() -> None:
                 back,
                 local_vision=local_vision,
             )
-        except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+        except Exception as exc:
+            # The candidate is evidence-only and must never turn an otherwise
+            # usable established reader path into an HTTP 500. Preserve the
+            # original fallback result and attach only a bounded diagnostic
+            # receipt. Identity still requires a fresh central Registry lock.
             fallback = await original_analyze(
                 self,
                 front,
                 back,
                 local_vision=local_vision,
             )
-            raw = dict(fallback.raw)
-            raw["lora_candidate_fallback"] = True
-            raw["lora_candidate_error"] = _safe_error(exc)
-            fallback.raw = raw
-            return fallback
+            return _fallback_with_candidate_receipt(fallback, exc)
 
     cls.analyze = analyze_with_candidate
     cls._instacomp_lora_candidate_installed = True
