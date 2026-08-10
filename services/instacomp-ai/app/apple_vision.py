@@ -56,26 +56,43 @@ class AppleVisionOCR:
         except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
             return [], [f"{side}:apple_vision_build_failed:{type(exc).__name__.lower()}"]
 
+        # Apple Vision is an optional OCR witness inside the local-vision layer.
+        # Any failure in its image preprocessing/helper/observation parsing must
+        # be preserved as bounded evidence instead of taking down the entire scan.
+        # OpenCV still runs independently in local_vision.py and remains required
+        # for the fresh visual witness used by trusted-memory acceptance.
+        try:
+            variants = self._variants(image_bytes)
+        except Exception as exc:
+            return [], [
+                f"{side}:apple_vision_preprocess_failed:{type(exc).__name__.lower()}"
+            ]
+
         observations: list[OCRObservation] = []
         errors: list[str] = []
-        for variant_name, variant_bytes in self._variants(image_bytes):
+        for variant_name, variant_bytes in variants:
             try:
                 values = self._run_variant(variant_bytes)
-            except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError) as exc:
+            except Exception as exc:
                 errors.append(
                     f"{side}:{variant_name}:apple_vision_failed:{type(exc).__name__.lower()}"
                 )
                 continue
             for value in values:
-                observation = OCRObservation(
-                    text=value.text,
-                    confidence=value.confidence,
-                    box=value.box,
-                    side=side,
-                    source=f"apple_vision:{variant_name}",
-                )
-                if not self._is_duplicate(observation, observations):
-                    observations.append(observation)
+                try:
+                    observation = OCRObservation(
+                        text=value.text,
+                        confidence=value.confidence,
+                        box=value.box,
+                        side=side,
+                        source=f"apple_vision:{variant_name}",
+                    )
+                    if not self._is_duplicate(observation, observations):
+                        observations.append(observation)
+                except Exception as exc:
+                    errors.append(
+                        f"{side}:{variant_name}:apple_vision_observation_failed:{type(exc).__name__.lower()}"
+                    )
 
         observations.sort(
             key=lambda value: (
