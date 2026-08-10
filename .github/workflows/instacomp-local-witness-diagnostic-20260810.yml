@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-local-witness-diagnostic-20260810.yml"
+      - "src/app/api/instacomp/ops/local-witness-diagnostic/route.ts"
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: instacomp-production-acceptance-global
@@ -17,94 +19,180 @@ env:
   PINNED_MAIN: 77f5c7ea77e8332133e6d6fea414e7821c1d3902
   EXPECTED_BRANCH: ops/instacomp-local-witness-diagnostic-20260810-1454
   EXPECTED_MAC_FINGERPRINT: 5ab5a655abf8352f5eac7c1df836028ff839f9fb784afd9dd3b3c487c1cd605d
+  FROZEN_IMAGE_ARTIFACT_ID: "8994498762"
+  SONIA_INVENTORY_ID: ef0e06a3-a6de-4242-8c52-52b420185850
+  SONIA_FRONT_SHA256: eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1
+  SONIA_BACK_SHA256: 3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c
   VERCEL_SCOPE: truelycollectables-projects
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
   EVIDENCE_DIR: evidence/instacomp-local-witness-diagnostic-20260810
   TEMP_DIR: /tmp/instacomp-local-witness-diagnostic-20260810
 
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Lock current source and diagnostic-only diff
+      - name: Lock exact current source and diagnostic-only diff
         shell: bash
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           git fetch origin main --quiet
           test "$(git rev-parse origin/main)" = "$PINNED_MAIN"
-          test "$(git diff --name-only "$PINNED_MAIN"...HEAD | sort)" = '.github/workflows/instacomp-local-witness-diagnostic-20260810.yml'
-          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
+          changed="$(git diff --name-only "$PINNED_MAIN"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/instacomp-local-witness-diagnostic-20260810.yml' \
+            'src/app/api/instacomp/ops/local-witness-diagnostic/route.ts' | sort)"
+          test "$changed" = "$expected"
+          grep -Fq 'tcos.instacomp.localWitnessDiagnostic.v1' src/app/api/instacomp/ops/local-witness-diagnostic/route.ts
+          grep -Fq 'FROZEN_IMAGE_HASH_MISMATCH' src/app/api/instacomp/ops/local-witness-diagnostic/route.ts
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR/frozen"
 
-      - name: Prove exact repaired Mac is live
+      - name: Prove exact repaired Mac is live before mutation
         shell: bash
         run: |
           set -euo pipefail
-          out="$EVIDENCE_DIR/readiness.json"
-          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' 'https://truelycollectables.com/api/instacomp/internal-readiness?witness-diagnostic=20260810-1454&ts='$(date +%s))"
+          out="$EVIDENCE_DIR/readiness-before.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?witness-diagnostic=before&ts=$(date +%s)")"
           test "$code" = "200"
           node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));for(const k of ["ok","configured","reachable","internalMemoryReady","checklistReady","localModelReady"])if(b[k]!==true)throw new Error(`${k}=${b[k]}`);if(b.runtimeSourceFingerprint!==process.argv[2])throw new Error(`fingerprint=${b.runtimeSourceFingerprint}`);' "$out" "$EXPECTED_MAC_FINGERPRINT"
 
-      - name: Pull Production connection metadata securely
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install, typecheck, and link Production project
         shell: bash
         run: |
           set -euo pipefail
-          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          test -n "${VERCEL_TOKEN:-}"
+          npm ci >/dev/null
+          npx tsc --noEmit
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@56.2.0 env pull "$TEMP_DIR/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
 
-      - name: Resolve protected Mac and database credentials
+      - name: Download immutable frozen Sonia pair and prove hashes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${FROZEN_IMAGE_ARTIFACT_ID}/zip" > "$TEMP_DIR/frozen.zip"
+          unzip -q "$TEMP_DIR/frozen.zip" -d "$TEMP_DIR/frozen"
+          front="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-front.jpg"
+          back="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-back.jpg"
+          test -f "$front" && test -f "$back"
+          test "$(sha256sum "$front" | awk '{print $1}')" = "$SONIA_FRONT_SHA256"
+          test "$(sha256sum "$back" | awk '{print $1}')" = "$SONIA_BACK_SHA256"
+          printf '{"frontSha256":"%s","backSha256":"%s","exact":true}\n' "$SONIA_FRONT_SHA256" "$SONIA_BACK_SHA256" > "$EVIDENCE_DIR/frozen-image-proof.json"
+
+      - name: Prove stale acceptance credential absent
         shell: bash
         run: |
           set -euo pipefail
-          PROD_ENV="$TEMP_DIR/production.env" RUNTIME_ENV="$TEMP_DIR/runtime.json" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
-          const fs=require('node:fs'); const p={};
-          for(const raw of fs.readFileSync(process.env.PROD_ENV,'utf8').split(/\r?\n/)){
-            const line=raw.trim(); if(!line||line.startsWith('#'))continue; const i=line.indexOf('='); if(i<1)continue;
-            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim(); if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}} p[k]=v;
-          }
-          (async()=>{
-            const supabaseUrl=String(p.NEXT_PUBLIC_SUPABASE_URL||'').trim();
-            const macUrl=String(p.INSTACOMP_AI_LOCAL_URL||'').trim().replace(/\/+$/,'');
-            const macKey=String(p.INSTACOMP_AI_LOCAL_KEY||'').trim();
-            if(!supabaseUrl||!macUrl||!macKey) throw new Error('Required Production connection metadata missing.');
-            const ref=new URL(supabaseUrl).hostname.split('.')[0];
-            const rr=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
-            const raw=await rr.text(); if(!rr.ok) throw new Error(`Supabase key lookup HTTP ${rr.status}`); const keys=raw?JSON.parse(raw):[];
-            const val=e=>String(e?.api_key||e?.key||e?.value||''); const modern=keys.find(e=>/^sb_secret_/i.test(val(e))); const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
-            const serverKey=val(modern||legacy); if(!serverKey) throw new Error('No Production server key.');
-            for(const s of [supabaseUrl,serverKey,macUrl,macKey]) console.log(`::add-mask::${s}`);
-            fs.writeFileSync(process.env.RUNTIME_ENV,JSON.stringify({supabaseUrl,serverKey,macUrl,macKey}),{mode:0o600});
-          })().catch(e=>{console.error(e);process.exit(1)});
-          NODE
+          list="$TEMP_DIR/env-before.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          fi
+          ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"
+          rm -f "$list"
 
-      - name: Run frozen Sonia direct Mac witness diagnostic
+      - name: Provision isolated acceptance credential
         shell: bash
         run: |
           set -euo pipefail
-          RUNTIME_ENV="$TEMP_DIR/runtime.json" EVIDENCE_DIR="$EVIDENCE_DIR" node - <<'NODE'
-          const fs=require('node:fs'), crypto=require('node:crypto'); const r=JSON.parse(fs.readFileSync(process.env.RUNTIME_ENV,'utf8'));
-          const itemId='ef0e06a3-a6de-4242-8c52-52b420185850'; const expectedFront='eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1'; const expectedBack='3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c';
-          const sha=b=>crypto.createHash('sha256').update(b).digest('hex'); const rec=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
-          (async()=>{
-            const q=new URL(`${r.supabaseUrl}/rest/v1/inventory_images`); q.searchParams.set('select','inventory_item_id,image_url,alt_text,sort_order,is_primary'); q.searchParams.set('inventory_item_id',`eq.${itemId}`); q.searchParams.set('order','sort_order.asc');
-            const db=await fetch(q,{headers:{apikey:r.serverKey,Authorization:`Bearer ${r.serverKey}`},signal:AbortSignal.timeout(30000)}); const rows=await db.json(); if(!db.ok) throw new Error(`Inventory query HTTP ${db.status}`);
-            const ordered=rows.filter(x=>x.image_url).sort((a,b)=>(b.is_primary?1:0)-(a.is_primary?1:0)||Number(a.sort_order||0)-Number(b.sort_order||0)); const frontRow=ordered.find(x=>/\bfront\b/i.test(String(x.alt_text||'')))||ordered.find(x=>x.is_primary)||ordered[0]; const backRow=ordered.find(x=>/\bback\b/i.test(String(x.alt_text||''))&&x.image_url!==frontRow?.image_url)||ordered.find(x=>!x.is_primary&&x.image_url!==frontRow?.image_url)||ordered.find(x=>x.image_url!==frontRow?.image_url); if(!frontRow?.image_url||!backRow?.image_url) throw new Error('Frozen Sonia pair missing.');
-            const [fr,br]=await Promise.all([fetch(frontRow.image_url,{signal:AbortSignal.timeout(30000)}),fetch(backRow.image_url,{signal:AbortSignal.timeout(30000)})]); if(!fr.ok||!br.ok) throw new Error(`Image download ${fr.status}/${br.status}`); const fb=Buffer.from(await fr.arrayBuffer()), bb=Buffer.from(await br.arrayBuffer()); if(sha(fb)!==expectedFront||sha(bb)!==expectedBack) throw new Error('Frozen Sonia hash mismatch.');
-            const form=new FormData(); form.append('front',new File([fb],'front.jpg',{type:fr.headers.get('content-type')||'image/jpeg'}),'front.jpg'); form.append('back',new File([bb],'back.jpg',{type:br.headers.get('content-type')||'image/jpeg'}),'back.jpg');
-            const res=await fetch(`${r.macUrl}/v1/scans/analyze`,{method:'POST',headers:{'X-InstaComp-AI-Key':r.macKey},body:form,signal:AbortSignal.timeout(180000)}); const raw=await res.text(); let b={}; try{b=raw?JSON.parse(raw):{}}catch{b={detail:`non-json:${raw.slice(0,300)}`}}
-            const lv=rec(b.local_vision), f=rec(lv.front), back=rec(lv.back), hints=rec(lv.identity_hints);
-            const diagnostic={httpStatus:res.status,ok:res.ok,scanId:b.scan_id||null,status:b.status||null,matchSource:b.match_source||null,checklist:{outcome:b.checklist?.outcome||null,identityId:b.checklist?.identity_id||null,reasons:b.checklist?.reasons||[]},localVision:{appleVisionAvailable:lv.apple_vision_available??null,opencvAvailable:lv.opencv_available??null,combinedText:String(lv.combined_text||'').slice(0,1200),identityHints:hints,front:{width:f.width??null,height:f.height??null,errors:Array.isArray(f.errors)?f.errors:[],ocr:Array.isArray(f.ocr)?f.ocr.slice(0,30):[]},back:{width:back.width??null,height:back.height??null,errors:Array.isArray(back.errors)?back.errors:[],ocr:Array.isArray(back.ocr)?back.ocr.slice(0,30):[]}},localSuggestion:b.local_suggestion?{provider:b.local_suggestion.provider||null,model:b.local_suggestion.model||null,confidence:b.local_suggestion.confidence??null}:null,trustedIdentityPresent:Boolean(b.trusted_identity),pricingAllowed:b.pricing_allowed===true,learningAllowed:b.learning_allowed===true};
-            fs.writeFileSync(`${process.env.EVIDENCE_DIR}/sonia-local-witness.json`,JSON.stringify(diagnostic,null,2)+'\n'); console.log(JSON.stringify(diagnostic,null,2)); if(!res.ok) process.exit(2);
-          })().catch(e=>{console.error(e);process.exit(1)});
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"
+          chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
+
+      - name: Deploy exact temporary diagnostic head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$PINNED_MAIN"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/diagnostic-deploy.log" 2>&1
+          touch "$TEMP_DIR/diagnostic-deployed"
+
+      - name: Run frozen Sonia witness diagnostic through protected bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$TEMP_DIR/acceptance-token")"
+          echo "::add-mask::$token"
+          front="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-front.jpg"
+          back="$TEMP_DIR/frozen/01-${SONIA_INVENTORY_ID}-back.jpg"
+          result="$EVIDENCE_DIR/sonia-local-witness.json"
+          ready=0
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 280 -o "$result" -w '%{http_code}' -X POST \
+              -H "x-tcos-instacomp-service-token: $token" \
+              -F "front=@${front};type=image/jpeg" \
+              -F "back=@${back};type=image/jpeg" \
+              "$PRODUCTION_ORIGIN/api/instacomp/ops/local-witness-diagnostic?attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ]; then ready=1; break; fi
+            if [ "$code" != "404" ]; then cat "$result"; exit 1; fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          cat "$result"
+          node - "$result" <<'NODE'
+          const fs=require('node:fs');
+          const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if(b.ok!==true) throw new Error(`diagnostic failed ${b.code||''}`);
+          if(b.schema!=='tcos.instacomp.localWitnessDiagnostic.v1') throw new Error(`schema=${b.schema}`);
+          if(!b.localVision) throw new Error('localVision missing');
           NODE
+          touch "$TEMP_DIR/diagnostic-complete"
+
+      - name: Remove isolated acceptance credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/token-provisioned" ]; then exit 0; fi
+          for attempt in 1 2 3; do
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/env-cleanup.txt"
+            if ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$TEMP_DIR/env-cleanup.txt"; then touch "$TEMP_DIR/token-removed"; break; fi
+            sleep 3
+          done
+          test -f "$TEMP_DIR/token-removed"
+
+      - name: Clean redeploy exact current main and prove temporary route removed
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/diagnostic-deployed" ]; then exit 0; fi
+          test -f "$TEMP_DIR/token-removed"
+          git checkout --detach "$PINNED_MAIN"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/clean-deploy.log" 2>&1
+          out="$EVIDENCE_DIR/readiness-after.json"
+          ready=0
+          for attempt in $(seq 1 18); do
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?witness-diagnostic=after&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node -e 'const fs=require("node:fs");const b=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(b.runtimeSourceFingerprint!==process.argv[2])process.exit(1);for(const k of ["ok","configured","reachable","internalMemoryReady","checklistReady","localModelReady"])if(b[k]!==true)process.exit(1);' "$out" "$EXPECTED_MAC_FINGERPRINT"; then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          route_code="$(curl -sS --max-time 30 -o "$TEMP_DIR/removed-route.txt" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/ops/local-witness-diagnostic?removed=1&ts=$(date +%s)")"
+          test "$route_code" = "404"
+          printf '{"clean":true,"deployedMain":"%s","acceptanceCredentialPresent":false,"temporaryRouteRemoved":true,"runtimeSourceFingerprint":"%s","diagnosticCompleted":%s}\n' \
+            "$PINNED_MAIN" "$EXPECTED_MAC_FINGERPRINT" "$([ -f "$TEMP_DIR/diagnostic-complete" ] && echo true || echo false)" > "$EVIDENCE_DIR/cleanup-proof.json"
 
       - name: Upload diagnostic evidence
         if: always()
@@ -115,7 +203,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Remove temporary credentials
+      - name: Remove temporary files
         if: always()
         shell: bash
         run: rm -rf "$TEMP_DIR" .vercel .env.local .env.production.local
