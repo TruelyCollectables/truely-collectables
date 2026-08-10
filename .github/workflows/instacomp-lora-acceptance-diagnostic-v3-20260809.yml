@@ -55,15 +55,7 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Compile and production-build exact diagnostic head
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm ci
-          npx tsc --noEmit --pretty false
-          npm run build
-
-      - name: Link Production project
+      - name: Link Production project for read-only build environment
         shell: bash
         run: |
           set -euo pipefail
@@ -71,6 +63,17 @@ jobs:
           test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Pull Production public env and production-build exact diagnostic head
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 env pull "$GITHUB_WORKSPACE/.env.production.local" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          grep -Eq '^NEXT_PUBLIC_SUPABASE_URL=' "$GITHUB_WORKSPACE/.env.production.local"
+          grep -Eq '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$GITHUB_WORKSPACE/.env.production.local"
+          npm ci
+          npx tsc --noEmit --pretty false
+          npm run build
 
       - name: Prove stale diagnostic credential absent
         shell: bash
@@ -110,7 +113,8 @@ jobs:
         run: |
           set -euo pipefail
           env_file="$TEMP_DIR/production.env"
-          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          cp "$GITHUB_WORKSPACE/.env.production.local" "$env_file"
+          chmod 600 "$env_file"
           PRODUCTION_ENV_PATH="$env_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" TEMP_DIR="$TEMP_DIR" EVIDENCE_DIR="$EVIDENCE_DIR" node - <<'NODE'
           const fs=require('node:fs');
           const crypto=require('node:crypto');
