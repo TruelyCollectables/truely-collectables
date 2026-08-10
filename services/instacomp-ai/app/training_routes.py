@@ -13,6 +13,7 @@ from .deal_hunter_learning import (
     record_decision_learning_event,
 )
 from .storage import MemoryStore
+from .student_comp_learning import build_student_comp_hypothesis
 from .teacher_comp_learning import (
     initialize_teacher_comp_learning,
     load_teacher_comp_receipts,
@@ -51,6 +52,8 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
         result["teacher_comp_learning"] = {
             **teacher_comp_learning_stats(store.path),
             "dataset": teacher_comp_training_readiness(teacher_receipts),
+            "student_hypothesis_endpoint": "/v1/training/student-comp-hypothesis",
+            "online_comp_learn_mode": True,
         }
         return result
 
@@ -59,6 +62,15 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
         rows = store.list_training_examples(trusted_only=trusted_only, limit=limit)
         return {"schema_version": "tcos.instacomp-ai.training-examples.v1", "count": len(rows), "examples": [row.model_dump(mode="json") for row in rows]}
 
+    @router.post("/student-comp-hypothesis")
+    async def student_comp_hypothesis(body: dict[str, Any] = Body(...)):
+        try:
+            return await build_student_comp_hypothesis(store.path, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"InstaComp comp student unavailable: {exc}") from exc
+
     @router.get("/teacher-comp-receipts")
     async def teacher_comp_receipts(limit: int = Query(default=100, ge=1, le=2000)):
         rows = load_teacher_comp_receipts(store.path, limit=limit)
@@ -66,6 +78,7 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
             "schema_version": "tcos.instacomp-ai.teacher-comp-receipts.v1",
             "count": len(rows),
             "student_mode": True,
+            "online_comp_learn_mode": True,
             "pricing_authority": False,
             "identity_training_mutation_allowed": False,
             "receipts": rows,
