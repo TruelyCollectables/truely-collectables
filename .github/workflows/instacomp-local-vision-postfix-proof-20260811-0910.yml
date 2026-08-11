@@ -1,0 +1,221 @@
+name: InstaComp Local Vision Postfix Proof 20260811 0910
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/instacomp-local-vision-postfix-proof-20260811-0910.yml'
+      - 'src/app/api/instacomp/ops/local-vision-postfix-proof/route.ts'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: ops/instacomp-local-vision-postfix-proof-20260811-0910
+  PINNED_SAFE_MAIN: c42e8d7b75af7cb68e03ec5f6259494f4a0e7c8b
+  EXPECTED_MAC_FINGERPRINT: d1a1255e0d83d099cf4a526ebb19dc4c56f82d5cf11fb96e1e7e25dbbb955b62
+  FROZEN_IMAGE_ARTIFACT_ID: '8994498762'
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EVIDENCE_DIR: evidence/instacomp-local-vision-postfix-proof-20260811-0910
+  TEMP_DIR: /tmp/instacomp-local-vision-postfix-proof-20260811-0910
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Lock read-only proof source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main --quiet
+          git merge-base --is-ancestor "$PINNED_SAFE_MAIN" origin/main
+          changed="$(git diff --name-only "$PINNED_SAFE_MAIN" HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/instacomp-local-vision-postfix-proof-20260811-0910.yml' 'src/app/api/instacomp/ops/local-vision-postfix-proof/route.ts' | sort)"
+          test "$changed" = "$expected"
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR/frozen"
+          printf '{"pinnedSafeMain":"%s","expectedMacFingerprint":"%s","diagnosticOnly":true}\n' "$PINNED_SAFE_MAIN" "$EXPECTED_MAC_FINGERPRINT" > "$EVIDENCE_DIR/source-lock.json"
+
+      - name: Download immutable frozen five images and prove hashes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${FROZEN_IMAGE_ARTIFACT_ID}/zip" > "$TEMP_DIR/frozen.zip"
+          unzip -q "$TEMP_DIR/frozen.zip" -d "$TEMP_DIR/frozen"
+          cat > "$TEMP_DIR/hashes.txt" <<'EOF'
+          eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1  01-ef0e06a3-a6de-4242-8c52-52b420185850-front.jpg
+          3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c  01-ef0e06a3-a6de-4242-8c52-52b420185850-back.jpg
+          d165d8e537a6501711e0b0b789866ac5ab053a3e09216a39108c71c6485fd955  02-0916fe9d-2837-4d91-add4-73e7216705cd-front.jpg
+          e3aba4b0e5f59ec6473f78e1b69bab3d8d377f1ecb72f9b13ac7dbf0d02e56cf  02-0916fe9d-2837-4d91-add4-73e7216705cd-back.jpg
+          d168765374b348074c0f194fb15d099eaafe802f543c76bccf8147f391499c02  03-66f9ad9e-43fb-4b2b-b79c-ac99fa082de0-front.jpg
+          f40ca7f4862e856e47990f4296655306a89f92d2dcd0261b661a07cf82a73e24  03-66f9ad9e-43fb-4b2b-b79c-ac99fa082de0-back.jpg
+          689101749388e0113da8d8c3270e250e4275dfb043d0c16fce0bd584b0d3bdb2  04-f7d73af4-7299-4ed6-b663-39206f2576ee-front.jpg
+          5f44fd564f69868f0cdf48c083e5198f18dc5e1d732b2fe284ca29b407e8de8c  04-f7d73af4-7299-4ed6-b663-39206f2576ee-back.jpg
+          eb528a8e5de90e0ddb62e92ed3b5a2239819fb1c3fc27000ea1102a5b6f19728  05-e9335a9d-3cc1-48d3-92db-7be7468714a9-front.jpg
+          28d445c8423a3bc96ca03e6294138a6980fa630825021d31e6acd115a29e329e  05-e9335a9d-3cc1-48d3-92db-7be7468714a9-back.jpg
+          EOF
+          (cd "$TEMP_DIR/frozen" && sha256sum -c "$TEMP_DIR/hashes.txt")
+          cp "$TEMP_DIR/hashes.txt" "$EVIDENCE_DIR/frozen-hashes.txt"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install and link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npm ci
+          npx tsc --noEmit
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Prove stale acceptance credential absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$TEMP_DIR/env-before.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          fi
+
+      - name: Provision isolated acceptance credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"
+          chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
+
+      - name: Deploy temporary read-only proof bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/proof-deploy.log" 2>&1
+          touch "$TEMP_DIR/proof-deployed"
+
+      - name: Prove all five frozen local vision reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$token"
+          : > "$EVIDENCE_DIR/results.ndjson"
+          for pos in 01 02 03 04 05; do
+            front="$(find "$TEMP_DIR/frozen" -maxdepth 1 -name "${pos}-*-front.jpg" -print -quit)"
+            back="$(find "$TEMP_DIR/frozen" -maxdepth 1 -name "${pos}-*-back.jpg" -print -quit)"
+            test -f "$front" && test -f "$back"
+            out="$EVIDENCE_DIR/card-${pos}.json"
+            ready=0
+            for attempt in $(seq 1 12); do
+              code="$(curl -sS --max-time 280 -o "$out" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $token" -F "front=@${front};type=image/jpeg" -F "back=@${back};type=image/jpeg" "$PRODUCTION_ORIGIN/api/instacomp/ops/local-vision-postfix-proof?pos=$pos&attempt=$attempt&ts=$(date +%s)")"
+              if [ "$code" = "200" ]; then ready=1; break; fi
+              if [ "$code" != "404" ]; then cat "$out"; exit 1; fi
+              sleep 5
+            done
+            test "$ready" = "1"
+            cat "$out"
+            node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(p.ok!==true||p.schema!=="tcos.instacomp.localVisionPostfixProof.v1")process.exit(1);process.stdout.write(JSON.stringify({position:process.argv[2],...p})+"\n")' "$out" "$pos" >> "$EVIDENCE_DIR/results.ndjson"
+          done
+
+      - name: Assert stage isolation repair is active
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - "$EVIDENCE_DIR/results.ndjson" "$EXPECTED_MAC_FINGERPRINT" "$EVIDENCE_DIR/summary.json" <<'NODE'
+          const fs = require('node:fs');
+          const [resultsPath, expectedFingerprint, summaryPath] = process.argv.slice(2);
+          const rows = fs.readFileSync(resultsPath, 'utf8').trim().split(/\n+/).filter(Boolean).map(JSON.parse);
+          if (rows.length !== 5) throw new Error(`Expected 5 rows, got ${rows.length}`);
+          const summary = [];
+          for (const row of rows) {
+            if (row.runtimeSourceFingerprint !== expectedFingerprint) {
+              throw new Error(`Card ${row.position} runtime fingerprint mismatch: ${row.runtimeSourceFingerprint}`);
+            }
+            const lv = row.localVision || {};
+            const serialized = JSON.stringify(lv).toLowerCase();
+            if (serialized.includes('local_vision_unavailable:typeerror')) {
+              throw new Error(`Card ${row.position} still collapsed with local_vision_unavailable:typeerror`);
+            }
+            const frontCount = Number(lv.front?.count || 0);
+            const backCount = Number(lv.back?.count || 0);
+            const combined = String(lv.combinedText || '').trim();
+            const survivor = lv.appleVisionAvailable === true || lv.opencvAvailable === true || frontCount > 0 || backCount > 0 || combined.length > 0;
+            if (!survivor) throw new Error(`Card ${row.position} has no surviving deterministic local-vision evidence`);
+            summary.push({
+              position: row.position,
+              runtimeSourceFingerprint: row.runtimeSourceFingerprint,
+              appleVisionAvailable: lv.appleVisionAvailable,
+              opencvAvailable: lv.opencvAvailable,
+              frontOcrCount: frontCount,
+              backOcrCount: backCount,
+              combinedTextLength: combined.length,
+              identityHints: lv.identityHints || {},
+              localSuggestion: row.localSuggestion || {},
+              checklist: row.checklist || {},
+            });
+          }
+          fs.writeFileSync(summaryPath, JSON.stringify({ok:true, cards:summary}, null, 2) + '\n');
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Remove isolated acceptance credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/token-provisioned" ]; then exit 0; fi
+          for attempt in 1 2 3; do
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/env-cleanup.txt"
+            if ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$TEMP_DIR/env-cleanup.txt"; then touch "$TEMP_DIR/token-removed"; exit 0; fi
+            sleep 3
+          done
+          exit 1
+
+      - name: Clean redeploy latest main and prove temporary route removed
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/proof-deployed" ]; then exit 0; fi
+          test -f "$TEMP_DIR/token-removed"
+          git fetch origin main --quiet
+          clean_main="$(git rev-parse origin/main)"
+          git checkout --detach "$clean_main"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$EVIDENCE_DIR/clean-deploy.log" 2>&1
+          route_code="$(curl -sS --max-time 30 -o "$TEMP_DIR/removed-route.txt" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/ops/local-vision-postfix-proof")"
+          test "$route_code" = "404"
+          printf '{"clean":true,"deployedMain":"%s","acceptanceCredentialPresent":false,"temporaryRouteHttp":%s}\n' "$clean_main" "$route_code" > "$EVIDENCE_DIR/cleanup-proof.json"
+
+      - name: Upload proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-local-vision-postfix-proof-20260811-0910
+          path: evidence/instacomp-local-vision-postfix-proof-20260811-0910
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR" .env.local .env.production.local
