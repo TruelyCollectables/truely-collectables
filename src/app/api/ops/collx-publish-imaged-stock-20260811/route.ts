@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -26,6 +27,14 @@ function numberValue(value: unknown) {
 function cleanUrl(value: unknown) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+function validOpsAuthorization(request: Request) {
+  const provided = request.headers.get("authorization") || "";
+  const expected = `Bearer ${CONFIRM_HEADER}`;
+  const left = Buffer.from(provided);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 function isExternalCollxImage(url: string | null) {
@@ -259,8 +268,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    if (request.headers.get("x-ops-confirm") !== CONFIRM_HEADER) {
-      return NextResponse.json({ success: false, error: "confirmation header required" }, { status: 403 });
+    if (!validOpsAuthorization(request)) {
+      return NextResponse.json({ success: false, error: "authorization required" }, { status: 403 });
     }
 
     const url = new URL(request.url);
