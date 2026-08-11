@@ -55,10 +55,22 @@ jobs:
           import os
           p=Path(os.environ['WORK'])/'classify.py'
           s=p.read_text()
-          old="headers={'Authorization':f'Bearer {mgmt}','Content-Type':'application/json'})"
-          new="headers={'Authorization':f'Bearer {mgmt}','Content-Type':'application/json','User-Agent':'Mozilla/5.0 (TruelyCollectables GitHub Actions)'})"
-          assert old in s
-          p.write_text(s.replace(old,new,1))
+          a=s.index('def db(q):')
+          b=s.index('def fnum',a)
+          hardened='''def db(q):
+ body=json.dumps({'query':q,'parameters':[],'read_only':True}).encode()
+ last=''
+ for attempt in range(1,11):
+  req=urllib.request.Request(ep,data=body,method='POST',headers={'Authorization':f'Bearer {mgmt}','Content-Type':'application/json','User-Agent':'Mozilla/5.0 (TruelyCollectables GitHub Actions)'})
+  try:
+   with urllib.request.urlopen(req,timeout=90) as r:return json.loads(r.read() or b'[]')
+  except Exception as e:
+   code=getattr(e,'code',None); last=f'{type(e).__name__}:{code}:{e}'
+   if code not in (403,408,409,425,429,500,502,503,504,520,522,524,544) and attempt>=2: raise
+   if attempt<10: time.sleep(min(8.0,attempt*.8))
+ raise RuntimeError('Production DB query failed after retries: '+last)
+'''
+          p.write_text(s[:a]+hardened+s[b:])
           PY
       - name: Pull Production environment
         shell: bash
