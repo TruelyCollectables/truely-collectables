@@ -30,18 +30,22 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Wait for production activation route
+      - name: Wait for hardened production activation route
         shell: bash
         run: |
           set -euo pipefail
           ready=0
-          for n in $(seq 1 60); do
+          for n in $(seq 1 90); do
             code="$(curl -sS -o /tmp/preflight.json -w '%{http_code}' --max-time 60 "$ROUTE_URL" || true)"
             if [ "$code" = '200' ] && python3 - <<'PY'
           import json,sys
           try:
               d=json.load(open('/tmp/preflight.json'))
-              ok=d.get('success') is True and d.get('operation') == 'collx-publish-imaged-stock-20260811'
+              ok=(
+                  d.get('success') is True
+                  and d.get('operation') == 'collx-publish-imaged-stock-20260811'
+                  and 'eligibleWithAtLeastOneOwnedImageAndPrice' in d
+              )
           except Exception:
               ok=False
           sys.exit(0 if ok else 1)
@@ -101,6 +105,7 @@ jobs:
           d['verification']='production'
           failures=[]
           if d.get('success') is not True: failures.append('route_not_successful')
+          if 'eligibleWithAtLeastOneOwnedImageAndPrice' not in d: failures.append('stale_route_version')
           if d.get('remainingEligible') != 0: failures.append('eligible_rows_remaining')
           if d.get('quarantinePending') != 0: failures.append('quarantine_not_enforced')
           if d.get('liveCollxImageRefs') != 0: failures.append('live_collx_image_refs_remaining')
