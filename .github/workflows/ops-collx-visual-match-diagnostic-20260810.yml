@@ -19,6 +19,31 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Rebuild and checksum-lock candidate manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          chunks = [Path(f'.github/ops/collx-visual-manifest.chunk{i}').read_text().strip() for i in range(6)]
+          packed = ''.join(chunks)
+          if len(packed) != 46064:
+              raise SystemExit(f'packed manifest length mismatch: {len(packed)}')
+          raw = gzip.decompress(base64.b64decode(packed))
+          digest = hashlib.sha256(raw).hexdigest()
+          expected = 'cd8ddd1a66ae749bf058a820dfd1570b85a8d29c0c0a8a5e7acf3a88d58fdcd7'
+          if digest != expected:
+              raise SystemExit(f'manifest checksum mismatch: {digest}')
+          # Recreate the exact four legacy pieces expected by the existing read-only matcher.
+          sizes = [12000, 12000, 12000, 10064]
+          offset = 0
+          for i, size in enumerate(sizes):
+              Path(f'.github/ops/collx-visual-candidates.part{i}').write_text(packed[offset:offset+size])
+              offset += size
+          print(f'candidate manifest verified: {digest}, packed={len(packed)}')
+          PY
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
