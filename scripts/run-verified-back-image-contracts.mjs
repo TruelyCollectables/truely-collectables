@@ -17,11 +17,18 @@ const collxFront =
   "https://storage.googleapis.com/cdp-batches-prod/1/123-front.jpg";
 const collxBack =
   "https://storage.googleapis.com/cdp-batches-prod/1/123-back.jpg";
+const collxExportFront =
+  "https://storage.googleapis.com/collx-product-images/1129514363171081216-1-ZVwy.jpg";
+const collxExportBack =
+  "https://storage.googleapis.com/collx-product-images/1129514363171081216-2-aFH5.jpg";
 
 assert.equal(listingImageSide(collxFront), "front");
 assert.equal(listingImageSide(collxBack), "back");
+assert.equal(listingImageSide(collxExportFront), "front");
+assert.equal(listingImageSide(collxExportBack), "back");
 assert.equal(listingImageSide(ebayFront), null);
 assert.equal(companionBackListingImageUrl(collxFront), collxBack);
+assert.equal(companionBackListingImageUrl(collxExportFront), "");
 assert.equal(
   listingImageIdentity(ebayGalleryAlias),
   listingImageIdentity(ebayFront),
@@ -40,6 +47,15 @@ assert.deepEqual(selectFrontBackListingImages([ebayFront, collxFront]), [
 assert.deepEqual(
   selectFrontBackListingImages([ebayFront, collxFront, collxBack]),
   [collxFront, collxBack],
+);
+assert.deepEqual(
+  selectFrontBackListingImages([
+    ebayFront,
+    ebayBack,
+    collxExportFront,
+    collxExportBack,
+  ]),
+  [collxExportFront, collxExportBack],
 );
 assert.deepEqual(selectFrontBackListingImages([ebayFront, ebayBack]), [
   ebayFront,
@@ -80,6 +96,8 @@ console.log(
       rejectsMislabeledFrontAsBack: true,
       deduplicatesEbayGalleryAlias: true,
       preservesCompleteVerifiedPair: true,
+      recognizesCollxExportPair: true,
+      prefersExplicitCollxPairOverEbayPair: true,
       acceptsVerifiedCompanionBack: true,
       acceptsSecondEbayImage: true,
       scheduledReconciliation: true,
