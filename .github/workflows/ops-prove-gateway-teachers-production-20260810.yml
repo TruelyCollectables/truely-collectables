@@ -52,6 +52,40 @@ jobs:
           if(!safe.success||safe.geminiConfigured||!safe.groqConfigured||!safe.gatewayPerplexityConfigured||safe.votingTeacherCount!==2||safe.requiredVotes!==2||!safe.teacherConsensusOperational||!safe.macLearningBridgeConfigured||!safe.onlineCompLearnMode) process.exit(1);
           NODE
 
+      - name: Wait for physical Mac Deal Hunter idle
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="$(cat deployment-url.txt)"
+          for attempt in $(seq 1 60); do
+            code="$(curl -sS -o status.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$BASE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = "200" ]; then
+              state="$(node - <<'NODE'
+          const p=require('./status.json'); const s=p.scheduler||{};
+          console.log(JSON.stringify({success:Boolean(p.success),physicalMacHealthy:Boolean(p.physicalMacHealthy),enabled:Boolean(s.enabled),running:Boolean(s.running),activeRunId:s.activeRunId||null,evaluationKeyConfigured:Boolean(s.evaluationKeyConfigured),lastStatus:s.lastStatus||null,lastError:s.lastError||null}));
+          NODE
+              )"
+              echo "MAC_IDLE_CHECK_${attempt}=$state"
+              running="$(node -e "const p=require('./status.json'); process.stdout.write(String(Boolean(p.success&&p.physicalMacHealthy&&p.scheduler?.enabled&&p.scheduler?.evaluationKeyConfigured&&p.scheduler?.running)))")"
+              ready="$(node -e "const p=require('./status.json'); process.stdout.write(String(Boolean(p.success&&p.physicalMacHealthy&&p.scheduler?.enabled&&p.scheduler?.evaluationKeyConfigured)))")"
+              if [ "$ready" != "true" ]; then
+                echo "Physical Mac Deal Hunter readiness failed."
+                exit 1
+              fi
+              if [ "$running" = "false" ]; then
+                echo "PHYSICAL_MAC_DEAL_HUNTER_IDLE=true"
+                exit 0
+              fi
+            else
+              echo "MAC_IDLE_CHECK_${attempt}_HTTP=$code"
+            fi
+            sleep 5
+          done
+          echo "Physical Mac Deal Hunter did not become idle in the bounded window."
+          exit 1
+
       - name: Force fresh bounded Ivan Deal Hunter run
         shell: bash
         run: |
