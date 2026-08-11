@@ -1,1 +1,1 @@
-trigger=deal-hunter-internal-live-scan-security-20260811
+trigger=deal-hunter-internal-live-scan-security-20260811-v2
