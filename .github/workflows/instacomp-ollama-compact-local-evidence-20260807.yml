@@ -41,7 +41,7 @@ jobs:
           if not m: raise SystemExit('Could not resolve Supabase project ref')
           open(os.path.join(os.environ['WORK'],'ref.txt'),'w').write(m.group(1))
           PY
-      - name: Inspect inventory triggers and blocking function
+      - name: Inspect inventory trigger functions and partial shell counts
         shell: bash
         run: |
           set -euo pipefail
@@ -49,47 +49,45 @@ jobs:
           python3 - <<'PY'
           import json,os
           q="""
-          select jsonb_build_object(
-            'triggers', coalesce((select jsonb_agg(jsonb_build_object(
-              'schema',n.nspname,'table',c.relname,'trigger',t.tgname,
-              'trigger_def',pg_get_triggerdef(t.oid),
-              'function_schema',pn.nspname,'function_name',p.proname,
-              'function_def',pg_get_functiondef(t.tgfoid)
-            ))
+          with trigger_rows as (
+            select n.nspname as table_schema,c.relname as table_name,t.tgname as trigger_name,
+                   pg_get_triggerdef(t.oid) as trigger_def,
+                   pn.nspname as function_schema,p.proname as function_name,
+                   pg_get_functiondef(t.tgfoid) as function_def
             from pg_trigger t
             join pg_class c on c.oid=t.tgrelid
             join pg_namespace n on n.oid=c.relnamespace
             join pg_proc p on p.oid=t.tgfoid
             join pg_namespace pn on pn.oid=p.pronamespace
-            where not t.tgisinternal and c.relname='inventory_items'), '[]'::jsonb),
-            'functions_with_guard', coalesce((select jsonb_agg(jsonb_build_object(
-              'schema',n.nspname,'function_name',p.proname,'function_def',pg_get_functiondef(p.oid)
-            )) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-            where pg_get_functiondef(p.oid) ilike '%COLLX_ONLY_INVENTORY_BLOCKED%'), '[]'::jsonb),
+            where not t.tgisinternal and n.nspname='public' and c.relname='inventory_items'
+          )
+          select jsonb_build_object(
+            'triggers', coalesce((select jsonb_agg(to_jsonb(trigger_rows)) from trigger_rows), '[]'::jsonb),
             'collx_products', (select count(*) from public.products where sku like 'COLLX-%'),
             'collx_product_distinct_skus', (select count(distinct sku) from public.products where sku like 'COLLX-%'),
-            'collx_items', (select count(*) from public.inventory_items where sku like 'COLLX-%')
+            'collx_products_with_ebay', (select count(*) from public.products where sku like 'COLLX-%' and ebay_item_id is not null),
+            'collx_items', (select count(*) from public.inventory_items where sku like 'COLLX-%'),
+            'unreferenced_collx_product_shells', (
+              select count(*) from public.products p
+              where p.sku like 'COLLX-%' and p.ebay_item_id is null
+                and not exists (select 1 from public.inventory_items i where i.legacy_product_id=p.id)
+            )
           ) as diagnostics;
           """
           open(os.path.join(os.environ['WORK'],'query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':True}))
           PY
-          ok=0
-          for n in $(seq 1 8); do
-            code="$(curl -sS -o "$WORK/diagnostics.json" -w '%{http_code}' --max-time 90 \
-              -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
-              --data-binary @"$WORK/query.json" \
-              "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
-            echo "attempt=$n http=$code"
-            cat "$WORK/diagnostics.json" || true
-            if [ "$code" = '200' ]; then ok=1; break; fi
-            sleep $((n*2))
-          done
-          test "$ok" = '1'
+          code="$(curl -sS -o "$WORK/diagnostics.json" -w '%{http_code}' --max-time 90 \
+            -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+            --data-binary @"$WORK/query.json" \
+            "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
+          echo "http=$code"
+          cat "$WORK/diagnostics.json" || true
+          test "$code" = '200'
       - name: Upload guard diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-live-guard-diagnostics
+          name: collx-live-guard-diagnostics-v2
           path: /tmp/collx-guard-diagnostic/diagnostics.json
           retention-days: 7
           if-no-files-found: warn
