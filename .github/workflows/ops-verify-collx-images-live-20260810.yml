@@ -1,0 +1,49 @@
+name: Ops Verify CollX Images Live 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-verify-collx-images-live-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify CollX front/back images render on public product pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_page() {
+            local product_id="$1"
+            local front="$2"
+            local back="${3:-}"
+            local url="https://truelycollectables.com/product/${product_id}"
+            local body=""
+            for attempt in $(seq 1 30); do
+              body="$(curl --location --fail --silent --show-error --compressed --max-time 25 "$url" 2>/dev/null || true)"
+              if [ -n "$body" ] && grep -Fq "$front" <<<"$body"; then
+                if [ -z "$back" ] || grep -Fq "$back" <<<"$body"; then
+                  printf 'PASS product %s front%s\n' "$product_id" "$([ -n "$back" ] && printf '+back' || true)"
+                  return 0
+                fi
+              fi
+              sleep 5
+            done
+            printf 'FAIL product %s did not render expected CollX image URL(s)\n' "$product_id" >&2
+            return 1
+          }
+
+          verify_page 2065 \
+            'https://storage.googleapis.com/collx-product-images/1048870783028306944-1-ocJ9.jpg' \
+            'https://storage.googleapis.com/collx-product-images/1048870783028306944-2-yck1.jpg'
+          verify_page 2029 \
+            'https://storage.googleapis.com/collx-product-images/1037368760399329280-1-qgp.jpg' \
+            'https://storage.googleapis.com/collx-product-images/1037368760399329280-2-zOBX.jpg'
+          verify_page 2448 \
+            'https://storage.googleapis.com/collx-user-cards/3407764-695009503-front.jpg'
