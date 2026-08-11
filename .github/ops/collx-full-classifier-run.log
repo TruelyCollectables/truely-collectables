@@ -1,0 +1,45 @@
+.github/ops/collx-full-metadata.part00: OK
+.github/ops/collx-full-metadata.part01: OK
+.github/ops/collx-full-metadata.part02: OK
+.github/ops/collx-full-metadata.part03: OK
+.github/ops/collx-full-metadata.part04: OK
+.github/ops/collx-full-metadata.part05: OK
+.github/ops/collx-full-metadata.part06: OK
+.github/ops/collx-full-metadata.part07: OK
+.github/ops/collx-full-metadata.part08: OK
+.github/ops/collx-full-metadata.part09: OK
+.github/ops/collx-full-metadata.part11: OK
+.github/ops/collx-full-metadata.part12: OK
+.github/ops/collx-full-metadata.part13: OK
+npm warn deprecated stream-to-promise@2.2.0: Deprecated. Use node:stream/promises and node:stream/consumers instead.
+npm warn deprecated tar@7.5.7: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+Vercel CLI 56.2.0 (Node.js 22.23.1)
+> NOTE: The Vercel CLI now collects telemetry regarding usage of the CLI.
+> This information is used to shape the CLI roadmap and prioritize features.
+> You can learn more, including how to opt-out if you'd not like to participate in this program, by visiting the following URL:
+> https://vercel.com/docs/cli/about-telemetry
+
+  Directory       ~/work/truely-collectables/truely-collectables
+
+Searching for existing projects…
+
+✓ Linked          truelycollectables-projects/truely-collectables
+
+Retrieving project…
+> Downloading a fresh `VERCEL_OIDC_TOKEN` for truelycollectables-projects/truely-collectables
+Downloading
+
+✓ Created         .env.local file
+Vercel CLI 56.2.0 (Node.js 22.23.1)
+Retrieving project…
+> Downloading `production` environment variables for truelycollectables-projects/truely-collectables
+Downloading
+
+✓ Created         /tmp/collx-full-classify/production.env file
+Traceback (most recent call last):
+  File "/tmp/collx-full-classify/classify.py", line 36, in <module>
+    ebay=db(f"""select p.id,p.title,p.description,p.price,p.quantity,p.image_url,p.sport,p.player,p.sku,p.ebay_item_id from public.products p where p.store_id='{STORE}'::uuid and p.archived_at is null and nullif(btrim(coalesce(p.ebay_item_id,'')),'') is not null order by p.id""")
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/collx-full-classify/classify.py", line 27, in db
+    raise RuntimeError('Production DB query failed after retries: '+last)
+RuntimeError: Production DB query failed after retries: HTTPError:544:HTTP Error 544: <none>
