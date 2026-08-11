@@ -1,0 +1,67 @@
+name: Checklist Multi-Subject Repair PR Target 20260811
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/checklist-multisubject-cards-20260811'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply deterministic parser patch
+        run: python3 ops/apply-checklist-multisubject-repair.py
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Prove multi-subject and ordinary-conflict boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --import tsx --input-type=module <<'NODE'
+          import { parseChecklist, runParserSelfTest } from './scripts/mainstream-checklist/source-tools.mjs';
+          const self = runParserSelfTest();
+          if (!self.multiSubjectCardsSupported) throw new Error('self-test did not certify multi-subject support');
+          const book = parseChecklist({minimumCardRows:1}, ['## Ultimate Autograph Book Card','UAC-1 | A One','UAC-1 | B Two','UAC-1 | C Three'].join('\n'));
+          if (book.errors.length || book.cards.length !== 1 || book.cards[0].players.length !== 3 || book.cards[0].autographStatus !== 'autograph') throw new Error(JSON.stringify(book));
+          const mem = parseChecklist({minimumCardRows:1}, ['## Triple Patch Memorabilia','TPM-1 | A One','TPM-1 | B Two','TPM-1 | C Three'].join('\n'));
+          if (mem.errors.length || mem.cards.length !== 1 || mem.cards[0].players.length !== 3 || mem.cards[0].memorabiliaStatus !== 'memorabilia') throw new Error(JSON.stringify(mem));
+          const combo = parseChecklist({minimumCardRows:1}, ['## Quad Autograph Memorabilia Booklet','QAMB-1 | A One','QAMB-1 | B Two','QAMB-1 | C Three','QAMB-1 | D Four'].join('\n'));
+          if (combo.errors.length || combo.cards[0].autographStatus !== 'autograph' || combo.cards[0].memorabiliaStatus !== 'memorabilia') throw new Error(JSON.stringify(combo));
+          const conflict = parseChecklist({minimumCardRows:1}, ['## Base Set','1 | A One','1 | B Two'].join('\n'));
+          if (!conflict.errors.some(x => x.code === 'reference_card_number_subject_conflict')) throw new Error('ordinary conflict guard weakened');
+          NODE
+          npx tsc --noEmit --pretty false
+
+      - name: Commit only permanent parser change
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/checklist-multisubject-repair-20260811.yml \
+            ops/checklist-multisubject-repair-20260811.txt \
+            ops/checklist-multisubject-repair-20260811-extra.txt \
+            ops/checklist-multisubject-repair-20260811-extra2.txt \
+            ops/checklist-multisubject-repair-20260811-extra3.txt \
+            ops/apply-checklist-multisubject-repair.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          test "$(git diff --cached --name-only | tr '\n' ' ')" = "scripts/mainstream-checklist/source-tools.mjs "
+          git commit -m "Support source-proven multi-subject checklist cards"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
