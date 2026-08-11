@@ -47,6 +47,7 @@ type PreviewResponse = {
   csvBackImages: number;
   totalTargets: number;
   offset: number;
+  processedProducts: number;
   nextOffset: number | null;
   results: MatchResult[];
   error?: string;
@@ -68,8 +69,12 @@ function chunk<T>(values: T[], size: number) {
 }
 
 function statusTone(status: MatchResult["status"]) {
-  if (status === "matched") return "border-emerald-200 bg-emerald-50 text-emerald-950";
-  if (status === "ambiguous") return "border-amber-200 bg-amber-50 text-amber-950";
+  if (status === "matched") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+  if (status === "ambiguous") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
   return "border-neutral-200 bg-neutral-50 text-neutral-800";
 }
 
@@ -89,7 +94,10 @@ export default function CollxImageImporter() {
   const [busy, setBusy] = useState<"scan" | "apply" | null>(null);
 
   const matched = useMemo(
-    () => results.filter((result) => result.status === "matched") as Extract<MatchResult, { status: "matched" }>[],
+    () =>
+      results.filter(
+        (result) => result.status === "matched",
+      ) as Extract<MatchResult, { status: "matched" }>[],
     [results],
   );
   const ambiguous = useMemo(
@@ -100,15 +108,20 @@ export default function CollxImageImporter() {
     () => results.filter((result) => result.status === "unmatched"),
     [results],
   );
-  const matchedWithBack = matched.filter((result) => Boolean(result.row.backImage)).length;
+  const matchedWithBack = matched.filter((result) =>
+    Boolean(result.row.backImage),
+  ).length;
 
   async function scan() {
     if (!file || busy) return;
     setBusy("scan");
     setResults([]);
+    setCsvStats(null);
     setFailures([]);
     setImportedCount(0);
-    setMessage("Reading the CollX export and matching existing eBay-backed cards...");
+    setMessage(
+      "Reading the CollX export and matching existing eBay-backed cards...",
+    );
     setScannedTargets(0);
 
     const collected: MatchResult[] = [];
@@ -118,7 +131,9 @@ export default function CollxImageImporter() {
     try {
       while (offset !== null) {
         guard += 1;
-        if (guard > 5_000) throw new Error("Preview pagination safety limit reached.");
+        if (guard > 5_000) {
+          throw new Error("Preview pagination safety limit reached.");
+        }
 
         const formData = new FormData();
         formData.set("file", file);
@@ -129,32 +144,42 @@ export default function CollxImageImporter() {
           body: formData,
           cache: "no-store",
         });
-        const body = (await response.json().catch(() => null)) as PreviewResponse | null;
+        const body = (await response.json().catch(() => null)) as
+          | PreviewResponse
+          | null;
         if (!response.ok || !body) {
-          throw new Error(body?.error || `Preview failed with HTTP ${response.status}.`);
+          throw new Error(
+            body?.error || `Preview failed with HTTP ${response.status}.`,
+          );
         }
 
-        if (!csvStats) {
-          setCsvStats({
-            rows: body.csvRows,
-            front: body.csvFrontImages,
-            back: body.csvBackImages,
-          });
-        }
+        setCsvStats({
+          rows: body.csvRows,
+          front: body.csvFrontImages,
+          back: body.csvBackImages,
+        });
         setTotalTargets(body.totalTargets);
         collected.push(...body.results);
         setResults([...collected]);
-        setScannedTargets(Math.min(body.totalTargets, body.offset + body.results.length));
+        setScannedTargets(
+          Math.min(body.totalTargets, body.offset + body.processedProducts),
+        );
         offset = body.nextOffset;
       }
 
-      const safeCount = collected.filter((result) => result.status === "matched").length;
-      const ambiguousCount = collected.filter((result) => result.status === "ambiguous").length;
+      const safeCount = collected.filter(
+        (result) => result.status === "matched",
+      ).length;
+      const ambiguousCount = collected.filter(
+        (result) => result.status === "ambiguous",
+      ).length;
       setMessage(
         `Scan complete: ${safeCount} safe match${safeCount === 1 ? "" : "es"}; ${ambiguousCount} ambiguous card${ambiguousCount === 1 ? "" : "s"} left untouched.`,
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "CollX image scan failed.");
+      setMessage(
+        error instanceof Error ? error.message : "CollX image scan failed.",
+      );
     } finally {
       setBusy(null);
     }
@@ -165,7 +190,9 @@ export default function CollxImageImporter() {
     setBusy("apply");
     setImportedCount(0);
     setFailures([]);
-    setMessage("Copying safe front/back matches into Truely Collectables storage...");
+    setMessage(
+      "Copying safe front/back matches into Truely Collectables storage...",
+    );
 
     let completed = 0;
     const collectedFailures: ApplyFailure[] = [];
@@ -189,13 +216,17 @@ export default function CollxImageImporter() {
           cache: "no-store",
         });
         const body = await response.json().catch(() => null);
-        if (!body) throw new Error(`Import batch failed with HTTP ${response.status}.`);
+        if (!body) {
+          throw new Error(`Import batch failed with HTTP ${response.status}.`);
+        }
         completed += Array.isArray(body.applied) ? body.applied.length : 0;
         if (Array.isArray(body.failed)) collectedFailures.push(...body.failed);
         setImportedCount(completed);
         setFailures([...collectedFailures]);
         if (!response.ok && response.status !== 207) {
-          throw new Error(body.error || `Import batch failed with HTTP ${response.status}.`);
+          throw new Error(
+            body.error || `Import batch failed with HTTP ${response.status}.`,
+          );
         }
       }
 
@@ -205,7 +236,9 @@ export default function CollxImageImporter() {
           : `Imported ${completed} matched card${completed === 1 ? "" : "s"}. CollX sale status, prices, quantities, and eBay listings were not changed.`,
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "CollX image import failed.");
+      setMessage(
+        error instanceof Error ? error.message : "CollX image import failed.",
+      );
     } finally {
       setBusy(null);
     }
@@ -219,13 +252,18 @@ export default function CollxImageImporter() {
             <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
               Image-only migration
             </p>
-            <h2 className="mt-2 text-2xl font-black">Upload the CollX collection CSV</h2>
+            <h2 className="mt-2 text-2xl font-black">
+              Upload the CollX collection CSV
+            </h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
-              This tool matches only existing eBay-backed Truely Collectables inventory. It never creates CollX-only products and never changes price, quantity, sold status, or marketplace availability.
+              This tool matches only existing eBay-backed Truely Collectables
+              inventory. It never creates CollX-only products and never changes
+              price, quantity, sold status, or marketplace availability.
             </p>
           </div>
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-950">
-            Front/back files are copied into our own storage before the site record is updated.
+            Front/back files are copied into our own storage before the site
+            record is updated.
           </div>
         </div>
 
@@ -258,30 +296,56 @@ export default function CollxImageImporter() {
         </div>
 
         {message ? (
-          <p aria-live="polite" className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-950">
+          <p
+            aria-live="polite"
+            className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-950"
+          >
             {message}
           </p>
         ) : null}
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Metric label="CSV rows" value={csvStats ? csvStats.rows.toLocaleString() : "—"} />
-        <Metric label="Front images" value={csvStats ? csvStats.front.toLocaleString() : "—"} />
-        <Metric label="Back images" value={csvStats ? csvStats.back.toLocaleString() : "—"} />
-        <Metric label="Site targets" value={totalTargets ? totalTargets.toLocaleString() : "—"} />
-        <Metric label="Safe matches" value={matched.length.toLocaleString()} tone="emerald" />
-        <Metric label="Ambiguous" value={ambiguous.length.toLocaleString()} tone="amber" />
+        <Metric
+          label="CSV rows"
+          value={csvStats ? csvStats.rows.toLocaleString() : "—"}
+        />
+        <Metric
+          label="Front images"
+          value={csvStats ? csvStats.front.toLocaleString() : "—"}
+        />
+        <Metric
+          label="Back images"
+          value={csvStats ? csvStats.back.toLocaleString() : "—"}
+        />
+        <Metric
+          label="Site targets"
+          value={totalTargets ? totalTargets.toLocaleString() : "—"}
+        />
+        <Metric
+          label="Safe matches"
+          value={matched.length.toLocaleString()}
+          tone="emerald"
+        />
+        <Metric
+          label="Ambiguous"
+          value={ambiguous.length.toLocaleString()}
+          tone="amber"
+        />
       </section>
 
       {busy === "scan" && totalTargets > 0 ? (
         <section className="rounded-3xl border border-sky-200 bg-sky-50 p-5">
           <p className="font-black text-sky-950">
-            Scanned {scannedTargets.toLocaleString()} / {totalTargets.toLocaleString()} existing eBay-backed cards
+            Scanned {scannedTargets.toLocaleString()} /{" "}
+            {totalTargets.toLocaleString()} existing eBay-backed cards
           </p>
           <div className="mt-3 h-3 overflow-hidden rounded-full bg-white">
             <div
               className="h-full bg-sky-600 transition-all"
-              style={{ width: `${Math.min(100, (scannedTargets / totalTargets) * 100)}%` }}
+              style={{
+                width: `${Math.min(100, (scannedTargets / totalTargets) * 100)}%`,
+              }}
             />
           </div>
         </section>
@@ -291,10 +355,17 @@ export default function CollxImageImporter() {
         <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">Preview complete</p>
-              <h2 className="mt-2 text-2xl font-black">Apply only the proven matches</h2>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
+                Preview complete
+              </p>
+              <h2 className="mt-2 text-2xl font-black">
+                Apply only the proven matches
+              </h2>
               <p className="mt-2 text-sm font-semibold text-neutral-600">
-                {matched.length.toLocaleString()} safe matches · {matchedWithBack.toLocaleString()} include a back image · {ambiguous.length.toLocaleString()} ambiguous · {unmatched.length.toLocaleString()} unmatched.
+                {matched.length.toLocaleString()} safe matches ·{" "}
+                {matchedWithBack.toLocaleString()} include a back image ·{" "}
+                {ambiguous.length.toLocaleString()} ambiguous ·{" "}
+                {unmatched.length.toLocaleString()} unmatched.
               </p>
             </div>
             <button
@@ -313,29 +384,39 @@ export default function CollxImageImporter() {
 
       {failures.length ? (
         <section className="rounded-3xl border border-red-200 bg-red-50 p-5 text-red-950">
-          <h3 className="text-lg font-black">Import retries needed: {failures.length}</h3>
+          <h3 className="text-lg font-black">
+            Import retries needed: {failures.length}
+          </h3>
           <div className="mt-3 space-y-2 text-sm font-semibold">
             {failures.slice(0, 25).map((failure) => (
               <p key={`${failure.inventoryItemId}-${failure.collxId}`}>
-                Product #{failure.legacyProductId} / CollX {failure.collxId}: {failure.error}
+                Product #{failure.legacyProductId} / CollX {failure.collxId}:{" "}
+                {failure.error}
               </p>
             ))}
           </div>
         </section>
       ) : null}
 
-      {(ambiguous.length || unmatched.length) ? (
+      {ambiguous.length || unmatched.length ? (
         <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-black">Cards intentionally left untouched</h2>
           <p className="mt-2 text-sm font-semibold text-neutral-600">
-            These are not guessed. Ambiguous duplicate physical copies stay here until there is enough evidence to prove which CollX photo belongs to which listing.
+            These are not guessed. Ambiguous duplicate physical copies stay here
+            until there is enough evidence to prove which CollX photo belongs to
+            which listing.
           </p>
           <div className="mt-5 space-y-3">
             {[...ambiguous, ...unmatched].slice(0, 50).map((result) => (
-              <article key={result.target.inventoryItemId} className={`rounded-2xl border p-4 ${statusTone(result.status)}`}>
+              <article
+                key={result.target.inventoryItemId}
+                className={`rounded-2xl border p-4 ${statusTone(result.status)}`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-black">#{result.target.legacyProductId} · {result.target.title}</p>
-                  <span className="rounded-full border border-current/20 px-3 py-1 text-xs font-black uppercase">
+                  <p className="font-black">
+                    #{result.target.legacyProductId} · {result.target.title}
+                  </p>
+                  <span className="rounded-full border border-current px-3 py-1 text-xs font-black uppercase opacity-80">
                     {result.status}
                   </span>
                 </div>
@@ -366,7 +447,9 @@ function Metric({
         : "border-neutral-200 bg-white text-neutral-950";
   return (
     <div className={`rounded-2xl border p-4 shadow-sm ${classes}`}>
-      <p className="text-xs font-black uppercase tracking-[0.14em] opacity-60">{label}</p>
+      <p className="text-xs font-black uppercase tracking-[0.14em] opacity-60">
+        {label}
+      </p>
       <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
   );
