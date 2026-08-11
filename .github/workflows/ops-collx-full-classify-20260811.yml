@@ -36,8 +36,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$WORK" .vercel
-          sha256sum -c .github/ops/collx-full-metadata.sha256
-          cat .github/ops/collx-full-metadata.part{00..15} > "$WORK/source.xz.b64"
+          grep -Ev 'part(10|14|15)$' .github/ops/collx-full-metadata.sha256 | sha256sum -c -
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10a \
+            .github/ops/collx-full-metadata.part10b \
+            .github/ops/collx-full-metadata.part10c \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14a \
+            .github/ops/collx-full-metadata.part14b \
+            .github/ops/collx-full-metadata.part15a \
+            .github/ops/collx-full-metadata.part15b > "$WORK/source.xz.b64"
           base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
           test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SHA"
           test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_ROWS"
