@@ -1,2 +1,2 @@
 Temporary repair-target marker for the Gateway Gemini native-search implementation. The target-locked repair workflow removes this file before committing the permanent source changes.
-trigger=1
+trigger=2
