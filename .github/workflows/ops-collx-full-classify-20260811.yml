@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/ops-collx-full-classify-20260811.yml"
       - ".github/ops/collx-full-metadata.part*"
+      - ".github/ops/collx-full-metadata.sha256"
       - ".github/ops/collx-full-classify.py.part*"
   workflow_dispatch:
 
@@ -35,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$WORK" .vercel
-          for n in $(seq -w 0 15); do test -s ".github/ops/collx-full-metadata.part${n}"; done
+          sha256sum -c .github/ops/collx-full-metadata.sha256
           cat .github/ops/collx-full-metadata.part{00..15} > "$WORK/source.xz.b64"
           base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
           test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SHA"
