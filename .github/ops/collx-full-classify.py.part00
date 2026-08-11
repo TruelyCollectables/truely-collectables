@@ -1,0 +1,118 @@
+import csv,json,os,re,hashlib,time,urllib.request,urllib.parse,unicodedata,math,io
+from pathlib import Path
+from collections import defaultdict
+from PIL import Image,ImageOps
+import imagehash
+W=Path(os.environ['WORK']); STORE=os.environ['STORE_ID']
+def envparse(s):
+ d={}
+ for z in s.splitlines():
+  z=z.strip()
+  if not z or z.startswith('#') or '=' not in z: continue
+  k,v=z.split('=',1); v=v.strip()
+  if len(v)>1 and v[0]==v[-1] and v[0] in "\"'": v=v[1:-1]
+  d[k.strip()]=v
+ return d
+env=envparse((W/'production.env').read_text()); base=env['NEXT_PUBLIC_SUPABASE_URL']; ref=urllib.parse.urlparse(base).hostname.split('.')[0]; mgmt=os.environ['GH_SUPABASE_ACCESS_TOKEN']; ep=f'https://api.supabase.com/v1/projects/{ref}/database/query'
+def db(q):
+ req=urllib.request.Request(ep,data=json.dumps({'query':q,'parameters':[],'read_only':True}).encode(),method='POST',headers={'Authorization':f'Bearer {mgmt}','Content-Type':'application/json'})
+ with urllib.request.urlopen(req,timeout=60) as r:return json.loads(r.read() or b'[]')
+def fnum(v):
+ try:
+  x=float(str(v or '').strip()); return x if math.isfinite(x) else None
+ except:return None
+def norm(v):
+ s=unicodedata.normalize('NFKD',str(v or '')).encode('ascii','ignore').decode().lower(); return ' '.join(re.sub(r'[^a-z0-9]+',' ',s).split())
+rows=list(csv.DictReader(open(W/'source.csv',encoding='utf-8-sig',newline='')))
+for r in rows:r['collx_id']=str(r['collx_id']).strip();r['_price']=fnum(r.get('asking_price'));r['_year']=str(r.get('year') or '').split('.')[0].strip()
+ebay=db(f"""select p.id,p.title,p.description,p.price,p.quantity,p.image_url,p.sport,p.player,p.sku,p.ebay_item_id,coalesce((select jsonb_agg(z.image_url) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.legacy_product_id=p.id),'[]'::jsonb) inventory_images from public.products p where p.store_id='{STORE}'::uuid and p.archived_at is null and nullif(btrim(coalesce(p.ebay_item_id,'')),'') is not null order by p.id""")
+existing={str(x['sku'])[6:] for x in db(f"select sku from public.products where store_id='{STORE}'::uuid and sku like 'COLLX-%'") if str(x.get('sku') or '').startswith('COLLX-')}
+print(json.dumps({'sourceRows':len(rows),'ebayProducts':len(ebay),'existingCollxImports':len(existing)})); assert len(rows)==6909 and len({r['collx_id'] for r in rows})==6909 and len(ebay)>1000
+# One public GCS enumeration reconstructs all CollX image URLs.
+img=defaultdict(dict); token=''
+while True:
+ q={'maxResults':'1000','fields':'items(name),nextPageToken'}
+ if token:q['pageToken']=token
+ with urllib.request.urlopen('https://storage.googleapis.com/storage/v1/b/collx-product-images/o?'+urllib.parse.urlencode(q),timeout=45) as rr:p=json.load(rr)
+ for it in p.get('items',[]):
+  n=it.get('name','');m=re.match(r'^(\d+)-(1|2)-',n)
+  if m:img[m.group(1)]['front' if m.group(2)=='1' else 'back']=n
+ token=p.get('nextPageToken') or ''
+ if not token:break
+def url(n):return 'https://storage.googleapis.com/collx-product-images/'+n
+print(json.dumps({'bucketCardIds':len(img),'sourceRowsWithFrontDiscovered':sum(bool(img.get(r['collx_id'],{}).get('front')) for r in rows)}))
+suffix={'jr','sr','ii','iii','iv'}; stop={'panini','upper','deck','topps','bowman','donruss','leaf','card','cards','the','and','base','edition'}
+def ntoks(x):return [t for t in norm(x).split() if t not in suffix]
+def nummatch(n,t):
+ a=norm(n).split(); b=set(norm(t).split()); return bool(a and (a[0] in b if len(a)==1 else all(x in b for x in a)))
+def srun(f):
+ m=re.search(r'\bSN\s*(\d+)\b',str(f or ''),re.I); return int(m.group(1)) if m else None
+def cand(c,p):
+ title=' '.join(map(str,[p.get('title') or '',p.get('player') or '',p.get('description') or ''])); ts=set(norm(title).split()); ns=ntoks(c.get('name'))
+ if not ns or not all(x in ts for x in ns):return None
+ y=c['_year']; yo=bool(y and y in ts); no=nummatch(c.get('number'),title); sr=srun(c.get('flags')); raw=str(p.get('title') or '').lower(); so=bool(sr and re.search(rf'(?:#\s*)?/\s*{sr}(?:\D|$)',raw)); pp=fnum(p.get('price')); po=bool(c['_price'] is not None and pp is not None and abs(c['_price']-pp)<.011); au='AU' in str(c.get('flags') or '').upper(); ao=bool(au and re.search(r'\b(auto|autograph|signature|signed)\b',raw)); st=[x for x in norm(' '.join([c.get('brand') or '',c.get('set') or ''])).split() if len(x)>2 and x not in stop and x not in ns and x!=y]; hits=len(set(st)&ts); score=50+20*yo+25*no+25*so+20*po+10*ao+min(30,hits*5)
+ if score<70 or not(yo or no or so or po):return None
+ return {'score':score,'year':yo,'number':no,'serial':so,'price':po,'auto':ao,'set_hits':hits}
+# Exact already-owned CollX scan hash -> exact existing eBay physical card.
+h2c={}
+for c in rows:
+ for side in ('front','back'):
+  n=img.get(c['collx_id'],{}).get(side)
+  if n:h2c[hashlib.sha256(url(n).encode()).hexdigest()]=c['collx_id']
+assigned_c=set();assigned_p=set();matches=[]
+for p in ebay:
+ found=set()
+ for u in [p.get('image_url') or '']+list(p.get('inventory_images') or []):
+  m=re.search(r'/collx-mirror/([0-9a-f]{64})\.',str(u)); m2=re.search(r'collx-product-images/(\d+)-[12]-',str(u))
+  if m and m.group(1) in h2c:found.add(h2c[m.group(1)])
+  if m2:found.add(m2.group(1))
+ if len(found)==1:
+  cid=next(iter(found));pid=int(p['id'])
+  if cid not in assigned_c and pid not in assigned_p:assigned_c.add(cid);assigned_p.add(pid);matches.append({'collx_id':cid,'product_id':pid,'reason':'direct_image_hash','score':1000,'visual_distance':None})
+# Candidate graph for remaining eBay-backed products.
+cc=defaultdict(list);cp=defaultdict(list);pmap={int(x['id']):x for x in ebay}
+for c in rows:
+ cid=c['collx_id']
+ if cid in assigned_c or cid in existing:continue
+ for p in ebay:
+  pid=int(p['id'])
+  if pid in assigned_p:continue
+  e=cand(c,p)
+  if e:
+   x={'collx_id':cid,'product_id':pid,**e};cc[cid].append(x);cp[pid].append(x)
+for a in cc.values():a.sort(key=lambda x:(-x['score'],x['product_id']))
+for a in cp.values():a.sort(key=lambda x:(-x['score'],x['collx_id']))
+print(json.dumps({'metadataCandidateRows':len(cc),'metadataPairs':sum(len(x) for x in cc.values()),'directImageMatches':len(matches)}))
+# Perceptual match only the top three plausible eBay listings per CollX card.
+vpairs=[]
+for cid,a in cc.items():
+ n=img.get(cid,{}).get('front')
+ if not n:continue
+ for x in a[:3]:
+  pu=pmap[x['product_id']].get('image_url') or ''
+  if pu:vpairs.append((cid,x['product_id'],x['score'],url(n),pu))
+cache={};errs={}
+def fp(u):
+ if u in cache:return cache[u]
+ last=''
+ for k in range(4):
+  try:
+   req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0 (TruelyCollectables migration audit)'})
+   with urllib.request.urlopen(req,timeout=30) as rr:data=rr.read(20*1024*1024+1)
+   if len(data)>20*1024*1024:raise ValueError('large')
+   im=ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert('RGB');h={'p':str(imagehash.phash(im,hash_size=16)),'d':str(imagehash.dhash(im,hash_size=16)),'w':str(imagehash.whash(im,hash_size=16)),'a':str(imagehash.average_hash(im,hash_size=16))};cache[u]=h;return h
+  except Exception as e:last=f'{type(e).__name__}:{e}';time.sleep(.5*(k+1))
+ errs[u]=last;return None
+def dist(a,b):return float((imagehash.hex_to_hash(a['p'])-imagehash.hex_to_hash(b['p']))+.35*(imagehash.hex_to_hash(a['d'])-imagehash.hex_to_hash(b['d']))+.35*(imagehash.hex_to_hash(a['w'])-imagehash.hex_to_hash(b['w']))+.15*(imagehash.hex_to_hash(a['a'])-imagehash.hex_to_hash(b['a'])))
+sc=[]
+for i,(cid,pid,s,cu,pu) in enumerate(vpairs,1):
+ a=fp(cu);b=fp(pu)
+ if a and b:sc.append({'collx_id':cid,'product_id':pid,'score':s,'dist':round(dist(a,b),3)})
+ if i%250==0:print(f'visual {i}/{len(vpairs)} cache={len(cache)} errors={len(errs)}')
+vc=defaultdict(list);vprod=defaultdict(list)
+for x in sc:vc[x['collx_id']].append(x);vprod[x['product_id']].append(x)
+for a in vc.values():a.sort(key=lambda x:(x['dist'],-x['score']))
+for a in vprod.values():a.sort(key=lambda x:(x['dist'],-x['score']))
+va=[]
+for cid,a in vc.items():
+ x=a[0];pid=x['product_id']
