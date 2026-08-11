@@ -13,119 +13,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  collx-guarded-smoke:
+  collx-full-controlled-migration:
     if: github.head_ref == 'ops/collx-full-inventory-migration-20260811'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 180
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
       SOURCE_ROWS: '6909'
-      WORK: /tmp/collx-guarded-smoke
+      IMPORT_ROWS: '6155'
+      WORK: /tmp/collx-full-controlled
       ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-v2-20260811
+      IMAGE_ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-image-backfill-20260811
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
           fetch-depth: 1
 
-      - name: Resolve Production Supabase project
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$WORK" .vercel
-          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@56.2.0 env pull "$WORK/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          python3 - <<'PY'
-          import os,re
-          text=open(os.path.join(os.environ['WORK'],'production.env')).read()
-          m=re.search(r'^NEXT_PUBLIC_SUPABASE_URL=(?:"|\')?https://([a-z0-9]+)\.supabase\.co(?:"|\')?$',text,re.M)
-          if not m: raise SystemExit('Could not resolve Supabase project ref')
-          open(os.path.join(os.environ['WORK'],'ref.txt'),'w').write(m.group(1))
-          PY
-
-      - name: Apply narrow CollX draft migration exception
-        shell: bash
-        run: |
-          set -euo pipefail
-          REF="$(cat "$WORK/ref.txt")"
-          git fetch origin main --depth=1
-          git show origin/main:supabase/migrations/20260811183000_allow_guarded_collx_draft_migration.sql > "$WORK/guard.sql"
-          python3 - <<'PY'
-          import json,os
-          q=open(os.path.join(os.environ['WORK'],'guard.sql')).read()
-          open(os.path.join(os.environ['WORK'],'guard-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':False}))
-          PY
-          code="$(curl -sS -o "$WORK/guard-apply.json" -w '%{http_code}' --max-time 90 \
-            -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
-            --data-binary @"$WORK/guard-query.json" \
-            "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
-          echo "HTTP=$code"
-          cat "$WORK/guard-apply.json" || true
-          test "$code" = '200' -o "$code" = '201'
-
-      - name: Delete only proven unreferenced migration product shells
-        shell: bash
-        run: |
-          set -euo pipefail
-          REF="$(cat "$WORK/ref.txt")"
-          python3 - <<'PY'
-          import json,os
-          q="""
-          do $cleanup$
-          declare before_count integer; deleted_count integer;
-          begin
-            select count(*) into before_count
-            from public.products p
-            where p.sku like 'COLLX-%'
-              and p.ebay_item_id is null
-              and coalesce(p.price,0)=0
-              and p.description like 'Imported from CollX collection ID %'
-              and not exists (select 1 from public.inventory_items i where i.legacy_product_id=p.id);
-            if before_count <> 1501 then
-              raise exception 'COLLX_PARTIAL_SHELL_COUNT_MISMATCH expected=1501 actual=%', before_count;
-            end if;
-            delete from public.products p
-            where p.sku like 'COLLX-%'
-              and p.ebay_item_id is null
-              and coalesce(p.price,0)=0
-              and p.description like 'Imported from CollX collection ID %'
-              and not exists (select 1 from public.inventory_items i where i.legacy_product_id=p.id);
-            get diagnostics deleted_count = row_count;
-            if deleted_count <> before_count then
-              raise exception 'COLLX_PARTIAL_SHELL_DELETE_MISMATCH expected=% actual=%', before_count, deleted_count;
-            end if;
-          end
-          $cleanup$;
-          select jsonb_build_object(
-            'collx_products',(select count(*) from public.products where sku like 'COLLX-%'),
-            'collx_items',(select count(*) from public.inventory_items where sku like 'COLLX-%'),
-            'remaining_unreferenced_shells',(
-              select count(*) from public.products p where p.sku like 'COLLX-%' and p.ebay_item_id is null
-              and p.description like 'Imported from CollX collection ID %'
-              and not exists(select 1 from public.inventory_items i where i.legacy_product_id=p.id)
-            )
-          ) as cleanup_receipt;
-          """
-          open(os.path.join(os.environ['WORK'],'cleanup-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':False}))
-          PY
-          code="$(curl -sS -o "$WORK/cleanup.json" -w '%{http_code}' --max-time 90 \
-            -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
-            --data-binary @"$WORK/cleanup-query.json" \
-            "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
-          echo "HTTP=$code"
-          cat "$WORK/cleanup.json" || true
-          test "$code" = '200' -o "$code" = '201'
-          grep -q '"collx_products":0' "$WORK/cleanup.json"
-          grep -q '"collx_items":0' "$WORK/cleanup.json"
-          grep -q '"remaining_unreferenced_shells":0' "$WORK/cleanup.json"
-
       - name: Reconstruct checksum-locked 6909-row metadata source
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$WORK/results"
           cat \
             .github/ops/collx-full-metadata.part{00..09} \
             .github/ops/collx-full-metadata.part10m0 \
@@ -139,81 +51,201 @@ jobs:
           test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$SOURCE_SHA"
           test "$(($(wc -l < "$WORK/source.csv")-1))" = "$SOURCE_ROWS"
 
-      - name: Refresh clean full classification
+      - name: Import all 6155 CollX-only rows in proven 50-card batches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,time,urllib.request,urllib.error
+          work=os.environ['WORK']; route=os.environ['ROUTE_URL']; total=int(os.environ['IMPORT_ROWS'])
+          body=open(os.path.join(work,'source.csv'),'rb').read(); batch=50
+          receipts=[]
+          for offset in range(0,total,batch):
+              expected=min(batch,total-offset); last=''
+              for attempt in range(1,6):
+                  req=urllib.request.Request(
+                      f'{route}?mode=import&offset={offset}&limit={expected}',
+                      data=body,method='POST',
+                      headers={'Content-Type':'text/csv','User-Agent':'TruelyCollectables-CollX-controlled-import/20260811'})
+                  try:
+                      with urllib.request.urlopen(req,timeout=180) as r:
+                          payload=json.loads(r.read() or b'{}')
+                      if payload.get('success') is True and int(payload.get('requested',-1))==expected and int(payload.get('completed',-1))==expected:
+                          break
+                      last=f'bad receipt {payload}'
+                  except urllib.error.HTTPError as e:
+                      last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:2000]
+                  except Exception as e:
+                      last=repr(e)
+                  if attempt==5: raise RuntimeError(f'import batch offset={offset} failed: {last}')
+                  time.sleep(attempt*3)
+              receipts.append(payload)
+              open(os.path.join(work,'results',f'import-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2))
+              progress={'completed':sum(int(x['completed']) for x in receipts),'target':total,'lastOffset':offset,'batches':len(receipts)}
+              open(os.path.join(work,'results','import-progress.json'),'w').write(json.dumps(progress,indent=2))
+              print(json.dumps(progress),flush=True)
+          summary={'target':total,'completed':sum(int(x['completed']) for x in receipts),'batches':len(receipts)}
+          assert summary['completed']==total,summary
+          open(os.path.join(work,'results','import-summary.json'),'w').write(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Verify metadata migration before touching photos
         shell: bash
         run: |
           set -euo pipefail
           curl --silent --show-error --fail-with-body --max-time 180 \
             -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
-            "$ROUTE_URL?mode=classify" | tee "$WORK/classification.json"
+            "$ROUTE_URL?mode=verify" | tee "$WORK/results/pre-image-verification.json"
           python3 - <<'PY'
           import json,os
-          d=json.load(open(os.path.join(os.environ['WORK'],'classification.json')))
+          d=json.load(open(os.path.join(os.environ['WORK'],'results','pre-image-verification.json')))
           assert d.get('success') is True,d
-          assert d.get('sourceRows')==6909,d
-          imports=int(d.get('importCandidateRows',-1)); existing=int(d.get('existingCollxImports',-1))
-          assert existing==0,d
-          assert imports==6155,d
-          assert 6909-imports==754,d
-          print(json.dumps({'sourceRows':6909,'duplicates':754,'importCandidates':imports},indent=2))
+          assert int(d.get('classifiedImportRows',-1))==6155,d
+          assert int(d.get('currentCollxProducts',-1))==6155,d
+          assert int(d.get('currentCollxInventoryItems',-1))==6155,d
+          assert int(d.get('missingProducts',-1))==0,d
+          assert int(d.get('missingItems',-1))==0,d
+          assert int(d.get('activeItems',-1))==0,d
+          assert d.get('allImportsNotForSale') is True,d
           PY
 
-      - name: Smoke one complete draft product plus inventory item
+      - name: Backfill owned front and back photos per CollX card
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS -o "$WORK/smoke.json" -w '%{http_code}' --max-time 120 \
+          python3 - <<'PY'
+          import concurrent.futures,json,os,time,urllib.request,urllib.error
+          work=os.environ['WORK']; route=os.environ['IMAGE_ROUTE_URL']; total=int(os.environ['IMPORT_ROWS']); batch=50
+          offsets=list(range(0,total,batch))
+          def one(offset):
+              expected=min(batch,total-offset); last=''
+              for attempt in range(1,6):
+                  req=urllib.request.Request(f'{route}?offset={offset}&limit={expected}',data=b'',method='POST',headers={'User-Agent':'TruelyCollectables-CollX-photo-backfill/20260811'})
+                  try:
+                      with urllib.request.urlopen(req,timeout=240) as r: payload=json.loads(r.read() or b'{}')
+                      good=(payload.get('success') is True and int(payload.get('requested',-1))==expected and int(payload.get('completed',-1))==expected and len(payload.get('errors',[]))==0)
+                      if good:
+                          open(os.path.join(work,'results',f'images-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2))
+                          return payload
+                      last=f'bad receipt {payload}'
+                  except urllib.error.HTTPError as e: last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:2000]
+                  except Exception as e: last=repr(e)
+                  if attempt<5: time.sleep(attempt*4)
+              raise RuntimeError(f'image batch offset={offset} failed: {last}')
+          receipts=[]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+              future_to_offset={ex.submit(one,o):o for o in offsets}
+              for fut in concurrent.futures.as_completed(future_to_offset):
+                  r=fut.result(); receipts.append(r)
+                  progress={
+                    'completed':sum(int(x['completed']) for x in receipts),'target':total,
+                    'fronts':sum(int(x['frontsCopied']) for x in receipts),
+                    'backs':sum(int(x['backsCopied']) for x in receipts),
+                    'noFront':sum(len(x.get('noFront',[])) for x in receipts),
+                    'noBack':sum(len(x.get('noBack',[])) for x in receipts),
+                    'batches':len(receipts)}
+                  open(os.path.join(work,'results','image-progress.json'),'w').write(json.dumps(progress,indent=2))
+                  print(json.dumps(progress),flush=True)
+          summary={
+            'target':total,'completed':sum(int(x['completed']) for x in receipts),
+            'frontsCopied':sum(int(x['frontsCopied']) for x in receipts),
+            'backsCopied':sum(int(x['backsCopied']) for x in receipts),
+            'noFront':sum(len(x.get('noFront',[])) for x in receipts),
+            'noBack':sum(len(x.get('noBack',[])) for x in receipts),
+            'errors':sum(len(x.get('errors',[])) for x in receipts),
+            'batches':len(receipts)}
+          assert summary['completed']==total,summary
+          assert summary['errors']==0,summary
+          assert summary['noFront']<=17,summary
+          assert summary['noBack']<=1231,summary
+          assert summary['frontsCopied']>=total-17,summary
+          assert summary['backsCopied']>=total-1231,summary
+          open(os.path.join(work,'results','image-summary.json'),'w').write(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Final route verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --max-time 180 \
             -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
-            "$ROUTE_URL?mode=import&offset=0&limit=1" || true)"
-          echo "HTTP=$code"
-          cat "$WORK/smoke.json" || true
-          test "$code" = '200'
+            "$ROUTE_URL?mode=verify" | tee "$WORK/results/final-route-verification.json"
           python3 - <<'PY'
           import json,os
-          d=json.load(open(os.path.join(os.environ['WORK'],'smoke.json')))
+          d=json.load(open(os.path.join(os.environ['WORK'],'results','final-route-verification.json')))
           assert d.get('success') is True,d
-          assert d.get('requested')==1,d
-          assert d.get('completed')==1,d
+          assert d.get('allClassifiedImportsPresent') is True,d
+          assert d.get('allImportsNotForSale') is True,d
+          assert int(d.get('classifiedImportRows',-1))==6155,d
+          assert int(d.get('currentCollxProducts',-1))==6155,d
+          assert int(d.get('currentCollxInventoryItems',-1))==6155,d
+          assert int(d.get('missingProducts',-1))==0,d
+          assert int(d.get('missingItems',-1))==0,d
+          assert int(d.get('activeItems',-1))==0,d
+          assert int(d.get('collxHostedProductImages',-1))==0,d
           PY
 
-      - name: Prove smoke is draft and non-eBay
+      - name: Final direct Production database proof
         shell: bash
         run: |
           set -euo pipefail
-          REF="$(cat "$WORK/ref.txt")"
+          mkdir -p .vercel
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env pull "$WORK/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           python3 - <<'PY'
-          import json,os
+          import json,os,re
+          text=open(os.path.join(os.environ['WORK'],'production.env')).read()
+          m=re.search(r'^NEXT_PUBLIC_SUPABASE_URL=(?:"|\')?https://([a-z0-9]+)\.supabase\.co(?:"|\')?$',text,re.M)
+          if not m: raise SystemExit('Could not resolve Supabase project ref')
+          open(os.path.join(os.environ['WORK'],'ref.txt'),'w').write(m.group(1))
           q="""
           select jsonb_build_object(
             'products',(select count(*) from public.products where sku like 'COLLX-%'),
+            'distinct_skus',(select count(distinct sku) from public.products where sku like 'COLLX-%'),
             'items',(select count(*) from public.inventory_items where sku like 'COLLX-%'),
             'draft_items',(select count(*) from public.inventory_items where sku like 'COLLX-%' and status='draft'),
             'active_items',(select count(*) from public.inventory_items where sku like 'COLLX-%' and status='active'),
             'ebay_products',(select count(*) from public.products where sku like 'COLLX-%' and ebay_item_id is not null),
-            'migration_items',(select count(*) from public.inventory_items where sku like 'COLLX-%' and metadata->>'source'='collx_full_migration_20260811' and metadata->>'migrated_not_for_sale'='true')
-          ) as smoke_receipt;
+            'unreferenced_shells',(select count(*) from public.products p where p.sku like 'COLLX-%' and not exists(select 1 from public.inventory_items i where i.legacy_product_id=p.id)),
+            'owned_product_fronts',(select count(*) from public.products where sku like 'COLLX-%' and image_url like '%/storage/v1/object/public/truely-product-images/%'),
+            'collx_hosted_product_images',(select count(*) from public.products where sku like 'COLLX-%' and image_url like '%collx-product-images%'),
+            'items_with_owned_images',(select count(distinct i.id) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.sku like 'COLLX-%' and z.image_url like '%/storage/v1/object/public/truely-product-images/%'),
+            'owned_inventory_images',(select count(*) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.sku like 'COLLX-%' and z.image_url like '%/storage/v1/object/public/truely-product-images/%')
+          ) as final_receipt;
           """
-          open(os.path.join(os.environ['WORK'],'verify-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':True}))
+          open(os.path.join(os.environ['WORK'],'final-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':True}))
           PY
-          code="$(curl -sS -o "$WORK/smoke-db.json" -w '%{http_code}' --max-time 90 \
+          REF="$(cat "$WORK/ref.txt")"
+          code="$(curl -sS -o "$WORK/results/final-db.json" -w '%{http_code}' --max-time 90 \
             -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
-            --data-binary @"$WORK/verify-query.json" \
+            --data-binary @"$WORK/final-query.json" \
             "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
           echo "HTTP=$code"
-          cat "$WORK/smoke-db.json" || true
+          cat "$WORK/results/final-db.json" || true
           test "$code" = '200' -o "$code" = '201'
-          grep -q '"products":1' "$WORK/smoke-db.json"
-          grep -q '"items":1' "$WORK/smoke-db.json"
-          grep -q '"draft_items":1' "$WORK/smoke-db.json"
-          grep -q '"active_items":0' "$WORK/smoke-db.json"
-          grep -q '"ebay_products":0' "$WORK/smoke-db.json"
-          grep -q '"migration_items":1' "$WORK/smoke-db.json"
+          python3 - <<'PY'
+          import json,os
+          raw=json.load(open(os.path.join(os.environ['WORK'],'results','final-db.json')))
+          d=raw[0]['final_receipt'] if isinstance(raw,list) else raw['final_receipt']
+          assert int(d['products'])==6155,d
+          assert int(d['distinct_skus'])==6155,d
+          assert int(d['items'])==6155,d
+          assert int(d['draft_items'])==6155,d
+          assert int(d['active_items'])==0,d
+          assert int(d['ebay_products'])==0,d
+          assert int(d['unreferenced_shells'])==0,d
+          assert int(d['owned_product_fronts'])>=6138,d
+          assert int(d['collx_hosted_product_images'])==0,d
+          assert int(d['items_with_owned_images'])>=6138,d
+          PY
 
-      - name: Upload guarded smoke evidence
+      - name: Upload complete migration proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-guarded-smoke-evidence
-          path: /tmp/collx-guarded-smoke
-          retention-days: 7
+          name: collx-full-controlled-migration-proof
+          path: /tmp/collx-full-controlled/results
+          retention-days: 30
           if-no-files-found: warn
