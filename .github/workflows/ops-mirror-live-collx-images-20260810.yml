@@ -1,0 +1,291 @@
+name: Ops Mirror Live CollX Images 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-mirror-live-collx-images-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-mirror-live-collx-images-20260810
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/collx-mirror"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-mirror/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Mirror every live CollX image to owned Supabase Storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import { setTimeout as sleep } from 'node:timers/promises';
+
+          const BUCKET = 'truely-product-images';
+          const STORE_ID = '00000000-0000-4000-8000-000000000001';
+          const envPath = path.join(process.env.RUNNER_TEMP, 'collx-mirror', 'production.env');
+
+          function fail(message) { throw new Error(message); }
+          function parseEnv(text) {
+            const env = {};
+            for (const rawLine of text.split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line || line.startsWith('#')) continue;
+              const index = line.indexOf('=');
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim();
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              env[key] = value;
+            }
+            return env;
+          }
+          const env = parseEnv(fs.readFileSync(envPath, 'utf8'));
+          const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
+          const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || env.SUPABASE_SECRET_KEY;
+          if (!supabaseUrl || !/^https:\/\//.test(supabaseUrl)) fail('Production Supabase URL unavailable.');
+          if (!serviceKey) {
+            const present = Object.keys(env).filter((key) => /SUPABASE|STORAGE|BUCKET|R2|S3/i.test(key));
+            fail(`No Supabase service-role key found. Relevant Production env keys present: ${present.join(', ')}`);
+          }
+          console.log('Supabase owned-storage credential found.');
+
+          const projectRef = new URL(supabaseUrl).hostname.split('.')[0];
+          const mgmtToken = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          const dbEndpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+          function transient(status, body) {
+            return [429,500,502,503,504,522,524,544].includes(status) || /timeout|connection terminated|terminating connection|administrator command|57P01|temporar|cloudflare|network/i.test(body);
+          }
+          async function dbQuery(sql, { readOnly, label }) {
+            let last = '';
+            for (let attempt = 1; attempt <= 10; attempt += 1) {
+              let response; let body = '';
+              try {
+                response = await fetch(dbEndpoint, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${mgmtToken}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+                });
+                body = await response.text();
+              } catch (error) {
+                last = String(error?.message || error);
+                if (attempt === 10) fail(`${label} transport failed: ${last}`);
+                await sleep(Math.min(15000, 750 * attempt));
+                continue;
+              }
+              if (response.ok) return body ? JSON.parse(body) : [];
+              last = `HTTP ${response.status}: ${body.slice(0,1000)}`;
+              if (!transient(response.status, body) || attempt === 10) fail(`${label} failed: ${last}`);
+              await sleep(Math.min(15000, 750 * attempt));
+            }
+            fail(`${label} failed: ${last}`);
+          }
+          function jsonSql(rows) { return `'${JSON.stringify(rows).replaceAll("'", "''")}'::jsonb`; }
+          function chunks(values, size) {
+            const out=[]; for (let i=0;i<values.length;i+=size) out.push(values.slice(i,i+size)); return out;
+          }
+
+          const sourceRows = await dbQuery(`
+            select distinct image_url
+            from (
+              select img.image_url
+              from public.inventory_images img
+              join public.inventory_items i on i.id = img.inventory_item_id
+              where i.store_id = '${STORE_ID}'::uuid
+                and (img.image_url like 'https://storage.googleapis.com/collx-product-images/%'
+                     or img.image_url like 'https://storage.googleapis.com/collx-user-cards/%')
+              union
+              select p.image_url
+              from public.products p
+              where p.store_id = '${STORE_ID}'::uuid
+                and (p.image_url like 'https://storage.googleapis.com/collx-product-images/%'
+                     or p.image_url like 'https://storage.googleapis.com/collx-user-cards/%')
+            ) q
+            where nullif(btrim(image_url), '') is not null
+            order by image_url;
+          `, { readOnly: true, label: 'list CollX image refs' });
+          const sourceUrls = sourceRows.map((row) => String(row.image_url));
+          if (!sourceUrls.length) {
+            console.log('No live CollX image URLs remain to mirror.');
+            fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'collx-mirror','receipt.json'), JSON.stringify({ok:true,event:'collx_mirror_already_complete',mirrored:0,bucket:BUCKET},null,2));
+            process.exit(0);
+          }
+          console.log(`Found ${sourceUrls.length} unique live CollX image URLs to own.`);
+
+          const storageHeaders = { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey };
+          let bucketsResponse = await fetch(`${supabaseUrl}/storage/v1/bucket`, { headers: storageHeaders, signal: AbortSignal.timeout(20000) });
+          if (!bucketsResponse.ok) fail(`Could not list Supabase buckets: ${bucketsResponse.status} ${(await bucketsResponse.text()).slice(0,500)}`);
+          const buckets = await bucketsResponse.json();
+          if (!buckets.some((bucket) => bucket.id === BUCKET || bucket.name === BUCKET)) {
+            const create = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
+              method: 'POST',
+              headers: { ...storageHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: BUCKET, name: BUCKET, public: true, file_size_limit: 20971520 }),
+              signal: AbortSignal.timeout(20000),
+            });
+            if (!create.ok) fail(`Could not create owned image bucket: ${create.status} ${(await create.text()).slice(0,500)}`);
+            console.log(`Created public Supabase bucket ${BUCKET}.`);
+          } else {
+            // Make sure the existing dedicated bucket is public.
+            const update = await fetch(`${supabaseUrl}/storage/v1/bucket/${BUCKET}`, {
+              method: 'PUT',
+              headers: { ...storageHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ public: true, file_size_limit: 20971520 }),
+              signal: AbortSignal.timeout(20000),
+            });
+            if (!update.ok) fail(`Could not verify public image bucket: ${update.status} ${(await update.text()).slice(0,500)}`);
+          }
+
+          function extension(contentType, url) {
+            const t=(contentType||'').toLowerCase();
+            if (t.includes('png')) return 'png';
+            if (t.includes('webp')) return 'webp';
+            if (t.includes('gif')) return 'gif';
+            if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
+            const m=/\.(jpe?g|png|webp|gif)(?:[?#]|$)/i.exec(url);
+            return m ? (m[1].toLowerCase()==='jpeg'?'jpg':m[1].toLowerCase()) : 'jpg';
+          }
+          async function fetchImage(url) {
+            let last='';
+            for (let attempt=1;attempt<=5;attempt+=1) {
+              try {
+                const r=await fetch(url,{redirect:'follow',signal:AbortSignal.timeout(30000)});
+                const type=r.headers.get('content-type')||'';
+                if (r.ok && type.toLowerCase().startsWith('image/')) return {bytes:Buffer.from(await r.arrayBuffer()),type};
+                last=`HTTP ${r.status} ${type}`;
+              } catch(e) { last=String(e?.message||e); }
+              if (attempt<5) await sleep(500*attempt);
+            }
+            fail(`Could not download ${url}: ${last}`);
+          }
+          async function uploadOwned(sourceUrl) {
+            const {bytes,type}=await fetchImage(sourceUrl);
+            const hash=crypto.createHash('sha256').update(sourceUrl).digest('hex');
+            const ext=extension(type,sourceUrl);
+            const objectPath=`collx-mirror/${hash}.${ext}`;
+            let last='';
+            for (let attempt=1;attempt<=5;attempt+=1) {
+              try {
+                const upload=await fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${objectPath}`, {
+                  method:'POST',
+                  headers:{...storageHeaders,'Content-Type':type,'x-upsert':'true'},
+                  body:bytes,
+                  signal:AbortSignal.timeout(30000),
+                });
+                if (upload.ok) {
+                  const localUrl=`${supabaseUrl}/storage/v1/object/public/${BUCKET}/${objectPath}`;
+                  const proof=await fetch(localUrl,{method:'GET',headers:{Range:'bytes=0-0'},signal:AbortSignal.timeout(20000)});
+                  if (proof.ok && (proof.headers.get('content-type')||'').toLowerCase().startsWith('image/')) {
+                    return {original:sourceUrl,local:localUrl,bytes:bytes.length};
+                  }
+                  last=`public proof ${proof.status}`;
+                } else last=`upload ${upload.status}: ${(await upload.text()).slice(0,300)}`;
+              } catch(e) { last=String(e?.message||e); }
+              if (attempt<5) await sleep(500*attempt);
+            }
+            fail(`Could not upload owned copy for ${sourceUrl}: ${last}`);
+          }
+
+          const mappings=[];
+          let next=0;
+          const workers=Array.from({length:12}, async()=>{
+            while (true) {
+              const index=next++;
+              if (index>=sourceUrls.length) return;
+              const mapping=await uploadOwned(sourceUrls[index]);
+              mappings.push(mapping);
+              if ((index+1)%100===0) console.log(`Mirrored ${index+1}/${sourceUrls.length}.`);
+            }
+          });
+          await Promise.all(workers);
+          if (mappings.length!==sourceUrls.length) fail(`Mirror count mismatch ${mappings.length}/${sourceUrls.length}.`);
+          console.log(`All ${mappings.length} CollX URLs copied to owned Supabase Storage and publicly verified.`);
+
+          // Rewrite only exact image URL fields. No price, quantity, status, order, or customer fields are touched.
+          for (const [index,batch] of chunks(mappings,75).entries()) {
+            await dbQuery(`
+              begin;
+              with m as (select * from jsonb_to_recordset(${jsonSql(batch)}) as x(original text, local text, bytes bigint))
+              update public.inventory_images img set image_url=m.local from m where img.image_url=m.original;
+              with m as (select * from jsonb_to_recordset(${jsonSql(batch)}) as x(original text, local text, bytes bigint))
+              update public.products p set image_url=m.local from m where p.store_id='${STORE_ID}'::uuid and p.image_url=m.original;
+              commit;
+            `,{readOnly:false,label:`rewrite batch ${index+1}`});
+          }
+
+          const leftovers=await dbQuery(`
+            select count(*)::int as count
+            from (
+              select img.image_url
+              from public.inventory_images img
+              join public.inventory_items i on i.id=img.inventory_item_id
+              where i.store_id='${STORE_ID}'::uuid
+                and (img.image_url like 'https://storage.googleapis.com/collx-product-images/%' or img.image_url like 'https://storage.googleapis.com/collx-user-cards/%')
+              union all
+              select p.image_url
+              from public.products p
+              where p.store_id='${STORE_ID}'::uuid
+                and (p.image_url like 'https://storage.googleapis.com/collx-product-images/%' or p.image_url like 'https://storage.googleapis.com/collx-user-cards/%')
+            ) q;
+          `,{readOnly:true,label:'verify no CollX refs'});
+          if (Number(leftovers?.[0]?.count||0)!==0) fail(`Post-mirror verification found ${leftovers[0].count} CollX URL references.`);
+
+          const receipt={
+            ok:true,
+            event:'collx_live_images_mirrored_to_owned_storage',
+            bucket:BUCKET,
+            uniqueImagesMirrored:mappings.length,
+            totalBytes:mappings.reduce((sum,m)=>sum+Number(m.bytes||0),0),
+            remainingCollxUrlReferences:0,
+            priceQuantityStatusTouched:false,
+            customerOrderDataTouched:false,
+            completedAt:new Date().toISOString(),
+          };
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'collx-mirror','receipt.json'),JSON.stringify(receipt,null,2));
+          console.log(JSON.stringify(receipt,null,2));
+          NODE
+          rm -f "$RUNNER_TEMP/collx-mirror/production.env"
+
+      - name: Upload mirror receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-live-image-mirror-receipt
+          path: ${{ runner.temp }}/collx-mirror/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
