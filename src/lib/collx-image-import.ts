@@ -197,12 +197,12 @@ export function parseCollxImageCsv(contents: string): CollxImageRow[] {
       frontImage: text(get(row, "front_image"), 2_000),
       backImage: text(get(row, "back_image"), 2_000),
     }))
-    .filter((row) => row.collxId && row.name && isAllowedCollxImageUrl(row.frontImage));
+    .filter((row) => row.collxId && row.name);
 
   if (matrix.length > COLLX_IMPORT_MAX_ROWS) {
     throw new Error(`CollX CSV exceeds ${COLLX_IMPORT_MAX_ROWS.toLocaleString()} rows.`);
   }
-  if (!parsed.length) {
+  if (!parsed.some((row) => isAllowedCollxImageUrl(row.frontImage))) {
     throw new Error("CollX CSV does not contain any usable front-image rows.");
   }
 
@@ -409,6 +409,11 @@ async function visualCandidate(
   target: CollxImageTarget,
   candidates: Array<{ row: CollxImageRow; score: number }>,
 ) {
+  if (candidates.length < 2 || candidates.length > 12) return null;
+  if (candidates.some((candidate) => !isAllowedCollxImageUrl(candidate.row.frontImage))) {
+    return null;
+  }
+
   const currentUrl =
     target.existingImageUrls.find((url) => text(url) === text(target.productImageUrl)) ||
     target.productImageUrl ||
@@ -428,7 +433,7 @@ async function visualCandidate(
     score: number;
     distance: number;
   }> = [];
-  for (const candidate of candidates.slice(0, 12)) {
+  for (const candidate of candidates) {
     try {
       const fingerprint = await fingerprintBytes(
         await downloadImage(candidate.row.frontImage, true),
@@ -438,16 +443,17 @@ async function visualCandidate(
         distance: fingerprintDistance(currentFingerprint, fingerprint),
       });
     } catch {
-      // One unavailable CollX image must not make the entire preview unsafe.
+      return null;
     }
   }
+  if (comparisons.length !== candidates.length) return null;
 
   comparisons.sort((left, right) => left.distance - right.distance);
   const best = comparisons[0];
   const runnerUp = comparisons[1];
-  if (!best) return null;
+  if (!best || !runnerUp) return null;
 
-  const margin = runnerUp ? runnerUp.distance - best.distance : Infinity;
+  const margin = runnerUp.distance - best.distance;
   const sufficientlyClose = best.distance <= 13;
   const sufficientlyDistinct = best.distance <= 3 || margin >= 4;
   if (!sufficientlyClose || !sufficientlyDistinct) return null;
@@ -456,7 +462,7 @@ async function visualCandidate(
     row: best.row,
     score: best.score,
     distance: Number(best.distance.toFixed(3)),
-    runnerUpDistance: runnerUp ? Number(runnerUp.distance.toFixed(3)) : null,
+    runnerUpDistance: Number(runnerUp.distance.toFixed(3)),
   };
 }
 
@@ -475,6 +481,14 @@ export async function matchCollxImageTarget(
 ): Promise<CollxImageMatchResult> {
   const direct = directlyReferencedRows(target, rows);
   if (direct.length === 1) {
+    if (!isAllowedCollxImageUrl(direct[0].frontImage)) {
+      return {
+        status: "unmatched",
+        target: targetSummary(target),
+        candidateCount: 1,
+        reason: "The referenced CollX physical copy has no usable front image.",
+      };
+    }
     return {
       status: "matched",
       method: "existing_reference",
@@ -504,6 +518,14 @@ export async function matchCollxImageTarget(
     };
   }
   if (candidates.length === 1) {
+    if (!isAllowedCollxImageUrl(candidates[0].row.frontImage)) {
+      return {
+        status: "unmatched",
+        target: targetSummary(target),
+        candidateCount: 1,
+        reason: "The only strict CollX identity match has no usable front image.",
+      };
+    }
     return {
       status: "matched",
       method: "unique_identity",
@@ -533,7 +555,7 @@ export async function matchCollxImageTarget(
     target: targetSummary(target),
     candidateCount: candidates.length,
     reason:
-      "Multiple physical CollX copies passed identity matching and the current site photo did not separate one copy with enough visual margin.",
+      "Multiple physical CollX copies passed identity matching and the current site photo did not separate one copy with enough visual margin. Missing candidate photos also force ambiguity.",
   };
 }
 
