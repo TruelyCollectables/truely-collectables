@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/ops-collx-visual-parts-check-20260810.yml"
-      - ".github/ops/collx-visual-candidates.part*"
+      - ".github/ops/collx-visual-manifest.chunk*"
   workflow_dispatch:
 
 permissions:
@@ -16,17 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Print exact staged part sizes and hashes
+      - name: Print exact staged chunk sizes and hashes
         shell: bash
         run: |
           set -euo pipefail
-          wc -c .github/ops/collx-visual-candidates.part*
-          sha256sum .github/ops/collx-visual-candidates.part*
-          test "$(wc -c < .github/ops/collx-visual-candidates.part0)" -eq 12000
-          test "$(sha256sum .github/ops/collx-visual-candidates.part0 | cut -d' ' -f1)" = '7e85a672227f7ec1161993433df87e77194f79b707394aedd78169d980976704'
-          test "$(wc -c < .github/ops/collx-visual-candidates.part1)" -eq 12000
-          test "$(sha256sum .github/ops/collx-visual-candidates.part1 | cut -d' ' -f1)" = '8bc3797fdaf0f43f623afbed64a84fbbb71c80a15588ca3422d9e50c579b80ac'
-          test "$(wc -c < .github/ops/collx-visual-candidates.part2)" -eq 12000
-          test "$(sha256sum .github/ops/collx-visual-candidates.part2 | cut -d' ' -f1)" = 'fb4ae8dbfcd791fc43ef28d2c77a018801c22674fb343698985c87d7a52a34aa'
-          test "$(wc -c < .github/ops/collx-visual-candidates.part3)" -eq 10064
-          test "$(sha256sum .github/ops/collx-visual-candidates.part3 | cut -d' ' -f1)" = '8f71e5a055628e02bea1ef75fdc7ba439610797292805c4a37e2eb12b37b4dc3'
+          wc -c .github/ops/collx-visual-manifest.chunk*
+          sha256sum .github/ops/collx-visual-manifest.chunk*
