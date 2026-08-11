@@ -13,68 +13,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  collx-inventory-smoke:
+  collx-guard-diagnostic:
     if: github.head_ref == 'ops/collx-full-inventory-migration-20260811'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
-      SOURCE_ROWS: '6909'
-      WORK: /tmp/collx-inventory-smoke
-      ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-v2-20260811
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      WORK: /tmp/collx-guard-diagnostic
     steps:
-      - name: Check out migration source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
           fetch-depth: 1
-      - name: Reconstruct authoritative 6909-row metadata source
+      - name: Resolve Production Supabase project
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$WORK"
-          grep -Ev 'part(10|14|15)$' .github/ops/collx-full-metadata.sha256 | sha256sum -c -
-          cat \
-            .github/ops/collx-full-metadata.part{00..09} \
-            .github/ops/collx-full-metadata.part10m0 \
-            .github/ops/collx-full-metadata.part10m1 \
-            .github/ops/collx-full-metadata.part11 \
-            .github/ops/collx-full-metadata.part12 \
-            .github/ops/collx-full-metadata.part13 \
-            .github/ops/collx-full-metadata.part14m \
-            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
-          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
-          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$SOURCE_SHA"
-          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$SOURCE_ROWS"
-      - name: Refresh classification
+          mkdir -p "$WORK" .vercel
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env pull "$WORK/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          python3 - <<'PY'
+          import os,re
+          text=open(os.path.join(os.environ['WORK'],'production.env')).read()
+          m=re.search(r'^NEXT_PUBLIC_SUPABASE_URL=(?:"|\')?https://([a-z0-9]+)\.supabase\.co(?:"|\')?$',text,re.M)
+          if not m: raise SystemExit('Could not resolve Supabase project ref')
+          open(os.path.join(os.environ['WORK'],'ref.txt'),'w').write(m.group(1))
+          PY
+      - name: Inspect inventory triggers and blocking function
         shell: bash
         run: |
           set -euo pipefail
-          curl --silent --show-error --fail-with-body --max-time 120 \
-            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
-            "$ROUTE_URL?mode=classify" | tee "$WORK/classification.json"
-      - name: Smoke one CollX inventory insert
-        shell: bash
-        run: |
-          set -euo pipefail
-          code="$(curl -sS -o "$WORK/smoke.json" -w '%{http_code}' --max-time 120 \
-            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
-            "$ROUTE_URL?mode=import&offset=0&limit=1" || true)"
-          echo "HTTP=$code"
-          cat "$WORK/smoke.json" || true
-          test "$code" = '200'
+          REF="$(cat "$WORK/ref.txt")"
           python3 - <<'PY'
           import json,os
-          d=json.load(open(os.path.join(os.environ['WORK'],'smoke.json')))
-          assert d.get('success') is True,d
-          assert d.get('requested')==1,d
-          assert d.get('completed')==1,d
+          q="""
+          select jsonb_build_object(
+            'triggers', coalesce((select jsonb_agg(jsonb_build_object(
+              'schema',n.nspname,'table',c.relname,'trigger',t.tgname,
+              'trigger_def',pg_get_triggerdef(t.oid),
+              'function_schema',pn.nspname,'function_name',p.proname,
+              'function_def',pg_get_functiondef(t.tgfoid)
+            ))
+            from pg_trigger t
+            join pg_class c on c.oid=t.tgrelid
+            join pg_namespace n on n.oid=c.relnamespace
+            join pg_proc p on p.oid=t.tgfoid
+            join pg_namespace pn on pn.oid=p.pronamespace
+            where not t.tgisinternal and c.relname='inventory_items'), '[]'::jsonb),
+            'functions_with_guard', coalesce((select jsonb_agg(jsonb_build_object(
+              'schema',n.nspname,'function_name',p.proname,'function_def',pg_get_functiondef(p.oid)
+            )) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+            where pg_get_functiondef(p.oid) ilike '%COLLX_ONLY_INVENTORY_BLOCKED%'), '[]'::jsonb),
+            'collx_products', (select count(*) from public.products where sku like 'COLLX-%'),
+            'collx_product_distinct_skus', (select count(distinct sku) from public.products where sku like 'COLLX-%'),
+            'collx_items', (select count(*) from public.inventory_items where sku like 'COLLX-%')
+          ) as diagnostics;
+          """
+          open(os.path.join(os.environ['WORK'],'query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':True}))
           PY
-      - name: Upload smoke evidence
+          ok=0
+          for n in $(seq 1 8); do
+            code="$(curl -sS -o "$WORK/diagnostics.json" -w '%{http_code}' --max-time 90 \
+              -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+              --data-binary @"$WORK/query.json" \
+              "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
+            echo "attempt=$n http=$code"
+            cat "$WORK/diagnostics.json" || true
+            if [ "$code" = '200' ]; then ok=1; break; fi
+            sleep $((n*2))
+          done
+          test "$ok" = '1'
+      - name: Upload guard diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-inventory-smoke-evidence
-          path: /tmp/collx-inventory-smoke
+          name: collx-live-guard-diagnostics
+          path: /tmp/collx-guard-diagnostic/diagnostics.json
           retention-days: 7
           if-no-files-found: warn
