@@ -1,0 +1,1 @@
+One-shot ops branch only. Full CollX collection migration source: 6,909 unique CollX IDs. Source metadata SHA-256 e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904. Do not merge this branch; use workflow artifacts/receipts and close after Production migration verification.
