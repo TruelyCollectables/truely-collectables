@@ -93,24 +93,30 @@ export async function POST(request: Request) {
   }
 
   try {
-    const baseUrl = macBaseUrl();
-    const headers = macHeaders();
+    const url = new URL(request.url);
+    const productionOnly =
+      String(url.searchParams.get("mode") || "").trim().toLowerCase() === "production";
     let macCandidates: any[] = [];
     let macCandidateError: string | null = null;
-    try {
-      const macPayload = await fetchJson(
-        `${baseUrl}/v1/deal-hunter/candidates?limit=50`,
-        { headers },
-        "Mac candidate receipts",
-      );
-      const rows = Array.isArray(macPayload?.candidates)
-        ? macPayload.candidates
-        : Array.isArray(macPayload)
-          ? macPayload
-          : [];
-      macCandidates = rows.map(compactMacCandidate);
-    } catch (error) {
-      macCandidateError = error instanceof Error ? error.message : String(error);
+
+    if (!productionOnly) {
+      const baseUrl = macBaseUrl();
+      const headers = macHeaders();
+      try {
+        const macPayload = await fetchJson(
+          `${baseUrl}/v1/deal-hunter/candidates?limit=50`,
+          { headers },
+          "Mac candidate receipts",
+        );
+        const rows = Array.isArray(macPayload?.candidates)
+          ? macPayload.candidates
+          : Array.isArray(macPayload)
+            ? macPayload
+            : [];
+        macCandidates = rows.map(compactMacCandidate);
+      } catch (error) {
+        macCandidateError = error instanceof Error ? error.message : String(error);
+      }
     }
 
     const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
@@ -153,6 +159,7 @@ export async function POST(request: Request) {
       {
         success: true,
         schema: "truelycollectables.instacompDealHunterCandidateDiagnostics.v1",
+        mode: productionOnly ? "production" : "full",
         macCandidateError,
         macCandidates,
         macErrorCounts: Object.fromEntries(errorCounts),
