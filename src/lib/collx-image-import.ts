@@ -98,6 +98,10 @@ function containsSequence(haystack: string, needle: string) {
   return ` ${haystack} `.includes(` ${needle} `);
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function normalizedYear(value: unknown) {
   const raw = text(value, 40);
   const match = raw.match(/(?:19|20)\d{2}/);
@@ -219,17 +223,41 @@ export function parseCollxImageCsv(contents: string): CollxImageRow[] {
   return parsed;
 }
 
+function targetListingText(target: CollxImageTarget) {
+  return [target.title, target.description, target.sku]
+    .map((value) => text(value))
+    .filter(Boolean)
+    .join(" ");
+}
+
 function targetHaystack(target: CollxImageTarget) {
-  let metadata = "";
-  try {
-    metadata = JSON.stringify(target.metadata || {});
-  } catch {
-    metadata = "";
+  return normalize(targetListingText(target));
+}
+
+function cardNumberEvidence(target: CollxImageTarget, row: CollxImageRow) {
+  const rawNumber = text(row.number, 160);
+  if (!rawNumber) return true;
+  const normalizedNumber = normalize(rawNumber);
+  if (!normalizedNumber) return true;
+
+  const listingText = targetListingText(target);
+  const haystack = normalize(listingText);
+  if (/[a-z]/i.test(rawNumber)) {
+    return containsSequence(haystack, normalizedNumber);
   }
 
-  return normalize(
-    [target.title, target.description, target.sku, metadata].filter(Boolean).join(" "),
-  );
+  if (/^\d+$/.test(rawNumber)) {
+    const canonical = rawNumber.replace(/^0+(?=\d)/, "");
+    const escaped = escapeRegExp(canonical);
+    const explicitNumberPattern = new RegExp(
+      `(?:#\\s*|\\bno\\.?\\s*|\\bcard\\s*(?:#\\s*|no\\.?\\s*)?)0*${escaped}(?!\\d)`,
+      "i",
+    );
+    if (explicitNumberPattern.test(listingText)) return true;
+    return canonical.length >= 3 && containsSequence(haystack, normalize(canonical));
+  }
+
+  return containsSequence(haystack, normalizedNumber);
 }
 
 function setEvidenceTokens(row: CollxImageRow) {
@@ -267,11 +295,8 @@ export function collxIdentityScore(target: CollxImageTarget, row: CollxImageRow)
     score += 15;
   }
 
-  const cardNumber = normalize(row.number);
-  if (cardNumber) {
-    if (!containsSequence(haystack, cardNumber)) return 0;
-    score += 20;
-  }
+  if (!cardNumberEvidence(target, row)) return 0;
+  if (normalize(row.number)) score += 20;
 
   const brand = normalize(row.brand);
   if (brand && containsSequence(haystack, brand)) score += 5;
