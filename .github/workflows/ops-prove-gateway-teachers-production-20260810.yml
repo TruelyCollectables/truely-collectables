@@ -1,4 +1,4 @@
-name: Ops Probe Gemini Native Search 20260810
+name: Ops Probe Gemini Raw Gateway Search 20260810
 
 on:
   pull_request:
@@ -33,63 +33,96 @@ jobs:
           test -n "${VERCEL_OIDC_TOKEN:-}"
           echo "GEMINI_GATEWAY_OIDC_ACQUIRED=true"
 
-      - name: Install isolated Gateway and Google tool definitions
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --no-save --ignore-scripts ai@7.0.58 @ai-sdk/gateway@4.0.46 @ai-sdk/google@3.0.26 >/dev/null
-
-      - name: Require free Gemini 2.5 Flash Lite with native Google Search
+      - name: Probe raw Gateway REST encodings for Gemini native Google Search
         shell: bash
         run: |
           set -euo pipefail
           set -a
           source .env.local
           set +a
-          cat > .gemini-native-search-probe.mjs <<'NODE'
-          import { generateText } from 'ai';
-          import { google } from '@ai-sdk/google';
-
-          const result = await generateText({
-            model: 'google/gemini-2.5-flash-lite',
-            prompt: [
-              'Use Google Search grounding before answering.',
-              'Search the live web for: site:ebay.com/itm "2024 Panini Prizm Caitlin Clark" "Silver" "22".',
-              'Do not invent prices or URLs.',
-              'Reply only with {"searched":true,"ebayEvidenceFound":true_or_false}.'
-            ].join('\n'),
-            temperature: 0,
-            maxOutputTokens: 600,
-            timeout: 120000,
-            tools: {
-              google_search: google.tools.googleSearch({ searchTypes: { webSearch: {} } }),
+          cat > .gemini-raw-rest-probe.mjs <<'NODE'
+          const token = process.env.VERCEL_OIDC_TOKEN;
+          const prompt = 'Use Google Search grounding before answering. Search the live web for site:ebay.com/itm "2024 Panini Prizm Caitlin Clark" "Silver" "22". Do not invent prices or URLs. Reply only with JSON saying whether search ran.';
+          const attempts = [
+            {
+              name: 'responses_google_search_type',
+              url: 'https://ai-gateway.vercel.sh/v1/responses',
+              body: {
+                model: 'google/gemini-2.5-flash-lite',
+                input: [{ type: 'message', role: 'user', content: prompt }],
+                max_output_tokens: 600,
+                temperature: 0,
+                tools: [{ type: 'google_search' }],
+                tool_choice: 'required',
+                providerOptions: { gateway: { only: ['vertex'] } },
+              },
             },
-          });
+            {
+              name: 'responses_provider_defined',
+              url: 'https://ai-gateway.vercel.sh/v1/responses',
+              body: {
+                model: 'google/gemini-2.5-flash-lite',
+                input: [{ type: 'message', role: 'user', content: prompt }],
+                max_output_tokens: 600,
+                temperature: 0,
+                tools: [{ type: 'provider-defined', id: 'google.google_search', name: 'google_search', args: { searchTypes: { webSearch: {} } } }],
+                providerOptions: { gateway: { only: ['vertex'] } },
+              },
+            },
+            {
+              name: 'responses_google_provider_option',
+              url: 'https://ai-gateway.vercel.sh/v1/responses',
+              body: {
+                model: 'google/gemini-2.5-flash-lite',
+                input: [{ type: 'message', role: 'user', content: prompt }],
+                max_output_tokens: 600,
+                temperature: 0,
+                providerOptions: { gateway: { only: ['vertex'] }, google: { useSearchGrounding: true }, vertex: { useSearchGrounding: true } },
+              },
+            },
+            {
+              name: 'chat_google_search_tool',
+              url: 'https://ai-gateway.vercel.sh/v1/chat/completions',
+              body: {
+                model: 'google/gemini-2.5-flash-lite',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 600,
+                temperature: 0,
+                tools: [{ type: 'google_search' }],
+                providerOptions: { gateway: { only: ['vertex'] } },
+              },
+            },
+          ];
 
-          const metadata = result.providerMetadata || {};
-          const candidates = [metadata.googleVertex, metadata.vertex, metadata.google, metadata['google.generative-ai'], metadata.gateway].filter(Boolean);
-          const summaries = candidates.map((m) => {
-            const grounding = m?.groundingMetadata || m?.grounding || null;
-            return {
-              keys: Object.keys(m || {}),
-              groundingKeys: grounding ? Object.keys(grounding) : [],
-              queryCount: Array.isArray(grounding?.webSearchQueries) ? grounding.webSearchQueries.length : 0,
-              chunkCount: Array.isArray(grounding?.groundingChunks) ? grounding.groundingChunks.length : 0,
-              supportCount: Array.isArray(grounding?.groundingSupports) ? grounding.groundingSupports.length : 0,
-              hasSearchEntryPoint: Boolean(grounding?.searchEntryPoint),
-            };
-          });
-          const safe = {
-            model: 'google/gemini-2.5-flash-lite',
-            textReturned: typeof result.text === 'string' && result.text.trim().length > 0,
-            finishReason: result.finishReason || null,
-            sourceCount: Array.isArray(result.sources) ? result.sources.length : 0,
-            metadataKeys: Object.keys(metadata),
-            metadataSummaries: summaries,
-          };
-          console.log('GEMINI_NATIVE_SEARCH_PROOF=' + JSON.stringify(safe));
-          const grounded = summaries.some((s) => s.queryCount > 0 || s.chunkCount > 0 || s.supportCount > 0 || s.hasSearchEntryPoint);
-          if (!safe.textReturned || safe.finishReason === 'error' || !grounded) process.exit(2);
+          let winner = null;
+          for (const attempt of attempts) {
+            let status = 0;
+            let payload = {};
+            try {
+              const response = await fetch(attempt.url, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(attempt.body),
+                signal: AbortSignal.timeout(120000),
+              });
+              status = response.status;
+              const text = await response.text();
+              try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text.slice(0, 500) }; }
+            } catch (error) {
+              payload = { error: String(error?.message || error) };
+            }
+            const serialized = JSON.stringify(payload);
+            const grounded = /groundingMetadata|webSearchQueries|searchEntryPoint|groundingChunks/i.test(serialized);
+            const outputText = serialized.includes('output_text') || serialized.includes('choices');
+            const errorMessage = payload?.error?.message || payload?.error || null;
+            console.log('GEMINI_RAW_ATTEMPT=' + JSON.stringify({ name: attempt.name, status, grounded, outputText, topKeys: Object.keys(payload || {}), error: errorMessage ? String(errorMessage).slice(0, 240) : null }));
+            if (status >= 200 && status < 300 && grounded) {
+              winner = attempt.name;
+              break;
+            }
+          }
+          console.log('GEMINI_RAW_SEARCH_WINNER=' + JSON.stringify({ winner }));
+          if (!winner) process.exit(2);
           NODE
-          node ./.gemini-native-search-probe.mjs
-          rm -f .gemini-native-search-probe.mjs
+          node ./.gemini-raw-rest-probe.mjs
+          rm -f .gemini-raw-rest-probe.mjs
