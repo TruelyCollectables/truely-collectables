@@ -1,0 +1,10 @@
+from services.instacomp_ai.app.verified_checklist_sources import VerifiedChecklistSource
+
+SOURCES = (
+    VerifiedChecklistSource("baseball|2025|bowman|bowman", "checklistinsider", "2025 Bowman Baseball direct XLSX", "https://xcdn.checklistinsider.com/public/2025/04/2025-Bowman-Baseball-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from exact Checklist Insider release page"),
+    VerifiedChecklistSource("baseball|2025|topps|update-series", "checklistinsider", "2025 Topps Update Series Baseball direct XLSX", "https://xcdn.checklistinsider.com/public/2025/09/2025-Topps-Update-Series-Baseball-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from exact Checklist Insider release page"),
+    VerifiedChecklistSource("baseball|2026|bowman|bowman", "checklistinsider", "2026 Bowman Baseball direct XLSX", "https://xcdn.checklistinsider.com/public/2026/04/2026-Bowman-Baseball-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from exact Checklist Insider release page"),
+    VerifiedChecklistSource("baseball|2026|topps|chrome", "checklistinsider", "2026 Topps Chrome Baseball direct XLSX", "https://xcdn.checklistinsider.com/public/2026/06/2026-Topps-Chrome-Baseball-Checklist-Downloads-Excel-spreadsheet-Checklist-Insider.xlsx", 120, "Direct XLSX export linked from exact Checklist Insider release page"),
+    VerifiedChecklistSource("baseball|2026|topps|heritage", "checklistinsider", "2026 Topps Heritage Baseball direct XLSX", "https://xcdn.checklistinsider.com/public/2026/02/2026-Topps-Heritage-Baseball-Checklist-Downloads-Excel-spreadsheet.xlsx", 120, "Direct XLSX export linked from exact Checklist Insider release page"),
+    VerifiedChecklistSource("baseball|2026|topps|series-1", "checklistinsider", "2026 Topps Series 1 Baseball direct XLSX", "https://xcdn.checklistinsider.com/public/2026/03/2026-Topps-Series-1-Baseball-Checklist-Update-Feb.xlsx", 120, "Direct XLSX export linked from exact Checklist Insider release page"),
+)
