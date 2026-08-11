@@ -13,30 +13,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  collx-full-migrate:
+  collx-inventory-smoke:
     if: github.head_ref == 'ops/collx-full-inventory-migration-20260811'
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 20
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_SCOPE: truelycollectables-projects
       SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
       SOURCE_ROWS: '6909'
-      WORK: /tmp/collx-full-migrate-v3
+      WORK: /tmp/collx-inventory-smoke
       ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-v2-20260811
-      IMAGE_ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-image-backfill-20260811
     steps:
       - name: Check out migration source
         uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
           fetch-depth: 1
-
-      - name: Reconstruct authoritative 6909-row CollX source
+      - name: Reconstruct authoritative 6909-row metadata source
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$WORK/results"
+          mkdir -p "$WORK"
           grep -Ev 'part(10|14|15)$' .github/ops/collx-full-metadata.sha256 | sha256sum -c -
           cat \
             .github/ops/collx-full-metadata.part{00..09} \
@@ -50,140 +46,35 @@ jobs:
           base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
           test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$SOURCE_SHA"
           test "$(($(wc -l < "$WORK/source.csv")-1))" = "$SOURCE_ROWS"
-
-      - name: Deploy current main migration routes to Production
+      - name: Refresh classification
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
-          MAIN_SHA="$(git rev-parse FETCH_HEAD)"
-          [[ "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
-          rm -rf "$WORK/main"
-          git worktree add --detach "$WORK/main" "$MAIN_SHA"
-          test -s "$WORK/main/src/app/api/ops/collx-full-migration-v2-20260811/route.ts"
-          test -s "$WORK/main/src/app/api/ops/collx-image-backfill-20260811/route.ts"
-          cd "$WORK/main"
-          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --build-env TCOS_RELEASE_COMMIT="$MAIN_SHA"
-
-      - name: Classify all 6909 rows against live eBay inventory
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --silent --show-error --fail-with-body --retry 5 --retry-delay 5 --retry-all-errors --max-time 300 \
+          curl --silent --show-error --fail-with-body --max-time 120 \
             -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
-            "$ROUTE_URL?mode=classify" | tee "$WORK/results/classification-response.json"
+            "$ROUTE_URL?mode=classify" | tee "$WORK/classification.json"
+      - name: Smoke one CollX inventory insert
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o "$WORK/smoke.json" -w '%{http_code}' --max-time 120 \
+            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
+            "$ROUTE_URL?mode=import&offset=0&limit=1" || true)"
+          echo "HTTP=$code"
+          cat "$WORK/smoke.json" || true
+          test "$code" = '200'
           python3 - <<'PY'
           import json,os
-          d=json.load(open(os.path.join(os.environ['WORK'],'results','classification-response.json')))
+          d=json.load(open(os.path.join(os.environ['WORK'],'smoke.json')))
           assert d.get('success') is True,d
-          assert d.get('sourceRows')==6909,d
-          existing=int(d.get('existingCollxImports',0)); imports=int(d.get('importCandidateRows',0))
-          duplicates=6909-existing-imports
-          assert duplicates>=0,(duplicates,d)
-          assert existing+duplicates+imports==6909,d
-          out={'sourceRows':6909,'existingCollxImports':existing,'duplicateCollxRows':duplicates,'importCandidateRows':imports,'routeReportedDuplicateRows':d.get('duplicateCollxRows'),'verifiedPhysicalMapMatches':d.get('verifiedPhysicalMapMatches'),'reciprocalMetadataMatches':d.get('reciprocalMetadataMatches'),'capacityMetadataMatches':d.get('capacityMetadataMatches')}
-          open(os.path.join(os.environ['WORK'],'results','classification-accounting.json'),'w').write(json.dumps(out,indent=2))
-          print(json.dumps(out,indent=2))
+          assert d.get('requested')==1,d
+          assert d.get('completed')==1,d
           PY
-
-      - name: Import every CollX-only row as draft inventory
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import concurrent.futures,json,os,urllib.request,urllib.error,time
-          work=os.environ['WORK']; route=os.environ['ROUTE_URL']; body=open(os.path.join(work,'source.csv'),'rb').read()
-          classification=json.load(open(os.path.join(work,'results','classification-response.json')))
-          total=int(classification['importCandidateRows']); batch=75; offsets=list(range(0,total,batch))
-          def one(offset):
-              last=''
-              for attempt in range(1,6):
-                  req=urllib.request.Request(f'{route}?mode=import&offset={offset}&limit={batch}',data=body,method='POST',headers={'Content-Type':'text/csv','User-Agent':'TruelyCollectables-CollX-import/20260811'})
-                  try:
-                      with urllib.request.urlopen(req,timeout=320) as r: payload=json.loads(r.read() or b'{}')
-                      if payload.get('success') is True and int(payload.get('completed',-1))==int(payload.get('requested',-2)):
-                          open(os.path.join(work,'results',f'import-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2)); return payload
-                      last=f'bad receipt {payload}'
-                  except urllib.error.HTTPError as e: last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:2000]
-                  except Exception as e: last=repr(e)
-                  time.sleep(attempt*4)
-              raise RuntimeError(f'import batch {offset} failed: {last}')
-          receipts=[]
-          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-              for fut in concurrent.futures.as_completed([ex.submit(one,o) for o in offsets]):
-                  r=fut.result(); receipts.append(r); print(json.dumps({'offset':r['offset'],'completed':r['completed'],'total':r['total']}))
-          summary={'totalExpected':total,'batchReceipts':len(receipts),'completed':sum(int(x['completed']) for x in receipts)}
-          open(os.path.join(work,'results','import-summary.json'),'w').write(json.dumps(summary,indent=2))
-          assert summary['completed']==total,summary
-          print(json.dumps(summary,indent=2))
-          PY
-
-      - name: Backfill owned CollX front and back images per card
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import concurrent.futures,json,os,urllib.request,urllib.error,time
-          work=os.environ['WORK']; route=os.environ['IMAGE_ROUTE_URL']
-          total=int(json.load(open(os.path.join(work,'results','classification-response.json')))['importCandidateRows'])
-          batch=50; offsets=list(range(0,total,batch))
-          def one(offset):
-              last=''
-              for attempt in range(1,6):
-                  req=urllib.request.Request(f'{route}?offset={offset}&limit={batch}',data=b'',method='POST',headers={'User-Agent':'TruelyCollectables-CollX-image-backfill/20260811'})
-                  try:
-                      with urllib.request.urlopen(req,timeout=320) as r: payload=json.loads(r.read() or b'{}')
-                      if payload.get('success') is True and int(payload.get('completed',-1))==int(payload.get('requested',-2)):
-                          open(os.path.join(work,'results',f'images-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2)); return payload
-                      last=f'bad receipt {payload}'
-                  except urllib.error.HTTPError as e: last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:2000]
-                  except Exception as e: last=repr(e)
-                  time.sleep(attempt*4)
-              raise RuntimeError(f'image batch {offset} failed: {last}')
-          receipts=[]
-          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-              for fut in concurrent.futures.as_completed([ex.submit(one,o) for o in offsets]):
-                  r=fut.result(); receipts.append(r); print(json.dumps({'offset':r['offset'],'completed':r['completed'],'fronts':r['frontsCopied'],'backs':r['backsCopied'],'noFront':len(r.get('noFront',[])),'errors':len(r.get('errors',[]))}))
-          completed=sum(int(x['completed']) for x in receipts)
-          fronts=sum(int(x['frontsCopied']) for x in receipts); backs=sum(int(x['backsCopied']) for x in receipts)
-          nofront=sum(len(x.get('noFront',[])) for x in receipts); noback=sum(len(x.get('noBack',[])) for x in receipts); errors=sum(len(x.get('errors',[])) for x in receipts)
-          summary={'totalExpected':total,'completed':completed,'frontsCopied':fronts,'backsCopied':backs,'noFront':nofront,'noBack':noback,'errors':errors}
-          open(os.path.join(work,'results','image-backfill-summary.json'),'w').write(json.dumps(summary,indent=2))
-          assert completed==total,summary
-          assert errors==0,summary
-          assert nofront<=17,summary
-          assert noback<=1231,summary
-          assert fronts>=total-17,summary
-          assert backs>=max(0,total-1231),summary
-          print(json.dumps(summary,indent=2))
-          PY
-
-      - name: Verify zero missing and zero active CollX imports
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --silent --show-error --fail-with-body --retry 5 --retry-delay 5 --retry-all-errors --max-time 300 \
-            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
-            "$ROUTE_URL?mode=verify" | tee "$WORK/results/verification.json"
-          python3 - <<'PY'
-          import json,os
-          d=json.load(open(os.path.join(os.environ['WORK'],'results','verification.json')))
-          assert d.get('success') is True,d
-          assert d.get('allClassifiedImportsPresent') is True,d
-          assert d.get('allImportsNotForSale') is True,d
-          assert int(d.get('missingProducts',-1))==0,d
-          assert int(d.get('missingItems',-1))==0,d
-          assert int(d.get('activeItems',-1))==0,d
-          assert int(d.get('collxHostedProductImages',-1))==0,d
-          print(json.dumps(d,indent=2))
-          PY
-
-      - name: Upload full migration receipts
+      - name: Upload smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-full-migration-v3-production-receipts
-          path: /tmp/collx-full-migrate-v3/results
-          retention-days: 14
+          name: collx-inventory-smoke-evidence
+          path: /tmp/collx-inventory-smoke
+          retention-days: 7
           if-no-files-found: warn
