@@ -1,0 +1,106 @@
+name: Ops CollX InstaComp Visual Marriage V2 20260810
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-instacomp-visual-marriage-v2-20260810.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: /tmp/collx-visual-v2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ROOT"/{candidates,gaps,owned,scan,out,images}
+          for spec in 9088498879:candidates 9089925154:gaps 9090085452:owned 9090847746:scan; do id="${spec%%:*}"; d="${spec##*:}"; gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$ROOT/$d.zip"; unzip -q "$ROOT/$d.zip" -d "$ROOT/$d"; done
+          python3 -m pip install --quiet Pillow ImageHash
+      - name: Compute scanner-gated physical image ranks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,re,hashlib,time,urllib.request
+          from pathlib import Path
+          from PIL import Image,ImageOps
+          import imagehash
+          root=Path(os.environ['ROOT'])
+          C=json.load(open(root/'candidates/candidate-owned-map.json'))['candidates']
+          G=json.load(open(root/'gaps/current-gaps.json'))['rows']
+          O=json.load(open(root/'owned/owned-image-map.json'))['rows']
+          S=json.load(open(root/'scan/results/instacomp-identifications.json'))['results']
+          assert (len(C),len(G),len(S))==(281,209,231)
+          used={str(x.get('image_url')or'') for x in O}; cm={str(x['collx_id']):x for x in C}
+          def norm(v): return ' '.join(re.sub(r'[^a-z0-9]+',' ',str(v or '').lower()).split())
+          def identity(r):
+            i=(r.get('body')or{}).get('instacomp')or{}; tr=i.get('trusted_identity') if isinstance(i.get('trusted_identity'),dict) else None; sg=i.get('local_suggestion') if isinstance(i.get('local_suggestion'),dict) else {}; md=sg.get('identity') if isinstance(sg.get('identity'),dict) else {}; lv=i.get('local_vision') if isinstance(i.get('local_vision'),dict) else {}; hi=lv.get('identity_hints') if isinstance(lv.get('identity_hints'),dict) else {}; base=tr or md or {}; out={}
+            for k in ['year','manufacturer','brand','set_name','subset','player','team','card_number','parallel','serial_number','serial_run']:
+              out[k]=base.get(k) if base.get(k) not in (None,'') else hi.get(k)
+            return out,i
+          succ=[]
+          for r in S:
+            if r.get('ok') is not True: continue
+            cid=str(r.get('collx_id')or''); c=cm.get(cid)
+            if not c or not c.get('front_owned') or c['front_owned'] in used: continue
+            ident,inst=identity(r); player=norm(ident.get('player'))
+            if player: succ.append((cid,c,ident,inst))
+          pairs=[]
+          for cid,c,ident,inst in succ:
+            player=norm(ident.get('player')); parts=player.split(); ym=re.search(r'(?:19|20)\d{2}',str(ident.get('year')or'')); year=ym.group(0) if ym else ''; num=norm(ident.get('card_number')).lstrip('#').strip()
+            for g in G:
+              title=norm(g.get('title'))
+              if player not in title and not(len(parts)>=2 and all(x in title.split() for x in parts)): continue
+              meta=60
+              if year: meta+=18 if re.search(rf'\b{re.escape(year)}(?: \d{{2,4}})?\b',title) else -8
+              if num: meta+=35 if re.search(rf'(?<![a-z0-9]){re.escape(num)}(?![a-z0-9])',title) else -3
+              words={w for w in norm(' '.join(str(ident.get(k)or'') for k in ['manufacturer','brand','set_name','subset'])).split() if len(w)>2}; meta+=min(30,5*sum(w in title.split() for w in words))
+              pairs.append({'collx_id':cid,'front_owned':c['front_owned'],'product_id':int(g['product_id']),'inventory_item_id':g['inventory_item_id'],'title':g['title'],'listing_image':g.get('image_url'),'meta_score':int(meta),'identity':ident,'instacomp_status':inst.get('status'),'checklist_outcome':(inst.get('checklist')or{}).get('outcome')})
+          print(json.dumps({'successfulUnusedWithPlayer':len(succ),'pairs':len(pairs),'products':len({p['product_id'] for p in pairs})}))
+          cache={};errors={}; imgdir=root/'images'
+          def grab(url):
+            if url in cache:return cache[url]
+            last=''
+            for a in range(1,5):
+              try:
+                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 TruelyCollectablesImageAudit/1.0'}); data=urllib.request.urlopen(req,timeout=30).read(20*1024*1024+1); f=imgdir/hashlib.sha256(url.encode()).hexdigest(); f.write_bytes(data); im=ImageOps.exif_transpose(Image.open(f)).convert('RGB'); h={k:str(fn(im,hash_size=16)) for k,fn in [('p',imagehash.phash),('d',imagehash.dhash),('w',imagehash.whash),('a',imagehash.average_hash)]};cache[url]=h;return h
+              except Exception as e:last=f'{type(e).__name__}: {e}';time.sleep(min(3,a*.4))
+            errors[url]=last;return None
+          urls={u for p in pairs for u in [p['front_owned'],str(p.get('listing_image')or'')] if u}
+          for n,u in enumerate(sorted(urls),1): grab(u); print(f'fingerprinted {n}/{len(urls)} errors={len(errors)}') if n%50==0 else None
+          def hd(x,y,k): return int(imagehash.hex_to_hash(x[k])-imagehash.hex_to_hash(y[k]))
+          scored=[]
+          for p in pairs:
+            x=cache.get(p['front_owned']);y=cache.get(str(p.get('listing_image')or''));q=dict(p)
+            if x and y:
+              pd,dd,wd,ad=hd(x,y,'p'),hd(x,y,'d'),hd(x,y,'w'),hd(x,y,'a'); q.update(phash_distance=pd,dhash_distance=dd,whash_distance=wd,ahash_distance=ad,visual_distance=round(float(pd+.35*dd+.35*wd+.15*ad),3),visual_available=True)
+            else:q.update(visual_distance=None,visual_available=False)
+            scored.append(q)
+          bc={};bp={}
+          for r in scored:
+            if r['visual_available']:bc.setdefault(r['collx_id'],[]).append(r);bp.setdefault(r['product_id'],[]).append(r)
+          for z in bc.values():z.sort(key=lambda r:(r['visual_distance'],-r['meta_score'],r['product_id']))
+          for z in bp.values():z.sort(key=lambda r:(r['visual_distance'],-r['meta_score'],r['collx_id']))
+          top=[]
+          for cid,z in bc.items():
+            f=z[0];s=z[1] if len(z)>1 else None;pz=bp[f['product_id']];top.append({**f,'candidate_visual_margin':None if s is None else round(float(s['visual_distance']-f['visual_distance']),3),'reciprocal_top1':bool(pz and pz[0]['collx_id']==cid),'product_visual_margin':None if len(pz)<2 else round(float(pz[1]['visual_distance']-pz[0]['visual_distance']),3),'candidate_pair_count':len(z),'product_pair_count':len(pz)})
+          summary={'schema':'tcos.collx.instacomp.visual-marriage.v2','successfulUnusedCandidatesWithPlayer':len(succ),'plausiblePairs':len(pairs),'fingerprintedUrls':len(cache),'imageErrors':len(errors),'candidateTopRows':len(top),'reciprocalTop1':sum(bool(r['reciprocal_top1']) for r in top),'databaseWrites':False,'generated_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          with open(root/'out/visual-marriage.json','w') as f:json.dump({'summary':summary,'top':top,'pairs':scored,'image_errors':errors},f,indent=2,default=lambda o:int(o) if hasattr(o,'item') else str(o))
+          json.dump(summary,open(root/'out/receipt.json','w'),indent=2);print(json.dumps(summary,indent=2))
+          PY
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-instacomp-visual-marriage-v2
+          path: |
+            ${{ env.ROOT }}/out/visual-marriage.json
+            ${{ env.ROOT }}/out/receipt.json
+          retention-days: 7
+          if-no-files-found: error
