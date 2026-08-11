@@ -1,1 +1,0 @@
-trigger=raw-rest-gemini-20260810-v2

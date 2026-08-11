@@ -37,8 +37,10 @@ async function gatewayBearerToken() {
   if (process.env.VERCEL !== "1") return "";
   return String(await getVercelOidcToken()).trim();
 }
-const TEACHER_GEMINI_DISABLED =
+const DIRECT_GEMINI_DISABLED =
   String(process.env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() === "true";
+const GATEWAY_GEMINI_DISABLED =
+  String(process.env.INSTACOMP_GATEWAY_GEMINI_DISABLED || "").trim().toLowerCase() === "true";
 
 const GEMINI_MODEL = String(
   process.env.INSTACOMP_TEACHER_GEMINI_MODEL || "gemini-3.6-flash",
@@ -55,12 +57,16 @@ const GROQ_MODEL = String(
 const GATEWAY_PERPLEXITY_MODEL = String(
   process.env.INSTACOMP_GATEWAY_PERPLEXITY_MODEL || "perplexity/sonar",
 ).trim();
+const GATEWAY_GEMINI_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_GEMINI_MODEL || "google/gemini-2.5-flash-lite",
+).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 8;
 const TEACHER_MARKET_DOMAINS = ["ebay.com", "130point.com", "psacard.com"];
 
 export type TeacherName =
   | "gemini"
+  | "gateway_gemini"
   | "anthropic"
   | "xai"
   | "groq"
@@ -262,7 +268,7 @@ function geminiSchema() {
 }
 
 async function runGemini(prompt: string): Promise<TeacherAttempt> {
-  if (!GEMINI_API_KEY || TEACHER_GEMINI_DISABLED) {
+  if (!GEMINI_API_KEY || DIRECT_GEMINI_DISABLED) {
     return { teacher: "gemini", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
   try {
@@ -296,6 +302,81 @@ async function runGemini(prompt: string): Promise<TeacherAttempt> {
   } catch (error) {
     return {
       teacher: "gemini",
+      configured: true,
+      ok: false,
+      sold: [],
+      active: [],
+      notes: "",
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+
+function gatewayResponsesOutputText(payload: any) {
+  return (Array.isArray(payload?.output) ? payload.output : [])
+    .flatMap((item: any) => (Array.isArray(item?.content) ? item.content : []))
+    .filter((part: any) => part?.type === "output_text" && typeof part?.text === "string")
+    .map((part: any) => part.text)
+    .join("\n")
+    .trim();
+}
+
+function gatewayGeminiGroundingObserved(payload: any) {
+  const metadata = payload?.provider_metadata || payload?.providerMetadata || null;
+  if (!metadata) return false;
+  const serialized = JSON.stringify(metadata);
+  return /groundingMetadata|webSearchQueries|searchEntryPoint|groundingChunks|groundingSupports/i.test(serialized);
+}
+
+async function runGatewayGemini(prompt: string): Promise<TeacherAttempt> {
+  const configured = gatewayPlatformAvailable() && !GATEWAY_GEMINI_DISABLED;
+  if (!configured) {
+    return { teacher: "gateway_gemini", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+  }
+  try {
+    const token = await gatewayBearerToken();
+    if (!token) throw new Error("Vercel AI Gateway credential unavailable at request time.");
+    const response = await fetch("https://ai-gateway.vercel.sh/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: GATEWAY_GEMINI_MODEL,
+        input: [{ type: "message", role: "user", content: prompt }],
+        max_output_tokens: 6000,
+        temperature: 0,
+        tools: [{ type: "google_search" }],
+        tool_choice: "required",
+        providerOptions: { gateway: { only: ["vertex"] } },
+      }),
+      signal: AbortSignal.timeout(TEACHER_TIMEOUT_MS),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(clean(payload?.error?.message) || `Vercel Gateway Gemini HTTP ${response.status}`);
+    }
+    if (!gatewayGeminiGroundingObserved(payload)) {
+      throw new Error("Vercel Gateway Gemini returned without native Google Search grounding metadata.");
+    }
+    const text = gatewayResponsesOutputText(payload);
+    if (!text) throw new Error("Vercel Gateway Gemini returned no output text.");
+    const parsed = parseJsonObject(text);
+    return {
+      teacher: "gateway_gemini",
+      configured: true,
+      ok: true,
+      ...parsed,
+      notes: [parsed.notes, `Vercel Gateway ${GATEWAY_GEMINI_MODEL} with native Google Search grounding.`]
+        .filter(Boolean)
+        .join(" "),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      teacher: "gateway_gemini",
       configured: true,
       ok: false,
       sold: [],
@@ -592,6 +673,7 @@ function teacherVoteFamily(teacher: TeacherName) {
   // Groq Compound and Groq GPT-OSS browser search are distinct discovery
   // methods, but they share one provider credential and therefore contribute
   // at most one independent trust vote for any sold listing.
+  if (teacher === "gemini" || teacher === "gateway_gemini") return "gemini";
   if (teacher === "groq" || teacher === "groq_browser") return "groq";
   if (teacher === "gateway_perplexity") return "perplexity";
   return teacher;
@@ -663,6 +745,7 @@ export async function getTeacherExactMarketProviders(params: {
     requestInstaCompStudentCompHypothesis({ exactTitle: params.exactTitle, ai: params.ai }),
     Promise.all([
       runGemini(prompt),
+      runGatewayGemini(prompt),
       runAnthropic(prompt),
       runXai(prompt),
       runGroq(prompt),
