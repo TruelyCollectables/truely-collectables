@@ -1,4 +1,4 @@
-name: Ops Diagnose Gemini Targeted Start 20260810
+name: Ops Inspect Latest Deal Hunter Outcomes 20260811
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -24,88 +24,78 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" \
-            'https://api.vercel.com/v2/teams?limit=100' > teams.json
+          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" 'https://api.vercel.com/v2/teams?limit=100' > teams.json
           TEAM_ID="$(node - <<'NODE'
           const p=require('./teams.json'); const t=(p.teams||[]).find(x=>x.slug==='truelycollectables-projects'); if(!t?.id) process.exit(2); process.stdout.write(t.id);
           NODE
           )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT?teamId=$TEAM_ID" > project.json
+          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/$VERCEL_PROJECT?teamId=$TEAM_ID" > project.json
           PROJECT_ID="$(node - <<'NODE'
           const p=require('./project.json'); if(!p.id) process.exit(2); process.stdout.write(p.id);
           NODE
           )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&target=production&limit=20&teamId=$TEAM_ID" > deployments.json
+          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&target=production&limit=20&teamId=$TEAM_ID" > deployments.json
           node - <<'NODE'
           const fs=require('fs'); const p=require('./deployments.json');
           const rows=Array.isArray(p.deployments)?p.deployments:[];
           const ready=rows.find(d=>String(d.state||d.readyState||'').toUpperCase()==='READY' && d.url);
           if(!ready) throw new Error('No READY Production deployment found.');
-          const safe={uid:ready.uid||null,url:ready.url||null,createdAt:ready.createdAt||null,metaCommit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null};
-          console.log('LATEST_READY_PRODUCTION='+JSON.stringify(safe));
+          console.log('LATEST_READY_PRODUCTION='+JSON.stringify({uid:ready.uid||null,url:ready.url||null,metaCommit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null,createdAt:ready.createdAt||null}));
           fs.appendFileSync(process.env.GITHUB_ENV,`DEPLOY_URL=https://${ready.url}\n`);
           NODE
 
-      - name: Re-prove live three-family configuration
+      - name: Fetch full Deal Hunter diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS -o runtime.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$DEPLOY_URL/api/release/instacomp-teacher-runtime-diagnostics" || true)"
-          echo "RUNTIME_HTTP=$code"
+          code="$(curl -sS -o diagnostics.json -w '%{http_code}' --connect-timeout 5 --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" || true)"
+          echo "DIAGNOSTICS_HTTP=$code"
+          test "$code" = "200"
           node - <<'NODE'
-          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('runtime.json','utf8'))}catch{}
-          const c=p.configuration||{};
-          const safe={success:Boolean(p.success),geminiConfigured:Boolean(c.geminiConfigured),directGeminiConfigured:Boolean(c.directGeminiConfigured),gatewayGeminiConfigured:Boolean(c.gatewayGeminiConfigured),groqConfigured:Boolean(c.groqConfigured),gatewayPerplexityConfigured:Boolean(c.gatewayPerplexityConfigured),votingTeacherCount:Number(c.votingTeacherCount||0),requiredVotes:Number(c.requiredVotes||0),teacherConsensusOperational:Boolean(c.teacherConsensusOperational)};
-          console.log('LIVE_THREE_FAMILY_RECHECK='+JSON.stringify(safe));
-          if(!safe.success||!safe.geminiConfigured||safe.directGeminiConfigured||!safe.gatewayGeminiConfigured||!safe.groqConfigured||!safe.gatewayPerplexityConfigured||safe.votingTeacherCount!==3||safe.requiredVotes!==2||!safe.teacherConsensusOperational) process.exit(1);
-          NODE
-
-      - name: Inspect recent durable runs and teacher receipts before any retry
-        shell: bash
-        run: |
-          set -euo pipefail
-          SINCE="$(node -p "new Date(Date.now()-45*60*1000).toISOString()")"
-          echo "DIAG_SINCE=$SINCE"
-          encoded_since="$(node -p "encodeURIComponent(process.argv[1])" "$SINCE")"
-          code="$(curl -sS -o receipts.json -w '%{http_code}' --connect-timeout 5 --max-time 60 -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$DEPLOY_URL/api/release/instacomp-deal-hunter-candidate-diagnostics?mode=teachers&since=$encoded_since" || true)"
-          echo "TEACHER_RECEIPTS_HTTP=$code"
-          node - <<'NODE'
-          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('receipts.json','utf8'))}catch{}
-          const runs=(Array.isArray(p.latestRuns)?p.latestRuns:[]).map(r=>({runId:r.run_id||null,status:r.status||null,completedAt:r.completed_at||null,discoveryCount:Number(r.discovery_count||0),evaluatedCount:Number(r.evaluated_count||0),failureCount:Number(r.failure_count||0)}));
-          const receipts=(Array.isArray(p.teacherReceipts)?p.teacherReceipts:[]).map(r=>({runId:r.runId||null,title:r.title||null,updatedAt:r.updatedAt||null,configuredTeachers:Array.isArray(r.configuredTeachers)?r.configuredTeachers:[],requiredVotes:Number(r.requiredVotes||0),attempts:(Array.isArray(r.attempts)?r.attempts:[]).map(a=>({teacher:a.teacher||null,configured:Boolean(a.configured),ok:Boolean(a.ok),soldCount:Number(a.soldCount||0),activeCount:Number(a.activeCount||0),error:a.error?String(a.error).slice(0,220):null}))}));
-          console.log('RECENT_DURABLE_RUNS='+JSON.stringify(runs));
-          console.log('RECENT_TEACHER_RECEIPTS='+JSON.stringify(receipts));
-          console.log('RECENT_GEMINI_RECEIPT_SUMMARY='+JSON.stringify({success:Boolean(p.success),mode:p.mode||null,receiptRows:receipts.length,gatewayGeminiOk:receipts.some(r=>r.attempts.some(a=>a.teacher==='gateway_gemini'&&a.configured&&a.ok)),groqOk:receipts.some(r=>r.attempts.some(a=>(a.teacher==='groq'||a.teacher==='groq_browser')&&a.configured&&a.ok)),perplexityOk:receipts.some(r=>r.attempts.some(a=>a.teacher==='gateway_perplexity'&&a.configured&&a.ok))}));
-          if(!p.success||p.mode!=='teachers') process.exit(1);
-          NODE
-
-      - name: Probe targeted start response only if no recent Gemini receipt exists
-        shell: bash
-        run: |
-          set -euo pipefail
-          if node - <<'NODE'
-          const p=require('./receipts.json'); const receipts=Array.isArray(p.teacherReceipts)?p.teacherReceipts:[];
-          process.exit(receipts.some(r=>(Array.isArray(r.attempts)?r.attempts:[]).some(a=>a.teacher==='gateway_gemini'&&a.configured&&a.ok)) ? 0 : 1);
-          NODE
-          then
-            echo 'SKIP_TARGETED_RETRY=true — recent persisted gateway_gemini receipt already exists.'
-            exit 0
-          fi
-
-          code="$(curl -sS -o start.json -w '%{http_code}' --connect-timeout 5 --max-time 90 -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$DEPLOY_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&limit=1&mode=start" || true)"
-          echo "TARGETED_START_HTTP=$code"
-          node - <<'NODE'
-          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('start.json','utf8'))}catch{}
-          const run=p?.run||null;
-          const safe={success:Boolean(p.success),mode:p.mode||null,lane:p.lane||null,requestedLimit:Number(p.requestedLimit||0),run:run?{runId:run.runId||null,status:run.status||null,startedAt:run.startedAt||null}:null,error:p.error?String(p.error).slice(0,500):null,macStatus:p.macStatus||null};
-          console.log('TARGETED_START_DIAGNOSTIC='+JSON.stringify(safe));
-          if(run?.runId) fs.appendFileSync(process.env.GITHUB_ENV,`TARGET_RUN_ID=${run.runId}\n`);
+          const p=require('./diagnostics.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const latest=(Array.isArray(p.latestRuns)?p.latestRuns:[])[0]||null;
+          const runId=latest?.run_id||null;
+          const rows=(Array.isArray(p.productionCandidates)?p.productionCandidates:[]).filter(r=>!runId||String(r.run_id||'')===String(runId));
+          const compact=rows.map(r=>{
+            const m=r.exact_market&&typeof r.exact_market==='object'?r.exact_market:{};
+            const h=m.historicalSoldMemory&&typeof m.historicalSoldMemory==='object'?m.historicalSoldMemory:null;
+            const c=m.teacherConsensus&&typeof m.teacherConsensus==='object'?m.teacherConsensus:null;
+            const ev=r.evaluation&&typeof r.evaluation==='object'?r.evaluation:{};
+            return {
+              title:r.title||null,
+              lane:r.lane||null,
+              dealLabel:r.deal_label||null,
+              actionable:r.actionable===true,
+              alertworthy:r.alertworthy===true,
+              deliveredCost:r.delivered_cost??null,
+              conservativeResale:r.conservative_resale??null,
+              expectedNetProfit:r.expected_net_profit??null,
+              roiPercent:r.roi_percent??null,
+              identity:r.identity||null,
+              exactMarket:{
+                status:m.status||null,
+                pricingEligibleSoldCount:Number(m.pricingEligibleSoldCount||0),
+                trustedSuggestedPrice:m.trustedSuggestedPrice??null,
+                historicalSoldMemory:h?{used:h.used===true,soldCount:Number(h.soldCount||0),medianDeliveredPrice:h.medianDeliveredPrice??null,newestSoldAt:h.newestSoldAt||null}:null,
+                configuredTeachers:Array.isArray(c?.configuredTeachers)?c.configuredTeachers:[],
+                requiredVotes:Number(c?.requiredVotes||0),
+                teacherAttempts:Array.isArray(c?.attempts)?c.attempts.map(a=>({teacher:a.teacher||null,configured:a.configured===true,ok:a.ok===true,soldCount:Number(a.soldCount||0),activeCount:Number(a.activeCount||0),error:a.error?String(a.error).slice(0,220):null})):[],
+                providerMessages:Array.isArray(m.providerMessages)?m.providerMessages.map(x=>({label:x.label||null,status:x.status||null,results:Number(x.results||0),message:x.message?String(x.message).slice(0,260):null})):[],
+              },
+              evaluation:{errorCode:ev.errorCode||ev.error_code||null,errorMessage:ev.errorMessage||ev.error_message||null,status:ev.status||null},
+            };
+          });
+          const summary={
+            latestRun:latest?{runId:latest.run_id||null,status:latest.status||null,completedAt:latest.completed_at||null,discoveryCount:Number(latest.discovery_count||0),evaluatedCount:Number(latest.evaluated_count||0),actionableCount:Number(latest.actionable_count||0),manualReviewCount:Number(latest.manual_review_count||0),failureCount:Number(latest.failure_count||0),summary:latest.summary||null}:null,
+            rowCount:compact.length,
+            memoryPriced:compact.filter(r=>r.exactMarket.historicalSoldMemory?.used).length,
+            trustedPrice:compact.filter(r=>Number.isFinite(Number(r.exactMarket.trustedSuggestedPrice))&&Number(r.exactMarket.trustedSuggestedPrice)>0).length,
+            teacherRan:compact.filter(r=>r.exactMarket.configuredTeachers.length>0).length,
+            teacherTrustedSold:compact.filter(r=>r.exactMarket.pricingEligibleSoldCount>0 && r.exactMarket.configuredTeachers.length>0).length,
+            noTrustedSold:compact.filter(r=>!(Number(r.exactMarket.trustedSuggestedPrice)>0)).length,
+            actionable:compact.filter(r=>r.actionable).length,
+          };
+          console.log('LATEST_DEAL_HUNTER_SUMMARY='+JSON.stringify(summary));
+          console.log('LATEST_DEAL_HUNTER_CANDIDATES='+JSON.stringify(compact));
           NODE
