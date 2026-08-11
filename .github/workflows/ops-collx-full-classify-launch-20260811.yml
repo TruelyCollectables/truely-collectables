@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 concurrency:
   group: ops-collx-full-classify-launch-20260811
@@ -24,18 +23,12 @@ jobs:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       STORE_ID: 00000000-0000-4000-8000-000000000001
       WORK: /tmp/collx-full-classify
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out isolated migration branch
         uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
           fetch-depth: 1
-
-      - name: Record classifier start on PR
-        shell: bash
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/issues/1116/comments" -f body="COLLX_FULL_CLASSIFIER_START $(date -u +'%Y-%m-%dT%H:%M:%SZ') main=${GITHUB_SHA}" >/dev/null
 
       - name: Run full CollX classifier
         shell: bash
@@ -48,7 +41,7 @@ jobs:
           cat "$WORK/run.log"
           exit "$code"
 
-      - name: Publish classifier result
+      - name: Publish classifier result and failure log
         if: always()
         shell: bash
         run: |
@@ -56,10 +49,10 @@ jobs:
           git fetch origin ops/collx-full-inventory-migration-20260811
           git reset --hard origin/ops/collx-full-inventory-migration-20260811
           mkdir -p .github/ops
-          if [ -s "$WORK/receipt.json" ]; then cp "$WORK/receipt.json" .github/ops/collx-full-classification-receipt.json; fi
-          if [ -s "$WORK/classification.json" ]; then cp "$WORK/classification.json" .github/ops/collx-full-classification-result.json; fi
-          if [ -s "$WORK/run.log" ]; then cp "$WORK/run.log" .github/ops/collx-full-classifier-run.log; fi
-          if [ -s "$WORK/exit-code.txt" ]; then cp "$WORK/exit-code.txt" .github/ops/collx-full-classifier-exit-code.txt; fi
+          [ -s "$WORK/receipt.json" ] && cp "$WORK/receipt.json" .github/ops/collx-full-classification-receipt.json || true
+          [ -s "$WORK/classification.json" ] && cp "$WORK/classification.json" .github/ops/collx-full-classification-result.json || true
+          [ -s "$WORK/run.log" ] && cp "$WORK/run.log" .github/ops/collx-full-classifier-run.log || true
+          [ -s "$WORK/exit-code.txt" ] && cp "$WORK/exit-code.txt" .github/ops/collx-full-classifier-exit-code.txt || true
           python3 - <<'PY'
           import json,os,time
           from pathlib import Path
@@ -72,21 +65,16 @@ jobs:
           PY
           git config user.name 'Truely Collectables Ops'
           git config user.email 'actions@users.noreply.github.com'
-          git add .github/ops/collx-full-classification-receipt.json .github/ops/collx-full-classification-result.json .github/ops/collx-full-classifier-run.log .github/ops/collx-full-classifier-exit-code.txt .github/ops/collx-full-classifier-status.json 2>/dev/null || git add .github/ops/collx-full-classifier-status.json
+          for f in \
+            .github/ops/collx-full-classification-receipt.json \
+            .github/ops/collx-full-classification-result.json \
+            .github/ops/collx-full-classifier-run.log \
+            .github/ops/collx-full-classifier-exit-code.txt \
+            .github/ops/collx-full-classifier-status.json; do
+            [ -e "$f" ] && git add "$f"
+          done
           git commit -m 'Record full CollX migration classification diagnostics' || true
           git push origin HEAD:ops/collx-full-inventory-migration-20260811
-
-      - name: Record classifier finish on PR
-        if: always()
-        shell: bash
-        run: |
-          code='missing'
-          [ -s "$WORK/exit-code.txt" ] && code="$(cat "$WORK/exit-code.txt")"
-          completed='false'
-          [ -s "$WORK/classification.json" ] && completed='true'
-          tailtext=''
-          if [ -s "$WORK/run.log" ]; then tailtext="$(tail -n 12 "$WORK/run.log" | tr '\n' ' ' | cut -c1-2500)"; fi
-          gh api "repos/${GITHUB_REPOSITORY}/issues/1116/comments" -f body="COLLX_FULL_CLASSIFIER_FINISH exit=${code} completed=${completed} at=$(date -u +'%Y-%m-%dT%H:%M:%SZ') tail=${tailtext}" >/dev/null || true
 
       - name: Remove Production env copy
         if: always()
