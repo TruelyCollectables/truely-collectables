@@ -1,4 +1,4 @@
-name: Ops Probe Gemini Gateway Search 20260810
+name: Ops Probe Gemini Gateway Access 20260810
 
 on:
   pull_request:
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           npm install --no-save --ignore-scripts ai@7.0.58 @ai-sdk/gateway@4.0.46 >/dev/null
 
-      - name: Require Gemini 3.6 Flash plus forced Parallel web search
+      - name: Find an accessible Gemini model and prove search
         shell: bash
         run: |
           set -euo pipefail
@@ -48,11 +48,50 @@ jobs:
           source .env.local
           set +a
           cat > .gemini-gateway-probe.mjs <<'NODE'
+          import fs from 'node:fs';
           import { generateText, stepCountIs } from 'ai';
           import { gateway } from '@ai-sdk/gateway';
 
+          const candidates = [
+            'google/gemini-3.5-flash-lite',
+            'google/gemini-3.1-flash-lite',
+            'google/gemini-2.5-flash-lite',
+            'google/gemini-2.5-flash',
+          ];
+
+          let selected = null;
+          const access = [];
+          for (const model of candidates) {
+            try {
+              const result = await generateText({
+                model,
+                prompt: 'Reply exactly: GEMINI_OK',
+                temperature: 0,
+                maxOutputTokens: 32,
+                timeout: 45000,
+              });
+              const ok = typeof result.text === 'string' && result.text.includes('GEMINI_OK');
+              access.push({ model, ok, statusCode: 200, errorClass: null });
+              if (ok) { selected = model; break; }
+            } catch (error) {
+              const statusCode = Number(error?.statusCode || error?.cause?.statusCode || 0) || null;
+              const message = String(error?.message || error?.cause?.message || error || '');
+              const errorClass = /Free tier users do not have access/i.test(message)
+                ? 'free_tier_restricted'
+                : /rate limit/i.test(message)
+                  ? 'rate_limited'
+                  : /not found|unknown model/i.test(message)
+                    ? 'model_unavailable'
+                    : 'provider_error';
+              access.push({ model, ok: false, statusCode, errorClass });
+            }
+          }
+          console.log('GEMINI_GATEWAY_ACCESS=' + JSON.stringify(access));
+          if (!selected) process.exit(3);
+          fs.writeFileSync('.gemini-selected-model', selected);
+
           const result = await generateText({
-            model: 'google/gemini-3.6-flash',
+            model: selected,
             prompt: [
               'You are testing live sports-card market research.',
               'Use the provided web-search tool before answering.',
@@ -79,18 +118,16 @@ jobs:
           const steps = Array.isArray(result.steps) ? result.steps : [];
           const toolCalls = steps.flatMap((step) => Array.isArray(step.toolCalls) ? step.toolCalls : []);
           const toolResults = steps.flatMap((step) => Array.isArray(step.toolResults) ? step.toolResults : []);
-          const parallelCalls = toolCalls.filter((call) => call.toolName === 'parallel_search');
-          const parallelResults = toolResults.filter((row) => row.toolName === 'parallel_search');
           const safe = {
-            model: 'google/gemini-3.6-flash',
+            model: selected,
             textReturned: typeof result.text === 'string' && result.text.trim().length > 0,
             stepCount: steps.length,
-            parallelSearchCalls: parallelCalls.length,
-            parallelSearchResults: parallelResults.length,
+            parallelSearchCalls: toolCalls.filter((call) => call.toolName === 'parallel_search').length,
+            parallelSearchResults: toolResults.filter((row) => row.toolName === 'parallel_search').length,
             finishReason: result.finishReason || null,
           };
           console.log('GEMINI_GATEWAY_SEARCH_PROOF=' + JSON.stringify(safe));
-          if (!safe.textReturned || safe.parallelSearchCalls < 1 || safe.parallelSearchResults < 1) process.exit(2);
+          if (!safe.textReturned || safe.parallelSearchCalls < 1 || safe.parallelSearchResults < 1) process.exit(4);
           NODE
           node ./.gemini-gateway-probe.mjs
-          rm -f .gemini-gateway-probe.mjs
+          rm -f .gemini-gateway-probe.mjs .gemini-selected-model
