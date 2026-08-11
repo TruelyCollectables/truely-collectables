@@ -1,4 +1,4 @@
-name: Ops Inspect Latest Deal Hunter Outcomes 20260811
+name: Ops Diagnose Latest Deal Hunter Outcomes 20260811
 
 on:
   pull_request:
@@ -37,23 +37,21 @@ jobs:
           curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&target=production&limit=20&teamId=$TEAM_ID" > deployments.json
           node - <<'NODE'
           const fs=require('fs'); const p=require('./deployments.json');
-          const rows=Array.isArray(p.deployments)?p.deployments:[];
-          const ready=rows.find(d=>String(d.state||d.readyState||'').toUpperCase()==='READY' && d.url);
+          const ready=(Array.isArray(p.deployments)?p.deployments:[]).find(d=>String(d.state||d.readyState||'').toUpperCase()==='READY' && d.url);
           if(!ready) throw new Error('No READY Production deployment found.');
-          console.log('LATEST_READY_PRODUCTION='+JSON.stringify({uid:ready.uid||null,url:ready.url||null,metaCommit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null,createdAt:ready.createdAt||null}));
+          console.log('LATEST_READY_PRODUCTION='+JSON.stringify({url:ready.url||null,metaCommit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null,createdAt:ready.createdAt||null}));
           fs.appendFileSync(process.env.GITHUB_ENV,`DEPLOY_URL=https://${ready.url}\n`);
           NODE
 
-      - name: Fetch full Deal Hunter diagnostics
+      - name: Read production-only Deal Hunter receipts
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS -o diagnostics.json -w '%{http_code}' --connect-timeout 5 --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" || true)"
+          code="$(curl -sS -o diagnostics.json -w '%{http_code}' --connect-timeout 5 --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-candidate-diagnostics?mode=production" || true)"
           echo "DIAGNOSTICS_HTTP=$code"
-          test "$code" = "200"
           node - <<'NODE'
-          const p=require('./diagnostics.json');
-          if(!p.success) throw new Error(JSON.stringify(p));
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('diagnostics.json','utf8'))}catch{}
+          if(!p.success){ console.log('DIAGNOSTICS_ERROR='+JSON.stringify({success:false,error:p.error?String(p.error).slice(0,1200):null})); process.exit(2); }
           const latest=(Array.isArray(p.latestRuns)?p.latestRuns:[])[0]||null;
           const runId=latest?.run_id||null;
           const rows=(Array.isArray(p.productionCandidates)?p.productionCandidates:[]).filter(r=>!runId||String(r.run_id||'')===String(runId));
@@ -63,39 +61,17 @@ jobs:
             const c=m.teacherConsensus&&typeof m.teacherConsensus==='object'?m.teacherConsensus:null;
             const ev=r.evaluation&&typeof r.evaluation==='object'?r.evaluation:{};
             return {
-              title:r.title||null,
-              lane:r.lane||null,
-              dealLabel:r.deal_label||null,
-              actionable:r.actionable===true,
-              alertworthy:r.alertworthy===true,
-              deliveredCost:r.delivered_cost??null,
-              conservativeResale:r.conservative_resale??null,
-              expectedNetProfit:r.expected_net_profit??null,
-              roiPercent:r.roi_percent??null,
+              title:r.title||null,lane:r.lane||null,dealLabel:r.deal_label||null,actionable:r.actionable===true,alertworthy:r.alertworthy===true,
+              deliveredCost:r.delivered_cost??null,conservativeResale:r.conservative_resale??null,expectedNetProfit:r.expected_net_profit??null,roiPercent:r.roi_percent??null,
               identity:r.identity||null,
-              exactMarket:{
-                status:m.status||null,
-                pricingEligibleSoldCount:Number(m.pricingEligibleSoldCount||0),
-                trustedSuggestedPrice:m.trustedSuggestedPrice??null,
+              exactMarket:{status:m.status||null,pricingEligibleSoldCount:Number(m.pricingEligibleSoldCount||0),trustedSuggestedPrice:m.trustedSuggestedPrice??null,
                 historicalSoldMemory:h?{used:h.used===true,soldCount:Number(h.soldCount||0),medianDeliveredPrice:h.medianDeliveredPrice??null,newestSoldAt:h.newestSoldAt||null}:null,
-                configuredTeachers:Array.isArray(c?.configuredTeachers)?c.configuredTeachers:[],
-                requiredVotes:Number(c?.requiredVotes||0),
+                configuredTeachers:Array.isArray(c?.configuredTeachers)?c.configuredTeachers:[],requiredVotes:Number(c?.requiredVotes||0),
                 teacherAttempts:Array.isArray(c?.attempts)?c.attempts.map(a=>({teacher:a.teacher||null,configured:a.configured===true,ok:a.ok===true,soldCount:Number(a.soldCount||0),activeCount:Number(a.activeCount||0),error:a.error?String(a.error).slice(0,220):null})):[],
-                providerMessages:Array.isArray(m.providerMessages)?m.providerMessages.map(x=>({label:x.label||null,status:x.status||null,results:Number(x.results||0),message:x.message?String(x.message).slice(0,260):null})):[],
-              },
-              evaluation:{errorCode:ev.errorCode||ev.error_code||null,errorMessage:ev.errorMessage||ev.error_message||null,status:ev.status||null},
+                providerMessages:Array.isArray(m.providerMessages)?m.providerMessages.map(x=>({label:x.label||null,status:x.status||null,results:Number(x.results||0),message:x.message?String(x.message).slice(0,260):null})):[]},
+              evaluation:{errorCode:ev.errorCode||ev.error_code||null,errorMessage:ev.errorMessage||ev.error_message||null,status:ev.status||null}
             };
           });
-          const summary={
-            latestRun:latest?{runId:latest.run_id||null,status:latest.status||null,completedAt:latest.completed_at||null,discoveryCount:Number(latest.discovery_count||0),evaluatedCount:Number(latest.evaluated_count||0),actionableCount:Number(latest.actionable_count||0),manualReviewCount:Number(latest.manual_review_count||0),failureCount:Number(latest.failure_count||0),summary:latest.summary||null}:null,
-            rowCount:compact.length,
-            memoryPriced:compact.filter(r=>r.exactMarket.historicalSoldMemory?.used).length,
-            trustedPrice:compact.filter(r=>Number.isFinite(Number(r.exactMarket.trustedSuggestedPrice))&&Number(r.exactMarket.trustedSuggestedPrice)>0).length,
-            teacherRan:compact.filter(r=>r.exactMarket.configuredTeachers.length>0).length,
-            teacherTrustedSold:compact.filter(r=>r.exactMarket.pricingEligibleSoldCount>0 && r.exactMarket.configuredTeachers.length>0).length,
-            noTrustedSold:compact.filter(r=>!(Number(r.exactMarket.trustedSuggestedPrice)>0)).length,
-            actionable:compact.filter(r=>r.actionable).length,
-          };
-          console.log('LATEST_DEAL_HUNTER_SUMMARY='+JSON.stringify(summary));
+          console.log('LATEST_DEAL_HUNTER_SUMMARY='+JSON.stringify({latestRun:latest?{runId:latest.run_id||null,status:latest.status||null,completedAt:latest.completed_at||null,discoveryCount:Number(latest.discovery_count||0),evaluatedCount:Number(latest.evaluated_count||0),actionableCount:Number(latest.actionable_count||0),manualReviewCount:Number(latest.manual_review_count||0),failureCount:Number(latest.failure_count||0),summary:latest.summary||null}:null,rowCount:compact.length,memoryPriced:compact.filter(r=>r.exactMarket.historicalSoldMemory?.used).length,trustedPrice:compact.filter(r=>Number(r.exactMarket.trustedSuggestedPrice)>0).length,teacherRan:compact.filter(r=>r.exactMarket.configuredTeachers.length>0).length,teacherTrustedSold:compact.filter(r=>r.exactMarket.pricingEligibleSoldCount>0&&r.exactMarket.configuredTeachers.length>0).length,noTrustedSold:compact.filter(r=>!(Number(r.exactMarket.trustedSuggestedPrice)>0)).length,actionable:compact.filter(r=>r.actionable).length}));
           console.log('LATEST_DEAL_HUNTER_CANDIDATES='+JSON.stringify(compact));
           NODE
