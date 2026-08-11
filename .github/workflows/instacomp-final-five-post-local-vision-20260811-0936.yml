@@ -40,14 +40,24 @@ jobs:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Lock exact source and immutable frozen truth
+      - name: Lock reviewed source and immutable frozen truth
         shell: bash
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
           git fetch origin main --quiet
-          test "$(git rev-parse origin/main)" = "$CURRENT_MAIN_COMMIT"
+          live_main="$(git rev-parse origin/main)"
+          git merge-base --is-ancestor "$CURRENT_MAIN_COMMIT" "$live_main"
+          post_pin="$(git diff --name-only "$CURRENT_MAIN_COMMIT" "$live_main" | sort)"
+          if [ -n "$post_pin" ]; then
+            while IFS= read -r file; do
+              case "$file" in
+                .github/workflows/*) ;;
+                *) echo "Refusing certification: non-workflow source changed after reviewed pin: $file" >&2; exit 2 ;;
+              esac
+            done <<< "$post_pin"
+          fi
           git merge-base --is-ancestor "$SECONDARY_WITNESS_COMMIT" "$CURRENT_MAIN_COMMIT"
           git merge-base --is-ancestor "$LOCAL_VISION_FIX_COMMIT" "$CURRENT_MAIN_COMMIT"
           changed="$(git diff --name-only "$CURRENT_MAIN_COMMIT"...HEAD | sort)"
@@ -77,7 +87,7 @@ jobs:
           )"
           test "$fp" = "$EXPECTED_ACTIVATED_FINGERPRINT"
           echo "EXPECTED_MAC_FINGERPRINT=$fp" >> "$GITHUB_ENV"
-          printf '{"currentMain":"%s","frozenRunnerBlob":"%s","expectedMacFingerprint":"%s","requiredPasses":2,"requiredCardsPerPass":5,"frozenTruthChanged":false,"confidenceThresholdChanged":false}\n' "$CURRENT_MAIN_COMMIT" "$runner_blob" "$fp" > "$EVIDENCE_DIR/source-lock.json"
+          printf '{"reviewedMain":"%s","liveMain":"%s","postPinChanges":"%s","frozenRunnerBlob":"%s","expectedMacFingerprint":"%s","requiredPasses":2,"requiredCardsPerPass":5,"frozenTruthChanged":false,"confidenceThresholdChanged":false}\n' "$CURRENT_MAIN_COMMIT" "$live_main" "$(echo "$post_pin" | tr '\n' ',')" "$runner_blob" "$fp" > "$EVIDENCE_DIR/source-lock.json"
 
       - name: Prove exact physical Mac before Production mutation
         shell: bash
@@ -130,14 +140,14 @@ jobs:
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 
-      - name: Switch workspace to exact pinned main
+      - name: Switch workspace to exact reviewed main
         shell: bash
         run: |
           set -euo pipefail
           git checkout --detach "$CURRENT_MAIN_COMMIT"
           test "$(git rev-parse HEAD)" = "$CURRENT_MAIN_COMMIT"
 
-      - name: Remove stale acceptance token and clean-deploy exact main
+      - name: Remove stale acceptance token and clean-deploy reviewed main
         shell: bash
         run: |
           set -euo pipefail
@@ -162,7 +172,7 @@ jobs:
           npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
           touch "$TEMP_DIR/token-provisioned"
 
-      - name: Redeploy exact main with isolated acceptance credential
+      - name: Redeploy reviewed main with isolated acceptance credential
         shell: bash
         run: |
           set -euo pipefail
@@ -230,7 +240,7 @@ jobs:
             if(p.status!=='passed'||p.testedCards!==5||p.passedCards!==5)throw new Error(`${name}: ${p.status} ${p.passedCards}/${p.testedCards}`);
             if(!Array.isArray(p.results)||p.results.length!==5||p.results.some(r=>r.passed!==true))throw new Error(`${name}: non-exact card result`);
           }
-          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/two-pass-proof.json`,JSON.stringify({status:'passed',consecutivePasses:2,cardsPerPass:5,totalExactCardResults:10,frozenRunnerBlob:process.env.FROZEN_RUNNER_BLOB,currentMain:process.env.CURRENT_MAIN_COMMIT},null,2)+'\n');
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/two-pass-proof.json`,JSON.stringify({status:'passed',consecutivePasses:2,cardsPerPass:5,totalExactCardResults:10,frozenRunnerBlob:process.env.FROZEN_RUNNER_BLOB,reviewedMain:process.env.CURRENT_MAIN_COMMIT},null,2)+'\n');
           NODE
           touch "$TEMP_DIR/two-pass-passed"
 
@@ -249,7 +259,7 @@ jobs:
           done
           exit 1
 
-      - name: Clean redeploy exact main and prove removed token dead
+      - name: Clean redeploy reviewed main and prove removed token dead
         if: always()
         shell: bash
         run: |
