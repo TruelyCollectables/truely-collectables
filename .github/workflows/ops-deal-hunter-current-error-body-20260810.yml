@@ -27,11 +27,11 @@ jobs:
           HTTP_CODE="$code" node - <<'NODE'
           const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('status.json','utf8'))}catch{}
           const s=p.scheduler||{};
-          console.log('POST_TIMEOUT_STATUS='+JSON.stringify({http:process.env.HTTP_CODE,success:Boolean(p.success),physicalMacHealthy:Boolean(p.physicalMacHealthy),enabled:Boolean(s.enabled),running:Boolean(s.running),activeRunId:s.activeRunId||null,lastRunId:s.lastRunId||null,lastStatus:s.lastStatus||null,lastError:s.lastError||null,lastSummary:s.lastSummary||null}));
+          console.log('CURRENT_STATUS='+JSON.stringify({http:process.env.HTTP_CODE,success:Boolean(p.success),physicalMacHealthy:Boolean(p.physicalMacHealthy),enabled:Boolean(s.enabled),running:Boolean(s.running),activeRunId:s.activeRunId||null,lastRunId:s.lastRunId||null,lastStatus:s.lastStatus||null,lastError:s.lastError||null,lastSummary:s.lastSummary||null}));
           if(process.env.HTTP_CODE!=='200'||!p.success) process.exit(1);
           NODE
 
-      - name: Read Mac-only candidate receipts
+      - name: Read latest Mac-only candidate receipts and save run ID
         shell: bash
         run: |
           set -euo pipefail
@@ -44,6 +44,22 @@ jobs:
           const rows=Array.isArray(p.candidates)?p.candidates:[];
           const newestRunId=rows[0]?.runId||null;
           const newest=rows.filter(r=>r.runId===newestRunId).map(r=>({runId:r.runId,lane:r.lane,title:r.title,status:r.status,errorCode:r.errorCode,errorMessage:r.errorMessage,dealLabel:r.dealLabel,actionable:r.actionable,alertworthy:r.alertworthy,createdAt:r.createdAt}));
-          console.log('POST_TIMEOUT_MAC_RECEIPTS='+JSON.stringify({http:process.env.HTTP_CODE,success:Boolean(p.success),error:p.error||null,newestRunId,newestCount:newest.length,newest,errorCounts:p.errorCounts||null}));
-          if(process.env.HTTP_CODE!=='200'||!p.success) process.exit(1);
+          console.log('LATEST_MAC_RECEIPTS='+JSON.stringify({http:process.env.HTTP_CODE,success:Boolean(p.success),error:p.error||null,newestRunId,newestCount:newest.length,newest,errorCounts:p.errorCounts||null}));
+          if(process.env.HTTP_CODE!=='200'||!p.success||!newestRunId) process.exit(1);
+          fs.writeFileSync('run-id.txt',String(newestRunId));
+          NODE
+
+      - name: Read exact latest run teacher receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID="$(cat run-id.txt)"
+          code="$(curl -sS -o teachers.json -w '%{http_code}' --connect-timeout 5 --max-time 60 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://truelycollectables.com/api/release/instacomp-deal-hunter-teacher-run-diagnostics?runId=$RUN_ID" || true)"
+          echo "EXACT_TEACHERS_HTTP=$code"
+          HTTP_CODE="$code" node - <<'NODE'
+          const fs=require('fs'); let p={}; let raw=''; try{raw=fs.readFileSync('teachers.json','utf8');p=JSON.parse(raw)}catch{}
+          const receipts=Array.isArray(p.teacherReceipts)?p.teacherReceipts:[];
+          console.log('EXACT_TEACHERS_RESULT='+JSON.stringify({http:process.env.HTTP_CODE,success:Boolean(p.success),runId:p.runId||null,error:p.error?String(p.error).slice(0,1800):null,run:p.run||null,receiptCount:receipts.length,receipts:receipts.slice(0,20),rawFallback:p.error?null:raw.slice(0,1800)}));
           NODE
