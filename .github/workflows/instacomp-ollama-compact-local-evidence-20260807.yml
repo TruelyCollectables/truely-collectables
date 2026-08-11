@@ -13,20 +13,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  collx-guard-diagnostic:
+  collx-guarded-smoke:
     if: github.head_ref == 'ops/collx-full-inventory-migration-20260811'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      WORK: /tmp/collx-guard-diagnostic
+      SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
+      SOURCE_ROWS: '6909'
+      WORK: /tmp/collx-guarded-smoke
+      ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-v2-20260811
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
           fetch-depth: 1
+
       - name: Resolve Production Supabase project
         shell: bash
         run: |
@@ -41,7 +45,28 @@ jobs:
           if not m: raise SystemExit('Could not resolve Supabase project ref')
           open(os.path.join(os.environ['WORK'],'ref.txt'),'w').write(m.group(1))
           PY
-      - name: Inspect inventory trigger functions and partial shell counts
+
+      - name: Apply narrow CollX draft migration exception
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="$(cat "$WORK/ref.txt")"
+          git fetch origin main --depth=1
+          git show origin/main:supabase/migrations/20260811183000_allow_guarded_collx_draft_migration.sql > "$WORK/guard.sql"
+          python3 - <<'PY'
+          import json,os
+          q=open(os.path.join(os.environ['WORK'],'guard.sql')).read()
+          open(os.path.join(os.environ['WORK'],'guard-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':False}))
+          PY
+          code="$(curl -sS -o "$WORK/guard-apply.json" -w '%{http_code}' --max-time 90 \
+            -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+            --data-binary @"$WORK/guard-query.json" \
+            "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
+          echo "HTTP=$code"
+          cat "$WORK/guard-apply.json" || true
+          test "$code" = '200' -o "$code" = '201'
+
+      - name: Delete only proven unreferenced migration product shells
         shell: bash
         run: |
           set -euo pipefail
@@ -49,45 +74,146 @@ jobs:
           python3 - <<'PY'
           import json,os
           q="""
-          with trigger_rows as (
-            select n.nspname as table_schema,c.relname as table_name,t.tgname as trigger_name,
-                   pg_get_triggerdef(t.oid) as trigger_def,
-                   pn.nspname as function_schema,p.proname as function_name,
-                   pg_get_functiondef(t.tgfoid) as function_def
-            from pg_trigger t
-            join pg_class c on c.oid=t.tgrelid
-            join pg_namespace n on n.oid=c.relnamespace
-            join pg_proc p on p.oid=t.tgfoid
-            join pg_namespace pn on pn.oid=p.pronamespace
-            where not t.tgisinternal and n.nspname='public' and c.relname='inventory_items'
-          )
+          do $cleanup$
+          declare before_count integer; deleted_count integer;
+          begin
+            select count(*) into before_count
+            from public.products p
+            where p.sku like 'COLLX-%'
+              and p.ebay_item_id is null
+              and coalesce(p.price,0)=0
+              and p.description like 'Imported from CollX collection ID %'
+              and not exists (select 1 from public.inventory_items i where i.legacy_product_id=p.id);
+            if before_count <> 1501 then
+              raise exception 'COLLX_PARTIAL_SHELL_COUNT_MISMATCH expected=1501 actual=%', before_count;
+            end if;
+            delete from public.products p
+            where p.sku like 'COLLX-%'
+              and p.ebay_item_id is null
+              and coalesce(p.price,0)=0
+              and p.description like 'Imported from CollX collection ID %'
+              and not exists (select 1 from public.inventory_items i where i.legacy_product_id=p.id);
+            get diagnostics deleted_count = row_count;
+            if deleted_count <> before_count then
+              raise exception 'COLLX_PARTIAL_SHELL_DELETE_MISMATCH expected=% actual=%', before_count, deleted_count;
+            end if;
+          end
+          $cleanup$;
           select jsonb_build_object(
-            'triggers', coalesce((select jsonb_agg(to_jsonb(trigger_rows)) from trigger_rows), '[]'::jsonb),
-            'collx_products', (select count(*) from public.products where sku like 'COLLX-%'),
-            'collx_product_distinct_skus', (select count(distinct sku) from public.products where sku like 'COLLX-%'),
-            'collx_products_with_ebay', (select count(*) from public.products where sku like 'COLLX-%' and ebay_item_id is not null),
-            'collx_items', (select count(*) from public.inventory_items where sku like 'COLLX-%'),
-            'unreferenced_collx_product_shells', (
-              select count(*) from public.products p
-              where p.sku like 'COLLX-%' and p.ebay_item_id is null
-                and not exists (select 1 from public.inventory_items i where i.legacy_product_id=p.id)
+            'collx_products',(select count(*) from public.products where sku like 'COLLX-%'),
+            'collx_items',(select count(*) from public.inventory_items where sku like 'COLLX-%'),
+            'remaining_unreferenced_shells',(
+              select count(*) from public.products p where p.sku like 'COLLX-%' and p.ebay_item_id is null
+              and p.description like 'Imported from CollX collection ID %'
+              and not exists(select 1 from public.inventory_items i where i.legacy_product_id=p.id)
             )
-          ) as diagnostics;
+          ) as cleanup_receipt;
           """
-          open(os.path.join(os.environ['WORK'],'query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':True}))
+          open(os.path.join(os.environ['WORK'],'cleanup-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':False}))
           PY
-          code="$(curl -sS -o "$WORK/diagnostics.json" -w '%{http_code}' --max-time 90 \
+          code="$(curl -sS -o "$WORK/cleanup.json" -w '%{http_code}' --max-time 90 \
             -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
-            --data-binary @"$WORK/query.json" \
+            --data-binary @"$WORK/cleanup-query.json" \
             "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
-          echo "http=$code"
-          cat "$WORK/diagnostics.json" || true
+          echo "HTTP=$code"
+          cat "$WORK/cleanup.json" || true
+          test "$code" = '200' -o "$code" = '201'
+          grep -q '"collx_products":0' "$WORK/cleanup.json"
+          grep -q '"collx_items":0' "$WORK/cleanup.json"
+          grep -q '"remaining_unreferenced_shells":0' "$WORK/cleanup.json"
+
+      - name: Reconstruct checksum-locked 6909-row metadata source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10m0 \
+            .github/ops/collx-full-metadata.part10m1 \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14m \
+            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$SOURCE_SHA"
+          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$SOURCE_ROWS"
+
+      - name: Refresh clean full classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --max-time 180 \
+            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
+            "$ROUTE_URL?mode=classify" | tee "$WORK/classification.json"
+          python3 - <<'PY'
+          import json,os
+          d=json.load(open(os.path.join(os.environ['WORK'],'classification.json')))
+          assert d.get('success') is True,d
+          assert d.get('sourceRows')==6909,d
+          imports=int(d.get('importCandidateRows',-1)); existing=int(d.get('existingCollxImports',-1))
+          assert existing==0,d
+          assert imports==6155,d
+          assert 6909-imports==754,d
+          print(json.dumps({'sourceRows':6909,'duplicates':754,'importCandidates':imports},indent=2))
+          PY
+
+      - name: Smoke one complete draft product plus inventory item
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o "$WORK/smoke.json" -w '%{http_code}' --max-time 120 \
+            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
+            "$ROUTE_URL?mode=import&offset=0&limit=1" || true)"
+          echo "HTTP=$code"
+          cat "$WORK/smoke.json" || true
           test "$code" = '200'
-      - name: Upload guard diagnostics
+          python3 - <<'PY'
+          import json,os
+          d=json.load(open(os.path.join(os.environ['WORK'],'smoke.json')))
+          assert d.get('success') is True,d
+          assert d.get('requested')==1,d
+          assert d.get('completed')==1,d
+          PY
+
+      - name: Prove smoke is draft and non-eBay
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="$(cat "$WORK/ref.txt")"
+          python3 - <<'PY'
+          import json,os
+          q="""
+          select jsonb_build_object(
+            'products',(select count(*) from public.products where sku like 'COLLX-%'),
+            'items',(select count(*) from public.inventory_items where sku like 'COLLX-%'),
+            'draft_items',(select count(*) from public.inventory_items where sku like 'COLLX-%' and status='draft'),
+            'active_items',(select count(*) from public.inventory_items where sku like 'COLLX-%' and status='active'),
+            'ebay_products',(select count(*) from public.products where sku like 'COLLX-%' and ebay_item_id is not null),
+            'migration_items',(select count(*) from public.inventory_items where sku like 'COLLX-%' and metadata->>'source'='collx_full_migration_20260811' and metadata->>'migrated_not_for_sale'='true')
+          ) as smoke_receipt;
+          """
+          open(os.path.join(os.environ['WORK'],'verify-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':True}))
+          PY
+          code="$(curl -sS -o "$WORK/smoke-db.json" -w '%{http_code}' --max-time 90 \
+            -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+            --data-binary @"$WORK/verify-query.json" \
+            "https://api.supabase.com/v1/projects/$REF/database/query" || true)"
+          echo "HTTP=$code"
+          cat "$WORK/smoke-db.json" || true
+          test "$code" = '200' -o "$code" = '201'
+          grep -q '"products":1' "$WORK/smoke-db.json"
+          grep -q '"items":1' "$WORK/smoke-db.json"
+          grep -q '"draft_items":1' "$WORK/smoke-db.json"
+          grep -q '"active_items":0' "$WORK/smoke-db.json"
+          grep -q '"ebay_products":0' "$WORK/smoke-db.json"
+          grep -q '"migration_items":1' "$WORK/smoke-db.json"
+
+      - name: Upload guarded smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-live-guard-diagnostics-v2
-          path: /tmp/collx-guard-diagnostic/diagnostics.json
+          name: collx-guarded-smoke-evidence
+          path: /tmp/collx-guarded-smoke
           retention-days: 7
           if-no-files-found: warn
