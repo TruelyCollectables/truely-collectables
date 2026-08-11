@@ -1,0 +1,145 @@
+name: Checklist Conveyor Retry 6 Direct File 20260811
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/checklist-conveyor-retry6-directfile-20260811.yml"
+      - "ops/checklist-conveyor-retry6-directfile-20260811.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-conveyor-retry6-directfile-20260811
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN: c8636ceb5f435ad099f831f1d741141b1543723e
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  CHECKLIST_RECOVERY_BATCH_INDEX: "0"
+  CHECKLIST_RECOVERY_BATCH_SIZE: "6"
+  CHECKLIST_RECOVERY_WORKERS: "1"
+  CHECKLIST_RECOVERY_APPLY: "true"
+  CHECKLIST_RECOVERY_OUTPUT_ROOT: "evidence/checklist-conveyor-retry6-directfile-20260811"
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove exact current main and operations-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          bad="$(git diff --name-only "$EXPECTED_MAIN"...HEAD | grep -Ev '^(\.github/workflows/checklist-conveyor-retry6-directfile-20260811\.yml|ops/checklist-conveyor-retry6-directfile-20260811\.py)$' || true)"
+          test -z "$bad" || { echo "$bad"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install extraction dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python3 -m pip install --user --quiet openpyxl xlrd
+
+      - name: Scope runner and forbid browser capture for direct files
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          p=Path('scripts/run-verified-checklist-recovery-production.mjs')
+          t=p.read_text('utf-8')
+          old='''const PYTHON_SOURCE_FILES = [\n  "services/instacomp-ai/app/verified_checklist_sources.py",\n  "services/instacomp-ai/app/verified_checklist_sources_modern_extra.py",\n];'''
+          new='''const PYTHON_SOURCE_FILES = [\n  "ops/checklist-conveyor-retry6-directfile-20260811.py",\n];'''
+          if old not in t: raise SystemExit('source-list anchor changed')
+          t=t.replace(old,new,1)
+          if 'if (inventory.length < 70) {' not in t: raise SystemExit('inventory floor anchor changed')
+          t=t.replace('if (inventory.length < 70) {','if (inventory.length < 1) {',1)
+          old_capture='''  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'''
+          new_capture='''  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'''
+          if old_capture not in t: raise SystemExit('capture guard anchor changed')
+          t=t.replace(old_capture,new_capture,1)
+          p.write_text(t,'utf-8')
+
+      - name: Prove six exact retries and fail-closed guards
+        run: |
+          python3 - <<'PY'
+          import ast,pathlib
+          tree=ast.parse(pathlib.Path('ops/checklist-conveyor-retry6-directfile-20260811.py').read_text())
+          rows=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and getattr(n.func,'id',None)=='VerifiedChecklistSource']
+          assert len(rows)==6
+          PY
+          grep -F 'minimumCardRows: 25' scripts/run-verified-checklist-recovery-production.mjs >/dev/null
+          grep -F 'reference_card_number_subject_conflict' scripts/mainstream-checklist/source-tools.mjs >/dev/null
+
+      - name: Resolve protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/checklist-retry6"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/checklist-retry6/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$RUNNER_TEMP/checklist-retry6/production.env"
+          echo "PRODUCTION_ENV_PATH=$RUNNER_TEMP/checklist-retry6/production.env" >> "$GITHUB_ENV"
+
+      - name: Resolve protected Supabase service role
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          project_ref="$(node -e 'const u=new URL(process.argv[1]);process.stdout.write(u.hostname.split(".")[0])' "$NEXT_PUBLIC_SUPABASE_URL")"
+          keys_file="$RUNNER_TEMP/checklist-retry6/api-keys.json"
+          curl --silent --show-error --fail --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$keys_file" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys_file")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Apply six direct-file retries to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --import tsx scripts/run-verified-checklist-recovery-production.mjs
+
+      - name: Require fail-closed receipt
+        run: |
+          receipt="evidence/checklist-conveyor-retry6-directfile-20260811/batch-0-receipt.json"
+          test -s "$receipt"
+          node - "$receipt" <<'NODE'
+          const fs=require('node:fs'); const r=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if(r.mode!=='apply'||r.batch?.selected!==6) throw new Error('unexpected receipt');
+          const accepted=(r.results||[]).filter(x=>['imported','already_live'].includes(x.status));
+          if(accepted.some(x=>Number(x.counts?.cards||0)<25)) throw new Error('sub-25 checklist escaped gate');
+          console.log(JSON.stringify({statuses:r.statuses,normalizedTotals:r.normalizedTotals,results:r.results.map(x=>({targetKey:x.targetKey,status:x.status,counts:x.counts||null,failures:x.failures?.slice(0,2)||[]}))},null,2));
+          NODE
+
+      - name: Upload receipts and spreadsheets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-conveyor-retry6-directfile-20260811
+          path: evidence/checklist-conveyor-retry6-directfile-20260811/
+          retention-days: 90
+
+      - name: Cleanup
+        if: always()
+        run: rm -f "$RUNNER_TEMP/checklist-retry6/production.env" "$RUNNER_TEMP/checklist-retry6/api-keys.json" .env.local .env.production.local
