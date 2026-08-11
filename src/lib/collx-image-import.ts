@@ -310,8 +310,8 @@ function directlyReferencedRows(target: CollxImageTarget, rows: CollxImageRow[])
 
   return rows.filter(
     (row) =>
-      references.includes(row.frontImage) ||
-      references.includes(row.backImage) ||
+      (Boolean(row.frontImage) && references.includes(row.frontImage)) ||
+      (Boolean(row.backImage) && references.includes(row.backImage)) ||
       references.includes(row.collxId),
   );
 }
