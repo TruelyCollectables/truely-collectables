@@ -1,4 +1,4 @@
-name: Ops Diagnose Compact Deal Hunter Endpoint 20260811
+name: Ops Inspect Projected Deal Hunter Outcomes 20260811
 
 on:
   pull_request:
@@ -12,43 +12,37 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Resolve latest READY Production deployment
+      - name: Deploy exact current main with projected diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" 'https://api.vercel.com/v2/teams?limit=100' > teams.json
-          TEAM_ID="$(node - <<'NODE'
-          const p=require('./teams.json'); const t=(p.teams||[]).find(x=>x.slug==='truelycollectables-projects'); if(!t?.id) process.exit(2); process.stdout.write(t.id);
-          NODE
-          )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/$VERCEL_PROJECT?teamId=$TEAM_ID" > project.json
-          PROJECT_ID="$(node - <<'NODE'
-          const p=require('./project.json'); if(!p.id) process.exit(2); process.stdout.write(p.id);
-          NODE
-          )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&target=production&limit=20&teamId=$TEAM_ID" > deployments.json
-          node - <<'NODE'
-          const fs=require('fs'); const p=require('./deployments.json');
-          const ready=(Array.isArray(p.deployments)?p.deployments:[]).find(d=>String(d.state||d.readyState||'').toUpperCase()==='READY' && d.url);
-          if(!ready) throw new Error('No READY Production deployment found.');
-          const safe={uid:ready.uid||null,url:ready.url||null,metaCommit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null,createdAt:ready.createdAt||null};
-          console.log('LATEST_READY_PRODUCTION='+JSON.stringify(safe));
-          fs.appendFileSync(process.env.GITHUB_ENV,`DEPLOY_URL=https://${ready.url}\n`);
-          NODE
+          git fetch --no-tags origin main
+          git checkout --detach origin/main
+          CURRENT_MAIN="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor 3d17b519d8a2d37a461a6229fb7435bf9036b7a2 "$CURRENT_MAIN"
+          echo "DIAGNOSTIC_MAIN=$CURRENT_MAIN"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-prod.log
+          DEPLOY_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' /tmp/vercel-prod.log | tail -n 1)"
+          test -n "$DEPLOY_URL"
+          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "PRODUCTION_DIAGNOSTIC_DEPLOYMENT=$DEPLOY_URL"
 
-      - name: Call compact outcomes once and expose sanitized result
+      - name: Read projected latest Deal Hunter outcomes once
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 35 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-latest-outcomes" || true)"
+          code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 25 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-latest-outcomes" || true)"
           echo "OUTCOMES_HTTP=$code"
           node - <<'NODE'
           const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('outcomes.json','utf8'))}catch{}
