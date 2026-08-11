@@ -41,11 +41,6 @@ jobs:
           git commit -m 'Record CollX push classifier heartbeat' || true
           git push origin HEAD:ops/collx-full-inventory-migration-20260811
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: Run full CollX classifier
         shell: bash
         run: |
