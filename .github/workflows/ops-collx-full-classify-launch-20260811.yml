@@ -3,14 +3,9 @@ name: Ops CollX Full Classify Launch 20260811
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  actions: read
 
 jobs:
   classify:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 1116
+    if: ${{ github.head_ref == 'ops/collx-full-inventory-migration-20260811' }}
     uses: TruelyCollectables/truely-collectables/.github/workflows/ops-collx-full-classify-20260811.yml@ops/collx-full-inventory-migration-20260811
     secrets: inherit
