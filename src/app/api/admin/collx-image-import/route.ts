@@ -76,7 +76,11 @@ function safeStoragePart(value: string) {
     .slice(0, 100) || "card";
 }
 
-function collxUrlMatchesId(urlValue: string, collxId: string, side: "front" | "back") {
+function collxUrlMatchesId(
+  urlValue: string,
+  collxId: string,
+  side: "front" | "back",
+) {
   if (!isAllowedCollxImageUrl(urlValue)) return false;
   const marker = side === "front" ? "-1-" : "-2-";
   try {
@@ -86,51 +90,40 @@ function collxUrlMatchesId(urlValue: string, collxId: string, side: "front" | "b
   }
 }
 
-async function readAllProducts() {
+async function readProductPage(offset: number, limit: number) {
   const storeId = getActiveStoreId();
   const supabase = createSupabaseServerClient({ admin: true });
-  const rows: ProductRow[] = [];
+  const { data, count, error } = await supabase
+    .from("products")
+    .select("id,sku,title,description,image_url,ebay_item_id", { count: "exact" })
+    .eq("store_id", storeId)
+    .not("ebay_item_id", "is", null)
+    .neq("ebay_item_id", "")
+    .order("id", { ascending: true })
+    .range(offset, offset + limit - 1);
+  if (error) throw error;
 
-  for (let page = 0; page < 50; page += 1) {
-    const from = page * 1_000;
-    const { data, error } = await supabase
-      .from("products")
-      .select("id,sku,title,description,image_url,ebay_item_id")
-      .eq("store_id", storeId)
-      .not("ebay_item_id", "is", null)
-      .order("id", { ascending: true })
-      .range(from, from + 999);
-    if (error) throw error;
-    const batch = (data || []) as ProductRow[];
-    rows.push(...batch.filter((row) => text(row.ebay_item_id)));
-    if (batch.length < 1_000) return rows;
-  }
-
-  throw new Error("Product pagination exceeded 50,000 rows.");
+  return {
+    products: ((data || []) as ProductRow[]).filter((row) => text(row.ebay_item_id)),
+    total: Number(count || 0),
+  };
 }
 
 async function readLinkedInventory(productIds: number[]) {
   const storeId = getActiveStoreId();
   const supabase = createSupabaseServerClient({ admin: true });
-  const rows: InventoryRow[] = [];
+  if (!productIds.length) return new Map<number, InventoryRow>();
 
-  for (let index = 0; index < productIds.length; index += 200) {
-    const ids = productIds.slice(index, index + 200);
-    if (!ids.length) continue;
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .select(
-        "id,legacy_product_id,sku,title,description,status,metadata,updated_at",
-      )
-      .eq("store_id", storeId)
-      .in("legacy_product_id", ids)
-      .order("updated_at", { ascending: false, nullsFirst: false });
-    if (error) throw error;
-    rows.push(...((data || []) as InventoryRow[]));
-  }
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("id,legacy_product_id,sku,title,description,status,metadata,updated_at")
+    .eq("store_id", storeId)
+    .in("legacy_product_id", productIds)
+    .order("updated_at", { ascending: false, nullsFirst: false });
+  if (error) throw error;
 
   const latestByProduct = new Map<number, InventoryRow>();
-  for (const row of rows) {
+  for (const row of (data || []) as InventoryRow[]) {
     const productId = Number(row.legacy_product_id || 0);
     if (productId > 0 && !latestByProduct.has(productId)) {
       latestByProduct.set(productId, row);
@@ -141,22 +134,17 @@ async function readLinkedInventory(productIds: number[]) {
 
 async function readInventoryImages(inventoryItemIds: string[]) {
   const supabase = createSupabaseServerClient({ admin: true });
-  const rows: InventoryImageRow[] = [];
+  if (!inventoryItemIds.length) return new Map<string, InventoryImageRow[]>();
 
-  for (let index = 0; index < inventoryItemIds.length; index += 100) {
-    const ids = inventoryItemIds.slice(index, index + 100);
-    if (!ids.length) continue;
-    const { data, error } = await supabase
-      .from("inventory_images")
-      .select("inventory_item_id,image_url,sort_order,is_primary")
-      .in("inventory_item_id", ids)
-      .order("sort_order", { ascending: true });
-    if (error) throw error;
-    rows.push(...((data || []) as InventoryImageRow[]));
-  }
+  const { data, error } = await supabase
+    .from("inventory_images")
+    .select("inventory_item_id,image_url,sort_order,is_primary")
+    .in("inventory_item_id", inventoryItemIds)
+    .order("sort_order", { ascending: true });
+  if (error) throw error;
 
   const byInventory = new Map<string, InventoryImageRow[]>();
-  for (const row of rows) {
+  for (const row of (data || []) as InventoryImageRow[]) {
     const existing = byInventory.get(row.inventory_item_id) || [];
     existing.push(row);
     byInventory.set(row.inventory_item_id, existing);
@@ -164,18 +152,22 @@ async function readInventoryImages(inventoryItemIds: string[]) {
   return byInventory;
 }
 
-async function loadTargets() {
-  const products = await readAllProducts();
+async function loadTargetPage(offset: number, limit: number) {
+  const { products, total } = await readProductPage(offset, limit);
   const inventoryByProduct = await readLinkedInventory(
     products.map((product) => Number(product.id)),
   );
   const inventoryIds = Array.from(inventoryByProduct.values()).map((row) => row.id);
   const imagesByInventory = await readInventoryImages(inventoryIds);
+  const missingProducts: ProductRow[] = [];
 
-  return products
+  const targets = products
     .map((product): CollxImageTarget | null => {
       const inventory = inventoryByProduct.get(Number(product.id));
-      if (!inventory) return null;
+      if (!inventory) {
+        missingProducts.push(product);
+        return null;
+      }
       const images = (imagesByInventory.get(inventory.id) || []).slice().sort((left, right) => {
         if (Boolean(left.is_primary) !== Boolean(right.is_primary)) {
           return left.is_primary ? -1 : 1;
@@ -194,37 +186,69 @@ async function loadTargets() {
         metadata: record(inventory.metadata),
       };
     })
-    .filter((target): target is CollxImageTarget => Boolean(target))
-    .sort((left, right) => left.legacyProductId - right.legacyProductId);
+    .filter((target): target is CollxImageTarget => Boolean(target));
+
+  return { products, total, targets, missingProducts };
 }
 
 async function preview(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: "Choose the CollX CSV export first." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Choose the CollX CSV export first." },
+      { status: 400 },
+    );
   }
   if (file.size > 8 * 1024 * 1024) {
-    return NextResponse.json({ error: "CollX CSV must be 8MB or smaller." }, { status: 413 });
+    return NextResponse.json(
+      { error: "CollX CSV must be 8MB or smaller." },
+      { status: 413 },
+    );
   }
 
   const rows = parseCollxImageCsv(await file.text());
-  const targets = await loadTargets();
   const offset = Math.max(0, Number(formData.get("offset") || 0) || 0);
-  const requestedLimit = Number(formData.get("limit") || PREVIEW_BATCH_LIMIT) || PREVIEW_BATCH_LIMIT;
+  const requestedLimit =
+    Number(formData.get("limit") || PREVIEW_BATCH_LIMIT) || PREVIEW_BATCH_LIMIT;
   const limit = Math.max(1, Math.min(PREVIEW_BATCH_LIMIT, requestedLimit));
-  const batch = targets.slice(offset, offset + limit);
-  const results = await Promise.all(
-    batch.map((target) => matchCollxImageTarget(target, rows)),
+  const { products, total, targets, missingProducts } = await loadTargetPage(
+    offset,
+    limit,
   );
+
+  const matchedResults = await Promise.all(
+    targets.map((target) => matchCollxImageTarget(target, rows)),
+  );
+  const missingResults = missingProducts.map((product) => ({
+    status: "unmatched" as const,
+    target: {
+      inventoryItemId: `missing-product-${product.id}`,
+      legacyProductId: Number(product.id),
+      title: text(product.title),
+      productImageUrl: text(product.image_url),
+    },
+    candidateCount: 0,
+    reason:
+      "This existing eBay product has no linked inventory_items record, so image migration was refused.",
+  }));
+  const results = [...matchedResults, ...missingResults].sort(
+    (left, right) => left.target.legacyProductId - right.target.legacyProductId,
+  );
+  const processedProducts = products.length;
+  const nextOffset =
+    processedProducts > 0 && offset + processedProducts < total
+      ? offset + processedProducts
+      : null;
 
   return NextResponse.json({
     csvRows: rows.length,
     csvFrontImages: rows.filter((row) => row.frontImage).length,
     csvBackImages: rows.filter((row) => isAllowedCollxImageUrl(row.backImage)).length,
-    totalTargets: targets.length,
+    totalTargets: total,
     offset,
-    nextOffset: offset + batch.length < targets.length ? offset + batch.length : null,
+    processedProducts,
+    nextOffset,
     results,
   });
 }
@@ -272,7 +296,9 @@ async function loadSingleTarget(input: ApplyMatchInput) {
     .maybeSingle();
   if (productError) throw productError;
   if (!product || !text(product.ebay_item_id)) {
-    throw new Error("The target is not an existing eBay-backed Truely Collectables product.");
+    throw new Error(
+      "The target is not an existing eBay-backed Truely Collectables product.",
+    );
   }
 
   const { data: imageRows, error: imageError } = await supabase
@@ -327,12 +353,15 @@ function validateApplyMatch(input: ApplyMatchInput, target: CollxImageTarget) {
   }
 
   if (collxIdentityScore(target, row) < 80) {
-    throw new Error("The CollX identity no longer passes the strict card match gate.");
+    throw new Error(
+      "The CollX identity no longer passes the strict card match gate.",
+    );
   }
 }
 
 async function applyOne(input: ApplyMatchInput) {
-  const { supabase, storeId, inventory, product, target } = await loadSingleTarget(input);
+  const { supabase, storeId, inventory, product, target } =
+    await loadSingleTarget(input);
   validateApplyMatch(input, target);
   await ensureImageBucket(supabase);
 
@@ -372,7 +401,9 @@ async function applyOne(input: ApplyMatchInput) {
     .from(COLLX_IMPORT_BUCKET)
     .getPublicUrl(frontPath).data.publicUrl;
   const backUrl = backBytes
-    ? supabase.storage.from(COLLX_IMPORT_BUCKET).getPublicUrl(backPath).data.publicUrl
+    ? supabase.storage
+        .from(COLLX_IMPORT_BUCKET)
+        .getPublicUrl(backPath).data.publicUrl
     : "";
 
   const metadata = record(inventory.metadata);
@@ -471,7 +502,9 @@ async function apply(request: Request) {
   const matches = Array.isArray(body?.matches) ? body.matches : [];
   if (!matches.length || matches.length > APPLY_BATCH_LIMIT) {
     return NextResponse.json(
-      { error: `Apply batches must contain 1-${APPLY_BATCH_LIMIT} matched cards.` },
+      {
+        error: `Apply batches must contain 1-${APPLY_BATCH_LIMIT} matched cards.`,
+      },
       { status: 400 },
     );
   }
@@ -487,12 +520,18 @@ async function apply(request: Request) {
         inventoryItemId: text(input?.inventoryItemId, 120),
         legacyProductId: Number(input?.legacyProductId || 0),
         collxId: text(input?.row?.collxId, 120),
-        error: error instanceof Error ? error.message : "Unknown image import failure.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unknown image import failure.",
       });
     }
   }
 
-  return NextResponse.json({ applied, failed }, { status: failed.length ? 207 : 200 });
+  return NextResponse.json(
+    { applied, failed },
+    { status: failed.length ? 207 : 200 },
+  );
 }
 
 export async function POST(request: Request) {
@@ -500,12 +539,16 @@ export async function POST(request: Request) {
     const mode = new URL(request.url).searchParams.get("mode") || "preview";
     if (mode === "preview") return preview(request);
     if (mode === "apply") return apply(request);
-    return NextResponse.json({ error: "Unsupported CollX image import mode." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Unsupported CollX image import mode." },
+      { status: 400 },
+    );
   } catch (error) {
     console.error("CollX image import failed:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "CollX image import failed.",
+        error:
+          error instanceof Error ? error.message : "CollX image import failed.",
       },
       { status: 500 },
     );
