@@ -46,9 +46,7 @@ function compactAttempt(attempt: any) {
 }
 
 function compactCandidate(row: any) {
-  const market = row?.exact_market && typeof row.exact_market === "object"
-    ? row.exact_market
-    : {};
+  const market = row?.exact_market && typeof row.exact_market === "object" ? row.exact_market : {};
   const consensus = market?.teacherConsensus && typeof market.teacherConsensus === "object"
     ? market.teacherConsensus
     : null;
@@ -76,8 +74,7 @@ function compactCandidate(row: any) {
     identity: {
       status: String(identity?.status || "") || null,
       confidence: numberValue(identity?.confidence),
-      registryIdentityId:
-        String(identity?.registryIdentityId || identity?.registry_identity_id || "") || null,
+      registryIdentityId: String(identity?.registryIdentityId || identity?.registry_identity_id || "") || null,
       registryFingerprintSha256:
         String(identity?.registryFingerprintSha256 || identity?.registry_fingerprint_sha256 || "") || null,
       player: String(identity?.player || "") || null,
@@ -136,6 +133,12 @@ function compactCandidate(row: any) {
   };
 }
 
+function shiftedIso(value: unknown, offsetMs: number) {
+  const parsed = new Date(String(value || ""));
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return new Date(parsed.getTime() + offsetMs).toISOString();
+}
+
 export async function POST(request: Request) {
   if (!(await verifyVercelToken(request))) {
     return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
@@ -153,7 +156,7 @@ export async function POST(request: Request) {
 
     const { data: runs, error: runError } = await supabase
       .from("tcos_deal_hunter_runs")
-      .select("run_id,status,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count,summary")
+      .select("run_id,status,started_at,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count,summary")
       .order("completed_at", { ascending: false })
       .limit(1);
     if (runError) throw new Error(`Latest Deal Hunter run query failed: ${runError.message}`);
@@ -162,17 +165,24 @@ export async function POST(request: Request) {
       return Response.json({ success: true, latestRun: null, candidates: [], summary: null });
     }
 
-    const { data: candidateRows, error: candidateError } = await supabase
+    const windowStart = shiftedIso(run.started_at || run.completed_at, -120_000);
+    const windowEnd = shiftedIso(run.completed_at || run.started_at, 120_000);
+    let candidateQuery = supabase
       .from("tcos_deal_hunter_candidates")
       .select("run_id,title,listing_url,lane,deal_label,actionable,alertworthy,identity,exact_market,evaluation,item_price,delivered_cost,conservative_resale,expected_net_profit,roi_percent,updated_at")
-      .eq("run_id", run.run_id)
       .order("updated_at", { ascending: true })
-      .limit(25);
+      .limit(50);
+    if (windowStart) candidateQuery = candidateQuery.gte("updated_at", windowStart);
+    if (windowEnd) candidateQuery = candidateQuery.lte("updated_at", windowEnd);
+    const { data: candidateRows, error: candidateError } = await candidateQuery;
     if (candidateError) {
       throw new Error(`Latest Deal Hunter candidate query failed: ${candidateError.message}`);
     }
 
-    const candidates = (candidateRows || []).map(compactCandidate);
+    const candidates = (candidateRows || [])
+      .filter((row) => String(row.run_id || "") === String(run.run_id))
+      .slice(0, 25)
+      .map(compactCandidate);
     const summary = {
       rowCount: candidates.length,
       memoryPriced: candidates.filter(
@@ -194,6 +204,7 @@ export async function POST(request: Request) {
         latestRun: {
           runId: run.run_id,
           status: run.status,
+          startedAt: run.started_at,
           completedAt: run.completed_at,
           discoveryCount: Number(run.discovery_count || 0),
           evaluatedCount: Number(run.evaluated_count || 0),
@@ -202,6 +213,7 @@ export async function POST(request: Request) {
           failureCount: Number(run.failure_count || 0),
           summary: run.summary || null,
         },
+        queryWindow: { start: windowStart, end: windowEnd },
         summary,
         candidates,
         checkedAt: new Date().toISOString(),
