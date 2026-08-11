@@ -5,12 +5,10 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/ops-collx-full-classify-launch-20260811.yml"
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ops-collx-full-classify-launch-20260811
@@ -92,6 +90,30 @@ existing={str(x['sku'])[6:] for x in db(f"select sku from public.products where 
       - name: Classify all 6909 CollX rows against current Production eBay inventory
         shell: bash
         run: python3 "$WORK/classify.py"
+      - name: Publish classifier result to migration branch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .github/ops
+          python3 - <<'PY'
+          import json,os,time
+          from pathlib import Path
+          w=Path(os.environ['WORK']); out=Path('.github/ops/collx-full-classifier-status.json')
+          rec={}
+          if (w/'receipt.json').exists():
+              try: rec=json.loads((w/'receipt.json').read_text())
+              except Exception as e: rec={'receiptParseError':str(e)}
+          status={'completed':(w/'classification.json').exists(),'receipt':rec,'publishedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          out.write_text(json.dumps(status,indent=2)+'\n')
+          if (w/'classification.json').exists():
+              Path('.github/ops/collx-full-classification-result.json').write_bytes((w/'classification.json').read_bytes())
+          PY
+          git config user.name "Truely Collectables Ops"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/ops/collx-full-classifier-status.json .github/ops/collx-full-classification-result.json 2>/dev/null || git add .github/ops/collx-full-classifier-status.json
+          git commit -m "Record full CollX migration classification" || true
+          git push origin HEAD:ops/collx-full-inventory-migration-20260811
       - name: Remove Production env copy
         if: always()
         shell: bash
