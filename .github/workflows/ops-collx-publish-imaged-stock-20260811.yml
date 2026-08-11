@@ -30,7 +30,7 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Wait for hardened production activation route
+      - name: Wait for safe production activation writer
         shell: bash
         run: |
           set -euo pipefail
@@ -44,6 +44,7 @@ jobs:
               ok=(
                   d.get('success') is True
                   and d.get('operation') == 'collx-publish-imaged-stock-20260811'
+                  and d.get('writer') == 'safe-id-updates-v2'
                   and 'eligibleWithAtLeastOneOwnedImageAndPrice' in d
               )
           except Exception:
@@ -75,7 +76,7 @@ jobs:
             python3 - <<'PY'
           import json,sys
           d=json.load(open('/tmp/activation.json'))
-          if d.get('success') is not True:
+          if d.get('success') is not True or d.get('writer') != 'safe-id-updates-v2':
               sys.exit(2)
           a=d.get('after') or {}
           done=(a.get('remainingEligible') == 0 and a.get('quarantinePending') == 0)
@@ -105,7 +106,7 @@ jobs:
           d['verification']='production'
           failures=[]
           if d.get('success') is not True: failures.append('route_not_successful')
-          if 'eligibleWithAtLeastOneOwnedImageAndPrice' not in d: failures.append('stale_route_version')
+          if d.get('writer') != 'safe-id-updates-v2': failures.append('stale_route_version')
           if d.get('remainingEligible') != 0: failures.append('eligible_rows_remaining')
           if d.get('quarantinePending') != 0: failures.append('quarantine_not_enforced')
           if d.get('liveCollxImageRefs') != 0: failures.append('live_collx_image_refs_remaining')
