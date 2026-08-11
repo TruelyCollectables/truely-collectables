@@ -9,6 +9,7 @@ export const maxDuration = 300;
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 50;
 const DEFAULT_BATCH = 300;
+const WRITE_CONCURRENCY = 20;
 const CONFIRM_HEADER = "collx-publish-imaged-stock-20260811";
 
 type Row = Record<string, any>;
@@ -17,6 +18,15 @@ type ImageRow = {
   image_url: string;
   is_primary?: boolean | null;
   sort_order?: number | null;
+};
+
+type ClassifiedRow = {
+  item: Row;
+  product: Row | null;
+  images: string[];
+  price: number;
+  quantity: number;
+  reason: "eligible" | "no_image" | "no_price" | "missing_product" | "ebay_backed";
 };
 
 function numberValue(value: unknown) {
@@ -35,6 +45,23 @@ function validOpsAuthorization(request: Request) {
   const left = Buffer.from(provided);
   const right = Buffer.from(expected);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function errorDetails(error: unknown) {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message, stack: error.stack || null };
+  }
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    return {
+      message: String(record.message || record.error || "Database operation failed"),
+      code: record.code ?? null,
+      details: record.details ?? null,
+      hint: record.hint ?? null,
+      raw: record,
+    };
+  }
+  return { message: String(error) };
 }
 
 function isExternalCollxImage(url: string | null) {
@@ -155,15 +182,7 @@ function classify(items: Row[], products: Row[], imagesByItem: Map<string, Image
       .filter(([sku]) => Boolean(sku)),
   );
 
-  const stockRows: Array<{
-    item: Row;
-    product: Row | null;
-    images: string[];
-    price: number;
-    quantity: number;
-    reason: "eligible" | "no_image" | "no_price" | "missing_product" | "ebay_backed";
-  }> = [];
-
+  const stockRows: ClassifiedRow[] = [];
   for (const item of items) {
     const quantity = Math.max(0, Math.trunc(numberValue(item.quantity)));
     if (quantity <= 0) continue;
@@ -188,11 +207,10 @@ function classify(items: Row[], products: Row[], imagesByItem: Map<string, Image
 
     stockRows.push({ item, product, images, price, quantity, reason });
   }
-
   return stockRows;
 }
 
-function isActivationAligned(row: ReturnType<typeof classify>[number]) {
+function isActivationAligned(row: ClassifiedRow) {
   if (row.reason !== "eligible" || !row.product) return false;
   const primary = row.images[0] || null;
   return (
@@ -204,12 +222,12 @@ function isActivationAligned(row: ReturnType<typeof classify>[number]) {
   );
 }
 
-function isQuarantineAligned(row: ReturnType<typeof classify>[number]) {
+function isQuarantineAligned(row: ClassifiedRow) {
   if (!row.product || (row.reason !== "no_image" && row.reason !== "no_price")) return true;
   return row.item.status === "draft" && numberValue(row.product.price) === 0;
 }
 
-function summarize(rows: ReturnType<typeof classify>) {
+function summarize(rows: ClassifiedRow[]) {
   const eligible = rows.filter((row) => row.reason === "eligible");
   const noImage = rows.filter((row) => row.reason === "no_image");
   const noPrice = rows.filter((row) => row.reason === "no_price");
@@ -250,19 +268,93 @@ async function snapshot() {
   return { storeId, rows, summary: summarize(rows) };
 }
 
+async function runConcurrent<T>(rows: T[], worker: (row: T) => Promise<void>) {
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(WRITE_CONCURRENCY, Math.max(1, rows.length)) },
+    async () => {
+      while (true) {
+        const index = next;
+        next += 1;
+        if (index >= rows.length) return;
+        await worker(rows[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
+async function activateRow(row: ClassifiedRow, storeId: string, now: string) {
+  if (!row.product) throw new Error(`Missing product for ${row.item.id}`);
+  const supabase = createSupabaseServerClient({ admin: true });
+  const primary = row.images[0];
+
+  const { error: productError } = await supabase
+    .from("products")
+    .update({
+      image_url: primary,
+      price: row.price,
+      quantity: row.quantity,
+      description: visibleDescription(row.product.description),
+      archived_at: null,
+    })
+    .eq("id", row.product.id)
+    .eq("store_id", storeId);
+  if (productError) throw { stage: "product_activate", productId: row.product.id, ...errorDetails(productError) };
+
+  const { error: itemError } = await supabase
+    .from("inventory_items")
+    .update({
+      status: "active",
+      description: visibleDescription(row.item.description),
+      notes: activatedNotes(row.item.notes),
+      metadata: mergeActivationMetadata(row.item.metadata, "active", now),
+      updated_at: now,
+    })
+    .eq("id", row.item.id)
+    .eq("store_id", storeId);
+  if (itemError) throw { stage: "inventory_activate", inventoryItemId: row.item.id, ...errorDetails(itemError) };
+}
+
+async function quarantineRow(row: ClassifiedRow, storeId: string, now: string) {
+  if (!row.product) throw new Error(`Missing product for ${row.item.id}`);
+  const supabase = createSupabaseServerClient({ admin: true });
+  const quarantineState = row.reason === "no_image" ? "quarantined_no_image" : "quarantined_no_price";
+
+  const { error: productError } = await supabase
+    .from("products")
+    .update({
+      price: 0,
+      quantity: row.quantity,
+      ...(row.reason === "no_image" ? { image_url: null } : {}),
+    })
+    .eq("id", row.product.id)
+    .eq("store_id", storeId);
+  if (productError) throw { stage: "product_quarantine", productId: row.product.id, ...errorDetails(productError) };
+
+  const { error: itemError } = await supabase
+    .from("inventory_items")
+    .update({
+      status: "draft",
+      metadata: mergeActivationMetadata(row.item.metadata, quarantineState, now),
+      updated_at: now,
+    })
+    .eq("id", row.item.id)
+    .eq("store_id", storeId);
+  if (itemError) throw { stage: "inventory_quarantine", inventoryItemId: row.item.id, ...errorDetails(itemError) };
+}
+
 export async function GET() {
   try {
     const state = await snapshot();
     return NextResponse.json({
       success: true,
       operation: "collx-publish-imaged-stock-20260811",
+      writer: "safe-id-updates-v2",
       ...state.summary,
     });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, error: errorDetails(error) }, { status: 500 });
   }
 }
 
@@ -287,77 +379,27 @@ export async function POST(request: Request) {
       (row) => row.reason === "eligible" && !isActivationAligned(row),
     );
     const selected = [...quarantineCandidates, ...activationCandidates].slice(0, batchSize);
+    const quarantineSelected = selected.filter(
+      (row) => row.reason === "no_image" || row.reason === "no_price",
+    );
+    const activationSelected = selected.filter((row) => row.reason === "eligible");
 
-    const inventoryUpdates: Row[] = [];
-    const productUpdates: Row[] = [];
-
-    for (const row of selected) {
-      if (!row.product) continue;
-      if (row.reason === "eligible") {
-        const primary = row.images[0];
-        inventoryUpdates.push({
-          ...row.item,
-          status: "active",
-          description: visibleDescription(row.item.description),
-          notes: activatedNotes(row.item.notes),
-          metadata: mergeActivationMetadata(row.item.metadata, "active", now),
-          updated_at: now,
-        });
-        productUpdates.push({
-          ...row.product,
-          image_url: primary,
-          price: row.price,
-          quantity: row.quantity,
-          description: visibleDescription(row.product.description),
-          archived_at: null,
-        });
-      } else if (row.reason === "no_image" || row.reason === "no_price") {
-        inventoryUpdates.push({
-          ...row.item,
-          status: "draft",
-          metadata: mergeActivationMetadata(
-            row.item.metadata,
-            row.reason === "no_image" ? "quarantined_no_image" : "quarantined_no_price",
-            now,
-          ),
-          updated_at: now,
-        });
-        productUpdates.push({
-          ...row.product,
-          price: 0,
-          quantity: row.quantity,
-          ...(row.reason === "no_image" ? { image_url: null } : {}),
-        });
-      }
-    }
-
-    const supabase = createSupabaseServerClient({ admin: true });
-    if (inventoryUpdates.length > 0) {
-      const { error } = await supabase.from("inventory_items").upsert(inventoryUpdates, { onConflict: "id" });
-      if (error) throw error;
-    }
-    if (productUpdates.length > 0) {
-      const { error } = await supabase.from("products").upsert(productUpdates, { onConflict: "id" });
-      if (error) throw error;
-    }
+    await runConcurrent(quarantineSelected, (row) => quarantineRow(row, before.storeId, now));
+    await runConcurrent(activationSelected, (row) => activateRow(row, before.storeId, now));
 
     const after = await snapshot();
     return NextResponse.json({
       success: true,
       operation: "collx-publish-imaged-stock-20260811",
+      writer: "safe-id-updates-v2",
       batchSize,
       changedThisCall: selected.length,
-      activatedThisCall: selected.filter((row) => row.reason === "eligible").length,
-      quarantinedThisCall: selected.filter(
-        (row) => row.reason === "no_image" || row.reason === "no_price",
-      ).length,
+      activatedThisCall: activationSelected.length,
+      quarantinedThisCall: quarantineSelected.length,
       before: before.summary,
       after: after.summary,
     });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, error: errorDetails(error) }, { status: 500 });
   }
 }
