@@ -1,7 +1,7 @@
 name: Ops Gateway Gemini Repair Runner 20260810
 
 on:
-  pull_request:
+  pull_request_target:
     types: [synchronize, reopened]
 
 permissions:
@@ -11,12 +11,13 @@ jobs:
   repair:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/instacomp-gateway-gemini-native-search-20260810'
+      github.event.pull_request.head.ref == 'fix/instacomp-gateway-gemini-native-search-20260810'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: fix/instacomp-gateway-gemini-native-search-20260810
           fetch-depth: 0
 
