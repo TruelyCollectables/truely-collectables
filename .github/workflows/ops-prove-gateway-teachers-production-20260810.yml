@@ -27,7 +27,6 @@ jobs:
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          test -f .env.local
           set -a
           source .env.local
           set +a
@@ -54,39 +53,43 @@ jobs:
           const result = await generateText({
             model: 'google/gemini-2.5-flash-lite',
             prompt: [
-              'Use Google Search grounding.',
-              'Search the live web for this exact query: site:ebay.com/itm "2024 Panini Prizm Caitlin Clark" "Silver" "22".',
+              'Use Google Search grounding before answering.',
+              'Search the live web for: site:ebay.com/itm "2024 Panini Prizm Caitlin Clark" "Silver" "22".',
               'Do not invent prices or URLs.',
-              'Reply with a short JSON object: {"searched":true,"ebayEvidenceFound":true_or_false}.'
+              'Reply only with {"searched":true,"ebayEvidenceFound":true_or_false}.'
             ].join('\n'),
             temperature: 0,
             maxOutputTokens: 600,
             timeout: 120000,
             tools: {
-              google_search: google.tools.googleSearch({
-                searchTypes: { webSearch: {} },
-              }),
+              google_search: google.tools.googleSearch({ searchTypes: { webSearch: {} } }),
             },
           });
 
-          const sources = Array.isArray(result.sources) ? result.sources : [];
           const metadata = result.providerMetadata || {};
-          const googleMeta = metadata.google || metadata['google.generative-ai'] || null;
-          const gatewayMeta = metadata.gateway || null;
-          const grounding = googleMeta?.groundingMetadata || gatewayMeta?.groundingMetadata || null;
-          const queries = Array.isArray(grounding?.webSearchQueries) ? grounding.webSearchQueries.length : 0;
-          const chunks = Array.isArray(grounding?.groundingChunks) ? grounding.groundingChunks.length : 0;
+          const candidates = [metadata.googleVertex, metadata.vertex, metadata.google, metadata['google.generative-ai'], metadata.gateway].filter(Boolean);
+          const summaries = candidates.map((m) => {
+            const grounding = m?.groundingMetadata || m?.grounding || null;
+            return {
+              keys: Object.keys(m || {}),
+              groundingKeys: grounding ? Object.keys(grounding) : [],
+              queryCount: Array.isArray(grounding?.webSearchQueries) ? grounding.webSearchQueries.length : 0,
+              chunkCount: Array.isArray(grounding?.groundingChunks) ? grounding.groundingChunks.length : 0,
+              supportCount: Array.isArray(grounding?.groundingSupports) ? grounding.groundingSupports.length : 0,
+              hasSearchEntryPoint: Boolean(grounding?.searchEntryPoint),
+            };
+          });
           const safe = {
             model: 'google/gemini-2.5-flash-lite',
             textReturned: typeof result.text === 'string' && result.text.trim().length > 0,
             finishReason: result.finishReason || null,
-            sourceCount: sources.length,
-            groundingQueryCount: queries,
-            groundingChunkCount: chunks,
+            sourceCount: Array.isArray(result.sources) ? result.sources.length : 0,
             metadataKeys: Object.keys(metadata),
+            metadataSummaries: summaries,
           };
           console.log('GEMINI_NATIVE_SEARCH_PROOF=' + JSON.stringify(safe));
-          if (!safe.textReturned || safe.finishReason === 'error' || (safe.sourceCount < 1 && safe.groundingQueryCount < 1 && safe.groundingChunkCount < 1)) process.exit(2);
+          const grounded = summaries.some((s) => s.queryCount > 0 || s.chunkCount > 0 || s.supportCount > 0 || s.hasSearchEntryPoint);
+          if (!safe.textReturned || safe.finishReason === 'error' || !grounded) process.exit(2);
           NODE
           node ./.gemini-native-search-probe.mjs
           rm -f .gemini-native-search-probe.mjs
