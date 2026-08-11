@@ -12,6 +12,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: instacomp-ollama-collx-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apply-and-test:
     if: github.head_ref != 'ops/collx-full-inventory-migration-20260811'
@@ -61,33 +65,147 @@ jobs:
           npx tsc --noEmit
           npm run build
 
-  collx-full-classify:
+  collx-full-migrate:
     if: github.head_ref == 'ops/collx-full-inventory-migration-20260811'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
-      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      STORE_ID: 00000000-0000-4000-8000-000000000001
-      WORK: /tmp/collx-full-classify
+      SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
+      SOURCE_ROWS: '6909'
+      WORK: /tmp/collx-full-migrate
+      ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-20260811
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out migration source
+        uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
           fetch-depth: 1
-      - name: Run authoritative full CollX classifier
+
+      - name: Reconstruct authoritative 6909-row CollX source
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/ops/run-collx-full-classifier-20260811.sh
-      - name: Upload classifier receipt
+          mkdir -p "$WORK/results"
+          grep -Ev 'part(10|14|15)$' .github/ops/collx-full-metadata.sha256 | sha256sum -c -
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10m0 \
+            .github/ops/collx-full-metadata.part10m1 \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14m \
+            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$SOURCE_SHA"
+          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$SOURCE_ROWS"
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          rm -rf "$WORK/main"
+          git worktree add --detach "$WORK/main" FETCH_HEAD
+          test -s "$WORK/main/src/app/api/ops/collx-full-migration-20260811/route.ts"
+          cd "$WORK/main"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Prove migration route is live
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=''
+          for n in $(seq 1 30); do
+            code="$(curl -sS -o "$WORK/route-probe.json" -w '%{http_code}' --max-time 30 "$ROUTE_URL" || true)"
+            if [ "$code" != '404' ] && [ -n "$code" ]; then break; fi
+            sleep 2
+          done
+          cat "$WORK/route-probe.json" || true
+          test "$code" != '404'
+          test -n "$code"
+
+      - name: Classify all CollX rows against live eBay inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --retry 2 --retry-all-errors --max-time 300 \
+            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
+            "$ROUTE_URL?mode=classify" | tee "$WORK/results/classification-response.json"
+          python3 - <<'PY'
+          import json,os
+          p=os.path.join(os.environ['WORK'],'results','classification-response.json')
+          d=json.load(open(p))
+          assert d.get('success') is True, d
+          assert d.get('sourceRows')==6909, d
+          accounted=int(d.get('existingCollxImports',0))+int(d.get('duplicateCollxRows',0))+int(d.get('importCandidateRows',0))
+          assert accounted==6909,(accounted,d)
+          print(json.dumps({'accounted':accounted,'importCandidateRows':d['importCandidateRows'],'duplicateCollxRows':d['duplicateCollxRows'],'existingCollxImports':d['existingCollxImports']},indent=2))
+          PY
+
+      - name: Import every classified CollX-only row as draft inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import concurrent.futures,json,os,urllib.request,urllib.error
+          work=os.environ['WORK']; route=os.environ['ROUTE_URL']; body=open(os.path.join(work,'source.csv'),'rb').read()
+          classification=json.load(open(os.path.join(work,'results','classification-response.json')))
+          total=int(classification['importCandidateRows']); batch=200
+          offsets=list(range(0,total,batch))
+          def one(offset):
+              url=f'{route}?mode=import&offset={offset}&limit={batch}'
+              req=urllib.request.Request(url,data=body,method='POST',headers={'Content-Type':'text/csv','User-Agent':'TruelyCollectables-full-CollX-migration/20260811'})
+              try:
+                  with urllib.request.urlopen(req,timeout=320) as r: payload=json.loads(r.read() or b'{}')
+              except urllib.error.HTTPError as e:
+                  detail=e.read().decode('utf-8','replace')
+                  raise RuntimeError(f'batch {offset} HTTP {e.code}: {detail[:2000]}')
+              if payload.get('success') is not True or int(payload.get('completed',-1)) != int(payload.get('requested',-2)):
+                  raise RuntimeError(f'batch {offset} bad receipt: {payload}')
+              open(os.path.join(work,'results',f'import-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2))
+              return payload
+          receipts=[]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+              future_map={ex.submit(one,o):o for o in offsets}
+              for fut in concurrent.futures.as_completed(future_map):
+                  receipt=fut.result(); receipts.append(receipt)
+                  print(json.dumps({'offset':receipt['offset'],'completed':receipt['completed'],'total':receipt['total'],'frontsCopied':receipt['frontsCopied'],'backsCopied':receipt['backsCopied'],'imageErrors':len(receipt.get('imageErrors',[]))}))
+          summary={'totalExpected':total,'batchReceipts':len(receipts),'completed':sum(int(x['completed']) for x in receipts),'frontsCopied':sum(int(x['frontsCopied']) for x in receipts),'backsCopied':sum(int(x['backsCopied']) for x in receipts),'reportedImageErrors':sum(len(x.get('imageErrors',[])) for x in receipts)}
+          open(os.path.join(work,'results','import-summary.json'),'w').write(json.dumps(summary,indent=2))
+          assert summary['completed']==total,summary
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Verify complete migration and not-for-sale gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --retry 2 --retry-all-errors --max-time 300 \
+            "$ROUTE_URL" | tee "$WORK/results/verification.json"
+          python3 - <<'PY'
+          import json,os
+          d=json.load(open(os.path.join(os.environ['WORK'],'results','verification.json')))
+          assert d.get('success') is True,d
+          assert d.get('allClassifiedImportsPresent') is True,d
+          assert d.get('allImportsNotForSale') is True,d
+          assert int(d.get('missingProducts',-1))==0,d
+          assert int(d.get('missingItems',-1))==0,d
+          assert int(d.get('activeItems',-1))==0,d
+          assert int(d.get('collxHostedProductImages',-1))==0,d
+          print(json.dumps(d,indent=2))
+          PY
+
+      - name: Upload full migration receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-full-classification-proven-workflow
+          name: collx-full-migration-production-receipts
           path: |
-            /tmp/collx-full-classify/classification.json
-            /tmp/collx-full-classify/receipt.json
-          retention-days: 7
+            /tmp/collx-full-migrate/results
+            /tmp/collx-full-migrate/route-probe.json
+          retention-days: 14
           if-no-files-found: warn
