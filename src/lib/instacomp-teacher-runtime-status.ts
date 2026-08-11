@@ -45,8 +45,8 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   // backed by the same Groq credential/provider family and therefore count as
   // one independent trust vote.
   const groqBrowserConfigured = groqConfigured;
-  const gatewayPerplexityConfigured = configured(
-    env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN,
+  const gatewayPerplexityConfigured = Boolean(
+    configured(env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN) || env.VERCEL === "1",
   );
   const openRouterConfigured = configured(env.OPENROUTER_API_KEY);
   const cloudflareConfigured = Boolean(

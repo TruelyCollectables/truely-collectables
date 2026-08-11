@@ -1,3 +1,4 @@
+import { getVercelOidcToken } from "@vercel/oidc";
 import type {
   InstaCompAiResult,
   InstaCompComp,
@@ -26,6 +27,16 @@ const PERPLEXITY_API_KEY = String(process.env.PERPLEXITY_API_KEY || "").trim();
 const AI_GATEWAY_TOKEN = String(
   process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN || "",
 ).trim();
+
+function gatewayPlatformAvailable() {
+  return Boolean(AI_GATEWAY_TOKEN || process.env.VERCEL === "1");
+}
+
+async function gatewayBearerToken() {
+  if (AI_GATEWAY_TOKEN) return AI_GATEWAY_TOKEN;
+  if (process.env.VERCEL !== "1") return "";
+  return String(await getVercelOidcToken()).trim();
+}
 const TEACHER_GEMINI_DISABLED =
   String(process.env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() === "true";
 
@@ -500,14 +511,17 @@ async function runPerplexity(exactTitle: string): Promise<TeacherAttempt> {
 
 
 async function runGatewayPerplexity(prompt: string): Promise<TeacherAttempt> {
-  if (!AI_GATEWAY_TOKEN) {
+  const configured = gatewayPlatformAvailable();
+  if (!configured) {
     return { teacher: "gateway_perplexity", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
   try {
+    const gatewayToken = await gatewayBearerToken();
+    if (!gatewayToken) throw new Error("Vercel Gateway OIDC token was unavailable at request time.");
     const response = await fetch("https://ai-gateway.vercel.sh/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${AI_GATEWAY_TOKEN}`,
+        Authorization: `Bearer ${gatewayToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
