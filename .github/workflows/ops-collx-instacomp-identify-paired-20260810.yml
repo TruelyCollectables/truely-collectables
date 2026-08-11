@@ -1,0 +1,134 @@
+name: Ops CollX InstaComp Identify Paired 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-instacomp-identify-paired-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ops-collx-instacomp-identify-paired-20260810
+  cancel-in-progress: false
+
+jobs:
+  identify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull Production InstaComp connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/collx-instacomp"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-instacomp/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Download preserved CollX candidate map
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/collx-instacomp"
+          gh api -H 'Accept: application/vnd.github+json' \
+            /repos/TruelyCollectables/truely-collectables/actions/artifacts/9088498879/zip > candidates.zip
+          unzip -o candidates.zip >/dev/null
+          test -s candidate-owned-map.json
+          node -e 'const x=require(process.argv[1]); if(x.candidateRows!==281 || x.uniqueImages!==512) throw new Error("candidate artifact contract mismatch"); console.log({candidateRows:x.candidateRows,uniqueImages:x.uniqueImages});' candidate-owned-map.json
+
+      - name: Identify all front-back candidates with InstaComp
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { setTimeout as sleep } from 'node:timers/promises';
+
+          function parseEnv(text){const e={};for(const raw of text.split(/\r?\n/)){const line=raw.trim();if(!line||line.startsWith('#'))continue;const i=line.indexOf('=');if(i<1)continue;const k=line.slice(0,i).trim();let v=line.slice(i+1).trim();if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}else if(v.startsWith("'")&&v.endsWith("'"))v=v.slice(1,-1);e[k]=v}return e}
+          const root=path.join(process.env.RUNNER_TEMP,'collx-instacomp');
+          const env=parseEnv(fs.readFileSync(path.join(root,'production.env'),'utf8'));
+          const macUrl=String(env.INSTACOMP_AI_LOCAL_URL||'').trim().replace(/\/+$/,'');
+          const macKey=String(env.INSTACOMP_AI_LOCAL_KEY||'').trim();
+          if(!macUrl||!macKey) throw new Error('Production InstaComp Mac connection unavailable');
+          if(macUrl!=='https://instacomp.truelycollectables.com') throw new Error(`Unexpected InstaComp URL: ${macUrl}`);
+          console.log('Production InstaComp connection loaded and canonical URL verified.');
+
+          const map=JSON.parse(fs.readFileSync(path.join(root,'candidate-owned-map.json'),'utf8'));
+          const candidates=map.candidates.filter(c=>c.front_owned&&c.back_owned);
+          if(candidates.length!==231) throw new Error(`Expected 231 front/back candidates, got ${candidates.length}`);
+
+          async function fetchImage(url,label){let last='';for(let a=1;a<=5;a++){try{const r=await fetch(url,{redirect:'follow',signal:AbortSignal.timeout(30000)});const type=r.headers.get('content-type')||'';if(r.ok&&type.toLowerCase().startsWith('image/')) return {bytes:Buffer.from(await r.arrayBuffer()),type};last=`HTTP ${r.status} ${type}`}catch(e){last=String(e?.message||e)}if(a<5)await sleep(a*500)}throw new Error(`${label}: ${last}`)}
+
+          async function analyze(candidate){
+            const front=await fetchImage(candidate.front_owned,'front download');
+            const back=await fetchImage(candidate.back_owned,'back download');
+            let last='';
+            for(let attempt=1;attempt<=4;attempt++){
+              try{
+                const form=new FormData();
+                form.append('front',new File([front.bytes],'front.jpg',{type:front.type||'image/jpeg'}));
+                form.append('back',new File([back.bytes],'back.jpg',{type:back.type||'image/jpeg'}));
+                const r=await fetch(`${macUrl}/v1/scans/analyze`,{
+                  method:'POST',headers:{'X-InstaComp-AI-Key':macKey},body:form,redirect:'error',signal:AbortSignal.timeout(240000)
+                });
+                const text=await r.text();let payload={};try{payload=text?JSON.parse(text):{}}catch{payload={parse_error:true,raw:text.slice(0,1000)}}
+                if(r.ok) return {ok:true,http_status:r.status,payload};
+                last=`HTTP ${r.status}: ${String(payload?.detail||payload?.error||text).slice(0,400)}`;
+                if(r.status<500&&r.status!==429) break;
+              }catch(e){last=String(e?.message||e)}
+              if(attempt<4) await sleep(Math.min(12000,attempt*1500));
+            }
+            return {ok:false,error:last};
+          }
+
+          const results=new Array(candidates.length);
+          let next=0,done=0,ok=0,failed=0;
+          async function worker(workerId){
+            while(true){
+              const i=next++;
+              if(i>=candidates.length) return;
+              const c=candidates[i];
+              const started=Date.now();
+              const r=await analyze(c);
+              results[i]={collx_id:String(c.collx_id),front_owned:c.front_owned,back_owned:c.back_owned,duration_ms:Date.now()-started,...r};
+              done++; if(r.ok) ok++; else failed++;
+              console.log(`worker=${workerId} done=${done}/${candidates.length} ok=${ok} failed=${failed} collx_id=${c.collx_id} status=${r.ok?'ok':'failed'}`);
+            }
+          }
+          // Three concurrent scans keeps the Mac busy without turning this into a denial-of-service on our own scanner.
+          await Promise.all([worker(1),worker(2),worker(3)]);
+
+          const summary={schema:'tcos.collx.instacomp.identification.v1',requested:candidates.length,completed:done,ok,failed,generated_at:new Date().toISOString()};
+          fs.writeFileSync(path.join(root,'instacomp-identifications.json'),JSON.stringify({summary,results},null,2));
+          fs.writeFileSync(path.join(root,'receipt.json'),JSON.stringify(summary,null,2));
+          console.log(JSON.stringify(summary,null,2));
+          if(ok===0) throw new Error('InstaComp returned zero successful identifications');
+          NODE
+          rm -f "$RUNNER_TEMP/collx-instacomp/production.env"
+
+      - name: Upload InstaComp identification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-instacomp-paired-identifications
+          path: |
+            ${{ runner.temp }}/collx-instacomp/instacomp-identifications.json
+            ${{ runner.temp }}/collx-instacomp/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
