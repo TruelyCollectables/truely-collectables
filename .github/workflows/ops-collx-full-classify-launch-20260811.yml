@@ -7,5 +7,5 @@ on:
 jobs:
   classify:
     if: ${{ github.head_ref == 'ops/collx-full-inventory-migration-20260811' }}
-    uses: TruelyCollectables/truely-collectables/.github/workflows/ops-collx-full-classify-20260811.yml@ops/collx-full-inventory-migration-20260811
+    uses: TruelyCollectables/truely-collectables/.github/workflows/ops-collx-full-classify-20260811.yml@21af0a5c7d5847e0c6a1dc16e5ce1dfcc26fc822
     secrets: inherit
