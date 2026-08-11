@@ -60,6 +60,18 @@ export async function POST(request: Request) {
     if (!(front instanceof File) || !(back instanceof File)) return json({ ok: false, code: "IMAGES_REQUIRED" }, 400);
 
     const { url, key } = macConfig();
+    const identityResponse = await fetch(`${url}/v1/runtime-identity`, {
+      method: "GET",
+      headers: { "X-InstaComp-AI-Key": key },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+    });
+    const identityRaw = await identityResponse.text();
+    let runtimeIdentity: Record<string, any> = {};
+    try { runtimeIdentity = identityRaw ? JSON.parse(identityRaw) : {}; } catch { runtimeIdentity = { parse_error: true }; }
+    if (!identityResponse.ok) return json({ ok: false, code: "MAC_RUNTIME_IDENTITY_FAILED", httpStatus: identityResponse.status }, 502);
+
     const body = new FormData();
     body.append("front", front, "front.jpg");
     body.append("back", back, "back.jpg");
@@ -85,6 +97,8 @@ export async function POST(request: Request) {
     return json({
       ok: true,
       schema: "tcos.instacomp.localVisionPostfixProof.v1",
+      runtimeSourceFingerprint: runtimeIdentity.runtime_source_fingerprint || null,
+      runtimeVersion: runtimeIdentity.version || null,
       status: scan.status || null,
       matchSource: scan.match_source || null,
       localSuggestion: {
