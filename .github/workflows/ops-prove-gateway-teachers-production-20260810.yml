@@ -12,7 +12,7 @@ permissions:
 jobs:
   prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       SITE_URL: https://truelycollectables.com
@@ -22,8 +22,8 @@ jobs:
         run: |
           set -euo pipefail
           ready=0
-          for attempt in $(seq 1 60); do
-            code="$(curl -sS -o diagnostics.json -w '%{http_code}' --max-time 30 -X POST \
+          for attempt in $(seq 1 36); do
+            code="$(curl -sS -o diagnostics.json -w '%{http_code}' --connect-timeout 3 --max-time 5 -X POST \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
               "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics?mode=production" || true)"
             if [ "$code" = "200" ] && node - <<'NODE'
@@ -36,6 +36,7 @@ jobs:
               ready=1
               break
             fi
+            echo "PRODUCTION_ONLY_DIAGNOSTICS_ATTEMPT=$attempt HTTP=$code"
             sleep 3
           done
           if [ "$ready" != "1" ]; then
@@ -47,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 60 -X POST \
+          curl -fsS --max-time 30 -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > runtime.json
           node - <<'NODE'
