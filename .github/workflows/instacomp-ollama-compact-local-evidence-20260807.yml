@@ -107,12 +107,14 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
+          MAIN_SHA="$(git rev-parse FETCH_HEAD)"
+          [[ "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
           rm -rf "$WORK/main"
-          git worktree add --detach "$WORK/main" FETCH_HEAD
+          git worktree add --detach "$WORK/main" "$MAIN_SHA"
           test -s "$WORK/main/src/app/api/ops/collx-full-migration-20260811/route.ts"
           cd "$WORK/main"
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx --yes vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --build-env TCOS_RELEASE_COMMIT="$MAIN_SHA"
 
       - name: Prove migration route is live
         shell: bash
