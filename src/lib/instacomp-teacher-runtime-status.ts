@@ -4,6 +4,7 @@ export type InstaCompTeacherRuntimeConfiguration = {
   xaiConfigured: boolean;
   groqConfigured: boolean;
   groqBrowserConfigured: boolean;
+  gatewayPerplexityConfigured: boolean;
   openRouterConfigured: boolean;
   cloudflareConfigured: boolean;
   perplexityConfigured: boolean;
@@ -34,7 +35,9 @@ export function teacherRequiredVotes(votingTeacherCount: number) {
 export function resolveInstaCompTeacherRuntimeConfiguration(
   env: Record<string, string | undefined> = process.env,
 ): InstaCompTeacherRuntimeConfiguration {
-  const geminiConfigured = configured(env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY);
+  const geminiConfigured =
+    String(env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() !== "true" &&
+    configured(env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY);
   const anthropicConfigured = configured(env.ANTHROPIC_API_KEY);
   const xaiConfigured = configured(env.XAI_API_KEY);
   const groqConfigured = configured(env.GROQ_API_KEY);
@@ -42,6 +45,9 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   // backed by the same Groq credential/provider family and therefore count as
   // one independent trust vote.
   const groqBrowserConfigured = groqConfigured;
+  const gatewayPerplexityConfigured = configured(
+    env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN,
+  );
   const openRouterConfigured = configured(env.OPENROUTER_API_KEY);
   const cloudflareConfigured = Boolean(
     configured(env.CLOUDFLARE_ACCOUNT_ID) && configured(env.CLOUDFLARE_AUTH_TOKEN || env.CLOUDFLARE_API_TOKEN),
@@ -58,6 +64,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     anthropicConfigured,
     xaiConfigured,
     groqConfigured,
+    gatewayPerplexityConfigured,
   ].filter(Boolean).length;
   const requiredVotes = teacherRequiredVotes(votingTeacherCount);
   const macLearningBridgeConfigured = Boolean(
@@ -70,6 +77,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     xaiConfigured,
     groqConfigured,
     groqBrowserConfigured,
+    gatewayPerplexityConfigured,
     openRouterConfigured,
     cloudflareConfigured,
     perplexityConfigured,

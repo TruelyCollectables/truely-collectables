@@ -23,6 +23,11 @@ const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || "").trim();
 const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();
 const GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();
 const PERPLEXITY_API_KEY = String(process.env.PERPLEXITY_API_KEY || "").trim();
+const AI_GATEWAY_TOKEN = String(
+  process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN || "",
+).trim();
+const TEACHER_GEMINI_DISABLED =
+  String(process.env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() === "true";
 
 const GEMINI_MODEL = String(
   process.env.INSTACOMP_TEACHER_GEMINI_MODEL || "gemini-3.6-flash",
@@ -36,6 +41,9 @@ const XAI_MODEL = String(
 const GROQ_MODEL = String(
   process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound-mini",
 ).trim();
+const GATEWAY_PERPLEXITY_MODEL = String(
+  process.env.INSTACOMP_GATEWAY_PERPLEXITY_MODEL || "perplexity/sonar",
+).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 8;
 const TEACHER_MARKET_DOMAINS = ["ebay.com", "130point.com", "psacard.com"];
@@ -46,6 +54,7 @@ export type TeacherName =
   | "xai"
   | "groq"
   | "groq_browser"
+  | "gateway_perplexity"
   | "perplexity"
   | "openrouter"
   | "cloudflare";
@@ -242,7 +251,7 @@ function geminiSchema() {
 }
 
 async function runGemini(prompt: string): Promise<TeacherAttempt> {
-  if (!GEMINI_API_KEY) {
+  if (!GEMINI_API_KEY || TEACHER_GEMINI_DISABLED) {
     return { teacher: "gemini", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
   }
   try {
@@ -489,6 +498,46 @@ async function runPerplexity(exactTitle: string): Promise<TeacherAttempt> {
   }
 }
 
+
+async function runGatewayPerplexity(prompt: string): Promise<TeacherAttempt> {
+  if (!AI_GATEWAY_TOKEN) {
+    return { teacher: "gateway_perplexity", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
+  }
+  try {
+    const response = await fetch("https://ai-gateway.vercel.sh/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${AI_GATEWAY_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: GATEWAY_PERPLEXITY_MODEL,
+        temperature: 0,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 2400,
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(TEACHER_TIMEOUT_MS),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(clean(payload?.error?.message) || `Vercel Gateway Perplexity HTTP ${response.status}`);
+    }
+    const parsed = parseJsonObject(clean(payload?.choices?.[0]?.message?.content));
+    return { teacher: "gateway_perplexity", configured: true, ok: true, ...parsed, error: null };
+  } catch (error) {
+    return {
+      teacher: "gateway_perplexity",
+      configured: true,
+      ok: false,
+      sold: [],
+      active: [],
+      notes: "",
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 function toComp(row: TeacherMarketRow, teacher: TeacherName, lane: "sold" | "active") {
   return {
     title: row.title,
@@ -530,6 +579,7 @@ function teacherVoteFamily(teacher: TeacherName) {
   // methods, but they share one provider credential and therefore contribute
   // at most one independent trust vote for any sold listing.
   if (teacher === "groq" || teacher === "groq_browser") return "groq";
+  if (teacher === "gateway_perplexity") return "perplexity";
   return teacher;
 }
 
@@ -603,6 +653,7 @@ export async function getTeacherExactMarketProviders(params: {
       runXai(prompt),
       runGroq(prompt),
       runGroqBrowserTeacher(prompt),
+      runGatewayPerplexity(prompt),
       runPerplexity(params.exactTitle),
     ]),
   ]);
