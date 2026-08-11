@@ -50,6 +50,16 @@ jobs:
           test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SHA"
           test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_ROWS"
           cat .github/ops/collx-full-classify.py.part{00..01} > "$WORK/classify.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          p=Path(os.environ['WORK'])/'classify.py'
+          s=p.read_text()
+          old="headers={'Authorization':f'Bearer {mgmt}','Content-Type':'application/json'})"
+          new="headers={'Authorization':f'Bearer {mgmt}','Content-Type':'application/json','User-Agent':'Mozilla/5.0 (TruelyCollectables GitHub Actions)'})"
+          assert old in s
+          p.write_text(s.replace(old,new,1))
+          PY
       - name: Pull Production environment
         shell: bash
         run: |
