@@ -68,16 +68,16 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   }
 
   async getByLegacyProductId(legacyProductId: number) {
-    const item = await super.getByLegacyProductId(legacyProductId);
-    const publicItem = item && isPublicStorefrontItem(item) ? item : null;
-    return publicItem ? enforceStrictStorefrontFeatures(publicItem) : null;
+    let item = await super.getByLegacyProductId(legacyProductId);
+    if (item) item = enforceStrictStorefrontFeatures(item);
+    return item && isPublicStorefrontItem(item) ? item : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
-    const items = await super.getByLegacyProductIds(legacyProductIds);
-    return items
-      .filter(isPublicStorefrontItem)
-      .map(enforceStrictStorefrontFeatures);
+    const items = (await super.getByLegacyProductIds(legacyProductIds)).map(
+      enforceStrictStorefrontFeatures,
+    );
+    return items.filter(isPublicStorefrontItem);
   }
 }
 
