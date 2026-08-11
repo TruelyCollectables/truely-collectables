@@ -1,4 +1,4 @@
-name: Ops Probe Gemini Gateway Access 20260810
+name: Ops Probe Gemini Native Search 20260810
 
 on:
   pull_request:
@@ -34,100 +34,59 @@ jobs:
           test -n "${VERCEL_OIDC_TOKEN:-}"
           echo "GEMINI_GATEWAY_OIDC_ACQUIRED=true"
 
-      - name: Install isolated Gateway probe dependencies
+      - name: Install isolated Gateway and Google tool definitions
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save --ignore-scripts ai@7.0.58 @ai-sdk/gateway@4.0.46 >/dev/null
+          npm install --no-save --ignore-scripts ai@7.0.58 @ai-sdk/gateway@4.0.46 @ai-sdk/google@3.0.26 >/dev/null
 
-      - name: Find an accessible Gemini model and prove search
+      - name: Require free Gemini 2.5 Flash Lite with native Google Search
         shell: bash
         run: |
           set -euo pipefail
           set -a
           source .env.local
           set +a
-          cat > .gemini-gateway-probe.mjs <<'NODE'
-          import fs from 'node:fs';
-          import { generateText, stepCountIs } from 'ai';
-          import { gateway } from '@ai-sdk/gateway';
-
-          const candidates = [
-            'google/gemini-3.5-flash-lite',
-            'google/gemini-3.1-flash-lite',
-            'google/gemini-2.5-flash-lite',
-            'google/gemini-2.5-flash',
-          ];
-
-          let selected = null;
-          const access = [];
-          for (const model of candidates) {
-            try {
-              const result = await generateText({
-                model,
-                prompt: 'Reply exactly: GEMINI_OK',
-                temperature: 0,
-                maxOutputTokens: 32,
-                timeout: 45000,
-              });
-              const ok = typeof result.text === 'string' && result.text.includes('GEMINI_OK');
-              access.push({ model, ok, statusCode: 200, errorClass: null });
-              if (ok) { selected = model; break; }
-            } catch (error) {
-              const statusCode = Number(error?.statusCode || error?.cause?.statusCode || 0) || null;
-              const message = String(error?.message || error?.cause?.message || error || '');
-              const errorClass = /Free tier users do not have access/i.test(message)
-                ? 'free_tier_restricted'
-                : /rate limit/i.test(message)
-                  ? 'rate_limited'
-                  : /not found|unknown model/i.test(message)
-                    ? 'model_unavailable'
-                    : 'provider_error';
-              access.push({ model, ok: false, statusCode, errorClass });
-            }
-          }
-          console.log('GEMINI_GATEWAY_ACCESS=' + JSON.stringify(access));
-          if (!selected) process.exit(3);
-          fs.writeFileSync('.gemini-selected-model', selected);
+          cat > .gemini-native-search-probe.mjs <<'NODE'
+          import { generateText } from 'ai';
+          import { google } from '@ai-sdk/google';
 
           const result = await generateText({
-            model: selected,
+            model: 'google/gemini-2.5-flash-lite',
             prompt: [
-              'You are testing live sports-card market research.',
-              'Use the provided web-search tool before answering.',
-              'Search only eBay for: 2024 Panini Prizm Caitlin Clark #22 Silver sold.',
-              'Then answer with one short sentence saying whether search results were returned.',
-              'Do not guess a price.'
+              'Use Google Search grounding.',
+              'Search the live web for this exact query: site:ebay.com/itm "2024 Panini Prizm Caitlin Clark" "Silver" "22".',
+              'Do not invent prices or URLs.',
+              'Reply with a short JSON object: {"searched":true,"ebayEvidenceFound":true_or_false}.'
             ].join('\n'),
             temperature: 0,
-            maxOutputTokens: 900,
+            maxOutputTokens: 600,
             timeout: 120000,
             tools: {
-              parallel_search: gateway.tools.parallelSearch({
-                mode: 'one-shot',
-                maxResults: 8,
-                sourcePolicy: { includeDomains: ['ebay.com'] },
+              google_search: google.tools.googleSearch({
+                searchTypes: { webSearch: {} },
               }),
             },
-            prepareStep: ({ stepNumber }) => stepNumber === 0
-              ? { toolChoice: { type: 'tool', toolName: 'parallel_search' } }
-              : { toolChoice: 'none' },
-            stopWhen: stepCountIs(3),
           });
 
-          const steps = Array.isArray(result.steps) ? result.steps : [];
-          const toolCalls = steps.flatMap((step) => Array.isArray(step.toolCalls) ? step.toolCalls : []);
-          const toolResults = steps.flatMap((step) => Array.isArray(step.toolResults) ? step.toolResults : []);
+          const sources = Array.isArray(result.sources) ? result.sources : [];
+          const metadata = result.providerMetadata || {};
+          const googleMeta = metadata.google || metadata['google.generative-ai'] || null;
+          const gatewayMeta = metadata.gateway || null;
+          const grounding = googleMeta?.groundingMetadata || gatewayMeta?.groundingMetadata || null;
+          const queries = Array.isArray(grounding?.webSearchQueries) ? grounding.webSearchQueries.length : 0;
+          const chunks = Array.isArray(grounding?.groundingChunks) ? grounding.groundingChunks.length : 0;
           const safe = {
-            model: selected,
+            model: 'google/gemini-2.5-flash-lite',
             textReturned: typeof result.text === 'string' && result.text.trim().length > 0,
-            stepCount: steps.length,
-            parallelSearchCalls: toolCalls.filter((call) => call.toolName === 'parallel_search').length,
-            parallelSearchResults: toolResults.filter((row) => row.toolName === 'parallel_search').length,
             finishReason: result.finishReason || null,
+            sourceCount: sources.length,
+            groundingQueryCount: queries,
+            groundingChunkCount: chunks,
+            metadataKeys: Object.keys(metadata),
           };
-          console.log('GEMINI_GATEWAY_SEARCH_PROOF=' + JSON.stringify(safe));
-          if (!safe.textReturned || safe.parallelSearchCalls < 1 || safe.parallelSearchResults < 1) process.exit(4);
+          console.log('GEMINI_NATIVE_SEARCH_PROOF=' + JSON.stringify(safe));
+          if (!safe.textReturned || safe.finishReason === 'error' || (safe.sourceCount < 1 && safe.groundingQueryCount < 1 && safe.groundingChunkCount < 1)) process.exit(2);
           NODE
-          node ./.gemini-gateway-probe.mjs
-          rm -f .gemini-gateway-probe.mjs .gemini-selected-model
+          node ./.gemini-native-search-probe.mjs
+          rm -f .gemini-native-search-probe.mjs
