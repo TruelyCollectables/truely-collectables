@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: ops-collx-full-classify-launch-20260811
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   classify:
@@ -31,6 +31,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
+      - name: Publish launcher heartbeat
+        shell: bash
+        run: |
+          set -euo pipefail
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > .github/ops/collx-launcher-heartbeat.txt
+          git config user.name "Truely Collectables Ops"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/ops/collx-launcher-heartbeat.txt
+          git commit -m "Record CollX launcher heartbeat" || true
+          git push origin HEAD:ops/collx-full-inventory-migration-20260811
       - name: Reconstruct and verify authoritative CollX export
         shell: bash
         run: |
@@ -95,6 +105,8 @@ existing={str(x['sku'])[6:] for x in db(f"select sku from public.products where 
         shell: bash
         run: |
           set -euo pipefail
+          git fetch origin ops/collx-full-inventory-migration-20260811
+          git reset --hard origin/ops/collx-full-inventory-migration-20260811
           mkdir -p .github/ops
           python3 - <<'PY'
           import json,os,time
@@ -109,8 +121,6 @@ existing={str(x['sku'])[6:] for x in db(f"select sku from public.products where 
           if (w/'classification.json').exists():
               Path('.github/ops/collx-full-classification-result.json').write_bytes((w/'classification.json').read_bytes())
           PY
-          git config user.name "Truely Collectables Ops"
-          git config user.email "actions@users.noreply.github.com"
           git add .github/ops/collx-full-classifier-status.json .github/ops/collx-full-classification-result.json 2>/dev/null || git add .github/ops/collx-full-classifier-status.json
           git commit -m "Record full CollX migration classification" || true
           git push origin HEAD:ops/collx-full-inventory-migration-20260811
@@ -118,13 +128,3 @@ existing={str(x['sku'])[6:] for x in db(f"select sku from public.products where 
         if: always()
         shell: bash
         run: rm -f "$WORK/production.env"
-      - name: Upload classification
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: collx-full-migration-classification-launch
-          path: |
-            ${{ env.WORK }}/classification.json
-            ${{ env.WORK }}/receipt.json
-          retention-days: 7
-          if-no-files-found: warn
