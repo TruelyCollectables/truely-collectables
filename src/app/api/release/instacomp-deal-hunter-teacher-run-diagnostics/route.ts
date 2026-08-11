@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     const [{ data: runRows, error: runError }, { data: teacherRows, error: teacherError }] = await Promise.all([
       supabase
         .from("tcos_deal_hunter_runs")
-        .select("run_id,status,started_at,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count")
+        .select("run_id,status,created_at,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count")
         .eq("run_id", runId)
         .limit(1),
       supabase
