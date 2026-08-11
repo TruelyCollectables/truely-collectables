@@ -37,6 +37,10 @@ end=s.index('def fnum',start)
 rest='''env=envparse((W/'production.env').read_text())
 base=env['NEXT_PUBLIC_SUPABASE_URL'].rstrip('/')
 service=env['SUPABASE_SERVICE_ROLE_KEY']
+def rest_headers(start,end):
+ h={'apikey':service,'Accept':'application/json','Range-Unit':'items','Range':f'{start}-{end}','User-Agent':'Mozilla/5.0 (TruelyCollectables migration classifier)'}
+ if not service.startswith('sb_secret_'): h['Authorization']=f'Bearer {service}'
+ return h
 def rest_all(table,params,page_size=1000):
  out=[]; start=0; last=''
  while True:
@@ -44,7 +48,7 @@ def rest_all(table,params,page_size=1000):
   u=f"{base}/rest/v1/{table}?{q}"
   body=None
   for attempt in range(1,8):
-   req=urllib.request.Request(u,headers={'apikey':service,'Authorization':f'Bearer {service}','Accept':'application/json','Range-Unit':'items','Range':f'{start}-{start+page_size-1}','User-Agent':'Mozilla/5.0 (TruelyCollectables migration classifier)'})
+   req=urllib.request.Request(u,headers=rest_headers(start,start+page_size-1))
    try:
     with urllib.request.urlopen(req,timeout=90) as r: body=json.loads(r.read() or b'[]'); break
    except Exception as e:
