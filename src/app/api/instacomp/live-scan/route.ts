@@ -22,6 +22,7 @@ import {
 } from "../../../../lib/instacomp-live-pipeline";
 import {
   instaCompJobErrorResponse,
+  isValidInstaCompServiceRequest,
   requireInstaCompJobActor,
 } from "../../../../lib/instacomp-job-server";
 import {
@@ -232,6 +233,12 @@ function runtimeConfiguration() {
 }
 
 async function authorizeLiveScan(request: NextRequest) {
+  // This branch is reachable only with the dedicated internal service
+  // credential. It bypasses the PUBLIC endpoint rate limiter, not
+  // authentication, so a Supabase rate-limit outage cannot break the
+  // already-authenticated physical Mac -> website scan channel.
+  if (isValidInstaCompServiceRequest(request)) return null;
+
   const actor = await requireInstaCompJobActor(request);
   const rateLimit = await checkPublicEndpointRateLimit({
     request,
