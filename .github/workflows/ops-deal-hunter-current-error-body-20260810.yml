@@ -24,11 +24,11 @@ jobs:
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://truelycollectables.com/api/release/instacomp-deal-hunter-candidate-diagnostics" || true)"
           echo "DIAGNOSTICS_HTTP=$code"
-          node - <<'NODE'
-          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('diagnostics.json','utf8'))}catch{}
+          HTTP_CODE="$code" node - <<'NODE'
+          const fs=require('fs'); let p={}; let raw=''; try{raw=fs.readFileSync('diagnostics.json','utf8');p=JSON.parse(raw)}catch{}
           const candidates=Array.isArray(p.macCandidates)?p.macCandidates:[];
           const rows=candidates.slice(0,50).map(r=>({runId:r.run_id||r.runId||null,status:r.status||null,title:r.title||null,errorCode:r.error_code||r.errorCode||null,errorMessage:r.error_message||r.errorMessage||null,dealLabel:r.deal_label||r.dealLabel||null}));
           const uniqueErrors=[...new Set(rows.map(r=>r.errorMessage).filter(Boolean))];
-          console.log('SAFE_CURRENT_MAC_ERRORS='+JSON.stringify({success:Boolean(p.success),macCandidateError:p.macCandidateError||null,macErrorCounts:p.macErrorCounts||null,latestRun:p.latestRun||null,rows,uniqueErrors}));
-          if(code==='000') process.exit(1);
+          console.log('SAFE_CURRENT_MAC_ERRORS='+JSON.stringify({http:process.env.HTTP_CODE,success:Boolean(p.success),error:p.error?String(p.error).slice(0,1500):null,macCandidateError:p.macCandidateError||null,macErrorCounts:p.macErrorCounts||null,latestRun:p.latestRun||null,rows,uniqueErrors,rawFallback:p.error?null:raw.slice(0,1500)}));
+          if(process.env.HTTP_CODE==='000') process.exit(1);
           NODE
