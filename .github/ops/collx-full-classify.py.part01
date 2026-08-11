@@ -1,0 +1,22 @@
+ if cid not in assigned_c and pid not in assigned_p and x['dist']<=8 and vprod[pid][0]['collx_id']==cid:va.append(x)
+for x in sorted(va,key=lambda x:(x['dist'],-x['score'])):
+ cid=x['collx_id'];pid=x['product_id']
+ if cid not in assigned_c and pid not in assigned_p:assigned_c.add(cid);assigned_p.add(pid);matches.append({'collx_id':cid,'product_id':pid,'reason':'visual_same_physical_card','score':x['score'],'visual_distance':x['dist']})
+# One-to-one exact metadata fallback when the listing photo changed.
+props=[]
+for cid,a0 in cc.items():
+ if cid in assigned_c:continue
+ a=[x for x in a0 if x['product_id'] not in assigned_p]
+ if not a:continue
+ x=a[0];second=a[1]['score'] if len(a)>1 else -999
+ if x['score']<110 or x['score']-second<15 or sum(bool(x[k]) for k in ('year','number','serial','price'))<3:continue
+ pa=[y for y in cp[x['product_id']] if y['collx_id'] not in assigned_c]
+ if not pa or pa[0]['collx_id']!=cid:continue
+ p2=pa[1]['score'] if len(pa)>1 else -999
+ if x['score']-p2>=15:props.append(x)
+for x in sorted(props,key=lambda z:-z['score']):
+ cid=x['collx_id'];pid=x['product_id']
+ if cid not in assigned_c and pid not in assigned_p:assigned_c.add(cid);assigned_p.add(pid);matches.append({'collx_id':cid,'product_id':pid,'reason':'reciprocal_exact_identity','score':x['score'],'visual_distance':None})
+imports=[c['collx_id'] for c in rows if c['collx_id'] not in assigned_c and c['collx_id'] not in existing];uneb=[int(p['id']) for p in ebay if int(p['id']) not in assigned_p]
+s={'schema':'tcos.collx.full-migration-classification.v1','sourceRows':len(rows),'ebayProducts':len(ebay),'existingCollxImports':len(existing),'duplicateCollxRows':len(assigned_c),'importCandidateRows':len(imports),'matchedEbayProducts':len(assigned_p),'unmatchedEbayProducts':len(uneb),'directImageMatches':sum(x['reason']=='direct_image_hash' for x in matches),'visualMatches':sum(x['reason']=='visual_same_physical_card' for x in matches),'metadataFallbackMatches':sum(x['reason']=='reciprocal_exact_identity' for x in matches),'visualPairs':len(vpairs),'fingerprintedUrls':len(cache),'imageErrors':len(errs),'databaseWrites':False,'generatedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+(W/'classification.json').write_text(json.dumps({'summary':s,'matches':matches,'import_collx_ids':imports,'unmatched_ebay_product_ids':uneb,'image_errors':errs},indent=2));(W/'receipt.json').write_text(json.dumps(s,indent=2));print(json.dumps(s,indent=2));assert len(assigned_c)<=len(ebay);assert len(imports)+len(assigned_c)+len(existing)==len(rows)
