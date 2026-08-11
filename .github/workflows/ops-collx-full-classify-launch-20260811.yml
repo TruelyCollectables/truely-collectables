@@ -1,4 +1,4 @@
-name: Ops CollX Migration Progress Probe 20260811
+name: Ops CollX Migration Endpoint Cleanup 20260811
 
 on:
   push:
@@ -7,55 +7,43 @@ on:
       - ".github/workflows/ops-collx-full-classify-launch-20260811.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: ops-collx-migration-progress-probe-20260811
+  group: ops-collx-migration-endpoint-cleanup-20260811
   cancel-in-progress: true
 
 jobs:
-  probe:
+  deploy-clean-main:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
-      ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-v2-20260811
-      OUT: .github/ops/collx-import-progress.json
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 1
-      - name: Read live migration counts
+      - name: Deploy current clean main to Production
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .github/ops
-          ok=0
-          for n in $(seq 1 6); do
-            code="$(curl -sS -o /tmp/progress.json -w '%{http_code}' --max-time 60 "$ROUTE_URL" || true)"
-            if [ "$code" = '200' ] && python3 -m json.tool /tmp/progress.json >/dev/null 2>&1; then ok=1; break; fi
-            sleep 5
+          MAIN_SHA="$(git rev-parse HEAD)"
+          [[ "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --build-env TCOS_RELEASE_COMMIT="$MAIN_SHA"
+      - name: Prove migration endpoints are gone
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://truelycollectables.com/api/ops'
+          for route in \
+            collx-full-migration-20260811 \
+            collx-full-migration-v2-20260811 \
+            collx-image-backfill-20260811 \
+            collx-image-backfill-v2-20260811; do
+            code="$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 30 "$base/$route" || true)"
+            echo "$route HTTP=$code"
+            test "$code" = '404'
           done
-          if [ "$ok" = '1' ]; then
-            python3 - <<'PY'
-          import json,time
-          d=json.load(open('/tmp/progress.json'))
-          d['probeRecordedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
-          open('.github/ops/collx-import-progress.json','w').write(json.dumps(d,indent=2)+'\n')
-          PY
-          else
-            python3 - <<'PY'
-          import json,time
-          open('.github/ops/collx-import-progress.json','w').write(json.dumps({'success':False,'probeError':'live route did not return HTTP 200','probeRecordedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())},indent=2)+'\n')
-          PY
-          fi
-          cat "$OUT"
-      - name: Persist read-only progress receipt
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'Truely Collectables Ops'
-          git config user.email 'actions@users.noreply.github.com'
-          git add "$OUT"
-          git commit -m 'Record CollX migration progress' || true
-          git push origin HEAD:main
