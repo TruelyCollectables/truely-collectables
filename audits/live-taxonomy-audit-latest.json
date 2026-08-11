@@ -1,21 +1,21 @@
 {
   "auditVersion": 3,
-  "generatedAt": "2026-07-30T21:35:44.868Z",
-  "activeProducts": 852,
-  "inventoryItems": 1370,
+  "generatedAt": "2026-08-11T21:25:34.448Z",
+  "activeProducts": 872,
+  "inventoryItems": 7836,
   "currentCounts": {
-    "autograph": 210,
+    "autograph": 233,
     "memorabilia": 93,
     "rookie": 124,
-    "graded": 54,
-    "numbered": 426
+    "graded": 53,
+    "numbered": 445
   },
   "strictCounts": {
-    "autograph": 210,
-    "memorabilia": 93,
+    "autograph": 233,
+    "memorabilia": 94,
     "rookie": 124,
-    "graded": 54,
-    "numbered": 426
+    "graded": 53,
+    "numbered": 445
   },
   "falsePositiveCounts": {
     "autograph": 0,
@@ -26,25 +26,26 @@
   },
   "falseNegativeCounts": {
     "autograph": 0,
-    "memorabilia": 0,
+    "memorabilia": 1,
     "rookie": 0,
     "graded": 0,
     "numbered": 0
   },
   "sectionCounts": {
-    "Hockey": 375,
+    "Hockey": 374,
     "Baseball": 165,
     "Trading Card Games": 96,
-    "Football": 70,
-    "NBA": 56,
-    "WNBA": 53,
-    "Golf": 14,
+    "NBA": 78,
+    "Football": 69,
+    "WNBA": 52,
+    "Golf": 13,
     "Wrestling": 4,
     "Pucks": 4,
     "Poker": 2,
     "MMA / UFC": 2,
     "Racing / NASCAR": 2,
     "Watches & Accessories": 2,
+    "Needs Review": 2,
     "Skateboarding": 1,
     "Soccer": 1,
     "Signs & Display": 1,
@@ -53,9 +54,38 @@
     "Music": 1,
     "Pins & Souvenirs": 1
   },
-  "needsReviewCount": 0,
+  "needsReviewCount": 2,
   "sectionSuspectCount": 1,
-  "needsReview": [],
+  "needsReview": [
+    {
+      "id": 502329,
+      "ebayItemId": "318657213741",
+      "title": "2023-24 Artifacts MacKinnon Makar Tundra Teammates Duos Premium /15",
+      "section": "Needs Review",
+      "primaryCategory": "other_collectable",
+      "autographedAspect": null,
+      "signedBy": null,
+      "autographAuthentication": null,
+      "gradedAspect": null,
+      "professionalGrader": null,
+      "featuresAspect": null,
+      "parallelAspect": null
+    },
+    {
+      "id": 502332,
+      "ebayItemId": "318657213739",
+      "title": "2025-26 Ultimate Stuart Skinner Ultimate Materials Signatures Auto /35",
+      "section": "Needs Review",
+      "primaryCategory": "other_collectable",
+      "autographedAspect": null,
+      "signedBy": null,
+      "autographAuthentication": null,
+      "gradedAspect": null,
+      "professionalGrader": null,
+      "featuresAspect": null,
+      "parallelAspect": null
+    }
+  ],
   "sectionSuspects": [
     {
       "id": 1691,
@@ -82,7 +112,22 @@
   },
   "falseNegatives": {
     "autograph": [],
-    "memorabilia": [],
+    "memorabilia": [
+      {
+        "id": 502332,
+        "ebayItemId": "318657213739",
+        "title": "2025-26 Ultimate Stuart Skinner Ultimate Materials Signatures Auto /35",
+        "section": "Needs Review",
+        "primaryCategory": "other_collectable",
+        "autographedAspect": null,
+        "signedBy": null,
+        "autographAuthentication": null,
+        "gradedAspect": null,
+        "professionalGrader": null,
+        "featuresAspect": null,
+        "parallelAspect": null
+      }
+    ],
     "rookie": [],
     "graded": [],
     "numbered": []
