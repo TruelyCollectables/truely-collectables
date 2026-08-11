@@ -11,6 +11,12 @@ const DEFAULT_BATCH = 300;
 const CONFIRM_HEADER = "collx-publish-imaged-stock-20260811";
 
 type Row = Record<string, any>;
+type ImageRow = {
+  inventory_item_id: string;
+  image_url: string;
+  is_primary?: boolean | null;
+  sort_order?: number | null;
+};
 
 function numberValue(value: unknown) {
   const parsed = Number(value ?? 0);
@@ -22,44 +28,39 @@ function cleanUrl(value: unknown) {
   return text || null;
 }
 
-function isCollxHosted(url: string | null) {
+function isExternalCollxImage(url: string | null) {
   if (!url) return false;
-  return /(^|[./-])collx([./-]|$)|collx\.app|collxcard/i.test(url);
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    return (
+      host.includes("collx") ||
+      (host === "storage.googleapis.com" && path.startsWith("/collx-product-images/"))
+    );
+  } catch {
+    return false;
+  }
 }
 
-function photoUrls(value: unknown): string[] {
-  const raw = (() => {
-    if (Array.isArray(value)) return value;
-    if (typeof value !== "string" || !value.trim()) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [value];
-    } catch {
-      return [value];
-    }
-  })();
-
-  return raw
-    .map((entry) => {
-      if (typeof entry === "string") return cleanUrl(entry);
-      if (entry && typeof entry === "object") {
-        return cleanUrl(
-          (entry as Record<string, unknown>).url ??
-            (entry as Record<string, unknown>).image_url ??
-            (entry as Record<string, unknown>).src,
-        );
-      }
-      return null;
-    })
-    .filter((entry): entry is string => Boolean(entry));
-}
-
-function ownedImages(product: Row | null) {
-  if (!product) return [] as string[];
-  const candidates = [cleanUrl(product.image_url), ...photoUrls(product.photos)].filter(
-    (entry): entry is string => Boolean(entry),
+function visibleDescription(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return (
+    text
+      .replace(/\n*Migrated as DRAFT \/ NOT FOR SALE pending owner review\.?/gi, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim() || null
   );
-  return Array.from(new Set(candidates)).filter((url) => !isCollxHosted(url));
+}
+
+function activatedNotes(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return "Activated for sale 2026-08-11";
+  const cleaned = text.replace(/\s*\|\s*DRAFT \/ NOT FOR SALE/gi, "").trim();
+  return cleaned.includes("Activated for sale 2026-08-11")
+    ? cleaned
+    : `${cleaned} | Activated for sale 2026-08-11`;
 }
 
 function mergeActivationMetadata(
@@ -103,7 +104,41 @@ async function readAllBySkuPrefix(
   throw new Error(`${table} CollX pagination exceeded ${MAX_PAGES * PAGE_SIZE} rows`);
 }
 
-function classify(items: Row[], products: Row[]) {
+async function readImagesByItemId(itemIds: string[]) {
+  const supabase = createSupabaseServerClient({ admin: true });
+  const byItem = new Map<string, ImageRow[]>();
+  for (let offset = 0; offset < itemIds.length; offset += 500) {
+    const chunk = itemIds.slice(offset, offset + 500);
+    if (chunk.length === 0) continue;
+    const { data, error } = await supabase
+      .from("inventory_images")
+      .select("inventory_item_id,image_url,is_primary,sort_order")
+      .in("inventory_item_id", chunk);
+    if (error) throw error;
+    for (const image of (data || []) as ImageRow[]) {
+      const id = String(image.inventory_item_id);
+      byItem.set(id, [...(byItem.get(id) || []), image]);
+    }
+  }
+  for (const images of byItem.values()) {
+    images.sort((a, b) => {
+      const primary = Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary));
+      if (primary !== 0) return primary;
+      return numberValue(a.sort_order) - numberValue(b.sort_order);
+    });
+  }
+  return byItem;
+}
+
+function ownedImages(product: Row | null, imageRows: ImageRow[]) {
+  const candidates = [
+    cleanUrl(product?.image_url),
+    ...imageRows.map((image) => cleanUrl(image.image_url)),
+  ].filter((entry): entry is string => Boolean(entry));
+  return Array.from(new Set(candidates)).filter((url) => !isExternalCollxImage(url));
+}
+
+function classify(items: Row[], products: Row[], imagesByItem: Map<string, ImageRow[]>) {
   const productById = new Map(products.map((row) => [Number(row.id), row]));
   const productBySku = new Map(
     products
@@ -130,7 +165,7 @@ function classify(items: Row[], products: Row[]) {
       (legacyId > 0 ? productById.get(legacyId) : undefined) ??
       (sku ? productBySku.get(sku) : undefined) ??
       null;
-    const images = ownedImages(product);
+    const images = ownedImages(product, imagesByItem.get(String(item.id)) || []);
     const price = numberValue(item.price);
     const reason = !product
       ? "missing_product"
@@ -153,24 +188,16 @@ function isActivationAligned(row: ReturnType<typeof classify>[number]) {
   const primary = row.images[0] || null;
   return (
     row.item.status === "active" &&
-    row.item.is_for_sale === true &&
     numberValue(row.product.price) === row.price &&
     Math.trunc(numberValue(row.product.quantity)) === row.quantity &&
-    Math.trunc(numberValue(row.product.stock)) === row.quantity &&
     cleanUrl(row.product.image_url) === primary &&
-    row.product.archived_at == null &&
-    row.product.is_sold !== true
+    row.product.archived_at == null
   );
 }
 
 function isQuarantineAligned(row: ReturnType<typeof classify>[number]) {
   if (!row.product || (row.reason !== "no_image" && row.reason !== "no_price")) return true;
-  return (
-    row.item.status === "draft" &&
-    row.item.is_for_sale === false &&
-    numberValue(row.product.price) === 0 &&
-    Math.trunc(numberValue(row.product.stock)) === 0
-  );
+  return row.item.status === "draft" && numberValue(row.product.price) === 0;
 }
 
 function summarize(rows: ReturnType<typeof classify>) {
@@ -186,15 +213,12 @@ function summarize(rows: ReturnType<typeof classify>) {
   );
   const liveCollxImageRefs = rows.reduce((count, row) => {
     if (!row.product) return count;
-    const urls = [cleanUrl(row.product.image_url), ...photoUrls(row.product.photos)].filter(
-      (entry): entry is string => Boolean(entry),
-    );
-    return count + urls.filter(isCollxHosted).length;
+    return count + (isExternalCollxImage(cleanUrl(row.product.image_url)) ? 1 : 0);
   }, 0);
 
   return {
     collxSkuRowsWithStock: rows.length,
-    eligibleWithImageAndPrice: eligible.length,
+    eligibleWithAtLeastOneOwnedImageAndPrice: eligible.length,
     activeAndAligned: active.length,
     remainingEligible: remainingEligible.length,
     setAsideNoImage: noImage.length,
@@ -212,7 +236,8 @@ async function snapshot() {
     readAllBySkuPrefix("inventory_items", storeId),
     readAllBySkuPrefix("products", storeId),
   ]);
-  const rows = classify(items, products);
+  const imagesByItem = await readImagesByItemId(items.map((item) => String(item.id)));
+  const rows = classify(items, products, imagesByItem);
   return { storeId, rows, summary: summarize(rows) };
 }
 
@@ -264,8 +289,8 @@ export async function POST(request: Request) {
         inventoryUpdates.push({
           ...row.item,
           status: "active",
-          is_for_sale: true,
-          listed_date: row.item.listed_date || now,
+          description: visibleDescription(row.item.description),
+          notes: activatedNotes(row.item.notes),
           metadata: mergeActivationMetadata(row.item.metadata, "active", now),
           updated_at: now,
         });
@@ -274,17 +299,13 @@ export async function POST(request: Request) {
           image_url: primary,
           price: row.price,
           quantity: row.quantity,
-          stock: row.quantity,
-          is_sold: false,
+          description: visibleDescription(row.product.description),
           archived_at: null,
-          updated_at: now,
         });
       } else if (row.reason === "no_image" || row.reason === "no_price") {
         inventoryUpdates.push({
           ...row.item,
           status: "draft",
-          is_for_sale: false,
-          listed_date: null,
           metadata: mergeActivationMetadata(
             row.item.metadata,
             row.reason === "no_image" ? "quarantined_no_image" : "quarantined_no_price",
@@ -295,10 +316,8 @@ export async function POST(request: Request) {
         productUpdates.push({
           ...row.product,
           price: 0,
-          stock: 0,
-          is_sold: false,
-          archived_at: null,
-          updated_at: now,
+          quantity: row.quantity,
+          ...(row.reason === "no_image" ? { image_url: null } : {}),
         });
       }
     }
