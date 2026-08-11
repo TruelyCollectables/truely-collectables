@@ -66,7 +66,7 @@ jobs:
           REF="$(cat "$WORK/supabase-ref.txt")"
           curl --silent --show-error --fail-with-body --max-time 30 \
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            "https://api.supabase.com/v1/projects/$REF/health?services=db&services=rest&services=storage&timeout_ms=20000" \
+            "https://api.supabase.com/v1/projects/$REF/health?services=db&services=rest&services=storage" \
             -o "$WORK/results/supabase-health-before.json"
           cat "$WORK/results/supabase-health-before.json"
 
@@ -93,7 +93,7 @@ jobs:
             sleep 5
             hcode="$(curl -sS -o "$WORK/results/supabase-health-poll.json" -w '%{http_code}' --max-time 30 \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-              "https://api.supabase.com/v1/projects/$REF/health?services=db&services=rest&services=storage&timeout_ms=20000" || true)"
+              "https://api.supabase.com/v1/projects/$REF/health?services=db&services=rest&services=storage" || true)"
             if [ "$hcode" = '200' ]; then
               if python3 - <<'PY'
           import json,os,sys
