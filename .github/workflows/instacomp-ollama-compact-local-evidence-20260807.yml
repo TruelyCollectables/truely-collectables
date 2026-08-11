@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  collx-full-controlled-migration:
+  collx-photo-repair-and-final-proof:
     if: github.head_ref == 'ops/collx-full-inventory-migration-20260811'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -24,20 +24,104 @@ jobs:
       SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
       SOURCE_ROWS: '6909'
       IMPORT_ROWS: '6155'
-      WORK: /tmp/collx-full-controlled
+      WORK: /tmp/collx-photo-repair-final
       ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-v2-20260811
-      IMAGE_ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-image-backfill-20260811
+      IMAGE_ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-image-backfill-v2-20260811
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ops/collx-full-inventory-migration-20260811
           fetch-depth: 1
 
-      - name: Reconstruct checksum-locked 6909-row metadata source
+      - name: Deploy exact current main with override-aware repair route
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$WORK/results"
+          git fetch origin main --depth=1
+          MAIN_SHA="$(git rev-parse FETCH_HEAD)"
+          [[ "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          rm -rf "$WORK/main"
+          git worktree add --detach "$WORK/main" "$MAIN_SHA"
+          test -s "$WORK/main/src/app/api/ops/collx-image-backfill-v2-20260811/route.ts"
+          test -s "$WORK/main/src/lib/collx-image-object-overrides-20260811.ts"
+          cd "$WORK/main"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --build-env TCOS_RELEASE_COMMIT="$MAIN_SHA"
+
+      - name: Repair only missing CollX photo sides
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import concurrent.futures,json,os,time,urllib.request,urllib.error
+          work=os.environ['WORK']; route=os.environ['IMAGE_ROUTE_URL']; total=int(os.environ['IMPORT_ROWS']); batch=50
+          offsets=list(range(0,total,batch))
+          def one(offset):
+              expected=min(batch,total-offset); last=''
+              for attempt in range(1,6):
+                  req=urllib.request.Request(
+                      f'{route}?offset={offset}&limit={expected}',data=b'',method='POST',
+                      headers={'User-Agent':'TruelyCollectables-CollX-remapped-photo-repair/20260811'})
+                  try:
+                      with urllib.request.urlopen(req,timeout=240) as r:
+                          payload=json.loads(r.read() or b'{}')
+                      good=(payload.get('success') is True and int(payload.get('requested',-1))==expected and int(payload.get('completed',-1))==expected and len(payload.get('errors',[]))==0)
+                      if good:
+                          open(os.path.join(work,'results',f'repair-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2))
+                          return payload
+                      last=f'bad receipt {payload}'
+                  except urllib.error.HTTPError as e:
+                      last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:2000]
+                  except Exception as e:
+                      last=repr(e)
+                  if attempt<5: time.sleep(attempt*4)
+              raise RuntimeError(f'photo repair batch offset={offset} failed: {last}')
+          receipts=[]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+              future_to_offset={ex.submit(one,o):o for o in offsets}
+              for fut in concurrent.futures.as_completed(future_to_offset):
+                  r=fut.result(); receipts.append(r)
+                  progress={
+                    'completed':sum(int(x['completed']) for x in receipts),'target':total,
+                    'frontAlready':sum(int(x['frontsAlreadyPresent']) for x in receipts),
+                    'backAlready':sum(int(x['backsAlreadyPresent']) for x in receipts),
+                    'frontCopied':sum(int(x['frontsCopied']) for x in receipts),
+                    'backCopied':sum(int(x['backsCopied']) for x in receipts),
+                    'noFront':sum(len(x.get('noFront',[])) for x in receipts),
+                    'noBack':sum(len(x.get('noBack',[])) for x in receipts),
+                    'batches':len(receipts)}
+                  open(os.path.join(work,'results','repair-progress.json'),'w').write(json.dumps(progress,indent=2))
+                  print(json.dumps(progress),flush=True)
+          summary={
+            'target':total,'completed':sum(int(x['completed']) for x in receipts),
+            'frontsAlreadyPresent':sum(int(x['frontsAlreadyPresent']) for x in receipts),
+            'backsAlreadyPresent':sum(int(x['backsAlreadyPresent']) for x in receipts),
+            'frontsCopied':sum(int(x['frontsCopied']) for x in receipts),
+            'backsCopied':sum(int(x['backsCopied']) for x in receipts),
+            'noFront':sum(len(x.get('noFront',[])) for x in receipts),
+            'noBack':sum(len(x.get('noBack',[])) for x in receipts),
+            'errors':sum(len(x.get('errors',[])) for x in receipts),
+            'batches':len(receipts)}
+          summary['frontsPresent']=summary['frontsAlreadyPresent']+summary['frontsCopied']
+          summary['backsPresent']=summary['backsAlreadyPresent']+summary['backsCopied']
+          assert summary['completed']==total,summary
+          assert summary['errors']==0,summary
+          assert summary['frontsPresent']+summary['noFront']==total,summary
+          assert summary['backsPresent']+summary['noBack']==total,summary
+          assert summary['noFront']<=17,summary
+          assert summary['noBack']<=1231,summary
+          assert summary['frontsPresent']>=total-17,summary
+          assert summary['backsPresent']>=total-1231,summary
+          open(os.path.join(work,'results','repair-summary.json'),'w').write(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Reconstruct checksum-locked metadata source for final route proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           cat \
             .github/ops/collx-full-metadata.part{00..09} \
             .github/ops/collx-full-metadata.part10m0 \
@@ -51,125 +135,11 @@ jobs:
           test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$SOURCE_SHA"
           test "$(($(wc -l < "$WORK/source.csv")-1))" = "$SOURCE_ROWS"
 
-      - name: Import all 6155 CollX-only rows in proven 50-card batches
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json,os,time,urllib.request,urllib.error
-          work=os.environ['WORK']; route=os.environ['ROUTE_URL']; total=int(os.environ['IMPORT_ROWS'])
-          body=open(os.path.join(work,'source.csv'),'rb').read(); batch=50
-          receipts=[]
-          for offset in range(0,total,batch):
-              expected=min(batch,total-offset); last=''
-              for attempt in range(1,6):
-                  req=urllib.request.Request(
-                      f'{route}?mode=import&offset={offset}&limit={expected}',
-                      data=body,method='POST',
-                      headers={'Content-Type':'text/csv','User-Agent':'TruelyCollectables-CollX-controlled-import/20260811'})
-                  try:
-                      with urllib.request.urlopen(req,timeout=180) as r:
-                          payload=json.loads(r.read() or b'{}')
-                      if payload.get('success') is True and int(payload.get('requested',-1))==expected and int(payload.get('completed',-1))==expected:
-                          break
-                      last=f'bad receipt {payload}'
-                  except urllib.error.HTTPError as e:
-                      last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:2000]
-                  except Exception as e:
-                      last=repr(e)
-                  if attempt==5: raise RuntimeError(f'import batch offset={offset} failed: {last}')
-                  time.sleep(attempt*3)
-              receipts.append(payload)
-              open(os.path.join(work,'results',f'import-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2))
-              progress={'completed':sum(int(x['completed']) for x in receipts),'target':total,'lastOffset':offset,'batches':len(receipts)}
-              open(os.path.join(work,'results','import-progress.json'),'w').write(json.dumps(progress,indent=2))
-              print(json.dumps(progress),flush=True)
-          summary={'target':total,'completed':sum(int(x['completed']) for x in receipts),'batches':len(receipts)}
-          assert summary['completed']==total,summary
-          open(os.path.join(work,'results','import-summary.json'),'w').write(json.dumps(summary,indent=2))
-          print(json.dumps(summary,indent=2))
-          PY
-
-      - name: Verify metadata migration before touching photos
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --silent --show-error --fail-with-body --max-time 180 \
-            -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
-            "$ROUTE_URL?mode=verify" | tee "$WORK/results/pre-image-verification.json"
-          python3 - <<'PY'
-          import json,os
-          d=json.load(open(os.path.join(os.environ['WORK'],'results','pre-image-verification.json')))
-          assert d.get('success') is True,d
-          assert int(d.get('classifiedImportRows',-1))==6155,d
-          assert int(d.get('currentCollxProducts',-1))==6155,d
-          assert int(d.get('currentCollxInventoryItems',-1))==6155,d
-          assert int(d.get('missingProducts',-1))==0,d
-          assert int(d.get('missingItems',-1))==0,d
-          assert int(d.get('activeItems',-1))==0,d
-          assert d.get('allImportsNotForSale') is True,d
-          PY
-
-      - name: Backfill owned front and back photos per CollX card
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import concurrent.futures,json,os,time,urllib.request,urllib.error
-          work=os.environ['WORK']; route=os.environ['IMAGE_ROUTE_URL']; total=int(os.environ['IMPORT_ROWS']); batch=50
-          offsets=list(range(0,total,batch))
-          def one(offset):
-              expected=min(batch,total-offset); last=''
-              for attempt in range(1,6):
-                  req=urllib.request.Request(f'{route}?offset={offset}&limit={expected}',data=b'',method='POST',headers={'User-Agent':'TruelyCollectables-CollX-photo-backfill/20260811'})
-                  try:
-                      with urllib.request.urlopen(req,timeout=240) as r: payload=json.loads(r.read() or b'{}')
-                      good=(payload.get('success') is True and int(payload.get('requested',-1))==expected and int(payload.get('completed',-1))==expected and len(payload.get('errors',[]))==0)
-                      if good:
-                          open(os.path.join(work,'results',f'images-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2))
-                          return payload
-                      last=f'bad receipt {payload}'
-                  except urllib.error.HTTPError as e: last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:2000]
-                  except Exception as e: last=repr(e)
-                  if attempt<5: time.sleep(attempt*4)
-              raise RuntimeError(f'image batch offset={offset} failed: {last}')
-          receipts=[]
-          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-              future_to_offset={ex.submit(one,o):o for o in offsets}
-              for fut in concurrent.futures.as_completed(future_to_offset):
-                  r=fut.result(); receipts.append(r)
-                  progress={
-                    'completed':sum(int(x['completed']) for x in receipts),'target':total,
-                    'fronts':sum(int(x['frontsCopied']) for x in receipts),
-                    'backs':sum(int(x['backsCopied']) for x in receipts),
-                    'noFront':sum(len(x.get('noFront',[])) for x in receipts),
-                    'noBack':sum(len(x.get('noBack',[])) for x in receipts),
-                    'batches':len(receipts)}
-                  open(os.path.join(work,'results','image-progress.json'),'w').write(json.dumps(progress,indent=2))
-                  print(json.dumps(progress),flush=True)
-          summary={
-            'target':total,'completed':sum(int(x['completed']) for x in receipts),
-            'frontsCopied':sum(int(x['frontsCopied']) for x in receipts),
-            'backsCopied':sum(int(x['backsCopied']) for x in receipts),
-            'noFront':sum(len(x.get('noFront',[])) for x in receipts),
-            'noBack':sum(len(x.get('noBack',[])) for x in receipts),
-            'errors':sum(len(x.get('errors',[])) for x in receipts),
-            'batches':len(receipts)}
-          assert summary['completed']==total,summary
-          assert summary['errors']==0,summary
-          assert summary['noFront']<=17,summary
-          assert summary['noBack']<=1231,summary
-          assert summary['frontsCopied']>=total-17,summary
-          assert summary['backsCopied']>=total-1231,summary
-          open(os.path.join(work,'results','image-summary.json'),'w').write(json.dumps(summary,indent=2))
-          print(json.dumps(summary,indent=2))
-          PY
-
       - name: Final route verification
         shell: bash
         run: |
           set -euo pipefail
-          curl --silent --show-error --fail-with-body --max-time 180 \
+          curl --silent --show-error --fail-with-body --retry 4 --retry-delay 5 --retry-all-errors --max-time 180 \
             -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" \
             "$ROUTE_URL?mode=verify" | tee "$WORK/results/final-route-verification.json"
           python3 - <<'PY'
@@ -185,12 +155,14 @@ jobs:
           assert int(d.get('missingItems',-1))==0,d
           assert int(d.get('activeItems',-1))==0,d
           assert int(d.get('collxHostedProductImages',-1))==0,d
+          print(json.dumps(d,indent=2))
           PY
 
       - name: Final direct Production database proof
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           mkdir -p .vercel
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx --yes vercel@56.2.0 env pull "$WORK/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
@@ -209,10 +181,11 @@ jobs:
             'active_items',(select count(*) from public.inventory_items where sku like 'COLLX-%' and status='active'),
             'ebay_products',(select count(*) from public.products where sku like 'COLLX-%' and ebay_item_id is not null),
             'unreferenced_shells',(select count(*) from public.products p where p.sku like 'COLLX-%' and not exists(select 1 from public.inventory_items i where i.legacy_product_id=p.id)),
-            'owned_product_fronts',(select count(*) from public.products where sku like 'COLLX-%' and image_url like '%/storage/v1/object/public/truely-product-images/%'),
+            'owned_product_fronts',(select count(*) from public.products where sku like 'COLLX-%' and image_url like '%/storage/v1/object/public/truely-product-images/collx-full/20260811/%/front.%'),
             'collx_hosted_product_images',(select count(*) from public.products where sku like 'COLLX-%' and image_url like '%collx-product-images%'),
-            'items_with_owned_images',(select count(distinct i.id) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.sku like 'COLLX-%' and z.image_url like '%/storage/v1/object/public/truely-product-images/%'),
-            'owned_inventory_images',(select count(*) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.sku like 'COLLX-%' and z.image_url like '%/storage/v1/object/public/truely-product-images/%')
+            'items_with_owned_images',(select count(distinct i.id) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.sku like 'COLLX-%' and z.image_url like '%/storage/v1/object/public/truely-product-images/collx-full/20260811/%'),
+            'owned_front_inventory_images',(select count(*) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.sku like 'COLLX-%' and z.image_url like '%/storage/v1/object/public/truely-product-images/collx-full/20260811/%/front.%'),
+            'owned_back_inventory_images',(select count(*) from public.inventory_items i join public.inventory_images z on z.inventory_item_id=i.id where i.sku like 'COLLX-%' and z.image_url like '%/storage/v1/object/public/truely-product-images/collx-full/20260811/%/back.%')
           ) as final_receipt;
           """
           open(os.path.join(os.environ['WORK'],'final-query.json'),'w').write(json.dumps({'query':q,'parameters':[],'read_only':True}))
@@ -239,13 +212,16 @@ jobs:
           assert int(d['owned_product_fronts'])>=6138,d
           assert int(d['collx_hosted_product_images'])==0,d
           assert int(d['items_with_owned_images'])>=6138,d
+          assert int(d['owned_front_inventory_images'])>=6138,d
+          assert int(d['owned_back_inventory_images'])>=4924,d
+          print(json.dumps(d,indent=2))
           PY
 
-      - name: Upload complete migration proof
+      - name: Upload final migration proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-full-controlled-migration-proof
-          path: /tmp/collx-full-controlled/results
+          name: collx-photo-repair-final-proof
+          path: /tmp/collx-photo-repair-final/results
           retention-days: 30
           if-no-files-found: warn
