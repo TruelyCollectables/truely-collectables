@@ -52,6 +52,41 @@ jobs:
           if(!safe.success||safe.geminiConfigured||!safe.groqConfigured||!safe.gatewayPerplexityConfigured||safe.votingTeacherCount!==2||safe.requiredVotes!==2||!safe.teacherConsensusOperational||!safe.macLearningBridgeConfigured||!safe.onlineCompLearnMode) process.exit(1);
           NODE
 
+      - name: Read Mac-only candidate failure bodies
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="$(cat deployment-url.txt)"
+          code="$(curl -sS -o mac-candidates.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$BASE_URL/api/release/instacomp-deal-hunter-mac-candidate-diagnostics" || true)"
+          echo "MAC_ONLY_CANDIDATES_HTTP=$code"
+          HTTP_CODE="$code" node - <<'NODE'
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('mac-candidates.json','utf8'))}catch{}
+          const rows=Array.isArray(p.candidates)?p.candidates:[];
+          const errors=[...new Set(rows.map(r=>r.errorMessage).filter(Boolean))];
+          const runIds=[...new Set(rows.map(r=>r.runId).filter(Boolean))];
+          console.log('MAC_ONLY_CANDIDATE_RECEIPT='+JSON.stringify({success:Boolean(p.success),error:p.error?String(p.error).slice(0,1200):null,errorCounts:p.errorCounts||null,candidateCount:rows.length,runIds:runIds.slice(0,10),uniqueErrors:errors.slice(0,20)}));
+          if(process.env.HTTP_CODE!=='200'||!p.success) process.exit(1);
+          NODE
+
+      - name: Prove exact run-complete publish contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="$(cat deployment-url.txt)"
+          code="$(curl -sS -o summary-probe.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$BASE_URL/api/release/instacomp-deal-hunter-run-summary-probe" || true)"
+          echo "RUN_SUMMARY_PROBE_HTTP=$code"
+          HTTP_CODE="$code" node - <<'NODE'
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('summary-probe.json','utf8'))}catch{}
+          const inner=p.evaluatePayload||{};
+          const safe={success:Boolean(p.success),evaluateStatus:Number(p.evaluateStatus||0),evaluateOk:inner.ok===true,evaluateKind:inner.kind||null,evaluateError:inner.error?String(inner.error).slice(0,1200):null,cleanupSucceeded:Boolean(p.cleanupSucceeded),cleanupError:p.cleanupError?String(p.cleanupError).slice(0,1200):null};
+          console.log('EXACT_RUN_SUMMARY_PROBE='+JSON.stringify(safe));
+          if(process.env.HTTP_CODE!=='200'||!safe.success||safe.evaluateStatus<200||safe.evaluateStatus>=300||!safe.evaluateOk||safe.evaluateKind!=='run_complete'||!safe.cleanupSucceeded) process.exit(1);
+          NODE
+
       - name: Wait for physical Mac Deal Hunter idle
         shell: bash
         run: |
@@ -98,7 +133,7 @@ jobs:
           node - <<'NODE'
           const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('targeted.json','utf8'))}catch{}
           const r=p.run||{};
-          const safe={success:Boolean(p.success),lane:p.lane||null,runId:r.runId||null,status:r.status||null,discoveryCount:Number(r.discoveryCount||0),evaluatedCount:Number(r.evaluatedCount||0),actionableCount:Number(r.actionableCount||0),manualReviewCount:Number(r.manualReviewCount||0),failureCount:Number(r.failureCount||0),error:p.error?String(p.error).slice(0,500):null};
+          const safe={success:Boolean(p.success),lane:p.lane||null,runId:r.runId||null,status:r.status||null,discoveryCount:Number(r.discoveryCount||0),evaluatedCount:Number(r.evaluatedCount||0),actionableCount:Number(r.actionableCount||0),manualReviewCount:Number(r.manualReviewCount||0),failureCount:Number(r.failureCount||0),error:p.error?String(p.error).slice(0,1200):null};
           console.log('FRESH_TARGETED_IVAN_RECEIPT='+JSON.stringify(safe));
           if(!p.success||p.lane!=='ivan_demidov'||!r.runId||r.status!=='completed'||Number(r.discoveryCount||0)<=0||Number(r.evaluatedCount||0)<=0) process.exit(1);
           fs.writeFileSync('run-id.txt',String(r.runId));
@@ -118,7 +153,7 @@ jobs:
           const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('teachers.json','utf8'))}catch{}
           const expected=fs.readFileSync('run-id.txt','utf8').trim();
           const run=p.run||{};
-          const safe={success:Boolean(p.success),runId:p.runId||null,status:run.status||null,teacherReceiptCount:Array.isArray(p.teacherReceipts)?p.teacherReceipts.length:0,error:p.error?String(p.error).slice(0,500):null};
+          const safe={success:Boolean(p.success),runId:p.runId||null,status:run.status||null,teacherReceiptCount:Array.isArray(p.teacherReceipts)?p.teacherReceipts.length:0,error:p.error?String(p.error).slice(0,1200):null};
           console.log('RUN_SCOPED_TEACHER_DIAGNOSTICS='+JSON.stringify(safe));
           if(!p.success||p.runId!==expected||run.run_id!==expected||run.status!=='completed'||!Array.isArray(p.teacherReceipts)||p.teacherReceipts.length===0) process.exit(1);
           NODE
