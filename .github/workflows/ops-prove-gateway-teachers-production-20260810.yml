@@ -1,4 +1,4 @@
-name: Ops Read Latest Deal Hunter Teacher Receipts 20260811
+name: Ops Inspect Mac-Local Deal Hunter Outcomes 20260811
 
 on:
   pull_request:
@@ -12,52 +12,41 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Resolve latest READY Production deployment
+      - name: Deploy exact current main with Mac-local diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" 'https://api.vercel.com/v2/teams?limit=100' > teams.json
-          TEAM_ID="$(node - <<'NODE'
-          const p=require('./teams.json'); const t=(p.teams||[]).find(x=>x.slug==='truelycollectables-projects'); if(!t?.id) process.exit(2); process.stdout.write(t.id);
-          NODE
-          )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/$VERCEL_PROJECT?teamId=$TEAM_ID" > project.json
-          PROJECT_ID="$(node - <<'NODE'
-          const p=require('./project.json'); if(!p.id) process.exit(2); process.stdout.write(p.id);
-          NODE
-          )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&target=production&limit=20&teamId=$TEAM_ID" > deployments.json
-          node - <<'NODE'
-          const fs=require('fs'); const p=require('./deployments.json');
-          const ready=(Array.isArray(p.deployments)?p.deployments:[]).find(d=>String(d.state||d.readyState||'').toUpperCase()==='READY' && d.url);
-          if(!ready) throw new Error('No READY Production deployment found.');
-          console.log('LATEST_READY_PRODUCTION='+JSON.stringify({url:ready.url||null,metaCommit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null,createdAt:ready.createdAt||null}));
-          fs.appendFileSync(process.env.GITHUB_ENV,`DEPLOY_URL=https://${ready.url}\n`);
-          NODE
+          git fetch --no-tags origin main
+          git checkout --detach origin/main
+          CURRENT_MAIN="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor c42e8d7b75af7cb68e03ec5f6259494f4a0e7c8b "$CURRENT_MAIN"
+          echo "DIAGNOSTIC_MAIN=$CURRENT_MAIN"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-prod.log
+          DEPLOY_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' /tmp/vercel-prod.log | tail -n 1)"
+          test -n "$DEPLOY_URL"
+          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "PRODUCTION_MAC_DIAGNOSTIC_DEPLOYMENT=$DEPLOY_URL"
 
-      - name: Read newest teacher receipts and latest run IDs
+      - name: Read latest Mac-local Deal Hunter run
         shell: bash
         run: |
           set -euo pipefail
-          SINCE="$(node -p "new Date(Date.now()-3*60*60*1000).toISOString()")"
-          encoded_since="$(node -p "encodeURIComponent(process.argv[1])" "$SINCE")"
-          code="$(curl -sS -o teachers.json -w '%{http_code}' --connect-timeout 5 --max-time 45 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-candidate-diagnostics?mode=teachers&since=$encoded_since" || true)"
-          echo "TEACHERS_HTTP=$code"
+          code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-mac-outcomes" || true)"
+          echo "MAC_OUTCOMES_HTTP=$code"
           node - <<'NODE'
-          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('teachers.json','utf8'))}catch{}
-          if(!p.success){console.log('TEACHERS_ERROR='+JSON.stringify({error:p.error?String(p.error).slice(0,800):null}));process.exit(2)}
-          const runs=Array.isArray(p.latestRuns)?p.latestRuns.map(r=>({runId:r.run_id||null,status:r.status||null,startedAt:r.started_at||null,completedAt:r.completed_at||null,discoveryCount:Number(r.discovery_count||0),evaluatedCount:Number(r.evaluated_count||0),actionableCount:Number(r.actionable_count||0),manualReviewCount:Number(r.manual_review_count||0),failureCount:Number(r.failure_count||0),summary:r.summary||null})):[];
-          const receipts=Array.isArray(p.teacherReceipts)?p.teacherReceipts.map(r=>({runId:r.runId||null,title:r.title||null,updatedAt:r.updatedAt||null,configuredTeachers:r.configuredTeachers||[],requiredVotes:Number(r.requiredVotes||0),pricingEligibleSoldCount:Number(r.pricingEligibleSoldCount||0),attempts:Array.isArray(r.attempts)?r.attempts.map(a=>({teacher:a.teacher||null,configured:Boolean(a.configured),ok:Boolean(a.ok),soldCount:Number(a.soldCount||0),activeCount:Number(a.activeCount||0),error:a.error?String(a.error).slice(0,260):null})):[],teacherLearning:r.teacherLearning||null})):[];
-          console.log('LATEST_RUNS='+JSON.stringify(runs));
-          console.log('LATEST_TEACHER_RECEIPTS='+JSON.stringify(receipts));
-          const newest=runs[0]?.runId||null;
-          console.log('LATEST_RUN_ID='+String(newest||''));
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('outcomes.json','utf8'))}catch{}
+          if(!p.success){console.log('MAC_OUTCOMES_ERROR='+JSON.stringify({error:p.error?String(p.error).slice(0,1200):null}));process.exit(2)}
+          console.log('MAC_DEAL_HUNTER_SUMMARY='+JSON.stringify(p.summary||null));
+          console.log('MAC_DEAL_HUNTER_CANDIDATES='+JSON.stringify(p.candidates||[]));
           NODE
