@@ -1,0 +1,199 @@
+name: Ops CollX InstaComp Visual Marriage 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-instacomp-visual-marriage-20260810.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TEMP_DIR: /tmp/collx-instacomp-visual-marriage
+      CANDIDATE_ARTIFACT: "9088498879"
+      GAP_ARTIFACT: "9089925154"
+      OWNED_ARTIFACT: "9090085452"
+      INSTACOMP_ARTIFACT: "9090847746"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download frozen read-only evidence artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TEMP_DIR"/{candidates,gaps,owned,instacomp,out}
+          gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${CANDIDATE_ARTIFACT}/zip" > "$TEMP_DIR/candidates.zip"
+          gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${GAP_ARTIFACT}/zip" > "$TEMP_DIR/gaps.zip"
+          gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${OWNED_ARTIFACT}/zip" > "$TEMP_DIR/owned.zip"
+          gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${INSTACOMP_ARTIFACT}/zip" > "$TEMP_DIR/instacomp.zip"
+          unzip -q "$TEMP_DIR/candidates.zip" -d "$TEMP_DIR/candidates"
+          unzip -q "$TEMP_DIR/gaps.zip" -d "$TEMP_DIR/gaps"
+          unzip -q "$TEMP_DIR/owned.zip" -d "$TEMP_DIR/owned"
+          unzip -q "$TEMP_DIR/instacomp.zip" -d "$TEMP_DIR/instacomp"
+          test -s "$TEMP_DIR/candidates/candidate-owned-map.json"
+          test -s "$TEMP_DIR/gaps/current-gaps.json"
+          test -s "$TEMP_DIR/owned/owned-image-map.json"
+          test -s "$TEMP_DIR/instacomp/results/instacomp-identifications.json"
+      - name: Install image fingerprint tools
+        shell: bash
+        run: python3 -m pip install --quiet Pillow ImageHash
+      - name: Match successful InstaComp identities to live listing images
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, hashlib, time, urllib.request, urllib.error
+          from pathlib import Path
+          from PIL import Image, ImageOps
+          import imagehash
+
+          root=Path(os.environ['TEMP_DIR'])
+          candidates=json.load(open(root/'candidates/candidate-owned-map.json'))['candidates']
+          gaps=json.load(open(root/'gaps/current-gaps.json'))['rows']
+          owned=json.load(open(root/'owned/owned-image-map.json'))['rows']
+          scan=json.load(open(root/'instacomp/results/instacomp-identifications.json'))['results']
+          if len(candidates)!=281 or len(gaps)!=209 or len(scan)!=231:
+              raise SystemExit(f'contract mismatch candidates={len(candidates)} gaps={len(gaps)} scans={len(scan)}')
+
+          used_urls={str(r.get('image_url') or '') for r in owned}
+          cmap={str(c['collx_id']):c for c in candidates}
+
+          def norm(v):
+              s=str(v or '').lower()
+              s=re.sub(r'[^a-z0-9]+',' ',s)
+              return ' '.join(s.split())
+          def clean_num(v):
+              return norm(v).lstrip('#').strip()
+          def identity(result):
+              inst=(result.get('body') or {}).get('instacomp') or {}
+              trusted=inst.get('trusted_identity') if isinstance(inst.get('trusted_identity'),dict) else None
+              suggestion=inst.get('local_suggestion') if isinstance(inst.get('local_suggestion'),dict) else None
+              model=(suggestion or {}).get('identity') if isinstance((suggestion or {}).get('identity'),dict) else None
+              lv=inst.get('local_vision') if isinstance(inst.get('local_vision'),dict) else {}
+              hints=lv.get('identity_hints') if isinstance(lv.get('identity_hints'),dict) else {}
+              base=trusted or model or {}
+              merged={}
+              for key in ['sport','year','manufacturer','brand','set_name','subset','player','team','card_number','parallel','variation','serial_number','serial_run']:
+                  value=base.get(key)
+                  if value in (None,''): value=hints.get(key)
+                  merged[key]=value
+              return merged,inst
+
+          successes=[]
+          for r in scan:
+              if r.get('ok') is not True: continue
+              cid=str(r.get('collx_id') or '')
+              c=cmap.get(cid)
+              if not c or not c.get('front_owned') or c.get('front_owned') in used_urls: continue
+              ident,inst=identity(r)
+              player=norm(ident.get('player'))
+              if not player: continue
+              successes.append((cid,c,ident,inst))
+          print(json.dumps({'successfulUnusedWithPlayer':len(successes)}))
+
+          # Scanner identity is the gate that defines plausible live listing images.
+          pairs=[]
+          for cid,c,ident,inst in successes:
+              player=norm(ident.get('player'))
+              pparts=player.split()
+              year_match=re.search(r'(?:19|20)\d{2}',str(ident.get('year') or ''))
+              year=year_match.group(0) if year_match else ''
+              number=clean_num(ident.get('card_number'))
+              for g in gaps:
+                  title=norm(g.get('title'))
+                  if player not in title and not (len(pparts)>=2 and all(part in title.split() for part in pparts)):
+                      continue
+                  meta=60
+                  if year:
+                      if re.search(rf'\b{re.escape(year)}(?: \d{{2,4}})?\b',title): meta+=18
+                      else: meta-=8
+                  if number:
+                      if re.search(rf'(?<![a-z0-9]){re.escape(number)}(?![a-z0-9])',title): meta+=35
+                      else: meta-=3
+                  setwords=[w for w in norm(' '.join(str(ident.get(k) or '') for k in ['manufacturer','brand','set_name','subset'])).split() if len(w)>2]
+                  hits=sum(1 for w in set(setwords) if w in title.split())
+                  meta+=min(30,hits*5)
+                  pairs.append({'collx_id':cid,'front_owned':c['front_owned'],'product_id':int(g['product_id']),'inventory_item_id':g['inventory_item_id'],'title':g['title'],'listing_image':g.get('image_url'),'meta_score':meta,'identity':ident,'instacomp_status':inst.get('status'),'checklist_outcome':(inst.get('checklist') or {}).get('outcome')})
+          if not pairs: raise SystemExit('no plausible pairs from InstaComp identities')
+          print(json.dumps({'plausiblePairs':len(pairs),'candidateIds':len(set(p['collx_id'] for p in pairs)),'productIds':len(set(p['product_id'] for p in pairs))}))
+
+          imgdir=root/'images'; imgdir.mkdir(exist_ok=True)
+          cache={}; errors={}
+          def fetch(url):
+              if url in cache: return cache[url]
+              if not url: errors[url]='empty_url'; return None
+              key=hashlib.sha256(url.encode()).hexdigest()
+              target=imgdir/key
+              last=''
+              for attempt in range(1,5):
+                  try:
+                      req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; TruelyCollectablesImageAudit/1.0)'})
+                      with urllib.request.urlopen(req,timeout=30) as resp:
+                          data=resp.read(20*1024*1024+1)
+                          if len(data)>20*1024*1024: raise ValueError('image_too_large')
+                          target.write_bytes(data)
+                      im=Image.open(target); im=ImageOps.exif_transpose(im).convert('RGB')
+                      h={'phash':str(imagehash.phash(im,hash_size=16)),'dhash':str(imagehash.dhash(im,hash_size=16)),'whash':str(imagehash.whash(im,hash_size=16)),'ahash':str(imagehash.average_hash(im,hash_size=16)),'width':im.width,'height':im.height}
+                      cache[url]=h; return h
+                  except Exception as e:
+                      last=f'{type(e).__name__}: {e}'
+                      time.sleep(min(4,attempt*.5))
+              errors[url]=last; return None
+
+          urls=set()
+          for p in pairs:
+              urls.add(p['front_owned']); urls.add(str(p.get('listing_image') or ''))
+          for idx,url in enumerate(sorted(u for u in urls if u)):
+              fetch(url)
+              if (idx+1)%50==0: print(f'fingerprinted {idx+1}/{len(urls)} errors={len(errors)}')
+
+          def dist(a,b,key):
+              return imagehash.hex_to_hash(a[key]) - imagehash.hex_to_hash(b[key])
+          scored=[]
+          for p in pairs:
+              a=cache.get(p['front_owned']); b=cache.get(str(p.get('listing_image') or ''))
+              row=dict(p)
+              if a and b:
+                  pd=dist(a,b,'phash'); dd=dist(a,b,'dhash'); wd=dist(a,b,'whash'); ad=dist(a,b,'ahash')
+                  composite=pd + .35*dd + .35*wd + .15*ad
+                  row.update({'phash_distance':pd,'dhash_distance':dd,'whash_distance':wd,'ahash_distance':ad,'visual_distance':round(composite,3),'visual_available':True})
+              else:
+                  row.update({'visual_distance':None,'visual_available':False})
+              scored.append(row)
+
+          # Rank in both directions; reciprocal #1 with a meaningful visual lead is strong physical-copy evidence.
+          byc={}; byp={}
+          for r in scored:
+              if r['visual_available']:
+                  byc.setdefault(r['collx_id'],[]).append(r)
+                  byp.setdefault(r['product_id'],[]).append(r)
+          for rows in byc.values(): rows.sort(key=lambda r:(r['visual_distance'],-r['meta_score'],r['product_id']))
+          for rows in byp.values(): rows.sort(key=lambda r:(r['visual_distance'],-r['meta_score'],r['collx_id']))
+          top=[]
+          for cid,rows in byc.items():
+              first=rows[0]; second=rows[1] if len(rows)>1 else None
+              prodrows=byp.get(first['product_id'],[])
+              reciprocal=bool(prodrows and prodrows[0]['collx_id']==cid)
+              top.append({**first,'candidate_rank':1,'candidate_visual_margin':None if not second else round(second['visual_distance']-first['visual_distance'],3),'reciprocal_top1':reciprocal,'product_visual_margin':None if len(prodrows)<2 else round(prodrows[1]['visual_distance']-prodrows[0]['visual_distance'],3),'candidate_pair_count':len(rows),'product_pair_count':len(prodrows)})
+          top.sort(key=lambda r:(not r['reciprocal_top1'],r['visual_distance'] if r['visual_distance'] is not None else 99999,-r['meta_score']))
+
+          summary={'schema':'tcos.collx.instacomp.visual-marriage.v1','successfulUnusedCandidatesWithPlayer':len(successes),'plausiblePairs':len(pairs),'fingerprintedUrls':len(cache),'imageErrors':len(errors),'candidateTopRows':len(top),'reciprocalTop1':sum(1 for r in top if r['reciprocal_top1']),'generated_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'databaseWrites':False}
+          json.dump({'summary':summary,'top':top,'pairs':scored,'image_errors':errors},open(root/'out/visual-marriage.json','w'),indent=2)
+          json.dump(summary,open(root/'out/receipt.json','w'),indent=2)
+          print(json.dumps(summary,indent=2))
+          PY
+      - name: Upload visual marriage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-instacomp-visual-marriage
+          path: |
+            ${{ env.TEMP_DIR }}/out/visual-marriage.json
+            ${{ env.TEMP_DIR }}/out/receipt.json
+          retention-days: 7
+          if-no-files-found: error
