@@ -3,6 +3,11 @@ from pathlib import Path
 p = Path('scripts/mainstream-checklist/source-tools.mjs')
 text = p.read_text('utf-8')
 
+# The parser's normalized() function canonicalizes Unicode dash variants to '-'.
+# Keep the pre-existing nested-section self-test aligned with that canonical output.
+text = text.replace('!names.has("Base Set — Series One")', '!names.has("Base Set - Series One")')
+text = text.replace('!names.has("Autographs — Series One")', '!names.has("Autographs - Series One")')
+
 if 'function explicitlyMultiSubjectSet(name)' not in text:
     anchor = 'function parseCardFromCells(cells) {'
     helper = r'''function explicitlyMultiSubjectSet(name) {
