@@ -1,0 +1,114 @@
+name: Ops CollX Final Safe Import 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-final-safe-import-20260810.yml"
+      - ".github/ops/collx-final-safe-manifest.b64gz"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-collx-final-safe-import-20260810
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/collx-final-import"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-final-import/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Import verified matches directly to owned storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import { gunzipSync } from 'node:zlib';
+          import { setTimeout as sleep } from 'node:timers/promises';
+
+          const EXPECTED_SHA='d11a59f2565b1d101172b2d71873b8dab54dffb609e80e332817b00c50643ad2';
+          const EXPECTED_COUNT=30;
+          const EXPECTED_BACKS=20;
+          const STORE='00000000-0000-4000-8000-000000000001';
+          const BUCKET='truely-product-images';
+          function fail(m){throw new Error(m)}
+          function parseEnv(text){const e={};for(const raw of text.split(/\r?\n/)){const line=raw.trim();if(!line||line.startsWith('#'))continue;const i=line.indexOf('=');if(i<1)continue;const k=line.slice(0,i).trim();let v=line.slice(i+1).trim();if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}else if(v.startsWith("'")&&v.endsWith("'"))v=v.slice(1,-1);e[k]=v}return e}
+          const packed=fs.readFileSync('.github/ops/collx-final-safe-manifest.b64gz','utf8').trim();
+          const raw=gunzipSync(Buffer.from(packed,'base64'));
+          const sha=crypto.createHash('sha256').update(raw).digest('hex');
+          if(sha!==EXPECTED_SHA)fail(`Manifest checksum mismatch ${sha}`);
+          const manifest=JSON.parse(raw.toString('utf8'));
+          if(!Array.isArray(manifest)||manifest.length!==EXPECTED_COUNT)fail(`Expected ${EXPECTED_COUNT} rows`);
+          if(new Set(manifest.map(r=>r.i)).size!==EXPECTED_COUNT||new Set(manifest.map(r=>Number(r.p))).size!==EXPECTED_COUNT||new Set(manifest.map(r=>String(r.c))).size!==EXPECTED_COUNT)fail('Manifest is not one-to-one');
+          const backs=manifest.filter(r=>r.b).length;if(backs!==EXPECTED_BACKS)fail(`Expected ${EXPECTED_BACKS} backs, got ${backs}`);
+          console.log(JSON.stringify({manifestRows:manifest.length,backs,sha}));
+
+          const env=parseEnv(fs.readFileSync(path.join(process.env.RUNNER_TEMP,'collx-final-import','production.env'),'utf8'));
+          const base=env.NEXT_PUBLIC_SUPABASE_URL;if(!base)fail('Supabase URL unavailable');
+          const ref=new URL(base).hostname.split('.')[0];
+          const mgmt=process.env.GH_SUPABASE_ACCESS_TOKEN;
+          let key=env.SUPABASE_SERVICE_ROLE_KEY||env.SUPABASE_SERVICE_KEY||env.SUPABASE_SECRET_KEY||'';
+          if(!key){const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${mgmt}`},signal:AbortSignal.timeout(20000)});if(!r.ok)fail(`API key lookup ${r.status}: ${(await r.text()).slice(0,400)}`);const keys=await r.json();const k=keys.find(x=>String(x.name||'').toLowerCase()==='service_role')||keys.find(x=>String(x.type||'').toLowerCase()==='secret')||keys.find(x=>String(x.name||'').toLowerCase().includes('secret'));key=k?.api_key||'';if(!key)fail('No elevated Supabase API key')}
+          const dbEndpoint=`https://api.supabase.com/v1/projects/${ref}/database/query`;
+          async function db(sql,readOnly,label){let last='';for(let a=1;a<=10;a++){try{const r=await fetch(dbEndpoint,{method:'POST',headers:{Authorization:`Bearer ${mgmt}`,'Content-Type':'application/json'},body:JSON.stringify({query:sql,parameters:[],read_only:readOnly}),signal:AbortSignal.timeout(30000)});const t=await r.text();if(r.ok)return t?JSON.parse(t):[];last=`${r.status} ${t.slice(0,600)}`;if(![429,500,502,503,504,522,524,544].includes(r.status)&&!/timeout|57P01|connection/i.test(t))fail(`${label}: ${last}`)}catch(e){last=String(e?.message||e)}if(a<10)await sleep(Math.min(8000,a*600))}fail(`${label}: ${last}`)}
+          function js(rows){return `'${JSON.stringify(rows).replaceAll("'","''")}'::jsonb`}
+
+          // Guard each target and reject reused physical CollX scans before any write.
+          const guardInput=manifest.map(r=>({...r,fh:crypto.createHash('sha256').update(r.f).digest('hex'),bh:r.b?crypto.createHash('sha256').update(r.b).digest('hex'):null}));
+          const blocked=await db(`
+            with m as (select * from jsonb_to_recordset(${js(guardInput)}) as x(i text,p bigint,c text,f text,b text,fh text,bh text)), s as (
+              select m.*, i.id live_i, i.store_id, i.legacy_product_id, i.status, i.quantity iq,
+                     p.id live_p, p.quantity pq, p.price, p.archived_at, p.ebay_item_id,
+                     (select count(*) from public.inventory_images z where z.inventory_item_id=i.id and (z.alt_text like 'CollX verified %' or z.image_url like '%/truely-product-images/collx-mirror/%' or z.image_url like 'https://storage.googleapis.com/collx-%')) as target_collx,
+                     (select count(*) from public.inventory_images z where z.inventory_item_id<>i.id and (z.image_url=m.f or z.image_url like ('%/collx-mirror/'||m.fh||'.%'))) as reused_front
+              from m left join public.inventory_items i on i.id=m.i::uuid left join public.products p on p.id=m.p and p.store_id='${STORE}'::uuid
+            ) select i,p,c,case when live_i is null then 'inventory_missing' when store_id<>'${STORE}'::uuid then 'wrong_store' when legacy_product_id is distinct from p then 'mapping_changed' when status<>'active' or coalesce(iq,0)<=0 then 'inventory_inactive' when live_p is null or archived_at is not null or coalesce(pq,0)<=0 or coalesce(price,0)<=0 then 'product_inactive' when nullif(btrim(coalesce(ebay_item_id,'')),'') is null then 'ebay_missing' when target_collx<>0 then 'target_already_has_collx' when reused_front<>0 then 'physical_scan_already_used' else null end reason from s where live_i is null or store_id<>'${STORE}'::uuid or legacy_product_id is distinct from p or status<>'active' or coalesce(iq,0)<=0 or live_p is null or archived_at is not null or coalesce(pq,0)<=0 or coalesce(price,0)<=0 or nullif(btrim(coalesce(ebay_item_id,'')),'') is null or target_collx<>0 or reused_front<>0;
+          `,true,'live guard');
+          const blockedIds=new Set(blocked.map(r=>Number(r.p)));const valid=manifest.filter(r=>!blockedIds.has(Number(r.p)));
+          console.log(JSON.stringify({valid:valid.length,blocked:blocked.length,blockedRows:blocked}));
+          if(valid.length<1)fail('No final verified rows remain after live guards');
+
+          const auth={Authorization:`Bearer ${key}`,apikey:key};
+          let br=await fetch(`${base}/storage/v1/bucket`,{headers:auth,signal:AbortSignal.timeout(20000)});if(!br.ok)fail(`List buckets ${br.status}`);let buckets=await br.json();if(!buckets.some(b=>b.id===BUCKET||b.name===BUCKET)){const cr=await fetch(`${base}/storage/v1/bucket`,{method:'POST',headers:{...auth,'Content-Type':'application/json'},body:JSON.stringify({id:BUCKET,name:BUCKET,public:true,file_size_limit:20971520}),signal:AbortSignal.timeout(20000)});if(!cr.ok&&cr.status!==409)fail(`Create bucket ${cr.status}: ${(await cr.text()).slice(0,300)}`)}
+          async function own(url){let data,type,last='';for(let a=1;a<=5;a++){try{const r=await fetch(url,{redirect:'follow',signal:AbortSignal.timeout(30000)});type=r.headers.get('content-type')||'';if(r.ok&&type.toLowerCase().startsWith('image/')){data=Buffer.from(await r.arrayBuffer());break}last=`download ${r.status}`}catch(e){last=String(e?.message||e)}if(a<5)await sleep(a*400)}if(!data)fail(`${url}: ${last}`);const h=crypto.createHash('sha256').update(url).digest('hex');let ext=type.toLowerCase().includes('png')?'png':type.toLowerCase().includes('webp')?'webp':'jpg';const object=`collx-mirror/${h}.${ext}`;for(let a=1;a<=5;a++){try{const u=await fetch(`${base}/storage/v1/object/${BUCKET}/${object}`,{method:'POST',headers:{...auth,'Content-Type':type,'x-upsert':'true'},body:data,signal:AbortSignal.timeout(30000)});if(u.ok){const local=`${base}/storage/v1/object/public/${BUCKET}/${object}`;const proof=await fetch(local,{headers:{Range:'bytes=0-0'},signal:AbortSignal.timeout(20000)});if(proof.ok)return local;last=`proof ${proof.status}`}else last=`upload ${u.status}`}catch(e){last=String(e?.message||e)}if(a<5)await sleep(a*400)}fail(`${url}: ${last}`)}
+          const owned=[];for(const r of valid){const f=await own(r.f);const b=r.b?await own(r.b):null;owned.push({...r,of:f,ob:b});console.log(`Owned ${owned.length}/${valid.length} final cards`)}
+
+          // Image-only write using owned URLs.
+          for(let i=0;i<owned.length;i+=25){const batch=owned.slice(i,i+25);await db(`begin; with m as (select * from jsonb_to_recordset(${js(batch)}) as x(i text,p bigint,c text,f text,b text,of text,ob text)) update public.products p set image_url=m.of from m where p.id=m.p and p.store_id='${STORE}'::uuid; with m as (select * from jsonb_to_recordset(${js(batch)}) as x(i text,p bigint,c text,f text,b text,of text,ob text)) update public.inventory_images z set is_primary=false where z.inventory_item_id in (select i::uuid from m) and z.is_primary=true; with m as (select * from jsonb_to_recordset(${js(batch)}) as x(i text,p bigint,c text,f text,b text,of text,ob text)), rows as (select i::uuid inventory_item_id,of image_url,'CollX verified front'::text alt_text,-2 sort_order,true is_primary from m union all select i::uuid,ob,'CollX verified back'::text,-1,false from m where ob is not null) insert into public.inventory_images(inventory_item_id,image_url,alt_text,sort_order,is_primary) select * from rows; commit;`,false,`apply ${i/25+1}`)}
+          const bad=await db(`with m as (select * from jsonb_to_recordset(${js(owned)}) as x(i text,p bigint,c text,f text,b text,of text,ob text)), a as (select m.*,p.image_url,count(*) filter(where z.image_url=m.of) fr,count(*) filter(where m.ob is not null and z.image_url=m.ob) br,count(*) filter(where z.image_url=m.of and z.is_primary) pr from m join public.products p on p.id=m.p and p.store_id='${STORE}'::uuid join public.inventory_items i on i.id=m.i::uuid and i.legacy_product_id=m.p left join public.inventory_images z on z.inventory_item_id=i.id group by m.i,m.p,m.c,m.f,m.b,m.of,m.ob,p.image_url) select * from a where image_url is distinct from of or fr<>1 or pr<>1 or (ob is not null and br<>1);`,true,'post verify');if(bad.length)fail(`Post verification failed ${JSON.stringify(bad.slice(0,5))}`);
+          const receipt={ok:true,event:'collx_final_safe_owned_import',manifestSha256:sha,requested:manifest.length,imported:owned.length,blocked:blocked.length,fronts:owned.length,backs:owned.filter(r=>r.ob).length,bucket:BUCKET,priceQuantityStatusTouched:false,customerOrderDataTouched:false,completedAt:new Date().toISOString()};fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'collx-final-import','receipt.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt,null,2));
+          NODE
+          rm -f "$RUNNER_TEMP/collx-final-import/production.env"
+
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-final-safe-import-receipt
+          path: ${{ runner.temp }}/collx-final-import/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
