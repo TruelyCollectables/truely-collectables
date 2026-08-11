@@ -1,4 +1,4 @@
-name: Ops Compact Mac Deal Hunter Matrix 20260811
+name: Ops Compact Deal Hunter Evaluator Errors 20260811
 
 on:
   pull_request:
@@ -40,7 +40,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV,`DEPLOY_URL=https://${ready.url}\n`);
           NODE
 
-      - name: Print compact latest Mac run matrix
+      - name: Print latest Mac evaluator errors
         shell: bash
         run: |
           set -euo pipefail
@@ -50,21 +50,12 @@ jobs:
           node - <<'NODE'
           const p=require('./outcomes.json'); if(!p.success) throw new Error(p.error||'failed');
           const rows=Array.isArray(p.candidates)?p.candidates:[];
-          const counts={
-            total:rows.length,
-            failed:rows.filter(r=>r.status==='failed').length,
-            actionable:rows.filter(r=>r.actionable).length,
-            trustedPrice:rows.filter(r=>Number(r.exactMarket?.trustedSuggestedPrice||0)>0).length,
-            memoryPriced:rows.filter(r=>r.exactMarket?.historicalSoldMemory?.used||r.exactMarket?.historicalSoldFallback?.used).length,
-            teacherRan:rows.filter(r=>(r.exactMarket?.configuredTeachers||[]).length>0).length,
-            teacherExactSold:rows.filter(r=>Number(r.exactMarket?.pricingEligibleSoldCount||0)>0&&(r.exactMarket?.configuredTeachers||[]).length>0).length,
-          };
-          console.log('SUMMARY '+JSON.stringify({...p.summary,...counts}));
+          console.log('SUMMARY '+JSON.stringify(p.summary||{}));
+          const grouped={};
           rows.forEach((r,i)=>{
-            const m=r.exactMarket||{}; const id=r.identity||{};
-            const mem=m.historicalSoldMemory?.used?`cur:${m.historicalSoldMemory.soldCount}@${m.historicalSoldMemory.medianDeliveredPrice}`:(m.historicalSoldFallback?.used?`fallback:${m.historicalSoldFallback.soldCount}@${m.historicalSoldFallback.medianDeliveredPrice}`:'none');
-            const teachers=(m.teacherAttempts||[]).filter(a=>a.configured).map(a=>`${a.teacher}:${a.ok?'ok':'err'}:${a.soldCount}`).join(',')||'none';
-            const ident=[id.year,id.brand,id.setName,id.player,id.cardNumber,id.parallel,id.serialNumber,id.gradingCompany,id.gradeValue].filter(v=>v!==null&&v!==undefined&&String(v)!=='').join('|');
-            console.log(`ROW ${String(i+1).padStart(2,'0')} status=${r.status||'-'} code=${r.errorCode||'-'} label=${r.dealLabel||'-'} price=${m.trustedSuggestedPrice??'-'} sold=${m.pricingEligibleSoldCount||0} mem=${mem} teachers=${teachers} id=${ident||'-'} title=${String(r.title||'').slice(0,180)}`);
+            const msg=String(r.errorMessage||'').replace(/\s+/g,' ').slice(0,900)||'-';
+            grouped[msg]=(grouped[msg]||0)+1;
+            console.log(`ERR ${String(i+1).padStart(2,'0')} code=${r.errorCode||'-'} msg=${msg} title=${String(r.title||'').slice(0,150)}`);
           });
+          console.log('ERROR_GROUPS '+JSON.stringify(grouped));
           NODE
