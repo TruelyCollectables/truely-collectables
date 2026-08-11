@@ -22,6 +22,22 @@ jobs:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Prove CollX image discovery by collx_id
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix='1129514363171081216-'
+          url="https://storage.googleapis.com/storage/v1/b/collx-product-images/o?prefix=${prefix}"
+          code="$(curl -sS --max-time 20 -o "$RUNNER_TEMP/gcs-list.json" -w '%{http_code}' "$url")"
+          test "$code" = "200"
+          python3 - <<'PY'
+          import json,os
+          x=json.load(open(os.environ['RUNNER_TEMP']+'/gcs-list.json'))
+          names=[r['name'] for r in x.get('items',[])]
+          print({'names':names})
+          assert any(n.startswith('1129514363171081216-1-') for n in names)
+          assert any(n.startswith('1129514363171081216-2-') for n in names)
+          PY
       - name: Pull Production environment
         shell: bash
         run: |
@@ -53,9 +69,9 @@ jobs:
           const counts=await db(`select (select count(*) from public.products) products,(select count(*) from public.inventory_items) inventory_items,(select count(*) from public.inventory_images) inventory_images,(select count(*) from public.products where nullif(btrim(coalesce(ebay_item_id,'')),'') is not null and archived_at is null) ebay_products,(select count(*) from public.inventory_items i join public.products p on p.id=i.legacy_product_id where nullif(btrim(coalesce(p.ebay_item_id,'')),'') is not null and p.archived_at is null) ebay_inventory_items`);
           const samples=await db(`select p.*, i.id inventory_item_id,i.card_uuid,i.status inventory_status,i.quantity inventory_quantity,i.price inventory_price from public.products p left join public.inventory_items i on i.legacy_product_id=p.id where p.store_id='00000000-0000-4000-8000-000000000001'::uuid order by p.id desc limit 5`);
           const sellers=await db(`select * from public.seller_profiles limit 10`);
-          const payload={generated_at:new Date().toISOString(),schema,constraints,counts,samples,sellers};
+          const payload={generated_at:new Date().toISOString(),schema,constraints,counts,samples,sellers,gcsPrefixDiscovery:true};
           fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'collx-contract','contract.json'),JSON.stringify(payload,null,2));
-          console.log(JSON.stringify({counts:counts[0],schemaRows:schema.length,constraints:constraints.length,sellerRows:sellers.length},null,2));
+          console.log(JSON.stringify({counts:counts[0],schemaRows:schema.length,constraints:constraints.length,sellerRows:sellers.length,gcsPrefixDiscovery:true},null,2));
           NODE
           rm -f "$RUNNER_TEMP/collx-contract/production.env"
       - name: Upload contract
