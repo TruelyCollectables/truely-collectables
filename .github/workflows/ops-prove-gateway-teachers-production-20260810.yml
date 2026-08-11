@@ -1,4 +1,4 @@
-name: Ops Prove Gemini Teacher Production 20260810
+name: Ops Diagnose Gemini Targeted Start 20260810
 
 on:
   pull_request:
@@ -10,135 +10,102 @@ permissions:
   contents: read
 
 jobs:
-  prove:
+  diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Deploy exact current main containing merged Gemini repair
+      - name: Resolve latest READY Production deployment
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          git checkout --detach origin/main
-          CURRENT_MAIN="$(git rev-parse HEAD)"
-          git merge-base --is-ancestor e62d224210b9e7974c844e1b6969daff1d22bff9 "$CURRENT_MAIN"
-          echo "PROOF_MAIN=$CURRENT_MAIN"
-          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-prod.log
-          DEPLOY_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' /tmp/vercel-prod.log | tail -n 1)"
-          test -n "$DEPLOY_URL"
-          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
-          echo "PRODUCTION_DEPLOYED_MAIN=$CURRENT_MAIN"
-          echo "PRODUCTION_DEPLOYMENT_URL=$DEPLOY_URL"
-
-      - name: Require live Gemini Groq Perplexity three-family configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 30); do
-            code="$(curl -sS -o runtime.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
-              -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$DEPLOY_URL/api/release/instacomp-teacher-runtime-diagnostics" || true)"
-            if [ "$code" = "200" ] && node - <<'NODE'
-          const p=require('./runtime.json'); const c=p.configuration||{};
-          const safe={
-            success:Boolean(p.success),
-            geminiConfigured:Boolean(c.geminiConfigured),
-            directGeminiConfigured:Boolean(c.directGeminiConfigured),
-            gatewayGeminiConfigured:Boolean(c.gatewayGeminiConfigured),
-            groqConfigured:Boolean(c.groqConfigured),
-            gatewayPerplexityConfigured:Boolean(c.gatewayPerplexityConfigured),
-            votingTeacherCount:Number(c.votingTeacherCount||0),
-            requiredVotes:Number(c.requiredVotes||0),
-            teacherConsensusOperational:Boolean(c.teacherConsensusOperational),
-            macLearningBridgeConfigured:Boolean(c.macLearningBridgeConfigured),
-            onlineCompLearnMode:Boolean(c.onlineCompLearnMode),
-          };
-          console.log('PRODUCTION_THREE_FAMILY_CONFIGURATION='+JSON.stringify(safe));
-          if(!safe.success || !safe.geminiConfigured || safe.directGeminiConfigured || !safe.gatewayGeminiConfigured || !safe.groqConfigured || !safe.gatewayPerplexityConfigured || safe.votingTeacherCount!==3 || safe.requiredVotes!==2 || !safe.teacherConsensusOperational || !safe.macLearningBridgeConfigured || !safe.onlineCompLearnMode) process.exit(1);
+          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" \
+            'https://api.vercel.com/v2/teams?limit=100' > teams.json
+          TEAM_ID="$(node - <<'NODE'
+          const p=require('./teams.json'); const t=(p.teams||[]).find(x=>x.slug==='truelycollectables-projects'); if(!t?.id) process.exit(2); process.stdout.write(t.id);
           NODE
-            then exit 0; fi
-            sleep 3
-          done
-          echo 'Production did not reach the required 3-family / 2-vote configuration.' >&2
-          cat runtime.json 2>/dev/null || true
-          exit 1
-
-      - name: Start one bounded targeted Deal Hunter proof run
-        shell: bash
-        run: |
-          set -euo pipefail
-          SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "PROOF_SINCE=$SINCE" >> "$GITHUB_ENV"
-          curl -fsS --connect-timeout 5 --max-time 90 -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$DEPLOY_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&limit=2&mode=start" > start.json
+          )"
+          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT?teamId=$TEAM_ID" > project.json
+          PROJECT_ID="$(node - <<'NODE'
+          const p=require('./project.json'); if(!p.id) process.exit(2); process.stdout.write(p.id);
+          NODE
+          )"
+          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&target=production&limit=20&teamId=$TEAM_ID" > deployments.json
           node - <<'NODE'
-          const fs=require('fs'); const p=require('./start.json');
-          const safe={success:Boolean(p.success),mode:p.mode||null,lane:p.lane||null,requestedLimit:Number(p.requestedLimit||0),run:p.run?{runId:p.run.runId||null,status:p.run.status||null,startedAt:p.run.startedAt||null}:null};
-          console.log('TARGETED_GEMINI_PROOF_START='+JSON.stringify(safe));
-          if(!safe.success || !safe.run?.runId) process.exit(1);
-          fs.appendFileSync(process.env.GITHUB_ENV,`TARGET_RUN_ID=${safe.run.runId}\n`);
+          const fs=require('fs'); const p=require('./deployments.json');
+          const rows=Array.isArray(p.deployments)?p.deployments:[];
+          const ready=rows.find(d=>String(d.state||d.readyState||'').toUpperCase()==='READY' && d.url);
+          if(!ready) throw new Error('No READY Production deployment found.');
+          const safe={uid:ready.uid||null,url:ready.url||null,createdAt:ready.createdAt||null,metaCommit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null};
+          console.log('LATEST_READY_PRODUCTION='+JSON.stringify(safe));
+          fs.appendFileSync(process.env.GITHUB_ENV,`DEPLOY_URL=https://${ready.url}\n`);
           NODE
 
-      - name: Poll bounded targeted run to durable completion
+      - name: Re-prove live three-family configuration
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 60); do
-            curl -fsS --connect-timeout 5 --max-time 45 -X POST \
-              -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$DEPLOY_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&mode=poll&runId=$TARGET_RUN_ID" > poll.json
-            state="$(node -e "const p=require('./poll.json'); process.stdout.write(String(p?.run?.status||''))")"
-            node - <<'NODE'
-          const p=require('./poll.json');
-          console.log('TARGETED_GEMINI_PROOF_POLL='+JSON.stringify({success:Boolean(p.success),run:p.run?{runId:p.run.runId||null,status:p.run.status||null,evaluatedCount:Number(p.run.evaluatedCount||0),failureCount:Number(p.run.failureCount||0),error:p.run.error||null}:null}));
-          NODE
-            if [ "$state" = "completed" ]; then exit 0; fi
-            if [ "$state" != "running" ] && [ -n "$state" ]; then
-              echo "Targeted proof run ended in unexpected state: $state" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-          echo 'Targeted Gemini proof run did not complete in bounded poll window.' >&2
-          exit 1
-
-      - name: Require persisted live Gateway Gemini teacher receipt
-        shell: bash
-        run: |
-          set -euo pipefail
-          encoded_since="$(node -p "encodeURIComponent(process.env.PROOF_SINCE)")"
-          curl -fsS --connect-timeout 5 --max-time 60 -X POST \
+          code="$(curl -sS -o runtime.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$DEPLOY_URL/api/release/instacomp-deal-hunter-candidate-diagnostics?mode=teachers&since=$encoded_since" > receipts.json
+            "$DEPLOY_URL/api/release/instacomp-teacher-runtime-diagnostics" || true)"
+          echo "RUNTIME_HTTP=$code"
           node - <<'NODE'
-          const p=require('./receipts.json');
-          if(!p.success || p.mode!=='teachers') throw new Error(JSON.stringify(p));
-          const receipts=(Array.isArray(p.teacherReceipts)?p.teacherReceipts:[]).filter(r=>String(r.runId||'')===process.env.TARGET_RUN_ID);
-          const safe=receipts.map(r=>({
-            runId:r.runId||null,
-            title:r.title||null,
-            configuredTeachers:Array.isArray(r.configuredTeachers)?r.configuredTeachers:[],
-            requiredVotes:Number(r.requiredVotes||0),
-            attempts:(Array.isArray(r.attempts)?r.attempts:[]).map(a=>({teacher:a.teacher||null,configured:Boolean(a.configured),ok:Boolean(a.ok),soldCount:Number(a.soldCount||0),activeCount:Number(a.activeCount||0),error:a.error||null})),
-            pricingEligibleSoldCount:Number(r.pricingEligibleSoldCount||0),
-            teacherLearning:r.teacherLearning||null,
-          }));
-          console.log('LIVE_TARGETED_TEACHER_RECEIPTS='+JSON.stringify(safe));
-          const geminiLive=safe.some(r=>r.attempts.some(a=>a.teacher==='gateway_gemini'&&a.configured&&a.ok));
-          const groqLive=safe.some(r=>r.attempts.some(a=>(a.teacher==='groq'||a.teacher==='groq_browser')&&a.configured&&a.ok));
-          const perplexityLive=safe.some(r=>r.attempts.some(a=>a.teacher==='gateway_perplexity'&&a.configured&&a.ok));
-          const voteMath=safe.some(r=>r.requiredVotes===2 && r.configuredTeachers.includes('gateway_gemini') && r.configuredTeachers.includes('gateway_perplexity') && (r.configuredTeachers.includes('groq')||r.configuredTeachers.includes('groq_browser')));
-          const summary={receiptRows:safe.length,gatewayGeminiLive:geminiLive,groqFamilyLive:groqLive,gatewayPerplexityLive:perplexityLive,threeFamilyTwoVoteReceipt:voteMath,trainingEligibleReceipts:safe.filter(r=>r.teacherLearning?.studentTrainingEligible===true).length};
-          console.log('PRODUCTION_GEMINI_CALL_PROOF='+JSON.stringify(summary));
-          if(!geminiLive || !groqLive || !perplexityLive || !voteMath) process.exit(2);
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('runtime.json','utf8'))}catch{}
+          const c=p.configuration||{};
+          const safe={success:Boolean(p.success),geminiConfigured:Boolean(c.geminiConfigured),directGeminiConfigured:Boolean(c.directGeminiConfigured),gatewayGeminiConfigured:Boolean(c.gatewayGeminiConfigured),groqConfigured:Boolean(c.groqConfigured),gatewayPerplexityConfigured:Boolean(c.gatewayPerplexityConfigured),votingTeacherCount:Number(c.votingTeacherCount||0),requiredVotes:Number(c.requiredVotes||0),teacherConsensusOperational:Boolean(c.teacherConsensusOperational)};
+          console.log('LIVE_THREE_FAMILY_RECHECK='+JSON.stringify(safe));
+          if(!safe.success||!safe.geminiConfigured||safe.directGeminiConfigured||!safe.gatewayGeminiConfigured||!safe.groqConfigured||!safe.gatewayPerplexityConfigured||safe.votingTeacherCount!==3||safe.requiredVotes!==2||!safe.teacherConsensusOperational) process.exit(1);
+          NODE
+
+      - name: Inspect recent durable runs and teacher receipts before any retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          SINCE="$(node -p "new Date(Date.now()-45*60*1000).toISOString()")"
+          echo "DIAG_SINCE=$SINCE"
+          encoded_since="$(node -p "encodeURIComponent(process.argv[1])" "$SINCE")"
+          code="$(curl -sS -o receipts.json -w '%{http_code}' --connect-timeout 5 --max-time 60 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$DEPLOY_URL/api/release/instacomp-deal-hunter-candidate-diagnostics?mode=teachers&since=$encoded_since" || true)"
+          echo "TEACHER_RECEIPTS_HTTP=$code"
+          node - <<'NODE'
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('receipts.json','utf8'))}catch{}
+          const runs=(Array.isArray(p.latestRuns)?p.latestRuns:[]).map(r=>({runId:r.run_id||null,status:r.status||null,completedAt:r.completed_at||null,discoveryCount:Number(r.discovery_count||0),evaluatedCount:Number(r.evaluated_count||0),failureCount:Number(r.failure_count||0)}));
+          const receipts=(Array.isArray(p.teacherReceipts)?p.teacherReceipts:[]).map(r=>({runId:r.runId||null,title:r.title||null,updatedAt:r.updatedAt||null,configuredTeachers:Array.isArray(r.configuredTeachers)?r.configuredTeachers:[],requiredVotes:Number(r.requiredVotes||0),attempts:(Array.isArray(r.attempts)?r.attempts:[]).map(a=>({teacher:a.teacher||null,configured:Boolean(a.configured),ok:Boolean(a.ok),soldCount:Number(a.soldCount||0),activeCount:Number(a.activeCount||0),error:a.error?String(a.error).slice(0,220):null}))}));
+          console.log('RECENT_DURABLE_RUNS='+JSON.stringify(runs));
+          console.log('RECENT_TEACHER_RECEIPTS='+JSON.stringify(receipts));
+          console.log('RECENT_GEMINI_RECEIPT_SUMMARY='+JSON.stringify({success:Boolean(p.success),mode:p.mode||null,receiptRows:receipts.length,gatewayGeminiOk:receipts.some(r=>r.attempts.some(a=>a.teacher==='gateway_gemini'&&a.configured&&a.ok)),groqOk:receipts.some(r=>r.attempts.some(a=>(a.teacher==='groq'||a.teacher==='groq_browser')&&a.configured&&a.ok)),perplexityOk:receipts.some(r=>r.attempts.some(a=>a.teacher==='gateway_perplexity'&&a.configured&&a.ok))}));
+          if(!p.success||p.mode!=='teachers') process.exit(1);
+          NODE
+
+      - name: Probe targeted start response only if no recent Gemini receipt exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node - <<'NODE'
+          const p=require('./receipts.json'); const receipts=Array.isArray(p.teacherReceipts)?p.teacherReceipts:[];
+          process.exit(receipts.some(r=>(Array.isArray(r.attempts)?r.attempts:[]).some(a=>a.teacher==='gateway_gemini'&&a.configured&&a.ok)) ? 0 : 1);
+          NODE
+          then
+            echo 'SKIP_TARGETED_RETRY=true — recent persisted gateway_gemini receipt already exists.'
+            exit 0
+          fi
+
+          code="$(curl -sS -o start.json -w '%{http_code}' --connect-timeout 5 --max-time 90 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$DEPLOY_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&limit=1&mode=start" || true)"
+          echo "TARGETED_START_HTTP=$code"
+          node - <<'NODE'
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('start.json','utf8'))}catch{}
+          const run=p?.run||null;
+          const safe={success:Boolean(p.success),mode:p.mode||null,lane:p.lane||null,requestedLimit:Number(p.requestedLimit||0),run:run?{runId:run.runId||null,status:run.status||null,startedAt:run.startedAt||null}:null,error:p.error?String(p.error).slice(0,500):null,macStatus:p.macStatus||null};
+          console.log('TARGETED_START_DIAGNOSTIC='+JSON.stringify(safe));
+          if(run?.runId) fs.appendFileSync(process.env.GITHUB_ENV,`TARGET_RUN_ID=${run.runId}\n`);
           NODE
