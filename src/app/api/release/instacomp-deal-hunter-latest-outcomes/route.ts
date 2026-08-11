@@ -34,30 +34,18 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function compactAttempt(attempt: any) {
-  return {
-    teacher: String(attempt?.teacher || "") || null,
-    configured: attempt?.configured === true,
-    ok: attempt?.ok === true,
-    soldCount: Array.isArray(attempt?.sold) ? attempt.sold.length : 0,
-    activeCount: Array.isArray(attempt?.active) ? attempt.active.length : 0,
-    error: attempt?.error ? String(attempt.error).slice(0, 300) : null,
-  };
-}
-
 function compactCandidate(row: any) {
-  const market = row?.exact_market && typeof row.exact_market === "object" ? row.exact_market : {};
-  const consensus = market?.teacherConsensus && typeof market.teacherConsensus === "object"
-    ? market.teacherConsensus
+  const history = row?.historical_sold_memory && typeof row.historical_sold_memory === "object"
+    ? row.historical_sold_memory
     : null;
-  const history = market?.historicalSoldMemory && typeof market.historicalSoldMemory === "object"
-    ? market.historicalSoldMemory
-    : null;
-  const fallback = market?.historicalSoldFallback && typeof market.historicalSoldFallback === "object"
-    ? market.historicalSoldFallback
+  const fallback = row?.historical_sold_fallback && typeof row.historical_sold_fallback === "object"
+    ? row.historical_sold_fallback
     : null;
   const identity = row?.identity && typeof row.identity === "object" ? row.identity : {};
   const evaluation = row?.evaluation && typeof row.evaluation === "object" ? row.evaluation : {};
+  const configuredTeachers = Array.isArray(row?.configured_teachers)
+    ? row.configured_teachers.map(String)
+    : [];
   return {
     runId: String(row?.run_id || "") || null,
     title: String(row?.title || "").slice(0, 350) || null,
@@ -88,9 +76,9 @@ function compactCandidate(row: any) {
       gradeValue: identity?.gradeValue ?? identity?.grade_value ?? null,
     },
     exactMarket: {
-      status: String(market?.status || "") || null,
-      pricingEligibleSoldCount: Number(market?.pricingEligibleSoldCount || 0),
-      trustedSuggestedPrice: numberValue(market?.trustedSuggestedPrice),
+      status: String(row?.market_status || "") || null,
+      pricingEligibleSoldCount: Number(row?.pricing_eligible_sold_count || 0),
+      trustedSuggestedPrice: numberValue(row?.trusted_suggested_price),
       historicalSoldMemory: history
         ? {
             used: history.used === true,
@@ -108,21 +96,8 @@ function compactCandidate(row: any) {
             error: fallback.error ? String(fallback.error).slice(0, 300) : null,
           }
         : null,
-      configuredTeachers: Array.isArray(consensus?.configuredTeachers)
-        ? consensus.configuredTeachers.map(String)
-        : [],
-      requiredVotes: Number(consensus?.requiredVotes || 0),
-      teacherAttempts: Array.isArray(consensus?.attempts)
-        ? consensus.attempts.map(compactAttempt)
-        : [],
-      providerMessages: Array.isArray(market?.providerMessages)
-        ? market.providerMessages.slice(0, 12).map((provider: any) => ({
-            label: String(provider?.label || "") || null,
-            status: String(provider?.status || "") || null,
-            results: Number(provider?.results || 0),
-            message: provider?.message ? String(provider.message).slice(0, 350) : null,
-          }))
-        : [],
+      configuredTeachers,
+      requiredVotes: Number(row?.required_votes || 0),
     },
     evaluation: {
       status: String(evaluation?.status || "") || null,
@@ -138,6 +113,31 @@ function shiftedIso(value: unknown, offsetMs: number) {
   if (!Number.isFinite(parsed.getTime())) return null;
   return new Date(parsed.getTime() + offsetMs).toISOString();
 }
+
+const CANDIDATE_PROJECTION = [
+  "run_id",
+  "title",
+  "listing_url",
+  "lane",
+  "deal_label",
+  "actionable",
+  "alertworthy",
+  "identity",
+  "evaluation",
+  "item_price",
+  "delivered_cost",
+  "conservative_resale",
+  "expected_net_profit",
+  "roi_percent",
+  "updated_at",
+  "market_status:exact_market->>status",
+  "pricing_eligible_sold_count:exact_market->>pricingEligibleSoldCount",
+  "trusted_suggested_price:exact_market->>trustedSuggestedPrice",
+  "historical_sold_memory:exact_market->historicalSoldMemory",
+  "historical_sold_fallback:exact_market->historicalSoldFallback",
+  "configured_teachers:exact_market->teacherConsensus->configuredTeachers",
+  "required_votes:exact_market->teacherConsensus->>requiredVotes",
+].join(",");
 
 export async function POST(request: Request) {
   if (!(await verifyVercelToken(request))) {
@@ -169,7 +169,7 @@ export async function POST(request: Request) {
     const windowEnd = shiftedIso(run.completed_at || run.started_at, 120_000);
     let candidateQuery = supabase
       .from("tcos_deal_hunter_candidates")
-      .select("run_id,title,listing_url,lane,deal_label,actionable,alertworthy,identity,exact_market,evaluation,item_price,delivered_cost,conservative_resale,expected_net_profit,roi_percent,updated_at")
+      .select(CANDIDATE_PROJECTION)
       .order("updated_at", { ascending: true })
       .limit(50);
     if (windowStart) candidateQuery = candidateQuery.gte("updated_at", windowStart);
@@ -180,7 +180,7 @@ export async function POST(request: Request) {
     }
 
     const candidates = (candidateRows || [])
-      .filter((row) => String(row.run_id || "") === String(run.run_id))
+      .filter((row: any) => String(row.run_id || "") === String(run.run_id))
       .slice(0, 25)
       .map(compactCandidate);
     const summary = {
@@ -200,7 +200,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         success: true,
-        schema: "truelycollectables.instacompDealHunterLatestOutcomes.v1",
+        schema: "truelycollectables.instacompDealHunterLatestOutcomes.v2",
         latestRun: {
           runId: run.run_id,
           status: run.status,
