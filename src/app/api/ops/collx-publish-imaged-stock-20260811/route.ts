@@ -287,8 +287,7 @@ export async function POST(request: Request) {
       if (row.reason === "eligible") {
         const primary = row.images[0];
         inventoryUpdates.push({
-          id: row.item.id,
-          store_id: before.storeId,
+          ...row.item,
           status: "active",
           description: visibleDescription(row.item.description),
           notes: activatedNotes(row.item.notes),
@@ -296,8 +295,7 @@ export async function POST(request: Request) {
           updated_at: now,
         });
         productUpdates.push({
-          id: row.product.id,
-          store_id: before.storeId,
+          ...row.product,
           image_url: primary,
           price: row.price,
           quantity: row.quantity,
@@ -306,8 +304,7 @@ export async function POST(request: Request) {
         });
       } else if (row.reason === "no_image" || row.reason === "no_price") {
         inventoryUpdates.push({
-          id: row.item.id,
-          store_id: before.storeId,
+          ...row.item,
           status: "draft",
           metadata: mergeActivationMetadata(
             row.item.metadata,
@@ -317,8 +314,7 @@ export async function POST(request: Request) {
           updated_at: now,
         });
         productUpdates.push({
-          id: row.product.id,
-          store_id: before.storeId,
+          ...row.product,
           price: 0,
           quantity: row.quantity,
           ...(row.reason === "no_image" ? { image_url: null } : {}),
