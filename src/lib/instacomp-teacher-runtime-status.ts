@@ -1,5 +1,7 @@
 export type InstaCompTeacherRuntimeConfiguration = {
   geminiConfigured: boolean;
+  directGeminiConfigured: boolean;
+  gatewayGeminiConfigured: boolean;
   anthropicConfigured: boolean;
   xaiConfigured: boolean;
   groqConfigured: boolean;
@@ -35,9 +37,16 @@ export function teacherRequiredVotes(votingTeacherCount: number) {
 export function resolveInstaCompTeacherRuntimeConfiguration(
   env: Record<string, string | undefined> = process.env,
 ): InstaCompTeacherRuntimeConfiguration {
-  const geminiConfigured =
+  const directGeminiConfigured =
     String(env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() !== "true" &&
     configured(env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY);
+  const gatewayPlatformConfigured = Boolean(
+    configured(env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN) || env.VERCEL === "1",
+  );
+  const gatewayGeminiConfigured =
+    String(env.INSTACOMP_GATEWAY_GEMINI_DISABLED || "").trim().toLowerCase() !== "true" &&
+    gatewayPlatformConfigured;
+  const geminiConfigured = directGeminiConfigured || gatewayGeminiConfigured;
   const anthropicConfigured = configured(env.ANTHROPIC_API_KEY);
   const xaiConfigured = configured(env.XAI_API_KEY);
   const groqConfigured = configured(env.GROQ_API_KEY);
@@ -45,9 +54,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   // backed by the same Groq credential/provider family and therefore count as
   // one independent trust vote.
   const groqBrowserConfigured = groqConfigured;
-  const gatewayPerplexityConfigured = Boolean(
-    configured(env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN) || env.VERCEL === "1",
-  );
+  const gatewayPerplexityConfigured = gatewayPlatformConfigured;
   const openRouterConfigured = configured(env.OPENROUTER_API_KEY);
   const cloudflareConfigured = Boolean(
     configured(env.CLOUDFLARE_ACCOUNT_ID) && configured(env.CLOUDFLARE_AUTH_TOKEN || env.CLOUDFLARE_API_TOKEN),
@@ -73,6 +80,8 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
 
   return {
     geminiConfigured,
+    directGeminiConfigured,
+    gatewayGeminiConfigured,
     anthropicConfigured,
     xaiConfigured,
     groqConfigured,

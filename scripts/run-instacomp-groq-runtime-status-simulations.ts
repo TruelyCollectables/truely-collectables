@@ -4,6 +4,7 @@ import {
   teacherRequiredVotes,
 } from "../src/lib/instacomp-teacher-runtime-status";
 
+assert.equal(teacherRequiredVotes(3), 2);
 assert.equal(teacherRequiredVotes(4), 3);
 
 const groqOnly = resolveInstaCompTeacherRuntimeConfiguration({
@@ -30,10 +31,12 @@ const groqAndGatewayWithDeadGeminiDisabled = resolveInstaCompTeacherRuntimeConfi
   INSTACOMP_TEACHER_GEMINI_DISABLED: "true",
   VERCEL_OIDC_TOKEN: "configured",
 });
-assert.equal(groqAndGatewayWithDeadGeminiDisabled.geminiConfigured, false);
+assert.equal(groqAndGatewayWithDeadGeminiDisabled.directGeminiConfigured, false);
+assert.equal(groqAndGatewayWithDeadGeminiDisabled.gatewayGeminiConfigured, true);
+assert.equal(groqAndGatewayWithDeadGeminiDisabled.geminiConfigured, true);
 assert.equal(groqAndGatewayWithDeadGeminiDisabled.groqConfigured, true);
 assert.equal(groqAndGatewayWithDeadGeminiDisabled.gatewayPerplexityConfigured, true);
-assert.equal(groqAndGatewayWithDeadGeminiDisabled.votingTeacherCount, 2);
+assert.equal(groqAndGatewayWithDeadGeminiDisabled.votingTeacherCount, 3);
 assert.equal(groqAndGatewayWithDeadGeminiDisabled.requiredVotes, 2);
 assert.equal(groqAndGatewayWithDeadGeminiDisabled.teacherConsensusOperational, true);
 
@@ -44,10 +47,12 @@ const groqAndGatewayFromVercelRequestContext = resolveInstaCompTeacherRuntimeCon
   INSTACOMP_TEACHER_GEMINI_DISABLED: "true",
   VERCEL: "1",
 });
-assert.equal(groqAndGatewayFromVercelRequestContext.geminiConfigured, false);
+assert.equal(groqAndGatewayFromVercelRequestContext.directGeminiConfigured, false);
+assert.equal(groqAndGatewayFromVercelRequestContext.gatewayGeminiConfigured, true);
+assert.equal(groqAndGatewayFromVercelRequestContext.geminiConfigured, true);
 assert.equal(groqAndGatewayFromVercelRequestContext.groqConfigured, true);
 assert.equal(groqAndGatewayFromVercelRequestContext.gatewayPerplexityConfigured, true);
-assert.equal(groqAndGatewayFromVercelRequestContext.votingTeacherCount, 2);
+assert.equal(groqAndGatewayFromVercelRequestContext.votingTeacherCount, 3);
 assert.equal(groqAndGatewayFromVercelRequestContext.requiredVotes, 2);
 assert.equal(groqAndGatewayFromVercelRequestContext.teacherConsensusOperational, true);
 
