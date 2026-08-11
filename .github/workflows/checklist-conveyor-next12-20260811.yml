@@ -1,0 +1,175 @@
+name: Checklist Conveyor Next 12 20260811
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/checklist-conveyor-next12-20260811.yml"
+      - "ops/checklist-conveyor-next12-20260811.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-conveyor-next12-20260811
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN: d4abd8c9395d1bd88fc7fba068210a0c37a14c45
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  CHECKLIST_RECOVERY_BATCH_INDEX: "0"
+  CHECKLIST_RECOVERY_BATCH_SIZE: "12"
+  CHECKLIST_RECOVERY_WORKERS: "1"
+  CHECKLIST_RECOVERY_APPLY: "true"
+  CHECKLIST_RECOVERY_OUTPUT_ROOT: "evidence/checklist-conveyor-next12-20260811"
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove exact current main and operations-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          bad="$(git diff --name-only "$EXPECTED_MAIN"...HEAD | grep -Ev '^(\.github/workflows/checklist-conveyor-next12-20260811\.yml|ops/checklist-conveyor-next12-20260811\.py)$' || true)"
+          test -z "$bad" || { echo "Unexpected PR files:"; echo "$bad"; exit 1; }
+          test -s scripts/run-verified-checklist-recovery-production.mjs
+          test -s ops/checklist-conveyor-next12-20260811.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Install extraction dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python3 -m pip install --user --quiet openpyxl xlrd
+          command -v pdftotext
+
+      - name: Scope proven recovery runner to the exact next-12 source file
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          path = Path('scripts/run-verified-checklist-recovery-production.mjs')
+          text = path.read_text('utf-8')
+          old = '''const PYTHON_SOURCE_FILES = [\n  "services/instacomp-ai/app/verified_checklist_sources.py",\n  "services/instacomp-ai/app/verified_checklist_sources_modern_extra.py",\n];'''
+          new = '''const PYTHON_SOURCE_FILES = [\n  "ops/checklist-conveyor-next12-20260811.py",\n];'''
+          if old not in text:
+              raise SystemExit('Verified source-list anchor changed')
+          text = text.replace(old, new, 1)
+          old_floor = 'if (inventory.length < 70) {'
+          if old_floor not in text:
+              raise SystemExit('Inventory floor anchor changed')
+          text = text.replace(old_floor, 'if (inventory.length < 1) {', 1)
+          path.write_text(text, 'utf-8')
+
+      - name: Prove exact 12 target inventory and safety guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast, pathlib
+          p = pathlib.Path('ops/checklist-conveyor-next12-20260811.py')
+          tree = ast.parse(p.read_text('utf-8'))
+          rows=[]
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Call) and ((isinstance(node.func, ast.Name) and node.func.id=='VerifiedChecklistSource') or (isinstance(node.func, ast.Attribute) and node.func.attr=='VerifiedChecklistSource')):
+                  vals=[ast.literal_eval(a) for a in node.args[:6]]
+                  rows.append(vals)
+          assert len(rows)==12, len(rows)
+          assert len({r[0] for r in rows})==12
+          assert all(r[0].startswith('baseball|2025|') or r[0].startswith('baseball|2026|') for r in rows)
+          assert all(r[1]=='topps' and 'cdn.shopify.com/' in r[3] and int(r[4])>=100 for r in rows)
+          print('exact next-12 source inventory proven')
+          PY
+          grep -F 'minimumCardRows: 25' scripts/run-verified-checklist-recovery-production.mjs >/dev/null
+          grep -F 'selectedYearMismatch' scripts/run-verified-checklist-recovery-production.mjs >/dev/null
+          grep -F 'reference_card_number_subject_conflict' scripts/mainstream-checklist/source-tools.mjs >/dev/null
+
+      - name: Resolve protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/checklist-conveyor-next12"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/checklist-conveyor-next12/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$RUNNER_TEMP/checklist-conveyor-next12/production.env"
+          echo "PRODUCTION_ENV_PATH=$RUNNER_TEMP/checklist-conveyor-next12/production.env" >> "$GITHUB_ENV"
+
+      - name: Resolve protected Supabase service role
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          project_ref="$(node -e 'const url=new URL(process.argv[1]);const ref=url.hostname.split(".")[0];if(!/^[a-z0-9]{16,40}$/.test(ref))throw new Error("Invalid Supabase project reference");process.stdout.write(ref)' "$NEXT_PUBLIC_SUPABASE_URL")"
+          keys_file="$RUNNER_TEMP/checklist-conveyor-next12/api-keys.json"
+          curl --silent --show-error --fail --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$keys_file" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys_file")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Apply exact next-12 official checklists to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --import tsx scripts/run-verified-checklist-recovery-production.mjs
+
+      - name: Require fail-closed Production receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="evidence/checklist-conveyor-next12-20260811/batch-0-receipt.json"
+          test -s "$receipt"
+          node - "$receipt" <<'NODE'
+          const fs = require('node:fs');
+          const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (r.mode !== 'apply') throw new Error('Expected Production apply receipt');
+          if (r.batch?.selected !== 12) throw new Error(`Expected 12 targets, got ${r.batch?.selected}`);
+          const accepted = (r.results || []).filter(x => ['imported','already_live'].includes(x.status));
+          const unsafe = accepted.filter(x => Number(x.counts?.cards || 0) < 25);
+          if (unsafe.length) throw new Error(`Sub-25 checklist escaped gate: ${unsafe.map(x=>x.targetKey).join(', ')}`);
+          if (!accepted.length) throw new Error('No official checklist was accepted; fail closed for investigation');
+          console.log(JSON.stringify({statuses:r.statuses, normalizedTotals:r.normalizedTotals, results:r.results.map(x=>({targetKey:x.targetKey,status:x.status,counts:x.counts||null}))}, null, 2));
+          NODE
+
+      - name: Upload receipts and deterministic spreadsheets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-conveyor-next12-20260811
+          path: evidence/checklist-conveyor-next12-20260811/
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/checklist-conveyor-next12/production.env" "$RUNNER_TEMP/checklist-conveyor-next12/api-keys.json" .env.local .env.production.local
