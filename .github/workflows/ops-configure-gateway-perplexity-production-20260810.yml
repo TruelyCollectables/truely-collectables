@@ -1,0 +1,81 @@
+name: Ops Configure Gateway Perplexity Production 20260810
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/ops-configure-gateway-perplexity-production-20260810.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT: truely-collectables
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pin current main and link Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          git fetch --no-tags origin main
+          git checkout --detach origin/main
+          echo "DEPLOYING_MAIN=$(git rev-parse HEAD)"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Disable invalid Gemini credential for teacher voting only
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'true' | npx --yes vercel@latest env add INSTACOMP_TEACHER_GEMINI_DISABLED production --force --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo 'TEACHER_GEMINI_DISABLED_SET=true'
+
+      - name: Deploy current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN="$(git rev-parse HEAD)"
+          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/tmp/vercel-prod.log
+          echo "PRODUCTION_DEPLOYED_MAIN=$CURRENT_MAIN"
+
+      - name: Prove live two-family teacher configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            if curl -fsS --max-time 60 -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > /tmp/runtime.json 2>/dev/null; then
+              if node - <<'NODE'
+              const p=require('/tmp/runtime.json');
+              const c=p.configuration||{};
+              const safe={
+                success:Boolean(p.success),
+                geminiConfigured:Boolean(c.geminiConfigured),
+                groqConfigured:Boolean(c.groqConfigured),
+                gatewayPerplexityConfigured:Boolean(c.gatewayPerplexityConfigured),
+                votingTeacherCount:Number(c.votingTeacherCount||0),
+                requiredVotes:Number(c.requiredVotes||0),
+                teacherConsensusOperational:Boolean(c.teacherConsensusOperational),
+                onlineCompLearnMode:Boolean(c.onlineCompLearnMode),
+              };
+              console.log('PRODUCTION_GATEWAY_TEACHER_CONFIGURATION='+JSON.stringify(safe));
+              if(!safe.success || safe.geminiConfigured || !safe.groqConfigured || !safe.gatewayPerplexityConfigured || safe.votingTeacherCount!==2 || safe.requiredVotes!==2 || !safe.teacherConsensusOperational || !safe.onlineCompLearnMode) process.exit(1);
+              NODE
+              then exit 0; fi
+            fi
+            sleep 3
+          done
+          echo 'Production did not report the required Groq + Gateway Perplexity teacher configuration.' >&2
+          cat /tmp/runtime.json 2>/dev/null || true
+          exit 1
