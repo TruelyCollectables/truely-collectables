@@ -38,22 +38,6 @@ jobs:
           echo "PRODUCTION_DEPLOYED_MAIN=$CURRENT_MAIN"
           echo "PRODUCTION_DEPLOYMENT_URL_RESOLVED=true"
 
-      - name: Read compact teacher receipts from exact deployment
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_URL="$(cat deployment-url.txt)"
-          code="$(curl -sS -o teachers.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$BASE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics?mode=teachers&since=2026-08-11T00:32:00.000Z" || true)"
-          echo "COMPACT_TEACHER_DIAGNOSTICS_HTTP=$code"
-          node - <<'NODE'
-          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('teachers.json','utf8'))}catch{}
-          const safe={success:Boolean(p.success),mode:p.mode||null,since:p.since||null,checkedAt:p.checkedAt||null,teacherReceiptCount:Array.isArray(p.teacherReceipts)?p.teacherReceipts.length:0,runCount:Array.isArray(p.latestRuns)?p.latestRuns.length:0,error:p.error?String(p.error).slice(0,300):null};
-          console.log('COMPACT_TEACHER_DIAGNOSTICS_SAFE='+JSON.stringify(safe));
-          if(!p.success||p.mode!=='teachers') process.exit(1);
-          NODE
-
       - name: Require exact deployment two-family teacher configuration
         shell: bash
         run: |
@@ -68,20 +52,55 @@ jobs:
           if(!safe.success||safe.geminiConfigured||!safe.groqConfigured||!safe.gatewayPerplexityConfigured||safe.votingTeacherCount!==2||safe.requiredVotes!==2||!safe.teacherConsensusOperational||!safe.macLearningBridgeConfigured||!safe.onlineCompLearnMode) process.exit(1);
           NODE
 
-      - name: Prove actual Groq and Gateway Perplexity calls from Production receipts
+      - name: Force fresh bounded Ivan Deal Hunter run
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="$(cat deployment-url.txt)"
+          code="$(curl -sS -o targeted.json -w '%{http_code}' --connect-timeout 10 --max-time 320 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$BASE_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&limit=10" || true)"
+          echo "TARGETED_IVAN_HTTP=$code"
+          node - <<'NODE'
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('targeted.json','utf8'))}catch{}
+          const r=p.run||{};
+          const safe={success:Boolean(p.success),lane:p.lane||null,runId:r.runId||null,status:r.status||null,discoveryCount:Number(r.discoveryCount||0),evaluatedCount:Number(r.evaluatedCount||0),actionableCount:Number(r.actionableCount||0),manualReviewCount:Number(r.manualReviewCount||0),failureCount:Number(r.failureCount||0),error:p.error?String(p.error).slice(0,500):null};
+          console.log('FRESH_TARGETED_IVAN_RECEIPT='+JSON.stringify(safe));
+          if(!p.success||p.lane!=='ivan_demidov'||!r.runId||r.status!=='completed'||Number(r.discoveryCount||0)<=0||Number(r.evaluatedCount||0)<=0) process.exit(1);
+          fs.writeFileSync('run-id.txt',String(r.runId));
+          NODE
+
+      - name: Read only fresh run teacher receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="$(cat deployment-url.txt)"
+          RUN_ID="$(cat run-id.txt)"
+          code="$(curl -sS -o teachers.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$BASE_URL/api/release/instacomp-deal-hunter-teacher-run-diagnostics?runId=$RUN_ID" || true)"
+          echo "RUN_SCOPED_TEACHER_DIAGNOSTICS_HTTP=$code"
+          node - <<'NODE'
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('teachers.json','utf8'))}catch{}
+          const expected=fs.readFileSync('run-id.txt','utf8').trim();
+          const run=p.run||{};
+          const safe={success:Boolean(p.success),runId:p.runId||null,status:run.status||null,teacherReceiptCount:Array.isArray(p.teacherReceipts)?p.teacherReceipts.length:0,error:p.error?String(p.error).slice(0,500):null};
+          console.log('RUN_SCOPED_TEACHER_DIAGNOSTICS='+JSON.stringify(safe));
+          if(!p.success||p.runId!==expected||run.run_id!==expected||run.status!=='completed'||!Array.isArray(p.teacherReceipts)||p.teacherReceipts.length===0) process.exit(1);
+          NODE
+
+      - name: Prove actual Groq and Gateway Perplexity calls from fresh run
         shell: bash
         run: |
           set -euo pipefail
           node - <<'NODE'
           const p=require('./teachers.json');
-          const runs=Array.isArray(p.latestRuns)?p.latestRuns:[];
-          console.log('POST_TIMEOUT_RUNS='+JSON.stringify(runs.map(r=>({runId:r.run_id||null,status:r.status||null,completedAt:r.completed_at||null,discoveryCount:Number(r.discovery_count||0),evaluatedCount:Number(r.evaluated_count||0),actionableCount:Number(r.actionable_count||0),manualReviewCount:Number(r.manual_review_count||0),failureCount:Number(r.failure_count||0)}))));
           const receipts=Array.isArray(p.teacherReceipts)?p.teacherReceipts:[];
-          console.log('LIVE_TEACHER_RECEIPTS='+JSON.stringify(receipts.slice(0,25)));
+          console.log('FRESH_LIVE_TEACHER_RECEIPTS='+JSON.stringify(receipts));
           const gatewayLive=receipts.some(r=>Array.isArray(r.attempts)&&r.attempts.some(a=>a.teacher==='gateway_perplexity'&&a.configured===true&&a.ok===true));
           const groqLive=receipts.some(r=>Array.isArray(r.attempts)&&r.attempts.some(a=>(a.teacher==='groq'||a.teacher==='groq_browser')&&a.configured===true&&a.ok===true));
           const correctVotes=receipts.some(r=>Number(r.requiredVotes||0)===2&&Array.isArray(r.configuredTeachers)&&r.configuredTeachers.includes('gateway_perplexity')&&(r.configuredTeachers.includes('groq')||r.configuredTeachers.includes('groq_browser')));
           const eligibleLessons=receipts.filter(r=>r.teacherLearning?.studentTrainingEligible===true);
-          console.log('PRODUCTION_TEACHER_CALL_PROOF='+JSON.stringify({receiptRows:receipts.length,gatewayPerplexityLive:gatewayLive,groqFamilyLive:groqLive,twoVoteConfigurationProven:correctVotes,studentTrainingEligibleReceipts:eligibleLessons.length}));
+          console.log('FRESH_PRODUCTION_TEACHER_CALL_PROOF='+JSON.stringify({runId:p.runId||null,receiptRows:receipts.length,gatewayPerplexityLive:gatewayLive,groqFamilyLive:groqLive,twoVoteConfigurationProven:correctVotes,studentTrainingEligibleReceipts:eligibleLessons.length}));
           if(!gatewayLive||!groqLive||!correctVotes) process.exit(2);
           NODE
