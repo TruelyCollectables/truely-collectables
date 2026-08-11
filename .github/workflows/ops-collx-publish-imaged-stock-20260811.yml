@@ -30,7 +30,7 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Wait for safe production activation writer
+      - name: Wait for quarantine-release production writer
         shell: bash
         run: |
           set -euo pipefail
@@ -44,8 +44,9 @@ jobs:
               ok=(
                   d.get('success') is True
                   and d.get('operation') == 'collx-publish-imaged-stock-20260811'
-                  and d.get('writer') == 'safe-id-updates-v2'
+                  and d.get('writer') == 'migration-quarantine-release-v3'
                   and 'eligibleWithAtLeastOneOwnedImageAndPrice' in d
+                  and d.get('unsafeSetAside') == 0
               )
           except Exception:
               ok=False
@@ -60,7 +61,7 @@ jobs:
           done
           test "$ready" = '1'
 
-      - name: Publish eligible CollX inventory
+      - name: Publish eligible inventory
         shell: bash
         run: |
           set -euo pipefail
@@ -76,10 +77,10 @@ jobs:
             python3 - <<'PY'
           import json,sys
           d=json.load(open('/tmp/activation.json'))
-          if d.get('success') is not True or d.get('writer') != 'safe-id-updates-v2':
+          if d.get('success') is not True or d.get('writer') != 'migration-quarantine-release-v3':
               sys.exit(2)
           a=d.get('after') or {}
-          done=(a.get('remainingEligible') == 0 and a.get('quarantinePending') == 0)
+          done=(a.get('remainingEligible') == 0 and a.get('unsafeSetAside') == 0)
           sys.exit(0 if done else 1)
           PY
             status=$?
@@ -106,9 +107,9 @@ jobs:
           d['verification']='production'
           failures=[]
           if d.get('success') is not True: failures.append('route_not_successful')
-          if d.get('writer') != 'safe-id-updates-v2': failures.append('stale_route_version')
+          if d.get('writer') != 'migration-quarantine-release-v3': failures.append('stale_route_version')
           if d.get('remainingEligible') != 0: failures.append('eligible_rows_remaining')
-          if d.get('quarantinePending') != 0: failures.append('quarantine_not_enforced')
+          if d.get('unsafeSetAside') != 0: failures.append('set_aside_rows_live')
           if d.get('liveCollxImageRefs') != 0: failures.append('live_collx_image_refs_remaining')
           d['verificationFailures']=failures
           open('.github/ops/collx-sale-activation-20260811.json','w').write(json.dumps(d,indent=2)+'\n')
