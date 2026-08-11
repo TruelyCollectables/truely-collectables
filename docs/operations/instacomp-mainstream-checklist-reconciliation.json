@@ -1,6 +1,6 @@
 {
   "schema": "tcos.checklist.mainstreamBacklogReconciliation.v1",
-  "checkedAt": "2026-08-11T09:41:28.910Z",
+  "checkedAt": "2026-08-11T20:13:49.442Z",
   "expectedSources": 327,
   "catalogRows": 327,
   "rawArchived": 327,
@@ -15,10 +15,10 @@
   "missing": [],
   "complete": true,
   "workflowEvidence": {
-    "runId": "31478495108",
+    "runId": "31531209754",
     "runAttempt": "1",
     "workflow": "Ingest Mainstream Checklists 2000 Plus",
-    "event": "schedule",
-    "sourceSha": "e62d224210b9e7974c844e1b6969daff1d22bff9"
+    "event": "push",
+    "sourceSha": "2b4da568ff079b342c752908f48e29922bb165d4"
   }
 }
