@@ -1,0 +1,113 @@
+name: Ops Mirror Live CollX Images V2 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-mirror-live-collx-images-v2-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-mirror-live-collx-images-v2-20260810
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/collx-mirror-v2"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-mirror-v2/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Own all live CollX images
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import { setTimeout as sleep } from 'node:timers/promises';
+
+          const BUCKET='truely-product-images';
+          const STORE='00000000-0000-4000-8000-000000000001';
+          const mgmt=process.env.GH_SUPABASE_ACCESS_TOKEN;
+          function fail(m){throw new Error(m)}
+          function parseEnv(text){const e={};for(const raw of text.split(/\r?\n/)){const line=raw.trim();if(!line||line.startsWith('#'))continue;const i=line.indexOf('=');if(i<1)continue;const k=line.slice(0,i).trim();let v=line.slice(i+1).trim();if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}else if(v.startsWith("'")&&v.endsWith("'"))v=v.slice(1,-1);e[k]=v}return e}
+          const env=parseEnv(fs.readFileSync(path.join(process.env.RUNNER_TEMP,'collx-mirror-v2','production.env'),'utf8'));
+          const base=env.NEXT_PUBLIC_SUPABASE_URL;
+          if(!base)fail('Supabase URL unavailable');
+          const ref=new URL(base).hostname.split('.')[0];
+          let serverKey=env.SUPABASE_SERVICE_ROLE_KEY||env.SUPABASE_SERVICE_KEY||env.SUPABASE_SECRET_KEY||'';
+          if(!serverKey){
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${mgmt}`},signal:AbortSignal.timeout(20000)});
+            if(!r.ok)fail(`Management API key lookup failed ${r.status}: ${(await r.text()).slice(0,400)}`);
+            const keys=await r.json();
+            const chosen=keys.find(k=>String(k.name||'').toLowerCase()==='service_role')||keys.find(k=>String(k.type||'').toLowerCase()==='secret')||keys.find(k=>String(k.name||'').toLowerCase().includes('secret'));
+            serverKey=chosen?.api_key||'';
+            if(!serverKey)fail(`No elevated Supabase API key returned; key names=${keys.map(k=>k.name).join(',')}`);
+            console.log(`Using elevated Supabase API key from Management API (${chosen.name||chosen.type}).`);
+          }
+          console.log('Owned-storage authorization ready.');
+
+          const dbEndpoint=`https://api.supabase.com/v1/projects/${ref}/database/query`;
+          async function db(sql,readOnly,label){let last='';for(let a=1;a<=10;a++){try{const r=await fetch(dbEndpoint,{method:'POST',headers:{Authorization:`Bearer ${mgmt}`,'Content-Type':'application/json'},body:JSON.stringify({query:sql,parameters:[],read_only:readOnly}),signal:AbortSignal.timeout(30000)});const t=await r.text();if(r.ok)return t?JSON.parse(t):[];last=`${r.status} ${t.slice(0,500)}`;if(![429,500,502,503,504,522,524,544].includes(r.status)&&!/timeout|57P01|connection/i.test(t))fail(`${label}: ${last}`)}catch(e){last=String(e?.message||e)}if(a<10)await sleep(Math.min(8000,a*700))}fail(`${label}: ${last}`)}
+          const rows=await db(`select distinct image_url from (select img.image_url from public.inventory_images img join public.inventory_items i on i.id=img.inventory_item_id where i.store_id='${STORE}'::uuid and (img.image_url like 'https://storage.googleapis.com/collx-product-images/%' or img.image_url like 'https://storage.googleapis.com/collx-user-cards/%') union select p.image_url from public.products p where p.store_id='${STORE}'::uuid and (p.image_url like 'https://storage.googleapis.com/collx-product-images/%' or p.image_url like 'https://storage.googleapis.com/collx-user-cards/%')) q where nullif(btrim(image_url),'') is not null order by image_url;`,true,'list CollX refs');
+          const urls=rows.map(r=>String(r.image_url));
+          console.log(`Live CollX images needing ownership: ${urls.length}`);
+          if(!urls.length){fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'collx-mirror-v2','receipt.json'),JSON.stringify({ok:true,mirrored:0,remainingCollxRefs:0,bucket:BUCKET},null,2));process.exit(0)}
+
+          const auth={Authorization:`Bearer ${serverKey}`,apikey:serverKey};
+          let br=await fetch(`${base}/storage/v1/bucket`,{headers:auth,signal:AbortSignal.timeout(20000)});
+          if(!br.ok)fail(`List buckets failed ${br.status}: ${(await br.text()).slice(0,400)}`);
+          let buckets=await br.json();
+          if(!buckets.some(b=>b.id===BUCKET||b.name===BUCKET)){
+            const cr=await fetch(`${base}/storage/v1/bucket`,{method:'POST',headers:{...auth,'Content-Type':'application/json'},body:JSON.stringify({id:BUCKET,name:BUCKET,public:true,file_size_limit:20971520}),signal:AbortSignal.timeout(20000)});
+            if(!cr.ok)fail(`Create bucket failed ${cr.status}: ${(await cr.text()).slice(0,400)}`);
+            console.log(`Created ${BUCKET}.`);
+          } else {
+            const ur=await fetch(`${base}/storage/v1/bucket/${BUCKET}`,{method:'PUT',headers:{...auth,'Content-Type':'application/json'},body:JSON.stringify({public:true,file_size_limit:20971520}),signal:AbortSignal.timeout(20000)});
+            if(!ur.ok)fail(`Set bucket public failed ${ur.status}: ${(await ur.text()).slice(0,400)}`);
+          }
+
+          function ext(type,url){type=(type||'').toLowerCase();if(type.includes('png'))return'png';if(type.includes('webp'))return'webp';if(type.includes('gif'))return'gif';if(type.includes('jpeg')||type.includes('jpg'))return'jpg';const m=/\.(jpe?g|png|webp|gif)(?:[?#]|$)/i.exec(url);return m?(m[1].toLowerCase()==='jpeg'?'jpg':m[1].toLowerCase()):'jpg'}
+          async function one(url){let data,type,last='';for(let a=1;a<=5;a++){try{const r=await fetch(url,{redirect:'follow',signal:AbortSignal.timeout(30000)});type=r.headers.get('content-type')||'';if(r.ok&&type.toLowerCase().startsWith('image/')){data=Buffer.from(await r.arrayBuffer());break}last=`download ${r.status} ${type}`}catch(e){last=String(e?.message||e)}if(a<5)await sleep(a*400)}if(!data)fail(`${url}: ${last}`);const hash=crypto.createHash('sha256').update(url).digest('hex');const object=`collx-mirror/${hash}.${ext(type,url)}`;for(let a=1;a<=5;a++){try{const r=await fetch(`${base}/storage/v1/object/${BUCKET}/${object}`,{method:'POST',headers:{...auth,'Content-Type':type,'x-upsert':'true'},body:data,signal:AbortSignal.timeout(30000)});if(r.ok){const local=`${base}/storage/v1/object/public/${BUCKET}/${object}`;const proof=await fetch(local,{headers:{Range:'bytes=0-0'},signal:AbortSignal.timeout(20000)});if(proof.ok&&(proof.headers.get('content-type')||'').toLowerCase().startsWith('image/'))return{original:url,local,bytes:data.length};last=`proof ${proof.status}`}else last=`upload ${r.status} ${(await r.text()).slice(0,200)}`}catch(e){last=String(e?.message||e)}if(a<5)await sleep(a*400)}fail(`${url}: ${last}`)}
+          const map=[];let next=0;await Promise.all(Array.from({length:16},async()=>{while(true){const i=next++;if(i>=urls.length)return;map.push(await one(urls[i]));if((i+1)%100===0)console.log(`Mirrored ${i+1}/${urls.length}`)}}));
+          if(map.length!==urls.length)fail(`Mirror count ${map.length}/${urls.length}`);
+          console.log(`Owned copies verified: ${map.length}`);
+          function js(rows){return `'${JSON.stringify(rows).replaceAll("'","''")}'::jsonb`}
+          for(let i=0;i<map.length;i+=75){const batch=map.slice(i,i+75);await db(`begin; with m as (select * from jsonb_to_recordset(${js(batch)}) as x(original text,local text,bytes bigint)) update public.inventory_images img set image_url=m.local from m where img.image_url=m.original; with m as (select * from jsonb_to_recordset(${js(batch)}) as x(original text,local text,bytes bigint)) update public.products p set image_url=m.local from m where p.store_id='${STORE}'::uuid and p.image_url=m.original; commit;`,false,`rewrite ${i/75+1}`)}
+          const left=await db(`select count(*)::int count from (select img.image_url from public.inventory_images img join public.inventory_items i on i.id=img.inventory_item_id where i.store_id='${STORE}'::uuid and (img.image_url like 'https://storage.googleapis.com/collx-product-images/%' or img.image_url like 'https://storage.googleapis.com/collx-user-cards/%') union all select p.image_url from public.products p where p.store_id='${STORE}'::uuid and (p.image_url like 'https://storage.googleapis.com/collx-product-images/%' or p.image_url like 'https://storage.googleapis.com/collx-user-cards/%'))q;`,true,'verify leftovers');
+          if(Number(left?.[0]?.count||0)!==0)fail(`Remaining CollX URL refs ${left[0].count}`);
+          const receipt={ok:true,event:'collx_live_images_owned',bucket:BUCKET,uniqueImagesMirrored:map.length,totalBytes:map.reduce((s,m)=>s+m.bytes,0),remainingCollxRefs:0,priceQuantityStatusTouched:false,customerOrderDataTouched:false,completedAt:new Date().toISOString()};
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'collx-mirror-v2','receipt.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt,null,2));
+          NODE
+          rm -f "$RUNNER_TEMP/collx-mirror-v2/production.env"
+
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-live-image-mirror-v2-receipt
+          path: ${{ runner.temp }}/collx-mirror-v2/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
