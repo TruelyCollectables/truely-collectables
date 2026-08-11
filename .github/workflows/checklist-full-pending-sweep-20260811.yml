@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      EXPECTED_MAIN: 2b4da568ff079b342c752908f48e29922bb165d4
+      EXPECTED_MAIN: c8e9637f25251fbc243d85672f290fffe7670768
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -60,26 +60,35 @@ jobs:
           sudo apt-get install -y -qq poppler-utils
           python3 -m pip install --user --quiet openpyxl xlrd
 
-      - name: Keep direct files out of browser fallback and prove fail-closed guards
+      - name: Harden direct-file capture and transient read-only catalog transport
         shell: python3 {0}
         run: |
           from pathlib import Path
           p=Path('scripts/run-verified-checklist-recovery-production.mjs')
           t=p.read_text('utf-8')
-          old='''  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'''
-          new='''  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'''
-          if old in t:
-              t=t.replace(old,new,1)
-              p.write_text(t,'utf-8')
+
+          old_capture='''  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'''
+          new_capture='''  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'''
+          if old_capture in t:
+              t=t.replace(old_capture,new_capture,1)
           elif 'const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)' not in t:
               raise SystemExit('browser fallback guard anchor changed')
-        
+
+          old_catalog='''async function catalogState(db, urls) {\n  if (!db || !urls.length) return new Map();\n  const rows = [];\n  const unique = [...new Set(urls)];\n  for (let index = 0; index < unique.length; index += 100) {\n    const { data, error } = await db\n      .from("checklist_source_catalog")\n      .select("source_url,status,metadata,validation_counts")\n      .in("source_url", unique.slice(index, index + 100));\n    if (error) throw new Error(`Could not read checklist source catalog: ${error.message}`);\n    rows.push(...(data || []));\n  }\n  return new Map(rows.map((row) => [row.source_url, row]));\n}'''
+          new_catalog='''function transientCatalogRead(error) {\n  const code = String(error?.code || "");\n  const status = Number(error?.status || error?.statusCode || code);\n  const text = String(error?.message || error || "").toLowerCase();\n  return [408, 425, 429, 500, 502, 503, 504, 521].includes(status)\n    || /^pgrst00[0-3]$/i.test(code)\n    || /web server is down|schema cache|fetch failed|network|timeout|connection reset|temporarily unavailable/.test(text);\n}\n\nasync function catalogState(db, urls) {\n  if (!db || !urls.length) return new Map();\n  const rows = [];\n  const unique = [...new Set(urls)];\n  for (let index = 0; index < unique.length; index += 100) {\n    let result = null;\n    for (let attempt = 1; attempt <= 6; attempt += 1) {\n      result = await db\n        .from("checklist_source_catalog")\n        .select("source_url,status,metadata,validation_counts")\n        .in("source_url", unique.slice(index, index + 100));\n      if (!result.error) break;\n      if (!transientCatalogRead(result.error) || attempt === 6) {\n        throw new Error(`Could not read checklist source catalog: ${result.error.message}`);\n      }\n      await new Promise((resolvePromise) => setTimeout(resolvePromise, Math.min(8000, 500 * (2 ** (attempt - 1)))));\n    }\n    rows.push(...(result?.data || []));\n  }\n  return new Map(rows.map((row) => [row.source_url, row]));\n}'''
+          if old_catalog not in t:
+              raise SystemExit('catalogState anchor changed')
+          t=t.replace(old_catalog,new_catalog,1)
+          p.write_text(t,'utf-8')
+
       - name: Prove complete verified inventory and parser safety
         shell: bash
         run: |
           set -euo pipefail
           grep -F 'minimumCardRows: 25' scripts/run-verified-checklist-recovery-production.mjs >/dev/null
           grep -F 'reference_card_number_subject_conflict' scripts/mainstream-checklist/source-tools.mjs >/dev/null
+          grep -F '[408, 425, 429, 500, 502, 503, 504, 521].includes(status)' scripts/run-verified-checklist-recovery-production.mjs >/dev/null
+          grep -F 'attempt <= 6' scripts/run-verified-checklist-recovery-production.mjs >/dev/null
           node --import tsx --input-type=module <<'NODE'
           import { runParserSelfTest } from './scripts/mainstream-checklist/source-tools.mjs';
           const r=runParserSelfTest();
