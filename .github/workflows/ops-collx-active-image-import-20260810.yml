@@ -1,0 +1,352 @@
+name: Ops CollX Active Image Import 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-active-image-import-20260810.yml"
+      - ".github/ops/collx-active-safe-manifest.part*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-collx-active-image-import-20260810
+  cancel-in-progress: false
+
+jobs:
+  import-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/collx-image-import"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-image-import/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Verify manifest, live targets, remote images, and apply image-only import
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import { gunzipSync } from 'node:zlib';
+          import { setTimeout as sleep } from 'node:timers/promises';
+
+          const EXPECTED_SHA256 = '115e5d6ebc34e94f0e10d37eb891f762d7055f43ac1e5212e11bc4e2e6257ea6';
+          const EXPECTED_COUNT = 466;
+          const STORE_ID = '00000000-0000-4000-8000-000000000001';
+          const PARTS = [
+            '.github/ops/collx-active-safe-manifest.part0',
+            '.github/ops/collx-active-safe-manifest.part1',
+            '.github/ops/collx-active-safe-manifest.part2a',
+            '.github/ops/collx-active-safe-manifest.part2b',
+            '.github/ops/collx-active-safe-manifest.part3a',
+            '.github/ops/collx-active-safe-manifest.part3b',
+            '.github/ops/collx-active-safe-manifest.part4a',
+            '.github/ops/collx-active-safe-manifest.part4b',
+          ];
+
+          function fail(message) { throw new Error(message); }
+          function parseEnv(text) {
+            const env = {};
+            for (const rawLine of text.split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line || line.startsWith('#')) continue;
+              const index = line.indexOf('=');
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim();
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              env[key] = value;
+            }
+            return env;
+          }
+
+          const packed = PARTS.map((file) => fs.readFileSync(file, 'utf8').trim()).join('');
+          const raw = gunzipSync(Buffer.from(packed, 'base64'));
+          const digest = crypto.createHash('sha256').update(raw).digest('hex');
+          if (digest !== EXPECTED_SHA256) fail(`Manifest checksum mismatch: ${digest}`);
+          const manifest = JSON.parse(raw.toString('utf8'));
+          if (!Array.isArray(manifest) || manifest.length !== EXPECTED_COUNT) {
+            fail(`Expected ${EXPECTED_COUNT} manifest rows, received ${manifest?.length ?? 'non-array'}.`);
+          }
+
+          const inventoryIds = new Set();
+          const productIds = new Set();
+          const collxIds = new Set();
+          let backCount = 0;
+          const imageUrls = [];
+          for (const row of manifest) {
+            if (!/^[0-9a-f-]{36}$/i.test(String(row.i || ''))) fail(`Invalid inventory id ${row.i}`);
+            if (!Number.isInteger(Number(row.p)) || Number(row.p) <= 0) fail(`Invalid product id ${row.p}`);
+            if (!/^\d+$/.test(String(row.c || ''))) fail(`Invalid CollX id ${row.c}`);
+            const expectedPrefix = `https://storage.googleapis.com/collx-product-images/${row.c}-`;
+            if (!String(row.f || '').startsWith(`${expectedPrefix}1-`)) fail(`Invalid CollX front URL for ${row.c}`);
+            if (row.b && !String(row.b).startsWith(`${expectedPrefix}2-`)) fail(`Invalid CollX back URL for ${row.c}`);
+            if (inventoryIds.has(row.i)) fail(`Duplicate inventory id ${row.i}`);
+            if (productIds.has(Number(row.p))) fail(`Duplicate product id ${row.p}`);
+            if (collxIds.has(String(row.c))) fail(`Duplicate CollX id ${row.c}`);
+            inventoryIds.add(row.i);
+            productIds.add(Number(row.p));
+            collxIds.add(String(row.c));
+            imageUrls.push(row.f);
+            if (row.b) { backCount += 1; imageUrls.push(row.b); }
+          }
+          if (backCount !== 422) fail(`Expected 422 back images, received ${backCount}.`);
+          console.log(JSON.stringify({ manifestRows: manifest.length, frontImages: manifest.length, backImages: backCount, digest }));
+
+          async function verifyRemoteImage(url) {
+            const request = async (method) => fetch(url, {
+              method,
+              redirect: 'follow',
+              headers: method === 'GET' ? { Range: 'bytes=0-0' } : undefined,
+              signal: AbortSignal.timeout(20000),
+            });
+            let response;
+            try { response = await request('HEAD'); } catch { response = null; }
+            if (!response || response.status === 405 || response.status === 501 || !response.ok) {
+              try { response = await request('GET'); } catch { response = null; }
+            }
+            const type = response?.headers.get('content-type') || '';
+            return Boolean(response?.ok && type.toLowerCase().startsWith('image/'));
+          }
+
+          const uniqueUrls = [...new Set(imageUrls)];
+          let nextUrl = 0;
+          const failedImages = [];
+          async function worker() {
+            while (true) {
+              const index = nextUrl++;
+              if (index >= uniqueUrls.length) return;
+              const url = uniqueUrls[index];
+              let ok = false;
+              for (let attempt = 1; attempt <= 3 && !ok; attempt += 1) {
+                ok = await verifyRemoteImage(url);
+                if (!ok && attempt < 3) await sleep(500 * attempt);
+              }
+              if (!ok) failedImages.push(url);
+              if ((index + 1) % 100 === 0) console.log(`Verified ${index + 1}/${uniqueUrls.length} remote images.`);
+            }
+          }
+          await Promise.all(Array.from({ length: 24 }, () => worker()));
+          if (failedImages.length) fail(`Remote image verification failed for ${failedImages.length} URL(s): ${failedImages.slice(0, 5).join(', ')}`);
+          console.log(`Verified ${uniqueUrls.length}/${uniqueUrls.length} CollX image URLs.`);
+
+          const envPath = path.join(process.env.RUNNER_TEMP, 'collx-image-import', 'production.env');
+          const env = parseEnv(fs.readFileSync(envPath, 'utf8'));
+          const productionUrl = env.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) fail('Production Supabase URL unavailable.');
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!projectRef || !token) fail('Production Supabase management access unavailable.');
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
+
+          function transient(status, body) {
+            return [429, 500, 502, 503, 504, 522, 524, 544].includes(status) ||
+              /timeout|connection terminated|terminating connection|administrator command|57P01|temporar|cloudflare|network/i.test(body);
+          }
+          async function dbQuery(sql, { readOnly, label }) {
+            let last = '';
+            for (let attempt = 1; attempt <= 10; attempt += 1) {
+              let response;
+              let body = '';
+              try {
+                response = await fetch(endpoint, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ query: sql, parameters: [], read_only: readOnly }),
+                });
+                body = await response.text();
+              } catch (error) {
+                last = String(error?.message || error);
+                if (attempt === 10) fail(`${label} transport failed: ${last}`);
+                await sleep(Math.min(15000, 1000 * attempt));
+                continue;
+              }
+              if (response.ok) return body ? JSON.parse(body) : [];
+              last = `HTTP ${response.status}: ${body.slice(0, 1200)}`;
+              if (!transient(response.status, body) || attempt === 10) fail(`${label} failed: ${last}`);
+              console.log(`${label}: transient ${response.status}; retry ${attempt}/10`);
+              await sleep(Math.min(15000, 1000 * attempt));
+            }
+            fail(`${label} failed: ${last}`);
+          }
+          function jsonSql(rows) { return `'${JSON.stringify(rows).replaceAll("'", "''")}'::jsonb`; }
+          function chunks(values, size) {
+            const out = [];
+            for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
+            return out;
+          }
+
+          // Fail closed before any write if a target has moved, sold, archived, lost its eBay link, or no longer maps 1:1.
+          const guardFailures = [];
+          for (const [index, batch] of chunks(manifest, 75).entries()) {
+            const rows = await dbQuery(`
+              with m as (
+                select * from jsonb_to_recordset(${jsonSql(batch)})
+                  as x(i text, p bigint, c text, f text, b text)
+              )
+              select m.i, m.p, m.c,
+                     case
+                       when i.id is null then 'inventory_missing'
+                       when i.store_id <> '${STORE_ID}'::uuid then 'wrong_store'
+                       when i.legacy_product_id is distinct from m.p then 'legacy_product_changed'
+                       when i.status <> 'active' then 'inventory_not_active'
+                       when coalesce(i.quantity, 0) <= 0 then 'inventory_quantity_zero'
+                       when p.id is null then 'product_missing'
+                       when p.archived_at is not null then 'product_archived'
+                       when coalesce(p.quantity, 0) <= 0 then 'product_quantity_zero'
+                       when coalesce(p.price, 0) <= 0 then 'product_price_zero'
+                       when nullif(btrim(coalesce(p.ebay_item_id, '')), '') is null then 'ebay_link_missing'
+                       else null
+                     end as reason
+              from m
+              left join public.inventory_items i on i.id = m.i::uuid
+              left join public.products p on p.id = m.p and p.store_id = '${STORE_ID}'::uuid
+              where i.id is null
+                 or i.store_id <> '${STORE_ID}'::uuid
+                 or i.legacy_product_id is distinct from m.p
+                 or i.status <> 'active'
+                 or coalesce(i.quantity, 0) <= 0
+                 or p.id is null
+                 or p.archived_at is not null
+                 or coalesce(p.quantity, 0) <= 0
+                 or coalesce(p.price, 0) <= 0
+                 or nullif(btrim(coalesce(p.ebay_item_id, '')), '') is null;
+            `, { readOnly: true, label: `guard batch ${index + 1}` });
+            guardFailures.push(...rows);
+          }
+          if (guardFailures.length) fail(`Live target guard blocked ${guardFailures.length} card(s): ${JSON.stringify(guardFailures.slice(0, 10))}`);
+          console.log(`Live guard passed for all ${manifest.length} active eBay-backed targets.`);
+
+          // Idempotent image-only writes. Existing eBay photos are preserved; only prior CollX-export rows on these exact inventory ids are replaced.
+          for (const [index, batch] of chunks(manifest, 40).entries()) {
+            await dbQuery(`
+              begin;
+              with m as (
+                select * from jsonb_to_recordset(${jsonSql(batch)})
+                  as x(i text, p bigint, c text, f text, b text)
+              )
+              update public.products p
+                 set image_url = m.f
+                from m
+               where p.id = m.p
+                 and p.store_id = '${STORE_ID}'::uuid;
+
+              with m as (
+                select * from jsonb_to_recordset(${jsonSql(batch)})
+                  as x(i text, p bigint, c text, f text, b text)
+              )
+              update public.inventory_images img
+                 set is_primary = false
+               where img.inventory_item_id in (select m.i::uuid from m)
+                 and img.is_primary = true;
+
+              with m as (
+                select * from jsonb_to_recordset(${jsonSql(batch)})
+                  as x(i text, p bigint, c text, f text, b text)
+              )
+              delete from public.inventory_images img
+               where img.inventory_item_id in (select m.i::uuid from m)
+                 and img.image_url like 'https://storage.googleapis.com/collx-product-images/%';
+
+              with m as (
+                select * from jsonb_to_recordset(${jsonSql(batch)})
+                  as x(i text, p bigint, c text, f text, b text)
+              ), rows as (
+                select m.i::uuid as inventory_item_id, m.f as image_url, 'CollX verified front'::text as alt_text, -2 as sort_order, true as is_primary
+                from m
+                union all
+                select m.i::uuid, m.b, 'CollX verified back'::text, -1, false
+                from m where nullif(m.b, '') is not null
+              )
+              insert into public.inventory_images (inventory_item_id, image_url, alt_text, sort_order, is_primary)
+              select inventory_item_id, image_url, alt_text, sort_order, is_primary from rows;
+              commit;
+            `, { readOnly: false, label: `apply batch ${index + 1}` });
+            console.log(`Applied image-only batch ${index + 1}/${Math.ceil(manifest.length / 40)}.`);
+          }
+
+          const verificationFailures = [];
+          for (const [index, batch] of chunks(manifest, 75).entries()) {
+            const rows = await dbQuery(`
+              with m as (
+                select * from jsonb_to_recordset(${jsonSql(batch)})
+                  as x(i text, p bigint, c text, f text, b text)
+              ), actual as (
+                select m.i, m.p, m.c, m.f, m.b,
+                       p.image_url as product_front,
+                       count(*) filter (where img.image_url = m.f) as front_rows,
+                       count(*) filter (where m.b is not null and img.image_url = m.b) as back_rows,
+                       count(*) filter (where img.image_url = m.f and img.is_primary) as primary_front_rows
+                from m
+                join public.products p on p.id = m.p and p.store_id = '${STORE_ID}'::uuid
+                join public.inventory_items i on i.id = m.i::uuid and i.legacy_product_id = m.p and i.store_id = '${STORE_ID}'::uuid
+                left join public.inventory_images img on img.inventory_item_id = i.id
+                group by m.i, m.p, m.c, m.f, m.b, p.image_url
+              )
+              select * from actual
+              where product_front is distinct from f
+                 or front_rows <> 1
+                 or primary_front_rows <> 1
+                 or (b is not null and back_rows <> 1)
+                 or (b is null and back_rows <> 0);
+            `, { readOnly: true, label: `verify batch ${index + 1}` });
+            verificationFailures.push(...rows);
+          }
+          if (verificationFailures.length) fail(`Post-write verification failed for ${verificationFailures.length} card(s): ${JSON.stringify(verificationFailures.slice(0, 10))}`);
+
+          const receipt = {
+            ok: true,
+            event: 'collx_active_image_import_completed',
+            manifestSha256: digest,
+            matchedActiveCards: manifest.length,
+            productFrontsUpdated: manifest.length,
+            inventoryFrontsInserted: manifest.length,
+            inventoryBacksInserted: backCount,
+            remoteImagesVerified: uniqueUrls.length,
+            priceQuantityStatusTouched: false,
+            customerOrderDataTouched: false,
+            completedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'collx-image-import', 'receipt.json'), JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt, null, 2));
+          NODE
+          rm -f "$RUNNER_TEMP/collx-image-import/production.env"
+
+      - name: Upload import receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-active-image-import-receipt
+          path: ${{ runner.temp }}/collx-image-import/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
