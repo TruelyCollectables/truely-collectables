@@ -93,6 +93,11 @@ function normalize(value: unknown) {
     .trim();
 }
 
+function containsSequence(haystack: string, needle: string) {
+  if (!haystack || !needle) return false;
+  return ` ${haystack} `.includes(` ${needle} `);
+}
+
 function normalizedYear(value: unknown) {
   const raw = text(value, 40);
   const match = raw.match(/(?:19|20)\d{2}/);
@@ -247,32 +252,33 @@ function setEvidenceTokens(row: CollxImageRow) {
 
 export function collxIdentityScore(target: CollxImageTarget, row: CollxImageRow) {
   const haystack = targetHaystack(target);
+  const haystackTokens = new Set(haystack.split(" ").filter(Boolean));
   const nameTokens = normalize(row.name)
     .split(" ")
     .filter((token) => token.length >= 2);
-  if (!nameTokens.length || !nameTokens.every((token) => haystack.includes(token))) {
+  if (!nameTokens.length || !nameTokens.every((token) => haystackTokens.has(token))) {
     return 0;
   }
 
   let score = 50;
   const year = normalize(row.year);
   if (year) {
-    if (!haystack.includes(year)) return 0;
+    if (!containsSequence(haystack, year)) return 0;
     score += 15;
   }
 
   const cardNumber = normalize(row.number);
   if (cardNumber) {
-    if (!haystack.includes(cardNumber)) return 0;
+    if (!containsSequence(haystack, cardNumber)) return 0;
     score += 20;
   }
 
   const brand = normalize(row.brand);
-  if (brand && haystack.includes(brand)) score += 5;
+  if (brand && containsSequence(haystack, brand)) score += 5;
 
   const setTokens = setEvidenceTokens(row);
   if (setTokens.length) {
-    const overlap = setTokens.filter((token) => haystack.includes(token)).length;
+    const overlap = setTokens.filter((token) => haystackTokens.has(token)).length;
     const ratio = overlap / setTokens.length;
     if (ratio === 0 && setTokens.length >= 2) return 0;
     score += Math.round(Math.min(20, ratio * 20));
@@ -281,7 +287,7 @@ export function collxIdentityScore(target: CollxImageTarget, row: CollxImageRow)
   const flags = normalize(row.flags);
   if (flags) {
     const flagTokens = flags.split(" ").filter((token) => token.length >= 2);
-    if (flagTokens.some((token) => haystack.includes(token))) score += 3;
+    if (flagTokens.some((token) => haystackTokens.has(token))) score += 3;
   }
 
   return score;
@@ -399,7 +405,10 @@ function fingerprintDistance(left: Fingerprint, right: Fingerprint) {
   return hamming + meanAbsoluteDifference / 8;
 }
 
-async function visualCandidate(target: CollxImageTarget, candidates: Array<{ row: CollxImageRow; score: number }>) {
+async function visualCandidate(
+  target: CollxImageTarget,
+  candidates: Array<{ row: CollxImageRow; score: number }>,
+) {
   const currentUrl =
     target.existingImageUrls.find((url) => text(url) === text(target.productImageUrl)) ||
     target.productImageUrl ||
