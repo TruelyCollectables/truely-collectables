@@ -1,0 +1,102 @@
+name: Ops CollX Active Image Import V2 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-active-image-import-v2-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-collx-active-image-import-20260810
+  cancel-in-progress: false
+
+jobs:
+  import-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/collx-image-import"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-image-import/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Build V2 importer from frozen V1 with legacy CollX URL support
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/ops-collx-active-image-import-20260810.yml').read_text()
+          marker = "          node --input-type=module - <<'NODE'\n"
+          start = source.index(marker) + len(marker)
+          end = source.index("\n          NODE\n", start)
+          lines = source[start:end].splitlines()
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+
+          old_guard = """  const expectedPrefix = `https://storage.googleapis.com/collx-product-images/${row.c}-`;
+          if (!String(row.f || '').startsWith(`${expectedPrefix}1-`)) fail(`Invalid CollX front URL for ${row.c}`);
+          if (row.b && !String(row.b).startsWith(`${expectedPrefix}2-`)) fail(`Invalid CollX back URL for ${row.c}`);"""
+          new_guard = """  const front = String(row.f || '');
+          const back = String(row.b || '');
+          const productPrefix = `https://storage.googleapis.com/collx-product-images/${row.c}-`;
+          const legacyPrefix = 'https://storage.googleapis.com/collx-user-cards/';
+          const legacyFront = new RegExp(`/[^/]+-${row.c}-front\\\\.(?:jpe?g|png|webp)$`, 'i');
+          const legacyBack = new RegExp(`/[^/]+-${row.c}-back\\\\.(?:jpe?g|png|webp)$`, 'i');
+          const frontValid = front.startsWith(`${productPrefix}1-`) || (front.startsWith(legacyPrefix) && legacyFront.test(new URL(front).pathname));
+          const backValid = !back || back.startsWith(`${productPrefix}2-`) || (back.startsWith(legacyPrefix) && legacyBack.test(new URL(back).pathname));
+          if (!frontValid) fail(`Invalid CollX front URL for ${row.c}: ${front}`);
+          if (!backValid) fail(`Invalid CollX back URL for ${row.c}: ${back}`);"""
+          if old_guard not in script:
+              raise SystemExit('Frozen V1 URL guard not found; refusing to build V2 importer.')
+          script = script.replace(old_guard, new_guard, 1)
+
+          old_delete = "and img.image_url like 'https://storage.googleapis.com/collx-product-images/%';"
+          new_delete = "and (img.image_url like 'https://storage.googleapis.com/collx-product-images/%' or img.image_url like 'https://storage.googleapis.com/collx-user-cards/%');"
+          if old_delete not in script:
+              raise SystemExit('Frozen V1 CollX delete guard not found; refusing to build V2 importer.')
+          script = script.replace(old_delete, new_delete, 1)
+
+          out = Path('/tmp/collx-active-image-import-v2.mjs')
+          out.write_text(script)
+          print('Built V2 importer with explicit support for collx-product-images and collx-user-cards only.')
+          PY
+
+      - name: Verify manifest, live targets, remote images, and apply image-only import
+        shell: bash
+        run: |
+          set -euo pipefail
+          node /tmp/collx-active-image-import-v2.mjs
+          rm -f "$RUNNER_TEMP/collx-image-import/production.env"
+
+      - name: Upload import receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-active-image-import-v2-receipt
+          path: ${{ runner.temp }}/collx-image-import/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
