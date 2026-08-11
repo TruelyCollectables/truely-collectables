@@ -19,6 +19,7 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -28,6 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
           mkdir -p .vercel "$RUNNER_TEMP/collx-image-snapshot"
           if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
             printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
@@ -63,60 +66,52 @@ jobs:
             env[key] = value;
           }
 
-          const baseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
-          const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
-          if (!baseUrl || !serviceKey) throw new Error('Production Supabase credentials are unavailable.');
-          console.log('::add-mask::' + serviceKey);
+          const productionUrl = env.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl || !/^https:\/\//.test(productionUrl)) {
+            throw new Error('Production NEXT_PUBLIC_SUPABASE_URL was not pulled from Vercel.');
+          }
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          if (!projectRef) throw new Error('Unable to derive Supabase project reference.');
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          if (!token) throw new Error('SUPABASE_ACCESS_TOKEN is unavailable.');
+          const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
           const storeId = '00000000-0000-4000-8000-000000000001';
 
-          async function readAll(table, select, extra = '') {
-            const rows = [];
-            for (let offset = 0; offset < 50000; offset += 1000) {
-              const url = new URL(`/rest/v1/${table}`, baseUrl);
-              url.searchParams.set('select', select);
-              url.searchParams.set('store_id', `eq.${storeId}`);
-              if (extra) {
-                for (const [key, value] of new URLSearchParams(extra)) url.searchParams.set(key, value);
-              }
-              const response = await fetch(url, {
-                headers: {
-                  apikey: serviceKey,
-                  Authorization: `Bearer ${serviceKey}`,
-                  Range: `${offset}-${offset + 999}`,
-                  Prefer: 'count=exact',
-                },
-              });
-              if (!response.ok) throw new Error(`${table} snapshot failed: HTTP ${response.status} ${await response.text()}`);
-              const batch = await response.json();
-              rows.push(...batch);
-              if (batch.length < 1000) break;
-            }
-            return rows;
-          }
-
-          const products = await readAll(
-            'products',
-            'id,store_id,sku,title,player,sport,ebay_item_id,image_url,quantity,status,archived_at'
-          );
-          const inventoryItems = await readAll(
-            'inventory_items',
-            'id,store_id,legacy_product_id,sku,title,status,quantity,metadata'
-          );
-
-          const inventoryIds = inventoryItems.map((row) => row.id);
-          const inventoryImages = [];
-          for (let index = 0; index < inventoryIds.length; index += 100) {
-            const chunk = inventoryIds.slice(index, index + 100);
-            if (!chunk.length) continue;
-            const url = new URL('/rest/v1/inventory_images', baseUrl);
-            url.searchParams.set('select', 'id,inventory_item_id,image_url,alt_text,sort_order,is_primary');
-            url.searchParams.set('inventory_item_id', `in.(${chunk.join(',')})`);
-            const response = await fetch(url, {
-              headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+          async function query(sql) {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query: sql, parameters: [], read_only: true }),
             });
-            if (!response.ok) throw new Error(`inventory_images snapshot failed: HTTP ${response.status} ${await response.text()}`);
-            inventoryImages.push(...await response.json());
+            const body = await response.text();
+            if (!response.ok) {
+              throw new Error(`Supabase read-only snapshot failed with HTTP ${response.status}: ${body.slice(0, 1000)}`);
+            }
+            return body ? JSON.parse(body) : [];
           }
+
+          const products = await query(`
+            select id, store_id, sku, title, player, sport, ebay_item_id, image_url, quantity, status, archived_at
+            from public.products
+            where store_id = '${storeId}'::uuid
+            order by id;
+          `);
+          const inventoryItems = await query(`
+            select id, store_id, legacy_product_id, sku, title, status, quantity, metadata
+            from public.inventory_items
+            where store_id = '${storeId}'::uuid
+            order by id;
+          `);
+          const inventoryImages = await query(`
+            select img.id, img.inventory_item_id, img.image_url, img.alt_text, img.sort_order, img.is_primary
+            from public.inventory_images img
+            join public.inventory_items i on i.id = img.inventory_item_id
+            where i.store_id = '${storeId}'::uuid
+            order by img.inventory_item_id, img.sort_order, img.id;
+          `);
 
           const output = {
             generated_at: new Date().toISOString(),
