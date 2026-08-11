@@ -243,7 +243,7 @@ async function preview(request: Request) {
 
   return NextResponse.json({
     csvRows: rows.length,
-    csvFrontImages: rows.filter((row) => row.frontImage).length,
+    csvFrontImages: rows.filter((row) => isAllowedCollxImageUrl(row.frontImage)).length,
     csvBackImages: rows.filter((row) => isAllowedCollxImageUrl(row.backImage)).length,
     totalTargets: total,
     offset,
@@ -342,11 +342,12 @@ function validateApplyMatch(input: ApplyMatchInput, target: CollxImageTarget) {
       productImageUrl: target.productImageUrl,
       existingImageUrls: target.existingImageUrls,
     });
-    if (
-      !evidence.includes(row.collxId) &&
-      !evidence.includes(row.frontImage) &&
-      !evidence.includes(row.backImage)
-    ) {
+    const hasIdReference = Boolean(row.collxId) && evidence.includes(row.collxId);
+    const hasFrontReference =
+      Boolean(row.frontImage) && evidence.includes(row.frontImage);
+    const hasBackReference =
+      Boolean(row.backImage) && evidence.includes(row.backImage);
+    if (!hasIdReference && !hasFrontReference && !hasBackReference) {
       throw new Error("The existing CollX reference no longer matches this card.");
     }
     return;
