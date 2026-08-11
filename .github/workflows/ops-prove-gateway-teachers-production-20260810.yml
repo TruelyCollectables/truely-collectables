@@ -29,7 +29,7 @@ jobs:
           git fetch --no-tags origin main
           git checkout --detach origin/main
           CURRENT_MAIN="$(git rev-parse HEAD)"
-          git merge-base --is-ancestor 5957dc96d7e7850fb87028b194696629c90399d1 "$CURRENT_MAIN"
+          git merge-base --is-ancestor 185beb1a2228eec52968dcadb4c7a3cc5714ea8a "$CURRENT_MAIN"
           echo "DIAGNOSTIC_MAIN=$CURRENT_MAIN"
           npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-prod.log
@@ -42,15 +42,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 30); do
-            code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-latest-outcomes" || true)"
+          for attempt in $(seq 1 20); do
+            code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 25 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-latest-outcomes" || true)"
             if [ "$code" = "200" ]; then break; fi
             sleep 3
           done
+          echo "OUTCOMES_HTTP=$code"
           test "$code" = "200"
           node - <<'NODE'
           const p=require('./outcomes.json');
           if(!p.success) throw new Error(JSON.stringify(p));
-          console.log('LATEST_DEAL_HUNTER_SUMMARY='+JSON.stringify({latestRun:p.latestRun||null,summary:p.summary||null}));
+          console.log('LATEST_DEAL_HUNTER_SUMMARY='+JSON.stringify({latestRun:p.latestRun||null,queryWindow:p.queryWindow||null,summary:p.summary||null}));
           console.log('LATEST_DEAL_HUNTER_CANDIDATES='+JSON.stringify(p.candidates||[]));
           NODE
