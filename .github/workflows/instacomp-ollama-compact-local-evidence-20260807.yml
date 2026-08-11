@@ -9,11 +9,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: collx-full-migration-20260811
+  group: collx-full-migration-v2-20260811
   cancel-in-progress: true
 
 jobs:
   collx-full-migrate:
+    if: github.head_ref == 'ops/collx-full-inventory-migration-20260811'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
@@ -22,8 +23,8 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
       SOURCE_ROWS: '6909'
-      WORK: /tmp/collx-full-migrate
-      ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-20260811
+      WORK: /tmp/collx-full-migrate-v2
+      ROUTE_URL: https://truely-collectables.vercel.app/api/ops/collx-full-migration-v2-20260811
     steps:
       - name: Check out migration source
         uses: actions/checkout@v4
@@ -50,67 +51,61 @@ jobs:
           test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$SOURCE_SHA"
           test "$(($(wc -l < "$WORK/source.csv")-1))" = "$SOURCE_ROWS"
 
-      - name: Resolve Supabase project and inspect service health
+      - name: Deploy current main with fast migration route
         shell: bash
         run: |
           set -euo pipefail
+          git fetch origin main --depth=1
+          MAIN_SHA="$(git rev-parse FETCH_HEAD)"
+          [[ "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          rm -rf "$WORK/main"
+          git worktree add --detach "$WORK/main" "$MAIN_SHA"
+          test -s "$WORK/main/src/app/api/ops/collx-full-migration-v2-20260811/route.ts"
+          cd "$WORK/main"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 deploy --prod --force --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --build-env TCOS_RELEASE_COMMIT="$MAIN_SHA"
+
+      - name: Resolve Supabase project and recover only on confirmed timeout
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx --yes vercel@56.2.0 env pull "$WORK/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           python3 - <<'PY'
           import os,re
           text=open(os.path.join(os.environ['WORK'],'production.env')).read()
           m=re.search(r'^NEXT_PUBLIC_SUPABASE_URL=(?:"|\')?(https://([a-z0-9]+)\.supabase\.co)(?:"|\')?$',text,re.M)
-          if not m: raise SystemExit('Could not resolve Supabase ref from Production env')
+          if not m: raise SystemExit('Could not resolve Supabase ref')
           open(os.path.join(os.environ['WORK'],'supabase-ref.txt'),'w').write(m.group(2))
           PY
           REF="$(cat "$WORK/supabase-ref.txt")"
-          curl --silent --show-error --fail-with-body --max-time 30 \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            "https://api.supabase.com/v1/projects/$REF/health?services=db&services=rest&services=storage" \
-            -o "$WORK/results/supabase-health-before.json"
-          cat "$WORK/results/supabase-health-before.json"
-
-      - name: Recover Supabase project only on confirmed connection timeout
-        shell: bash
-        run: |
-          set -euo pipefail
-          REF="$(cat "$WORK/supabase-ref.txt")"
-          curl -sS -o "$WORK/results/route-before-restart.json" --max-time 30 "$ROUTE_URL" || true
-          cat "$WORK/results/route-before-restart.json" || true
-          if grep -Eqi 'database timed out|connection to the database timed out|upstream request timeout' "$WORK/results/route-before-restart.json" 2>/dev/null; then
-            echo 'Confirmed project DB/REST connection timeout; restarting Supabase project.'
+          curl -sS -o "$WORK/results/route-probe.json" --max-time 30 "$ROUTE_URL" || true
+          cat "$WORK/results/route-probe.json" || true
+          if grep -Eqi 'database timed out|connection to the database timed out|upstream request timeout' "$WORK/results/route-probe.json" 2>/dev/null; then
             curl --silent --show-error --fail-with-body -X POST \
-              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-              -H 'Content-Type: application/json' \
-              "https://api.supabase.com/v1/projects/$REF/restart" \
-              -o "$WORK/results/supabase-restart.json"
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+              "https://api.supabase.com/v1/projects/$REF/restart" -o "$WORK/results/supabase-restart.json"
             cat "$WORK/results/supabase-restart.json" || true
-          else
-            echo 'No confirmed connection-timeout text; not issuing another restart.'
           fi
           healthy=0
           for n in $(seq 1 72); do
-            sleep 5
-            hcode="$(curl -sS -o "$WORK/results/supabase-health-poll.json" -w '%{http_code}' --max-time 30 \
+            hcode="$(curl -sS -o "$WORK/results/supabase-health.json" -w '%{http_code}' --max-time 30 \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
               "https://api.supabase.com/v1/projects/$REF/health?services=db&services=rest&services=storage" || true)"
-            if [ "$hcode" = '200' ]; then
-              if python3 - <<'PY'
+            if [ "$hcode" = '200' ] && python3 - <<'PY'
           import json,os,sys
-          p=os.path.join(os.environ['WORK'],'results','supabase-health-poll.json')
-          try: data=json.load(open(p))
+          try: data=json.load(open(os.path.join(os.environ['WORK'],'results','supabase-health.json')))
           except Exception: sys.exit(1)
-          ok=isinstance(data,list) and len(data)>0 and all(x.get('healthy') is True and x.get('status')=='ACTIVE_HEALTHY' for x in data)
-          print(json.dumps(data))
-          sys.exit(0 if ok else 1)
+          sys.exit(0 if isinstance(data,list) and data and all(x.get('healthy') is True and x.get('status')=='ACTIVE_HEALTHY' for x in data) else 1)
           PY
-              then healthy=1; break; fi
-            fi
+            then healthy=1; break; fi
+            sleep 5
           done
           test "$healthy" = '1'
-          sleep 10
+          sleep 5
 
-      - name: Classify all CollX rows against live eBay inventory
+      - name: Classify all 6909 rows without global image crawl
         shell: bash
         run: |
           set -euo pipefail
@@ -124,43 +119,50 @@ jobs:
           assert d.get('sourceRows')==6909,d
           accounted=int(d.get('existingCollxImports',0))+int(d.get('duplicateCollxRows',0))+int(d.get('importCandidateRows',0))
           assert accounted==6909,(accounted,d)
-          print(json.dumps({'accounted':accounted,'importCandidateRows':d['importCandidateRows'],'duplicateCollxRows':d['duplicateCollxRows'],'existingCollxImports':d['existingCollxImports']},indent=2))
+          assert int(d.get('verifiedPhysicalMapMatches',0)) >= 600,d
+          print(json.dumps({'accounted':accounted,'importCandidateRows':d['importCandidateRows'],'duplicateCollxRows':d['duplicateCollxRows'],'existingCollxImports':d['existingCollxImports'],'physical':d['verifiedPhysicalMapMatches']},indent=2))
           PY
 
-      - name: Import every classified CollX-only row as draft inventory
+      - name: Import all remaining rows as draft inventory in bulk
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import concurrent.futures,json,os,urllib.request,time
+          import concurrent.futures,json,os,urllib.request,urllib.error,time
           work=os.environ['WORK']; route=os.environ['ROUTE_URL']; body=open(os.path.join(work,'source.csv'),'rb').read()
           classification=json.load(open(os.path.join(work,'results','classification-response.json')))
           total=int(classification['importCandidateRows']); batch=75; offsets=list(range(0,total,batch))
           def one(offset):
               last=''
               for attempt in range(1,6):
-                  req=urllib.request.Request(f'{route}?mode=import&offset={offset}&limit={batch}',data=body,method='POST',headers={'Content-Type':'text/csv','User-Agent':'TruelyCollectables-full-CollX-migration/20260811'})
+                  req=urllib.request.Request(f'{route}?mode=import&offset={offset}&limit={batch}',data=body,method='POST',headers={'Content-Type':'text/csv','User-Agent':'TruelyCollectables-CollX-v2/20260811'})
                   try:
                       with urllib.request.urlopen(req,timeout=320) as r: payload=json.loads(r.read() or b'{}')
                       if payload.get('success') is True and int(payload.get('completed',-1))==int(payload.get('requested',-2)):
                           open(os.path.join(work,'results',f'import-{offset:06d}.json'),'w').write(json.dumps(payload,indent=2)); return payload
                       last=f'bad receipt {payload}'
+                  except urllib.error.HTTPError as e: last=f'HTTP {e.code}: '+e.read().decode('utf-8','replace')[:1500]
                   except Exception as e: last=repr(e)
                   time.sleep(attempt*4)
               raise RuntimeError(f'batch {offset} failed after retries: {last}')
           receipts=[]
           with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-              for fut in concurrent.futures.as_completed([ex.submit(one,o) for o in offsets]):
-                  r=fut.result(); receipts.append(r); print(json.dumps({'offset':r['offset'],'completed':r['completed'],'total':r['total'],'frontsCopied':r['frontsCopied'],'backsCopied':r['backsCopied'],'imageErrors':len(r.get('imageErrors',[]))}))
+              future_map={ex.submit(one,o):o for o in offsets}
+              for fut in concurrent.futures.as_completed(future_map):
+                  r=fut.result(); receipts.append(r)
+                  print(json.dumps({'offset':r['offset'],'completed':r['completed'],'total':r['total'],'frontsCopied':r['frontsCopied'],'backsCopied':r['backsCopied'],'imageErrors':len(r.get('imageErrors',[]))}))
           summary={'totalExpected':total,'batchReceipts':len(receipts),'completed':sum(int(x['completed']) for x in receipts),'frontsCopied':sum(int(x['frontsCopied']) for x in receipts),'backsCopied':sum(int(x['backsCopied']) for x in receipts),'reportedImageErrors':sum(len(x.get('imageErrors',[])) for x in receipts)}
-          open(os.path.join(work,'results','import-summary.json'),'w').write(json.dumps(summary,indent=2)); assert summary['completed']==total,summary; print(json.dumps(summary,indent=2))
+          open(os.path.join(work,'results','import-summary.json'),'w').write(json.dumps(summary,indent=2))
+          assert summary['completed']==total,summary
+          print(json.dumps(summary,indent=2))
           PY
 
-      - name: Verify complete migration and not-for-sale gate
+      - name: Verify zero missing and zero active CollX imports
         shell: bash
         run: |
           set -euo pipefail
-          curl --silent --show-error --fail-with-body --retry 4 --retry-delay 5 --retry-all-errors --max-time 300 "$ROUTE_URL" | tee "$WORK/results/verification.json"
+          curl --silent --show-error --fail-with-body --retry 4 --retry-delay 5 --retry-all-errors --max-time 300 \
+            "$ROUTE_URL?mode=verify" -H 'Content-Type: text/csv' --data-binary @"$WORK/source.csv" | tee "$WORK/results/verification.json"
           python3 - <<'PY'
           import json,os
           d=json.load(open(os.path.join(os.environ['WORK'],'results','verification.json')))
@@ -178,7 +180,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collx-full-migration-production-receipts
-          path: /tmp/collx-full-migrate/results
+          name: collx-full-migration-v2-production-receipts
+          path: /tmp/collx-full-migrate-v2/results
           retention-days: 14
           if-no-files-found: warn
