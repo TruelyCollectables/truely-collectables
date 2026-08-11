@@ -1,0 +1,73 @@
+name: Ops Mirror Live CollX Images V3 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-mirror-live-collx-images-v3-20260810.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-mirror-live-collx-images-v3-20260810
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/collx-mirror-v2"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-mirror-v2/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Build throttled V3 mirror from V2
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('.github/workflows/ops-mirror-live-collx-images-v2-20260810.yml').read_text()
+          marker="          node --input-type=module - <<'NODE'\n"
+          start=src.index(marker)+len(marker)
+          end=src.index("\n          NODE\n",start)
+          lines=src[start:end].splitlines()
+          script='\n'.join(line[10:] if line.startswith('          ') else line for line in lines)+'\n'
+          old="const proof=await fetch(local,{headers:{Range:'bytes=0-0'},signal:AbortSignal.timeout(20000)});if(proof.ok&&(proof.headers.get('content-type')||'').toLowerCase().startsWith('image/'))return{original:url,local,bytes:data.length};last=`proof ${proof.status}`"
+          new="let proofStatus=0;for(let p=1;p<=8;p++){const proof=await fetch(local,{headers:{Range:'bytes=0-0'},signal:AbortSignal.timeout(20000)});proofStatus=proof.status;if(proof.ok&&(proof.headers.get('content-type')||'').toLowerCase().startsWith('image/'))return{original:url,local,bytes:data.length};if((proof.status===429||proof.status>=500)&&p<8){await sleep(Math.min(5000,p*600));continue}break}last=`proof ${proofStatus}`"
+          if old not in script: raise SystemExit('V2 proof block not found')
+          script=script.replace(old,new,1)
+          if '{length:16}' not in script: raise SystemExit('V2 worker count not found')
+          script=script.replace('{length:16}','{length:6}',1)
+          Path('/tmp/collx-mirror-v3.mjs').write_text(script)
+          PY
+          node --check /tmp/collx-mirror-v3.mjs
+
+      - name: Resume mirror with throttled verification
+        run: node /tmp/collx-mirror-v3.mjs
+
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-live-image-mirror-v3-receipt
+          path: ${{ runner.temp }}/collx-mirror-v2/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
