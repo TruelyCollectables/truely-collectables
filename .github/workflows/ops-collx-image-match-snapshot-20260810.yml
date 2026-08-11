@@ -13,7 +13,7 @@ permissions:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -47,6 +47,7 @@ jobs:
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           import path from 'node:path';
+          import { setTimeout as sleep } from 'node:timers/promises';
 
           const envPath = path.join(process.env.RUNNER_TEMP, 'collx-image-snapshot', 'production.env');
           const text = fs.readFileSync(envPath, 'utf8');
@@ -76,42 +77,76 @@ jobs:
           if (!token) throw new Error('SUPABASE_ACCESS_TOKEN is unavailable.');
           const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
           const storeId = '00000000-0000-4000-8000-000000000001';
+          const pageSize = 200;
 
-          async function query(sql) {
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ query: sql, parameters: [], read_only: true }),
-            });
-            const body = await response.text();
-            if (!response.ok) {
-              throw new Error(`Supabase read-only snapshot failed with HTTP ${response.status}: ${body.slice(0, 1000)}`);
-            }
-            return body ? JSON.parse(body) : [];
+          function transient(status, body) {
+            return [429, 500, 502, 503, 504, 522, 524, 544].includes(status) ||
+              /timeout|connection terminated|temporar|cloudflare|network/i.test(body);
           }
 
-          const products = await query(`
-            select id, store_id, sku, title, player, sport, ebay_item_id, image_url, quantity, status, archived_at
-            from public.products
-            where store_id = '${storeId}'::uuid
-            order by id;
-          `);
-          const inventoryItems = await query(`
-            select id, store_id, legacy_product_id, sku, title, status, quantity, metadata
-            from public.inventory_items
-            where store_id = '${storeId}'::uuid
-            order by id;
-          `);
-          const inventoryImages = await query(`
-            select img.id, img.inventory_item_id, img.image_url, img.alt_text, img.sort_order, img.is_primary
-            from public.inventory_images img
-            join public.inventory_items i on i.id = img.inventory_item_id
-            where i.store_id = '${storeId}'::uuid
-            order by img.inventory_item_id, img.sort_order, img.id;
-          `);
+          async function query(sql, label) {
+            let last = '';
+            for (let attempt = 1; attempt <= 7; attempt += 1) {
+              const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ query: sql, parameters: [], read_only: true }),
+              });
+              const body = await response.text();
+              if (response.ok) return body ? JSON.parse(body) : [];
+              last = `HTTP ${response.status}: ${body.slice(0, 800)}`;
+              if (!transient(response.status, body) || attempt === 7) {
+                throw new Error(`${label} failed: ${last}`);
+              }
+              console.log(`${label}: transient ${response.status}; retry ${attempt}/7`);
+              await sleep(Math.min(15000, 1500 * attempt));
+            }
+            throw new Error(`${label} failed: ${last}`);
+          }
+
+          async function paged({ label, selectSql, fromSql, whereSql, orderSql }) {
+            const rows = [];
+            for (let offset = 0; offset < 50000; offset += pageSize) {
+              const batch = await query(`
+                select ${selectSql}
+                from ${fromSql}
+                where ${whereSql}
+                order by ${orderSql}
+                limit ${pageSize} offset ${offset};
+              `, `${label} offset ${offset}`);
+              rows.push(...batch);
+              console.log(JSON.stringify({ label, offset, fetched: batch.length, total: rows.length }));
+              if (batch.length < pageSize) return rows;
+            }
+            throw new Error(`${label} exceeded 50,000 rows.`);
+          }
+
+          const products = await paged({
+            label: 'products',
+            selectSql: 'id, store_id, sku, title, player, sport, ebay_item_id, image_url, quantity, status, archived_at',
+            fromSql: 'public.products',
+            whereSql: `store_id = '${storeId}'::uuid`,
+            orderSql: 'id',
+          });
+
+          const inventoryItems = await paged({
+            label: 'inventory_items',
+            selectSql: 'id, store_id, legacy_product_id, sku, title, status, quantity, metadata',
+            fromSql: 'public.inventory_items',
+            whereSql: `store_id = '${storeId}'::uuid`,
+            orderSql: 'id',
+          });
+
+          const inventoryImages = await paged({
+            label: 'inventory_images',
+            selectSql: 'img.id, img.inventory_item_id, img.image_url, img.alt_text, img.sort_order, img.is_primary',
+            fromSql: 'public.inventory_images img join public.inventory_items i on i.id = img.inventory_item_id',
+            whereSql: `i.store_id = '${storeId}'::uuid`,
+            orderSql: 'img.inventory_item_id, img.sort_order, img.id',
+          });
 
           const output = {
             generated_at: new Date().toISOString(),
