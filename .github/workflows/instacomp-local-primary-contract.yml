@@ -20,6 +20,7 @@ on:
       - "scripts/run-instacomp-ocr-registry-primary-regressions.ts"
       - "scripts/run-instacomp-prizm-surface-regressions.ts"
       - ".github/workflows/instacomp-local-primary-contract.yml"
+      - ".github/ops/collx-launch-trigger-20260811.txt"
 
 permissions:
   contents: read
@@ -30,6 +31,7 @@ concurrency:
 
 jobs:
   certify:
+    if: github.event.pull_request.number != 1116
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -106,3 +108,82 @@ jobs:
         run: |
           npm run build
           git checkout -- public/instacomp-release.json
+
+  collx_full_classify:
+    if: github.event.pull_request.number == 1116
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+      EXPECTED_ROWS: "6909"
+      EXPECTED_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
+      WORK: /tmp/collx-full-classify
+    steps:
+      - name: Checkout isolated migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/collx-full-inventory-migration-20260811
+      - name: Reconstruct source and harden classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK" .vercel
+          grep -Ev 'part(10|14|15)$' .github/ops/collx-full-metadata.sha256 | sha256sum -c -
+          cat .github/ops/collx-full-metadata.part{00..09} .github/ops/collx-full-metadata.part10m0 .github/ops/collx-full-metadata.part10m1 .github/ops/collx-full-metadata.part11 .github/ops/collx-full-metadata.part12 .github/ops/collx-full-metadata.part13 .github/ops/collx-full-metadata.part14m .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SHA"
+          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_ROWS"
+          cat .github/ops/collx-full-classify.py.part{00..01} > "$WORK/classify.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          p=Path(os.environ['WORK'])/'classify.py'; s=p.read_text()
+          a=s.index('def db(q):'); b=s.index('def fnum',a)
+          hardened='''def db(q):
+ body=json.dumps({'query':q,'parameters':[],'read_only':True}).encode(); last=''
+ for attempt in range(1,13):
+  req=urllib.request.Request(ep,data=body,method='POST',headers={'Authorization':f'Bearer {mgmt}','Content-Type':'application/json','User-Agent':'Mozilla/5.0 (TruelyCollectables GitHub Actions)'})
+  try:
+   with urllib.request.urlopen(req,timeout=90) as r:return json.loads(r.read() or b'[]')
+  except Exception as e:
+   code=getattr(e,'code',None); last=f'{type(e).__name__}:{code}:{e}'
+   if code not in (403,408,409,425,429,500,502,503,504,520,522,524,544) and attempt>=2: raise
+   if attempt<12: time.sleep(min(10.0,attempt*.8))
+ raise RuntimeError('Production DB query failed after retries: '+last)
+'''
+          s=s[:a]+hardened+s[b:]
+          a=s.index('ebay=db('); b=s.index("print(json.dumps({'sourceRows'",a)
+          efficient='''ebay=db(f"""select p.id,p.title,p.description,p.price,p.quantity,p.image_url,p.sport,p.player,p.sku,p.ebay_item_id from public.products p where p.store_id='{STORE}'::uuid and p.archived_at is null and nullif(btrim(coalesce(p.ebay_item_id,'')),'') is not null order by p.id""")
+imgrows=db(f"""select i.legacy_product_id product_id,jsonb_agg(z.image_url) inventory_images from public.inventory_items i join public.products p on p.id=i.legacy_product_id join public.inventory_images z on z.inventory_item_id=i.id where p.store_id='{STORE}'::uuid and p.archived_at is null and nullif(btrim(coalesce(p.ebay_item_id,'')),'') is not null group by i.legacy_product_id""")
+imap={int(x['product_id']):x.get('inventory_images') or [] for x in imgrows}
+for p0 in ebay:p0['inventory_images']=imap.get(int(p0['id']),[])
+existing={str(x['sku'])[6:] for x in db(f"select sku from public.products where store_id='{STORE}'::uuid and sku like 'COLLX-%'") if str(x.get('sku') or '').startswith('COLLX-')}
+'''
+          p.write_text(s[:a]+efficient+s[b:])
+          PY
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$WORK/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Install fingerprint tools
+        run: python3 -m pip install --quiet Pillow ImageHash
+      - name: Classify full CollX collection
+        run: python3 "$WORK/classify.py"
+      - name: Remove Production env copy
+        if: always()
+        run: rm -f "$WORK/production.env"
+      - name: Upload full classification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-full-migration-classification-carrier
+          path: |
+            ${{ env.WORK }}/classification.json
+            ${{ env.WORK }}/receipt.json
+          retention-days: 7
+          if-no-files-found: warn
