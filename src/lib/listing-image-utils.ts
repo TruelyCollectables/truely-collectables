@@ -40,20 +40,38 @@ export function listingImageIdentity(value: unknown) {
   }
 }
 
+function collxExportImageSide(pathname: string) {
+  const match = /^\/collx-product-images\/\d+-(1|2)-[^/]+\.(?:jpe?g|png|webp)$/i.exec(
+    pathname,
+  );
+  if (!match?.[1]) return null;
+  return match[1] === "2" ? "back" : "front";
+}
+
 export function listingImageSide(value: unknown): "front" | "back" | null {
   const cleaned = cleanImageUrl(value);
   if (!cleaned) return null;
 
   let pathname = cleaned;
+  let hostname = "";
   try {
-    pathname = new URL(cleaned).pathname;
+    const parsed = new URL(cleaned);
+    pathname = parsed.pathname;
+    hostname = parsed.hostname.toLowerCase();
   } catch {
     pathname = cleaned.split(/[?#]/, 1)[0];
   }
 
-  const match = /(?:^|[-_/])(front|back)(?=\.[a-z0-9]+$)/i.exec(pathname);
-  if (!match?.[1]) return null;
-  return match[1].toLowerCase() === "back" ? "back" : "front";
+  const namedSide = /(?:^|[-_/])(front|back)(?=\.[a-z0-9]+$)/i.exec(pathname);
+  if (namedSide?.[1]) {
+    return namedSide[1].toLowerCase() === "back" ? "back" : "front";
+  }
+
+  if (hostname === "storage.googleapis.com") {
+    return collxExportImageSide(pathname);
+  }
+
+  return null;
 }
 
 export function companionBackListingImageUrl(value: unknown) {
@@ -100,11 +118,6 @@ export function selectFrontBackListingImages(values: unknown[]) {
   const normalized = normalizeListingImageUrls(values);
   if (normalized.length <= 1) return normalized;
 
-  const ebayImages = normalized.filter((image) =>
-    listingImageIdentity(image).startsWith("ebay:"),
-  );
-  if (ebayImages.length >= 2) return ebayImages.slice(0, 2);
-
   const explicitFront = normalized.find(
     (image) => listingImageSide(image) === "front",
   );
@@ -112,6 +125,11 @@ export function selectFrontBackListingImages(values: unknown[]) {
     (image) => listingImageSide(image) === "back",
   );
   if (explicitFront && explicitBack) return [explicitFront, explicitBack];
+
+  const ebayImages = normalized.filter((image) =>
+    listingImageIdentity(image).startsWith("ebay:"),
+  );
+  if (ebayImages.length >= 2) return ebayImages.slice(0, 2);
 
   const front = normalized[0];
   const remaining = normalized.slice(1);
