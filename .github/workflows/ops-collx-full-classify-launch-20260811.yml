@@ -48,7 +48,14 @@ jobs:
 
       - name: Run full CollX classifier
         shell: bash
-        run: bash scripts/ops/run-collx-full-classifier-20260811.sh
+        run: |
+          set +e
+          mkdir -p "$WORK"
+          bash scripts/ops/run-collx-full-classifier-20260811.sh > "$WORK/run.log" 2>&1
+          code=$?
+          echo "$code" > "$WORK/exit-code.txt"
+          cat "$WORK/run.log"
+          exit "$code"
 
       - name: Publish classifier result
         if: always()
@@ -60,17 +67,22 @@ jobs:
           mkdir -p .github/ops
           if [ -s "$WORK/receipt.json" ]; then cp "$WORK/receipt.json" .github/ops/collx-full-classification-receipt.json; fi
           if [ -s "$WORK/classification.json" ]; then cp "$WORK/classification.json" .github/ops/collx-full-classification-result.json; fi
+          if [ -s "$WORK/run.log" ]; then cp "$WORK/run.log" .github/ops/collx-full-classifier-run.log; fi
+          if [ -s "$WORK/exit-code.txt" ]; then cp "$WORK/exit-code.txt" .github/ops/collx-full-classifier-exit-code.txt; fi
           python3 - <<'PY'
           import json,os,time
           from pathlib import Path
           w=Path(os.environ['WORK'])
-          out={'completed':(w/'classification.json').exists(),'receiptPresent':(w/'receipt.json').exists(),'publishedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          code=None
+          try: code=int((w/'exit-code.txt').read_text().strip())
+          except: pass
+          out={'completed':(w/'classification.json').exists(),'receiptPresent':(w/'receipt.json').exists(),'exitCode':code,'publishedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
           Path('.github/ops/collx-full-classifier-status.json').write_text(json.dumps(out,indent=2)+'\n')
           PY
           git config user.name 'Truely Collectables Ops'
           git config user.email 'actions@users.noreply.github.com'
-          git add .github/ops/collx-full-classification-receipt.json .github/ops/collx-full-classification-result.json .github/ops/collx-full-classifier-status.json 2>/dev/null || git add .github/ops/collx-full-classifier-status.json
-          git commit -m 'Record full CollX migration classification result' || true
+          git add .github/ops/collx-full-classification-receipt.json .github/ops/collx-full-classification-result.json .github/ops/collx-full-classifier-run.log .github/ops/collx-full-classifier-exit-code.txt .github/ops/collx-full-classifier-status.json 2>/dev/null || git add .github/ops/collx-full-classifier-status.json
+          git commit -m 'Record full CollX migration classification diagnostics' || true
           git push origin HEAD:ops/collx-full-inventory-migration-20260811
 
       - name: Remove Production env copy
