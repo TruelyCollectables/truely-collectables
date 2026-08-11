@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -10,6 +11,7 @@ export const maxDuration = 300;
 
 const OWNED_BUCKET = "truely-product-images";
 const COLLX_BUCKET = "collx-product-images";
+const COLLX_USER_BUCKET = "collx-user-cards";
 const OWNED_PATH_MARKER = "/storage/v1/object/public/truely-product-images/collx-full/20260811/";
 
 type ImageNames = { front?: string; back?: string };
@@ -41,6 +43,27 @@ function ownedSideUrl(url: unknown, collxId: string, side: "front" | "back") {
   return value.includes(`${OWNED_PATH_MARKER}${collxId}/${side}.`);
 }
 
+function sourceParts(name: string) {
+  const clean = String(name || "").replace(/^\/+/, "");
+  if (clean.startsWith(`${COLLX_USER_BUCKET}/`)) {
+    return { bucket: COLLX_USER_BUCKET, object: clean.slice(COLLX_USER_BUCKET.length + 1) };
+  }
+  if (clean.startsWith(`${COLLX_BUCKET}/`)) {
+    return { bucket: COLLX_BUCKET, object: clean.slice(COLLX_BUCKET.length + 1) };
+  }
+  return { bucket: COLLX_BUCKET, object: clean };
+}
+
+function rawSourceUrl(name: string) {
+  const { bucket, object } = sourceParts(name);
+  return `https://storage.googleapis.com/${bucket}/${object}`;
+}
+
+function fetchSourceUrl(name: string) {
+  const { bucket, object } = sourceParts(name);
+  return `https://storage.googleapis.com/${bucket}/${object.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 async function discoverStandard(collxId: string): Promise<ImageNames> {
   const params = new URLSearchParams({
     prefix: `${collxId}-`,
@@ -60,6 +83,38 @@ async function discoverStandard(collxId: string): Promise<ImageNames> {
   };
 }
 
+async function sourceBytes(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  side: "front" | "back",
+  name: string,
+) {
+  const sourceUrl = fetchSourceUrl(name);
+  const response = await fetch(sourceUrl, { cache: "no-store" });
+  if (response.ok) {
+    return {
+      bytes: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get("content-type"),
+      source: sourceUrl,
+    };
+  }
+
+  const ext = extension(name);
+  const mirrorHash = createHash("sha256").update(rawSourceUrl(name)).digest("hex");
+  const mirrorPath = `collx-mirror/${mirrorHash}.${ext}`;
+  const { data, error } = await supabase.storage.from(OWNED_BUCKET).download(mirrorPath);
+  if (!error && data) {
+    return {
+      bytes: Buffer.from(await data.arrayBuffer()),
+      contentType: data.type || null,
+      source: `owned:${mirrorPath}`,
+    };
+  }
+
+  throw new Error(
+    `${side} ${name} HTTP ${response.status}; owned mirror ${mirrorPath} unavailable${error?.message ? `: ${error.message}` : ""}`,
+  );
+}
+
 async function copyOne(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   collxId: string,
@@ -67,21 +122,15 @@ async function copyOne(
   name?: string,
 ) {
   if (!name) return null;
-  const sourceUrl = `https://storage.googleapis.com/${COLLX_BUCKET}/${name
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/")}`;
-  const response = await fetch(sourceUrl, { cache: "no-store" });
-  if (!response.ok) throw new Error(`${side} ${name} HTTP ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
+  const source = await sourceBytes(supabase, side, name);
   const ext = extension(name);
   const path = `collx-full/20260811/${collxId}/${side}.${ext}`;
   const contentType =
-    response.headers.get("content-type") ||
+    source.contentType ||
     (ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg");
   const { error } = await supabase.storage
     .from(OWNED_BUCKET)
-    .upload(path, bytes, { contentType, upsert: true });
+    .upload(path, source.bytes, { contentType, upsert: true });
   if (error) throw error;
   return supabase.storage.from(OWNED_BUCKET).getPublicUrl(path).data.publicUrl;
 }
