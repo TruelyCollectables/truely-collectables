@@ -1,10 +1,8 @@
 name: Ops CollX Full Classify Launch 20260811
 
 on:
-  push:
+  pull_request:
     branches: [main]
-    paths:
-      - ".github/workflows/ops-collx-full-classify-launch-20260811.yml"
   workflow_dispatch:
 
 permissions:
@@ -16,6 +14,7 @@ concurrency:
 
 jobs:
   classify:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.number == 1116 && github.actor != 'github-actions[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -121,6 +120,8 @@ existing={str(x['sku'])[6:] for x in db(f"select sku from public.products where 
           if (w/'classification.json').exists():
               Path('.github/ops/collx-full-classification-result.json').write_bytes((w/'classification.json').read_bytes())
           PY
+          git config user.name "Truely Collectables Ops"
+          git config user.email "actions@users.noreply.github.com"
           git add .github/ops/collx-full-classifier-status.json .github/ops/collx-full-classification-result.json 2>/dev/null || git add .github/ops/collx-full-classifier-status.json
           git commit -m "Record full CollX migration classification" || true
           git push origin HEAD:ops/collx-full-inventory-migration-20260811
