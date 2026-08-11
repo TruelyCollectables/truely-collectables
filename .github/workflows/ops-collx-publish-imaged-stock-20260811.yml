@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: ops-collx-publish-imaged-stock-20260811
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -63,7 +63,7 @@ jobs:
           for n in $(seq 1 40); do
             code="$(curl -sS -o /tmp/activation.json -w '%{http_code}' --max-time 240 \
               -X POST \
-              -H "x-ops-confirm: $CONFIRM" \
+              -H "Authorization: Bearer $CONFIRM" \
               "$ROUTE_URL?batch=300" || true)"
             cat /tmp/activation.json || true
             test "$code" = '200'
