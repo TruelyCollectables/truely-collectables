@@ -613,23 +613,78 @@ def build_identity_hints(
     )
 
 
+def _bounded_stage_error(side: str, stage: str, error: Exception) -> str:
+    return f"{side}:{stage}:{type(error).__name__.lower()}"
+
+
 def _analyze_side(
     content: bytes,
     *,
     side: str,
-    ocr: AppleVisionOCR,
-) -> SideVisionEvidence:
-    image = _decode_image(content)
-    observations, errors = ocr.recognize(content, side=side)
-    return SideVisionEvidence(
-        side=side,
-        width=int(image.shape[1]),
-        height=int(image.shape[0]),
-        ocr=observations,
-        colors=analyze_colors(image),
-        pattern=analyze_pattern(image),
-        errors=errors,
+    ocr: AppleVisionOCR | None,
+    ocr_init_error: Exception | None = None,
+) -> tuple[SideVisionEvidence, bool]:
+    """Analyze one side without allowing any witness stage to erase the rest.
+
+    Apple Vision OCR and OpenCV are independent evidence sources. Decode, color,
+    pattern, or OCR failures are recorded as bounded errors and never suppress a
+    surviving stage. The outer package fail-safe remains only for truly
+    unexpected orchestration failures outside these bounded stages.
+    """
+    errors: list[str] = []
+    observations: list[OCRObservation] = []
+
+    if ocr is None:
+        if ocr_init_error is not None:
+            errors.append(_bounded_stage_error(side, "apple_vision_init_failed", ocr_init_error))
+        else:
+            errors.append(f"{side}:apple_vision_unavailable")
+    else:
+        try:
+            observations, ocr_errors = ocr.recognize(content, side=side)
+            errors.extend(ocr_errors)
+        except Exception as error:
+            errors.append(_bounded_stage_error(side, "apple_vision_stage_failed", error))
+
+    image: np.ndarray | None = None
+    width = 1
+    height = 1
+    opencv_ok = False
+    try:
+        image = _decode_image(content)
+        height, width = [int(value) for value in image.shape[:2]]
+        opencv_ok = True
+    except Exception as error:
+        errors.append(_bounded_stage_error(side, "opencv_decode_failed", error))
+
+    colors = ColorEvidence()
+    pattern = PatternEvidence()
+    if image is not None:
+        try:
+            colors = analyze_colors(image)
+        except Exception as error:
+            errors.append(_bounded_stage_error(side, "opencv_color_failed", error))
+        try:
+            pattern = analyze_pattern(image)
+        except Exception as error:
+            errors.append(_bounded_stage_error(side, "opencv_pattern_failed", error))
+
+    return (
+        SideVisionEvidence(
+            side=side,
+            width=max(1, width),
+            height=max(1, height),
+            ocr=observations,
+            colors=colors,
+            pattern=pattern,
+            errors=errors,
+        ),
+        opencv_ok,
     )
+
+
+def _append_side_error(side: SideVisionEvidence, error: str) -> SideVisionEvidence:
+    return side.model_copy(update={"errors": [*side.errors, error]})
 
 
 def analyze_local_vision_sync(
@@ -638,28 +693,85 @@ def analyze_local_vision_sync(
     settings: Settings,
 ) -> LocalVisionEvidence:
     data_root = settings.resolve_local_path(settings.database_path).parent
-    ocr = AppleVisionOCR(Path(settings.service_root), data_root)
-    front_evidence = _analyze_side(front, side="front", ocr=ocr)
-    back_evidence = _analyze_side(back, side="back", ocr=ocr) if back else None
+
+    ocr: AppleVisionOCR | None = None
+    ocr_init_error: Exception | None = None
+    try:
+        ocr = AppleVisionOCR(Path(settings.service_root), data_root)
+    except Exception as error:
+        ocr_init_error = error
+
+    front_evidence, front_opencv_ok = _analyze_side(
+        front,
+        side="front",
+        ocr=ocr,
+        ocr_init_error=ocr_init_error,
+    )
+    back_evidence: SideVisionEvidence | None = None
+    back_opencv_ok = False
+    if back:
+        back_evidence, back_opencv_ok = _analyze_side(
+            back,
+            side="back",
+            ocr=ocr,
+            ocr_init_error=ocr_init_error,
+        )
+
     observations = [
         *front_evidence.ocr,
         *(back_evidence.ocr if back_evidence else []),
     ]
-    serial = parse_serial_evidence(observations)
-    identity_hints = build_identity_hints(
-        front=front_evidence,
-        back=back_evidence,
-        serial=serial,
-    )
+
+    try:
+        serial = parse_serial_evidence(observations)
+    except Exception as error:
+        serial = SerialEvidence(stamp_present=False)
+        front_evidence = _append_side_error(
+            front_evidence,
+            _bounded_stage_error("front", "serial_parse_failed", error),
+        )
+
+    try:
+        identity_hints = build_identity_hints(
+            front=front_evidence,
+            back=back_evidence,
+            serial=serial,
+        )
+    except Exception as error:
+        identity_hints = CardIdentity()
+        front_evidence = _append_side_error(
+            front_evidence,
+            _bounded_stage_error("front", "identity_hint_failed", error),
+        )
+
+    try:
+        combined_text = _all_text(observations)
+    except Exception as error:
+        combined_text = ""
+        front_evidence = _append_side_error(
+            front_evidence,
+            _bounded_stage_error("front", "combined_text_failed", error),
+        )
+
+    apple_vision_available = False
+    if ocr is not None:
+        try:
+            apple_vision_available = bool(ocr.supported)
+        except Exception as error:
+            front_evidence = _append_side_error(
+                front_evidence,
+                _bounded_stage_error("front", "apple_vision_health_failed", error),
+            )
+
     return LocalVisionEvidence(
         schema_version="tcos.instacomp-ai.local-vision.v1",
         front=front_evidence,
         back=back_evidence,
         serial=serial,
         identity_hints=identity_hints,
-        combined_text=_all_text(observations),
-        apple_vision_available=ocr.supported,
-        opencv_available=True,
+        combined_text=combined_text,
+        apple_vision_available=apple_vision_available,
+        opencv_available=front_opencv_ok or back_opencv_ok,
     )
 
 
