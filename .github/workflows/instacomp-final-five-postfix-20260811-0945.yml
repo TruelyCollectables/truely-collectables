@@ -15,7 +15,7 @@ concurrency:
 
 env:
   EXPECTED_BRANCH: ops/instacomp-final-five-postfix-20260811-0945
-  CURRENT_MAIN_COMMIT: 0ba9d325b063d832970bafbf761a5d3538ef4e90
+  PINNED_PRODUCT_MAIN: 0ba9d325b063d832970bafbf761a5d3538ef4e90
   SECONDARY_WITNESS_COMMIT: 3d6e998c1b332b3d8fe203a4bd1eb001307fd53e
   LOCAL_VISION_REPAIR_COMMIT: 8cc11a2c0ef5683aa6e8e88e250d80e381489338
   ACTIVATED_MAC_FINGERPRINT: d1a1255e0d83d099cf4a526ebb19dc4c56f82d5cf11fb96e1e7e25dbbb955b62
@@ -40,19 +40,30 @@ jobs:
           ref: ${{ env.EXPECTED_BRANCH }}
           fetch-depth: 0
 
-      - name: Freeze exact current main and immutable certification truth
+      - name: Freeze pinned product source and immutable certification truth
         shell: bash
         run: |
           set -euo pipefail
           test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
           mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
           git fetch origin main --quiet
-          current_main="$(git rev-parse origin/main)"
-          test "$current_main" = "$CURRENT_MAIN_COMMIT"
-          git merge-base --is-ancestor "$SECONDARY_WITNESS_COMMIT" "$CURRENT_MAIN_COMMIT"
-          git merge-base --is-ancestor "$LOCAL_VISION_REPAIR_COMMIT" "$CURRENT_MAIN_COMMIT"
-          changed="$(git diff --name-only "$CURRENT_MAIN_COMMIT"...HEAD | sort)"
+          live_main="$(git rev-parse origin/main)"
+          git merge-base --is-ancestor "$PINNED_PRODUCT_MAIN" "$live_main"
+          git merge-base --is-ancestor "$SECONDARY_WITNESS_COMMIT" "$PINNED_PRODUCT_MAIN"
+          git merge-base --is-ancestor "$LOCAL_VISION_REPAIR_COMMIT" "$PINNED_PRODUCT_MAIN"
+          changed="$(git diff --name-only "$PINNED_PRODUCT_MAIN"...HEAD | sort)"
           test "$changed" = '.github/workflows/instacomp-final-five-postfix-20260811-0945.yml'
+          protected=(
+            services/instacomp-ai/app/__init__.py
+            services/instacomp-ai/app/main.py
+            services/instacomp-ai/app/local_vision.py
+            services/instacomp-ai/app/ollama.py
+            services/instacomp-ai/app/lora_candidate_runtime.py
+            services/instacomp-ai/scripts/run_lora_candidate_server.py
+            src/app/api/instacomp/scan/route.ts
+            src/lib/instacomp-ai-local.ts
+          )
+          git diff --quiet "$PINNED_PRODUCT_MAIN" "$live_main" -- "${protected[@]}"
           grep -Fq '/v1/scans/secondary-witness' services/instacomp-ai/app/main.py
           grep -Fq 'analyze_with_established_reader' services/instacomp-ai/app/lora_candidate_runtime.py
           grep -Fq 'analyzeWithInstaCompAiLocalSecondary' src/lib/instacomp-ai-local.ts
@@ -81,7 +92,7 @@ jobs:
           )"
           test "$fp" = "$ACTIVATED_MAC_FINGERPRINT"
           echo "EXPECTED_MAC_FINGERPRINT=$fp" >> "$GITHUB_ENV"
-          printf '{"currentMain":"%s","secondaryWitnessCommit":"%s","localVisionRepairCommit":"%s","frozenRunnerBlob":"%s","expectedMacFingerprint":"%s","requiredPasses":2,"requiredCardsPerPass":5,"frozenTruthChanged":false,"confidenceThresholdChanged":false}\n' "$CURRENT_MAIN_COMMIT" "$SECONDARY_WITNESS_COMMIT" "$LOCAL_VISION_REPAIR_COMMIT" "$runner_blob" "$fp" > "$EVIDENCE_DIR/source-lock.json"
+          printf '{"pinnedProductMain":"%s","liveOriginMain":"%s","secondaryWitnessCommit":"%s","localVisionRepairCommit":"%s","frozenRunnerBlob":"%s","expectedMacFingerprint":"%s","requiredPasses":2,"requiredCardsPerPass":5,"frozenTruthChanged":false,"confidenceThresholdChanged":false,"protectedSourceChangedAfterPin":false}\n' "$PINNED_PRODUCT_MAIN" "$live_main" "$SECONDARY_WITNESS_COMMIT" "$LOCAL_VISION_REPAIR_COMMIT" "$runner_blob" "$fp" > "$EVIDENCE_DIR/source-lock.json"
 
       - name: Prove updated physical Mac runtime
         shell: bash
@@ -134,14 +145,14 @@ jobs:
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 
-      - name: Switch workspace to exact pinned main
+      - name: Switch workspace to exact pinned product main
         shell: bash
         run: |
           set -euo pipefail
-          git checkout --detach "$CURRENT_MAIN_COMMIT"
-          test "$(git rev-parse HEAD)" = "$CURRENT_MAIN_COMMIT"
+          git checkout --detach "$PINNED_PRODUCT_MAIN"
+          test "$(git rev-parse HEAD)" = "$PINNED_PRODUCT_MAIN"
 
-      - name: Prove stale acceptance credential absent and deploy exact main
+      - name: Prove stale acceptance credential absent and deploy exact pinned main
         shell: bash
         run: |
           set -euo pipefail
@@ -154,7 +165,7 @@ jobs:
           ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"
           log="$EVIDENCE_DIR/pretest-clean-deploy.log"
           npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
-          grep -Fq "InstaComp release manifest bound to $CURRENT_MAIN_COMMIT." "$log"
+          grep -Fq "InstaComp release manifest bound to $PINNED_PRODUCT_MAIN." "$log"
 
       - name: Provision isolated acceptance credential
         shell: bash
@@ -166,13 +177,13 @@ jobs:
           npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
           touch "$TEMP_DIR/token-provisioned"
 
-      - name: Redeploy exact main with isolated acceptance credential
+      - name: Redeploy exact pinned main with isolated acceptance credential
         shell: bash
         run: |
           set -euo pipefail
           log="$EVIDENCE_DIR/acceptance-deploy.log"
           npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
-          grep -Fq "InstaComp release manifest bound to $CURRENT_MAIN_COMMIT." "$log"
+          grep -Fq "InstaComp release manifest bound to $PINNED_PRODUCT_MAIN." "$log"
 
       - name: Re-prove exact Mac before scans
         shell: bash
@@ -234,7 +245,7 @@ jobs:
             if(p.status!=='passed'||p.testedCards!==5||p.passedCards!==5)throw new Error(`${name}: ${p.status} ${p.passedCards}/${p.testedCards}`);
             if(!Array.isArray(p.results)||p.results.length!==5||p.results.some(r=>r.passed!==true))throw new Error(`${name}: non-exact card result`);
           }
-          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/two-pass-proof.json`,JSON.stringify({status:'passed',consecutivePasses:2,cardsPerPass:5,totalExactCardResults:10,frozenRunnerBlob:process.env.FROZEN_RUNNER_BLOB,currentMain:process.env.CURRENT_MAIN_COMMIT,secondaryWitnessCommit:process.env.SECONDARY_WITNESS_COMMIT,localVisionRepairCommit:process.env.LOCAL_VISION_REPAIR_COMMIT},null,2)+'\n');
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/two-pass-proof.json`,JSON.stringify({status:'passed',consecutivePasses:2,cardsPerPass:5,totalExactCardResults:10,frozenRunnerBlob:process.env.FROZEN_RUNNER_BLOB,pinnedProductMain:process.env.PINNED_PRODUCT_MAIN,secondaryWitnessCommit:process.env.SECONDARY_WITNESS_COMMIT,localVisionRepairCommit:process.env.LOCAL_VISION_REPAIR_COMMIT},null,2)+'\n');
           NODE
           touch "$TEMP_DIR/two-pass-passed"
 
@@ -253,7 +264,7 @@ jobs:
           done
           exit 1
 
-      - name: Clean redeploy exact main and prove removed token dead
+      - name: Clean redeploy exact pinned main and prove removed token dead
         if: always()
         shell: bash
         run: |
@@ -261,10 +272,10 @@ jobs:
           rm -f "$WORKSPACE_RUNNER"
           if [ ! -f "$TEMP_DIR/token-provisioned" ]; then exit 0; fi
           test -f "$TEMP_DIR/token-removed"
-          git checkout --detach "$CURRENT_MAIN_COMMIT"
+          git checkout --detach "$PINNED_PRODUCT_MAIN"
           log="$EVIDENCE_DIR/clean-deploy.log"
           npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
-          grep -Fq "InstaComp release manifest bound to $CURRENT_MAIN_COMMIT." "$log"
+          grep -Fq "InstaComp release manifest bound to $PINNED_PRODUCT_MAIN." "$log"
           out="$EVIDENCE_DIR/readiness-clean.json"; ready=0
           for attempt in $(seq 1 18); do
             code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?final-five=postfix-clean&attempt=$attempt&ts=$(date +%s)")"
@@ -276,7 +287,7 @@ jobs:
           body="$EVIDENCE_DIR/removed-token-response.json"
           auth_code="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $token" -F 'aiCouncilTier=basic' "$PRODUCTION_ORIGIN/api/instacomp/scan")"
           test "$auth_code" = "401" -o "$auth_code" = "403"
-          printf '{"clean":true,"deployedMain":"%s","acceptanceCredentialPresent":false,"runtimeSourceFingerprint":"%s","removedTokenHttp":%s,"twoPassGatePassed":%s}\n' "$CURRENT_MAIN_COMMIT" "$EXPECTED_MAC_FINGERPRINT" "$auth_code" "$([ -f "$TEMP_DIR/two-pass-passed" ] && echo true || echo false)" > "$EVIDENCE_DIR/cleanup-proof.json"
+          printf '{"clean":true,"deployedPinnedMain":"%s","acceptanceCredentialPresent":false,"runtimeSourceFingerprint":"%s","removedTokenHttp":%s,"twoPassGatePassed":%s}\n' "$PINNED_PRODUCT_MAIN" "$EXPECTED_MAC_FINGERPRINT" "$auth_code" "$([ -f "$TEMP_DIR/two-pass-passed" ] && echo true || echo false)" > "$EVIDENCE_DIR/cleanup-proof.json"
 
       - name: Upload final acceptance evidence
         if: always()
