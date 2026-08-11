@@ -19,29 +19,59 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Rebuild and checksum-lock candidate manifest
+      - name: Recover and checksum-lock candidate manifest
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import base64, gzip, hashlib
-          chunks = [Path(f'.github/ops/collx-visual-manifest.chunk{i}').read_text().strip() for i in range(6)]
-          packed = ''.join(chunks)
-          if len(packed) != 46064:
-              raise SystemExit(f'packed manifest length mismatch: {len(packed)}')
-          raw = gzip.decompress(base64.b64decode(packed))
-          digest = hashlib.sha256(raw).hexdigest()
+          import base64, gzip, hashlib, string
+
           expected = 'cd8ddd1a66ae749bf058a820dfd1570b85a8d29c0c0a8a5e7acf3a88d58fdcd7'
-          if digest != expected:
-              raise SystemExit(f'manifest checksum mismatch: {digest}')
-          # Recreate the exact four legacy pieces expected by the existing read-only matcher.
-          sizes = [12000, 12000, 12000, 10064]
+          c0 = Path('.github/ops/collx-visual-manifest.chunk0').read_text().strip()
+          c1 = Path('.github/ops/collx-visual-manifest.chunk1').read_text().strip()
+          c2 = Path('.github/ops/collx-visual-manifest.chunk2').read_text().strip()
+          c3 = Path('.github/ops/collx-visual-manifest.chunk3').read_text().strip()
+          c4 = Path('.github/ops/collx-visual-manifest.chunk4').read_text().strip()
+          c5 = Path('.github/ops/collx-visual-manifest.chunk5').read_text().strip()
+          old_part1 = Path('.github/ops/collx-visual-candidates.part1').read_text().strip()
+
+          if [len(c0),len(c1),len(c2),len(c3),len(c4),len(c5)] != [7999,4503,8000,8000,8000,6064]:
+              raise SystemExit(f'unexpected chunk lengths: {[len(c0),len(c1),len(c2),len(c3),len(c4),len(c5)]}')
+          if len(old_part1) != 12000:
+              raise SystemExit(f'unexpected source part1 length: {len(old_part1)}')
+
+          # chunk1 = last 4000 chars of original part0 + first 4000 chars of original part1.
+          # The staged short chunk1 contains all 4000 chars from part0 plus the first 503 chars of part1,
+          # so recover exactly the missing 3497 chars from the still-intact source prefix.
+          recovered_suffix = old_part1[503:4000]
+          if len(recovered_suffix) != 3497:
+              raise SystemExit('recovered suffix length mismatch')
+
+          alphabet = string.ascii_uppercase + string.ascii_lowercase + string.digits + '+/'
+          winner = None
+          for missing in alphabet:
+              packed = c0 + missing + c1 + recovered_suffix + c2 + c3 + c4 + c5
+              if len(packed) != 46064:
+                  continue
+              try:
+                  raw = gzip.decompress(base64.b64decode(packed, validate=True))
+              except Exception:
+                  continue
+              digest = hashlib.sha256(raw).hexdigest()
+              if digest == expected:
+                  winner = (missing, packed, digest)
+                  break
+          if not winner:
+              raise SystemExit('could not cryptographically recover candidate manifest')
+
+          missing, packed, digest = winner
+          sizes = [12000,12000,12000,10064]
           offset = 0
           for i, size in enumerate(sizes):
               Path(f'.github/ops/collx-visual-candidates.part{i}').write_text(packed[offset:offset+size])
               offset += size
-          print(f'candidate manifest verified: {digest}, packed={len(packed)}')
+          print(f'candidate manifest recovered and verified: sha={digest}, missing_char={missing!r}, packed={len(packed)}')
           PY
 
       - name: Set up Python
