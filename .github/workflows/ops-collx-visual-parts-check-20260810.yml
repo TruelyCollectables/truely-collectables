@@ -16,9 +16,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Print exact staged chunk sizes and hashes
+      - name: Diagnose recoverable overlap
         shell: bash
         run: |
           set -euo pipefail
-          wc -c .github/ops/collx-visual-manifest.chunk*
-          sha256sum .github/ops/collx-visual-manifest.chunk*
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p0 = Path('.github/ops/collx-visual-candidates.part0').read_text().strip()
+          p1 = Path('.github/ops/collx-visual-candidates.part1').read_text().strip()
+          c0 = Path('.github/ops/collx-visual-manifest.chunk0').read_text().strip()
+          c2 = Path('.github/ops/collx-visual-manifest.chunk2').read_text().strip()
+          print({'p0':len(p0),'p1':len(p1),'c0':len(c0),'c2':len(c2)})
+          print('p0_c0_find', p0.find(c0), 'p0_starts_c0', p0.startswith(c0))
+          print('p1_c2_find', p1.find(c2), 'p1_ends_c2', p1.endswith(c2))
+          print('p1_tail8000_sha', hashlib.sha256(p1[-8000:].encode()).hexdigest())
+          print('c2_sha', hashlib.sha256(c2.encode()).hexdigest())
+          print('p0_prefix7999_sha', hashlib.sha256(p0[:7999].encode()).hexdigest())
+          print('c0_sha', hashlib.sha256(c0.encode()).hexdigest())
+          print('p0_next_after_c0', repr(p0[len(c0):len(c0)+16]))
+          print('p1_first32', repr(p1[:32]))
+          PY
