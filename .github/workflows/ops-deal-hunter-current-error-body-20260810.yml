@@ -1,0 +1,34 @@
+name: Ops Deal Hunter Current Error Body 20260810
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/ops-deal-hunter-current-error-body-20260810.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Read current Production Mac candidate diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o diagnostics.json -w '%{http_code}' --connect-timeout 5 --max-time 90 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://truelycollectables.com/api/release/instacomp-deal-hunter-candidate-diagnostics" || true)"
+          echo "DIAGNOSTICS_HTTP=$code"
+          node - <<'NODE'
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('diagnostics.json','utf8'))}catch{}
+          const candidates=Array.isArray(p.macCandidates)?p.macCandidates:[];
+          const rows=candidates.slice(0,50).map(r=>({runId:r.run_id||r.runId||null,status:r.status||null,title:r.title||null,errorCode:r.error_code||r.errorCode||null,errorMessage:r.error_message||r.errorMessage||null,dealLabel:r.deal_label||r.dealLabel||null}));
+          const uniqueErrors=[...new Set(rows.map(r=>r.errorMessage).filter(Boolean))];
+          console.log('SAFE_CURRENT_MAC_ERRORS='+JSON.stringify({success:Boolean(p.success),macCandidateError:p.macCandidateError||null,macErrorCounts:p.macErrorCounts||null,latestRun:p.latestRun||null,rows,uniqueErrors}));
+          if(code==='000') process.exit(1);
+          NODE
