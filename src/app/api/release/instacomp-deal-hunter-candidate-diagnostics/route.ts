@@ -87,6 +87,45 @@ function compactMacCandidate(row: any) {
   };
 }
 
+function compactTeacherReceipt(row: any) {
+  const market = row?.exact_market && typeof row.exact_market === "object"
+    ? row.exact_market
+    : {};
+  const consensus = market?.teacherConsensus && typeof market.teacherConsensus === "object"
+    ? market.teacherConsensus
+    : null;
+  const attempts = Array.isArray(consensus?.attempts) ? consensus.attempts : [];
+  const learning = market?.teacherLearning && typeof market.teacherLearning === "object"
+    ? market.teacherLearning
+    : null;
+  return {
+    runId: String(row?.run_id || "") || null,
+    title: String(row?.title || "").slice(0, 300) || null,
+    updatedAt: String(row?.updated_at || "") || null,
+    configuredTeachers: Array.isArray(consensus?.configuredTeachers)
+      ? consensus.configuredTeachers.map(String)
+      : [],
+    requiredVotes: Number(consensus?.requiredVotes || 0),
+    attempts: attempts.map((attempt: any) => ({
+      teacher: String(attempt?.teacher || ""),
+      configured: attempt?.configured === true,
+      ok: attempt?.ok === true,
+      soldCount: Array.isArray(attempt?.sold) ? attempt.sold.length : 0,
+      activeCount: Array.isArray(attempt?.active) ? attempt.active.length : 0,
+      error: attempt?.error ? String(attempt.error).slice(0, 500) : null,
+    })),
+    pricingEligibleSoldCount: Number(market?.pricingEligibleSoldCount || 0),
+    teacherLearning: learning
+      ? {
+          status: String(learning.status || "") || null,
+          trustedMarketTruth: learning.trustedMarketTruth === true,
+          studentTrainingEligible: learning.studentTrainingEligible === true,
+          pricingAuthority: learning.pricingAuthority === true,
+        }
+      : null,
+  };
+}
+
 export async function POST(request: Request) {
   if (!(await verifyVercelToken(request))) {
     return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
@@ -94,8 +133,9 @@ export async function POST(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const productionOnly =
-      String(url.searchParams.get("mode") || "").trim().toLowerCase() === "production";
+    const requestedMode = String(url.searchParams.get("mode") || "").trim().toLowerCase();
+    const teacherOnly = requestedMode === "teachers";
+    const productionOnly = requestedMode === "production" || teacherOnly;
     let macCandidates: any[] = [];
     let macCandidateError: string | null = null;
 
@@ -127,6 +167,44 @@ export async function POST(request: Request) {
     const supabase = createClient(supabaseUrl, serviceRole, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    if (teacherOnly) {
+      const sinceInput = String(url.searchParams.get("since") || "").trim();
+      const parsedSince = Date.parse(sinceInput);
+      const since = Number.isFinite(parsedSince)
+        ? new Date(parsedSince).toISOString()
+        : new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+      const { data: teacherRows, error: teacherError } = await supabase
+        .from("tcos_deal_hunter_candidates")
+        .select("run_id,title,exact_market,updated_at")
+        .gte("updated_at", since)
+        .order("updated_at", { ascending: false })
+        .limit(30);
+      if (teacherError) {
+        throw new Error(`Production teacher receipt diagnostics failed: ${teacherError.message}`);
+      }
+      const { data: latestRuns, error: runsError } = await supabase
+        .from("tcos_deal_hunter_runs")
+        .select("run_id,status,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count")
+        .gte("completed_at", since)
+        .order("completed_at", { ascending: false })
+        .limit(10);
+      if (runsError) {
+        throw new Error(`Production run diagnostics failed: ${runsError.message}`);
+      }
+      return Response.json(
+        {
+          success: true,
+          schema: "truelycollectables.instacompDealHunterTeacherDiagnostics.v1",
+          mode: "teachers",
+          since,
+          teacherReceipts: (teacherRows || []).map(compactTeacherReceipt),
+          latestRuns: latestRuns || [],
+          checkedAt: new Date().toISOString(),
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
 
     const { data: productionCandidates, error: productionError } = await supabase
       .from("tcos_deal_hunter_candidates")
