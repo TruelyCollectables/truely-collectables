@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
