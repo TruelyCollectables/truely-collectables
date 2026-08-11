@@ -47,7 +47,7 @@ jobs:
           set -a
           source .env.local
           set +a
-          cat > /tmp/gemini-gateway-probe.mjs <<'NODE'
+          cat > .gemini-gateway-probe.mjs <<'NODE'
           import { generateText, stepCountIs } from 'ai';
           import { gateway } from '@ai-sdk/gateway';
 
@@ -92,4 +92,5 @@ jobs:
           console.log('GEMINI_GATEWAY_SEARCH_PROOF=' + JSON.stringify(safe));
           if (!safe.textReturned || safe.parallelSearchCalls < 1 || safe.parallelSearchResults < 1) process.exit(2);
           NODE
-          node /tmp/gemini-gateway-probe.mjs
+          node ./.gemini-gateway-probe.mjs
+          rm -f .gemini-gateway-probe.mjs
