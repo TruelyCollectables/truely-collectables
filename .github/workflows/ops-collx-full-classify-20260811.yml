@@ -1,5 +1,5 @@
 name: Ops CollX Full Collection Classify 20260811
-# full migration classifier hardened 2026-08-11
+# full migration classifier hardened 2026-08-11 v2
 
 on:
   pull_request:
