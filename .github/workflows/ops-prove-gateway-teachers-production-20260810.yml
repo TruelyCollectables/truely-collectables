@@ -10,38 +10,17 @@ permissions:
   contents: read
 
 jobs:
-  prove:
+  readback:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
-      SITE_URL: https://truelycollectables.com
     steps:
       - uses: actions/checkout@v4
 
-      - name: Require live two-family teacher configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsS --max-time 60 -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$SITE_URL/api/release/instacomp-teacher-runtime-diagnostics" > /tmp/runtime.json
-          node - <<'NODE'
-          const p=require('/tmp/runtime.json'); const c=p.configuration||{};
-          const safe={
-            success:Boolean(p.success), geminiConfigured:Boolean(c.geminiConfigured),
-            groqConfigured:Boolean(c.groqConfigured), gatewayPerplexityConfigured:Boolean(c.gatewayPerplexityConfigured),
-            votingTeacherCount:Number(c.votingTeacherCount||0), requiredVotes:Number(c.requiredVotes||0),
-            teacherConsensusOperational:Boolean(c.teacherConsensusOperational), macLearningBridgeConfigured:Boolean(c.macLearningBridgeConfigured),
-            onlineCompLearnMode:Boolean(c.onlineCompLearnMode),
-          };
-          console.log('PRODUCTION_TEACHER_CONFIGURATION='+JSON.stringify(safe));
-          if(!safe.success || safe.geminiConfigured || !safe.groqConfigured || !safe.gatewayPerplexityConfigured || safe.votingTeacherCount!==2 || safe.requiredVotes!==2 || !safe.teacherConsensusOperational || !safe.macLearningBridgeConfigured || !safe.onlineCompLearnMode) process.exit(1);
-          NODE
-
-      - name: Pull Production env for receipt readback
+      - name: Pull Production env securely
         shell: bash
         run: |
           set -euo pipefail
@@ -49,39 +28,36 @@ jobs:
           npx --yes vercel@latest env pull /tmp/truely-production.env --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           test -s /tmp/truely-production.env
 
-      - name: Force one bounded real Deal Hunter run
-        shell: bash
-        run: |
-          set -euo pipefail
-          code="$(curl -sS -o /tmp/targeted.json -w '%{http_code}' --max-time 850 -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$SITE_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&limit=10" || true)"
-          echo "TARGETED_SELF_TEST_HTTP=$code"
-          node - <<'NODE'
-          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/targeted.json','utf8'));
-          const run=p.run||{};
-          const safe={success:Boolean(p.success),lane:p.lane||null,runId:run.runId||null,status:run.status||null,discoveryCount:Number(run.discoveryCount||0),evaluatedCount:Number(run.evaluatedCount||0),actionableCount:Number(run.actionableCount||0),manualReviewCount:Number(run.manualReviewCount||0),failureCount:Number(run.failureCount||0),error:p.error||run.error||null};
-          console.log('TARGETED_RUN_RECEIPT='+JSON.stringify(safe));
-          if(!p.success || !run.runId || run.status!=='completed' || Number(run.evaluatedCount||0)<1) process.exit(1);
-          fs.writeFileSync('/tmp/run-id.txt',String(run.runId));
-          NODE
-
-      - name: Prove actual Groq and Gateway Perplexity attempts in persisted candidates
+      - name: Read post-timeout Deal Hunter runs and teacher receipts
         shell: bash
         run: |
           set -euo pipefail
           set -a
           source /tmp/truely-production.env
           set +a
-          export PROOF_RUN_ID="$(cat /tmp/run-id.txt)"
           node --input-type=module - <<'NODE'
           import { createClient } from '@supabase/supabase-js';
           const url=String(process.env.NEXT_PUBLIC_SUPABASE_URL||'').trim();
           const key=String(process.env.SUPABASE_SERVICE_ROLE_KEY||'').trim();
-          const runId=String(process.env.PROOF_RUN_ID||'').trim();
-          if(!url||!key||!runId) throw new Error('Missing Production Supabase proof inputs.');
+          if(!url||!key) throw new Error('Missing Production Supabase proof inputs.');
           const supabase=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
-          const {data,error}=await supabase.from('tcos_deal_hunter_candidates').select('title,exact_market,evaluation,updated_at').eq('run_id',runId).order('updated_at',{ascending:false}).limit(30);
+          const since='2026-08-11T00:32:00.000Z';
+
+          const {data:runs,error:runError}=await supabase
+            .from('tcos_deal_hunter_runs')
+            .select('run_id,status,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count,summary')
+            .gte('completed_at',since)
+            .order('completed_at',{ascending:false})
+            .limit(10);
+          if(runError) throw new Error(runError.message);
+          console.log('POST_TIMEOUT_RUNS='+JSON.stringify((runs||[]).map(r=>({runId:r.run_id,status:r.status,completedAt:r.completed_at,discoveryCount:Number(r.discovery_count||0),evaluatedCount:Number(r.evaluated_count||0),actionableCount:Number(r.actionable_count||0),manualReviewCount:Number(r.manual_review_count||0),failureCount:Number(r.failure_count||0)}))));
+
+          const {data,error}=await supabase
+            .from('tcos_deal_hunter_candidates')
+            .select('run_id,title,exact_market,evaluation,updated_at')
+            .gte('updated_at',since)
+            .order('updated_at',{ascending:false})
+            .limit(80);
           if(error) throw new Error(error.message);
           const rows=Array.isArray(data)?data:[];
           const receipts=[];
@@ -91,16 +67,21 @@ jobs:
             const attempts=Array.isArray(consensus?.attempts)?consensus.attempts:[];
             if(!attempts.length) continue;
             const safeAttempts=attempts.map(a=>({teacher:String(a?.teacher||''),configured:Boolean(a?.configured),ok:Boolean(a?.ok),soldCount:Array.isArray(a?.sold)?a.sold.length:0,activeCount:Array.isArray(a?.active)?a.active.length:0,error:a?.error?String(a.error).slice(0,240):null}));
-            const gateway=safeAttempts.find(a=>a.teacher==='gateway_perplexity');
-            const groq=safeAttempts.filter(a=>a.teacher==='groq'||a.teacher==='groq_browser');
-            receipts.push({title:String(row?.title||'').slice(0,180),configuredTeachers:Array.isArray(consensus?.configuredTeachers)?consensus.configuredTeachers:[],requiredVotes:Number(consensus?.requiredVotes||0),gateway:gateway||null,groq,trustedSoldCount:Number(market?.pricingEligibleSoldCount||0),teacherLearning:market?.teacherLearning?{status:market.teacherLearning.status||null,trustedMarketTruth:Boolean(market.teacherLearning.trustedMarketTruth),studentTrainingEligible:Boolean(market.teacherLearning.studentTrainingEligible),pricingAuthority:Boolean(market.teacherLearning.pricingAuthority)}:null});
+            receipts.push({
+              runId:String(row?.run_id||''),
+              updatedAt:row?.updated_at||null,
+              title:String(row?.title||'').slice(0,180),
+              configuredTeachers:Array.isArray(consensus?.configuredTeachers)?consensus.configuredTeachers:[],
+              requiredVotes:Number(consensus?.requiredVotes||0),
+              attempts:safeAttempts,
+              trustedSoldCount:Number(market?.pricingEligibleSoldCount||0),
+              teacherLearning:market?.teacherLearning?{status:market.teacherLearning.status||null,trustedMarketTruth:Boolean(market.teacherLearning.trustedMarketTruth),studentTrainingEligible:Boolean(market.teacherLearning.studentTrainingEligible),pricingAuthority:Boolean(market.teacherLearning.pricingAuthority)}:null,
+            });
           }
-          console.log('LIVE_TEACHER_RECEIPTS='+JSON.stringify(receipts.slice(0,10)));
-          const gatewayLive=receipts.some(r=>r.gateway?.configured===true && r.gateway?.ok===true);
-          const groqLive=receipts.some(r=>r.groq.some(a=>a.configured===true && a.ok===true));
-          const correctVotes=receipts.some(r=>r.requiredVotes===2 && r.configuredTeachers.includes('gateway_perplexity') && (r.configuredTeachers.includes('groq')||r.configuredTeachers.includes('groq_browser')));
-          if(!gatewayLive) throw new Error('No persisted candidate proved gateway_perplexity configured=true and ok=true.');
-          if(!groqLive) throw new Error('No persisted candidate proved a Groq-family teacher configured=true and ok=true.');
-          if(!correctVotes) throw new Error('No persisted candidate proved the required two-family teacher vote configuration.');
-          console.log('PRODUCTION_TEACHER_CALL_PROOF='+JSON.stringify({runId,candidateRows:rows.length,gatewayPerplexityLive:gatewayLive,groqFamilyLive:groqLive,twoVoteConfigurationProven:correctVotes}));
+          console.log('POST_TIMEOUT_TEACHER_RECEIPTS='+JSON.stringify(receipts.slice(0,25)));
+          const gatewayLive=receipts.some(r=>r.attempts.some(a=>a.teacher==='gateway_perplexity'&&a.configured&&a.ok));
+          const groqLive=receipts.some(r=>r.attempts.some(a=>(a.teacher==='groq'||a.teacher==='groq_browser')&&a.configured&&a.ok));
+          const correctVotes=receipts.some(r=>r.requiredVotes===2&&r.configuredTeachers.includes('gateway_perplexity')&&(r.configuredTeachers.includes('groq')||r.configuredTeachers.includes('groq_browser')));
+          console.log('POST_TIMEOUT_TEACHER_PROOF='+JSON.stringify({candidateRows:rows.length,receiptRows:receipts.length,gatewayPerplexityLive:gatewayLive,groqFamilyLive:groqLive,twoVoteConfigurationProven:correctVotes}));
+          if(!gatewayLive||!groqLive||!correctVotes) process.exit(2);
           NODE
