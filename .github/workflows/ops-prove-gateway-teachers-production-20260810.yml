@@ -1,4 +1,4 @@
-name: Ops Read Latest Deal Hunter Outcomes 20260811
+name: Ops Inspect Compact Deal Hunter Outcomes 20260811
 
 on:
   pull_request:
@@ -12,81 +12,45 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          fetch-depth: 0
 
-      - name: Pull Production environment without printing secrets
+      - name: Deploy exact current main with compact diagnostics
         shell: bash
         run: |
           set -euo pipefail
+          git fetch --no-tags origin main
+          git checkout --detach origin/main
+          CURRENT_MAIN="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor 5957dc96d7e7850fb87028b194696629c90399d1 "$CURRENT_MAIN"
+          echo "DIAGNOSTIC_MAIN=$CURRENT_MAIN"
           npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@latest env pull .env.production.local --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          test -s .env.production.local
-          echo 'PRODUCTION_ENV_ACQUIRED=true'
+          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-prod.log
+          DEPLOY_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' /tmp/vercel-prod.log | tail -n 1)"
+          test -n "$DEPLOY_URL"
+          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "PRODUCTION_DIAGNOSTIC_DEPLOYMENT=$DEPLOY_URL"
 
-      - name: Install app dependencies
-        run: npm ci
-
-      - name: Read newest Deal Hunter run and candidate receipts directly
+      - name: Read compact latest Deal Hunter outcomes
         shell: bash
         run: |
           set -euo pipefail
-          set -a
-          source .env.production.local
-          set +a
-          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
-          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}"
-          node --input-type=module <<'NODE'
-          import { createClient } from '@supabase/supabase-js';
-          const url=String(process.env.NEXT_PUBLIC_SUPABASE_URL||'').trim();
-          const key=String(process.env.SUPABASE_SERVICE_ROLE_KEY||'').trim();
-          const supabase=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
-          const {data:runs,error:runError}=await supabase
-            .from('tcos_deal_hunter_runs')
-            .select('run_id,status,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count,summary')
-            .order('completed_at',{ascending:false})
-            .limit(1);
-          if(runError) throw new Error(`run query: ${runError.message}`);
-          const run=runs?.[0]||null;
-          if(!run?.run_id) throw new Error('No Deal Hunter run found.');
-          const {data:rows,error:candidateError}=await supabase
-            .from('tcos_deal_hunter_candidates')
-            .select('run_id,title,lane,deal_label,actionable,alertworthy,identity,exact_market,evaluation,item_price,delivered_cost,conservative_resale,expected_net_profit,roi_percent,updated_at')
-            .eq('run_id',run.run_id)
-            .order('updated_at',{ascending:true})
-            .limit(50);
-          if(candidateError) throw new Error(`candidate query: ${candidateError.message}`);
-          const compact=(rows||[]).map(r=>{
-            const m=r.exact_market&&typeof r.exact_market==='object'?r.exact_market:{};
-            const h=m.historicalSoldMemory&&typeof m.historicalSoldMemory==='object'?m.historicalSoldMemory:null;
-            const hf=m.historicalSoldFallback&&typeof m.historicalSoldFallback==='object'?m.historicalSoldFallback:null;
-            const c=m.teacherConsensus&&typeof m.teacherConsensus==='object'?m.teacherConsensus:null;
-            const ev=r.evaluation&&typeof r.evaluation==='object'?r.evaluation:{};
-            const id=r.identity&&typeof r.identity==='object'?r.identity:{};
-            return {
-              title:r.title||null,lane:r.lane||null,dealLabel:r.deal_label||null,actionable:r.actionable===true,alertworthy:r.alertworthy===true,
-              itemPrice:r.item_price??null,deliveredCost:r.delivered_cost??null,conservativeResale:r.conservative_resale??null,expectedNetProfit:r.expected_net_profit??null,roiPercent:r.roi_percent??null,
-              identity:{status:id.status||null,confidence:id.confidence??null,registryIdentityId:id.registryIdentityId||id.registry_identity_id||null,registryFingerprintSha256:id.registryFingerprintSha256||id.registry_fingerprint_sha256||null,player:id.player||null,year:id.year||null,brand:id.brand||null,setName:id.setName||id.set_name||null,cardNumber:id.cardNumber||id.card_number||null,parallel:id.parallel||null,serialNumber:id.serialNumber||id.serial_number||null,gradingCompany:id.gradingCompany||id.grading_company||null,gradeValue:id.gradeValue||id.grade_value||null},
-              exactMarket:{status:m.status||null,pricingEligibleSoldCount:Number(m.pricingEligibleSoldCount||0),trustedSuggestedPrice:m.trustedSuggestedPrice??null,
-                historicalSoldMemory:h?{used:h.used===true,soldCount:Number(h.soldCount||0),medianDeliveredPrice:h.medianDeliveredPrice??null,newestSoldAt:h.newestSoldAt||null}:null,
-                historicalSoldFallback:hf?{used:hf.used===true,soldCount:Number(hf.soldCount||0),medianDeliveredPrice:hf.medianDeliveredPrice??null,newestSoldAt:hf.newestSoldAt||null,error:hf.error?String(hf.error).slice(0,250):null}:null,
-                configuredTeachers:Array.isArray(c?.configuredTeachers)?c.configuredTeachers:[],requiredVotes:Number(c?.requiredVotes||0),
-                teacherAttempts:Array.isArray(c?.attempts)?c.attempts.map(a=>({teacher:a.teacher||null,configured:a.configured===true,ok:a.ok===true,soldCount:Number(a.soldCount||0),activeCount:Number(a.activeCount||0),error:a.error?String(a.error).slice(0,220):null})):[],
-                providerMessages:Array.isArray(m.providerMessages)?m.providerMessages.map(x=>({label:x.label||null,status:x.status||null,results:Number(x.results||0),message:x.message?String(x.message).slice(0,260):null})):[]},
-              evaluation:{errorCode:ev.errorCode||ev.error_code||null,errorMessage:ev.errorMessage||ev.error_message||null,status:ev.status||null}
-            };
-          });
-          const summary={latestRun:{runId:run.run_id,status:run.status||null,completedAt:run.completed_at||null,discoveryCount:Number(run.discovery_count||0),evaluatedCount:Number(run.evaluated_count||0),actionableCount:Number(run.actionable_count||0),manualReviewCount:Number(run.manual_review_count||0),failureCount:Number(run.failure_count||0),summary:run.summary||null},rowCount:compact.length,memoryPriced:compact.filter(r=>r.exactMarket.historicalSoldMemory?.used||r.exactMarket.historicalSoldFallback?.used).length,trustedPrice:compact.filter(r=>Number(r.exactMarket.trustedSuggestedPrice)>0).length,teacherRan:compact.filter(r=>r.exactMarket.configuredTeachers.length>0).length,teacherTrustedSold:compact.filter(r=>r.exactMarket.pricingEligibleSoldCount>0&&r.exactMarket.configuredTeachers.length>0).length,noTrustedSold:compact.filter(r=>!(Number(r.exactMarket.trustedSuggestedPrice)>0)).length,actionable:compact.filter(r=>r.actionable).length};
-          console.log('LATEST_DEAL_HUNTER_SUMMARY='+JSON.stringify(summary));
-          console.log('LATEST_DEAL_HUNTER_CANDIDATES='+JSON.stringify(compact));
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-latest-outcomes" || true)"
+            if [ "$code" = "200" ]; then break; fi
+            sleep 3
+          done
+          test "$code" = "200"
+          node - <<'NODE'
+          const p=require('./outcomes.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          console.log('LATEST_DEAL_HUNTER_SUMMARY='+JSON.stringify({latestRun:p.latestRun||null,summary:p.summary||null}));
+          console.log('LATEST_DEAL_HUNTER_CANDIDATES='+JSON.stringify(p.candidates||[]));
           NODE
