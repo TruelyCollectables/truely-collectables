@@ -37,6 +37,20 @@ assert.equal(groqAndGatewayWithDeadGeminiDisabled.votingTeacherCount, 2);
 assert.equal(groqAndGatewayWithDeadGeminiDisabled.requiredVotes, 2);
 assert.equal(groqAndGatewayWithDeadGeminiDisabled.teacherConsensusOperational, true);
 
+
+const groqAndGatewayFromVercelRequestContext = resolveInstaCompTeacherRuntimeConfiguration({
+  GROQ_API_KEY: "configured",
+  GEMINI_API_KEY: "invalid-but-present",
+  INSTACOMP_TEACHER_GEMINI_DISABLED: "true",
+  VERCEL: "1",
+});
+assert.equal(groqAndGatewayFromVercelRequestContext.geminiConfigured, false);
+assert.equal(groqAndGatewayFromVercelRequestContext.groqConfigured, true);
+assert.equal(groqAndGatewayFromVercelRequestContext.gatewayPerplexityConfigured, true);
+assert.equal(groqAndGatewayFromVercelRequestContext.votingTeacherCount, 2);
+assert.equal(groqAndGatewayFromVercelRequestContext.requiredVotes, 2);
+assert.equal(groqAndGatewayFromVercelRequestContext.teacherConsensusOperational, true);
+
 const four = resolveInstaCompTeacherRuntimeConfiguration({
   GROQ_API_KEY: "configured",
   GEMINI_API_KEY: "configured",
