@@ -107,46 +107,81 @@ jobs:
             throw new Error(`${label} failed: ${last}`);
           }
 
-          async function paged({ label, selectSql, fromSql, whereSql, orderSql }) {
+          async function availableColumns(table, desired) {
+            const rows = await query(`
+              select column_name
+              from information_schema.columns
+              where table_schema = 'public'
+                and table_name = '${table.replaceAll("'", "''")}'
+              order by ordinal_position;
+            `, `${table} schema`);
+            const existing = new Set(rows.map((row) => String(row.column_name)));
+            const selected = desired.filter((column) => existing.has(column));
+            if (!selected.includes('id')) throw new Error(`${table} does not expose id.`);
+            console.log(JSON.stringify({ table, selected_columns: selected }));
+            return selected;
+          }
+
+          async function pagedTable({ table, columns, whereSql, orderSql }) {
             const rows = [];
+            const selectSql = columns.map((column) => `"${column}"`).join(', ');
             for (let offset = 0; offset < 50000; offset += pageSize) {
               const batch = await query(`
                 select ${selectSql}
-                from ${fromSql}
+                from public."${table}"
                 where ${whereSql}
                 order by ${orderSql}
                 limit ${pageSize} offset ${offset};
-              `, `${label} offset ${offset}`);
+              `, `${table} offset ${offset}`);
               rows.push(...batch);
-              console.log(JSON.stringify({ label, offset, fetched: batch.length, total: rows.length }));
+              console.log(JSON.stringify({ table, offset, fetched: batch.length, total: rows.length }));
               if (batch.length < pageSize) return rows;
             }
-            throw new Error(`${label} exceeded 50,000 rows.`);
+            throw new Error(`${table} exceeded 50,000 rows.`);
           }
 
-          const products = await paged({
-            label: 'products',
-            selectSql: 'id, store_id, sku, title, player, sport, ebay_item_id, image_url, quantity, status, archived_at',
-            fromSql: 'public.products',
+          const productColumns = await availableColumns('products', [
+            'id','store_id','sku','title','description','player','sport','ebay_item_id','image_url','quantity','price','archived_at','sold_at'
+          ]);
+          const inventoryItemColumns = await availableColumns('inventory_items', [
+            'id','store_id','legacy_product_id','card_uuid','sku','title','description','category','condition','status','quantity','price','metadata'
+          ]);
+          const inventoryImageColumns = await availableColumns('inventory_images', [
+            'id','inventory_item_id','image_url','alt_text','sort_order','is_primary'
+          ]);
+
+          const products = await pagedTable({
+            table: 'products',
+            columns: productColumns,
             whereSql: `store_id = '${storeId}'::uuid`,
             orderSql: 'id',
           });
 
-          const inventoryItems = await paged({
-            label: 'inventory_items',
-            selectSql: 'id, store_id, legacy_product_id, sku, title, status, quantity, metadata',
-            fromSql: 'public.inventory_items',
+          const inventoryItems = await pagedTable({
+            table: 'inventory_items',
+            columns: inventoryItemColumns,
             whereSql: `store_id = '${storeId}'::uuid`,
             orderSql: 'id',
           });
 
-          const inventoryImages = await paged({
-            label: 'inventory_images',
-            selectSql: 'img.id, img.inventory_item_id, img.image_url, img.alt_text, img.sort_order, img.is_primary',
-            fromSql: 'public.inventory_images img join public.inventory_items i on i.id = img.inventory_item_id',
-            whereSql: `i.store_id = '${storeId}'::uuid`,
-            orderSql: 'img.inventory_item_id, img.sort_order, img.id',
-          });
+          const imageSelectSql = inventoryImageColumns
+            .map((column) => `img."${column}"`)
+            .join(', ');
+          const inventoryImages = [];
+          for (let offset = 0; offset < 50000; offset += pageSize) {
+            const batch = await query(`
+              select ${imageSelectSql}
+              from public.inventory_images img
+              join public.inventory_items i on i.id = img.inventory_item_id
+              where i.store_id = '${storeId}'::uuid
+              order by img.inventory_item_id, img.sort_order, img.id
+              limit ${pageSize} offset ${offset};
+            `, `inventory_images offset ${offset}`);
+            inventoryImages.push(...batch);
+            console.log(JSON.stringify({ table: 'inventory_images', offset, fetched: batch.length, total: inventoryImages.length }));
+            if (batch.length < pageSize) break;
+            if (offset + pageSize >= 50000) throw new Error('inventory_images exceeded 50,000 rows.');
+          }
 
           const output = {
             generated_at: new Date().toISOString(),
