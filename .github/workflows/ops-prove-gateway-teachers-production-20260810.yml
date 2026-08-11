@@ -1,4 +1,4 @@
-name: Ops Compact Deal Hunter Evaluator Errors 20260811
+name: Ops Prove Deal Hunter Security Repair 20260811
 
 on:
   pull_request:
@@ -10,52 +10,98 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT: truely-collectables
     steps:
-      - name: Resolve latest READY Production deployment
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy exact current main containing security repair
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" 'https://api.vercel.com/v2/teams?limit=100' > teams.json
-          TEAM_ID="$(node - <<'NODE'
-          const p=require('./teams.json'); const t=(p.teams||[]).find(x=>x.slug==='truelycollectables-projects'); if(!t?.id) process.exit(2); process.stdout.write(t.id);
-          NODE
-          )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/$VERCEL_PROJECT?teamId=$TEAM_ID" > project.json
-          PROJECT_ID="$(node - <<'NODE'
-          const p=require('./project.json'); if(!p.id) process.exit(2); process.stdout.write(p.id);
-          NODE
-          )"
-          curl -fsS --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments?projectId=$PROJECT_ID&target=production&limit=20&teamId=$TEAM_ID" > deployments.json
+          git fetch --no-tags origin main
+          git checkout --detach origin/main
+          CURRENT_MAIN="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor 80d0e6fe7ab2a1873d23fdcd8527c5da1573c208 "$CURRENT_MAIN"
+          echo "PROOF_MAIN=$CURRENT_MAIN"
+          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@latest --prod --yes --archive=tgz --cwd . --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-prod.log
+          DEPLOY_URL="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' /tmp/vercel-prod.log | tail -n 1)"
+          test -n "$DEPLOY_URL"
+          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "PRODUCTION_DEPLOYED_MAIN=$CURRENT_MAIN"
+          echo "PRODUCTION_DEPLOYMENT_URL=$DEPLOY_URL"
+
+      - name: Start one bounded targeted Deal Hunter run
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o start.json -w '%{http_code}' --connect-timeout 5 --max-time 70 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$DEPLOY_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&limit=3&mode=start" || true)"
+          echo "TARGET_START_HTTP=$code"
           node - <<'NODE'
-          const fs=require('fs'); const p=require('./deployments.json');
-          const ready=(Array.isArray(p.deployments)?p.deployments:[]).find(d=>String(d.state||d.readyState||'').toUpperCase()==='READY'&&d.url);
-          if(!ready) throw new Error('No READY production deployment.');
-          console.log('PROD='+JSON.stringify({commit:ready.meta?.githubCommitSha||ready.meta?.gitCommitSha||null,url:ready.url}));
-          fs.appendFileSync(process.env.GITHUB_ENV,`DEPLOY_URL=https://${ready.url}\n`);
+          const fs=require('fs'); let p={}; try{p=JSON.parse(fs.readFileSync('start.json','utf8'))}catch{}
+          const safe={success:Boolean(p.success),mode:p.mode||null,lane:p.lane||null,triggerAccepted:p.triggerAccepted??null,triggerTimedOut:p.triggerTimedOut??null,run:p.run||null,error:p.error?String(p.error).slice(0,900):null};
+          console.log('TARGET_START='+JSON.stringify(safe));
+          if(!p.success || !p.run?.runId) process.exit(2);
+          fs.appendFileSync(process.env.GITHUB_ENV,`TARGET_RUN_ID=${p.run.runId}\n`);
           NODE
 
-      - name: Print latest Mac evaluator errors
+      - name: Poll targeted run to durable completion
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 30 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$DEPLOY_URL/api/release/instacomp-deal-hunter-mac-outcomes" || true)"
-          echo "HTTP=$code"
+          for attempt in $(seq 1 72); do
+            code="$(curl -sS -o poll.json -w '%{http_code}' --connect-timeout 5 --max-time 35 -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$DEPLOY_URL/api/release/instacomp-deal-hunter-targeted-self-test?lane=ivan_demidov&mode=poll&runId=$TARGET_RUN_ID" || true)"
+            if [ "$code" != "200" ]; then
+              echo "POLL_HTTP=$code attempt=$attempt"
+              sleep 5
+              continue
+            fi
+            state="$(node -e "const p=require('./poll.json'); process.stdout.write(String(p?.run?.status||''))")"
+            node - <<'NODE'
+          const p=require('./poll.json');
+          console.log('TARGET_POLL='+JSON.stringify({success:Boolean(p.success),run:p.run||null,error:p.error||null}));
+          NODE
+            if [ "$state" = "completed" ]; then exit 0; fi
+            if [ -n "$state" ] && [ "$state" != "running" ]; then exit 3; fi
+            sleep 5
+          done
+          echo 'Targeted Deal Hunter run did not complete in bounded poll window.' >&2
+          exit 4
+
+      - name: Require security outage gone and inspect comp path
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o outcomes.json -w '%{http_code}' --connect-timeout 5 --max-time 35 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$DEPLOY_URL/api/release/instacomp-deal-hunter-mac-outcomes" || true)"
+          echo "MAC_OUTCOMES_HTTP=$code"
           test "$code" = "200"
           node - <<'NODE'
-          const p=require('./outcomes.json'); if(!p.success) throw new Error(p.error||'failed');
-          const rows=Array.isArray(p.candidates)?p.candidates:[];
-          console.log('SUMMARY '+JSON.stringify(p.summary||{}));
-          const grouped={};
-          rows.forEach((r,i)=>{
-            const msg=String(r.errorMessage||'').replace(/\s+/g,' ').slice(0,900)||'-';
-            grouped[msg]=(grouped[msg]||0)+1;
-            console.log(`ERR ${String(i+1).padStart(2,'0')} code=${r.errorCode||'-'} msg=${msg} title=${String(r.title||'').slice(0,150)}`);
-          });
-          console.log('ERROR_GROUPS '+JSON.stringify(grouped));
+          const p=require('./outcomes.json'); if(!p.success) throw new Error(p.error||'Mac outcomes failed');
+          const rows=(Array.isArray(p.candidates)?p.candidates:[]).filter(r=>String(r.runId||'')===process.env.TARGET_RUN_ID);
+          const securityFailures=rows.filter(r=>/Security checks are temporarily unavailable/i.test(String(r.errorMessage||'')));
+          const reachedIdentity=rows.filter(r=>r.identity && Object.values(r.identity).some(v=>v!==null&&v!==''));
+          const reachedMarket=rows.filter(r=>r.exactMarket && (r.exactMarket.status||r.exactMarket.configuredTeachers?.length||r.exactMarket.historicalSoldMemory||r.exactMarket.historicalSoldFallback));
+          const teacherRows=rows.filter(r=>(r.exactMarket?.configuredTeachers||[]).length>0);
+          const trustedRows=rows.filter(r=>Number(r.exactMarket?.trustedSuggestedPrice||0)>0);
+          const compact=rows.map(r=>({title:r.title||null,status:r.status||null,errorCode:r.errorCode||null,errorMessage:r.errorMessage?String(r.errorMessage).slice(0,350):null,identity:r.identity||null,marketStatus:r.exactMarket?.status||null,memory:r.exactMarket?.historicalSoldMemory||r.exactMarket?.historicalSoldFallback||null,configuredTeachers:r.exactMarket?.configuredTeachers||[],requiredVotes:Number(r.exactMarket?.requiredVotes||0),teacherAttempts:r.exactMarket?.teacherAttempts||[],pricingEligibleSoldCount:Number(r.exactMarket?.pricingEligibleSoldCount||0),trustedSuggestedPrice:r.exactMarket?.trustedSuggestedPrice??null,dealLabel:r.dealLabel||null,deliveredCost:r.deliveredCost??null,expectedNetProfit:r.expectedNetProfit??null,roiPercent:r.roiPercent??null}));
+          const summary={runId:process.env.TARGET_RUN_ID,rowCount:rows.length,securityFailures:securityFailures.length,reachedIdentity:reachedIdentity.length,reachedMarket:reachedMarket.length,teacherRows:teacherRows.length,trustedPriceRows:trustedRows.length,macSummary:p.summary||null};
+          console.log('SECURITY_REPAIR_PROOF='+JSON.stringify(summary));
+          console.log('TARGET_CANDIDATES='+JSON.stringify(compact));
+          if(rows.length===0) process.exit(5);
+          if(securityFailures.length>0) process.exit(6);
+          if(reachedIdentity.length===0 && reachedMarket.length===0) process.exit(7);
           NODE
