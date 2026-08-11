@@ -39,6 +39,18 @@ function txt(value: unknown, max = 240) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : null;
 }
 
+function ocrSummary(sideValue: unknown) {
+  const side = rec(sideValue);
+  const rows = Array.isArray(side.ocr) ? side.ocr : [];
+  return {
+    count: rows.length,
+    text: rows.slice(0, 40).map((row: unknown) => txt(rec(row).text, 140)).filter(Boolean),
+    errors: Array.isArray(side.errors) ? side.errors.slice(0, 12).map((v: unknown) => txt(v, 180)).filter(Boolean) : [],
+    patternLabel: rec(side.pattern).label || null,
+    patternConfidence: rec(side.pattern).confidence ?? null,
+  };
+}
+
 export async function POST(request: Request) {
   try {
     requireAcceptanceToken(request);
@@ -68,6 +80,8 @@ export async function POST(request: Request) {
     const identity = rec(suggestion.identity);
     const suggestionRaw = rec(suggestion.raw);
     const checklist = rec(scan.checklist);
+    const localVision = rec(scan.local_vision);
+    const hints = rec(localVision.identity_hints);
     return json({
       ok: true,
       schema: "tcos.instacomp.loraFallbackDiagnostic.v1",
@@ -88,6 +102,19 @@ export async function POST(request: Request) {
         loraCandidateFallback: suggestionRaw.lora_candidate_fallback === true,
         loraCandidateErrorType: txt(suggestionRaw.lora_candidate_error_type, 80),
         loraCandidateError: txt(suggestionRaw.lora_candidate_error, 320),
+      },
+      localVision: {
+        appleVisionAvailable: localVision.apple_vision_available ?? null,
+        opencvAvailable: localVision.opencv_available ?? null,
+        identityHints: {
+          year: hints.year || null,
+          manufacturer: hints.manufacturer || hints.brand || null,
+          cardNumber: hints.card_number || hints.cardNumber || null,
+          parallel: hints.parallel || null,
+        },
+        combinedText: txt(localVision.combined_text, 1600),
+        front: ocrSummary(localVision.front),
+        back: ocrSummary(localVision.back),
       },
       checklist: {
         outcome: checklist.outcome || null,
