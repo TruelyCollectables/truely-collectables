@@ -12,7 +12,7 @@ permissions:
 jobs:
   readback:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
@@ -27,6 +27,12 @@ jobs:
           npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx --yes vercel@latest env pull /tmp/truely-production.env --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           test -s /tmp/truely-production.env
+
+      - name: Install readback dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts >/dev/null
 
       - name: Read post-timeout Deal Hunter runs and teacher receipts
         shell: bash
