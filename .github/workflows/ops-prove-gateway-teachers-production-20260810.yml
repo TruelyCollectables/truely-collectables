@@ -12,67 +12,50 @@ permissions:
 jobs:
   readback:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_SCOPE: truelycollectables-projects
-      VERCEL_PROJECT: truely-collectables
+      SITE_URL: https://truelycollectables.com
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Pull Production env securely
+      - name: Read Production and Mac candidate diagnostics inside Vercel
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes vercel@latest link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          npx --yes vercel@latest env pull /tmp/truely-production.env --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
-          test -s /tmp/truely-production.env
+          curl -fsS --max-time 60 -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" > diagnostics.json
+          node - <<'NODE'
+          const p=require('./diagnostics.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const since=Date.parse('2026-08-11T00:32:00.000Z');
+          const runs=(Array.isArray(p.latestRuns)?p.latestRuns:[]).filter(r=>Date.parse(r.completed_at||r.completedAt||0)>=since);
+          console.log('POST_TIMEOUT_RUNS='+JSON.stringify(runs.map(r=>({
+            runId:r.run_id||r.runId||null,
+            status:r.status||null,
+            completedAt:r.completed_at||r.completedAt||null,
+            discoveryCount:Number(r.discovery_count??r.discoveryCount??0),
+            evaluatedCount:Number(r.evaluated_count??r.evaluatedCount??0),
+            actionableCount:Number(r.actionable_count??r.actionableCount??0),
+            manualReviewCount:Number(r.manual_review_count??r.manualReviewCount??0),
+            failureCount:Number(r.failure_count??r.failureCount??0),
+          }))));
 
-      - name: Install readback dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts >/dev/null
-
-      - name: Read post-timeout Deal Hunter runs and teacher receipts
-        shell: bash
-        run: |
-          set -euo pipefail
-          set -a
-          source /tmp/truely-production.env
-          set +a
-          node --input-type=module - <<'NODE'
-          import { createClient } from '@supabase/supabase-js';
-          const url=String(process.env.NEXT_PUBLIC_SUPABASE_URL||'').trim();
-          const key=String(process.env.SUPABASE_SERVICE_ROLE_KEY||'').trim();
-          if(!url||!key) throw new Error('Missing Production Supabase proof inputs.');
-          const supabase=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
-          const since='2026-08-11T00:32:00.000Z';
-
-          const {data:runs,error:runError}=await supabase
-            .from('tcos_deal_hunter_runs')
-            .select('run_id,status,completed_at,discovery_count,evaluated_count,actionable_count,manual_review_count,failure_count,summary')
-            .gte('completed_at',since)
-            .order('completed_at',{ascending:false})
-            .limit(10);
-          if(runError) throw new Error(runError.message);
-          console.log('POST_TIMEOUT_RUNS='+JSON.stringify((runs||[]).map(r=>({runId:r.run_id,status:r.status,completedAt:r.completed_at,discoveryCount:Number(r.discovery_count||0),evaluatedCount:Number(r.evaluated_count||0),actionableCount:Number(r.actionable_count||0),manualReviewCount:Number(r.manual_review_count||0),failureCount:Number(r.failure_count||0)}))));
-
-          const {data,error}=await supabase
-            .from('tcos_deal_hunter_candidates')
-            .select('run_id,title,exact_market,evaluation,updated_at')
-            .gte('updated_at',since)
-            .order('updated_at',{ascending:false})
-            .limit(80);
-          if(error) throw new Error(error.message);
-          const rows=Array.isArray(data)?data:[];
+          const prod=(Array.isArray(p.productionCandidates)?p.productionCandidates:[]).filter(r=>Date.parse(r.updated_at||0)>=since);
+          const mac=Array.isArray(p.macCandidates)?p.macCandidates:[];
           const receipts=[];
-          for(const row of rows){
+          for(const row of prod){
             const market=row?.exact_market&&typeof row.exact_market==='object'?row.exact_market:{};
             const consensus=market?.teacherConsensus&&typeof market.teacherConsensus==='object'?market.teacherConsensus:null;
             const attempts=Array.isArray(consensus?.attempts)?consensus.attempts:[];
             if(!attempts.length) continue;
-            const safeAttempts=attempts.map(a=>({teacher:String(a?.teacher||''),configured:Boolean(a?.configured),ok:Boolean(a?.ok),soldCount:Array.isArray(a?.sold)?a.sold.length:0,activeCount:Array.isArray(a?.active)?a.active.length:0,error:a?.error?String(a.error).slice(0,240):null}));
+            const safeAttempts=attempts.map(a=>({
+              teacher:String(a?.teacher||''),
+              configured:Boolean(a?.configured),
+              ok:Boolean(a?.ok),
+              soldCount:Array.isArray(a?.sold)?a.sold.length:0,
+              activeCount:Array.isArray(a?.active)?a.active.length:0,
+              error:a?.error?String(a.error).slice(0,240):null,
+            }));
             receipts.push({
               runId:String(row?.run_id||''),
               updatedAt:row?.updated_at||null,
@@ -81,13 +64,26 @@ jobs:
               requiredVotes:Number(consensus?.requiredVotes||0),
               attempts:safeAttempts,
               trustedSoldCount:Number(market?.pricingEligibleSoldCount||0),
-              teacherLearning:market?.teacherLearning?{status:market.teacherLearning.status||null,trustedMarketTruth:Boolean(market.teacherLearning.trustedMarketTruth),studentTrainingEligible:Boolean(market.teacherLearning.studentTrainingEligible),pricingAuthority:Boolean(market.teacherLearning.pricingAuthority)}:null,
+              teacherLearning:market?.teacherLearning?{
+                status:market.teacherLearning.status||null,
+                trustedMarketTruth:Boolean(market.teacherLearning.trustedMarketTruth),
+                studentTrainingEligible:Boolean(market.teacherLearning.studentTrainingEligible),
+                pricingAuthority:Boolean(market.teacherLearning.pricingAuthority),
+              }:null,
             });
           }
           console.log('POST_TIMEOUT_TEACHER_RECEIPTS='+JSON.stringify(receipts.slice(0,25)));
+          console.log('MAC_POST_TIMEOUT_RECEIPTS='+JSON.stringify(mac.filter(r=>Date.parse(r.createdAt||0)>=since).slice(0,25).map(r=>({runId:r.runId,title:r.title,status:r.status,errorCode:r.errorCode,dealLabel:r.dealLabel}))));
           const gatewayLive=receipts.some(r=>r.attempts.some(a=>a.teacher==='gateway_perplexity'&&a.configured&&a.ok));
           const groqLive=receipts.some(r=>r.attempts.some(a=>(a.teacher==='groq'||a.teacher==='groq_browser')&&a.configured&&a.ok));
           const correctVotes=receipts.some(r=>r.requiredVotes===2&&r.configuredTeachers.includes('gateway_perplexity')&&(r.configuredTeachers.includes('groq')||r.configuredTeachers.includes('groq_browser')));
-          console.log('POST_TIMEOUT_TEACHER_PROOF='+JSON.stringify({candidateRows:rows.length,receiptRows:receipts.length,gatewayPerplexityLive:gatewayLive,groqFamilyLive:groqLive,twoVoteConfigurationProven:correctVotes}));
+          console.log('POST_TIMEOUT_TEACHER_PROOF='+JSON.stringify({
+            productionCandidateRows:prod.length,
+            receiptRows:receipts.length,
+            gatewayPerplexityLive:gatewayLive,
+            groqFamilyLive:groqLive,
+            twoVoteConfigurationProven:correctVotes,
+            macCandidateError:p.macCandidateError||null,
+          }));
           if(!gatewayLive||!groqLive||!correctVotes) process.exit(2);
           NODE
