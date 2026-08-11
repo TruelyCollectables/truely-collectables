@@ -1,2 +1,0 @@
-Target-locked one-shot repair for source-proven multi-subject autograph/memorabilia cards.
-Trigger after repair hook merge.
