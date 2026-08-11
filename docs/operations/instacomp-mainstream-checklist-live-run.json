@@ -1,14 +1,14 @@
 {
   "schema": "tcos.checklist.mainstreamLiveRun.v1",
   "workflow": "Ingest Mainstream Checklists 2000 Plus",
-  "runId": "31478495108",
-  "runNumber": "60",
+  "runId": "31531209754",
+  "runNumber": "68",
   "runAttempt": "1",
-  "status": "completed",
-  "conclusion": "failure",
-  "event": "schedule",
-  "sourceSha": "e62d224210b9e7974c844e1b6969daff1d22bff9",
+  "status": "queued",
+  "conclusion": null,
+  "event": "push",
+  "sourceSha": "2b4da568ff079b342c752908f48e29922bb165d4",
   "branch": "main",
-  "createdAt": "2026-08-11T09:36:56Z",
-  "updatedAt": "2026-08-11T09:41:37Z"
+  "createdAt": "2026-08-11T20:06:04Z",
+  "updatedAt": "2026-08-11T20:06:04Z"
 }
