@@ -8,7 +8,7 @@ from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
-SYNC = SERVICE_ROOT / "scripts" / "sync_all_inventory_training_truth.py"
+SYNC = SERVICE_ROOT / "scripts" / "sync_all_inventory_training_truth_v2.py"
 TRAIN = SERVICE_ROOT / "scripts" / "train_lora_full_inventory.py"
 
 
@@ -20,8 +20,9 @@ def _run(command: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "One command: make every detected card inventory row a trusted InstaComp lesson, "
-            "certify 100% inventory-learning coverage, then run a fresh full-corpus LoRA schedule."
+            "One command: reconcile every detected correct inventory card into trusted InstaComp learning, "
+            "certify 100% row coverage, then run a fresh full-corpus LoRA schedule. Missing legacy card_uuid "
+            "values are resolved from the stable inventory row ID without mutating Production."
         )
     )
     parser.add_argument("--epochs", type=int, default=2)
