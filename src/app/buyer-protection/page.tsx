@@ -3,6 +3,7 @@ import Link from "next/link";
 import PolicyShell from "../components/PolicyShell";
 import {
   BUYER_PROTECTION_CLAIM_DEADLINE_DAYS,
+  BUYER_PROTECTION_MAX_COVERAGE,
   BUYER_PROTECTION_MAX_ITEM_SUBTOTAL,
   BUYER_PROTECTION_MIN_CLAIM_DAYS,
   BUYER_PROTECTION_POLICY_VERSION,
@@ -41,11 +42,12 @@ export default function BuyerProtectionPage() {
         <h2 className="text-2xl font-black">Cost and coverage</h2>
         <p className="mt-2">
           Shipment Protection costs {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of
-          the item subtotal plus shipping, calculated before the protection fee is
-          added. It is available for qualifying Tracked Card Letter orders with an
-          item subtotal of ${BUYER_PROTECTION_MAX_ITEM_SUBTOTAL.toFixed(2)} or less.
-          An approved claim reimburses the protected item subtotal and shipping shown
-          at checkout. The protection fee itself is not reimbursed.
+          the protected item subtotal, excluding shipping. It is available for
+          qualifying Tracked Card Letter orders with an item subtotal of{" "}
+          ${BUYER_PROTECTION_MAX_ITEM_SUBTOTAL.toFixed(2)} or less. An approved claim
+          reimburses the protected item subtotal up to{" "}
+          ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}. Shipping and the protection fee
+          are not reimbursed by this voluntary program.
         </p>
       </section>
 
