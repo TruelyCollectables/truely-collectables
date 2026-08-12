@@ -1,0 +1,242 @@
+name: Supabase Storefront Incident Recovery 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/supabase-incident-recovery-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-storefront-incident-recovery-20260811
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.GH_SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+    steps:
+      - name: Diagnose and recover Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+
+          API = "https://api.supabase.com/v1"
+          TOKEN = os.environ["SUPABASE_ACCESS_TOKEN"]
+          STORE = os.environ["FLAGSHIP_STORE_ID"]
+
+          def request(method, path, body=None, timeout=45):
+              data = None if body is None else json.dumps(body).encode()
+              req = urllib.request.Request(
+                  API + path,
+                  data=data,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {TOKEN}",
+                      "Content-Type": "application/json",
+                      "Accept": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as response:
+                      raw = response.read().decode("utf-8", "replace")
+                      try:
+                          payload = json.loads(raw) if raw else None
+                      except Exception:
+                          payload = raw
+                      return response.status, payload
+              except urllib.error.HTTPError as error:
+                  raw = error.read().decode("utf-8", "replace")
+                  try:
+                      payload = json.loads(raw) if raw else None
+                  except Exception:
+                      payload = raw
+                  return error.code, payload
+              except Exception as error:
+                  return 599, {"error": str(error)}
+
+          def safe_print(label, value):
+              if isinstance(value, dict):
+                  value = {k: v for k, v in value.items() if k not in {"jwt_secret", "connection_string", "connectionString"}}
+              print(label, json.dumps(value, default=str, sort_keys=True))
+
+          status, projects = request("GET", "/projects")
+          if status != 200 or not isinstance(projects, list):
+              safe_print("PROJECT_LIST_FAILURE", {"status": status, "body": projects})
+              raise SystemExit(2)
+
+          candidates = []
+          for project in projects:
+              name = str(project.get("name") or "").lower()
+              if "truely" in name or "collect" in name:
+                  candidates.append(project)
+
+          if len(candidates) != 1:
+              safe_print("PROJECT_CANDIDATES", [
+                  {"name": p.get("name"), "ref": p.get("id") or p.get("ref"), "status": p.get("status"), "region": p.get("region")}
+                  for p in candidates
+              ])
+              safe_print("ALL_PROJECTS", [
+                  {"name": p.get("name"), "ref": p.get("id") or p.get("ref"), "status": p.get("status"), "region": p.get("region")}
+                  for p in projects
+              ])
+              raise SystemExit(3)
+
+          project = candidates[0]
+          ref = str(project.get("id") or project.get("ref") or "")
+          if not ref:
+              raise SystemExit("Matched project has no ref")
+          safe_print("PROJECT", {"name": project.get("name"), "ref": ref, "status": project.get("status"), "region": project.get("region")})
+
+          pgr_status, pgr = request("GET", f"/projects/{ref}/postgrest")
+          safe_print("POSTGREST_CONFIG", {"status": pgr_status, "body": pgr})
+
+          def readonly(query):
+              return request("POST", f"/projects/{ref}/database/query/read-only", {"query": query, "parameters": []}, timeout=60)
+
+          schema_sql = "select schema_name from information_schema.schemata order by schema_name;"
+          schema_status, schemas = readonly(schema_sql)
+          safe_print("SCHEMA_QUERY_INITIAL", {"status": schema_status, "body": schemas})
+
+          restarted = False
+          if schema_status >= 500:
+              print("DATABASE_MANAGEMENT_QUERY_UNHEALTHY=yes")
+              restart_status, restart_body = request("POST", f"/projects/{ref}/restart", {})
+              safe_print("PROJECT_RESTART", {"status": restart_status, "body": restart_body})
+              if restart_status not in (200, 201, 202, 204):
+                  raise SystemExit(4)
+              restarted = True
+
+              last = (schema_status, schemas)
+              for attempt in range(1, 25):
+                  time.sleep(10)
+                  current = readonly(schema_sql)
+                  last = current
+                  print(f"POST_RESTART_DB_PROBE attempt={attempt} status={current[0]}")
+                  if current[0] in (200, 201):
+                      schema_status, schemas = current
+                      break
+              else:
+                  safe_print("DATABASE_STILL_UNAVAILABLE", {"status": last[0], "body": last[1]})
+                  raise SystemExit(5)
+
+          if schema_status not in (200, 201):
+              safe_print("DATABASE_QUERY_BLOCKED", {"status": schema_status, "body": schemas})
+              raise SystemExit(6)
+
+          def rows(payload):
+              if isinstance(payload, list):
+                  return payload
+              if isinstance(payload, dict):
+                  for key in ("data", "result", "rows"):
+                      if isinstance(payload.get(key), list):
+                          return payload[key]
+              return []
+
+          schema_names = {str(row.get("schema_name")) for row in rows(schemas) if isinstance(row, dict) and row.get("schema_name")}
+          print("SCHEMAS=" + ",".join(sorted(schema_names)))
+
+          configured = []
+          if pgr_status == 200 and isinstance(pgr, dict):
+              configured = [part.strip() for part in str(pgr.get("db_schema") or "").split(",") if part.strip()]
+          missing = [name for name in configured if name not in schema_names]
+          print("POSTGREST_CONFIGURED_SCHEMAS=" + ",".join(configured))
+          print("POSTGREST_MISSING_SCHEMAS=" + ",".join(missing))
+
+          if missing:
+              existing_configured = [name for name in configured if name in schema_names]
+              if "public" not in existing_configured:
+                  safe_print("REFUSING_SCHEMA_PATCH", {"configured": configured, "existing": sorted(schema_names), "missing": missing})
+                  raise SystemExit(7)
+              patch_status, patch_body = request("PATCH", f"/projects/{ref}/postgrest", {"db_schema": ",".join(existing_configured)})
+              safe_print("POSTGREST_SCHEMA_PATCH", {"status": patch_status, "body": patch_body})
+              if patch_status != 200:
+                  raise SystemExit(8)
+
+          # Official Supabase cache refresh operation. Non-destructive.
+          reload_status, reload_body = request(
+              "POST",
+              f"/projects/{ref}/database/query",
+              {"query": "NOTIFY pgrst, 'reload schema';", "parameters": [], "read_only": False},
+          )
+          safe_print("POSTGREST_SCHEMA_RELOAD", {"status": reload_status, "body": reload_body})
+          if reload_status not in (200, 201):
+              print("POSTGREST_SCHEMA_RELOAD_WARNING=yes")
+
+          product_sql = f"""
+          select
+            store_id::text as store_id,
+            count(*)::bigint as products_total,
+            count(*) filter (where quantity > 0)::bigint as products_positive_quantity,
+            count(*) filter (where quantity > 0 and price > 0)::bigint as products_positive_price_qty,
+            count(*) filter (where quantity > 0 and price > 0 and image_url is not null)::bigint as products_sellable
+          from public.products
+          where store_id = '{STORE}'::uuid
+          group by store_id;
+          """
+          inventory_sql = f"""
+          select
+            store_id::text as store_id,
+            count(*)::bigint as inventory_total,
+            count(*) filter (where status = 'active')::bigint as inventory_active_status,
+            count(*) filter (where status = 'active' and quantity > 0)::bigint as inventory_active_positive
+          from public.inventory_items
+          where store_id = '{STORE}'::uuid
+          group by store_id;
+          """
+
+          ps, products = readonly(product_sql)
+          ins, inventory = readonly(inventory_sql)
+          safe_print("FLAGSHIP_PRODUCTS", {"status": ps, "body": products})
+          safe_print("FLAGSHIP_INVENTORY", {"status": ins, "body": inventory})
+          if ps not in (200, 201) or ins not in (200, 201):
+              raise SystemExit(9)
+
+          product_rows = rows(products)
+          inventory_rows = rows(inventory)
+          if not product_rows:
+              raise SystemExit("Flagship store has zero product rows")
+
+          sellable = int(product_rows[0].get("products_sellable") or 0)
+          positive = int(product_rows[0].get("products_positive_price_qty") or 0)
+          active_inventory = int(inventory_rows[0].get("inventory_active_positive") or 0) if inventory_rows else 0
+          print(f"FLAGSHIP_SELLABLE_PRODUCTS={sellable}")
+          print(f"FLAGSHIP_POSITIVE_PRODUCTS={positive}")
+          print(f"FLAGSHIP_ACTIVE_INVENTORY={active_inventory}")
+          print(f"PROJECT_RESTARTED={'yes' if restarted else 'no'}")
+
+          if sellable < 1 and positive < 1 and active_inventory < 1:
+              raise SystemExit("Production rows are present but no active/sellable inventory remains; refusing blind mutation")
+          PY
+
+      - name: Verify live storefront contains real listings
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for attempt in $(seq 1 18); do
+            rm -f /tmp/shop.html
+            code="$(curl -sS -L --connect-timeout 5 --max-time 25 -o /tmp/shop.html -w '%{http_code}' https://truelycollectables.com/shop || true)"
+            active_text="$(grep -oE '[0-9][0-9,]* active' /tmp/shop.html 2>/dev/null | head -n 1 || true)"
+            product_links="$( (grep -oE 'href=\"/product/[0-9]+\"' /tmp/shop.html 2>/dev/null || true) | sort -u | wc -l | tr -d ' ')"
+            empty_marker=no
+            grep -q 'No active cards or collectibles found' /tmp/shop.html 2>/dev/null && empty_marker=yes || true
+            echo "attempt=$attempt http=$code active_text=${active_text:-NOT_FOUND} product_links=${product_links:-0} empty_marker=$empty_marker"
+            if [ "$code" = "200" ] && [ -n "$active_text" ] && [ "${product_links:-0}" -gt 0 ] && [ "$empty_marker" = "no" ]; then
+              success=1
+              break
+            fi
+            sleep 10
+          done
+          test "$success" = "1"
