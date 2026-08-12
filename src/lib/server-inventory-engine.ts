@@ -214,13 +214,12 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     if (error) throw error;
     if (!data) return null;
 
-    const item = enforceStrictStorefrontFeatures(mapPublicProductRow(data));
-    if (!isPublicStorefrontItem(item)) return null;
-
-    return {
-      ...item,
+    const item = {
+      ...enforceStrictStorefrontFeatures(mapPublicProductRow(data)),
       inventoryItemId: await this.resolveInventoryItemId(data),
     };
+
+    return item && isPublicStorefrontItem(item) ? item : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
