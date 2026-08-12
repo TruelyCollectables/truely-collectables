@@ -1,0 +1,127 @@
+name: CollX Allisha Back Verify 20260812
+
+on:
+  push:
+    branches: [fix/collx-back-images-20260812]
+    paths:
+      - ".github/workflows/collx-allisha-back-verify-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: Production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Pull Production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/allisha-verify"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/allisha-verify/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const dir=path.join(process.env.RUNNER_TEMP,'allisha-verify');
+          const text=fs.readFileSync(path.join(dir,'production.env'),'utf8');
+          const env={};
+          for (const raw of text.split(/\r?\n/)) {
+            const line=raw.trim(); if(!line || line.startsWith('#')) continue;
+            const i=line.indexOf('='); if(i<1) continue;
+            const key=line.slice(0,i).trim(); let value=line.slice(i+1).trim();
+            if(value.startsWith('"')&&value.endsWith('"')) { try{value=JSON.parse(value)}catch{value=value.slice(1,-1)} }
+            else if(value.startsWith("'")&&value.endsWith("'")) value=value.slice(1,-1);
+            env[key]=value;
+          }
+          const url=env.NEXT_PUBLIC_SUPABASE_URL; if(!url) throw new Error('missing Production Supabase URL');
+          const ref=new URL(url).hostname.split('.')[0];
+          const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+          const body=await r.text(); if(!r.ok) throw new Error(`key lookup HTTP ${r.status}`);
+          const keys=JSON.parse(body);
+          const row=keys.find(x=>typeof x?.api_key==='string'&&x.api_key.startsWith('sb_secret_'))||keys.find(x=>String(x?.name||'').toLowerCase().includes('service'));
+          if(!row?.api_key) throw new Error('service key missing');
+          console.log('::add-mask::'+row.api_key);
+          fs.writeFileSync(path.join(dir,'url'),url,{mode:0o600});
+          fs.writeFileSync(path.join(dir,'key'),row.api_key,{mode:0o600});
+          NODE
+
+      - name: Verify Production DB and live storefront
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$(cat "$RUNNER_TEMP/allisha-verify/key")"
+          url="$(cat "$RUNNER_TEMP/allisha-verify/url")"
+          echo "::add-mask::$key"
+          NEXT_PUBLIC_SUPABASE_URL="$url" SUPABASE_SERVICE_ROLE_KEY="$key" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createClient } from '@supabase/supabase-js';
+          const supabase=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{autoRefreshToken:false,persistSession:false}});
+          const store=process.env.FLAGSHIP_STORE_ID;
+          const {data:products,error:pe}=await supabase.from('products').select('id,sku,title,image_url,quantity').eq('store_id',store).ilike('title','%Allisha Gray%').gt('quantity',0).order('id');
+          if(pe) throw pe;
+          const out=[];
+          for(const p of products||[]) {
+            const {data:items,error:ie}=await supabase.from('inventory_items').select('id,sku,created_at').eq('store_id',store).eq('legacy_product_id',p.id).order('created_at');
+            if(ie) throw ie;
+            let images=[];
+            for(const item of items||[]) {
+              const {data:rows,error:re}=await supabase.from('inventory_images').select('image_url,sort_order,is_primary').eq('inventory_item_id',item.id).order('sort_order');
+              if(re) throw re;
+              images.push(...(rows||[]).map(r=>r.image_url));
+            }
+            const frontMatch=String(p.image_url||'').match(/\/collx-full\/20260811\/(\d+)\/front\.(?:jpe?g|png|webp)/i);
+            const skuMatch=String(p.sku||'').match(/^COLLX-(\d+)$/);
+            const collxId=frontMatch?.[1]||skuMatch?.[1]||null;
+            const exactBack=collxId ? images.some(u=>new RegExp(`/collx-full/20260811/${collxId}/back\\.(?:jpe?g|png|webp)`, 'i').test(String(u))) : images.some(u=>/(?:^|[-_/])back(?=\.[a-z0-9]+(?:[?#].*)?$)/i.test(String(u)));
+            const liveUrl=`https://truelycollectables.com/product/${p.id}?allisha_verify=${Date.now()}`;
+            let status=null, unavailable=null, liveOk=false, err=null;
+            for(let attempt=1;attempt<=5;attempt++) {
+              try {
+                const r=await fetch(liveUrl,{headers:{'user-agent':'TruelyAllishaVerify/20260812'},signal:AbortSignal.timeout(30000)});
+                status=r.status; const body=await r.text();
+                unavailable=/Back photo unavailable/i.test(body);
+                liveOk=r.ok&&!unavailable;
+                if(liveOk) break;
+              } catch(e) { err=String(e?.message||e); }
+              await new Promise(res=>setTimeout(res,attempt*1500));
+            }
+            out.push({productId:p.id,sku:p.sku,title:p.title,quantity:p.quantity,front:p.image_url,collxId,itemCount:(items||[]).length,imageCount:images.length,exactBack,liveStatus:status,liveBackUnavailable:unavailable,liveOk,error:err});
+          }
+          const dir=path.join(process.env.RUNNER_TEMP,'allisha-verify');
+          fs.writeFileSync(path.join(dir,'allisha-verify.json'),JSON.stringify(out,null,2));
+          console.log('ALLISHA_VERIFY='+JSON.stringify(out));
+          if(!out.length) throw new Error('No in-stock Allisha Gray products found');
+          if(!out.some(x=>x.exactBack&&x.liveOk)) throw new Error('No Allisha Gray product has an exact DB back and a live rendered back');
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collx-allisha-back-verify-20260812
+          path: ${{ runner.temp }}/allisha-verify/*.json
+          if-no-files-found: warn
+          retention-days: 7
