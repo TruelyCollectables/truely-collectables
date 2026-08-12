@@ -87,6 +87,9 @@ jobs:
           OUTPUT_DIR="$RUNNER_TEMP/allisha-management" \
             node scripts/allisha-management-back-repair-20260812.mjs
 
+      - name: Mark corrected schema verifier
+        run: echo "ALLISHA_EXACT_SCHEMA_VERIFIER=20260812-v2"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
