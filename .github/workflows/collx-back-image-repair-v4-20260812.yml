@@ -1,0 +1,220 @@
+name: CollX Back Image Repair V4 20260812
+
+on:
+  push:
+    branches: [fix/collx-back-images-20260812]
+    paths:
+      - ".github/workflows/collx-back-image-repair-v4-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-back-image-repair-v4-20260812
+  cancel-in-progress: false
+
+jobs:
+  repair-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: Production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve Production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/collx-back-v4"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-back-v4/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const dir=path.join(process.env.RUNNER_TEMP,'collx-back-v4');
+          const text=fs.readFileSync(path.join(dir,'production.env'),'utf8');
+          const env={};
+          for(const raw of text.split(/\r?\n/)) {
+            const line=raw.trim(); if(!line || line.startsWith('#')) continue;
+            const i=line.indexOf('='); if(i<1) continue;
+            const key=line.slice(0,i).trim(); let value=line.slice(i+1).trim();
+            if(value.startsWith('"')&&value.endsWith('"')) { try{value=JSON.parse(value)}catch{value=value.slice(1,-1)} }
+            else if(value.startsWith("'")&&value.endsWith("'")) value=value.slice(1,-1);
+            env[key]=value;
+          }
+          const url=env.NEXT_PUBLIC_SUPABASE_URL;
+          if(!url) throw new Error('Production NEXT_PUBLIC_SUPABASE_URL missing');
+          const ref=new URL(url).hostname.split('.')[0];
+          const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`}});
+          const body=await r.text(); if(!r.ok) throw new Error(`Supabase keys HTTP ${r.status}: ${body.slice(0,300)}`);
+          const keys=JSON.parse(body);
+          const row=keys.find(x=>typeof x?.api_key==='string'&&x.api_key.startsWith('sb_secret_'))||keys.find(x=>String(x?.name||'').toLowerCase()==='service_role')||keys.find(x=>String(x?.name||'').toLowerCase().includes('service'));
+          if(!row?.api_key) throw new Error('Production service key missing');
+          console.log('::add-mask::'+row.api_key);
+          fs.writeFileSync(path.join(dir,'url'),url,{mode:0o600});
+          fs.writeFileSync(path.join(dir,'ref'),ref,{mode:0o600});
+          fs.writeFileSync(path.join(dir,'key'),row.api_key,{mode:0o600});
+          console.log('PRODUCTION_REF='+ref);
+          NODE
+
+      - name: Wait for Production database health
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(cat "$RUNNER_TEMP/collx-back-v4/ref")"
+          for attempt in $(seq 1 90); do
+            code="$(curl -sS --max-time 25 -o /tmp/db-v4.json -w '%{http_code}' \
+              -X POST "https://api.supabase.com/v1/projects/$ref/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H 'Content-Type: application/json' \
+              --data-binary '{"query":"select 1 as ok;","parameters":[],"read_only":true}' || true)"
+            echo "DB_HEALTH_ATTEMPT=$attempt HTTP=$code BODY=$(head -c 300 /tmp/db-v4.json 2>/dev/null || true)"
+            if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+              echo "PRODUCTION_DATABASE=HEALTHY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Production database never became healthy' >&2
+          exit 1
+
+      - name: Patch repair for keyset pagination and direct source copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('scripts/collx-back-image-repair-20260812.mjs')
+          s=p.read_text()
+          pattern=r'''async function readAll\(table, select\) \{.*?\n\}\n\nfunction chunks'''
+          replacement='''async function readAll(table, select) {
+            const output = [];
+            let lastId = null;
+            for (let page = 0; page < 100; page += 1) {
+              const batch = await db(
+                `read:${table}:page:${page}`,
+                () => {
+                  let query = supabase
+                    .from(table)
+                    .select(select)
+                    .eq("store_id", STORE)
+                    .order("id", { ascending: true })
+                    .limit(250);
+                  if (lastId !== null) query = query.gt("id", lastId);
+                  return query;
+                },
+                { attempts: 20, baseMs: 2500, maxMs: 12000 },
+              );
+              const rows = batch || [];
+              output.push(...rows);
+              if (rows.length < 250) return output;
+              const nextId = rows[rows.length - 1]?.id;
+              if (nextId == null || String(nextId) === String(lastId)) {
+                throw new Error(`${table} keyset pagination did not advance`);
+              }
+              lastId = nextId;
+            }
+            throw new Error(`${table} keyset pagination exceeded safety limit`);
+          }
+
+          function chunks'''
+          s2,n=re.subn(pattern,replacement,s,count=1,flags=re.S)
+          if n!=1: raise SystemExit(f'readAll patch failed count={n}')
+          s=s2
+          old='''    let owned = await findOwnedBack(collxId, preferredExt);\n    if (!owned) owned = await copyBack(collxId);'''
+          if old not in s: raise SystemExit('copyBack patch target missing')
+          s=s.replace(old,'    const owned = await copyBack(collxId);',1)
+          s=s.replace('await mapLimit(targets, 8,','await mapLimit(targets, 3,',1)
+          p.write_text(s)
+          print('RUNTIME_PATCH=KEYSET_250_DIRECT_COPY_CONCURRENCY_3')
+          PY
+
+      - name: Repair missing exact back associations
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$(cat "$RUNNER_TEMP/collx-back-v4/key")"
+          url="$(cat "$RUNNER_TEMP/collx-back-v4/url")"
+          echo "::add-mask::$key"
+          SUPABASE_SERVICE_ROLE_KEY="$key" NEXT_PUBLIC_SUPABASE_URL="$url" OUTPUT_DIR="$RUNNER_TEMP/collx-back-v4" \
+            node --import tsx scripts/collx-back-image-repair-20260812.mjs
+
+      - name: Verify repair receipt and Allisha DB association
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          root=os.path.join(os.environ['RUNNER_TEMP'],'collx-back-v4')
+          receipt=json.load(open(os.path.join(root,'repair.json')))
+          allisha=json.load(open(os.path.join(root,'allisha.json')))
+          s=receipt['stats']
+          exact=s['alreadyExactBack']+s['associatedExistingOwnedBack']+s['copiedAndAssociatedBack']+s['replacedNonExactBack']
+          print('REPAIR_STATS='+json.dumps(s,sort_keys=True))
+          print('FINAL_EXACT_BACK_ASSOCIATIONS='+str(exact))
+          print('ALLISHA_DB_VERIFY='+json.dumps(allisha))
+          if s['errors'] != 0: raise SystemExit(f"repair errors={s['errors']}")
+          if not any(x.get('exactBack') for x in allisha): raise SystemExit('Allisha Gray exact back not verified in Production DB')
+          PY
+
+      - name: Verify live Allisha Gray storefront
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, time, urllib.request
+          root=os.path.join(os.environ['RUNNER_TEMP'],'collx-back-v4')
+          rows=json.load(open(os.path.join(root,'allisha.json')))
+          checked=[]
+          for row in rows:
+            if not row.get('exactBack'): continue
+            url=f"https://truelycollectables.com/product/{row['productId']}?collx_back_v4={int(time.time())}"
+            status=None; unavailable=None; ok=False; err=None
+            for attempt in range(1,8):
+              try:
+                req=urllib.request.Request(url,headers={'User-Agent':'TruelyBackVerify/20260812'})
+                with urllib.request.urlopen(req,timeout=30) as r:
+                  status=r.status; body=r.read().decode('utf-8','replace')
+                unavailable=bool(re.search(r'Back photo unavailable',body,re.I))
+                ok=(status==200 and not unavailable)
+                if ok: break
+              except Exception as e: err=str(e)
+              time.sleep(min(12,attempt*2))
+            checked.append({'productId':row['productId'],'status':status,'backUnavailable':unavailable,'ok':ok,'error':err})
+          print('LIVE_ALLISHA_VERIFY='+json.dumps(checked))
+          json.dump(checked,open(os.path.join(root,'live-allisha.json'),'w'),indent=2)
+          if not any(x['ok'] for x in checked): raise SystemExit('Allisha Gray back is not rendering live')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collx-back-image-repair-v4-20260812
+          path: ${{ runner.temp }}/collx-back-v4/*.json
+          if-no-files-found: warn
+          retention-days: 7
