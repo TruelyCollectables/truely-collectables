@@ -121,7 +121,7 @@ async function uploadBack(id) {
 
 const products = await sql(`
   set statement_timeout = '30s';
-  select id, sku, title, image_url, quantity, price, status, ebay_item_id
+  select id, sku, title, image_url, quantity, price, ebay_item_id
   from products
   where store_id = ${sqlQuote(STORE)}::uuid
     and (
@@ -206,7 +206,7 @@ for (const product of products) {
     await sleep(Math.min(10000,attempt*1500));
   }
 
-  const receipt={productId:product.id,sku:product.sku,title:product.title,quantity:product.quantity,price:product.price,status:product.status,frontId:front.id,frontMethod:front.method,action,exactBackAssociated:Boolean(exactAfter),exactBackUrl:exactAfter?.image_url||null,live};
+  const receipt={productId:product.id,sku:product.sku,title:product.title,quantity:product.quantity,price:product.price,frontId:front.id,frontMethod:front.method,action,exactBackAssociated:Boolean(exactAfter),exactBackUrl:exactAfter?.image_url||null,live};
   receipts.push(receipt);
   console.log('ALLISHA_MANAGEMENT_VERIFY='+JSON.stringify(receipt));
 }
