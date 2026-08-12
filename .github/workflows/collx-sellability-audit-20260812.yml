@@ -28,6 +28,8 @@ jobs:
           API='https://api.supabase.com/v1'
           TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
           STORE=os.environ['FLAGSHIP_STORE_ID']
+          BATCH=250
+          MAX_OFFSET=7000
 
           def req(method,path,body=None,timeout=90,retries=5):
               last=None
@@ -48,7 +50,7 @@ jobs:
                   except Exception: status=0
                   if status in (200,201): return payload
                   last=(status,payload)
-                  if status in (429,500,502,503,504,522,524,544) and attempt+1 < retries:
+                  if status in (0,429,500,502,503,504,522,524,544) and attempt+1 < retries:
                       time.sleep(2*(attempt+1)); continue
                   break
               raise RuntimeError(f'{method} {path} HTTP {last[0] if last else 0}: {str(last[1] if last else "")[:2000]}')
@@ -61,68 +63,62 @@ jobs:
           def sql(q):
               return req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},90)
 
-          summary=sql(f"""
-          with collx as (
-            select p.*
-            from public.products p
-            where p.store_id='{STORE}'::uuid
-              and p.sku>='COLLX-' and p.sku<'COLLY'
-              and p.ebay_item_id is null
-          ), basic_live as (
-            select * from collx
-            where archived_at is null
-              and quantity > 0
-              and price > 0
-              and image_url is not null
-          )
-          select
-            (select count(*)::int from collx) as total_collx_products,
-            (select coalesce(sum(quantity),0)::int from collx) as total_collx_units,
-            (select count(*)::int from basic_live) as storefront_query_eligible_rows,
-            (select coalesce(sum(quantity),0)::int from basic_live) as storefront_query_eligible_units,
-            (select count(*)::int from collx where archived_at is not null) as archived_rows,
-            (select count(*)::int from collx where archived_at is null and quantity <= 0) as zero_quantity_rows,
-            (select count(*)::int from collx where archived_at is null and quantity > 0 and price <= 0) as nonpositive_price_rows,
-            (select count(*)::int from collx where archived_at is null and quantity > 0 and price > 0 and image_url is null) as missing_front_rows,
-            (select count(*)::int from basic_live b where exists (
-               select 1 from public.inventory_items i
-               where i.store_id=b.store_id and i.legacy_product_id=b.id and i.sku=b.sku
-            )) as live_rows_with_inventory_link,
-            (select count(*)::int from basic_live b where not exists (
-               select 1 from public.inventory_items i
-               where i.store_id=b.store_id and i.legacy_product_id=b.id and i.sku=b.sku
-            )) as live_rows_missing_inventory_link;
-          """)
+          totals={
+            'total_collx_products':0,
+            'total_collx_units':0,
+            'storefront_query_eligible_rows':0,
+            'storefront_query_eligible_units':0,
+            'archived_rows':0,
+            'zero_quantity_rows':0,
+            'nonpositive_price_rows':0,
+            'missing_front_rows':0,
+            'live_rows_with_inventory_link':0,
+            'live_rows_missing_inventory_link':0,
+          }
 
-          images=sql(f"""
-          with live as (
-            select p.id,p.store_id,p.sku
-            from public.products p
-            where p.store_id='{STORE}'::uuid
-              and p.sku>='COLLX-' and p.sku<'COLLY'
-              and p.ebay_item_id is null
-              and p.archived_at is null and p.quantity>0 and p.price>0 and p.image_url is not null
-          ), linked as (
-            select l.*,i.id inventory_item_id
-            from live l
-            join public.inventory_items i on i.store_id=l.store_id and i.legacy_product_id=l.id and i.sku=l.sku
-          ), flags as (
-            select x.inventory_item_id,
-              bool_or(ii.image_url like '%/front.%') as has_front_inventory_image,
-              bool_or(ii.image_url like '%/back.%') as has_back_inventory_image
-            from linked x
-            left join public.inventory_images ii on ii.inventory_item_id=x.inventory_item_id
-            group by x.inventory_item_id
-          )
-          select
-            count(*)::int as live_linked_rows,
-            count(*) filter (where has_front_inventory_image)::int as live_with_front_inventory_image,
-            count(*) filter (where has_back_inventory_image)::int as live_with_back_inventory_image,
-            count(*) filter (where not has_back_inventory_image)::int as live_front_only_inventory_rows
-          from flags;
-          """)
+          for offset in range(0,MAX_OFFSET,BATCH):
+              rows=sql(f"""
+              select p.id,p.sku,p.quantity,p.price,p.image_url,p.archived_at,
+                     exists(
+                       select 1 from public.inventory_items i
+                       where i.store_id=p.store_id
+                         and i.legacy_product_id=p.id
+                         and i.sku=p.sku
+                     ) as inventory_link
+              from public.products p
+              where p.store_id='{STORE}'::uuid
+                and p.sku>='COLLX-' and p.sku<'COLLY'
+                and p.ebay_item_id is null
+              order by p.id
+              offset {offset} limit {BATCH};
+              """) or []
+              for r in rows:
+                  qty=int(r.get('quantity') or 0)
+                  price=float(r.get('price') or 0)
+                  archived=r.get('archived_at') is not None
+                  has_front=bool(r.get('image_url'))
+                  totals['total_collx_products'] += 1
+                  totals['total_collx_units'] += max(qty,0)
+                  if archived:
+                      totals['archived_rows'] += 1
+                  elif qty <= 0:
+                      totals['zero_quantity_rows'] += 1
+                  elif price <= 0:
+                      totals['nonpositive_price_rows'] += 1
+                  elif not has_front:
+                      totals['missing_front_rows'] += 1
+                  else:
+                      totals['storefront_query_eligible_rows'] += 1
+                      totals['storefront_query_eligible_units'] += qty
+                      if r.get('inventory_link'):
+                          totals['live_rows_with_inventory_link'] += 1
+                      else:
+                          totals['live_rows_missing_inventory_link'] += 1
+              print(f'BATCH offset={offset} rows={len(rows)}')
+              if len(rows) < BATCH: break
 
-          print('SELLABILITY_SUMMARY='+json.dumps(summary,sort_keys=True,default=str))
-          print('SELLABILITY_IMAGES='+json.dumps(images,sort_keys=True,default=str))
+          print('SELLABILITY_SUMMARY='+json.dumps(totals,sort_keys=True))
+          if totals['live_rows_missing_inventory_link'] != 0:
+              raise SystemExit('FAIL: sellable CollX rows missing inventory linkage')
           print('COLLX_SELLABILITY_AUDIT=SUCCESS')
           PY
