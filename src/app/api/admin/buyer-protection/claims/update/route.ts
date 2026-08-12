@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { BUYER_PROTECTION_MAX_COVERAGE } from "../../../../../../lib/buyer-protection";
+import {
+  BUYER_PROTECTION_MAX_COVERAGE,
+  BUYER_PROTECTION_POLICY_VERSION,
+} from "../../../../../../lib/buyer-protection";
 import { buildLetterTrackDeliveryEvidenceSummary } from "../../../../../../lib/lettertrack-delivery-evidence";
 import {
   getStripeLiveSecretKey,
@@ -17,6 +20,7 @@ const allowedActions = new Set([
   "denied",
   "reimbursed",
 ]);
+const LEGACY_SHIPMENT_PROTECTION_MAX_COVERAGE = 25;
 
 function cleanNote(value: unknown) {
   return String(value || "").trim().slice(0, 1500);
@@ -66,7 +70,7 @@ export async function POST(request: Request) {
     const { data: protection, error: protectionError } = await supabase
       .from("order_buyer_protections")
       .select(
-        "id,status,covered_item_amount,shipped_at,earliest_claim_at,claim_deadline_at",
+        "id,status,covered_item_amount,policy_version,shipping_reimbursable,shipped_at,earliest_claim_at,claim_deadline_at",
       )
       .eq("id", claim.protection_id)
       .eq("store_id", storeId)
@@ -116,6 +120,33 @@ export async function POST(request: Request) {
       );
     }
 
+    const isCurrentPolicy =
+      protection.policy_version === BUYER_PROTECTION_POLICY_VERSION;
+    const maximumReimbursement = isCurrentPolicy
+      ? BUYER_PROTECTION_MAX_COVERAGE
+      : LEGACY_SHIPMENT_PROTECTION_MAX_COVERAGE;
+    const reimbursementAmount = Number(protection.covered_item_amount || 0);
+    const refundAmountCents = Math.round(reimbursementAmount * 100);
+    const maximumRefundAmountCents = Math.round(maximumReimbursement * 100);
+
+    if (
+      refundAmountCents <= 0 ||
+      refundAmountCents > maximumRefundAmountCents
+    ) {
+      return NextResponse.json(
+        { error: "Protected reimbursement amount is invalid" },
+        { status: 409 },
+      );
+    }
+
+    const currentPolicyShippingRefunded = false;
+    const shippingRefunded = isCurrentPolicy
+      ? currentPolicyShippingRefunded
+      : protection.shipping_reimbursable === true;
+    const reimbursementScope = shippingRefunded
+      ? "item_subtotal_and_shipping"
+      : "item_subtotal";
+
     const now = new Date().toISOString();
     const metadata = {
       ...(claim.metadata || {}),
@@ -125,6 +156,9 @@ export async function POST(request: Request) {
         acted_at: now,
         claim_reason: claim.reason,
         lettertrack_evidence: evidence,
+        policy_version: protection.policy_version,
+        maximum_reimbursement: maximumReimbursement,
+        reimbursement_scope: reimbursementScope,
       },
     };
 
@@ -166,18 +200,6 @@ export async function POST(request: Request) {
         );
       }
 
-      const reimbursementAmount = Number(protection.covered_item_amount || 0);
-      const refundAmountCents = Math.round(reimbursementAmount * 100);
-      if (
-        refundAmountCents <= 0 ||
-        refundAmountCents > Math.round(BUYER_PROTECTION_MAX_COVERAGE * 100)
-      ) {
-        return NextResponse.json(
-          { error: "Protected reimbursement amount is invalid" },
-          { status: 409 },
-        );
-      }
-
       const stripe = new Stripe(stripeKey);
       const refund = await stripe.refunds.create(
         {
@@ -190,10 +212,12 @@ export async function POST(request: Request) {
             store_id: storeId,
             order_id: String(order.id),
             buyer_protection_claim_id: claim.id,
-            reimbursement_scope: "item_subtotal_and_shipping",
+            reimbursement_scope: reimbursementScope,
             claim_reason: String(claim.reason || "not_received"),
-            shipping_refunded: "true",
+            shipping_refunded: shippingRefunded ? "true" : "false",
             protection_fee_refunded: "false",
+            maximum_reimbursement: maximumReimbursement.toFixed(2),
+            policy_version: String(protection.policy_version || ""),
           },
         },
         {
@@ -245,10 +269,7 @@ export async function POST(request: Request) {
         status: action,
         reviewed_at: now,
         decision_note: note || null,
-        reimbursement_amount:
-          action === "approved"
-            ? Number(protection.covered_item_amount || 0)
-            : 0,
+        reimbursement_amount: action === "approved" ? reimbursementAmount : 0,
         metadata,
         updated_at: now,
       })
