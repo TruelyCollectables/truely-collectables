@@ -231,9 +231,9 @@ export default async function ProductPage({
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
         <section>
           <ProductImageGallery
-            productId={product.legacyProductId}
+            inventoryItemId={product.inventoryItemId}
             title={product.title}
-            primaryImage={product.imageUrl}
+            primaryImageUrl={product.imageUrl}
           />
         </section>
 
