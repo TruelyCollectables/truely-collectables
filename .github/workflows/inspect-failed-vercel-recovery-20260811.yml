@@ -1,5 +1,4 @@
-name: Inspect Failed Vercel Recovery 20260811
-# Trigger 2026-08-11T18:50-06:00
+name: Force Storefront Recovery Deploy 20260811
 
 on:
   push:
@@ -11,20 +10,86 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: force-storefront-recovery-deploy-20260811
+  cancel-in-progress: true
+
 jobs:
-  inspect:
+  recover:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     environment: Production
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
-      DEPLOYMENT_ID: dpl_2r47ZyfJ2ChdPJ8bvWaHgNd2FtaB
+      VERCEL_PROJECT: truely-collectables
     steps:
-      - name: Inspect failed recovery build
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Link production Vercel project
         shell: bash
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
           echo "::add-mask::$VERCEL_TOKEN"
-          npx vercel@56.2.0 inspect "$DEPLOYMENT_ID" --logs --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Build corrected storefront recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 build --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+
+      - name: Deploy corrected storefront recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployment_url="$(npx vercel@56.2.0 deploy --prebuilt --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tail -n 1)"
+          echo "DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
+          echo "Production deployment: $deployment_url"
+
+      - name: Prove live shop has listings and a working product page
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          first_product=""
+          for attempt in $(seq 1 18); do
+            rm -f /tmp/shop.html /tmp/shop.headers
+            code="$(curl -sS -L --connect-timeout 5 --max-time 30 -D /tmp/shop.headers -o /tmp/shop.html -w '%{http_code}' https://truelycollectables.com/shop || true)"
+            active_text="$(grep -oE '[0-9][0-9,]* active' /tmp/shop.html 2>/dev/null | head -n 1 || true)"
+            first_product="$(grep -oE 'href=\"/product/[0-9]+\"' /tmp/shop.html 2>/dev/null | head -n 1 | grep -oE '[0-9]+' || true)"
+            product_links="$( (grep -oE 'href=\"/product/[0-9]+\"' /tmp/shop.html 2>/dev/null || true) | sort -u | wc -l | tr -d ' ')"
+            empty_marker=no
+            grep -q 'No active cards or collectibles found' /tmp/shop.html 2>/dev/null && empty_marker=yes || true
+            error_marker=no
+            grep -q 'Error loading products' /tmp/shop.html 2>/dev/null && error_marker=yes || true
+            echo "shop attempt=$attempt http=$code active_text=${active_text:-NOT_FOUND} product_links=${product_links:-0} empty=$empty_marker error=$error_marker"
+            if [ "$code" = "200" ] && [ -n "$active_text" ] && [ "${product_links:-0}" -gt 0 ] && [ -n "$first_product" ] && [ "$empty_marker" = "no" ] && [ "$error_marker" = "no" ]; then
+              success=1
+              break
+            fi
+            sleep 10
+          done
+          test "$success" = "1"
+
+          rm -f /tmp/product.html
+          product_code="$(curl -sS -L --connect-timeout 5 --max-time 30 -o /tmp/product.html -w '%{http_code}' "https://truelycollectables.com/product/$first_product" || true)"
+          not_found=no
+          grep -q 'Product Not Found' /tmp/product.html 2>/dev/null && not_found=yes || true
+          echo "product id=$first_product http=$product_code not_found=$not_found"
+          test "$product_code" = "200"
+          test "$not_found" = "no"
+
+          echo "CATALOG_RECOVERY_PROOF=passed"
+          echo "ACTIVE_COUNT_TEXT=$active_text"
+          echo "UNIQUE_PRODUCT_LINKS=$product_links"
+          echo "VERIFIED_PRODUCT_ID=$first_product"
