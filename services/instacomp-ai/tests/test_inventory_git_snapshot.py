@@ -16,6 +16,7 @@ import pytest
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT_SCRIPT = SCRIPT_DIR / "inventory_training_git_snapshot.py"
+EXPORTER_SCRIPT = SCRIPT_DIR / "export_inventory_training_snapshot.py"
 RESILIENT_SCRIPT = SCRIPT_DIR / "sync_all_inventory_training_truth_resilient.py"
 WORKFLOW = SERVICE_ROOT.parents[1] / ".github" / "workflows" / "instacomp-inventory-training-snapshot-20260812.yml"
 
@@ -40,7 +41,7 @@ def _snapshot_payload(module):
     return {
         "schema_version": module.SNAPSHOT_SCHEMA,
         "generated_at": "2026-08-12T00:00:00+00:00",
-        "source": "supabase_management_database_query_read_only_keyset_v2",
+        "source": "supabase_management_database_query_read_only_keyset_v3",
         "row_counts": {name: len(rows) for name, rows in tables.items()},
         "tables": tables,
     }
@@ -184,12 +185,78 @@ def test_invalid_snapshot_does_not_fall_back_to_postgrest(monkeypatch: pytest.Mo
         module.main()
 
 
-def test_snapshot_workflow_is_encrypted_keyset_not_plaintext_offset_scan():
-    text = WORKFLOW.read_text("utf-8")
-    assert "inventory-training-production-snapshot.enc.json" in text
-    assert "ITEM_BATCH = 50" in text
-    assert "where id >" in text
-    assert "offset {offset}" not in text
-    assert "-aes-256-cbc" in text
-    assert "hmac_sha256" in text
-    assert "select * from public.inventory_items" not in text
+def test_direct_db_batch_is_keyset_and_only_queries_linked_rows(monkeypatch: pytest.MonkeyPatch):
+    module = _load(EXPORTER_SCRIPT, "inventory_snapshot_exporter_keyset")
+    item_id = "00000000-0000-4000-8000-000000000123"
+    queries = []
+    columns = {
+        "inventory_items": ["id", "sku", "title", "legacy_product_id"],
+        "inventory_images": ["inventory_item_id", "image_url"],
+        "inventory_attributes": ["inventory_item_id", "attribute_name", "attribute_value"],
+        "products": ["id", "title"],
+    }
+
+    def fake_sql(token, ref, query):
+        del token, ref
+        queries.append(query)
+        if "from public.inventory_items" in query and "order by id limit" in query:
+            return [{"id": item_id, "sku": "COLLX-1", "title": "Card", "legacy_product_id": 1}]
+        if "from public.inventory_images" in query:
+            return []
+        if "from public.inventory_attributes" in query:
+            return []
+        if "from public.products" in query:
+            return [{"id": 1, "title": "Card"}]
+        raise AssertionError(query)
+
+    monkeypatch.setattr(module, "_sql", fake_sql)
+    batch = module._fetch_inventory_batch("token", "ref", columns, last_id=None, batch_size=50)
+    assert len(batch[0]) == 1
+    assert all(" offset " not in query.lower() for query in queries)
+    assert "order by id limit 50" in queries[0].lower()
+    linked_queries = "\n".join(queries[1:]).lower()
+    assert item_id in linked_queries
+    assert "inventory_item_id in" in linked_queries
+
+
+def test_direct_db_export_shrinks_on_postgres_statement_timeout(monkeypatch: pytest.MonkeyPatch):
+    module = _load(EXPORTER_SCRIPT, "inventory_snapshot_exporter_shrink")
+    item_id = "00000000-0000-4000-8000-000000000124"
+    calls = []
+
+    monkeypatch.setattr(
+        module,
+        "_existing_columns",
+        lambda token, ref, table: list(module.REQUIRED_COLUMNS[table]),
+    )
+
+    def fake_batch(token, ref, columns, *, last_id, batch_size):
+        del token, ref, columns, last_id
+        calls.append(batch_size)
+        if batch_size == 50:
+            raise module.ManagementAPIError(
+                400,
+                {"message": "ERROR: 57014: canceling statement due to statement timeout"},
+                "database/query",
+            )
+        return ([{"id": item_id, "sku": "COLLX-1", "title": "Card"}], [], [], [])
+
+    monkeypatch.setattr(module, "_fetch_inventory_batch", fake_batch)
+    payload = module.build_snapshot("token", "ref")
+    assert calls == [50, 25]
+    assert payload["row_counts"]["inventory_items"] == 1
+
+
+def test_snapshot_workflow_only_publishes_encrypted_exporter_output():
+    workflow = WORKFLOW.read_text("utf-8")
+    exporter = EXPORTER_SCRIPT.read_text("utf-8")
+    assert "inventory-training-production-snapshot.enc.json" in workflow
+    assert "export_inventory_training_snapshot.py" in workflow
+    assert "git add -f" in workflow
+    assert "DEFAULT_BATCH_SIZE = 50" in exporter
+    assert "MIN_BATCH_SIZE = 10" in exporter
+    assert "where id >" in exporter
+    assert " offset " not in exporter.lower()
+    assert "-aes-256-cbc" in exporter
+    assert "hmac_sha256" in exporter
+    assert "select * from public.inventory_items" not in exporter
