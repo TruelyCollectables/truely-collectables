@@ -1,203 +1,23 @@
 name: Master Checklist Bulk Pull
-# Vacuum mode: restore known catalogs, repeat discovery, persist every queue
 
 on:
-  pull_request:
-    paths:
-      - "data/*-checklist-seeds.json"
-      - "scripts/archive-*.ts"
-      - "scripts/discover-*.ts"
-      - "scripts/build-checklist-master-status.ts"
-      - ".github/workflows/master-checklist-bulk-pull.yml"
   push:
+    branches: [main]
     paths:
-      - "data/*-checklist-seeds.json"
-      - "scripts/archive-*.ts"
-      - "scripts/discover-*.ts"
-      - "scripts/build-checklist-master-status.ts"
       - ".github/workflows/master-checklist-bulk-pull.yml"
-  schedule:
-    - cron: "7 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: master-checklist-bulk-pull-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  bulk-pull:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 330
+  emergency-stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-
-      - name: Restore all 818 known Topps URLs from verified run 23
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          rm -rf /tmp/topps-restore && mkdir -p /tmp/topps-restore
-          gh api repos/${{ github.repository }}/actions/artifacts/8908907441/zip > /tmp/topps-restore.zip
-          unzip -q /tmp/topps-restore.zip -d /tmp/topps-restore
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import { readdirSync, statSync } from 'node:fs';
-          import { join } from 'node:path';
-          function walk(dir) {
-            for (const name of readdirSync(dir)) {
-              const path = join(dir, name);
-              if (statSync(path).isDirectory()) { const found = walk(path); if (found) return found; }
-              else if (name === 'topps.json') return path;
-            }
-          }
-          const manifestPath = walk('/tmp/topps-restore');
-          if (!manifestPath) throw new Error('Verified Topps manifest not found');
-          const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-          const current = JSON.parse(readFileSync('data/topps-checklist-seeds.json', 'utf8'));
-          const byUrl = new Map(current.map(row => [row.url, row]));
-          for (const row of [...(manifest.files || []), ...(manifest.failures || [])]) {
-            if (!row.url) continue;
-            byUrl.set(row.url, {
-              title: row.title || row.filename || 'Official Topps Checklist',
-              sport: row.sport || row.category || 'Miscellaneous',
-              year: row.year || 'Unknown',
-              ...(row.sourcePage ? { sourcePage: row.sourcePage } : {}),
-              url: row.url,
-            });
-          }
-          const seeds = [...byUrl.values()].sort((a,b) => `${a.year}|${a.title}|${a.url}`.localeCompare(`${b.year}|${b.title}|${b.url}`));
-          writeFileSync('data/topps-checklist-seeds.json', JSON.stringify(seeds, null, 2) + '\n');
-          console.log(JSON.stringify({ restoredToppsSeeds: seeds.length }));
-          if (seeds.length < 818) throw new Error(`Expected at least 818 Topps seeds, found ${seeds.length}`);
-          NODE
-
-      - name: Panini public-index vacuum
-        continue-on-error: true
-        timeout-minutes: 11
-        run: node --import tsx scripts/discover-panini-checklists-via-public-indexes.ts
-
-      - name: Reader fallback vacuum
-        continue-on-error: true
-        timeout-minutes: 10
-        run: node --import tsx scripts/discover-blocked-checklists-via-reader.ts
-
-      - name: Official catalog vacuum pass 1
-        continue-on-error: true
-        timeout-minutes: 70
-        run: node --import tsx scripts/discover-official-checklists.ts
-
-      - name: Download Topps pass 1
-        continue-on-error: true
-        timeout-minutes: 150
-        run: node --import tsx scripts/archive-topps-seed-sets.ts
-
-      - name: Download Panini pass 1
-        continue-on-error: true
-        timeout-minutes: 90
-        run: node --import tsx scripts/archive-panini-seed-sets.ts
-
-      - name: Download Upper Deck pass 1
-        continue-on-error: true
-        timeout-minutes: 120
-        run: node --import tsx scripts/archive-upper-deck-seed-sets.ts
-
-      - name: Official catalog vacuum pass 2
-        continue-on-error: true
-        timeout-minutes: 70
-        run: node --import tsx scripts/discover-official-checklists.ts
-
-      - name: Download Topps pass 2
-        continue-on-error: true
-        timeout-minutes: 150
-        run: node --import tsx scripts/archive-topps-seed-sets.ts
-
-      - name: Download Panini pass 2
-        continue-on-error: true
-        timeout-minutes: 90
-        run: node --import tsx scripts/archive-panini-seed-sets.ts
-
-      - name: Download Upper Deck pass 2
-        continue-on-error: true
-        timeout-minutes: 120
-        run: node --import tsx scripts/archive-upper-deck-seed-sets.ts
-
-      - name: Download Leaf
-        continue-on-error: true
-        timeout-minutes: 90
-        run: node --import tsx scripts/archive-leaf-checklist-sets.ts
-
-      - name: Assemble manufacturer archive hierarchy
-        if: always()
-        run: |
-          mkdir -p .checklist-master-archive
-          for source in .topps-seed-archive .panini-seed-archive .leaf-checklist-archive .upper-deck-seed-archive; do
-            if [ -d "$source" ]; then
-              find "$source" -mindepth 1 -maxdepth 1 -type d -exec cp -a {} .checklist-master-archive/ \;
-            fi
-          done
-
-      - name: Build discovery and download status bars
-        if: always()
-        run: node --import tsx scripts/build-checklist-master-status.ts
-
-      - name: Add discovery report and manifests to master archive
-        if: always()
-        run: |
-          mkdir -p .checklist-master-archive/manifests .checklist-master-archive/discovery
-          test ! -f .checklist-discovery/report.json || cp .checklist-discovery/report.json .checklist-master-archive/discovery/report.json
-          test ! -f .checklist-reader-discovery/report.json || cp .checklist-reader-discovery/report.json .checklist-master-archive/discovery/reader-report.json
-          test ! -f .panini-index-discovery/report.json || cp .panini-index-discovery/report.json .checklist-master-archive/discovery/panini-index-report.json
-          test ! -f .topps-seed-archive/manifest.json || cp .topps-seed-archive/manifest.json .checklist-master-archive/manifests/topps.json
-          test ! -f .panini-seed-archive/manifest.json || cp .panini-seed-archive/manifest.json .checklist-master-archive/manifests/panini.json
-          test ! -f .leaf-checklist-archive/manifest.json || cp .leaf-checklist-archive/manifest.json .checklist-master-archive/manifests/leaf.json
-          test ! -f .upper-deck-seed-archive/manifest.json || cp .upper-deck-seed-archive/manifest.json .checklist-master-archive/manifests/upper-deck.json
-
-      - name: Package master archive
-        if: always()
-        run: tar -czf master-checklist-archive.tar.gz .checklist-master-archive
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: master-checklist-archive-${{ github.run_id }}
-          path: master-checklist-archive.tar.gz
-          if-no-files-found: error
-          retention-days: 90
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: master-checklist-status-${{ github.run_id }}
-          path: |
-            .checklist-master-archive/STATUS.md
-            .checklist-master-archive/status.json
-            .checklist-master-archive/discovery/*.json
-            .checklist-master-archive/manifests/*.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: checklist-seed-registries-${{ github.run_id }}
-          path: data/*-checklist-seeds.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Require at least one archived file per discovered manufacturer
-        if: always()
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const status = JSON.parse(readFileSync('.checklist-master-archive/status.json', 'utf8'));
-          const empty = status.manufacturers.filter((row) => row.discovered > 0 && row.archived < 1);
-          if (empty.length) throw new Error(`Manufacturers with zero archived files: ${empty.map((row) => row.manufacturer).join(', ')}`);
-          NODE
+      - name: Confirm checklist bulk pull paused for production incident
+        run: echo "Master checklist bulk pull paused during storefront database incident."
