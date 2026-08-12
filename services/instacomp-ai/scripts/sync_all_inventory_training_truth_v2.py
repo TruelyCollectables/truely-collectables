@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -19,20 +20,19 @@ from app.images import pair_hash, validate_and_normalize_image
 from app.inventory_training import (
     extract_inventory_identity,
     identity_has_training_truth,
-    inventory_item_is_card,
+    inventory_card_reason,
     select_inventory_images,
 )
 from app.inventory_training_keys import resolve_inventory_learning_uuid
+from app.inventory_training_schema import attributes_by_item, images_by_item
 from app.storage import MemoryStore, canonical_uuid_or_none, identity_fingerprint
 from app.training import latest_training_examples, training_readiness
 from import_inventory_training_truth import (
     DEFAULT_RECEIPT,
     SupabaseReader,
     _archive_inventory_scan,
-    _attributes_by_item,
     _create_inventory_lesson,
     _download_image,
-    _images_by_item,
     _product_for_item,
     _product_image_rows,
     _products_index,
@@ -41,7 +41,7 @@ from import_inventory_training_truth import (
 )
 
 
-RECEIPT_SCHEMA = "tcos.instacomp-ai.inventory-training-import.v2"
+RECEIPT_SCHEMA = "tcos.instacomp-ai.inventory-training-import.v3"
 
 
 def _trusted_pair_rows(store: MemoryStore) -> dict[tuple[str, str], dict[str, str]]:
@@ -114,6 +114,23 @@ def _append_sample(target: list[dict[str, str]], payload: Mapping[str, object], 
     target.append({str(key): str(value) for key, value in payload.items() if value is not None})
 
 
+def _category_key(item: Mapping[str, Any], product: Mapping[str, Any] | None) -> str:
+    raw = item.get("category") or (product or {}).get("category") or "uncategorized"
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(raw).strip().lower()).strip()
+    return normalized or "uncategorized"
+
+
+def _is_collx_row(item: Mapping[str, Any], product: Mapping[str, Any] | None) -> bool:
+    sku = str(item.get("sku") or (product or {}).get("sku") or "").strip().upper()
+    if sku.startswith("COLLX-"):
+        return True
+    metadata = item.get("metadata")
+    if isinstance(metadata, Mapping):
+        source = str(metadata.get("source") or "").strip().lower()
+        return source.startswith("collx")
+    return False
+
+
 def run_sync(
     *,
     allow_vercel_env_pull: bool,
@@ -142,13 +159,18 @@ def run_sync(
     finally:
         reader.close()
 
-    attributes = _attributes_by_item(attribute_rows)
-    images = _images_by_item(image_rows)
+    attributes = attributes_by_item(attribute_rows)
+    images = images_by_item(image_rows)
     products_by_id, products_by_uuid = _products_index(products)
 
     counts: Counter[str] = Counter()
     counts["inventory_rows"] = len(items)
+    counts["inventory_attribute_rows"] = len(attribute_rows)
+    counts["inventory_image_rows"] = len(image_rows)
     uuid_sources: Counter[str] = Counter()
+    detection_reasons: Counter[str] = Counter()
+    card_categories: Counter[str] = Counter()
+    excluded_categories: Counter[str] = Counter()
     represented_item_ids: set[str] = set()
     represented_effective_uuids: set[str] = set()
     current_pair_identity: dict[str, str] = {}
@@ -164,10 +186,25 @@ def run_sync(
                 by_id=products_by_id,
                 by_uuid=products_by_uuid,
             )
-            if not inventory_item_is_card(item, product):
+            category = _category_key(item, product)
+            collx_row = _is_collx_row(item, product)
+            if collx_row:
+                counts["collx_inventory_rows"] += 1
+
+            detection_reason = inventory_card_reason(item, product)
+            if not detection_reason:
+                counts["inventory_non_card_rows"] += 1
+                excluded_categories[category] += 1
+                if collx_row:
+                    counts["collx_rows_excluded_from_card_census"] += 1
                 continue
 
             counts["inventory_card_rows"] += 1
+            detection_reasons[detection_reason] += 1
+            card_categories[category] += 1
+            if collx_row:
+                counts["collx_rows_in_card_census"] += 1
+
             item_id = str(item.get("id") or "").strip()
             title = str(item.get("title") or (product or {}).get("title") or item_id).strip()
 
@@ -198,12 +235,14 @@ def run_sync(
                         "inventory_item_id": item_id,
                         "learning_uuid": learning_uuid,
                         "uuid_source": uuid_source,
+                        "detection_reason": detection_reason,
                         "reason": "incomplete_structured_identity",
                         "title": title,
                     },
                 )
                 continue
 
+            counts["identity_complete_card_rows"] += 1
             item_images = images.get(item_id) or _product_image_rows(product)
             front_url, back_url, side_source = select_inventory_images(item_images)
             if not front_url:
@@ -214,6 +253,7 @@ def run_sync(
                         "inventory_item_id": item_id,
                         "learning_uuid": learning_uuid,
                         "uuid_source": uuid_source,
+                        "detection_reason": detection_reason,
                         "reason": "no_usable_image",
                         "title": title,
                     },
@@ -294,10 +334,6 @@ def run_sync(
                         back_bytes=back_bytes,
                     )
                 except ValueError as exc:
-                    # A concurrent/legacy exact-pair binding can appear between
-                    # our lookup and insert. Re-read the exact pair and reconcile
-                    # to the already-bound physical card instead of failing the
-                    # entire correct inventory row.
                     if "another physical card UUID" not in str(exc) and "another card_uuid" not in str(exc):
                         raise
                     scan = _scan_for_pair(store, image_pair)
@@ -372,6 +408,9 @@ def run_sync(
 
     unique_examples = len(represented_effective_uuids)
     compatible_coverage = 100.0 if unique_examples > 0 and outstanding_rows == 0 else strict_coverage
+    collx_total = int(counts["collx_inventory_rows"])
+    collx_in_census = int(counts["collx_rows_in_card_census"])
+    collx_excluded = int(counts["collx_rows_excluded_from_card_census"])
 
     receipt: dict[str, Any] = {
         "schema_version": RECEIPT_SCHEMA,
@@ -384,6 +423,18 @@ def run_sync(
             "to operator_confirmed lessons. Existing exact image+identity lessons are reconciled as already "
             "learned. Production inventory is never mutated by this bridge."
         ),
+        "inventory_census": {
+            "inventory_rows": len(items),
+            "inventory_card_rows": total_cards,
+            "inventory_non_card_rows": int(counts["inventory_non_card_rows"]),
+            "collx_inventory_rows": collx_total,
+            "collx_rows_in_card_census": collx_in_census,
+            "collx_rows_excluded_from_card_census": collx_excluded,
+            "card_detection_reasons": dict(detection_reasons.most_common()),
+            "card_category_counts": dict(card_categories.most_common()),
+            "excluded_category_counts": dict(excluded_categories.most_common()),
+            "census_contract": "every durable COLLX-* row must enter the single-card training census",
+        },
         "counts": dict(counts),
         "uuid_resolution": dict(uuid_sources),
         "strict_inventory_coverage": {
@@ -411,6 +462,8 @@ def run_sync(
         "safety": {
             "production_inventory_mutated": False,
             "mac_learning_store_only": True,
+            "production_attribute_schema": "attribute_name/attribute_value",
+            "production_image_schema": "image_url",
             "existing_card_uuid_preserved_when_present": True,
             "missing_card_uuid_falls_back_to_stable_inventory_item_id": True,
             "legacy_non_uuid_item_id_uses_deterministic_uuid5": True,
@@ -431,7 +484,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Turn every detected correct inventory card into trusted InstaComp learning truth, "
-            "using the inventory row UUID when the legacy card_uuid column is empty."
+            "using the real Production inventory schema and auditing the complete card census."
         )
     )
     parser.add_argument("--allow-vercel-env-pull", action="store_true")
@@ -448,6 +501,16 @@ def main() -> int:
 
     if args.dry_run:
         return 0
+
+    census = receipt["inventory_census"]
+    if int(census["collx_rows_excluded_from_card_census"]) != 0:
+        print(
+            "BLOCKED: one or more durable COLLX inventory rows were excluded from the card census; "
+            "refusing to claim complete inventory learning.",
+            file=sys.stderr,
+        )
+        return 4
+
     strict = receipt["strict_inventory_coverage"]
     total = int(strict["inventory_card_total"])
     represented = int(strict["inventory_card_rows_represented"])
@@ -463,7 +526,8 @@ def main() -> int:
         )
         return 2
     print(
-        f"PASS: inventory learning coverage is 100.00% ({represented}/{total} inventory rows represented).",
+        f"PASS: inventory learning coverage is 100.00% ({represented}/{total} inventory rows represented); "
+        f"COLLX census {census['collx_rows_in_card_census']}/{census['collx_inventory_rows']}.",
         flush=True,
     )
     return 0

@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
+from .collx_authoritative_truth import (
+    collx_id_from_inventory,
+    load_authoritative_collx_source_cached,
+    merge_collx_fallback_attributes,
+)
+from .inventory_training_keys import resolve_inventory_learning_uuid
 from .models import CardIdentity
 
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 CARD_CATEGORY_MARKERS = (
     "sports card",
@@ -17,7 +26,45 @@ CARD_CATEGORY_MARKERS = (
     "hockey card",
     "soccer card",
     "wrestling card",
+    "pokemon card",
+    "tcg card",
 )
+
+CARD_CATEGORY_KEYS = {
+    "sports card",
+    "sports cards",
+    "trading card",
+    "trading cards",
+    "baseball card",
+    "baseball cards",
+    "basketball card",
+    "basketball cards",
+    "football card",
+    "football cards",
+    "hockey card",
+    "hockey cards",
+    "soccer card",
+    "soccer cards",
+    "wrestling card",
+    "wrestling cards",
+    "pokemon card",
+    "pokemon cards",
+    "tcg card",
+    "tcg cards",
+    "trading card singles",
+}
+
+SEALED_CATEGORY_KEYS = {
+    "sealed wax",
+    "sealed product",
+    "sealed products",
+    "booster box",
+    "booster boxes",
+    "box",
+    "boxes",
+    "pack",
+    "packs",
+}
 
 IDENTITY_CONTAINER_KEYS = (
     "card_identity",
@@ -171,19 +218,64 @@ def _feature_flag(text: str, markers: tuple[str, ...]) -> bool | None:
     return True if any(marker in text for marker in markers) else None
 
 
-def inventory_item_is_card(item: Mapping[str, Any], product: Mapping[str, Any] | None = None) -> bool:
+def inventory_card_reason(
+    item: Mapping[str, Any],
+    product: Mapping[str, Any] | None = None,
+) -> str | None:
+    """Classify a single-card inventory row using durable structured evidence.
+
+    The 2026-08-11 full CollX migration source is a card collection export and
+    minted durable COLLX-* SKUs for its rows. That SKU survives activation even
+    after one-time migration metadata is intentionally removed. Sealed product
+    categories remain excluded from visual single-card training.
+    """
+    product = product or {}
+    item_category = _norm_key(item.get("category"))
+    product_category = _norm_key(product.get("category"))
+
+    if item_category in SEALED_CATEGORY_KEYS or product_category in SEALED_CATEGORY_KEYS:
+        return None
+    if item_category in CARD_CATEGORY_KEYS:
+        return "inventory_card_category"
+    if product_category in CARD_CATEGORY_KEYS:
+        return "product_card_category"
+
+    sku = str(item.get("sku") or product.get("sku") or "").strip().upper()
+    if sku.startswith("COLLX-"):
+        return "collx_card_sku"
+
+    metadata = _mapping(item.get("metadata"))
+    source = _norm_key(metadata.get("source"))
+    if source.startswith("collx"):
+        return "collx_card_source"
+
+    explicit = _identity_container(metadata)
+    if explicit:
+        normalized = _normalized_mapping(explicit)
+        if any(
+            _first(normalized, aliases)
+            for aliases in (
+                ATTRIBUTE_ALIASES["card_number"],
+                ATTRIBUTE_ALIASES["set_name"],
+                ATTRIBUTE_ALIASES["player"],
+            )
+        ):
+            return "explicit_card_identity"
+
     values = [
         item.get("category"),
         item.get("title"),
-        (product or {}).get("category"),
-        (product or {}).get("sport"),
+        product.get("category"),
+        product.get("title"),
     ]
-    combined = " ".join(_norm_value(value) for value in values if value is not None)
+    combined = " ".join(_norm_key(value) for value in values if value is not None)
     if any(marker in combined for marker in CARD_CATEGORY_MARKERS):
-        return True
-    metadata = _mapping(item.get("metadata"))
-    source = _norm_value(metadata.get("source"))
-    return "collx" in source and "card" in combined
+        return "card_text_marker"
+    return None
+
+
+def inventory_item_is_card(item: Mapping[str, Any], product: Mapping[str, Any] | None = None) -> bool:
+    return inventory_card_reason(item, product) is not None
 
 
 def extract_inventory_identity(
@@ -194,14 +286,24 @@ def extract_inventory_identity(
 ) -> CardIdentity:
     """Map already-correct structured inventory truth into CardIdentity.
 
-    Priority is explicit stored identity -> inventory attributes -> product fields ->
-    source metadata. We deliberately do not parse arbitrary listing-title prose into
-    card facts because this function is creating trusted teacher truth.
+    Priority is explicit stored identity -> current inventory attributes -> product
+    fields -> source metadata. For durable COLLX-* rows, the exact checksummed
+    6,909-row operator-owned CollX export is used only as a fallback beneath current
+    inventory attributes. Arbitrary listing-title prose is never promoted into
+    trusted truth.
     """
     metadata_raw = _mapping(item.get("metadata"))
     explicit_raw = _identity_container(metadata_raw)
     explicit = _normalized_mapping(explicit_raw)
-    attrs = _normalized_mapping(attributes or {})
+
+    current_attributes = dict(attributes or {})
+    collx_id = collx_id_from_inventory(item, product)
+    if collx_id:
+        source_rows = load_authoritative_collx_source_cached(str(REPO_ROOT))
+        source_row = source_rows.get(collx_id)
+        current_attributes = merge_collx_fallback_attributes(current_attributes, source_row)
+
+    attrs = _normalized_mapping(current_attributes)
     metadata = _normalized_mapping(metadata_raw)
     product_map = _normalized_mapping(product or {})
 
@@ -278,10 +380,16 @@ def identity_has_training_truth(identity: CardIdentity) -> bool:
     return subject and release and discriminator
 
 
+def _image_url(image: Mapping[str, Any]) -> str | None:
+    # Production inventory_images uses image_url. `url` remains a compatibility
+    # fallback for older tests/import receipts and synthesized product image rows.
+    return _text(image.get("image_url")) or _text(image.get("url"))
+
+
 def _image_marker(image: Mapping[str, Any]) -> str:
-    url = _norm_value(image.get("url"))
+    url = _norm_value(_image_url(image))
     alt = _norm_value(image.get("alt_text"))
-    parsed = urlparse(str(image.get("url") or ""))
+    parsed = urlparse(_image_url(image) or "")
     filename = parsed.path.rsplit("/", 1)[-1].lower()
     return f"{alt} {filename} {url}"
 
@@ -290,9 +398,9 @@ def select_inventory_images(images: Iterable[Mapping[str, Any]]) -> tuple[str | 
     rows = [
         row
         for row in images
-        if _text(row.get("url")) and str(row.get("url")).lower().startswith("https://")
+        if _image_url(row) and str(_image_url(row)).lower().startswith("https://")
     ]
-    rows.sort(key=lambda row: (int(row.get("sort_order") or 0), str(row.get("url") or "")))
+    rows.sort(key=lambda row: (int(row.get("sort_order") or 0), _image_url(row) or ""))
     if not rows:
         return None, None, "none"
 
@@ -315,8 +423,8 @@ def select_inventory_images(images: Iterable[Mapping[str, Any]]) -> tuple[str | 
         back = rows[1]
         source = "two_image_order"
 
-    front_url = _text(front.get("url"))
-    back_url = _text(back.get("url")) if back and back is not front else None
+    front_url = _image_url(front)
+    back_url = _image_url(back) if back and back is not front else None
     return front_url, back_url, source
 
 
@@ -329,7 +437,7 @@ def build_inventory_truth(
 ) -> InventoryTruth | None:
     if not inventory_item_is_card(item, product):
         return None
-    card_uuid = _text(item.get("card_uuid")) or _text((product or {}).get("card_uuid"))
+    card_uuid, _uuid_source = resolve_inventory_learning_uuid(item, product)
     item_id = _text(item.get("id"))
     if not card_uuid or not item_id:
         return None
