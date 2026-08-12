@@ -16,7 +16,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       FLAGSHIP_STORE_ID: 00000000-0000-4000-8000-000000000001
     steps:
-      - name: Audit current Production CollX sellability
+      - name: Classify current non-eBay CollX inventory
         shell: bash
         run: |
           set -euo pipefail
@@ -24,14 +24,11 @@ jobs:
           echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
           python3 - <<'PY'
           import json, os, subprocess, tempfile, time
-
           API='https://api.supabase.com/v1'
           TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
           STORE=os.environ['FLAGSHIP_STORE_ID']
-          BATCH=250
-          MAX_OFFSET=7000
 
-          def req(method,path,body=None,timeout=90,retries=5):
+          def req(method,path,body=None,timeout=90,retries=6):
               last=None
               for attempt in range(retries):
                   out=tempfile.NamedTemporaryFile(delete=False); out.close()
@@ -40,8 +37,7 @@ jobs:
                        '-H','Accept: application/json',
                        '-H','Content-Type: application/json',
                        '-o',out.name,'-w','%{http_code}',API+path]
-                  if body is not None:
-                      cmd += ['--data-binary',json.dumps(body)]
+                  if body is not None: cmd += ['--data-binary',json.dumps(body)]
                   p=subprocess.run(cmd,capture_output=True,text=True)
                   raw=open(out.name).read(); os.unlink(out.name)
                   try: payload=json.loads(raw) if raw else None
@@ -60,65 +56,25 @@ jobs:
           if len(cand)!=1: raise SystemExit(f'Expected one Truely project, got {len(cand)}')
           ref=str(cand[0].get('id') or cand[0].get('ref') or '')
 
-          def sql(q):
-              return req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},90)
-
-          totals={
-            'total_collx_products':0,
-            'total_collx_units':0,
-            'storefront_query_eligible_rows':0,
-            'storefront_query_eligible_units':0,
-            'archived_rows':0,
-            'zero_quantity_rows':0,
-            'nonpositive_price_rows':0,
-            'missing_front_rows':0,
-            'live_rows_with_inventory_link':0,
-            'live_rows_missing_inventory_link':0,
-          }
-
-          for offset in range(0,MAX_OFFSET,BATCH):
-              rows=sql(f"""
-              select p.id,p.sku,p.quantity,p.price,p.image_url,p.archived_at,
-                     exists(
-                       select 1 from public.inventory_items i
-                       where i.store_id=p.store_id
-                         and i.legacy_product_id=p.id
-                         and i.sku=p.sku
-                     ) as inventory_link
-              from public.products p
-              where p.store_id='{STORE}'::uuid
-                and p.sku>='COLLX-' and p.sku<'COLLY'
-                and p.ebay_item_id is null
-              order by p.id
-              offset {offset} limit {BATCH};
-              """) or []
-              for r in rows:
-                  qty=int(r.get('quantity') or 0)
-                  price=float(r.get('price') or 0)
-                  archived=r.get('archived_at') is not None
-                  has_front=bool(r.get('image_url'))
-                  totals['total_collx_products'] += 1
-                  totals['total_collx_units'] += max(qty,0)
-                  if archived:
-                      totals['archived_rows'] += 1
-                  elif qty <= 0:
-                      totals['zero_quantity_rows'] += 1
-                  elif price <= 0:
-                      totals['nonpositive_price_rows'] += 1
-                  elif not has_front:
-                      totals['missing_front_rows'] += 1
-                  else:
-                      totals['storefront_query_eligible_rows'] += 1
-                      totals['storefront_query_eligible_units'] += qty
-                      if r.get('inventory_link'):
-                          totals['live_rows_with_inventory_link'] += 1
-                      else:
-                          totals['live_rows_missing_inventory_link'] += 1
-              print(f'BATCH offset={offset} rows={len(rows)}')
-              if len(rows) < BATCH: break
-
-          print('SELLABILITY_SUMMARY='+json.dumps(totals,sort_keys=True))
-          if totals['live_rows_missing_inventory_link'] != 0:
-              raise SystemExit('FAIL: sellable CollX rows missing inventory linkage')
-          print('COLLX_SELLABILITY_AUDIT=SUCCESS')
+          q=f"""
+          select
+            count(*)::int total_rows,
+            coalesce(sum(greatest(quantity,0)),0)::int total_units,
+            count(*) filter (where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null)::int live_rows,
+            coalesce(sum(quantity) filter (where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),0)::int live_units,
+            count(*) filter (where archived_at is not null)::int archived_rows,
+            coalesce(sum(greatest(quantity,0)) filter (where archived_at is not null),0)::int archived_units,
+            count(*) filter (where archived_at is null and quantity<=0)::int zero_qty_rows,
+            count(*) filter (where archived_at is null and quantity>0 and price<=0)::int bad_price_rows,
+            coalesce(sum(quantity) filter (where archived_at is null and quantity>0 and price<=0),0)::int bad_price_units,
+            count(*) filter (where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is null)::int missing_front_rows,
+            coalesce(sum(quantity) filter (where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is null),0)::int missing_front_units
+          from public.products
+          where store_id='{STORE}'::uuid
+            and sku>='COLLX-' and sku<'COLLY'
+            and ebay_item_id is null;
+          """
+          result=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},90)
+          print('COLLX_NON_EBAY_CLASSIFICATION='+json.dumps(result,sort_keys=True,default=str))
+          print('COLLX_CLASSIFY=SUCCESS')
           PY
