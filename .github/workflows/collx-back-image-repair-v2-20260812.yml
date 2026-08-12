@@ -17,7 +17,7 @@ concurrency:
 jobs:
   repair:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 30
     environment: Production
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -90,7 +90,7 @@ jobs:
           console.log('PRODUCTION_REPAIR_CREDENTIALS=VERIFIED');
           NODE
 
-      - name: Repair missing exact back associations
+      - name: Repair and verify exact Allisha Green Ice back
         shell: bash
         run: |
           set -euo pipefail
@@ -100,38 +100,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY="$service_key" \
           NEXT_PUBLIC_SUPABASE_URL="$supabase_url" \
           OUTPUT_DIR="$RUNNER_TEMP/collx-back-repair-v2" \
-            node --import tsx scripts/collx-back-image-repair-20260812.mjs
-
-      - name: Verify live Allisha Gray storefront pages
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, os, re, time, urllib.request
-          root=os.path.join(os.environ['RUNNER_TEMP'],'collx-back-repair-v2')
-          rows=json.load(open(os.path.join(root,'allisha.json')))
-          checked=[]
-          for row in rows:
-              if not row.get('exactBack'): continue
-              url=f"https://truelycollectables.com/product/{row['productId']}?back_repair={int(time.time())}"
-              ok=False; unavailable=None; status=None; err=None
-              for attempt in range(1,7):
-                  try:
-                      req=urllib.request.Request(url,headers={'User-Agent':'TruelyBackRepair/20260812'})
-                      with urllib.request.urlopen(req,timeout=30) as r:
-                          status=r.status; body=r.read().decode('utf-8','replace')
-                      unavailable=bool(re.search(r'Back photo unavailable',body,re.I))
-                      ok=(status==200 and not unavailable)
-                      if ok: break
-                  except Exception as e:
-                      err=str(e)
-                  time.sleep(min(10,attempt*2))
-              checked.append({'productId':row['productId'],'status':status,'backUnavailable':unavailable,'ok':ok,'error':err})
-          print('LIVE_ALLISHA_VERIFY='+json.dumps(checked))
-          json.dump(checked,open(os.path.join(root,'live-allisha.json'),'w'),indent=2)
-          if rows and not any(x['ok'] for x in checked):
-              raise SystemExit('No exact-back Allisha Gray product rendered successfully on the live storefront')
-          PY
+            node --import tsx scripts/verify-repair-allisha-back-20260812.mjs
 
       - uses: actions/upload-artifact@v4
         if: always()
