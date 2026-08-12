@@ -12,50 +12,137 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       STORE_ID: 00000000-0000-4000-8000-000000000001
+      SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
+      SOURCE_ROWS: '6909'
     steps:
-      - name: Read live Aja rows and images
+      - name: Check out checksum-locked CollX source branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/collx-full-inventory-migration-20260811
+          fetch-depth: 1
+
+      - name: Reconstruct source and cross-check CSV DB images and live HTML
         shell: bash
         run: |
           set -euo pipefail
           test -n "${SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
           python3 - <<'PY'
-          import json,os,subprocess
-          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['STORE_ID']
-          def req(method,path,body=None):
+          import csv,glob,hashlib,json,os,re,subprocess,urllib.parse,urllib.request
+          from pathlib import Path
+
+          STORE=os.environ['STORE_ID']; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          expected_sha=os.environ['SOURCE_SHA']; expected_rows=int(os.environ['SOURCE_ROWS'])
+          parts=sorted(glob.glob('.github/ops/collx-full-metadata.part*'))
+          if not parts: raise SystemExit('no source parts found')
+          source=b''.join(Path(p).read_bytes() for p in parts)
+          sha=hashlib.sha256(source).hexdigest()
+          rows=list(csv.DictReader(source.decode('utf-8-sig').splitlines()))
+          print('SOURCE_PROOF='+json.dumps({'parts':len(parts),'sha256':sha,'rows':len(rows)}))
+          if sha!=expected_sha or len(rows)!=expected_rows: raise SystemExit('source checksum/row contract mismatch')
+
+          def norm(s): return re.sub(r'[^a-z0-9]+',' ',str(s or '').lower()).strip()
+          aja=[r for r in rows if 'aja wilson' in norm(r.get('name')) or 'a ja wilson' in norm(r.get('name'))]
+          print('CSV_AJA='+json.dumps(aja,separators=(',',':')))
+          if not aja: raise SystemExit('Aja not found in source CSV')
+          ids=[str(r['collx_id']).strip() for r in aja]
+
+          API='https://api.supabase.com/v1'
+          def mgmt(method,path,body=None):
               cmd=['curl','-sS','--max-time','120','-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
-              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              if body is not None: cmd+=['--data-binary',json.dumps(body)]
               p=subprocess.run(cmd,capture_output=True,text=True)
-              raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
-              try: data=json.loads(raw) if raw else None
-              except: data=raw
+              raw=Path('/tmp/sb.json').read_text() if Path('/tmp/sb.json').exists() else ''
+              try:data=json.loads(raw) if raw else None
+              except:data=raw
               return int((p.stdout or '0').strip()[-3:]),data
-          s,projects=req('GET','/projects')
-          candidates=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
-          if s!=200 or len(candidates)!=1: raise SystemExit(f'project resolution failed {s} {len(candidates)}')
-          ref=str(candidates[0].get('id') or candidates[0].get('ref'))
+          s,projects=mgmt('GET','/projects')
+          cs=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if s!=200 or len(cs)!=1: raise SystemExit(f'project resolution failed {s} {len(cs)}')
+          ref=str(cs[0].get('id') or cs[0].get('ref'))
+          quoted=','.join("'"+x.replace("'","''")+"'" for x in ids)
           q=f"""
           with p as (
-            select id,sku,title,player,price,quantity,status,archived_at,image_url,ebay_item_id
+            select id,sku,title,player,price,quantity,archived_at,image_url,ebay_item_id
             from public.products
-            where store_id='{STORE}'::uuid
-              and (lower(coalesce(title,'')) like '%aja%wilson%' or lower(coalesce(title,'')) like '%a''ja%wilson%' or lower(coalesce(player,'')) like '%aja%wilson%' or lower(coalesce(player,'')) like '%a''ja%wilson%')
+            where store_id='{STORE}'::uuid and substring(coalesce(sku,'') from 7) in ({quoted})
           ), i as (
             select ii.id,ii.legacy_product_id,ii.sku,ii.title,ii.status,ii.quantity,ii.price,ii.metadata
-            from public.inventory_items ii
-            join p on p.id=ii.legacy_product_id
+            from public.inventory_items ii join p on p.id=ii.legacy_product_id
           )
-          select p.id product_id,p.sku product_sku,p.title product_title,p.player,p.price product_price,p.quantity product_qty,p.status product_status,p.archived_at,p.image_url product_image_url,p.ebay_item_id,
+          select p.id product_id,p.sku product_sku,p.title product_title,p.player,p.price product_price,p.quantity product_qty,p.archived_at,p.image_url product_image_url,p.ebay_item_id,
                  i.id inventory_item_id,i.sku inventory_sku,i.status inventory_status,i.quantity inventory_qty,i.price inventory_price,i.metadata,
                  coalesce((select jsonb_agg(jsonb_build_object('image_url',z.image_url,'is_primary',z.is_primary,'sort_order',z.sort_order) order by z.sort_order,z.created_at) from public.inventory_images z where z.inventory_item_id=i.id),'[]'::jsonb) inventory_images
-          from p left join i on i.legacy_product_id=p.id
-          order by p.id;
+          from p left join i on i.legacy_product_id=p.id order by p.id;
           """
-          s,data=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True})
-          if s not in (200,201): raise SystemExit(f'query failed {s} {data}')
-          print('AJA_LIVE_AUDIT='+json.dumps(data,separators=(',',':')))
+          s,dbrows=mgmt('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True})
+          if s not in (200,201): raise SystemExit(f'DB query failed {s}: {dbrows}')
+          print('DB_AJA='+json.dumps(dbrows,separators=(',',':')))
+
+          # Enumerate the original CollX image objects only for these source IDs.
+          wanted=set(ids); src={i:{} for i in ids}; token=''
+          while True:
+              params={'maxResults':'1000','fields':'items(name),nextPageToken'}
+              if token:params['pageToken']=token
+              with urllib.request.urlopen('https://storage.googleapis.com/storage/v1/b/collx-product-images/o?'+urllib.parse.urlencode(params),timeout=60) as r:
+                  payload=json.load(r)
+              for it in payload.get('items',[]):
+                  name=str(it.get('name') or '')
+                  m=re.match(r'^(\d+)-(1|2)-',name)
+                  if m and m.group(1) in wanted:
+                      src[m.group(1)]['front' if m.group(2)=='1' else 'back']=name
+              token=str(payload.get('nextPageToken') or '')
+              if not token:break
+          print('SOURCE_AJA_IMAGES='+json.dumps(src,separators=(',',':')))
+
+          def getbytes(url):
+              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 TruelyCollectables audit'})
+              with urllib.request.urlopen(req,timeout=60) as r:return r.read()
+          def h(url):
+              try:return hashlib.sha256(getbytes(url)).hexdigest()
+              except Exception as e:return 'ERROR:'+type(e).__name__+':'+str(e)
+          src_hash={}
+          for cid,d in src.items():
+              src_hash[cid]={}
+              for side,name in d.items():
+                  url='https://storage.googleapis.com/collx-product-images/'+urllib.parse.quote(name,safe='/')
+                  src_hash[cid][side]={'object':name,'url':url,'sha256':h(url)}
+          print('SOURCE_AJA_HASHES='+json.dumps(src_hash,separators=(',',':')))
+
+          live=[]
+          for r in dbrows:
+              cid=str(r.get('product_sku') or '')[6:]
+              product_url=r.get('product_image_url')
+              inv=[]
+              for im in r.get('inventory_images') or []:
+                  u=im.get('image_url')
+                  inv.append({**im,'sha256':h(u) if u else None})
+              live.append({'collx_id':cid,'product_id':r.get('product_id'),'product_qty':r.get('product_qty'),'inventory_qty':r.get('inventory_qty'),'product_price':r.get('product_price'),'inventory_price':r.get('inventory_price'),'archived_at':r.get('archived_at'),'product_image_url':product_url,'product_image_sha256':h(product_url) if product_url else None,'inventory_images':inv})
+          print('LIVE_AJA_HASHES='+json.dumps(live,separators=(',',':')))
+
+          # The storefront reads products.image_url directly. Fetch the current rendered search page too.
+          shop='https://truely-collectables.vercel.app/shop?q='+urllib.parse.quote("A'ja Wilson")
+          try:
+              html=getbytes(shop).decode('utf-8','replace')
+              urls=[]
+              for m in re.finditer(r'/_next/image\?url=([^&\" ]+)',html):
+                  u=urllib.parse.unquote(m.group(1))
+                  if 'collx-full/20260811/' in u and u not in urls:urls.append(u)
+              products=sorted(set(re.findall(r'/product/(\d+)',html)))
+              print('LIVE_SHOP='+json.dumps({'http_bytes':len(html),'product_ids':products,'decoded_collx_image_urls':urls},separators=(',',':')))
+          except Exception as e:
+              print('LIVE_SHOP_ERROR='+repr(e))
+
+          # Explicit source-vs-live comparison per CollX ID.
+          byid={x['collx_id']:x for x in live}
+          checks=[]
+          for r in aja:
+              cid=str(r['collx_id']).strip(); expected_qty=int(float((r.get('quantity') or '1').strip() or '1'))
+              row=byid.get(cid); sf=src_hash.get(cid,{}).get('front',{}).get('sha256')
+              checks.append({'collx_id':cid,'csv_quantity':expected_qty,'db_product_qty':None if not row else row['product_qty'],'db_inventory_qty':None if not row else row['inventory_qty'],'source_front_sha256':sf,'live_product_sha256':None if not row else row['product_image_sha256'],'source_front_matches_live_product':bool(row and sf and sf==row['product_image_sha256'])})
+          print('FINAL_AJA_CHECKS='+json.dumps(checks,separators=(',',':')))
           PY
