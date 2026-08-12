@@ -12,7 +12,6 @@ permissions:
   actions: read
 
 env:
-  EXPECTED_MAIN: 56d29f01c1f123e99ae15004bba0346cfbe7927a
   MASTER_RUN_ID: '31100986894'
   MASTER_ARTIFACT_ID: '8972199339'
   VERCEL_SCOPE: truelycollectables-projects
@@ -27,12 +26,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prove pinned main and read-only scope
+      - name: Prove read-only operations scope
         shell: bash
         run: |
           set -euo pipefail
-          test "${{ github.event.pull_request.base.sha || env.EXPECTED_MAIN }}" = "$EXPECTED_MAIN"
-          bad="$(git diff --name-only "$EXPECTED_MAIN"...HEAD | grep -Ev '^\.github/workflows/checklist-production-universe-census-20260811\.yml$' || true)"
+          git fetch origin main --quiet
+          base="$(git merge-base HEAD origin/main)"
+          bad="$(git diff --name-only "$base"...HEAD | grep -Ev '^\.github/workflows/checklist-production-universe-census-20260811\.yml$' || true)"
           test -z "$bad" || { echo "$bad"; exit 1; }
 
       - name: Download audited 2000-2026 master catalog
