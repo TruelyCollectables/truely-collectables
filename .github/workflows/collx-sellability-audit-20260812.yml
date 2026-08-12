@@ -1,0 +1,128 @@
+name: CollX Storefront Sellability Audit 20260812
+
+on:
+  push:
+    paths:
+      - '.github/workflows/collx-sellability-audit-20260812.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Audit current Production CollX sellability
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile, time
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+
+          def req(method,path,body=None,timeout=90,retries=5):
+              last=None
+              for attempt in range(retries):
+                  out=tempfile.NamedTemporaryFile(delete=False); out.close()
+                  cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                       '-H',f'Authorization: Bearer {TOKEN}',
+                       '-H','Accept: application/json',
+                       '-H','Content-Type: application/json',
+                       '-o',out.name,'-w','%{http_code}',API+path]
+                  if body is not None:
+                      cmd += ['--data-binary',json.dumps(body)]
+                  p=subprocess.run(cmd,capture_output=True,text=True)
+                  raw=open(out.name).read(); os.unlink(out.name)
+                  try: payload=json.loads(raw) if raw else None
+                  except Exception: payload=raw
+                  try: status=int((p.stdout or '0').strip()[-3:])
+                  except Exception: status=0
+                  if status in (200,201): return payload
+                  last=(status,payload)
+                  if status in (429,500,502,503,504,522,524,544) and attempt+1 < retries:
+                      time.sleep(2*(attempt+1)); continue
+                  break
+              raise RuntimeError(f'{method} {path} HTTP {last[0] if last else 0}: {str(last[1] if last else "")[:2000]}')
+
+          projects=req('GET','/projects',timeout=30)
+          cand=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(cand)!=1: raise SystemExit(f'Expected one Truely project, got {len(cand)}')
+          ref=str(cand[0].get('id') or cand[0].get('ref') or '')
+
+          def sql(q):
+              return req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},90)
+
+          summary=sql(f"""
+          with collx as (
+            select p.*
+            from public.products p
+            where p.store_id='{STORE}'::uuid
+              and p.sku>='COLLX-' and p.sku<'COLLY'
+              and p.ebay_item_id is null
+          ), basic_live as (
+            select * from collx
+            where archived_at is null
+              and quantity > 0
+              and price > 0
+              and image_url is not null
+          )
+          select
+            (select count(*)::int from collx) as total_collx_products,
+            (select coalesce(sum(quantity),0)::int from collx) as total_collx_units,
+            (select count(*)::int from basic_live) as storefront_query_eligible_rows,
+            (select coalesce(sum(quantity),0)::int from basic_live) as storefront_query_eligible_units,
+            (select count(*)::int from collx where archived_at is not null) as archived_rows,
+            (select count(*)::int from collx where archived_at is null and quantity <= 0) as zero_quantity_rows,
+            (select count(*)::int from collx where archived_at is null and quantity > 0 and price <= 0) as nonpositive_price_rows,
+            (select count(*)::int from collx where archived_at is null and quantity > 0 and price > 0 and image_url is null) as missing_front_rows,
+            (select count(*)::int from basic_live b where exists (
+               select 1 from public.inventory_items i
+               where i.store_id=b.store_id and i.legacy_product_id=b.id and i.sku=b.sku
+            )) as live_rows_with_inventory_link,
+            (select count(*)::int from basic_live b where not exists (
+               select 1 from public.inventory_items i
+               where i.store_id=b.store_id and i.legacy_product_id=b.id and i.sku=b.sku
+            )) as live_rows_missing_inventory_link;
+          """)
+
+          images=sql(f"""
+          with live as (
+            select p.id,p.store_id,p.sku
+            from public.products p
+            where p.store_id='{STORE}'::uuid
+              and p.sku>='COLLX-' and p.sku<'COLLY'
+              and p.ebay_item_id is null
+              and p.archived_at is null and p.quantity>0 and p.price>0 and p.image_url is not null
+          ), linked as (
+            select l.*,i.id inventory_item_id
+            from live l
+            join public.inventory_items i on i.store_id=l.store_id and i.legacy_product_id=l.id and i.sku=l.sku
+          ), flags as (
+            select x.inventory_item_id,
+              bool_or(ii.image_url like '%/front.%') as has_front_inventory_image,
+              bool_or(ii.image_url like '%/back.%') as has_back_inventory_image
+            from linked x
+            left join public.inventory_images ii on ii.inventory_item_id=x.inventory_item_id
+            group by x.inventory_item_id
+          )
+          select
+            count(*)::int as live_linked_rows,
+            count(*) filter (where has_front_inventory_image)::int as live_with_front_inventory_image,
+            count(*) filter (where has_back_inventory_image)::int as live_with_back_inventory_image,
+            count(*) filter (where not has_back_inventory_image)::int as live_front_only_inventory_rows
+          from flags;
+          """)
+
+          print('SELLABILITY_SUMMARY='+json.dumps(summary,sort_keys=True,default=str))
+          print('SELLABILITY_IMAGES='+json.dumps(images,sort_keys=True,default=str))
+          print('COLLX_SELLABILITY_AUDIT=SUCCESS')
+          PY
