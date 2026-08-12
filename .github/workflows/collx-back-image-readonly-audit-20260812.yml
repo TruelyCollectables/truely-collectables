@@ -1,0 +1,176 @@
+name: CollX Back Image Readonly Audit 20260812
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-back-image-readonly-audit-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+  EXPECTED_SOURCE_ROWS: "6909"
+  EXPECTED_SOURCE_SHA: "e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904"
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout authoritative CollX migration source
+        uses: actions/checkout@v4
+        with:
+          ref: ops/collx-full-inventory-migration-20260811
+          fetch-depth: 1
+
+      - name: Audit source mirror and live back images
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          WORK=/tmp/collx-back-audit
+          mkdir -p "$WORK"
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10m0 \
+            .github/ops/collx-full-metadata.part10m1 \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14m \
+            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SOURCE_SHA"
+          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_SOURCE_ROWS"
+
+          python3 - <<'PY'
+          import csv, json, os, subprocess, sys
+          from collections import Counter
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+          SOURCE='/tmp/collx-back-audit/source.csv'
+          ALLISHA={'1116438440473465856','1111931097530454016'}
+
+          csv.field_size_limit(sys.maxsize)
+          with open(SOURCE,newline='',encoding='utf-8-sig') as f:
+              src=list(csv.DictReader(f))
+          byid={str(r.get('collx_id') or '').strip():r for r in src}
+          if len(src)!=6909 or len(byid)!=6909:
+              raise SystemExit('source row/id contract failed')
+
+          def nonblank(r,k): return bool(str(r.get(k) or '').strip())
+          source_summary={
+              'rows':len(src),
+              'units':sum(int(float(str(r.get('quantity') or '1').strip() or '1')) for r in src),
+              'front_rows':sum(nonblank(r,'front_image') for r in src),
+              'back_rows':sum(nonblank(r,'back_image') for r in src),
+              'both_rows':sum(nonblank(r,'front_image') and nonblank(r,'back_image') for r in src),
+              'missing_back_rows':sum(not nonblank(r,'back_image') for r in src),
+              'qty_distribution':dict(sorted(Counter(int(float(str(r.get('quantity') or '1').strip() or '1')) for r in src).items())),
+          }
+          print('SOURCE_IMAGE_SUMMARY='+json.dumps(source_summary,sort_keys=True))
+          print('SOURCE_ALLISHA='+json.dumps([{k:r.get(k) for k in ('collx_id','year','brand','set','number','name','team','condition','quantity','asking_price','front_image','back_image')} for cid,r in byid.items() if cid in ALLISHA],sort_keys=True))
+
+          def req(method,path,body=None,timeout=180):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json',
+                   '-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              return status,payload
+
+          s,projects=req('GET','/projects',timeout=30)
+          cand=[p for p in projects] if s==200 and isinstance(projects,list) else []
+          cand=[p for p in cand if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(cand)!=1:
+              print('PROJECT_FAILURE',s,json.dumps(cand,default=str)); raise SystemExit(2)
+          ref=str(cand[0].get('id') or cand[0].get('ref') or '')
+
+          def sql(q):
+              st,b=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},180)
+              if st not in (200,201):
+                  print('SQL_FAILURE',st,json.dumps(b,default=str)[:12000]); raise SystemExit(3)
+              return b
+
+          coverage=sql(f"""
+          with cp as (
+            select p.id product_id,p.sku,p.title,p.player,p.quantity product_quantity,p.price product_price,
+                   p.archived_at,p.image_url product_image_url,
+                   i.id inventory_item_id,i.quantity inventory_quantity,i.status inventory_status
+            from public.products p
+            join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+            where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY'
+          ), img as (
+            select c.product_id,c.sku,c.inventory_item_id,
+                   count(ii.*)::int image_rows,
+                   count(*) filter (where ii.sort_order=0 or ii.is_primary)::int primary_rows,
+                   count(*) filter (where ii.sort_order=1 or lower(coalesce(ii.alt_text,'')) like '%back%' or ii.image_url ~ '/back\\.(jpg|jpeg|png|webp)(\\?|$)')::int back_rows
+            from cp c left join public.inventory_images ii on ii.inventory_item_id=c.inventory_item_id
+            group by c.product_id,c.sku,c.inventory_item_id
+          )
+          select
+            count(*)::int direct_rows,
+            coalesce(sum(cp.product_quantity),0)::int direct_units,
+            count(*) filter (where cp.archived_at is null and cp.product_quantity>0 and cp.product_price>0 and nullif(btrim(cp.product_image_url),'') is not null)::int live_rows,
+            coalesce(sum(cp.product_quantity) filter (where cp.archived_at is null and cp.product_quantity>0 and cp.product_price>0 and nullif(btrim(cp.product_image_url),'') is not null),0)::int live_units,
+            count(*) filter (where img.image_rows=0)::int db_zero_image_rows,
+            count(*) filter (where img.image_rows=1)::int db_one_image_rows,
+            count(*) filter (where img.image_rows>=2)::int db_two_plus_image_rows,
+            count(*) filter (where img.back_rows>0)::int db_rows_with_back,
+            count(*) filter (where img.back_rows=0)::int db_rows_without_back,
+            count(*) filter (where cp.archived_at is null and cp.product_quantity>0 and cp.product_price>0 and img.back_rows>0)::int live_rows_with_back,
+            count(*) filter (where cp.archived_at is null and cp.product_quantity>0 and cp.product_price>0 and img.back_rows=0)::int live_rows_without_back,
+            count(*) filter (where exists (
+              select 1 from storage.objects o where o.bucket_id='truely-product-images'
+                and o.name='collx-full/20260811/'||substring(cp.sku from 7)||'/front.jpg'))::int mirror_front_rows,
+            count(*) filter (where exists (
+              select 1 from storage.objects o where o.bucket_id='truely-product-images'
+                and o.name='collx-full/20260811/'||substring(cp.sku from 7)||'/back.jpg'))::int mirror_back_rows
+          from cp join img using(product_id,sku,inventory_item_id);
+          """)
+          print('LIVE_IMAGE_COVERAGE='+json.dumps(coverage,default=str,sort_keys=True))
+
+          allisha=sql(f"""
+          select p.id product_id,p.sku,p.title,p.player,p.quantity product_quantity,p.price product_price,p.archived_at,p.image_url product_image_url,
+                 i.id inventory_item_id,i.quantity inventory_quantity,i.status inventory_status,
+                 coalesce((select jsonb_agg(jsonb_build_object('image_url',x.image_url,'sort_order',x.sort_order,'is_primary',x.is_primary,'alt_text',x.alt_text) order by x.sort_order,x.created_at) from public.inventory_images x where x.inventory_item_id=i.id),'[]'::jsonb) inventory_images,
+                 exists(select 1 from storage.objects o where o.bucket_id='truely-product-images' and o.name='collx-full/20260811/'||substring(p.sku from 7)||'/front.jpg') mirror_front,
+                 exists(select 1 from storage.objects o where o.bucket_id='truely-product-images' and o.name='collx-full/20260811/'||substring(p.sku from 7)||'/back.jpg') mirror_back
+          from public.products p
+          join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+          where p.store_id='{STORE}'::uuid and substring(p.sku from 7) in ('1116438440473465856','1111931097530454016')
+          order by p.id;
+          """)
+          print('LIVE_ALLISHA='+json.dumps(allisha,default=str,sort_keys=True))
+
+          direct_ids=sql(f"""
+          select substring(p.sku from 7) collx_id
+          from public.products p where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY';
+          """)
+          ids={str(r.get('collx_id') or '').strip() for r in direct_ids}
+          src_direct=[byid[cid] for cid in ids if cid in byid]
+          direct_source_summary={
+              'db_direct_ids':len(ids),
+              'source_rows_found':len(src_direct),
+              'source_direct_front_rows':sum(nonblank(r,'front_image') for r in src_direct),
+              'source_direct_back_rows':sum(nonblank(r,'back_image') for r in src_direct),
+              'source_direct_missing_back_rows':sum(not nonblank(r,'back_image') for r in src_direct),
+              'source_direct_units':sum(int(float(str(r.get('quantity') or '1').strip() or '1')) for r in src_direct),
+          }
+          print('DIRECT_SOURCE_IMAGE_SUMMARY='+json.dumps(direct_source_summary,sort_keys=True))
+          print('COLLX_BACK_IMAGE_READONLY_AUDIT=SUCCESS')
+          PY
