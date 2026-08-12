@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+import pytest
+
+import app.inventory_training as inventory_training
+from app.collx_authoritative_truth import load_authoritative_collx_source
 from app.inventory_training import (
     extract_inventory_identity,
     inventory_card_reason,
@@ -88,6 +95,76 @@ def test_durable_collx_sku_is_card_even_after_migration_metadata_is_removed():
     }
     assert inventory_item_is_card(item)
     assert inventory_card_reason(item) == "collx_card_sku"
+
+
+def test_verified_collx_source_fills_missing_structured_identity(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        inventory_training,
+        "load_authoritative_collx_source_cached",
+        lambda _repo: {
+            "123": {
+                "collx_id": "123",
+                "name": "Source Player",
+                "number": "88",
+                "year": "2024",
+                "brand": "Panini",
+                "set": "Select",
+                "flags": "AU RC SN99",
+            }
+        },
+    )
+    identity = extract_inventory_identity(
+        {"id": "item-1", "sku": "COLLX-123", "title": "ignored title prose"},
+        attributes={},
+    )
+    assert identity.player == "Source Player"
+    assert identity.card_number == "88"
+    assert identity.year == "2024"
+    assert identity.brand == "Panini"
+    assert identity.set_name == "Select"
+    assert identity.autograph is True
+    assert identity.rookie is True
+    assert identity.serial_run == 99
+
+
+def test_current_inventory_attributes_override_historical_collx_source(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        inventory_training,
+        "load_authoritative_collx_source_cached",
+        lambda _repo: {
+            "123": {
+                "collx_id": "123",
+                "name": "Old Player",
+                "number": "1",
+                "year": "2023",
+                "brand": "Old Brand",
+                "set": "Old Set",
+                "flags": "",
+            }
+        },
+    )
+    identity = extract_inventory_identity(
+        {"id": "item-1", "sku": "COLLX-123"},
+        attributes={
+            "Player/Athlete": "Corrected Player",
+            "Set": "Corrected Set",
+            "Card Number": "77",
+        },
+    )
+    assert identity.player == "Corrected Player"
+    assert identity.set_name == "Corrected Set"
+    assert identity.card_number == "77"
+    assert identity.year == "2023"
+    assert identity.brand == "Old Brand"
+
+
+@pytest.mark.skipif(os.getenv("GITHUB_ACTIONS") != "true", reason="archive proof runs in GitHub Actions")
+def test_real_authoritative_collx_archive_reconstructs_exactly_6909_rows():
+    repo_root = Path(__file__).resolve().parents[3]
+    source = load_authoritative_collx_source(repo_root)
+    assert len(source) == 6909
+    assert len(set(source)) == 6909
+    assert all(str(key).isdigit() for key in source)
 
 
 def test_sealed_wax_does_not_become_single_card_lora_truth():
