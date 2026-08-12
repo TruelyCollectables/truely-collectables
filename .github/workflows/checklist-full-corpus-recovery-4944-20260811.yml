@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: checklist-full-corpus-recovery-4944-20260811
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apply:
