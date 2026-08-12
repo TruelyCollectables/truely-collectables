@@ -261,7 +261,7 @@ export async function POST(request: Request) {
           product_data: {
             name: "Truely Collectables Shipment Protection",
             description:
-              "Optional reimbursement program for a qualifying under-$20 Tracked Card Letter order. Approved carrier loss or damage reimbursement covers the protected item subtotal and shipping; the protection fee is excluded.",
+              "Optional reimbursement program for a qualifying under-$20 Tracked Card Letter order. Approved carrier loss or damage reimbursement is limited to the protected item subtotal up to $20. Shipping and the protection fee are excluded.",
             metadata: {
               tcos_line_type: "buyer_protection",
               policy_version: buyerProtection.policyVersion || "",
