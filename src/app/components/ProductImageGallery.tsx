@@ -1,6 +1,7 @@
 import Image from "next/image";
 import SoldOverlay from "../../components/SoldOverlay";
 import {
+  companionBackListingImageUrl,
   listingImageAltText,
   listingImageLabel,
   selectFrontBackListingImages,
@@ -12,12 +13,52 @@ function displayLabel(index: number) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+async function verifiedCompanionBack(primaryImageUrl: string | null) {
+  const companionUrl = companionBackListingImageUrl(primaryImageUrl);
+  if (!companionUrl) return null;
+
+  try {
+    let response = await fetch(companionUrl, {
+      method: "HEAD",
+      cache: "no-store",
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (response.status === 405 || response.status === 501) {
+      response = await fetch(companionUrl, {
+        headers: { Range: "bytes=0-0" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(6000),
+      });
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if ((response.ok || response.status === 206) && contentType.startsWith("image/")) {
+      return companionUrl;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function fallbackFrontBackImages(primaryImageUrl: string | null) {
+  const fallback = selectFrontBackListingImages([primaryImageUrl]);
+  if (!primaryImageUrl || fallback.length > 1) return fallback;
+
+  const companionBack = await verifiedCompanionBack(primaryImageUrl);
+  return companionBack
+    ? selectFrontBackListingImages([primaryImageUrl, companionBack])
+    : fallback;
+}
+
 async function loadFrontBackImages(params: {
   inventoryItemId: string | null;
   primaryImageUrl: string | null;
 }) {
-  const fallback = selectFrontBackListingImages([params.primaryImageUrl]);
-  if (!params.inventoryItemId) return fallback;
+  const fallbackPromise = fallbackFrontBackImages(params.primaryImageUrl);
+  if (!params.inventoryItemId) return fallbackPromise;
 
   try {
     const supabase = createSupabaseServerClient({ admin: true });
@@ -27,14 +68,17 @@ async function loadFrontBackImages(params: {
       .eq("inventory_item_id", params.inventoryItemId)
       .order("sort_order", { ascending: true });
 
-    if (error) return fallback;
+    if (error) return fallbackPromise;
 
-    return selectFrontBackListingImages([
+    const selected = selectFrontBackListingImages([
       params.primaryImageUrl,
       ...(data || []).map((row: any) => row.image_url),
     ]);
+
+    if (selected.length > 1) return selected;
+    return fallbackPromise;
   } catch {
-    return fallback;
+    return fallbackPromise;
   }
 }
 
