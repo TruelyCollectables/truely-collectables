@@ -15,9 +15,26 @@ if str(SERVICE_ROOT) not in sys.path:
 import import_inventory_training_truth as inventory_import
 
 
-DEFAULT_PAGE_SIZE = 500
-MAX_ATTEMPTS = 5
-TRANSIENT_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+DEFAULT_PAGE_SIZE = 250
+MIN_PAGE_SIZE = 50
+MAX_ATTEMPTS_AT_MIN_PAGE = 5
+SHRINK_AFTER_ATTEMPTS = 2
+TRANSIENT_HTTP_STATUSES = {
+    408,
+    425,
+    429,
+    500,
+    502,
+    503,
+    504,
+    520,
+    521,
+    522,
+    523,
+    524,
+    525,
+    526,
+}
 
 
 def _retry_delay(attempt: int, response: httpx.Response | None = None) -> float:
@@ -33,6 +50,12 @@ def _retry_delay(attempt: int, response: httpx.Response | None = None) -> float:
     return min(float(2 ** (attempt - 1)), 8.0)
 
 
+def _smaller_page_size(current: int, floor: int) -> int:
+    if current <= floor:
+        return current
+    return max(floor, current // 2)
+
+
 class ResilientSupabaseReader(inventory_import.SupabaseReader):
     """Read-only PostgREST pager that survives transient Production network failures."""
 
@@ -45,10 +68,18 @@ class ResilientSupabaseReader(inventory_import.SupabaseReader):
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         start = 0
+        current_page_size = max(1, int(page_size))
+        floor_page_size = min(MIN_PAGE_SIZE, current_page_size)
+
         while True:
-            end = start + page_size - 1
+            attempt = 0
             response: httpx.Response | None = None
-            for attempt in range(1, MAX_ATTEMPTS + 1):
+
+            while True:
+                end = start + current_page_size - 1
+                attempt += 1
+                transport_error: httpx.TransportError | None = None
+
                 try:
                     response = self.client.get(
                         f"{self.rest_url}/{name}",
@@ -56,58 +87,68 @@ class ResilientSupabaseReader(inventory_import.SupabaseReader):
                         headers={"Range-Unit": "items", "Range": f"{start}-{end}"},
                     )
                 except httpx.TransportError as exc:
-                    if attempt >= MAX_ATTEMPTS:
-                        raise SystemExit(
-                            "Read-only Supabase query exhausted retries for "
-                            f"{name} rows {start}-{end}: {type(exc).__name__}: {exc}"
-                        ) from exc
-                    delay = _retry_delay(attempt)
-                    print(
-                        "RETRY Supabase read "
-                        f"{name} rows {start}-{end}: {type(exc).__name__} "
-                        f"attempt {attempt}/{MAX_ATTEMPTS}; sleeping {delay:.0f}s",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    time.sleep(delay)
-                    continue
+                    transport_error = exc
+                    response = None
 
-                if response.status_code in {200, 206}:
+                if response is not None and response.status_code in {200, 206}:
                     break
 
-                if response.status_code in TRANSIENT_HTTP_STATUSES:
-                    if attempt >= MAX_ATTEMPTS:
-                        raise SystemExit(
-                            "Read-only Supabase query exhausted retries for "
-                            f"{name} rows {start}-{end}: HTTP {response.status_code}: "
-                            f"{response.text[:500]}"
-                        )
-                    delay = _retry_delay(attempt, response)
+                if response is not None and response.status_code not in TRANSIENT_HTTP_STATUSES:
+                    raise SystemExit(
+                        f"Read-only Supabase query failed for {name}: HTTP {response.status_code}: "
+                        f"{response.text[:500]}"
+                    )
+
+                transient_label = (
+                    f"HTTP {response.status_code}"
+                    if response is not None
+                    else type(transport_error).__name__ if transport_error is not None else "transport_error"
+                )
+
+                if attempt >= SHRINK_AFTER_ATTEMPTS and current_page_size > floor_page_size:
+                    previous_size = current_page_size
+                    current_page_size = _smaller_page_size(current_page_size, floor_page_size)
                     print(
-                        "RETRY Supabase read "
-                        f"{name} rows {start}-{end}: HTTP {response.status_code} "
-                        f"attempt {attempt}/{MAX_ATTEMPTS}; sleeping {delay:.0f}s",
+                        "SHRINK Supabase read page "
+                        f"{name} at row {start}: {transient_label}; "
+                        f"{previous_size}->{current_page_size} rows",
                         file=sys.stderr,
                         flush=True,
                     )
-                    time.sleep(delay)
+                    attempt = 0
                     continue
 
-                raise SystemExit(
-                    f"Read-only Supabase query failed for {name}: HTTP {response.status_code}: "
-                    f"{response.text[:500]}"
+                if current_page_size <= floor_page_size and attempt >= MAX_ATTEMPTS_AT_MIN_PAGE:
+                    detail = (
+                        f"HTTP {response.status_code}: {response.text[:500]}"
+                        if response is not None
+                        else f"{type(transport_error).__name__}: {transport_error}"
+                    )
+                    raise SystemExit(
+                        "Read-only Supabase query exhausted retries for "
+                        f"{name} rows {start}-{end} at minimum page size "
+                        f"{current_page_size}: {detail}"
+                    ) from transport_error
+
+                delay = _retry_delay(attempt, response)
+                print(
+                    "RETRY Supabase read "
+                    f"{name} rows {start}-{end}: {transient_label} "
+                    f"attempt {attempt}; sleeping {delay:.0f}s",
+                    file=sys.stderr,
+                    flush=True,
                 )
-            else:  # pragma: no cover - loop exits through break or SystemExit
-                raise SystemExit(f"Read-only Supabase query unexpectedly exhausted for {name}")
+                time.sleep(delay)
 
             assert response is not None
             page = response.json()
             if not isinstance(page, list):
                 raise SystemExit(f"Unexpected Supabase payload for {name}")
             rows.extend(row for row in page if isinstance(row, dict))
-            if len(page) < page_size:
+            if len(page) < current_page_size:
                 break
-            start += page_size
+            start += current_page_size
+
         return rows
 
 
