@@ -41,11 +41,10 @@ export function listingImageIdentity(value: unknown) {
 }
 
 function collxExportImageSide(pathname: string) {
-  const match = /^\/collx-product-images\/\d+-(1|2)-[^/]+\.(?:jpe?g|png|webp)$/i.exec(
-    pathname,
-  );
-  if (!match?.[1]) return null;
-  return match[1] === "2" ? "back" : "front";
+  const basename = pathname.split("/").pop() || "";
+  const match = /^(\d{15,20})-(1|2)-[^/]+\.(?:jpe?g|png|webp)$/i.exec(basename);
+  if (!match?.[2]) return null;
+  return match[2] === "2" ? "back" : "front";
 }
 
 export function listingImageSide(value: unknown): "front" | "back" | null {
@@ -53,11 +52,9 @@ export function listingImageSide(value: unknown): "front" | "back" | null {
   if (!cleaned) return null;
 
   let pathname = cleaned;
-  let hostname = "";
   try {
     const parsed = new URL(cleaned);
     pathname = parsed.pathname;
-    hostname = parsed.hostname.toLowerCase();
   } catch {
     pathname = cleaned.split(/[?#]/, 1)[0];
   }
@@ -67,11 +64,7 @@ export function listingImageSide(value: unknown): "front" | "back" | null {
     return namedSide[1].toLowerCase() === "back" ? "back" : "front";
   }
 
-  if (hostname === "storage.googleapis.com") {
-    return collxExportImageSide(pathname);
-  }
-
-  return null;
+  return collxExportImageSide(pathname);
 }
 
 export function companionBackListingImageUrl(value: unknown) {
