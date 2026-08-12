@@ -1,0 +1,29 @@
+name: Inspect Failed Vercel Recovery 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-failed-vercel-recovery-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: Production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      DEPLOYMENT_ID: dpl_2r47ZyfJ2ChdPJ8bvWaHgNd2FtaB
+    steps:
+      - name: Inspect failed recovery build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          npx vercel@56.2.0 inspect "$DEPLOYMENT_ID" --logs --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
