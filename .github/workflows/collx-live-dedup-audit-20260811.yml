@@ -21,7 +21,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Audit live CollX duplicates read-only
+      - name: Audit live CollX copy consolidation read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -29,14 +29,11 @@ jobs:
           echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
           python3 - <<'PY'
           import json, os, subprocess
-          API='https://api.supabase.com/v1'
-          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
-          STORE=os.environ['FLAGSHIP_STORE_ID']
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
           def req(method,path,body=None,timeout=60):
               cmd=['curl','-sS','--max-time',str(timeout),'-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
               if body is not None: cmd += ['--data-binary',json.dumps(body)]
-              p=subprocess.run(cmd,capture_output=True,text=True)
-              raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
               try: payload=json.loads(raw) if raw else None
               except Exception: payload=raw
               try: status=int((p.stdout or '0').strip()[-3:])
@@ -44,24 +41,31 @@ jobs:
               if p.returncode != 0 and status == 0: status,payload=599,{'error':p.stderr.strip()}
               return status,payload
           s,projects=req('GET','/projects',timeout=30)
-          if s!=200 or not isinstance(projects,list): print('PROJECT_LIST_FAILURE',s,projects); raise SystemExit(2)
-          candidates=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
-          if len(candidates)!=1: print('PROJECT_CANDIDATES',json.dumps(candidates,default=str)); raise SystemExit(3)
-          ref=str(candidates[0].get('id') or candidates[0].get('ref') or '')
-          print('PROJECT_REF='+ref)
+          candidates=[p for p in projects] if s==200 and isinstance(projects,list) else []
+          candidates=[p for p in candidates if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(candidates)!=1: print('PROJECT_FAILURE',s,json.dumps(candidates,default=str)); raise SystemExit(2)
+          ref=str(candidates[0].get('id') or candidates[0].get('ref') or ''); print('PROJECT_REF='+ref)
           def sql(q):
               status,body=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},60)
-              if status not in (200,201): print('SQL_FAILURE',status,json.dumps(body,default=str)); raise SystemExit(4)
+              if status not in (200,201): print('SQL_FAILURE',status,json.dumps(body,default=str)); raise SystemExit(3)
               return body
-          totals=sql(f"""select count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY')::int as collx_products_total,count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity > 0 and price > 0 and nullif(btrim(image_url),'') is not null)::int as collx_products_live,count(distinct image_url) filter (where sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity > 0 and price > 0 and nullif(btrim(image_url),'') is not null)::int as distinct_live_images from public.products where store_id='{STORE}'::uuid;""")
+
+          totals=sql(f"""select count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY')::int as collx_products_total,count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null)::int as live from public.products where store_id='{STORE}'::uuid;""")
           print('TOTALS='+json.dumps(totals,default=str))
-          wilson=sql(f"""select p.id as product_id,p.sku,p.title,p.player,p.price,p.quantity,p.image_url,p.archived_at,i.id as inventory_item_id,i.status as inventory_status,i.quantity as inventory_quantity,i.legacy_product_id,i.metadata from public.products p left join public.inventory_items i on i.store_id=p.store_id and (i.legacy_product_id=p.id or i.sku=p.sku) where p.store_id='{STORE}'::uuid and p.sku >= 'COLLX-' and p.sku < 'COLLY' and lower(coalesce(p.title,'')) like '%wilson%' and lower(coalesce(p.title,'')) like '%score select throwback%' order by p.title,p.image_url,p.id;""")
-          print('AJA_WILSON_ROWS='+json.dumps(wilson,default=str))
-          same_image=sql(f"""with live as (select id,sku,title,player,price,quantity,image_url from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity > 0 and price > 0 and nullif(btrim(image_url),'') is not null),g as (select image_url,count(*)::int as copies,array_agg(id order by id) as product_ids,array_agg(sku order by id) as skus,array_agg(title order by id) as titles,array_agg(price order by id) as prices from live group by image_url having count(*) > 1) select * from g order by copies desc,image_url limit 100;""")
-          print('SAME_IMAGE_DUP_GROUPS='+json.dumps(same_image,default=str))
-          exact=sql(f"""with live as (select id,sku,title,player,price,quantity,image_url,lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) as nt,lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) as np from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity > 0 and price > 0 and nullif(btrim(image_url),'') is not null) select nt,np,price,image_url,count(*)::int as copies,array_agg(id order by id) as product_ids,array_agg(sku order by id) as skus,array_agg(quantity order by id) as quantities from live group by nt,np,price,image_url having count(*) > 1 order by copies desc,nt limit 200;""")
-          print('EXACT_DUP_GROUPS='+json.dumps(exact,default=str))
-          counts=sql(f"""with live as (select id,lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) as nt,lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) as np,price,image_url from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity > 0 and price > 0 and nullif(btrim(image_url),'') is not null),g as (select count(*)::int as copies from live group by nt,np,price,image_url having count(*)>1) select count(*)::int as duplicate_groups,coalesce(sum(copies-1),0)::int as removable_exact_duplicates,coalesce(max(copies),0)::int as max_copies from g;""")
-          print('DUP_COUNTS='+json.dumps(counts,default=str))
-          print('COLLX_DUPLICATE_AUDIT=SUCCESS')
+
+          schema=sql("""select table_name,column_name,data_type from information_schema.columns where table_schema='public' and table_name in ('inventory_attributes','inventory_items','products') and column_name in ('id','inventory_item_id','attribute_name','attribute_value','status','category','metadata','sku','title','player','price','quantity','legacy_product_id') order by table_name,ordinal_position;""")
+          print('SCHEMA='+json.dumps(schema,default=str))
+
+          constraints=sql("""select conname,pg_get_constraintdef(c.oid) as definition from pg_constraint c join pg_class t on t.oid=c.conrelid join pg_namespace n on n.oid=t.relnamespace where n.nspname='public' and t.relname='inventory_items' and contype='c' order by conname;""")
+          print('INVENTORY_CHECKS='+json.dumps(constraints,default=str))
+
+          aja=sql(f"""with target as (select i.id,i.sku,i.legacy_product_id,p.id as product_id,p.title,p.player,p.price,p.quantity,p.image_url from public.inventory_items i join public.products p on p.store_id=i.store_id and (p.id=i.legacy_product_id or p.sku=i.sku) where i.store_id='{STORE}'::uuid and p.sku >= 'COLLX-' and p.sku < 'COLLY' and lower(coalesce(p.title,'')) like '%wilson%' and lower(coalesce(p.title,'')) like '%score select throwback%') select t.*,a.attribute_name,a.attribute_value from target t left join public.inventory_attributes a on a.inventory_item_id=t.id order by t.product_id,a.attribute_name;""")
+          print('AJA_ATTRIBUTES='+json.dumps(aja,default=str))
+
+          title_groups=sql(f"""with live as (select id,sku,title,player,price,quantity,image_url,lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) nt,lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) np from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),g as (select nt,np,count(*)::int copies,sum(quantity)::int total_quantity,min(price) min_price,max(price) max_price,count(distinct price)::int price_variants,count(distinct image_url)::int image_variants,array_agg(id order by id) product_ids,array_agg(sku order by id) skus from live group by nt,np having count(*)>1) select * from g order by copies desc,nt limit 250;""")
+          print('TITLE_COPY_GROUPS='+json.dumps(title_groups,default=str))
+
+          summary=sql(f"""with live as (select lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) nt,lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) np,price,quantity,image_url from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),g as (select count(*)::int copies,sum(quantity)::int total_qty,count(distinct price)::int prices,count(distinct image_url)::int images from live group by nt,np having count(*)>1) select count(*)::int as repeated_card_identity_groups,coalesce(sum(copies-1),0)::int as extra_product_tiles,coalesce(sum(total_qty),0)::int as units_in_repeated_groups,count(*) filter (where prices=1)::int as same_price_groups,count(*) filter (where prices>1)::int as mixed_price_groups,max(copies)::int as max_copies from g;""")
+          print('TITLE_COPY_SUMMARY='+json.dumps(summary,default=str))
+          print('COLLX_COPY_CONSOLIDATION_AUDIT=SUCCESS')
           PY
