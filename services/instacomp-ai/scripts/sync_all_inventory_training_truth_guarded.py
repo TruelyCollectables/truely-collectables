@@ -11,7 +11,7 @@ from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
-TARGET = SERVICE_ROOT / "scripts" / "sync_all_inventory_training_truth_v2.py"
+TARGET = SERVICE_ROOT / "scripts" / "sync_all_inventory_training_truth_resilient.py"
 DEFAULT_RECEIPT = SERVICE_ROOT / "data" / "training" / "inventory-training-import-latest.json"
 DEFAULT_LOG = SERVICE_ROOT / "data" / "training" / "inventory-training-sync-latest.log"
 WRAPPER_SCHEMA = "tcos.instacomp-ai.inventory-training-sync-guard.v1"
