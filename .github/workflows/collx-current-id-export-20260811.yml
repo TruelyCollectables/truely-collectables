@@ -1,0 +1,57 @@
+name: CollX Current ID Export 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-current-id-export-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Export current CollX IDs read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json,os,subprocess
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
+          def req(method,path,body=None):
+              cmd=['curl','-sS','--max-time','120','-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd+=['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try:b=json.loads(raw) if raw else None
+              except:b=raw
+              return int((p.stdout or '0').strip()[-3:]),b
+          s,ps=req('GET','/projects'); cs=[p for p in ps if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if s!=200 or len(cs)!=1: raise SystemExit(2)
+          ref=str(cs[0].get('id') or cs[0].get('ref'))
+          q=f"select substring(sku from 7) collx_id from public.products where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY' order by substring(sku from 7);"
+          s,b=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True})
+          if s not in (200,201): raise SystemExit(3)
+          ids=[str(r['collx_id']) for r in b]
+          if len(ids)!=6155 or len(set(ids))!=6155: raise SystemExit(4)
+          open('/tmp/current-collx-ids.json','w').write(json.dumps(ids,separators=(',',':')))
+          print('EXPORTED_IDS='+str(len(ids)))
+          PY
+      - name: Upload ID reconciliation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-collx-ids-20260811
+          path: /tmp/current-collx-ids.json
+          if-no-files-found: error
+          retention-days: 1
