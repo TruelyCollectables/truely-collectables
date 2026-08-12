@@ -1,0 +1,62 @@
+name: CollX Classification Receipt Audit 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-classification-receipt-audit-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Read original saved CollX classification receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json,os,subprocess,urllib.request
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
+          def req(method,path,body=None):
+              cmd=['curl','-sS','--max-time','120','-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd+=['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try:b=json.loads(raw) if raw else None
+              except:b=raw
+              return int((p.stdout or '0').strip()[-3:]),b
+          s,ps=req('GET','/projects'); cs=[p for p in ps if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if s!=200 or len(cs)!=1: raise SystemExit(2)
+          ref=str(cs[0].get('id') or cs[0].get('ref'))
+          url=f'https://{ref}.supabase.co/storage/v1/object/public/truely-product-images/ops/collx-full-migration-20260811/classification.json'
+          with urllib.request.urlopen(url,timeout=60) as r: c=json.loads(r.read().decode('utf-8'))
+          summary=c.get('summary') or {}; imports=[str(x) for x in c.get('import_collx_ids') or []]; matches=c.get('matches') or []
+          q=f"select substring(sku from 7) collx_id from public.products where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY';"
+          s,db=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True})
+          if s not in (200,201): raise SystemExit(3)
+          dbids={str(x['collx_id']) for x in db}; importset=set(imports); matchids={str(x.get('collx_id')) for x in matches if x.get('collx_id') is not None}
+          out={
+            'schema':c.get('schema'),'sourceRows':c.get('sourceRows'),'sourceSha':c.get('sourceSha'),
+            'summary':summary,'import_ids':len(imports),'unique_import_ids':len(importset),'match_rows':len(matches),'unique_match_ids':len(matchids),
+            'db_collx_ids':len(dbids),'imports_missing_db':len(importset-dbids),'db_not_classified_import':len(dbids-importset),
+            'import_match_overlap':len(importset & matchids),'classified_union':len(importset | matchids),
+          }
+          print('CLASSIFICATION_RECEIPT='+json.dumps(out,default=str))
+          from collections import Counter
+          print('MATCH_REASON_COUNTS='+json.dumps(Counter(str(x.get('reason')) for x in matches),default=str))
+          if int(c.get('sourceRows') or 0)!=6909 or len(importset)!=6155 or len(matchids)!=754 or len(importset|matchids)!=6909 or importset&matchids or importset!=dbids:
+              raise SystemExit(10)
+          print('COLLX_CLASSIFICATION_RECEIPT=SUCCESS')
+          PY
