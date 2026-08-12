@@ -1,0 +1,114 @@
+name: Cloudflare Preview Deploy Triggered
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-preview-deploy-trigger'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-cloudflare-preview-deploy
+  cancel-in-progress: false
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  deploy-preview:
+    name: Pull Vercel production env and deploy no-cron Cloudflare preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Require Truely account deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN VERCEL_TOKEN; do
+            if [ -z "${!key:-}" ]; then missing+=("$key"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required GitHub Actions secret(s): %s\n' "${missing[*]}"
+            exit 2
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked application dependencies
+        run: npm ci
+
+      - name: Install migration tooling without changing lockfile
+        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest vercel@56.2.0
+
+      - name: Link only the Truely Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel link --yes \
+            --project "$VERCEL_PROJECT_NAME" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --no-color
+
+      - name: Pull Vercel Production environment without printing values
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          npx vercel env pull .env.production.local \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --yes \
+            --no-color
+          test -s .env.production.local
+          required=(
+            NEXT_PUBLIC_SUPABASE_URL
+            NEXT_PUBLIC_SUPABASE_ANON_KEY
+            SUPABASE_SERVICE_ROLE_KEY
+            NEXT_PUBLIC_SITE_URL
+            ADMIN_PASSWORD
+            ADMIN_SESSION_SECRET
+            STRIPE_LIVE_SECRET_KEY
+            NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY
+            STRIPE_LIVE_WEBHOOK_SECRET
+            TCOS_LIVE_PAYMENTS_ENABLED
+            EBAY_CLIENT_ID
+            EBAY_CLIENT_SECRET
+            EBAY_ENVIRONMENT
+            RESEND_API_KEY
+            CRON_SECRET
+          )
+          missing=()
+          for key in "${required[@]}"; do
+            if ! grep -qE "^${key}=" .env.production.local; then missing+=("$key"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Vercel Production is missing required migration variable name(s): %s\n' "${missing[*]}"
+            exit 3
+          fi
+          count=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' .env.production.local || true)
+          printf 'Pulled %s Vercel Production variable(s); values remain masked and are not printed.\n' "$count"
+
+      - name: Build OpenNext with Truely Production environment
+        run: npx opennextjs-cloudflare build
+
+      - name: Deploy isolated no-cron Cloudflare preview with migrated secrets
+        run: npx wrangler deploy --config wrangler.preview.jsonc --secrets-file .env.production.local
+
+      - name: Remove temporary environment file
+        if: always()
+        shell: bash
+        run: rm -f .env.production.local
