@@ -17,11 +17,13 @@ import {
   getFreeShippingMessage,
   getShippingCoverage,
   getStandardEnvelopeEligibility,
+  PARCEL_INCLUDED_COVERAGE_LIMIT,
   resolveShippingMethod,
   SHIPPING_RULES,
   type ShippingMethod,
 } from "../../lib/shipping";
 import {
+  STORE_SUPPORT_EMAIL,
   TERMS_OF_SERVICE_PATH,
   TERMS_OF_SERVICE_VERSION,
 } from "../../lib/legal";
@@ -328,17 +330,31 @@ export default function CartClient(props: { storeDisplayName: string }) {
                     <p className="mt-1 font-semibold text-emerald-900">
                       {shippingCoverage.provider} may show USPS processing and
                       delivery-related scans when data is available. It is not
-                      guaranteed package tracking, insurance, or proof of delivery.
+                      guaranteed package tracking or carrier insurance. Optional
+                      Shipment Protection is offered separately on qualifying orders.
                     </p>
                   </>
                 ) : (
                   <>
                     <p className="font-black text-emerald-950">
-                      Full parcel tracking
+                      Full parcel tracking + up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} included coverage
                     </p>
                     <p className="mt-1 font-semibold text-emerald-900">
-                      Ground Advantage and Priority Mail use carrier parcel tracking.
+                      Ground Advantage and Priority Mail use carrier parcel tracking
+                      and include carrier coverage up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)},
+                      subject to carrier terms and claim approval.
                     </p>
+                    {shippingCoverage.requiresAdditionalCoverageQuote ? (
+                      <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-3 font-bold text-amber-950">
+                        This order is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}. If you want coverage above the included amount, contact{" "}
+                        <a href={`mailto:${STORE_SUPPORT_EMAIL}`} className="underline">
+                          {STORE_SUPPORT_EMAIL}
+                        </a>{" "}
+                        before shipment for a quote. If extra coverage is not arranged,
+                        the order will ship with only the included ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}
+                        carrier coverage, subject to applicable non-waivable rights.
+                      </p>
+                    ) : null}
                   </>
                 )}
               </div>
