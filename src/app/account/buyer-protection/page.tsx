@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
+  BUYER_PROTECTION_MAX_COVERAGE,
   BUYER_PROTECTION_PATH,
   BUYER_PROTECTION_POLICY_VERSION,
   BUYER_PROTECTION_RATE,
@@ -272,7 +273,7 @@ export default function BuyerProtectionAccountPage() {
           </p>
           <h1 className="mt-2 text-4xl font-black">Shipment Protection</h1>
           <p className="mt-3 max-w-3xl text-neutral-600">
-            {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of the item subtotal plus shipping for qualifying under-$20 Tracked Card Letter orders. Approved loss or damage claims cover the protected item subtotal and shipping; the protection fee is excluded.
+            {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of the protected item subtotal for qualifying under-$20 Tracked Card Letter orders. Approved loss or damage claims reimburse the protected item subtotal up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)} maximum. Shipping and the protection fee are excluded.
           </p>
         </div>
         <Link
@@ -315,7 +316,7 @@ export default function BuyerProtectionAccountPage() {
               className="mt-1 h-5 w-5 shrink-0"
             />
             <span>
-              I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved carrier loss or damage reimbursement covers the protected item subtotal and shipping, but not the protection fee, and all claims require review and evidence.
+              I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved carrier loss or damage reimbursement is limited to the protected item subtotal, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)} maximum. Shipping and the protection fee are excluded, and all claims require review and evidence.
             </span>
           </label>
         ) : null}
