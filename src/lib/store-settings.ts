@@ -50,7 +50,7 @@ export type StoreOperationalSettings = {
   source: "database" | "fallback";
 };
 
-const STORE_SETTINGS_DATABASE_TIMEOUT_MS = 2000;
+const STORE_SETTINGS_DATABASE_TIMEOUT_MS = 750;
 
 function configured(value: string | null | undefined) {
   const trimmed = value?.trim();
@@ -160,47 +160,57 @@ export async function getStoreSettings(
   storeId = getActiveStoreId(),
 ): Promise<StoreOperationalSettings> {
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    STORE_SETTINGS_DATABASE_TIMEOUT_MS,
-  );
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
-  try {
-    const [storeResult, settingsResult] = await Promise.all([
-      supabase
-        .from("stores")
-        .select("id,slug,display_name,legal_name,status,primary_domain")
-        .eq("id", storeId)
-        .abortSignal(controller.signal)
-        .maybeSingle(),
-      supabase
-        .from("store_settings")
-        .select(
-          "support_email,sales_email,offers_email,evidence_email,evidence_from_email,order_from_email,stripe_mode,stripe_account_id,ebay_environment,ebay_account_label,seller_commission_rate,metadata",
-        )
-        .eq("store_id", storeId)
-        .abortSignal(controller.signal)
-        .maybeSingle(),
-    ]);
+  const loadSettings = (async () => {
+    try {
+      const [storeResult, settingsResult] = await Promise.all([
+        supabase
+          .from("stores")
+          .select("id,slug,display_name,legal_name,status,primary_domain")
+          .eq("id", storeId)
+          .abortSignal(controller.signal)
+          .maybeSingle(),
+        supabase
+          .from("store_settings")
+          .select(
+            "support_email,sales_email,offers_email,evidence_email,evidence_from_email,order_from_email,stripe_mode,stripe_account_id,ebay_environment,ebay_account_label,seller_commission_rate,metadata",
+          )
+          .eq("store_id", storeId)
+          .abortSignal(controller.signal)
+          .maybeSingle(),
+      ]);
 
-    const store = storeResult.data as StoreRow | null;
-    const settings = settingsResult.data as StoreSettingsRow | null;
+      const store = storeResult.data as StoreRow | null;
+      const settings = settingsResult.data as StoreSettingsRow | null;
 
-    if (storeResult.error || settingsResult.error) {
+      if (storeResult.error || settingsResult.error) {
+        return resolveStoreSettings({
+          store,
+          source: "fallback",
+        });
+      }
+
       return resolveStoreSettings({
         store,
-        source: "fallback",
+        settings,
+        source: settings ? "database" : "fallback",
       });
+    } catch {
+      return resolveStoreSettings({ source: "fallback" });
     }
+  })();
 
-    return resolveStoreSettings({
-      store,
-      settings,
-      source: settings ? "database" : "fallback",
-    });
-  } catch {
-    return resolveStoreSettings({ source: "fallback" });
+  const fallback = new Promise<StoreOperationalSettings>((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      resolve(resolveStoreSettings({ source: "fallback" }));
+    }, STORE_SETTINGS_DATABASE_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([loadSettings, fallback]);
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
 }
