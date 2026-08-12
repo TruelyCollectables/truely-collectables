@@ -1,0 +1,71 @@
+name: CollX Source Completeness Audit 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-source-completeness-audit-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Read-only source completeness audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json,os,subprocess
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
+          def req(method,path,body=None):
+              cmd=['curl','-sS','--max-time','120','-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd+=['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try:b=json.loads(raw) if raw else None
+              except:b=raw
+              return int((p.stdout or '0').strip()[-3:]),b
+          s,ps=req('GET','/projects'); cs=[p for p in ps if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if s!=200 or len(cs)!=1: raise SystemExit(2)
+          ref=str(cs[0].get('id') or cs[0].get('ref'))
+          def sql(q):
+              s,b=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True})
+              if s not in (200,201): print('SQL_FAILURE',s,json.dumps(b,default=str)); raise SystemExit(3)
+              return b
+          counts=sql(f"""
+          with objs as (
+            select name,split_part(name,'/',4) collx_id,split_part(name,'/',5) filename
+            from storage.objects where bucket_id='truely-product-images' and name like 'collx-full/20260811/%'
+          ), db as (
+            select substring(sku from 7) collx_id from public.products where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY'
+          )
+          select
+            (select count(*)::int from objs) objects,
+            (select count(distinct collx_id)::int from objs) mirrored_ids,
+            (select count(distinct collx_id)::int from objs where filename='front.jpg') front_ids,
+            (select count(distinct collx_id)::int from objs where filename='back.jpg') back_ids,
+            (select count(*)::int from db) db_ids,
+            (select count(distinct o.collx_id)::int from objs o left join db d using(collx_id) where d.collx_id is null) mirrored_ids_missing_db,
+            (select count(*)::int from db d left join objs o using(collx_id) where o.collx_id is null) db_ids_without_any_mirror;
+          """)
+          print('MIRROR_COUNTS='+json.dumps(counts,default=str))
+          tables=sql("""select table_name from information_schema.tables where table_schema='public' and (lower(table_name) like '%collx%' or lower(table_name) like '%migration%' or lower(table_name) like '%import%') order by table_name;""")
+          print('RELATED_TABLES='+json.dumps(tables,default=str))
+          views=sql("""select table_name from information_schema.views where table_schema='public' and (lower(table_name) like '%collx%' or lower(table_name) like '%migration%' or lower(table_name) like '%import%') order by table_name;""")
+          print('RELATED_VIEWS='+json.dumps(views,default=str))
+          sample=sql(f"""with objs as (select distinct split_part(name,'/',4) collx_id from storage.objects where bucket_id='truely-product-images' and name like 'collx-full/20260811/%'),db as(select substring(sku from 7) collx_id from public.products where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY') select o.collx_id from objs o left join db d using(collx_id) where d.collx_id is null order by o.collx_id limit 100;""")
+          print('MIRRORED_MISSING_DB_SAMPLE='+json.dumps(sample,default=str))
+          print('COLLX_SOURCE_COMPLETENESS_AUDIT=SUCCESS')
+          PY
