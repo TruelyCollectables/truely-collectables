@@ -1,0 +1,211 @@
+name: Restore Existing CollX Backs 20260812
+
+on:
+  push:
+    paths:
+      - '.github/workflows/collx-restore-existing-backs-20260812.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-restore-existing-backs-20260812
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Restore every verified owned CollX back image
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+
+          def req(method,path,body=None,timeout=180):
+              out=tempfile.NamedTemporaryFile(delete=False)
+              out.close()
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}',
+                   '-H','Accept: application/json',
+                   '-H','Content-Type: application/json',
+                   '-o',out.name,'-w','%{http_code}',API+path]
+              if body is not None:
+                  cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=open(out.name).read()
+              os.unlink(out.name)
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              if status not in (200,201):
+                  raise RuntimeError(f'{method} {path} HTTP {status}: {str(payload)[:4000]}')
+              return payload
+
+          projects=req('GET','/projects',timeout=30)
+          cand=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(cand)!=1:
+              raise SystemExit(f'Expected exactly one Truely Collectables Supabase project, got {len(cand)}')
+          ref=str(cand[0].get('id') or cand[0].get('ref') or '')
+          if not ref:
+              raise SystemExit('Could not resolve Supabase project ref')
+
+          def sql(query, read_only):
+              return req('POST',f'/projects/{ref}/database/query',{
+                  'query':query,
+                  'parameters':[],
+                  'read_only':read_only,
+              },180)
+
+          # Source of truth: a physical canonical back object must actually exist in owned storage.
+          # No object = no back restoration attempt.
+          before=sql(f"""
+          with backs as (
+            select
+              split_part(o.name,'/',4) collx_id,
+              o.name object_name
+            from storage.objects o
+            where o.bucket_id='truely-product-images'
+              and o.name ~ '^collx-full/20260811/[0-9]+/back\\.(jpg|jpeg|png|webp)$'
+          ), mapped as (
+            select p.id product_id,p.sku,p.title,p.archived_at,p.quantity,p.price,
+                   i.id inventory_item_id,b.object_name,
+                   'https://{ref}.supabase.co/storage/v1/object/public/truely-product-images/'||b.object_name canonical_url
+            from public.products p
+            join public.inventory_items i
+              on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+            join backs b on b.collx_id=substring(p.sku from 7)
+            where p.store_id='{STORE}'::uuid
+              and p.sku>='COLLX-' and p.sku<'COLLY'
+              and p.ebay_item_id is null
+          )
+          select
+            count(*)::int verified_back_objects_mapped,
+            count(*) filter (where pimg.inventory_item_id is not null)::int canonical_rows_already_attached,
+            count(*) filter (where pimg.inventory_item_id is null)::int canonical_rows_missing,
+            count(*) filter (where m.archived_at is null and m.quantity>0 and m.price>0)::int live_products_with_verified_back_object,
+            count(*) filter (where m.archived_at is null and m.quantity>0 and m.price>0 and pimg.inventory_item_id is null)::int live_missing_attachment
+          from mapped m
+          left join public.inventory_images pimg
+            on pimg.inventory_item_id=m.inventory_item_id and pimg.image_url=m.canonical_url;
+          """, True)
+          print('BEFORE='+json.dumps(before,sort_keys=True,default=str))
+
+          mutation=sql(f"""
+          with backs as (
+            select
+              split_part(o.name,'/',4) collx_id,
+              o.name object_name
+            from storage.objects o
+            where o.bucket_id='truely-product-images'
+              and o.name ~ '^collx-full/20260811/[0-9]+/back\\.(jpg|jpeg|png|webp)$'
+          ), candidates as (
+            select p.id product_id,p.sku,p.title,
+                   i.id inventory_item_id,b.object_name,
+                   'https://{ref}.supabase.co/storage/v1/object/public/truely-product-images/'||b.object_name canonical_url
+            from public.products p
+            join public.inventory_items i
+              on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+            join backs b on b.collx_id=substring(p.sku from 7)
+            where p.store_id='{STORE}'::uuid
+              and p.sku>='COLLX-' and p.sku<'COLLY'
+              and p.ebay_item_id is null
+          ), inserted as (
+            insert into public.inventory_images
+              (inventory_item_id,image_url,alt_text,sort_order,is_primary)
+            select c.inventory_item_id,c.canonical_url,
+                   coalesce(nullif(btrim(c.title),''),c.sku||' back'),1,false
+            from candidates c
+            where not exists (
+              select 1 from public.inventory_images x
+              where x.inventory_item_id=c.inventory_item_id
+                and x.image_url=c.canonical_url
+            )
+            returning inventory_item_id,image_url
+          )
+          select count(*)::int restored_back_rows from inserted;
+          """, False)
+          print('RESTORE='+json.dumps(mutation,sort_keys=True,default=str))
+
+          # Normalize canonical rows so storefront ordering always sees the owned back as the back slot.
+          normalized=sql(f"""
+          with backs as (
+            select split_part(o.name,'/',4) collx_id,o.name object_name
+            from storage.objects o
+            where o.bucket_id='truely-product-images'
+              and o.name ~ '^collx-full/20260811/[0-9]+/back\\.(jpg|jpeg|png|webp)$'
+          ), candidates as (
+            select p.sku,p.title,i.id inventory_item_id,
+                   'https://{ref}.supabase.co/storage/v1/object/public/truely-product-images/'||b.object_name canonical_url
+            from public.products p
+            join public.inventory_items i
+              on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+            join backs b on b.collx_id=substring(p.sku from 7)
+            where p.store_id='{STORE}'::uuid
+              and p.sku>='COLLX-' and p.sku<'COLLY'
+              and p.ebay_item_id is null
+          ), upd as (
+            update public.inventory_images ii
+               set sort_order=1,
+                   is_primary=false,
+                   alt_text=coalesce(nullif(btrim(c.title),''),c.sku||' back')
+              from candidates c
+             where ii.inventory_item_id=c.inventory_item_id
+               and ii.image_url=c.canonical_url
+            returning ii.inventory_item_id
+          )
+          select count(*)::int normalized_canonical_back_rows from upd;
+          """, False)
+          print('NORMALIZED='+json.dumps(normalized,sort_keys=True,default=str))
+
+          after=sql(f"""
+          with backs as (
+            select
+              split_part(o.name,'/',4) collx_id,
+              o.name object_name
+            from storage.objects o
+            where o.bucket_id='truely-product-images'
+              and o.name ~ '^collx-full/20260811/[0-9]+/back\\.(jpg|jpeg|png|webp)$'
+          ), mapped as (
+            select p.id product_id,p.sku,p.archived_at,p.quantity,p.price,
+                   i.id inventory_item_id,
+                   'https://{ref}.supabase.co/storage/v1/object/public/truely-product-images/'||b.object_name canonical_url
+            from public.products p
+            join public.inventory_items i
+              on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+            join backs b on b.collx_id=substring(p.sku from 7)
+            where p.store_id='{STORE}'::uuid
+              and p.sku>='COLLX-' and p.sku<'COLLY'
+              and p.ebay_item_id is null
+          )
+          select
+            count(*)::int verified_back_objects_mapped,
+            count(*) filter (where pimg.inventory_item_id is not null)::int canonical_rows_attached,
+            count(*) filter (where pimg.inventory_item_id is null)::int verified_backs_still_missing_attachment,
+            count(*) filter (where m.archived_at is null and m.quantity>0 and m.price>0 and pimg.inventory_item_id is null)::int live_verified_backs_still_missing_attachment
+          from mapped m
+          left join public.inventory_images pimg
+            on pimg.inventory_item_id=m.inventory_item_id and pimg.image_url=m.canonical_url;
+          """, True)
+          print('AFTER='+json.dumps(after,sort_keys=True,default=str))
+
+          row=(after or [{}])[0] if isinstance(after,list) else {}
+          if int(row.get('verified_backs_still_missing_attachment') or -1) != 0:
+              raise SystemExit('FAIL: verified canonical CollX backs remain unattached')
+          if int(row.get('live_verified_backs_still_missing_attachment') or -1) != 0:
+              raise SystemExit('FAIL: live products with verified backs remain unattached')
+          print('COLLX_EXISTING_BACK_RESTORE=SUCCESS')
+          PY
