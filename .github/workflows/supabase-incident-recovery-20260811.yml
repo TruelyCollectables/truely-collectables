@@ -1,5 +1,5 @@
 name: Supabase Storefront Incident Recovery 20260811
-# Incident execution trigger 2026-08-11T18:36-06:00
+# Incident execution trigger 2026-08-11T18:38-06:00
 
 on:
   push:
@@ -32,109 +32,101 @@ jobs:
           echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
 
           python3 - <<'PY'
-          import json, os, sys, time, urllib.error, urllib.request
+          import json, os, subprocess, time
 
           API = "https://api.supabase.com/v1"
           TOKEN = os.environ["SUPABASE_ACCESS_TOKEN"]
           STORE = os.environ["FLAGSHIP_STORE_ID"]
 
-          def request(method, path, body=None, timeout=45):
-              data = None if body is None else json.dumps(body).encode()
-              req = urllib.request.Request(
+          def request(method, path, body=None, timeout=60):
+              cmd = [
+                  "curl", "-sS", "--max-time", str(timeout),
+                  "-X", method,
+                  "-H", f"Authorization: Bearer {TOKEN}",
+                  "-H", "Accept: application/json",
+                  "-H", "Content-Type: application/json",
+                  "-H", "User-Agent: curl/8.5.0",
+                  "-o", "/tmp/supabase-response.json",
+                  "-w", "%{http_code}",
                   API + path,
-                  data=data,
-                  method=method,
-                  headers={
-                      "Authorization": f"Bearer {TOKEN}",
-                      "Content-Type": "application/json",
-                      "Accept": "application/json",
-                  },
-              )
+              ]
+              if body is not None:
+                  cmd += ["--data-binary", json.dumps(body)]
+              proc = subprocess.run(cmd, capture_output=True, text=True)
+              raw = ""
               try:
-                  with urllib.request.urlopen(req, timeout=timeout) as response:
-                      raw = response.read().decode("utf-8", "replace")
-                      try:
-                          payload = json.loads(raw) if raw else None
-                      except Exception:
-                          payload = raw
-                      return response.status, payload
-              except urllib.error.HTTPError as error:
-                  raw = error.read().decode("utf-8", "replace")
-                  try:
-                      payload = json.loads(raw) if raw else None
-                  except Exception:
-                      payload = raw
-                  return error.code, payload
-              except Exception as error:
-                  return 599, {"error": str(error)}
+                  raw = open("/tmp/supabase-response.json").read()
+              except Exception:
+                  pass
+              try:
+                  payload = json.loads(raw) if raw else None
+              except Exception:
+                  payload = raw
+              try:
+                  status = int((proc.stdout or "0").strip()[-3:])
+              except Exception:
+                  status = 599
+              if proc.returncode != 0 and status == 0:
+                  status = 599
+                  payload = {"error": proc.stderr.strip()}
+              return status, payload
 
-          def safe_print(label, value):
-              if isinstance(value, dict):
-                  value = {k: v for k, v in value.items() if k not in {"jwt_secret", "connection_string", "connectionString"}}
-              print(label, json.dumps(value, default=str, sort_keys=True))
+          def safe(label, value):
+              def scrub(obj):
+                  if isinstance(obj, dict):
+                      return {k: scrub(v) for k, v in obj.items() if k not in {"jwt_secret", "connection_string", "connectionString"}}
+                  if isinstance(obj, list):
+                      return [scrub(v) for v in obj]
+                  return obj
+              print(label, json.dumps(scrub(value), default=str, sort_keys=True))
 
           status, projects = request("GET", "/projects")
           if status != 200 or not isinstance(projects, list):
-              safe_print("PROJECT_LIST_FAILURE", {"status": status, "body": projects})
+              safe("PROJECT_LIST_FAILURE", {"status": status, "body": projects})
               raise SystemExit(2)
 
-          candidates = []
-          for project in projects:
-              name = str(project.get("name") or "").lower()
-              if "truely" in name or "collect" in name:
-                  candidates.append(project)
-
+          candidates = [p for p in projects if "truely" in str(p.get("name") or "").lower() or "collect" in str(p.get("name") or "").lower()]
+          safe("PROJECT_CANDIDATES", [{"name": p.get("name"), "ref": p.get("id") or p.get("ref"), "status": p.get("status"), "region": p.get("region")} for p in candidates])
           if len(candidates) != 1:
-              safe_print("PROJECT_CANDIDATES", [
-                  {"name": p.get("name"), "ref": p.get("id") or p.get("ref"), "status": p.get("status"), "region": p.get("region")}
-                  for p in candidates
-              ])
-              safe_print("ALL_PROJECTS", [
-                  {"name": p.get("name"), "ref": p.get("id") or p.get("ref"), "status": p.get("status"), "region": p.get("region")}
-                  for p in projects
-              ])
+              safe("ALL_PROJECTS", [{"name": p.get("name"), "ref": p.get("id") or p.get("ref"), "status": p.get("status"), "region": p.get("region")} for p in projects])
               raise SystemExit(3)
 
           project = candidates[0]
           ref = str(project.get("id") or project.get("ref") or "")
           if not ref:
               raise SystemExit("Matched project has no ref")
-          safe_print("PROJECT", {"name": project.get("name"), "ref": ref, "status": project.get("status"), "region": project.get("region")})
 
           pgr_status, pgr = request("GET", f"/projects/{ref}/postgrest")
-          safe_print("POSTGREST_CONFIG", {"status": pgr_status, "body": pgr})
+          safe("POSTGREST_CONFIG", {"status": pgr_status, "body": pgr})
 
           def readonly(query):
-              return request("POST", f"/projects/{ref}/database/query/read-only", {"query": query, "parameters": []}, timeout=60)
+              return request("POST", f"/projects/{ref}/database/query/read-only", {"query": query, "parameters": []})
 
           schema_sql = "select schema_name from information_schema.schemata order by schema_name;"
           schema_status, schemas = readonly(schema_sql)
-          safe_print("SCHEMA_QUERY_INITIAL", {"status": schema_status, "body": schemas})
+          safe("SCHEMA_QUERY_INITIAL", {"status": schema_status, "body": schemas})
 
           restarted = False
           if schema_status >= 500:
-              print("DATABASE_MANAGEMENT_QUERY_UNHEALTHY=yes")
               restart_status, restart_body = request("POST", f"/projects/{ref}/restart", {})
-              safe_print("PROJECT_RESTART", {"status": restart_status, "body": restart_body})
+              safe("PROJECT_RESTART", {"status": restart_status, "body": restart_body})
               if restart_status not in (200, 201, 202, 204):
                   raise SystemExit(4)
               restarted = True
-
               last = (schema_status, schemas)
               for attempt in range(1, 25):
                   time.sleep(10)
-                  current = readonly(schema_sql)
-                  last = current
-                  print(f"POST_RESTART_DB_PROBE attempt={attempt} status={current[0]}")
-                  if current[0] in (200, 201):
-                      schema_status, schemas = current
+                  last = readonly(schema_sql)
+                  print(f"POST_RESTART_DB_PROBE attempt={attempt} status={last[0]}")
+                  if last[0] in (200, 201):
+                      schema_status, schemas = last
                       break
               else:
-                  safe_print("DATABASE_STILL_UNAVAILABLE", {"status": last[0], "body": last[1]})
+                  safe("DATABASE_STILL_UNAVAILABLE", {"status": last[0], "body": last[1]})
                   raise SystemExit(5)
 
           if schema_status not in (200, 201):
-              safe_print("DATABASE_QUERY_BLOCKED", {"status": schema_status, "body": schemas})
+              safe("DATABASE_QUERY_BLOCKED", {"status": schema_status, "body": schemas})
               raise SystemExit(6)
 
           def rows(payload):
@@ -146,79 +138,48 @@ jobs:
                           return payload[key]
               return []
 
-          schema_names = {str(row.get("schema_name")) for row in rows(schemas) if isinstance(row, dict) and row.get("schema_name")}
-          print("SCHEMAS=" + ",".join(sorted(schema_names)))
-
+          schema_names = {str(r.get("schema_name")) for r in rows(schemas) if isinstance(r, dict) and r.get("schema_name")}
           configured = []
           if pgr_status == 200 and isinstance(pgr, dict):
-              configured = [part.strip() for part in str(pgr.get("db_schema") or "").split(",") if part.strip()]
-          missing = [name for name in configured if name not in schema_names]
+              configured = [s.strip() for s in str(pgr.get("db_schema") or "").split(",") if s.strip()]
+          missing = [s for s in configured if s not in schema_names]
           print("POSTGREST_CONFIGURED_SCHEMAS=" + ",".join(configured))
           print("POSTGREST_MISSING_SCHEMAS=" + ",".join(missing))
 
           if missing:
-              existing_configured = [name for name in configured if name in schema_names]
-              if "public" not in existing_configured:
-                  safe_print("REFUSING_SCHEMA_PATCH", {"configured": configured, "existing": sorted(schema_names), "missing": missing})
+              keep = [s for s in configured if s in schema_names]
+              if "public" not in keep:
+                  safe("REFUSING_SCHEMA_PATCH", {"configured": configured, "existing": sorted(schema_names), "missing": missing})
                   raise SystemExit(7)
-              patch_status, patch_body = request("PATCH", f"/projects/{ref}/postgrest", {"db_schema": ",".join(existing_configured)})
-              safe_print("POSTGREST_SCHEMA_PATCH", {"status": patch_status, "body": patch_body})
+              patch_status, patch_body = request("PATCH", f"/projects/{ref}/postgrest", {"db_schema": ",".join(keep)})
+              safe("POSTGREST_SCHEMA_PATCH", {"status": patch_status, "body": patch_body})
               if patch_status != 200:
                   raise SystemExit(8)
 
-          reload_status, reload_body = request(
-              "POST",
-              f"/projects/{ref}/database/query",
-              {"query": "NOTIFY pgrst, 'reload schema';", "parameters": [], "read_only": False},
-          )
-          safe_print("POSTGREST_SCHEMA_RELOAD", {"status": reload_status, "body": reload_body})
-          if reload_status not in (200, 201):
-              print("POSTGREST_SCHEMA_RELOAD_WARNING=yes")
+          reload_status, reload_body = request("POST", f"/projects/{ref}/database/query", {"query": "NOTIFY pgrst, 'reload schema';", "parameters": [], "read_only": False})
+          safe("POSTGREST_SCHEMA_RELOAD", {"status": reload_status, "body": reload_body})
 
-          product_sql = f"""
-          select
-            store_id::text as store_id,
-            count(*)::bigint as products_total,
-            count(*) filter (where quantity > 0)::bigint as products_positive_quantity,
-            count(*) filter (where quantity > 0 and price > 0)::bigint as products_positive_price_qty,
-            count(*) filter (where quantity > 0 and price > 0 and image_url is not null)::bigint as products_sellable
-          from public.products
-          where store_id = '{STORE}'::uuid
-          group by store_id;
-          """
-          inventory_sql = f"""
-          select
-            store_id::text as store_id,
-            count(*)::bigint as inventory_total,
-            count(*) filter (where status = 'active')::bigint as inventory_active_status,
-            count(*) filter (where status = 'active' and quantity > 0)::bigint as inventory_active_positive
-          from public.inventory_items
-          where store_id = '{STORE}'::uuid
-          group by store_id;
-          """
-
+          product_sql = f"select store_id::text as store_id, count(*)::bigint as products_total, count(*) filter (where quantity > 0)::bigint as products_positive_quantity, count(*) filter (where quantity > 0 and price > 0)::bigint as products_positive_price_qty, count(*) filter (where quantity > 0 and price > 0 and image_url is not null)::bigint as products_sellable from public.products where store_id = '{STORE}'::uuid group by store_id;"
+          inventory_sql = f"select store_id::text as store_id, count(*)::bigint as inventory_total, count(*) filter (where status = 'active')::bigint as inventory_active_status, count(*) filter (where status = 'active' and quantity > 0)::bigint as inventory_active_positive from public.inventory_items where store_id = '{STORE}'::uuid group by store_id;"
           ps, products = readonly(product_sql)
           ins, inventory = readonly(inventory_sql)
-          safe_print("FLAGSHIP_PRODUCTS", {"status": ps, "body": products})
-          safe_print("FLAGSHIP_INVENTORY", {"status": ins, "body": inventory})
+          safe("FLAGSHIP_PRODUCTS", {"status": ps, "body": products})
+          safe("FLAGSHIP_INVENTORY", {"status": ins, "body": inventory})
           if ps not in (200, 201) or ins not in (200, 201):
               raise SystemExit(9)
 
-          product_rows = rows(products)
-          inventory_rows = rows(inventory)
-          if not product_rows:
+          prows, irows = rows(products), rows(inventory)
+          if not prows:
               raise SystemExit("Flagship store has zero product rows")
-
-          sellable = int(product_rows[0].get("products_sellable") or 0)
-          positive = int(product_rows[0].get("products_positive_price_qty") or 0)
-          active_inventory = int(inventory_rows[0].get("inventory_active_positive") or 0) if inventory_rows else 0
+          sellable = int(prows[0].get("products_sellable") or 0)
+          positive = int(prows[0].get("products_positive_price_qty") or 0)
+          active = int(irows[0].get("inventory_active_positive") or 0) if irows else 0
           print(f"FLAGSHIP_SELLABLE_PRODUCTS={sellable}")
           print(f"FLAGSHIP_POSITIVE_PRODUCTS={positive}")
-          print(f"FLAGSHIP_ACTIVE_INVENTORY={active_inventory}")
+          print(f"FLAGSHIP_ACTIVE_INVENTORY={active}")
           print(f"PROJECT_RESTARTED={'yes' if restarted else 'no'}")
-
-          if sellable < 1 and positive < 1 and active_inventory < 1:
-              raise SystemExit("Production rows are present but no active/sellable inventory remains; refusing blind mutation")
+          if sellable < 1 and positive < 1 and active < 1:
+              raise SystemExit("No active/sellable flagship inventory; refusing blind mutation")
           PY
 
       - name: Verify live storefront contains real listings
