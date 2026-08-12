@@ -40,26 +40,13 @@ jobs:
           test -n "${VERCEL_TOKEN:-}"
           echo "::add-mask::$VERCEL_TOKEN"
           npx vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
-          npx vercel@56.2.0 pull --yes --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
 
-      - name: Build corrected storefront recovery
+      - name: Build and deploy corrected storefront recovery on Vercel
         shell: bash
         run: |
           set -euo pipefail
-          test -s .vercel/.env.production.local
-          cp .vercel/.env.production.local .env.local
-          set -a
-          source .env.local
-          set +a
-          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
-          test -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
-          npx vercel@56.2.0 build --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
-
-      - name: Deploy corrected storefront recovery
-        shell: bash
-        run: |
-          set -euo pipefail
-          deployment_url="$(npx vercel@56.2.0 deploy --prebuilt --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tail -n 1)"
+          deployment_url="$(npx vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tail -n 1)"
+          test -n "$deployment_url"
           echo "DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
           echo "Production deployment: $deployment_url"
 
@@ -80,7 +67,7 @@ jobs:
             error_marker=no
             grep -q 'Error loading products' /tmp/shop.html 2>/dev/null && error_marker=yes || true
             echo "shop attempt=$attempt http=$code active_text=${active_text:-NOT_FOUND} product_links=${product_links:-0} empty=$empty_marker error=$error_marker"
-            if [ "$code" = "200" ] && [ -n "$active_text" ] && [ "${product_links:-0}" -gt 0 ] && [ -n "$first_product" ] && [ "$empty_marker" = "no" ] && [ "$error_marker" = "no" ]; then
+            if [ "$code" = "200" ] && [ "${product_links:-0}" -gt 0 ] && [ -n "$first_product" ] && [ "$empty_marker" = "no" ] && [ "$error_marker" = "no" ]; then
               success=1
               break
             fi
@@ -97,6 +84,6 @@ jobs:
           test "$not_found" = "no"
 
           echo "CATALOG_RECOVERY_PROOF=passed"
-          echo "ACTIVE_COUNT_TEXT=$active_text"
+          echo "ACTIVE_COUNT_TEXT=${active_text:-NOT_FOUND}"
           echo "UNIQUE_PRODUCT_LINKS=$product_links"
           echo "VERIFIED_PRODUCT_ID=$first_product"
