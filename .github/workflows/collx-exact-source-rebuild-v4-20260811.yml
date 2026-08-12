@@ -1,0 +1,178 @@
+name: CollX Exact Source Rebuild V4 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-exact-source-rebuild-v4-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-exact-source-rebuild-v4-20260811
+  cancel-in-progress: false
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+  EXPECTED_COLLX_ROWS: "6155"
+  EXPECTED_SELLABLE: "6011"
+  EXPECTED_UNSELLABLE: "144"
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Final exact CollX physical-copy rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess
+
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
+          EXPECTED=int(os.environ['EXPECTED_COLLX_ROWS']); LIVE=int(os.environ['EXPECTED_SELLABLE']); DRAFT=int(os.environ['EXPECTED_UNSELLABLE'])
+          Q={
+            '1118487216741062656':150,'1096066047819933696':5,'1096066043650795520':5,
+            '1054830295389308928':2,'1003302000714319872':2,'995291373047649280':2,'925094340036305920':2,
+          }
+          def req(method,path,body=None,timeout=120):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              if p.returncode != 0 and status == 0: status,payload=599,{'error':p.stderr.strip()}
+              return status,payload
+          s,projects=req('GET','/projects',timeout=30)
+          candidates=[p for p in projects] if s==200 and isinstance(projects,list) else []
+          candidates=[p for p in candidates if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(candidates)!=1: raise SystemExit(2)
+          ref=str(candidates[0].get('id') or candidates[0].get('ref') or ''); print('PROJECT_REF='+ref)
+          BASE=f'https://{ref}.supabase.co/storage/v1/object/public/truely-product-images/collx-full/20260811'
+          def sql(q,readonly=True,timeout=120):
+              status,body=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':readonly},timeout)
+              if status not in (200,201): print('SQL_FAILURE',status,json.dumps(body,default=str)[:12000]); raise SystemExit(3)
+              return body
+          qp="CASE substring(p.sku from 7) "+' '.join(f"WHEN '{k}' THEN {v}" for k,v in Q.items())+" ELSE 1 END"
+          qi="CASE substring(i.sku from 7) "+' '.join(f"WHEN '{k}' THEN {v}" for k,v in Q.items())+" ELSE 1 END"
+          fp="exists(select 1 from storage.objects o where o.bucket_id='truely-product-images' and o.name='collx-full/20260811/'||substring(p.sku from 7)||'/front.jpg')"
+          fi="exists(select 1 from storage.objects o where o.bucket_id='truely-product-images' and o.name='collx-full/20260811/'||substring(i.sku from 7)||'/front.jpg')"
+
+          pre=sql(f"""
+          with p as(select * from public.products where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY'),
+               i as(select * from public.inventory_items where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY')
+          select (select count(*)::int from p) products,(select count(*)::int from i) items,
+                 (select count(*)::int from p join i on i.legacy_product_id=p.id and i.sku=p.sku) pairs,
+                 (select count(*)::int from p where quantity<>0 or price<>0) nonzero_products,
+                 (select count(*)::int from i where quantity<>0 or status<>'draft') nonquarantined_items,
+                 (select count(*)::int from p where coalesce(btrim(ebay_item_id::text),'')<>'') ebay,
+                 (select count(*)::int from public.checkout_inventory_reservations r join p on p.id=r.legacy_product_id where r.status='active' and r.expires_at>now()) reservations,
+                 (select count(*)::int from p join i on i.legacy_product_id=p.id and i.sku=p.sku where coalesce(i.price,0)>0 and {fp}) sellable,
+                 (select count(*)::int from p join i on i.legacy_product_id=p.id and i.sku=p.sku where coalesce(i.price,0)<=0 or not {fp}) unsellable,
+                 (select count(*)::int from public.ops_collx_rebuild_v2_backup_products_20260811) backup_products,
+                 (select count(*)::int from public.ops_collx_rebuild_v2_backup_items_20260811) backup_items;
+          """)
+          print('PREFLIGHT='+json.dumps(pre,default=str)); r=pre[0]
+          if any(int(r[k] or 0)!=EXPECTED for k in ('products','items','pairs','backup_products','backup_items')): raise SystemExit(10)
+          if any(int(r[k] or 0)!=0 for k in ('nonzero_products','nonquarantined_items','ebay','reservations')): raise SystemExit(11)
+          if int(r['sellable'])!=LIVE or int(r['unsellable'])!=DRAFT: raise SystemExit(12)
+
+          cols=sql("select table_name,column_name from information_schema.columns where table_schema='public' and table_name in ('order_items','order_line_items') and column_name in ('product_id','legacy_product_id');")
+          sales=0
+          for c in cols if isinstance(cols,list) else []:
+              t=str(c.get('table_name') or ''); col=str(c.get('column_name') or '')
+              rr=sql(f"select count(*)::int n from public.{t} x join public.products p on p.id=x.{col} where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY';")
+              sales += int(rr[0]['n'] or 0)
+          print('COLLX_ORDER_LINES='+str(sales))
+          if sales: raise SystemExit(13)
+
+          result=sql(f"""
+          begin;
+          update public.inventory_items i set quantity={qi},updated_at=now()
+            where i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY';
+
+          update public.inventory_items i
+          set status='active',
+              metadata=jsonb_build_object(
+                'sale_activation_20260811',jsonb_build_object('state','active','recorded_at',now()),
+                'migration_quarantine_released',true,
+                'exact_source_rebuild_20260811',jsonb_build_object('version',4,'quantity_source','2026-08-11 source CSV','image_identity','SKU numeric source id','recorded_at',now())
+              ),
+              notes=trim(both ' |' from regexp_replace(coalesce(i.notes,''),'\\s*\\|?\\s*DRAFT / NOT FOR SALE','', 'gi')),
+              updated_at=now()
+          where i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY' and coalesce(i.price,0)>0 and {fi};
+
+          update public.inventory_items i set status='draft',updated_at=now()
+            where i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY' and (coalesce(i.price,0)<=0 or not {fi});
+
+          update public.products p
+          set quantity={qp},
+              price=case when coalesce(i.price,0)>0 and {fp} then i.price else 0 end,
+              image_url=case when {fp} then '{BASE}/'||substring(p.sku from 7)||'/front.jpg' else null end,
+              archived_at=case when coalesce(i.price,0)>0 and {fp} then null else archived_at end
+          from public.inventory_items i
+          where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku;
+
+          delete from public.inventory_images x using public.inventory_items i
+            where x.inventory_item_id=i.id and i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY';
+          insert into public.inventory_images(inventory_item_id,image_url,alt_text,sort_order,is_primary)
+            select i.id,'{BASE}/'||substring(i.sku from 7)||'/front.jpg',i.title,0,true from public.inventory_items i
+            where i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY' and {fi};
+          insert into public.inventory_images(inventory_item_id,image_url,alt_text,sort_order,is_primary)
+            select i.id,'{BASE}/'||substring(i.sku from 7)||'/back.jpg',i.title,1,false from public.inventory_items i
+            where i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY'
+              and exists(select 1 from storage.objects o where o.bucket_id='truely-product-images' and o.name='collx-full/20260811/'||substring(i.sku from 7)||'/back.jpg');
+
+          do $$
+          declare a int; d int; qbad int; pimg int; iimg int; marked int;
+          begin
+            select count(*)::int into a from public.products p join public.inventory_items i on i.legacy_product_id=p.id and i.sku=p.sku
+              where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.quantity>0 and p.price>0 and i.status='active' and i.quantity=p.quantity and i.price=p.price;
+            select count(*)::int into d from public.products p join public.inventory_items i on i.legacy_product_id=p.id and i.sku=p.sku
+              where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.price=0 and i.status='draft';
+            select count(*)::int into qbad from public.products p join public.inventory_items i on i.legacy_product_id=p.id and i.sku=p.sku
+              where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and (p.quantity<>{qp} or i.quantity<>{qi});
+            select count(*)::int into pimg from public.products p where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and {fp} and p.image_url<>'{BASE}/'||substring(p.sku from 7)||'/front.jpg';
+            select count(*)::int into iimg from public.inventory_images x join public.inventory_items i on i.id=x.inventory_item_id where i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY' and x.image_url not in ('{BASE}/'||substring(i.sku from 7)||'/front.jpg','{BASE}/'||substring(i.sku from 7)||'/back.jpg');
+            select count(*)::int into marked from public.inventory_items i where i.store_id='{STORE}'::uuid and i.sku>='COLLX-' and i.sku<'COLLY' and i.status='active' and public.inventory_metadata_mentions_collx(i.metadata);
+            if a<>{LIVE} or d<>{DRAFT} or qbad<>0 or pimg<>0 or iimg<>0 or marked<>0 then raise exception 'postcondition active=% draft=% qbad=% pimg=% iimg=% marked=%',a,d,qbad,pimg,iimg,marked; end if;
+          end $$;
+          commit;
+          select 'committed' state;
+          """,readonly=False,timeout=180)
+          print('REBUILD_RESULT='+json.dumps(result,default=str))
+
+          verify=sql(f"""
+          with p as(select * from public.products where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY'), i as(select * from public.inventory_items where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY')
+          select (select count(*)::int from p) products,(select count(*)::int from i) items,
+                 (select count(*)::int from p where quantity>0 and price>0) live_products,
+                 (select count(*)::int from i where quantity>0 and price>0 and status='active') active_items,
+                 (select count(*)::int from i where status='draft') draft_items,
+                 (select coalesce(sum(quantity),0)::int from p) total_source_units,
+                 (select count(*)::int from p where quantity<>{qp}) product_quantity_mismatches,
+                 (select count(*)::int from i where quantity<>{qi}) item_quantity_mismatches,
+                 (select count(*)::int from p where {fp} and image_url<>'{BASE}/'||substring(p.sku from 7)||'/front.jpg') product_image_mismatches,
+                 (select count(*)::int from public.inventory_images x join i on i.id=x.inventory_item_id where x.image_url not in ('{BASE}/'||substring(i.sku from 7)||'/front.jpg','{BASE}/'||substring(i.sku from 7)||'/back.jpg')) inventory_image_mismatches;
+          """)
+          print('FINAL_VERIFY='+json.dumps(verify,default=str)); v=verify[0]
+          if int(v['products'])!=EXPECTED or int(v['items'])!=EXPECTED or int(v['live_products'])!=LIVE or int(v['active_items'])!=LIVE or int(v['draft_items'])!=DRAFT: raise SystemExit(30)
+          if any(int(v[k])!=0 for k in ('product_quantity_mismatches','item_quantity_mismatches','product_image_mismatches','inventory_image_mismatches')): raise SystemExit(31)
+
+          aja=sql(f"""select p.sku,p.title,p.price,p.quantity,p.image_url,i.quantity inventory_quantity,i.status,array_agg(x.image_url order by x.sort_order) filter(where x.image_url is not null) images from public.products p join public.inventory_items i on i.legacy_product_id=p.id and i.sku=p.sku left join public.inventory_images x on x.inventory_item_id=i.id where p.store_id='{STORE}'::uuid and p.sku in ('COLLX-1116438452553061376','COLLX-1111931109962371072') group by p.sku,p.title,p.price,p.quantity,p.image_url,i.quantity,i.status order by p.sku;""")
+          print('AJA_FINAL='+json.dumps(aja,default=str))
+          if len(aja)!=2 or any(int(x['quantity'])!=1 or int(x['inventory_quantity'])!=1 or x['status']!='active' for x in aja) or len({x['image_url'] for x in aja})!=2: raise SystemExit(32)
+
+          ex=sql(f"select p.sku,p.title,p.quantity,i.quantity inventory_quantity,i.status from public.products p join public.inventory_items i on i.legacy_product_id=p.id and i.sku=p.sku where p.store_id='{STORE}'::uuid and p.sku in ({','.join(repr('COLLX-'+k) for k in Q)}) order by p.sku;")
+          print('SOURCE_QUANTITY_EXCEPTIONS='+json.dumps(ex,default=str))
+          print('COLLX_EXACT_SOURCE_REBUILD_V4=SUCCESS')
+          PY
