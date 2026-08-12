@@ -7,6 +7,7 @@ on:
       - '.github/workflows/checklist-full-corpus-recovery-4944-20260811.yml'
       - 'scripts/ingest-master-checklist-archive.mjs'
       - 'scripts/checklist-catalog-retry-prepatch.mjs'
+      - 'scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs'
 
 permissions:
   contents: read
@@ -41,6 +42,7 @@ jobs:
       MASTER_CHECKLIST_OUTPUT: evidence/checklist-full-corpus-4944/batch-${{ matrix.batch }}-receipt.json
       MASTER_CHECKLIST_CATALOG_RETRY_ATTEMPTS: '10'
       MASTER_CHECKLIST_CATALOG_RETRY_BASE_MS: '750'
+      MASTER_CHECKLIST_FETCH_TIMEOUT_MS: '60000'
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -50,7 +52,7 @@ jobs:
           set -euo pipefail
           git fetch origin main --quiet
           base="$(git merge-base HEAD origin/main)"
-          bad="$(git diff --name-only "$base"...HEAD | grep -Ev '^(\.github/workflows/checklist-full-corpus-recovery-4944-20260811\.yml|scripts/checklist-catalog-retry-prepatch\.mjs|scripts/ingest-master-checklist-archive\.mjs)$' || true)"
+          bad="$(git diff --name-only "$base"...HEAD | grep -Ev '^(\.github/workflows/checklist-full-corpus-recovery-4944-20260811\.yml|scripts/checklist-catalog-retry-prepatch\.mjs|scripts/ingest-master-checklist-archive\.mjs|scripts/mainstream-checklist/global-fetch-timeout-prepatch\.mjs)$' || true)"
           test -z "$bad" || { echo "$bad"; exit 1; }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
@@ -62,12 +64,14 @@ jobs:
           sudo apt-get install -y -qq poppler-utils
           python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
           npm ci
-      - name: Test nonblocking catalog recovery guard
+      - name: Test recovery guards before Production
         shell: bash
         run: |
           set -euo pipefail
+          node --check scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs
           node --check scripts/checklist-catalog-retry-prepatch.mjs
           node --check scripts/ingest-master-checklist-archive.mjs
+          grep -q 'AbortSignal.timeout(DEFAULT_TIMEOUT_MS)' scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs
           grep -q 'catalog-deferred' scripts/checklist-catalog-retry-prepatch.mjs
           grep -q 'safeCatalogUpsert' scripts/ingest-master-checklist-archive.mjs
           grep -q 'const persistence=await persistPlan' scripts/ingest-master-checklist-archive.mjs
@@ -110,7 +114,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail; set -a; source "$PRODUCTION_ENV_PATH"; set +a; export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"; mkdir -p "$(dirname "$MASTER_CHECKLIST_OUTPUT")"
-          node --import ./scripts/checklist-catalog-retry-prepatch.mjs --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-master-checklist-archive.mjs
+          node --import ./scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs --import ./scripts/checklist-catalog-retry-prepatch.mjs --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs --import ./scripts/mainstream-checklist/fetch-patch.mjs --import tsx scripts/ingest-master-checklist-archive.mjs
       - name: Print batch result and keep quarantines visible
         if: always()
         shell: bash
