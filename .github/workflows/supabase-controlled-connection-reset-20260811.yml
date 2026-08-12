@@ -1,0 +1,74 @@
+name: Supabase Controlled Connection Reset 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/supabase-controlled-connection-reset-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-controlled-connection-reset-20260811
+  cancel-in-progress: true
+
+jobs:
+  reset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+    steps:
+      - name: Restart project and verify indexed DB access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+
+          def req(method,path,body=None,timeout=35):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json',
+                   '-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=''
+              try: raw=open('/tmp/sb.json').read()
+              except Exception: pass
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=599
+              if p.returncode != 0 and status == 0: status,payload=599,{'error':p.stderr.strip()}
+              return status,payload
+
+          s,projects=req('GET','/projects',timeout=30)
+          if s!=200 or not isinstance(projects,list): print('PROJECT_LIST_FAILURE',s,projects); raise SystemExit(2)
+          c=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(c)!=1: print('PROJECT_CANDIDATES',json.dumps(c,default=str)); raise SystemExit(3)
+          ref=str(c[0].get('id') or c[0].get('ref') or '')
+          print('PROJECT_REF='+ref)
+          print('PRE_RESTART_STATUS='+str(c[0].get('status')))
+          rs,rb=req('POST',f'/projects/{ref}/restart',{},timeout=30)
+          print('RESTART',rs,json.dumps(rb,default=str))
+          if rs not in (200,201,202,204): raise SystemExit(4)
+
+          probe=f"select sku,status,quantity from public.inventory_items where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' order by store_id,sku limit 1;"
+          for n in range(1,31):
+              time.sleep(8 if n==1 else 5)
+              ps,pb=req('POST',f'/projects/{ref}/database/query/read-only',{'query':probe,'parameters':[]},timeout=20)
+              print('PROBE',n,ps,json.dumps(pb,default=str))
+              if ps in (200,201) and isinstance(pb,list) and pb:
+                  print('SUPABASE_INDEXED_DB_ACCESS=HEALTHY')
+                  raise SystemExit(0)
+          raise SystemExit(5)
+          PY
