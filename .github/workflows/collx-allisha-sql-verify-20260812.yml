@@ -1,0 +1,104 @@
+name: CollX Allisha SQL Verify 20260812
+
+on:
+  push:
+    branches: [fix/collx-back-images-20260812]
+    paths:
+      - ".github/workflows/collx-allisha-sql-verify-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: bcqktduqqjaibevylleu
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+    steps:
+      - name: Query exact Production rows without PostgREST
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$RUNNER_TEMP/allisha-sql"
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          token=os.environ['SUPABASE_ACCESS_TOKEN']; ref=os.environ['PROJECT_REF']; store=os.environ['FLAGSHIP_STORE_ID']
+          sql=f'''select p.id as product_id,p.sku,p.title,p.image_url as product_image_url,p.quantity,
+          i.id as inventory_item_id,i.sku as inventory_sku,
+          im.image_url as inventory_image_url,im.sort_order,im.is_primary
+          from products p
+          left join inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id
+          left join inventory_images im on im.inventory_item_id=i.id
+          where p.store_id='{store}'::uuid and p.quantity>0 and p.title ilike '%Allisha Gray%'
+          order by p.id,i.created_at,im.sort_order;'''
+          payload=json.dumps({'query':sql,'parameters':[],'read_only':True})
+          url=f'https://api.supabase.com/v1/projects/{ref}/database/query'
+          last=None
+          for attempt in range(1,13):
+              p=subprocess.run(['curl','-sS','--max-time','40','-X','POST','-H',f'Authorization: Bearer {token}','-H','Content-Type: application/json','--data-binary',payload,'-o','/tmp/allisha.json','-w','%{http_code}',url],capture_output=True,text=True)
+              try: status=int((p.stdout or '0')[-3:])
+              except: status=599
+              try: body=json.load(open('/tmp/allisha.json'))
+              except: body={'raw':open('/tmp/allisha.json').read() if os.path.exists('/tmp/allisha.json') else '', 'stderr':p.stderr}
+              print('SQL_ATTEMPT='+json.dumps({'attempt':attempt,'status':status,'rows':len(body) if isinstance(body,list) else None,'body':body if not isinstance(body,list) else None},default=str))
+              if status in (200,201) and isinstance(body,list):
+                  json.dump(body,open(os.path.join(os.environ['RUNNER_TEMP'],'allisha-sql','rows.json'),'w'),indent=2)
+                  break
+              last=(status,body)
+              time.sleep(min(15,attempt*2))
+          else:
+              raise SystemExit(f'Allisha management SQL failed: {last}')
+          PY
+
+      - name: Verify exact back association and live rendering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, time, urllib.request
+          root=os.path.join(os.environ['RUNNER_TEMP'],'allisha-sql')
+          raw=json.load(open(os.path.join(root,'rows.json')))
+          grouped={}
+          for r in raw:
+              pid=int(r['product_id'])
+              x=grouped.setdefault(pid,{'productId':pid,'sku':r.get('sku'),'title':r.get('title'),'quantity':r.get('quantity'),'front':r.get('product_image_url'),'images':[]})
+              if r.get('inventory_image_url') and r.get('inventory_image_url') not in x['images']: x['images'].append(r['inventory_image_url'])
+          out=[]
+          for x in grouped.values():
+              front=re.search(r'/collx-full/20260811/(\d+)/front\.(?:jpe?g|png|webp)',str(x['front'] or ''),re.I)
+              sku=re.match(r'^COLLX-(\d+)$',str(x['sku'] or ''))
+              cid=(front.group(1) if front else sku.group(1) if sku else None)
+              exact=next((u for u in x['images'] if cid and re.search(rf'/collx-full/20260811/{re.escape(cid)}/back\.(?:jpe?g|png|webp)',str(u),re.I)),None)
+              status=None; unavailable=None; ok=False; err=None
+              url=f"https://truelycollectables.com/product/{x['productId']}?sql_back_verify={int(time.time())}"
+              for attempt in range(1,7):
+                  try:
+                      req=urllib.request.Request(url,headers={'User-Agent':'TruelyAllishaSQLVerify/20260812'})
+                      with urllib.request.urlopen(req,timeout=30) as r:
+                          status=r.status; html=r.read().decode('utf-8','replace')
+                      unavailable=bool(re.search(r'Back photo unavailable',html,re.I))
+                      ok=(status==200 and not unavailable)
+                      if ok: break
+                  except Exception as e: err=str(e)
+                  time.sleep(min(10,attempt*2))
+              out.append({**{k:v for k,v in x.items() if k!='images'},'collxId':cid,'imageCount':len(x['images']),'exactBack':bool(exact),'backUrl':exact,'liveStatus':status,'liveBackUnavailable':unavailable,'liveOk':ok,'error':err})
+          print('ALLISHA_SQL_VERIFY='+json.dumps(out))
+          json.dump(out,open(os.path.join(root,'verify.json'),'w'),indent=2)
+          if not out: raise SystemExit('No in-stock Allisha Gray product found')
+          if not any(x['exactBack'] and x['liveOk'] for x in out): raise SystemExit('No Allisha Gray product has both exact back association and live back rendering')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collx-allisha-sql-verify-20260812
+          path: ${{ runner.temp }}/allisha-sql/*.json
+          if-no-files-found: warn
+          retention-days: 7
