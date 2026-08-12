@@ -8,8 +8,10 @@ on:
     paths:
       - '.github/workflows/instacomp-inventory-training-snapshot-20260812.yml'
       - 'services/instacomp-ai/scripts/export_inventory_training_snapshot.py'
+      - 'services/instacomp-ai/scripts/export_inventory_training_snapshot_reliable.py'
       - 'services/instacomp-ai/scripts/inventory_training_git_snapshot.py'
-      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_resilient.py'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_snapshot_only.py'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_guarded.py'
   workflow_dispatch:
   schedule:
     - cron: '17 */6 * * *'
@@ -39,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${SUPABASE_ACCESS_TOKEN:-}"
-          python3 services/instacomp-ai/scripts/export_inventory_training_snapshot.py \
+          python3 services/instacomp-ai/scripts/export_inventory_training_snapshot_reliable.py \
             --output /tmp/inventory-training-production-snapshot.enc.json
 
       - name: Publish encrypted snapshot to generated Git branch
