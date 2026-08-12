@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           git fetch origin main --quiet
           base="$(git merge-base HEAD origin/main)"
-          bad="$(git diff --name-only "$base"...HEAD | grep -Ev '^\.github/workflows/checklist-full-corpus-recovery-4944-20260811\.yml$' || true)"
+          bad="$(git diff --name-only "$base"...HEAD | grep -Ev '^(\.github/workflows/checklist-full-corpus-recovery-4944-20260811\.yml|scripts/checklist-catalog-retry-prepatch\.mjs)$' || true)"
           test -z "$bad" || { echo "$bad"; exit 1; }
 
       - uses: actions/setup-node@v4
@@ -145,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s "$MASTER_CHECKLIST_OUTPUT"
-          jq '{batch,statuses,normalizedTotals,results:[.results[]|{exactSetKey,status,counts,failures}]}' "$MASTER_CHECKLIST_OUTPUT"
+          jq 'if (.results|type)=="array" then {batch,statuses,normalizedTotals,results:[.results[]|{exactSetKey,status,counts,failures}]} else . end' "$MASTER_CHECKLIST_OUTPUT"
 
       - name: Upload full batch receipt
         if: always()
