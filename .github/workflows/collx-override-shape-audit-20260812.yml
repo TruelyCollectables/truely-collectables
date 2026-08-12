@@ -1,0 +1,38 @@
+name: CollX Override Shape Audit 20260812
+
+on:
+  push:
+    branches: [fix/collx-back-images-20260812]
+    paths:
+      - ".github/workflows/collx-override-shape-audit-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode manifest read-only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,glob,gzip,json,re
+          paths=sorted(glob.glob('src/lib/collx-image-object-overrides-part*-20260811.ts'),key=lambda p:int(re.search(r'part(\d+)-',p).group(1)))
+          chunks=[]
+          for path in paths:
+              text=open(path,encoding='utf-8').read()
+              chunks.append(re.search(r'=\s*"([A-Za-z0-9+/=]+)"\s*;',text,re.S).group(1))
+          manifest=json.loads(gzip.decompress(base64.b64decode(''.join(chunks))).decode('utf-8'))
+          print('ROOT_TYPE',type(manifest).__name__)
+          print('ROOT_LEN',len(manifest))
+          if isinstance(manifest,dict):
+              for i,(k,v) in enumerate(manifest.items()):
+                  if i>=12: break
+                  print('ENTRY',i,'KEY=',repr(k),'VALUE_TYPE=',type(v).__name__,'VALUE=',repr(v)[:1000])
+          elif isinstance(manifest,list):
+              for i,v in enumerate(manifest[:12]):
+                  print('ENTRY',i,'VALUE_TYPE=',type(v).__name__,'VALUE=',repr(v)[:1000])
+          PY
