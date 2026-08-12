@@ -1,0 +1,389 @@
+name: CollX Exact Card Highest Price Repair 20260812
+
+on:
+  push:
+    branches: ["ops/collx-exact-highest-price-20260812"]
+    paths:
+      - ".github/workflows/collx-exact-card-highest-price-repair-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+  EXPECTED_SOURCE_ROWS: "6909"
+  EXPECTED_SOURCE_SHA: "e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904"
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout authoritative CollX migration source
+        uses: actions/checkout@v4
+        with:
+          ref: ops/collx-full-inventory-migration-20260811
+
+      - name: Reconstruct authoritative CollX CSV
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK=/tmp/collx-exact-repair
+          mkdir -p "$WORK"
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10m0 \
+            .github/ops/collx-full-metadata.part10m1 \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14m \
+            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SOURCE_SHA"
+          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_SOURCE_ROWS"
+
+      - name: Consolidate exact live card copies using highest current price
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import csv, json, os, re, subprocess, unicodedata
+          from collections import defaultdict
+          from decimal import Decimal, ROUND_HALF_UP
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+          SOURCE='/tmp/collx-exact-repair/source.csv'
+          AJA={'1111931109962371072','1116438452553061376'}
+
+          def req(method,path,body=None,timeout=180):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json',
+                   '-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              if p.returncode != 0 and status == 0: status,payload=599,{'error':p.stderr.strip()}
+              return status,payload
+
+          s,projects=req('GET','/projects',timeout=30)
+          cand=[p for p in projects] if s==200 and isinstance(projects,list) else []
+          cand=[p for p in cand if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(cand)!=1:
+              print('PROJECT_FAILURE',s,json.dumps(cand,default=str)); raise SystemExit(2)
+          ref=str(cand[0].get('id') or cand[0].get('ref') or '')
+
+          def sql(q,readonly=True,timeout=180):
+              st,b=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':readonly},timeout)
+              if st not in (200,201):
+                  print('SQL_FAILURE',st,json.dumps(b,default=str)[:12000]); raise SystemExit(3)
+              return b
+
+          def norm(v):
+              s=unicodedata.normalize('NFKC',str(v or '')).strip().casefold()
+              return re.sub(r'\s+',' ',s)
+
+          def cents(v):
+              return int((Decimal(str(v or 0))*Decimal('100')).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
+
+          def qstr(v):
+              return "'"+str(v).replace("'","''")+"'"
+
+          with open(SOURCE,newline='',encoding='utf-8-sig') as f:
+              src=list(csv.DictReader(f))
+          if len(src)!=6909: raise SystemExit('source row count changed')
+          byid={str(r['collx_id']).strip():r for r in src}
+          if len(byid)!=6909: raise SystemExit('source collx_id uniqueness failed')
+
+          def key_for(cid):
+              r=byid[cid]
+              return tuple(norm(r.get(k)) for k in ('category','year','brand','set','number','name','team','flags','condition'))
+
+          def fetch_rows():
+              return sql(f"""
+              select p.id product_id,p.sku,p.title,p.player,p.price,p.quantity,p.image_url,p.archived_at,
+                     coalesce(btrim(p.ebay_item_id::text),'') ebay_item_id,
+                     i.id inventory_item_id,i.status inventory_status,i.quantity inventory_quantity,i.price inventory_price,
+                     exists(select 1 from public.checkout_inventory_reservations r
+                            where r.store_id=p.store_id and r.legacy_product_id=p.id
+                              and r.status='active' and r.expires_at>now()) active_reservation
+              from public.products p
+              join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+              where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY'
+              order by p.id;
+              """)
+
+          rows=fetch_rows()
+          if len(rows)!=6155:
+              print('DIRECT_ROW_GUARD',len(rows)); raise SystemExit(10)
+
+          missing=[]; bad=[]; live=[]
+          for r in rows:
+              cid=str(r['sku'])[6:]
+              if cid not in byid: missing.append(cid); continue
+              islive=(r.get('archived_at') is None and int(r.get('quantity') or 0)>0 and cents(r.get('price'))>0 and bool(str(r.get('image_url') or '').strip()))
+              if islive:
+                  if r.get('inventory_status')!='active' or int(r.get('inventory_quantity') or 0)!=int(r.get('quantity') or 0) or cents(r.get('inventory_price'))!=cents(r.get('price')):
+                      bad.append(r['sku'])
+                  live.append(r)
+          if missing:
+              print('MISSING_SOURCE',missing[:50]); raise SystemExit(11)
+          if bad:
+              print('BAD_LIVE_BRIDGE',bad[:50]); raise SystemExit(12)
+
+          live_aja=[r for r in live if str(r['sku'])[6:] in AJA]
+          if len(live_aja)!=1 or int(live_aja[0]['quantity'])!=1:
+              print('AJA_GUARD_FAILED',json.dumps(live_aja,default=str)); raise SystemExit(13)
+
+          groups=defaultdict(list)
+          for r in live: groups[key_for(str(r['sku'])[6:])].append(r)
+
+          blocked=[]; plan_groups=[]
+          gid=0
+          for k,members in groups.items():
+              if len(members)<2: continue
+              if any(bool(x.get('active_reservation')) for x in members):
+                  blocked.append({'reason':'active_reservation','skus':[x['sku'] for x in members]}); continue
+              if any(str(x.get('ebay_item_id') or '').strip() for x in members):
+                  blocked.append({'reason':'ebay_linked','skus':[x['sku'] for x in members]}); continue
+              gid+=1
+              keeper=sorted(members,key=lambda x:(-cents(x['price']),int(x['product_id'])))[0]
+              plan_groups.append({
+                  'group_id':gid,'members':members,
+                  'keeper_product_id':int(keeper['product_id']),
+                  'keeper_inventory_item_id':str(keeper['inventory_item_id']),
+                  'keeper_sku':str(keeper['sku']),
+                  'target_quantity':sum(int(x['quantity']) for x in members),
+                  'target_price_cents':cents(keeper['price']),
+              })
+
+          if blocked:
+              print('BLOCKED_GROUPS',json.dumps(blocked[:50],default=str)); raise SystemExit(14)
+
+          pre_live_rows=len(live)
+          pre_live_units=sum(int(x['quantity']) for x in live)
+          pre_all_units=sum(int(x.get('quantity') or 0) for x in rows)
+          extra=sum(len(g['members'])-1 for g in plan_groups)
+          mixed=sum(1 for g in plan_groups if len({cents(x['price']) for x in g['members']})>1)
+          member_rows=sum(len(g['members']) for g in plan_groups)
+
+          print('REPAIR_PREFLIGHT='+json.dumps({
+              'candidate_exact_card_groups':len(plan_groups),
+              'candidate_member_rows':member_rows,
+              'extra_live_tiles_to_retire':extra,
+              'mixed_price_groups':mixed,
+              'pre_live_rows':pre_live_rows,
+              'pre_live_units':pre_live_units,
+              'pre_all_direct_units':pre_all_units,
+              'pricing_rule':'highest_current_live_price'
+          },sort_keys=True))
+
+          if not plan_groups:
+              print('NOOP_NO_REPEATED_EXACT_LIVE_GROUPS')
+          else:
+              vals=[]
+              for g in plan_groups:
+                  for x in g['members']:
+                      vals.append('(' + ','.join([
+                          str(g['group_id']),str(int(x['product_id'])),qstr(str(x['inventory_item_id'])),qstr(str(x['sku'])),
+                          str(int(x['quantity'])),str(cents(x['price'])),
+                          'true' if int(x['product_id'])==g['keeper_product_id'] else 'false',
+                          str(g['keeper_product_id']),qstr(g['keeper_inventory_item_id']),qstr(g['keeper_sku']),
+                          str(g['target_quantity']),str(g['target_price_cents'])
+                      ]) + ')')
+              values_sql=',\n'.join(vals)
+
+              repair=f"""
+              begin;
+              lock table public.checkout_inventory_reservations in share mode;
+
+              create temp table collx_exact_plan(
+                group_id int, product_id bigint, inventory_item_id text, sku text,
+                original_quantity int, original_price_cents bigint, is_keeper boolean,
+                keeper_product_id bigint, keeper_inventory_item_id text, keeper_sku text,
+                target_quantity int, target_price_cents bigint
+              ) on commit drop;
+              insert into collx_exact_plan values {values_sql};
+
+              select p.id from public.products p join collx_exact_plan x on x.product_id=p.id for update;
+              select i.id from public.inventory_items i join collx_exact_plan x on x.inventory_item_id=i.id::text for update;
+
+              do $$
+              declare v_bad int; v_res int; v_rows int; v_groups int;
+              begin
+                select count(*)::int,count(distinct group_id)::int into v_rows,v_groups from collx_exact_plan;
+                if v_rows<>{member_rows} or v_groups<>{len(plan_groups)} then
+                  raise exception 'plan_shape_changed rows=% groups=%',v_rows,v_groups;
+                end if;
+                select count(*)::int into v_bad
+                from collx_exact_plan x
+                left join public.products p on p.id=x.product_id and p.store_id='{STORE}'::uuid
+                left join public.inventory_items i on i.id::text=x.inventory_item_id and i.store_id='{STORE}'::uuid
+                where p.id is null or i.id is null or p.sku<>x.sku or i.sku<>x.sku
+                   or p.archived_at is not null or p.quantity<>x.original_quantity
+                   or round(p.price*100)::bigint<>x.original_price_cents
+                   or i.status<>'active' or i.quantity<>x.original_quantity
+                   or round(i.price*100)::bigint<>x.original_price_cents
+                   or coalesce(btrim(p.ebay_item_id::text),'')<>'';
+                if v_bad<>0 then raise exception 'live_preconditions_changed bad=%',v_bad; end if;
+                select count(*)::int into v_res
+                from public.checkout_inventory_reservations r
+                join collx_exact_plan x on x.product_id=r.legacy_product_id
+                where r.store_id='{STORE}'::uuid and r.status='active' and r.expires_at>now();
+                if v_res<>0 then raise exception 'active_reservation_appeared count=%',v_res; end if;
+              end $$;
+
+              with g as (
+                select group_id,max(keeper_product_id) keeper_product_id,
+                       max(keeper_inventory_item_id) keeper_inventory_item_id,
+                       max(keeper_sku) keeper_sku,max(target_quantity) target_quantity,
+                       max(target_price_cents) target_price_cents,
+                       jsonb_agg(jsonb_build_object('sku',sku,'quantity',original_quantity,'price_cents',original_price_cents) order by product_id) members
+                from collx_exact_plan group by group_id
+              )
+              update public.products p
+              set quantity=g.target_quantity,
+                  price=g.target_price_cents::numeric/100,
+                  archived_at=null,
+                  updated_at=now()
+              from g where p.id=g.keeper_product_id and p.store_id='{STORE}'::uuid;
+
+              with g as (
+                select group_id,max(keeper_product_id) keeper_product_id,
+                       max(keeper_inventory_item_id) keeper_inventory_item_id,
+                       max(keeper_sku) keeper_sku,max(target_quantity) target_quantity,
+                       max(target_price_cents) target_price_cents,
+                       jsonb_agg(jsonb_build_object('sku',sku,'quantity',original_quantity,'price_cents',original_price_cents) order by product_id) members
+                from collx_exact_plan group by group_id
+              )
+              update public.inventory_items i
+              set quantity=g.target_quantity,
+                  price=g.target_price_cents::numeric/100,
+                  status='active',
+                  metadata=coalesce(i.metadata,'{{}}'::jsonb) || jsonb_build_object(
+                    'collx_exact_card_consolidation_20260812',
+                    jsonb_build_object('role','keeper','pricing_rule','highest_current_live_price','recorded_at',now(),
+                                       'keeper_product_id',g.keeper_product_id,'keeper_sku',g.keeper_sku,
+                                       'target_quantity',g.target_quantity,'target_price_cents',g.target_price_cents,'members',g.members)
+                  ),
+                  updated_at=now()
+              from g where i.id::text=g.keeper_inventory_item_id and i.store_id='{STORE}'::uuid;
+
+              update public.inventory_items i
+              set quantity=0,
+                  status='draft',
+                  metadata=coalesce(i.metadata,'{{}}'::jsonb) || jsonb_build_object(
+                    'collx_exact_card_consolidation_20260812',
+                    jsonb_build_object('role','merged_copy','pricing_rule','highest_current_live_price','recorded_at',now(),
+                                       'keeper_product_id',x.keeper_product_id,'keeper_sku',x.keeper_sku,
+                                       'original_sku',x.sku,'original_quantity',x.original_quantity,'original_price_cents',x.original_price_cents,
+                                       'target_price_cents',x.target_price_cents)
+                  ),
+                  updated_at=now()
+              from collx_exact_plan x
+              where not x.is_keeper and i.id::text=x.inventory_item_id and i.store_id='{STORE}'::uuid;
+
+              update public.products p
+              set quantity=0,archived_at=now(),updated_at=now()
+              from collx_exact_plan x
+              where not x.is_keeper and p.id=x.product_id and p.store_id='{STORE}'::uuid;
+
+              do $$
+              declare v_live_rows int; v_live_units int; v_all_units int; v_bad_keep int; v_bad_retired int;
+                      v_aja_rows int; v_aja_units int; v_aja_item_units int;
+              begin
+                select count(*)::int,coalesce(sum(p.quantity),0)::int into v_live_rows,v_live_units
+                from public.products p join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+                where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY'
+                  and p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is not null
+                  and i.status='active' and i.quantity=p.quantity and round(i.price*100)=round(p.price*100);
+                select coalesce(sum(quantity),0)::int into v_all_units from public.products
+                where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY';
+                if v_live_rows<>{pre_live_rows-extra} or v_live_units<>{pre_live_units} or v_all_units<>{pre_all_units} then
+                  raise exception 'conservation_failed live_rows=% expected=% live_units=% expected_units=% all_units=% expected_all=%',
+                    v_live_rows,{pre_live_rows-extra},v_live_units,{pre_live_units},v_all_units,{pre_all_units};
+                end if;
+
+                select count(*)::int into v_bad_keep
+                from collx_exact_plan x
+                join public.products p on p.id=x.product_id
+                join public.inventory_items i on i.id::text=x.inventory_item_id
+                where x.is_keeper and (p.archived_at is not null or p.quantity<>x.target_quantity
+                  or round(p.price*100)::bigint<>x.target_price_cents or i.status<>'active'
+                  or i.quantity<>x.target_quantity or round(i.price*100)::bigint<>x.target_price_cents);
+                if v_bad_keep<>0 then raise exception 'keeper_postcondition_failed count=%',v_bad_keep; end if;
+
+                select count(*)::int into v_bad_retired
+                from collx_exact_plan x
+                join public.products p on p.id=x.product_id
+                join public.inventory_items i on i.id::text=x.inventory_item_id
+                where not x.is_keeper and (p.archived_at is null or p.quantity<>0 or i.status<>'draft' or i.quantity<>0);
+                if v_bad_retired<>0 then raise exception 'retired_postcondition_failed count=%',v_bad_retired; end if;
+
+                select count(*)::int,coalesce(sum(p.quantity),0)::int,coalesce(sum(i.quantity),0)::int
+                  into v_aja_rows,v_aja_units,v_aja_item_units
+                from public.products p join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+                where p.store_id='{STORE}'::uuid and p.sku in ('COLLX-1111931109962371072','COLLX-1116438452553061376')
+                  and p.archived_at is null and p.quantity>0 and p.price>0 and i.status='active';
+                if v_aja_rows<>1 or v_aja_units<>1 or v_aja_item_units<>1 then
+                  raise exception 'aja_postcondition_failed rows=% units=% item_units=%',v_aja_rows,v_aja_units,v_aja_item_units;
+                end if;
+              end $$;
+              commit;
+              select 'committed' state;
+              """
+              result=sql(repair,readonly=False,timeout=300)
+              print('REPAIR_RESULT='+json.dumps(result,default=str))
+
+          # Independent post-commit verification from fresh Production state.
+          after=fetch_rows()
+          if len(after)!=6155: raise SystemExit(30)
+          live_after=[]; bad_after=[]
+          for r in after:
+              cid=str(r['sku'])[6:]
+              if cid not in byid: raise SystemExit(31)
+              islive=(r.get('archived_at') is None and int(r.get('quantity') or 0)>0 and cents(r.get('price'))>0 and bool(str(r.get('image_url') or '').strip()))
+              if islive:
+                  if r.get('inventory_status')!='active' or int(r.get('inventory_quantity') or 0)!=int(r.get('quantity') or 0) or cents(r.get('inventory_price'))!=cents(r.get('price')):
+                      bad_after.append(r['sku'])
+                  live_after.append(r)
+          if bad_after:
+              print('POST_BAD_BRIDGE',bad_after[:50]); raise SystemExit(32)
+          regroup=defaultdict(list)
+          for r in live_after: regroup[key_for(str(r['sku'])[6:])].append(r)
+          remaining=[v for v in regroup.values() if len(v)>1]
+          if remaining:
+              print('REMAINING_EXACT_MULTI_LIST_GROUPS',json.dumps([[x['sku'] for x in v] for v in remaining[:30]])); raise SystemExit(33)
+          if sum(int(x['quantity']) for x in live_after)!=pre_live_units:
+              raise SystemExit(34)
+          live_aja=[r for r in live_after if str(r['sku'])[6:] in AJA]
+          if len(live_aja)!=1 or int(live_aja[0]['quantity'])!=1: raise SystemExit(35)
+
+          print('FINAL_VERIFY='+json.dumps({
+              'direct_collx_rows':len(after),
+              'live_rows_before':pre_live_rows,
+              'live_rows_after':len(live_after),
+              'live_units_before':pre_live_units,
+              'live_units_after':sum(int(x['quantity']) for x in live_after),
+              'exact_groups_consolidated':len(plan_groups),
+              'extra_tiles_retired':extra,
+              'mixed_price_groups_set_to_highest':mixed,
+              'remaining_exact_multi_listing_groups':0,
+              'aja_live_rows':len(live_aja),
+              'aja_live_units':sum(int(x['quantity']) for x in live_aja),
+              'pricing_rule':'highest_current_live_price'
+          },sort_keys=True))
+          print('COLLX_EXACT_CARD_HIGHEST_PRICE_REPAIR=SUCCESS')
+          PY
