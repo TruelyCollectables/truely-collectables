@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   BUYER_PROTECTION_DECLINE_ACKNOWLEDGMENT,
+  BUYER_PROTECTION_MAX_COVERAGE,
   BUYER_PROTECTION_PATH,
   BUYER_PROTECTION_POLICY_VERSION,
   BUYER_PROTECTION_RATE,
@@ -151,7 +152,7 @@ export default function BuyerProtectionOption({
             Shipment Protection — {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% (${feeAmount.toFixed(2)})
           </h3>
           <p className="mt-1 text-sm font-semibold">
-            The fee is 10% of the item subtotal plus shipping, calculated before the protection fee is added.
+            The fee is 10% of the protected card/item subtotal. Shipping is not included in the fee calculation.
           </p>
         </div>
         <Link
@@ -235,7 +236,7 @@ export default function BuyerProtectionOption({
                 className="mt-1 h-5 w-5 shrink-0"
               />
               <span>
-                I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved loss or damage reimbursement covers the protected item subtotal and shipping shown at checkout, but not the protection fee. Claims require review and supporting evidence.
+                I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved loss or damage reimbursement is limited to the protected item subtotal, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}. Shipping and the protection fee are excluded. Claims require review and supporting evidence.
               </span>
             </label>
           ) : choice.selected && choice.storedConsentCurrent ? (
