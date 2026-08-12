@@ -1,0 +1,319 @@
+name: CollX Back Image Audit 20260812
+
+on:
+  push:
+    branches:
+      - fix/collx-back-images-20260812
+    paths:
+      - ".github/workflows/collx-back-image-audit-20260812.yml"
+      - "src/lib/collx-image-object-overrides-*.ts"
+      - "src/lib/collx-existing-direct-map-20260811.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-back-image-audit-20260812
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Audit exact CollX back-image coverage without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import base64
+          import glob
+          import gzip
+          import json
+          import os
+          import re
+          import subprocess
+          from collections import defaultdict
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+
+          def req(method,path,body=None,timeout=60):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}',
+                   '-H','Accept: application/json',
+                   '-H','Content-Type: application/json',
+                   '-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None:
+                  cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=''
+              try: raw=open('/tmp/sb.json').read()
+              except Exception: pass
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=599
+              if p.returncode != 0 and status == 0:
+                  status,payload=599,{'error':p.stderr.strip()}
+              return status,payload
+
+          s,projects=req('GET','/projects',timeout=30)
+          if s!=200 or not isinstance(projects,list):
+              print('PROJECT_LIST_FAILURE',s,projects); raise SystemExit(2)
+          candidates=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(candidates)!=1:
+              print('PROJECT_CANDIDATES',json.dumps(candidates,default=str)); raise SystemExit(3)
+          ref=str(candidates[0].get('id') or candidates[0].get('ref') or '')
+          print('PROJECT_REF='+ref)
+
+          def sql(query,timeout=60):
+              status,payload=req('POST',f'/projects/{ref}/database/query',{'query':query,'parameters':[],'read_only':True},timeout)
+              if status not in (200,201):
+                  print('SQL_FAILURE',status,json.dumps(payload,default=str)); raise SystemExit(4)
+              return payload
+
+          # The direct map is the authoritative reconciliation produced during the
+          # CollX cutover: original CollX ID -> current legacy product ID.
+          direct_text=open('src/lib/collx-existing-direct-map-20260811.ts',encoding='utf-8').read()
+          direct_pairs=re.findall(r'\[\s*"(\d+)"\s*,\s*(\d+)\s*\]',direct_text)
+          direct={collx_id:int(product_id) for collx_id,product_id in direct_pairs}
+          print('DIRECT_MAP_ROWS='+str(len(direct_pairs)))
+          print('DIRECT_MAP_UNIQUE_COLLX='+str(len(direct)))
+          print('DIRECT_MAP_UNIQUE_PRODUCTS='+str(len(set(direct.values()))))
+
+          # The one-time image migration already owns copies of CollX images. Decode
+          # that checked-in manifest so this audit never relies on live CollX URLs.
+          part_paths=glob.glob('src/lib/collx-image-object-overrides-part*-20260811.ts')
+          def part_no(path):
+              m=re.search(r'part(\d+)-',path)
+              return int(m.group(1)) if m else 999
+          part_paths=sorted(part_paths,key=part_no)
+          chunks=[]
+          for path in part_paths:
+              text=open(path,encoding='utf-8').read()
+              match=re.search(r'=\s*"([A-Za-z0-9+/=]+)"\s*;',text,re.S)
+              if not match:
+                  print('OVERRIDE_PART_PARSE_FAILURE='+path); raise SystemExit(5)
+              chunks.append(match.group(1))
+          packed=''.join(chunks)
+          try:
+              manifest=json.loads(gzip.decompress(base64.b64decode(packed)).decode('utf-8'))
+          except Exception as exc:
+              print('OVERRIDE_DECODE_FAILURE='+repr(exc)); raise SystemExit(6)
+          print('OVERRIDE_PARTS='+str(len(part_paths)))
+          print('OVERRIDE_ROOT_TYPE='+type(manifest).__name__)
+          try: print('OVERRIDE_ROOT_LEN='+str(len(manifest)))
+          except Exception: pass
+
+          source_re=re.compile(r'^https?://storage\.googleapis\.com/collx-product-images/(\d+)-(1|2)-[^/?#]+(?:\?[^#]*)?$',re.I)
+          def source_info(value):
+              if not isinstance(value,str): return None
+              m=source_re.match(value.strip())
+              return (m.group(1), 'front' if m.group(2)=='1' else 'back') if m else None
+
+          def is_http(value):
+              return isinstance(value,str) and value.strip().lower().startswith(('http://','https://'))
+
+          def is_owned(value):
+              if not is_http(value): return False
+              return source_info(value) is None and 'collx' not in value.lower()
+
+          # Build source-url -> owned-url evidence. The manifest generator has had
+          # more than one serialization shape, so support direct maps, tuples, and
+          # record objects while requiring exactly one source and one owned URL in a
+          # local record before accepting an inferred pair.
+          image_pairs={}
+          conflicts=defaultdict(set)
+          seen_nodes=set()
+
+          def add_pair(source,owned):
+              if not source_info(source) or not is_owned(owned): return
+              source=source.strip(); owned=owned.strip()
+              conflicts[source].add(owned)
+              if len(conflicts[source])==1: image_pairs[source]=owned
+              else: image_pairs.pop(source,None)
+
+          def walk(node):
+              oid=id(node)
+              if isinstance(node,(dict,list)):
+                  if oid in seen_nodes: return
+                  seen_nodes.add(oid)
+              if isinstance(node,dict):
+                  for key,value in node.items():
+                      if isinstance(key,str) and isinstance(value,str):
+                          add_pair(key,value)
+                          add_pair(value,key)
+                  local_strings=[]
+                  for key,value in node.items():
+                      if isinstance(key,str): local_strings.append(key)
+                      if isinstance(value,str): local_strings.append(value)
+                  sources=[v for v in local_strings if source_info(v)]
+                  owneds=[v for v in local_strings if is_owned(v)]
+                  if len(set(sources))==1 and len(set(owneds))==1:
+                      add_pair(sources[0],owneds[0])
+                  for value in node.values(): walk(value)
+              elif isinstance(node,list):
+                  strings=[v for v in node if isinstance(v,str)]
+                  sources=[v for v in strings if source_info(v)]
+                  owneds=[v for v in strings if is_owned(v)]
+                  if len(set(sources))==1 and len(set(owneds))==1:
+                      add_pair(sources[0],owneds[0])
+                  for value in node: walk(value)
+
+          walk(manifest)
+          conflict_sources=sum(1 for values in conflicts.values() if len(values)>1)
+          print('OWNED_IMAGE_PAIRS='+str(len(image_pairs)))
+          print('OWNED_IMAGE_PAIR_CONFLICTS='+str(conflict_sources))
+
+          by_collx=defaultdict(dict)
+          for source,owned in image_pairs.items():
+              info=source_info(source)
+              if not info: continue
+              collx_id,side=info
+              if side in by_collx[collx_id] and by_collx[collx_id][side] != owned:
+                  by_collx[collx_id][side+'_conflict']=True
+              else:
+                  by_collx[collx_id][side]=owned
+
+          manifest_fronts=sum(1 for x in by_collx.values() if x.get('front'))
+          manifest_backs=sum(1 for x in by_collx.values() if x.get('back'))
+          manifest_pairs=sum(1 for x in by_collx.values() if x.get('front') and x.get('back'))
+          print('MANIFEST_COLLX_FRONTS='+str(manifest_fronts))
+          print('MANIFEST_COLLX_BACKS='+str(manifest_backs))
+          print('MANIFEST_COLLX_FRONT_BACK_PAIRS='+str(manifest_pairs))
+
+          # Inspect schema and current exact product/item/image relationships. This is
+          # read-only. No quantity, status, product image, or image row is changed.
+          columns=sql("""
+            select column_name,data_type,is_nullable
+            from information_schema.columns
+            where table_schema='public' and table_name='inventory_images'
+            order by ordinal_position;
+          """)
+          print('INVENTORY_IMAGE_COLUMNS='+','.join(str(r.get('column_name')) for r in columns))
+
+          products=sql(f"""
+            select id,sku,image_url,quantity,archived_at
+            from public.products
+            where store_id='{STORE}'::uuid
+              and id in ({','.join(str(x) for x in sorted(set(direct.values())))})
+            order by id;
+          """,timeout=90)
+          product_by_id={int(r['id']):r for r in products}
+          print('CURRENT_DIRECT_PRODUCTS='+str(len(product_by_id)))
+
+          items=sql(f"""
+            select id,legacy_product_id,sku,quantity,status
+            from public.inventory_items
+            where store_id='{STORE}'::uuid
+              and legacy_product_id in ({','.join(str(x) for x in sorted(set(direct.values())))})
+            order by legacy_product_id,id;
+          """,timeout=90)
+          items_by_product=defaultdict(list)
+          for r in items:
+              try: items_by_product[int(r.get('legacy_product_id'))].append(r)
+              except Exception: pass
+          print('CURRENT_DIRECT_ITEMS='+str(len(items)))
+
+          item_ids=[str(r['id']) for r in items]
+          image_rows=[]
+          for offset in range(0,len(item_ids),500):
+              ids=item_ids[offset:offset+500]
+              quoted=','.join("'"+x.replace("'","''")+"'" for x in ids)
+              image_rows.extend(sql(f"""
+                select id,inventory_item_id,image_url,is_primary,sort_order
+                from public.inventory_images
+                where inventory_item_id in ({quoted})
+                order by inventory_item_id,coalesce(sort_order,2147483647),id;
+              """,timeout=90))
+          images_by_item=defaultdict(list)
+          for r in image_rows: images_by_item[str(r['inventory_item_id'])].append(r)
+          print('CURRENT_DIRECT_IMAGE_ROWS='+str(len(image_rows)))
+
+          # Group every mapped physical CollX row by the product it reconciled into.
+          collx_by_product=defaultdict(list)
+          for collx_id,product_id in direct.items():
+              entry=by_collx.get(collx_id,{})
+              collx_by_product[product_id].append((collx_id,entry))
+
+          exact_primary_pair=0
+          single_source_fallback=0
+          ambiguous_multi_copy=0
+          no_owned_back=0
+          no_item=0
+          already_present=0
+          would_insert=0
+          candidate_examples=[]
+          ambiguous_examples=[]
+
+          for product_id,rows in collx_by_product.items():
+              product=product_by_id.get(product_id)
+              if not product: continue
+              current_primary=str(product.get('image_url') or '').strip()
+              with_back=[(cid,e) for cid,e in rows if e.get('back')]
+              if not with_back:
+                  no_owned_back += 1
+                  continue
+
+              matching=[(cid,e) for cid,e in with_back if e.get('front') and str(e.get('front')).strip()==current_primary]
+              chosen=None
+              reason=None
+              if len(matching)==1:
+                  chosen=matching[0]; reason='exact_primary_front'; exact_primary_pair += 1
+              elif len(rows)==1 and len(with_back)==1:
+                  chosen=with_back[0]; reason='single_source_product'; single_source_fallback += 1
+              else:
+                  ambiguous_multi_copy += 1
+                  if len(ambiguous_examples)<10:
+                      ambiguous_examples.append({'product_id':product_id,'source_rows':len(rows),'back_rows':len(with_back),'primary_matches':len(matching)})
+                  continue
+
+              item_list=items_by_product.get(product_id,[])
+              if len(item_list)!=1:
+                  no_item += 1
+                  continue
+              item_id=str(item_list[0]['id'])
+              cid,entry=chosen
+              back=str(entry['back']).strip()
+              current_urls={str(r.get('image_url') or '').strip() for r in images_by_item.get(item_id,[])}
+              if back in current_urls:
+                  already_present += 1
+              else:
+                  would_insert += 1
+                  if len(candidate_examples)<10:
+                      candidate_examples.append({
+                          'collx_id':cid,
+                          'product_id':product_id,
+                          'inventory_item_id':item_id,
+                          'pair_reason':reason,
+                          'current_image_rows':len(images_by_item.get(item_id,[])),
+                          'front_path':str(entry.get('front') or '').split('?',1)[0].rsplit('/',1)[-1],
+                          'back_path':back.split('?',1)[0].rsplit('/',1)[-1],
+                      })
+
+          print('EXACT_PRIMARY_FRONT_PAIRS='+str(exact_primary_pair))
+          print('SINGLE_SOURCE_FALLBACKS='+str(single_source_fallback))
+          print('AMBIGUOUS_MULTI_COPY_PRODUCTS='+str(ambiguous_multi_copy))
+          print('PRODUCTS_WITHOUT_OWNED_BACK='+str(no_owned_back))
+          print('CANDIDATES_WITHOUT_UNIQUE_ITEM='+str(no_item))
+          print('BACKS_ALREADY_PRESENT='+str(already_present))
+          print('BACKS_WOULD_INSERT='+str(would_insert))
+          print('CANDIDATE_EXAMPLES='+json.dumps(candidate_examples,sort_keys=True))
+          print('AMBIGUOUS_EXAMPLES='+json.dumps(ambiguous_examples,sort_keys=True))
+          print('QUANTITY_WRITES=0')
+          print('STATUS_WRITES=0')
+          print('PRODUCT_IMAGE_WRITES=0')
+          print('INVENTORY_IMAGE_WRITES=0')
+          print('COLLX_BACK_IMAGE_AUDIT=SUCCESS')
+          PY
