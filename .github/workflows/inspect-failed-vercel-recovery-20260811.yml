@@ -47,9 +47,12 @@ jobs:
         run: |
           set -euo pipefail
           test -s .vercel/.env.production.local
+          cp .vercel/.env.production.local .env.local
           set -a
-          source .vercel/.env.production.local
+          source .env.local
           set +a
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          test -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
           npx vercel@56.2.0 build --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
 
       - name: Deploy corrected storefront recovery
@@ -97,5 +100,3 @@ jobs:
           echo "ACTIVE_COUNT_TEXT=$active_text"
           echo "UNIQUE_PRODUCT_LINKS=$product_links"
           echo "VERIFIED_PRODUCT_ID=$first_product"
-
-# Retriggered to promote the bridge-safe product detail recovery on current main.
