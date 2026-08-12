@@ -1,0 +1,128 @@
+name: Supabase Production Recovery 20260812
+
+on:
+  push:
+    branches: [fix/collx-back-images-20260812]
+    paths:
+      - ".github/workflows/supabase-production-recovery-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-production-recovery-20260812
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: Production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve exact Production Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/supabase-recovery"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/supabase-recovery/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const dir=path.join(process.env.RUNNER_TEMP,'supabase-recovery');
+          const raw=fs.readFileSync(path.join(dir,'production.env'),'utf8');
+          const env={};
+          for (const line0 of raw.split(/\r?\n/)) {
+            const line=line0.trim(); if(!line || line.startsWith('#')) continue;
+            const i=line.indexOf('='); if(i<1) continue;
+            let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')) { try{v=JSON.parse(v)}catch{v=v.slice(1,-1)} }
+            else if(v.startsWith("'")&&v.endsWith("'")) v=v.slice(1,-1);
+            env[line.slice(0,i).trim()]=v;
+          }
+          const url=env.NEXT_PUBLIC_SUPABASE_URL;
+          if(!url) throw new Error('Production NEXT_PUBLIC_SUPABASE_URL missing');
+          const ref=new URL(url).hostname.split('.')[0];
+          if(!/^[a-z0-9]{20}$/.test(ref)) throw new Error(`Unexpected Supabase ref format: ${ref}`);
+          const response=await fetch('https://api.supabase.com/v1/projects',{headers:{Authorization:`Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`}});
+          if(!response.ok) throw new Error(`Project list HTTP ${response.status}`);
+          const projects=await response.json();
+          const project=projects.find((p)=>String(p.id||p.ref||'')===ref);
+          if(!project) throw new Error(`Production Supabase ref ${ref} not present in authenticated project list`);
+          fs.writeFileSync(path.join(dir,'project-ref'),ref,{mode:0o600});
+          fs.writeFileSync(path.join(dir,'project.json'),JSON.stringify({ref,name:project.name,status:project.status,region:project.region,database:project.database},null,2));
+          console.log('PRODUCTION_SUPABASE_PROJECT='+JSON.stringify({ref,name:project.name,status:project.status,region:project.region}));
+          NODE
+
+      - name: Probe and recover database if necessary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(cat "$RUNNER_TEMP/supabase-recovery/project-ref")"
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          ref=open(os.path.join(os.environ['RUNNER_TEMP'],'supabase-recovery','project-ref')).read().strip()
+          token=os.environ['SUPABASE_ACCESS_TOKEN']
+          api='https://api.supabase.com/v1'
+          def call(method,path,body=None,timeout=25):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,'-H',f'Authorization: Bearer {token}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/recovery.json','-w','%{http_code}',api+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              try: status=int((p.stdout or '0')[-3:])
+              except: status=599
+              try: payload=json.load(open('/tmp/recovery.json'))
+              except: payload={'raw':open('/tmp/recovery.json').read() if os.path.exists('/tmp/recovery.json') else '', 'stderr':p.stderr}
+              if p.returncode and status==0: status=599
+              return status,payload
+          def probe():
+              return call('POST',f'/projects/{ref}/database/query',{'query':'select 1 as ok;','parameters':[],'read_only':True},20)
+          probes=[]
+          healthy=False
+          for i in range(3):
+              s,p=probe(); probes.append({'attempt':i+1,'status':s,'payload':p})
+              print('DB_PROBE='+json.dumps({'attempt':i+1,'status':s,'payload':p},default=str))
+              if s in (200,201): healthy=True; break
+              time.sleep(5)
+          restarted=False
+          if not healthy:
+              print('DATABASE_RECOVERY_ACTION=RESTART')
+              s,p=call('POST',f'/projects/{ref}/restart',{},30)
+              print('PROJECT_RESTART_RESPONSE='+json.dumps({'status':s,'payload':p},default=str))
+              if s not in (200,201,202): raise SystemExit(f'Project restart failed HTTP {s}')
+              restarted=True
+              for i in range(60):
+                  time.sleep(10)
+                  s,p=probe()
+                  print('POST_RESTART_DB_PROBE='+json.dumps({'attempt':i+1,'status':s,'payload':p},default=str))
+                  if s in (200,201): healthy=True; break
+          receipt={'ref':ref,'initialProbes':probes,'restarted':restarted,'healthyAfter':healthy,'completedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          json.dump(receipt,open(os.path.join(os.environ['RUNNER_TEMP'],'supabase-recovery','receipt.json'),'w'),indent=2)
+          if not healthy: raise SystemExit('Production database did not recover within the guarded recovery window')
+          print('PRODUCTION_DATABASE=HEALTHY')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: supabase-production-recovery-20260812
+          path: ${{ runner.temp }}/supabase-recovery/*.json
+          if-no-files-found: warn
+          retention-days: 7
