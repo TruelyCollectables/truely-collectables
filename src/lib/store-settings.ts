@@ -50,6 +50,8 @@ export type StoreOperationalSettings = {
   source: "database" | "fallback";
 };
 
+const STORE_SETTINGS_DATABASE_TIMEOUT_MS = 2000;
+
 function configured(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
@@ -157,30 +159,48 @@ export async function getStoreSettings(
   supabase: SupabaseClient,
   storeId = getActiveStoreId(),
 ): Promise<StoreOperationalSettings> {
-  const { data: store } = await supabase
-    .from("stores")
-    .select("id,slug,display_name,legal_name,status,primary_domain")
-    .eq("id", storeId)
-    .maybeSingle();
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    STORE_SETTINGS_DATABASE_TIMEOUT_MS,
+  );
 
-  const { data: settings, error } = await supabase
-    .from("store_settings")
-    .select(
-      "support_email,sales_email,offers_email,evidence_email,evidence_from_email,order_from_email,stripe_mode,stripe_account_id,ebay_environment,ebay_account_label,seller_commission_rate,metadata",
-    )
-    .eq("store_id", storeId)
-    .maybeSingle();
+  try {
+    const [storeResult, settingsResult] = await Promise.all([
+      supabase
+        .from("stores")
+        .select("id,slug,display_name,legal_name,status,primary_domain")
+        .eq("id", storeId)
+        .abortSignal(controller.signal)
+        .maybeSingle(),
+      supabase
+        .from("store_settings")
+        .select(
+          "support_email,sales_email,offers_email,evidence_email,evidence_from_email,order_from_email,stripe_mode,stripe_account_id,ebay_environment,ebay_account_label,seller_commission_rate,metadata",
+        )
+        .eq("store_id", storeId)
+        .abortSignal(controller.signal)
+        .maybeSingle(),
+    ]);
 
-  if (error) {
+    const store = storeResult.data as StoreRow | null;
+    const settings = settingsResult.data as StoreSettingsRow | null;
+
+    if (storeResult.error || settingsResult.error) {
+      return resolveStoreSettings({
+        store,
+        source: "fallback",
+      });
+    }
+
     return resolveStoreSettings({
-      store: store as StoreRow | null,
-      source: "fallback",
+      store,
+      settings,
+      source: settings ? "database" : "fallback",
     });
+  } catch {
+    return resolveStoreSettings({ source: "fallback" });
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return resolveStoreSettings({
-    store: store as StoreRow | null,
-    settings: settings as StoreSettingsRow | null,
-    source: settings ? "database" : "fallback",
-  });
 }
