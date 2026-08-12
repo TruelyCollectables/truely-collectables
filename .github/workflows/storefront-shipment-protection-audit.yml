@@ -87,7 +87,7 @@ jobs:
           src/app/offer-checkout/[id]/OfferCheckoutClient.tsx
           src/app/api/offers/create/route.ts
           src/app/api/offers/buyer-checkout/route.ts
-          src/app/offers/update-status/route.ts
+          src/app/api/offers/update-status/route.ts
           src/app/api/offers/counter/route.ts
           src/app/shipping/page.tsx
           src/app/buyer-protection/page.tsx
