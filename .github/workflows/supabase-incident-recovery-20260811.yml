@@ -1,5 +1,5 @@
 name: Supabase Storefront Incident Recovery 20260811
-# Incident execution trigger 2026-08-11T18:35-06:00
+# Incident execution trigger 2026-08-11T18:36-06:00
 
 on:
   push:
@@ -19,8 +19,9 @@ jobs:
   recover:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    environment: Production
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.GH_SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
     steps:
       - name: Diagnose and recover Supabase project
