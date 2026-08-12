@@ -7,6 +7,7 @@ import io
 import lzma
 import re
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -120,6 +121,11 @@ def load_authoritative_collx_source(repo_root: Path) -> dict[str, dict[str, str]
         chunks.append(_run_git(repo_root, "show", f"{COLLX_SOURCE_REMOTE_REF}:{path}"))
     rows = decode_verified_collx_source(b"".join(chunks))
     return {str(row["collx_id"]).strip(): row for row in rows}
+
+
+@lru_cache(maxsize=4)
+def load_authoritative_collx_source_cached(repo_root: str) -> dict[str, dict[str, str]]:
+    return load_authoritative_collx_source(Path(repo_root).resolve())
 
 
 def _text(value: object) -> str | None:
