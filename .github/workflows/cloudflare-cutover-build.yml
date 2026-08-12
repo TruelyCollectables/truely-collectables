@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/cloudflare-cutover-build.yml"
       - "cloudflare-worker.ts"
+      - "open-next.config.ts"
       - "wrangler.jsonc"
       - "public/_headers"
       - "next.config.ts"
