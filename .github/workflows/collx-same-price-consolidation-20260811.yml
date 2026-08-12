@@ -1,0 +1,261 @@
+name: CollX Same-Price Inventory Consolidation 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-same-price-consolidation-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Consolidate same-card same-price CollX physical copies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
+          def req(method,path,body=None,timeout=120):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              if p.returncode != 0 and status == 0: status,payload=599,{'error':p.stderr.strip()}
+              return status,payload
+          s,projects=req('GET','/projects',timeout=30)
+          candidates=[p for p in projects] if s==200 and isinstance(projects,list) else []
+          candidates=[p for p in candidates if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(candidates)!=1: print('PROJECT_FAILURE',s,json.dumps(candidates,default=str)); raise SystemExit(2)
+          ref=str(candidates[0].get('id') or candidates[0].get('ref') or ''); print('PROJECT_REF='+ref)
+          def sql(q, readonly=False):
+              status,body=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':readonly},120)
+              print('SQL_STATUS',status)
+              if status not in (200,201): print('SQL_FAILURE',json.dumps(body,default=str)); raise SystemExit(3)
+              return body
+
+          repair=f"""
+          begin;
+          lock table public.checkout_inventory_reservations in share mode;
+
+          create temp table collx_pre_totals on commit drop as
+          select
+            count(*)::int live_rows,
+            coalesce(sum(quantity),0)::int live_units
+          from public.products
+          where store_id='{STORE}'::uuid
+            and sku >= 'COLLX-' and sku < 'COLLY'
+            and archived_at is null and quantity>0 and price>0
+            and nullif(btrim(image_url),'') is not null;
+
+          create temp table collx_merge_plan on commit drop as
+          with raw as (
+            select
+              p.id product_id,p.sku,p.title,p.player,p.price,p.quantity original_quantity,
+              p.ebay_item_id,i.id inventory_item_id,i.quantity inventory_quantity,
+              i.price inventory_price,i.status inventory_status,
+              lower(regexp_replace(btrim(coalesce(p.title,'')),'\\s+',' ','g')) nt,
+              lower(regexp_replace(btrim(coalesce(p.player,'')),'\\s+',' ','g')) np,
+              round(p.price*100)::bigint price_cents,
+              exists(
+                select 1 from public.checkout_inventory_reservations r
+                where r.store_id=p.store_id and r.legacy_product_id=p.id
+                  and r.status='active' and r.expires_at>now()
+              ) actively_reserved
+            from public.products p
+            left join public.inventory_items i
+              on i.store_id=p.store_id and i.legacy_product_id=p.id
+            where p.store_id='{STORE}'::uuid
+              and p.sku >= 'COLLX-' and p.sku < 'COLLY'
+              and p.archived_at is null and p.quantity>0 and p.price>0
+              and nullif(btrim(p.image_url),'') is not null
+          ), grouped as (
+            select nt,np,price_cents,
+                   count(*)::int copies,
+                   sum(original_quantity)::int total_quantity,
+                   min(product_id) keeper_product_id,
+                   count(*) filter (where inventory_item_id is null or inventory_status<>'active' or inventory_quantity<>original_quantity or round(inventory_price*100)<>price_cents)::int bad_bridge,
+                   count(*) filter (where coalesce(btrim(ebay_item_id::text),'')<>'')::int ebay_linked,
+                   count(*) filter (where actively_reserved)::int active_reservations
+            from raw
+            group by nt,np,price_cents
+            having count(*)>1
+          )
+          select r.*,g.copies,g.total_quantity,g.keeper_product_id
+          from raw r
+          join grouped g using (nt,np,price_cents)
+          where g.bad_bridge=0 and g.ebay_linked=0 and g.active_reservations=0;
+
+          do $$
+          declare
+            v_groups int;
+            v_extra int;
+            v_aja int;
+          begin
+            select count(distinct (nt,np,price_cents)), count(*)-count(distinct (nt,np,price_cents))
+              into v_groups,v_extra from collx_merge_plan;
+            if coalesce(v_groups,0) < 1 or coalesce(v_extra,0) < 1 then
+              raise exception 'collx_merge_plan_empty';
+            end if;
+            select count(*) into v_aja
+            from collx_merge_plan
+            where nt='2025 panini select wnba - score select throwback a’ja wilson #11'
+              and np='a’ja wilson' and price_cents=200;
+            if v_aja <> 2 then
+              raise exception 'aja_expected_two_safe_copies_got_%',v_aja;
+            end if;
+          end $$;
+
+          select i.id
+          from public.inventory_items i
+          join collx_merge_plan p on p.inventory_item_id=i.id
+          for update;
+
+          with groups as (
+            select nt,np,price_cents,keeper_product_id,max(total_quantity)::int total_quantity,
+                   array_agg(product_id order by product_id) product_ids,
+                   array_agg(sku order by product_id) skus,
+                   array_agg(inventory_item_id order by product_id) inventory_item_ids
+            from collx_merge_plan group by nt,np,price_cents,keeper_product_id
+          )
+          update public.products p
+          set quantity=g.total_quantity, archived_at=null
+          from groups g
+          where p.store_id='{STORE}'::uuid and p.id=g.keeper_product_id;
+
+          with groups as (
+            select nt,np,price_cents,keeper_product_id,max(total_quantity)::int total_quantity,
+                   array_agg(product_id order by product_id) product_ids,
+                   array_agg(sku order by product_id) skus,
+                   array_agg(inventory_item_id order by product_id) inventory_item_ids
+            from collx_merge_plan group by nt,np,price_cents,keeper_product_id
+          ), keepers as (
+            select g.*,mp.inventory_item_id keeper_inventory_item_id
+            from groups g join collx_merge_plan mp
+              on mp.product_id=g.keeper_product_id
+             and mp.nt=g.nt and mp.np=g.np and mp.price_cents=g.price_cents
+          )
+          update public.inventory_items i
+          set quantity=k.total_quantity,
+              status='active',
+              metadata=coalesce(i.metadata,'{{}}'::jsonb) || jsonb_build_object(
+                'collx_same_price_consolidation_20260811',
+                jsonb_build_object(
+                  'role','keeper','recorded_at',now(),
+                  'keeper_product_id',k.keeper_product_id,
+                  'keeper_inventory_item_id',k.keeper_inventory_item_id,
+                  'price_cents',k.price_cents,
+                  'total_quantity',k.total_quantity,
+                  'member_product_ids',to_jsonb(k.product_ids),
+                  'member_inventory_item_ids',to_jsonb(k.inventory_item_ids),
+                  'member_skus',to_jsonb(k.skus)
+                )
+              ),
+              updated_at=now()
+          from keepers k
+          where i.store_id='{STORE}'::uuid and i.id=k.keeper_inventory_item_id;
+
+          with keepers as (
+            select distinct on (nt,np,price_cents)
+                   nt,np,price_cents,keeper_product_id,inventory_item_id keeper_inventory_item_id
+            from collx_merge_plan
+            where product_id=keeper_product_id
+            order by nt,np,price_cents,product_id
+          )
+          update public.inventory_items i
+          set quantity=0,
+              status='sold',
+              metadata=coalesce(i.metadata,'{{}}'::jsonb) || jsonb_build_object(
+                'collx_same_price_consolidation_20260811',
+                jsonb_build_object(
+                  'role','merged_copy','recorded_at',now(),
+                  'keeper_product_id',k.keeper_product_id,
+                  'keeper_inventory_item_id',k.keeper_inventory_item_id,
+                  'original_quantity',mp.original_quantity,
+                  'original_price',mp.price,
+                  'original_sku',mp.sku
+                )
+              ),
+              updated_at=now()
+          from collx_merge_plan mp
+          join keepers k using (nt,np,price_cents)
+          where mp.product_id<>mp.keeper_product_id
+            and i.store_id='{STORE}'::uuid and i.id=mp.inventory_item_id;
+
+          update public.products p
+          set quantity=0, archived_at=now()
+          from collx_merge_plan mp
+          where mp.product_id<>mp.keeper_product_id
+            and p.store_id='{STORE}'::uuid and p.id=mp.product_id;
+
+          do $$
+          declare
+            v_pre_rows int; v_pre_units int; v_post_rows int; v_post_units int;
+            v_extra int; v_aja_rows int; v_aja_qty int; v_aja_inventory_qty int;
+          begin
+            select live_rows,live_units into v_pre_rows,v_pre_units from collx_pre_totals;
+            select count(*)::int,coalesce(sum(quantity),0)::int into v_post_rows,v_post_units
+            from public.products
+            where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY'
+              and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null;
+            select count(*)-count(distinct (nt,np,price_cents)) into v_extra from collx_merge_plan;
+            if v_post_rows <> v_pre_rows-v_extra then
+              raise exception 'live_row_conservation_failed pre=% post=% extra=%',v_pre_rows,v_post_rows,v_extra;
+            end if;
+            if v_post_units <> v_pre_units then
+              raise exception 'unit_conservation_failed pre=% post=%',v_pre_units,v_post_units;
+            end if;
+            select count(*)::int,coalesce(sum(p.quantity),0)::int,coalesce(sum(i.quantity),0)::int
+              into v_aja_rows,v_aja_qty,v_aja_inventory_qty
+            from public.products p
+            join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id
+            where p.store_id='{STORE}'::uuid and p.archived_at is null and p.quantity>0
+              and lower(regexp_replace(btrim(coalesce(p.title,'')),'\\s+',' ','g'))='2025 panini select wnba - score select throwback a’ja wilson #11'
+              and lower(regexp_replace(btrim(coalesce(p.player,'')),'\\s+',' ','g'))='a’ja wilson'
+              and round(p.price*100)=200;
+            if v_aja_rows<>1 or v_aja_qty<>2 or v_aja_inventory_qty<>2 then
+              raise exception 'aja_postcondition_failed rows=% product_qty=% inventory_qty=%',v_aja_rows,v_aja_qty,v_aja_inventory_qty;
+            end if;
+          end $$;
+
+          select
+            count(distinct (nt,np,price_cents))::int merged_groups,
+            (count(*)-count(distinct (nt,np,price_cents)))::int retired_extra_tiles,
+            sum(original_quantity)::int units_preserved_in_merged_groups,
+            (select live_rows from collx_pre_totals)::int pre_live_tiles,
+            (select count(*)::int from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null) post_live_tiles
+          from collx_merge_plan;
+          commit;
+          """
+          result=sql(repair,readonly=False)
+          print('CONSOLIDATION_RESULT='+json.dumps(result,default=str))
+
+          verify=sql(f"""
+          select p.id product_id,p.sku,p.title,p.player,p.price,p.quantity,p.archived_at,i.id inventory_item_id,i.status inventory_status,i.quantity inventory_quantity
+          from public.products p join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id
+          where p.store_id='{STORE}'::uuid and lower(p.title) like '%score select throwback%' and lower(p.title) like '%wilson%'
+          order by p.id;
+          """,readonly=True)
+          print('AJA_FINAL='+json.dumps(verify,default=str))
+          live=[r for r in verify if r.get('archived_at') is None and int(r.get('quantity') or 0)>0]
+          if len(live)!=1 or int(live[0].get('quantity') or 0)!=2 or int(live[0].get('inventory_quantity') or 0)!=2:
+              raise SystemExit(10)
+          print('COLLX_SAME_PRICE_CONSOLIDATION=SUCCESS')
+          PY
