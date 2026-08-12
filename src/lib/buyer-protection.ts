@@ -1,12 +1,12 @@
 export const BUYER_PROTECTION_POLICY_VERSION =
-  "truely-shipment-protection-v2-2026-07-30";
+  "truely-shipment-protection-v3-2026-08-11";
 export const BUYER_PROTECTION_PATH = "/buyer-protection";
 export const BUYER_PROTECTION_RATE = 0.1;
 // Backward-compatible alias for older imports. New code must calculate the fee
-// from the pre-protection order total with calculateBuyerProtectionFee().
+// from the protected item subtotal with calculateBuyerProtectionFee().
 export const BUYER_PROTECTION_FEE = BUYER_PROTECTION_RATE;
 export const BUYER_PROTECTION_MAX_ITEM_SUBTOTAL = 20;
-export const BUYER_PROTECTION_MAX_COVERAGE = 25;
+export const BUYER_PROTECTION_MAX_COVERAGE = 20;
 export const BUYER_PROTECTION_MIN_CLAIM_DAYS = 7;
 export const BUYER_PROTECTION_CLAIM_DEADLINE_DAYS = 21;
 
@@ -45,11 +45,9 @@ export function isBuyerProtectionPreferenceMode(
 
 export function calculateBuyerProtectionFee(params: {
   itemSubtotal: number;
-  shippingAmount: number;
+  shippingAmount?: number;
 }) {
-  const feeBase = money(
-    money(params.itemSubtotal) + money(params.shippingAmount),
-  );
+  const feeBase = money(params.itemSubtotal);
   return money(feeBase * BUYER_PROTECTION_RATE);
 }
 
@@ -61,10 +59,9 @@ export function getBuyerProtectionQuote(params: {
 }): BuyerProtectionQuote {
   const itemSubtotal = money(params.itemSubtotal);
   const shippingAmount = money(params.shippingAmount);
-  const feeBase = money(itemSubtotal + shippingAmount);
+  const feeBase = itemSubtotal;
   const feeAmount = calculateBuyerProtectionFee({
     itemSubtotal,
-    shippingAmount,
   });
 
   if (params.shippingMethod !== "STANDARD_ENVELOPE") {
@@ -113,7 +110,7 @@ export function getBuyerProtectionQuote(params: {
 
   return {
     eligible: true,
-    coveredAmount: Math.min(feeBase, BUYER_PROTECTION_MAX_COVERAGE),
+    coveredAmount: Math.min(itemSubtotal, BUYER_PROTECTION_MAX_COVERAGE),
     reason: null,
     rate: BUYER_PROTECTION_RATE,
     feeBase,
@@ -135,7 +132,7 @@ export function getBuyerProtectionEligibility(params: {
 
   return {
     eligible: quote.eligible,
-    coveredAmount: quote.eligible ? money(params.itemSubtotal) : 0,
+    coveredAmount: quote.eligible ? quote.coveredAmount : 0,
     reason: quote.reason,
   };
 }
@@ -207,9 +204,9 @@ export function evaluateBuyerProtectionClaimWindow(params: {
 }
 
 export const BUYER_PROTECTION_TERMS_SUMMARY = [
-  `The optional fee is ${(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of the item subtotal plus shipping, calculated before the protection fee is added.`,
+  `The optional fee is ${(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of the protected item subtotal, excluding shipping.`,
   `Eligibility is limited to qualifying Tracked Card Letter orders with an item subtotal of $${BUYER_PROTECTION_MAX_ITEM_SUBTOTAL.toFixed(2)} or less.`,
-  "Approved reimbursement covers the protected item subtotal and shipping amount shown at checkout; the protection fee itself is not reimbursed.",
+  `Approved reimbursement is limited to the protected item subtotal, up to $${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}. Shipping and the protection fee are not reimbursed by this voluntary program.`,
   "Coverage applies only to reviewed carrier loss or damage claims supported by the available USPS/LetterTrack trail, photographs, packaging evidence, and order records.",
   `A claim may be submitted after ${BUYER_PROTECTION_MIN_CLAIM_DAYS} full days and no later than ${BUYER_PROTECTION_CLAIM_DEADLINE_DAYS} calendar days after the recorded shipment date.`,
   "Shipment Protection is a voluntary Truely Collectables reimbursement program. It is not insurance, USPS coverage, or guaranteed delivery.",

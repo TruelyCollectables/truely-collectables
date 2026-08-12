@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   BUYER_PROTECTION_DECLINE_ACKNOWLEDGMENT,
+  BUYER_PROTECTION_MAX_COVERAGE,
   BUYER_PROTECTION_PATH,
   BUYER_PROTECTION_POLICY_VERSION,
   BUYER_PROTECTION_RATE,
@@ -14,9 +15,12 @@ import {
   calculateShipping,
   getAvailableShippingMethods,
   getMinimumShippingMethod,
+  getShippingCoverage,
+  PARCEL_INCLUDED_COVERAGE_LIMIT,
   SHIPPING_RULES,
   type ShippingMethod,
 } from "../../../lib/shipping";
+import { STORE_SUPPORT_EMAIL } from "../../../lib/legal";
 import { getAccountSession } from "../../account/account-session";
 
 export default function OfferCheckoutClient(props: {
@@ -64,6 +68,10 @@ export default function OfferCheckoutClient(props: {
       }),
     [shippingMethod, props.saleSubtotal, props.listingPriceBasis],
   );
+  const shippingCoverage = getShippingCoverage({
+    method: shippingMethod,
+    subtotal: props.saleSubtotal,
+  });
   const protectionQuote = getBuyerProtectionQuote({
     shippingMethod,
     itemSubtotal: props.saleSubtotal,
@@ -208,6 +216,31 @@ export default function OfferCheckoutClient(props: {
             })}
           </select>
 
+          {shippingMethod !== "STANDARD_ENVELOPE" ? (
+            <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+              <p className="font-black">
+                Parcel coverage included up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}
+              </p>
+              <p className="mt-1 font-semibold">
+                Ground Advantage and Priority Mail include carrier parcel tracking and
+                coverage up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}, subject to
+                carrier terms and claim approval.
+              </p>
+              {shippingCoverage.requiresAdditionalCoverageQuote ? (
+                <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-3 font-bold text-amber-950">
+                  This order is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}. For
+                  coverage above the included amount, contact{" "}
+                  <a href={`mailto:${STORE_SUPPORT_EMAIL}`} className="underline">
+                    {STORE_SUPPORT_EMAIL}
+                  </a>{" "}
+                  before shipment for a quote. If extra coverage is not arranged, the
+                  order ships with only the included ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}
+                  carrier coverage, subject to applicable non-waivable rights.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="mt-4 rounded border border-violet-200 bg-violet-50 p-4 text-violet-950">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -215,7 +248,10 @@ export default function OfferCheckoutClient(props: {
                   Shipment Protection — {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% (${protectionQuote.feeAmount.toFixed(2)})
                 </p>
                 <p className="mt-1 text-sm font-semibold">
-                  Approved carrier loss or damage reimbursement covers the accepted price and shipping. The protection fee is excluded.
+                  For qualifying Tracked Card Letter orders, the fee is 10% of the
+                  protected accepted price. Approved reimbursement is limited to that
+                  protected item amount, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}
+                  maximum. Shipping and the protection fee are excluded.
                 </p>
               </div>
               <Link
@@ -259,7 +295,7 @@ export default function OfferCheckoutClient(props: {
                   }
                   className="mt-1 h-5 w-5"
                 />
-                I accept version {BUYER_PROTECTION_POLICY_VERSION}. I understand claims require review and supporting loss or damage evidence, and the protection fee is not reimbursed.
+                I accept version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved claims reimburse the protected item amount only, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)} maximum; shipping and the protection fee are excluded. Claims require review and supporting loss or damage evidence.
               </label>
             ) : protectionSelected ? (
               <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-950">

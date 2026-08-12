@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import PolicyShell from "../components/PolicyShell";
 import {
-  FREE_PRIORITY_MAIL_THRESHOLD,
-  GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS,
-  GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS,
-  GROUND_ADVANTAGE_TEN_OUNCE_PRICE,
-  PRIORITY_MAIL_BUYER_PRICE,
-  PRIORITY_MAIL_MIN_CARDS,
+  FREE_GROUND_ADVANTAGE_THRESHOLD,
+  GROUND_ADVANTAGE_BUYER_PRICE,
+  PARCEL_INCLUDED_COVERAGE_LIMIT,
+  PRIORITY_MAIL_LARGE_ORDER_PRICE,
+  PRIORITY_MAIL_SMALL_ORDER_MAX_CARDS,
+  PRIORITY_MAIL_SMALL_ORDER_PRICE,
   SHIPPING_RULES,
   STANDARD_ENVELOPE_BUYER_PRICE,
   STANDARD_ENVELOPE_MAX_CARDS,
@@ -40,11 +40,11 @@ export default function ShippingPage() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-black">Shipping choices and minimum tiers</h2>
+        <h2 className="text-2xl font-black">Shipping choices</h2>
         <p className="mt-2">
-          Checkout automatically selects the lowest eligible method. Buyers may
-          upgrade to any premium method shown in the shipping dropdown. A buyer
-          cannot select a method below the order&apos;s required minimum.
+          Checkout automatically selects the lowest eligible shipping method. Buyers
+          may upgrade to Priority Mail whenever it is shown in the shipping dropdown.
+          A buyer cannot select a method below the order&apos;s required minimum.
         </p>
         <div className="mt-4 space-y-4">
           <div className="border-2 border-neutral-950 bg-white p-5">
@@ -61,7 +61,8 @@ export default function ShippingPage() {
             <p className="mt-2 text-sm text-neutral-600">
               LetterTrack / USPS Intelligent Mail barcode scan visibility is used
               when available. This is limited letter visibility, not guaranteed
-              package tracking, insurance, or proof of delivery.
+              package tracking or carrier insurance. Qualifying orders may add the
+              optional Truely Collectables Shipment Protection program at checkout.
             </p>
           </div>
 
@@ -69,13 +70,12 @@ export default function ShippingPage() {
             <h3 className="text-xl font-black">
               {SHIPPING_RULES.GROUND_ADVANTAGE.name}
             </h3>
-            <p className="mt-2">
-              $6.99 for 1–5 cards. Cards 6–12 add $0.25 each after the fifth card.
+            <p className="mt-2 font-bold">
+              ${GROUND_ADVANTAGE_BUYER_PRICE.toFixed(2)} flat shipping for card orders.
             </p>
             <p className="mt-2 font-bold">
-              {GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS}–
-              {GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS} cards use the 10-ounce Ground
-              Advantage tier at ${GROUND_ADVANTAGE_TEN_OUNCE_PRICE.toFixed(2)}.
+              Orders over ${FREE_GROUND_ADVANTAGE_THRESHOLD.toFixed(2)} ship by Ground
+              Advantage free.
             </p>
             <p className="mt-2 text-sm text-neutral-600">
               Estimated carrier transit: {SHIPPING_RULES.GROUND_ADVANTAGE.deliveryEstimate}.
@@ -86,30 +86,56 @@ export default function ShippingPage() {
             <h3 className="text-xl font-black">
               {SHIPPING_RULES.PRIORITY_MAIL.name}
             </h3>
-            <p className="mt-2">
-              ${PRIORITY_MAIL_BUYER_PRICE.toFixed(2)} for orders containing{" "}
-              {PRIORITY_MAIL_MIN_CARDS} or more cards, or whenever the buyer chooses
-              Priority Mail as a premium upgrade.
-            </p>
             <p className="mt-2 font-bold">
-              Orders over ${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship by Priority
-              Mail free.
+              Optional upgrade: ${PRIORITY_MAIL_SMALL_ORDER_PRICE.toFixed(2)} for 1–
+              {PRIORITY_MAIL_SMALL_ORDER_MAX_CARDS} cards and ${PRIORITY_MAIL_LARGE_ORDER_PRICE.toFixed(2)}
+              for {PRIORITY_MAIL_SMALL_ORDER_MAX_CARDS + 1} or more cards.
             </p>
             <p className="mt-2 text-sm text-neutral-600">
-              Estimated carrier transit: {SHIPPING_RULES.PRIORITY_MAIL.deliveryEstimate}.
+              Free Ground Advantage on qualifying orders does not make Priority Mail
+              free; Priority Mail remains a paid upgrade unless a separate promotion
+              expressly says otherwise. Estimated carrier transit:{" "}
+              {SHIPPING_RULES.PRIORITY_MAIL.deliveryEstimate}.
             </p>
           </div>
         </div>
       </section>
 
       <section>
+        <h2 className="text-2xl font-black">Parcel coverage and orders over $100</h2>
+        <p className="mt-2">
+          Ground Advantage and Priority Mail include carrier coverage up to{" "}
+          ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}, subject to the carrier&apos;s
+          terms, exclusions, documentation requirements, and claim approval.
+        </p>
+        <p className="mt-2 font-bold">
+          If the order value is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} and
+          the buyer wants protection above the included amount, the buyer must contact{" "}
+          <a
+            href={`mailto:${STORE_SUPPORT_EMAIL}`}
+            className="underline decoration-2 underline-offset-4"
+          >
+            {STORE_SUPPORT_EMAIL}
+          </a>{" "}
+          before shipment for an additional-coverage quote.
+        </p>
+        <p className="mt-2">
+          If additional coverage is not arranged before shipment, the order will ship
+          with only the included carrier coverage. {STORE_BRAND_NAME} does not provide
+          a voluntary reimbursement above the included coverage amount merely because
+          the order value exceeds it. Nothing in this policy waives rights that cannot
+          legally be waived or rights available through a payment provider.
+        </p>
+      </section>
+
+      <section>
         <h2 className="text-2xl font-black">Accepted offers</h2>
         <p className="mt-2">
-          The original listing price controls the minimum shipping tier. An accepted
-          offer does not unlock cheaper shipping. For example, a card listed at $24
-          and sold through an $18 offer still requires Ground Advantage or Priority
-          Mail. A card originally listed at $20 remains eligible for the Tracked Card
-          Letter when all physical limits are met.
+          The original listing price controls eligibility for the Tracked Card Letter.
+          An accepted offer does not unlock cheaper letter shipping. For example, a
+          card listed at $24 and sold through an $18 offer still requires Ground
+          Advantage or Priority Mail. A card originally listed at $20 remains eligible
+          for the Tracked Card Letter when all physical limits are met.
         </p>
       </section>
 
@@ -148,7 +174,7 @@ export default function ShippingPage() {
       <section>
         <h2 className="text-2xl font-black">Contact</h2>
         <p className="mt-2">
-          Shipping questions may be sent to{" "}
+          Shipping questions or additional-coverage quote requests may be sent to{" "}
           <a
             href={`mailto:${STORE_SUPPORT_EMAIL}`}
             className="font-black underline decoration-2 underline-offset-4"

@@ -277,7 +277,7 @@ export async function POST(request: Request) {
           product_data: {
             name: "Truely Collectables Shipment Protection",
             description:
-              "Optional reimbursement program for reviewed carrier loss or damage. The protected accepted price and shipping are covered; the protection fee is excluded.",
+              "Optional reimbursement program for reviewed carrier loss or damage. Approved reimbursement is limited to the protected accepted item price up to $20; shipping and the protection fee are excluded.",
             metadata: {
               tcos_line_type: "buyer_protection",
               policy_version: BUYER_PROTECTION_POLICY_VERSION,
