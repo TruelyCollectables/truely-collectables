@@ -1,0 +1,173 @@
+name: CollX Complete Back Source Audit 20260812
+
+on:
+  push:
+    branches: [fix/back-gallery-storage-fallback-20260812]
+    paths:
+      - '.github/workflows/collx-complete-back-source-audit-20260812.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: '00000000-0000-4000-8000-000000000001'
+    steps:
+      - name: Audit exact current CollX products still missing an owned back object
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          mkdir -p "$RUNNER_TEMP/collx-complete-back-audit"
+          python3 - <<'PY'
+          import concurrent.futures, json, os, re, subprocess, tempfile, time, urllib.parse, urllib.request
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+          OUT=os.path.join(os.environ['RUNNER_TEMP'],'collx-complete-back-audit')
+          BATCH=250
+
+          def req(method,path,body=None,timeout=120,retries=5):
+              last=None
+              for attempt in range(retries):
+                  out=tempfile.NamedTemporaryFile(delete=False); out.close()
+                  cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                       '-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json',
+                       '-H','Content-Type: application/json','-o',out.name,'-w','%{http_code}',API+path]
+                  if body is not None: cmd += ['--data-binary',json.dumps(body)]
+                  p=subprocess.run(cmd,capture_output=True,text=True)
+                  raw=open(out.name).read(); os.unlink(out.name)
+                  try: payload=json.loads(raw) if raw else None
+                  except Exception: payload=raw
+                  try: status=int((p.stdout or '0').strip()[-3:])
+                  except Exception: status=0
+                  if status in (200,201): return payload
+                  last=(status,payload)
+                  if status in (429,500,502,503,504,522,524,544) and attempt+1<retries:
+                      time.sleep(2*(attempt+1)); continue
+                  break
+              raise RuntimeError(f'{method} {path} HTTP {last[0] if last else 0}: {str(last[1] if last else "")[:1200]}')
+
+          projects=req('GET','/projects',timeout=30)
+          cand=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(cand)!=1: raise SystemExit(f'Expected exactly one Truely Collectables Supabase project, got {len(cand)}')
+          ref=str(cand[0].get('id') or cand[0].get('ref') or '')
+          print('PROJECT_REF='+ref)
+
+          def sql(query):
+              return req('POST',f'/projects/{ref}/database/query',{'query':query,'parameters':[],'read_only':True},120)
+
+          missing=[]
+          processed=0
+          for offset in range(0,7000,BATCH):
+              rows=sql(f"""
+              with batch as (
+                select p.id product_id,p.sku,p.title,p.image_url,p.quantity,p.price,p.archived_at,p.ebay_item_id,p.store_id
+                from public.products p
+                where p.store_id='{STORE}'::uuid
+                  and p.sku>='COLLX-' and p.sku<'COLLY'
+                  and p.ebay_item_id is null
+                order by p.id
+                offset {offset} limit {BATCH}
+              )
+              select b.*,i.id inventory_item_id,
+                     substring(b.sku from 7) collx_id,
+                     (
+                       b.image_url ~ ('/collx-full/20260811/'||substring(b.sku from 7)||'/front\\.(jpg|jpeg|png|webp)([?#].*)?$')
+                       or b.image_url ~ ('/collx-product-images/'||substring(b.sku from 7)||'-1-[^/]+\\.(jpg|jpeg|png|webp)([?#].*)?$')
+                     ) front_lineage_proven
+              from batch b
+              join public.inventory_items i
+                on i.store_id=b.store_id and i.legacy_product_id=b.product_id and i.sku=b.sku
+              where not exists (
+                select 1 from storage.objects so
+                where so.bucket_id='truely-product-images'
+                  and so.name in (
+                    'collx-full/20260811/'||substring(b.sku from 7)||'/back.jpg',
+                    'collx-full/20260811/'||substring(b.sku from 7)||'/back.jpeg',
+                    'collx-full/20260811/'||substring(b.sku from 7)||'/back.png',
+                    'collx-full/20260811/'||substring(b.sku from 7)||'/back.webp'
+                  )
+              )
+              order by b.product_id;
+              """)
+              batch_count=sql(f"""
+                select count(*)::int n from (
+                  select id from public.products
+                  where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY' and ebay_item_id is null
+                  order by id offset {offset} limit {BATCH}
+                ) q;
+              """)[0]['n']
+              processed += int(batch_count)
+              missing.extend(rows or [])
+              print(f'DB_BATCH offset={offset} products={batch_count} missing_owned={len(rows or [])}')
+              if int(batch_count)<BATCH: break
+
+          def source_back(row):
+              cid=str(row['collx_id'])
+              u='https://storage.googleapis.com/storage/v1/b/collx-product-images/o?'+urllib.parse.urlencode({
+                  'prefix':cid+'-','maxResults':'20','fields':'items(name,size,contentType)'
+              })
+              try:
+                  with urllib.request.urlopen(u,timeout=20) as r:
+                      payload=json.load(r)
+                  names=[str(x.get('name') or '') for x in payload.get('items',[])]
+                  back=next((n for n in names if re.match(r'^'+re.escape(cid)+r'-2-[^/]+\.(?:jpe?g|png|webp)$',n,re.I)),None)
+                  return cid,back,None
+              except Exception as e:
+                  return cid,None,str(e)
+
+          source={}
+          errors={}
+          with concurrent.futures.ThreadPoolExecutor(max_workers=24) as pool:
+              futures=[pool.submit(source_back,row) for row in missing if row.get('front_lineage_proven')]
+              for f in concurrent.futures.as_completed(futures):
+                  cid,back,error=f.result()
+                  if back: source[cid]=back
+                  elif error: errors[cid]=error
+
+          exact=[]; no_source=[]; unproven=[]
+          for row in missing:
+              slim={k:row.get(k) for k in ('product_id','sku','title','image_url','quantity','price','archived_at','inventory_item_id','collx_id','front_lineage_proven')}
+              cid=str(row.get('collx_id') or '')
+              if not row.get('front_lineage_proven'):
+                  unproven.append(slim)
+              elif cid in source:
+                  slim['source_back_name']=source[cid]; exact.append(slim)
+              elif cid not in errors:
+                  no_source.append(slim)
+
+          result={
+            'products_scanned':processed,
+            'missing_owned_back_products':len(missing),
+            'exact_source_backs_ready_to_repair':len(exact),
+            'no_source_back':len(no_source),
+            'unproven_front_lineage':len(unproven),
+            'source_lookup_errors':len(errors),
+            'exact':exact,
+            'no_source':no_source,
+            'unproven':unproven,
+            'lookup_errors':errors,
+          }
+          os.makedirs(OUT,exist_ok=True)
+          with open(os.path.join(OUT,'audit.json'),'w') as f: json.dump(result,f,indent=2)
+          print('AUDIT_SUMMARY='+json.dumps({k:v for k,v in result.items() if k not in ('exact','no_source','unproven','lookup_errors')},sort_keys=True))
+          print('EXACT_REPAIR_SAMPLE='+json.dumps(exact[:20]))
+          if errors: raise SystemExit(f'FAIL: {len(errors)} source lookups errored; refusing to treat them as no-source')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collx-complete-back-source-audit-20260812
+          path: ${{ runner.temp }}/collx-complete-back-audit/*.json
+          if-no-files-found: warn
+          retention-days: 7
