@@ -30,13 +30,13 @@ function isCatalogRequest(input) {
   return requestPath(input).includes("/rest/v1/checklist_source_catalog");
 }
 
-function isArchiveBucketRequest(input) {
+function isStorageRequest(input) {
   const path = requestPath(input);
   return path.includes("/storage/v1/bucket") || path.includes("/storage/v1/object");
 }
 
 function isProtectedRetryRequest(input) {
-  return isCatalogRequest(input) || isArchiveBucketRequest(input);
+  return isCatalogRequest(input) || isStorageRequest(input);
 }
 
 function isRetryableStatus(status) {
@@ -75,25 +75,47 @@ async function responseLooksConnectionSaturated(response) {
 globalThis.fetch = async function checklistProtectedRetryFetch(input, init) {
   if (!isProtectedRetryRequest(input)) return originalFetch(input, init);
 
+  const catalogRequest = isCatalogRequest(input);
+  let lastResponse = null;
+  let lastError = null;
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       const response = await originalFetch(retryInput(input), init);
+      lastResponse = response;
       const saturated = await responseLooksConnectionSaturated(response);
       if (!isRetryableStatus(response.status) && !saturated) return response;
+
+      const detail = `HTTP ${response.status}${saturated ? " database-connection-saturation" : ""}`;
       if (attempt === MAX_ATTEMPTS) {
-        fatalProtectedTransport("http-exhausted", `HTTP ${response.status}${saturated ? " database-connection-saturation" : ""}`);
+        if (catalogRequest) {
+          record("catalog-deferred", attempt, detail);
+          return response;
+        }
+        fatalProtectedTransport("http-exhausted", detail);
       }
-      record(isArchiveBucketRequest(input) ? "storage-http" : "catalog-http", attempt, `HTTP ${response.status}${saturated ? " database-connection-saturation" : ""}`);
+      record(catalogRequest ? "catalog-http" : "storage-http", attempt, detail);
     } catch (error) {
+      lastError = error;
       const message = error instanceof Error ? error.message : String(error);
-      if (attempt === MAX_ATTEMPTS) fatalProtectedTransport("network-exhausted", message);
-      record(isArchiveBucketRequest(input) ? "storage-network" : "catalog-network", attempt, message);
+      if (attempt === MAX_ATTEMPTS) {
+        if (catalogRequest) {
+          record("catalog-deferred-network", attempt, message);
+          throw error;
+        }
+        fatalProtectedTransport("network-exhausted", message);
+      }
+      record(catalogRequest ? "catalog-network" : "storage-network", attempt, message);
     }
 
     const delay = Math.min(30_000, BASE_DELAY_MS * 2 ** (attempt - 1));
     await sleep(delay);
   }
 
+  if (catalogRequest) {
+    if (lastResponse) return lastResponse;
+    throw lastError || new Error("Checklist catalog request exhausted retry loop.");
+  }
   fatalProtectedTransport("unexpected-exhaustion", "Protected checklist request left retry loop unexpectedly.");
 };
 
