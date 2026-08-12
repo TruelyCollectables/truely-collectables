@@ -1,4 +1,4 @@
-name: CollX Live Duplicate Audit 20260811
+name: CollX Confirmed Duplicate Repair 20260811
 
 on:
   push:
@@ -10,18 +10,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: collx-confirmed-duplicate-repair-20260811
+  cancel-in-progress: false
+
 env:
   FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+  KEEP_SKU: "COLLX-1111931109962371072"
+  ARCHIVE_SKU: "COLLX-1116438452553061376"
 
 jobs:
-  audit:
+  repair:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: Production
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Audit live CollX duplicates read-only
+      - name: Archive owner-confirmed duplicate and verify one physical unit remains sellable
         shell: bash
         run: |
           set -euo pipefail
@@ -33,6 +39,8 @@ jobs:
           API='https://api.supabase.com/v1'
           TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
           STORE=os.environ['FLAGSHIP_STORE_ID']
+          KEEP=os.environ['KEEP_SKU']
+          ARCHIVE=os.environ['ARCHIVE_SKU']
 
           def req(method,path,body=None,timeout=60):
               cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
@@ -45,7 +53,8 @@ jobs:
               raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
               try: payload=json.loads(raw) if raw else None
               except Exception: payload=raw
-              status=int((p.stdout or '0').strip()[-3:] or 0)
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=599
               if p.returncode != 0 and status == 0:
                   status,payload=599,{'error':p.stderr.strip()}
               return status,payload
@@ -59,90 +68,102 @@ jobs:
           ref=str(candidates[0].get('id') or candidates[0].get('ref') or '')
           print('PROJECT_REF='+ref)
 
-          def sql(q):
-              status,body=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},60)
+          def sql(q, read_only=True):
+              status,body=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':read_only},60)
               if status not in (200,201):
                   print('SQL_FAILURE',status,json.dumps(body,default=str)); raise SystemExit(4)
               return body
 
-          totals=sql(f"""
-          select
-            count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY')::int as collx_products_total,
-            count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity > 0 and price > 0 and nullif(btrim(image_url),'') is not null)::int as collx_products_live,
-            count(distinct image_url) filter (where sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity > 0 and price > 0 and nullif(btrim(image_url),'') is not null)::int as distinct_live_images
-          from public.products where store_id='{STORE}'::uuid;
-          """)
-          print('TOTALS='+json.dumps(totals,default=str))
-
-          wilson=sql(f"""
-          select p.id as product_id,p.sku,p.title,p.player,p.price,p.quantity,p.image_url,p.archived_at,
-                 i.id as inventory_item_id,i.status as inventory_status,i.quantity as inventory_quantity,
-                 i.legacy_product_id,i.metadata
+          pre=sql(f"""
+          select p.id as product_id,p.sku,p.title,p.player,p.price,p.quantity,p.image_url,p.archived_at,p.ebay_item_id,
+                 i.id as inventory_item_id,i.status as inventory_status,i.quantity as inventory_quantity,i.legacy_product_id,i.notes,i.metadata
           from public.products p
           left join public.inventory_items i
             on i.store_id=p.store_id and (i.legacy_product_id=p.id or i.sku=p.sku)
-          where p.store_id='{STORE}'::uuid
-            and p.sku >= 'COLLX-' and p.sku < 'COLLY'
-            and lower(coalesce(p.title,'')) like '%a%ja wilson%'
-          order by p.title,p.image_url,p.id;
+          where p.store_id='{STORE}'::uuid and p.sku in ('{KEEP}','{ARCHIVE}')
+          order by p.sku;
           """)
-          print('AJA_WILSON_ROWS='+json.dumps(wilson,default=str))
+          print('PRE_REPAIR='+json.dumps(pre,default=str))
+          if not isinstance(pre,list) or len(pre)!=2:
+              raise SystemExit('REFUSING_UNEXPECTED_PAIR_COUNT')
+          b={str(r.get('sku')):r for r in pre}
+          if set(b)!={KEEP,ARCHIVE}:
+              raise SystemExit('REFUSING_UNEXPECTED_SKUS')
+          keep=b[KEEP]; dup=b[ARCHIVE]
+          if int(keep.get('product_id') or 0)!=504323 or int(dup.get('product_id') or 0)!=504137:
+              raise SystemExit('REFUSING_PRODUCT_ID_MISMATCH')
+          kt=str(keep.get('title') or ''); dt=str(dup.get('title') or '')
+          if kt!=dt or 'Score Select Throwback' not in kt or 'Wilson #11' not in kt:
+              raise SystemExit('REFUSING_CARD_IDENTITY_MISMATCH')
+          if str(keep.get('ebay_item_id') or '').strip() or str(dup.get('ebay_item_id') or '').strip():
+              raise SystemExit('REFUSING_EBAY_LINKED_PAIR')
+          if int(keep.get('quantity') or 0)!=1 or int(keep.get('inventory_quantity') or 0)!=1 or keep.get('archived_at') is not None or str(keep.get('inventory_status') or '')!='active':
+              raise SystemExit('REFUSING_KEEP_STATE_MISMATCH')
 
-          same_image=sql(f"""
-          with live as (
-            select id,sku,title,player,price,quantity,image_url
-            from public.products
-            where store_id='{STORE}'::uuid
-              and sku >= 'COLLX-' and sku < 'COLLY'
-              and archived_at is null and quantity > 0 and price > 0
-              and nullif(btrim(image_url),'') is not null
-          ), g as (
-            select image_url,count(*)::int as copies,array_agg(id order by id) as product_ids,array_agg(sku order by id) as skus,
-                   array_agg(title order by id) as titles,array_agg(price order by id) as prices
-            from live group by image_url having count(*) > 1
-          )
-          select * from g order by copies desc, image_url limit 100;
-          """)
-          print('SAME_IMAGE_DUP_GROUPS='+json.dumps(same_image,default=str))
+          already = (int(dup.get('quantity') or 0)==0 and int(dup.get('inventory_quantity') or 0)==0 and dup.get('archived_at') is not None and str(dup.get('inventory_status') or '')!='active')
+          if already:
+              print('DUPLICATE_ALREADY_ARCHIVED=true')
+          else:
+              if int(dup.get('quantity') or 0)!=1 or int(dup.get('inventory_quantity') or 0)!=1 or dup.get('archived_at') is not None or str(dup.get('inventory_status') or '')!='active':
+                  raise SystemExit('REFUSING_DUP_STATE_MISMATCH')
+              iid=str(dup.get('inventory_item_id') or '')
+              if not iid:
+                  raise SystemExit('REFUSING_MISSING_INVENTORY_ITEM')
+              result=sql(f"""
+              WITH updated_item AS (
+                UPDATE public.inventory_items
+                SET quantity=0,
+                    status='draft',
+                    notes=CASE
+                      WHEN NULLIF(BTRIM(notes),'') IS NULL THEN 'Confirmed duplicate physical card; archived 2026-08-11; keep {KEEP}'
+                      WHEN notes ILIKE '%Confirmed duplicate physical card%' THEN notes
+                      ELSE BTRIM(notes) || ' | Confirmed duplicate physical card; archived 2026-08-11; keep {KEEP}'
+                    END,
+                    metadata=COALESCE(metadata,'{{}}'::jsonb) || jsonb_build_object(
+                      'confirmed_duplicate_20260811',jsonb_build_object('state','archived','keep_sku','{KEEP}','reason','owner confirmed only one physical copy exists','recorded_at',now())
+                    ),
+                    updated_at=now()
+                WHERE id='{iid}'::uuid AND store_id='{STORE}'::uuid AND sku='{ARCHIVE}' AND quantity=1 AND status='active'
+                RETURNING id
+              ), updated_product AS (
+                UPDATE public.products
+                SET quantity=0,archived_at=now()
+                WHERE id=504137 AND store_id='{STORE}'::uuid AND sku='{ARCHIVE}' AND quantity=1 AND archived_at is null
+                  AND EXISTS (SELECT 1 FROM updated_item)
+                RETURNING id
+              )
+              SELECT (SELECT count(*)::int FROM updated_item) AS updated_items,
+                     (SELECT count(*)::int FROM updated_product) AS updated_products;
+              """, False)
+              print('REPAIR_RESULT='+json.dumps(result,default=str))
+              if not isinstance(result,list) or len(result)!=1 or int(result[0].get('updated_items') or 0)!=1 or int(result[0].get('updated_products') or 0)!=1:
+                  raise SystemExit('REPAIR_ATOMIC_COUNT_FAILURE')
 
-          exact=sql(f"""
-          with live as (
-            select id,sku,title,player,price,quantity,image_url,
-                   lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) as nt,
-                   lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) as np
-            from public.products
-            where store_id='{STORE}'::uuid
-              and sku >= 'COLLX-' and sku < 'COLLY'
-              and archived_at is null and quantity > 0 and price > 0
-              and nullif(btrim(image_url),'') is not null
-          )
-          select nt,np,price,image_url,count(*)::int as copies,
-                 array_agg(id order by id) as product_ids,array_agg(sku order by id) as skus,
-                 array_agg(quantity order by id) as quantities
-          from live
-          group by nt,np,price,image_url
-          having count(*) > 1
-          order by copies desc,nt
-          limit 200;
+          post=sql(f"""
+          select p.id as product_id,p.sku,p.title,p.quantity,p.archived_at,
+                 i.id as inventory_item_id,i.status as inventory_status,i.quantity as inventory_quantity,i.metadata
+          from public.products p
+          left join public.inventory_items i
+            on i.store_id=p.store_id and (i.legacy_product_id=p.id or i.sku=p.sku)
+          where p.store_id='{STORE}'::uuid and p.sku in ('{KEEP}','{ARCHIVE}')
+          order by p.sku;
           """)
-          print('EXACT_DUP_GROUPS='+json.dumps(exact,default=str))
+          print('POST_REPAIR='+json.dumps(post,default=str))
+          pb={str(r.get('sku')):r for r in post}
+          keep=pb.get(KEEP,{}); dup=pb.get(ARCHIVE,{})
+          if int(keep.get('quantity') or 0)!=1 or int(keep.get('inventory_quantity') or 0)!=1 or keep.get('archived_at') is not None or str(keep.get('inventory_status') or '')!='active':
+              raise SystemExit('KEEP_VERIFICATION_FAILURE')
+          if int(dup.get('quantity') or 0)!=0 or int(dup.get('inventory_quantity') or 0)!=0 or dup.get('archived_at') is None or str(dup.get('inventory_status') or '')=='active':
+              raise SystemExit('ARCHIVE_VERIFICATION_FAILURE')
 
-          counts=sql(f"""
-          with live as (
-            select id,lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) as nt,
-                   lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) as np,
-                   price,image_url
-            from public.products
-            where store_id='{STORE}'::uuid
-              and sku >= 'COLLX-' and sku < 'COLLY'
-              and archived_at is null and quantity > 0 and price > 0
-              and nullif(btrim(image_url),'') is not null
-          ), g as (
-            select count(*)::int as copies from live group by nt,np,price,image_url having count(*)>1
-          )
-          select count(*)::int as duplicate_groups,coalesce(sum(copies-1),0)::int as removable_exact_duplicates,
-                 coalesce(max(copies),0)::int as max_copies from g;
+          live=sql(f"""
+          select count(*)::int as live_rows,coalesce(sum(quantity),0)::int as live_units
+          from public.products
+          where store_id='{STORE}'::uuid and sku in ('{KEEP}','{ARCHIVE}')
+            and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null;
           """)
-          print('DUP_COUNTS='+json.dumps(counts,default=str))
-          print('COLLX_DUPLICATE_AUDIT=SUCCESS')
+          print('PAIR_LIVE_VERIFY='+json.dumps(live,default=str))
+          if not isinstance(live,list) or len(live)!=1 or int(live[0].get('live_rows') or 0)!=1 or int(live[0].get('live_units') or 0)!=1:
+              raise SystemExit('PAIR_LIVE_VERIFY_FAILURE')
+          print('CONFIRMED_AJA_DUPLICATE_REPAIR=SUCCESS')
           PY
