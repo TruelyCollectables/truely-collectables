@@ -72,8 +72,52 @@ def test_read_timeout_retries_same_page_then_succeeds(monkeypatch: pytest.Monkey
 
     assert rows == [{"id": "one"}]
     assert len(reader.client.calls) == 2
-    assert reader.client.calls[0]["headers"]["Range"] == "0-499"
-    assert reader.client.calls[1]["headers"]["Range"] == "0-499"
+    assert reader.client.calls[0]["headers"]["Range"] == "0-249"
+    assert reader.client.calls[1]["headers"]["Range"] == "0-249"
+    assert sleeps == [1.0]
+
+
+def test_two_timeouts_shrink_page_then_succeed(monkeypatch: pytest.MonkeyPatch):
+    module = _load(RESILIENT_SCRIPT, "inventory_resilient_shrink")
+    request = httpx.Request("GET", "https://example.supabase.co/rest/v1/inventory_items")
+    reader = _reader(
+        module,
+        [
+            httpx.ReadTimeout("slow page", request=request),
+            httpx.ReadTimeout("slow page", request=request),
+            FakeResponse(206, [{"id": "one"}]),
+        ],
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    rows = reader.table("inventory_items")
+
+    assert rows == [{"id": "one"}]
+    assert [call["headers"]["Range"] for call in reader.client.calls] == [
+        "0-249",
+        "0-249",
+        "0-124",
+    ]
+    assert sleeps == [1.0]
+
+
+def test_cloudflare_521_is_transient_and_retried(monkeypatch: pytest.MonkeyPatch):
+    module = _load(RESILIENT_SCRIPT, "inventory_resilient_521")
+    reader = _reader(
+        module,
+        [
+            FakeResponse(521, [], text="origin down"),
+            FakeResponse(200, [{"id": "one"}]),
+        ],
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    rows = reader.table("inventory_items")
+
+    assert rows == [{"id": "one"}]
+    assert len(reader.client.calls) == 2
     assert sleeps == [1.0]
 
 
@@ -107,6 +151,21 @@ def test_permanent_http_401_fails_immediately(monkeypatch: pytest.MonkeyPatch):
 
     assert len(reader.client.calls) == 1
     assert sleeps == []
+
+
+def test_minimum_page_exhaustion_still_fails_closed(monkeypatch: pytest.MonkeyPatch):
+    module = _load(RESILIENT_SCRIPT, "inventory_resilient_minimum")
+    request = httpx.Request("GET", "https://example.supabase.co/rest/v1/inventory_items")
+    effects = [httpx.ReadTimeout("slow", request=request) for _ in range(module.MAX_ATTEMPTS_AT_MIN_PAGE)]
+    reader = _reader(module, effects)
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    with pytest.raises(SystemExit, match="minimum page size 50"):
+        reader.table("inventory_items", page_size=50)
+
+    assert len(reader.client.calls) == module.MAX_ATTEMPTS_AT_MIN_PAGE
+    assert sleeps == [1.0, 2.0, 4.0, 8.0]
 
 
 def test_guard_routes_to_resilient_sync():
