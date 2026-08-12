@@ -36,13 +36,30 @@ jobs:
               "$url"; then
               cat /tmp/headers || true
               echo "BODY_BYTES=$(wc -c </tmp/body 2>/dev/null || echo 0)"
-              head -c 500 /tmp/body 2>/dev/null || true
-              echo
               code="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' /tmp/headers 2>/dev/null || true)"
               case "$code" in
                 2*|3*) ;;
                 *) failed=1 ;;
               esac
+
+              if [ "$url" = "https://truelycollectables.com/shop" ]; then
+                active_text="$(grep -oE '[0-9][0-9,]* active' /tmp/body | head -n 1 || true)"
+                product_links="$(grep -oE 'href="/product/[0-9]+"' /tmp/body | sort -u | wc -l | tr -d ' ')"
+                echo "ACTIVE_COUNT_TEXT=${active_text:-NOT_FOUND}"
+                echo "UNIQUE_PRODUCT_LINKS=${product_links:-0}"
+                if grep -q 'No active cards or collectibles found' /tmp/body; then
+                  echo "CATALOG_EMPTY=yes"
+                  failed=1
+                else
+                  echo "CATALOG_EMPTY=no"
+                fi
+                if [ -z "$active_text" ] || [ "${product_links:-0}" -eq 0 ]; then
+                  echo "CATALOG_PROOF=failed"
+                  failed=1
+                else
+                  echo "CATALOG_PROOF=passed"
+                fi
+              fi
             else
               failed=1
             fi
