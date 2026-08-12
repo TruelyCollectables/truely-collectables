@@ -97,3 +97,5 @@ jobs:
           echo "ACTIVE_COUNT_TEXT=$active_text"
           echo "UNIQUE_PRODUCT_LINKS=$product_links"
           echo "VERIFIED_PRODUCT_ID=$first_product"
+
+# Retriggered to promote the bridge-safe product detail recovery on current main.
