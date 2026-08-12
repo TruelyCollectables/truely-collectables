@@ -1,0 +1,145 @@
+name: Supabase Inventory Hotspot Diagnostic 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/supabase-inventory-hotspot-diagnostic-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-inventory-hotspot-diagnostic-20260811
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+    steps:
+      - name: Diagnose inventory_items and clear stale read pressure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess
+
+          API = "https://api.supabase.com/v1"
+          TOKEN = os.environ["SUPABASE_ACCESS_TOKEN"]
+          STORE = os.environ["FLAGSHIP_STORE_ID"]
+
+          def request(method, path, body=None, timeout=45):
+              cmd = ["curl","-sS","--max-time",str(timeout),"-X",method,
+                     "-H",f"Authorization: Bearer {TOKEN}",
+                     "-H","Accept: application/json","-H","Content-Type: application/json",
+                     "-o","/tmp/sb.json","-w","%{http_code}",API+path]
+              if body is not None:
+                  cmd += ["--data-binary", json.dumps(body)]
+              p = subprocess.run(cmd, capture_output=True, text=True)
+              raw = ""
+              try: raw = open('/tmp/sb.json').read()
+              except Exception: pass
+              try: payload = json.loads(raw) if raw else None
+              except Exception: payload = raw
+              try: status = int((p.stdout or '0').strip()[-3:])
+              except Exception: status = 599
+              if p.returncode != 0 and status == 0:
+                  status, payload = 599, {"error": p.stderr.strip()}
+              return status, payload
+
+          def safe(label, value):
+              print(label, json.dumps(value, default=str, sort_keys=True))
+
+          s, projects = request('GET','/projects')
+          if s != 200 or not isinstance(projects,list):
+              safe('PROJECT_LIST_FAILURE', {'status':s,'body':projects}); raise SystemExit(2)
+          candidates=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(candidates)!=1:
+              safe('PROJECT_CANDIDATES', candidates); raise SystemExit(3)
+          ref=str(candidates[0].get('id') or candidates[0].get('ref') or '')
+          print('PROJECT_REF='+ref)
+
+          def ro(q, timeout=30):
+              return request('POST',f'/projects/{ref}/database/query/read-only',{'query':q,'parameters':[]},timeout)
+          def rw(q, timeout=30):
+              return request('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':False},timeout)
+
+          diagnostics = {
+            'activity': """
+              select pid, usename, application_name, state, wait_event_type, wait_event,
+                     round(extract(epoch from (now()-query_start))::numeric,1) as query_age_s,
+                     round(extract(epoch from (now()-xact_start))::numeric,1) as xact_age_s,
+                     left(regexp_replace(query,'\\s+',' ','g'),300) as query
+              from pg_stat_activity
+              where datname=current_database() and pid<>pg_backend_pid() and state<>'idle'
+              order by query_start nulls last limit 80;
+            """,
+            'locks': """
+              select blocked.pid as blocked_pid, blocker.pid as blocker_pid,
+                     blocked.wait_event_type, blocked.wait_event,
+                     left(regexp_replace(blocked.query,'\\s+',' ','g'),220) as blocked_query,
+                     left(regexp_replace(blocker.query,'\\s+',' ','g'),220) as blocker_query
+              from pg_stat_activity blocked
+              join pg_locks bl on bl.pid=blocked.pid and not bl.granted
+              join pg_locks kl on kl.locktype=bl.locktype
+                and kl.database is not distinct from bl.database
+                and kl.relation is not distinct from bl.relation
+                and kl.page is not distinct from bl.page
+                and kl.tuple is not distinct from bl.tuple
+                and kl.virtualxid is not distinct from bl.virtualxid
+                and kl.transactionid is not distinct from bl.transactionid
+                and kl.classid is not distinct from bl.classid
+                and kl.objid is not distinct from bl.objid
+                and kl.objsubid is not distinct from bl.objsubid
+                and kl.pid<>bl.pid and kl.granted
+              join pg_stat_activity blocker on blocker.pid=kl.pid
+              where blocked.datname=current_database()
+              limit 50;
+            """,
+            'indexes': "select indexname,indexdef from pg_indexes where schemaname='public' and tablename='inventory_items' order by indexname;",
+            'stats': """
+              select relname, seq_scan, idx_scan, n_live_tup, n_dead_tup,
+                     vacuum_count, autovacuum_count, analyze_count, autoanalyze_count,
+                     last_autovacuum, last_autoanalyze
+              from pg_stat_user_tables where schemaname='public' and relname='inventory_items';
+            """,
+            'size': "select pg_size_pretty(pg_total_relation_size('public.inventory_items')) as total_size, reltuples::bigint as estimated_rows from pg_class where oid='public.inventory_items'::regclass;",
+            'plan': f"explain (format json) select count(*) filter (where status='active'), count(*) filter (where status='active' and quantity>0) from public.inventory_items where store_id='{STORE}'::uuid;"
+          }
+          for label,q in diagnostics.items():
+              status, body = ro(q, 30)
+              safe('DIAG_'+label.upper(), {'status':status,'body':body})
+
+          cancel_sql = """
+            select pid, pg_cancel_backend(pid) as cancelled
+            from pg_stat_activity
+            where datname=current_database()
+              and pid<>pg_backend_pid()
+              and state='active'
+              and query_start < now() - interval '45 seconds'
+              and lower(ltrim(query)) like 'select%'
+              and query ilike '%inventory_items%';
+          """
+          cs, cb = rw(cancel_sql,30)
+          safe('CANCEL_STALE_INVENTORY_READS', {'status':cs,'body':cb})
+
+          probes = {
+            'limit1': f"select id,status,quantity from public.inventory_items where store_id='{STORE}'::uuid limit 1;",
+            'collx_sample': f"select id,sku,status,quantity from public.inventory_items where store_id='{STORE}'::uuid and sku like 'COLLX-%' limit 10;",
+            'aggregate': f"select count(*)::bigint as inventory_total, count(*) filter (where status='active')::bigint as active, count(*) filter (where status='active' and quantity>0)::bigint as active_positive from public.inventory_items where store_id='{STORE}'::uuid;"
+          }
+          failed=False
+          for label,q in probes.items():
+              status, body = ro(q, 30)
+              safe('PROBE_'+label.upper(), {'status':status,'body':body})
+              if status not in (200,201): failed=True
+          raise SystemExit(1 if failed else 0)
+          PY
