@@ -1,0 +1,362 @@
+name: CollX Back Image Repair 20260812
+
+on:
+  push:
+    branches: [fix/collx-back-images-20260812]
+    paths:
+      - ".github/workflows/collx-back-image-repair-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-back-image-repair-20260812
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: Production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel "$RUNNER_TEMP/collx-back-repair"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/collx-back-repair/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/collx-back-repair/production.env"
+
+      - name: Retrieve Production Supabase server key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const dir = path.join(process.env.RUNNER_TEMP, 'collx-back-repair');
+          const text = fs.readFileSync(path.join(dir, 'production.env'), 'utf8');
+          const env = {};
+          for (const raw of text.split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const i = line.indexOf('=');
+            if (i < 1) continue;
+            const key = line.slice(0, i).trim();
+            let value = line.slice(i + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+            env[key] = value;
+          }
+          const url = env.NEXT_PUBLIC_SUPABASE_URL;
+          if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL missing from Production env');
+          const ref = new URL(url).hostname.split('.')[0];
+          const response = await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`, {
+            headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}` },
+          });
+          const body = await response.text();
+          if (!response.ok) throw new Error(`Supabase key retrieval HTTP ${response.status}: ${body.slice(0, 500)}`);
+          const keys = JSON.parse(body);
+          const row = keys.find((x) => typeof x?.api_key === 'string' && x.api_key.startsWith('sb_secret_'))
+            || keys.find((x) => String(x?.name || '').toLowerCase() === 'service_role')
+            || keys.find((x) => String(x?.name || '').toLowerCase().includes('service'));
+          if (!row?.api_key) throw new Error('No Production service-role key returned');
+          console.log('::add-mask::' + row.api_key);
+          fs.writeFileSync(path.join(dir, 'service-role-key'), row.api_key, { mode: 0o600 });
+          fs.writeFileSync(path.join(dir, 'supabase-url'), url, { mode: 0o600 });
+          console.log('PRODUCTION_SUPABASE_KEY=VERIFIED');
+          NODE
+
+      - name: Repair exact CollX back-image associations
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_key="$(cat "$RUNNER_TEMP/collx-back-repair/service-role-key")"
+          supabase_url="$(cat "$RUNNER_TEMP/collx-back-repair/supabase-url")"
+          echo "::add-mask::$service_key"
+          SUPABASE_SERVICE_ROLE_KEY="$service_key" NEXT_PUBLIC_SUPABASE_URL="$supabase_url" \
+            node --import tsx --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { gunzipSync } from 'node:zlib';
+          import { createClient } from '@supabase/supabase-js';
+          import { COLLX_IMAGE_OBJECT_OVERRIDES_GZIP_BASE64 } from './src/lib/collx-image-object-overrides-20260811.ts';
+          import { COLLX_EXISTING_DIRECT_MATCHES } from './src/lib/collx-existing-direct-map-20260811.ts';
+
+          const STORE = process.env.FLAGSHIP_STORE_ID;
+          const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          if (!STORE || !URL || !KEY) throw new Error('Production repair credentials are incomplete');
+          const supabase = createClient(URL, KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+          const OWNED_BUCKET = 'truely-product-images';
+          const COLLX_BUCKET = 'collx-product-images';
+          const ROOT = 'collx-full/20260811';
+          const OVERRIDES = JSON.parse(gunzipSync(Buffer.from(COLLX_IMAGE_OBJECT_OVERRIDES_GZIP_BASE64, 'base64')).toString('utf8'));
+          const direct = new Map(COLLX_EXISTING_DIRECT_MATCHES.map(([collxId, productId]) => [String(collxId), Number(productId)]));
+
+          function clean(v) { return String(v || '').trim(); }
+          function collxSku(v) { const m = /^COLLX-(\d+)$/.exec(clean(v)); return m?.[1] || null; }
+          function ownedSide(v) {
+            const value = clean(v);
+            const m = /\/collx-full\/20260811\/(\d+)\/(front|back)\.(jpe?g|png|webp)(?:[?#].*)?$/i.exec(value);
+            return m ? { collxId: m[1], side: m[2].toLowerCase(), ext: m[3].toLowerCase() === 'jpeg' ? 'jpg' : m[3].toLowerCase() } : null;
+          }
+          function explicitBack(v) {
+            const s = clean(v);
+            return /(?:^|[-_/])back(?=\.[a-z0-9]+(?:[?#].*)?$)/i.test(s)
+              || /\/collx-product-images\/\d+-2-[^/]+\.(?:jpe?g|png|webp)(?:[?#].*)?$/i.test(s);
+          }
+          function ext(name) {
+            const m = clean(name).toLowerCase().match(/\.(jpe?g|png|webp)$/);
+            return m ? (m[1] === 'jpeg' ? 'jpg' : m[1]) : 'jpg';
+          }
+          function publicUrl(objectPath) {
+            return supabase.storage.from(OWNED_BUCKET).getPublicUrl(objectPath).data.publicUrl;
+          }
+          async function imageExists(url) {
+            try {
+              let r = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(12000) });
+              if (r.status === 405 || r.status === 501) r = await fetch(url, { headers: { Range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(12000) });
+              return (r.status === 200 || r.status === 206) && clean(r.headers.get('content-type')).toLowerCase().startsWith('image/');
+            } catch { return false; }
+          }
+          async function readAll(table, select) {
+            const out = [];
+            for (let from = 0; from < 20000; from += 1000) {
+              const { data, error } = await supabase.from(table).select(select).eq('store_id', STORE).ilike('sku', 'COLLX-%').order('id', { ascending: true }).range(from, from + 999);
+              if (error) throw error;
+              out.push(...(data || []));
+              if ((data || []).length < 1000) return out;
+            }
+            throw new Error(`${table} pagination exceeded safety limit`);
+          }
+          function chunks(values, n) { const out=[]; for (let i=0;i<values.length;i+=n) out.push(values.slice(i,i+n)); return out; }
+          async function loadImages(ids) {
+            const out=[];
+            for (const part of chunks(ids, 100)) {
+              const { data, error } = await supabase.from('inventory_images').select('id,inventory_item_id,image_url,alt_text,sort_order,is_primary').in('inventory_item_id', part).order('sort_order', { ascending: true });
+              if (error) throw error;
+              out.push(...(data || []));
+            }
+            return out;
+          }
+          async function discoverSource(collxId) {
+            const override = OVERRIDES?.[collxId]?.back;
+            if (override) return String(override);
+            const u = new URL(`https://storage.googleapis.com/storage/v1/b/${COLLX_BUCKET}/o`);
+            u.searchParams.set('prefix', `${collxId}-`);
+            u.searchParams.set('maxResults', '20');
+            u.searchParams.set('fields', 'items(name)');
+            const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+            if (!r.ok) throw new Error(`source lookup ${collxId} HTTP ${r.status}`);
+            const p = await r.json();
+            return (p.items || []).map((x) => clean(x.name)).find((name) => name.startsWith(`${collxId}-2-`)) || null;
+          }
+          async function findOwnedBack(collxId, preferredExt) {
+            const tries = [...new Set([preferredExt, 'jpg', 'png', 'webp', 'jpeg'].filter(Boolean))];
+            for (const e0 of tries) {
+              const e = e0 === 'jpeg' ? 'jpg' : e0;
+              const p = `${ROOT}/${collxId}/back.${e}`;
+              const u = publicUrl(p);
+              if (await imageExists(u)) return { url: u, path: p, existed: true };
+            }
+            return null;
+          }
+          async function copyBack(collxId) {
+            const sourceName = await discoverSource(collxId);
+            if (!sourceName) return null;
+            const sourceUrl = `https://storage.googleapis.com/${COLLX_BUCKET}/${sourceName.split('/').map(encodeURIComponent).join('/')}`;
+            const r = await fetch(sourceUrl, { signal: AbortSignal.timeout(30000) });
+            if (!r.ok) throw new Error(`source back ${collxId} HTTP ${r.status}`);
+            const bytes = Buffer.from(await r.arrayBuffer());
+            const e = ext(sourceName);
+            const objectPath = `${ROOT}/${collxId}/back.${e}`;
+            const contentType = r.headers.get('content-type') || (e === 'png' ? 'image/png' : e === 'webp' ? 'image/webp' : 'image/jpeg');
+            const { error } = await supabase.storage.from(OWNED_BUCKET).upload(objectPath, bytes, { contentType, upsert: true });
+            if (error) throw error;
+            return { url: publicUrl(objectPath), path: objectPath, existed: false };
+          }
+          async function mapLimit(values, limit, fn) {
+            const results = new Array(values.length); let cursor = 0;
+            async function worker() { while (true) { const i = cursor++; if (i >= values.length) return; results[i] = await fn(values[i], i); } }
+            await Promise.all(Array.from({ length: Math.min(limit, Math.max(1, values.length)) }, worker));
+            return results;
+          }
+
+          const [products, items] = await Promise.all([
+            readAll('products', 'id,sku,title,image_url,ebay_item_id,quantity,price'),
+            readAll('inventory_items', 'id,sku,legacy_product_id,title,created_at,status'),
+          ]);
+          const itemCandidates = new Map();
+          for (const item of items) {
+            const key = `${Number(item.legacy_product_id)}|${clean(item.sku)}`;
+            const rows = itemCandidates.get(key) || [];
+            rows.push(item); itemCandidates.set(key, rows);
+          }
+          for (const rows of itemCandidates.values()) rows.sort((a,b) => clean(a.created_at).localeCompare(clean(b.created_at)) || clean(a.id).localeCompare(clean(b.id)));
+          const targets = [];
+          const missingStorefrontItem = [];
+          for (const product of products) {
+            const sku = clean(product.sku);
+            const id = collxSku(sku);
+            if (!id) continue;
+            const item = itemCandidates.get(`${Number(product.id)}|${sku}`)?.[0] || null;
+            if (!item) { missingStorefrontItem.push({ productId: product.id, sku, title: product.title }); continue; }
+            targets.push({ product, item, skuCollxId: id });
+          }
+          const imageRows = await loadImages(targets.map((x) => String(x.item.id)));
+          const imagesByItem = new Map();
+          for (const row of imageRows) {
+            const k = String(row.inventory_item_id); const rows = imagesByItem.get(k) || []; rows.push(row); imagesByItem.set(k, rows);
+          }
+
+          const stats = {
+            collxProducts: products.length,
+            exactStorefrontTargets: targets.length,
+            missingStorefrontItem: missingStorefrontItem.length,
+            alreadyExactBack: 0,
+            associatedExistingOwnedBack: 0,
+            copiedAndAssociatedBack: 0,
+            replacedNonExactBack: 0,
+            noSourceBack: 0,
+            skippedUnproven: 0,
+            skippedEbayBacked: 0,
+            errors: 0,
+          };
+          const errors=[]; const noSource=[]; const repaired=[];
+
+          await mapLimit(targets, 18, async ({ product, item, skuCollxId }) => {
+            try {
+              const rows = (imagesByItem.get(String(item.id)) || []).slice().sort((a,b) => Number(a.sort_order ?? 999999) - Number(b.sort_order ?? 999999));
+              const productFront = ownedSide(product.image_url);
+              const rowFront = rows.map((r) => ({ row:r, side:ownedSide(r.image_url) })).find((x) => x.side?.side === 'front')?.side || null;
+              const collxId = productFront?.side === 'front' ? productFront.collxId : rowFront?.collxId || skuCollxId;
+              const preferredExt = productFront?.collxId === collxId ? productFront.ext : rowFront?.collxId === collxId ? rowFront.ext : null;
+              const lineageProven = Boolean(
+                (productFront?.side === 'front' && productFront.collxId === collxId)
+                || (rowFront?.collxId === collxId)
+                || direct.get(collxId) === Number(product.id)
+                || (skuCollxId === collxId && clean(item.sku) === clean(product.sku) && Number(item.legacy_product_id) === Number(product.id))
+              );
+              if (!lineageProven) { stats.skippedUnproven++; return; }
+              if (clean(product.ebay_item_id) && !(productFront?.collxId === collxId || rowFront?.collxId === collxId)) { stats.skippedEbayBacked++; return; }
+
+              const exact = rows.find((r) => { const s=ownedSide(r.image_url); return s?.side === 'back' && s.collxId === collxId; });
+              if (exact) { stats.alreadyExactBack++; return; }
+
+              let owned = await findOwnedBack(collxId, preferredExt);
+              if (!owned) owned = await copyBack(collxId);
+              if (!owned) { stats.noSourceBack++; noSource.push({ productId: product.id, sku: product.sku, collxId, title: product.title }); return; }
+
+              const existingBack = rows.find((r) => explicitBack(r.image_url));
+              if (existingBack) {
+                const { error } = await supabase.from('inventory_images').update({
+                  image_url: owned.url,
+                  alt_text: `${clean(product.title) || clean(item.title) || product.sku} back`,
+                  is_primary: false,
+                }).eq('id', existingBack.id).eq('inventory_item_id', item.id);
+                if (error) throw error;
+                stats.replacedNonExactBack++;
+              } else {
+                const nextSort = Math.max(0, ...rows.map((r) => Number(r.sort_order ?? 0))) + 1;
+                const { error } = await supabase.from('inventory_images').insert({
+                  inventory_item_id: item.id,
+                  image_url: owned.url,
+                  alt_text: `${clean(product.title) || clean(item.title) || product.sku} back`,
+                  sort_order: nextSort,
+                  is_primary: false,
+                });
+                if (error) throw error;
+                if (owned.existed) stats.associatedExistingOwnedBack++;
+                else stats.copiedAndAssociatedBack++;
+              }
+              repaired.push({ productId: product.id, sku: product.sku, collxId, title: product.title, backUrl: owned.url });
+            } catch (error) {
+              stats.errors++;
+              errors.push({ productId: product.id, sku: product.sku, error: error instanceof Error ? error.message : String(error) });
+            }
+          });
+
+          const receipt = { stats, missingStorefrontItem: missingStorefrontItem.slice(0, 100), noSource: noSource.slice(0, 100), errors: errors.slice(0, 100), repairedSample: repaired.slice(0, 50), completedAt: new Date().toISOString() };
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'collx-back-repair', 'repair.json'), JSON.stringify(receipt, null, 2));
+          console.log('COLLX_BACK_REPAIR=' + JSON.stringify(stats));
+          console.log('MISSING_STOREFRONT_ITEM_SAMPLE=' + JSON.stringify(missingStorefrontItem.slice(0,20)));
+          console.log('NO_SOURCE_SAMPLE=' + JSON.stringify(noSource.slice(0,20)));
+          console.log('ERROR_SAMPLE=' + JSON.stringify(errors.slice(0,20)));
+
+          if (stats.errors > 0) throw new Error(`Back repair had ${stats.errors} database/storage errors`);
+          NODE
+
+      - name: Verify Production back-image coverage and Allisha Gray
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_key="$(cat "$RUNNER_TEMP/collx-back-repair/service-role-key")"
+          supabase_url="$(cat "$RUNNER_TEMP/collx-back-repair/supabase-url")"
+          echo "::add-mask::$service_key"
+          SUPABASE_SERVICE_ROLE_KEY="$service_key" NEXT_PUBLIC_SUPABASE_URL="$supabase_url" \
+            node --import tsx --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createClient } from '@supabase/supabase-js';
+          const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth:{autoRefreshToken:false,persistSession:false} });
+          const STORE=process.env.FLAGSHIP_STORE_ID;
+          const { data: allisha, error } = await supabase.from('products').select('id,sku,title,image_url,quantity,price').eq('store_id',STORE).ilike('title','%Allisha Gray%').gt('quantity',0).order('id',{ascending:true});
+          if (error) throw error;
+          const results=[];
+          for (const p of allisha || []) {
+            const { data: item } = await supabase.from('inventory_items').select('id').eq('store_id',STORE).eq('legacy_product_id',p.id).eq('sku',p.sku).order('created_at',{ascending:true}).limit(1).maybeSingle();
+            let rows=[];
+            if (item?.id) {
+              const q=await supabase.from('inventory_images').select('image_url,sort_order,is_primary').eq('inventory_item_id',item.id).order('sort_order',{ascending:true});
+              if (q.error) throw q.error; rows=q.data || [];
+            }
+            const exactBack=rows.find((r)=>/\/collx-full\/20260811\/\d+\/back\.(?:jpe?g|png|webp)(?:[?#].*)?$/i.test(String(r.image_url||'')));
+            let liveStatus=null, unavailable=null;
+            try {
+              const r=await fetch(`https://truelycollectables.com/product/${p.id}?back_repair=${Date.now()}`,{redirect:'follow',signal:AbortSignal.timeout(30000)});
+              const html=await r.text(); liveStatus=r.status; unavailable=/Back photo unavailable/i.test(html);
+            } catch {}
+            results.push({id:p.id,sku:p.sku,title:p.title,quantity:p.quantity,exactBack:Boolean(exactBack),liveStatus,backUnavailableOnLivePage:unavailable});
+          }
+          console.log('ALLISHA_GRAY_VERIFY='+JSON.stringify(results));
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'collx-back-repair','allisha.json'),JSON.stringify(results,null,2));
+          if ((allisha || []).length && !results.some((x)=>x.exactBack)) throw new Error('No live Allisha Gray product has an exact owned back association');
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collx-back-image-repair-20260812
+          path: ${{ runner.temp }}/collx-back-repair/*.json
+          if-no-files-found: warn
+          retention-days: 7
