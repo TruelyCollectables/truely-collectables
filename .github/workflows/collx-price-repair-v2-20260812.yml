@@ -11,194 +11,62 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       FLAGSHIP_STORE_ID: 00000000-0000-4000-8000-000000000001
-      EXPECTED_SOURCE_ROWS: 6909
-      EXPECTED_SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
     steps:
-      - uses: actions/checkout@v4
-      - name: Price zero-price CollX cards from source or exact-title sibling
+      - name: Audit all exact-title historical pricing coverage
         shell: bash
         run: |
           set -euo pipefail
           test -n "${SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
-          WORK=/tmp/collx-price-repair-v2
-          mkdir -p "$WORK"
-          cat \
-            .github/ops/collx-full-metadata.part{00..09} \
-            .github/ops/collx-full-metadata.part10m0 \
-            .github/ops/collx-full-metadata.part10m1 \
-            .github/ops/collx-full-metadata.part11 \
-            .github/ops/collx-full-metadata.part12 \
-            .github/ops/collx-full-metadata.part13 \
-            .github/ops/collx-full-metadata.part14m \
-            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
-          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
-          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SOURCE_SHA"
-          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_SOURCE_ROWS"
-
           python3 - <<'PY'
-          import csv, json, os, subprocess, tempfile, time, decimal
-          from decimal import Decimal
-
-          API='https://api.supabase.com/v1'
-          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
-          STORE=os.environ['FLAGSHIP_STORE_ID']
-          SOURCE='/tmp/collx-price-repair-v2/source.csv'
-
+          import json,os,subprocess,tempfile,time
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
           def req(method,path,body=None,timeout=90,retries=6):
-              last=None
-              for attempt in range(retries):
-                  out=tempfile.NamedTemporaryFile(delete=False); out.close()
-                  cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
-                       '-H',f'Authorization: Bearer {TOKEN}',
-                       '-H','Accept: application/json',
-                       '-H','Content-Type: application/json',
-                       '-o',out.name,'-w','%{http_code}',API+path]
-                  if body is not None: cmd += ['--data-binary',json.dumps(body)]
-                  p=subprocess.run(cmd,capture_output=True,text=True)
-                  raw=open(out.name).read(); os.unlink(out.name)
-                  try: payload=json.loads(raw) if raw else None
-                  except Exception: payload=raw
-                  try: status=int((p.stdout or '0').strip()[-3:])
-                  except Exception: status=0
-                  if status in (200,201): return payload
-                  last=(status,payload)
-                  if status in (0,429,500,502,503,504,522,524,544) and attempt+1 < retries:
-                      time.sleep(2*(attempt+1)); continue
-                  break
-              raise RuntimeError(f'{method} {path} HTTP {last[0] if last else 0}: {str(last[1] if last else "")[:2000]}')
-
-          projects=req('GET','/projects',timeout=30)
-          cand=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+            last=None
+            for attempt in range(retries):
+              out=tempfile.NamedTemporaryFile(delete=False); out.close()
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o',out.name,'-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open(out.name).read(); os.unlink(out.name)
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              if status in (200,201): return payload
+              last=(status,payload)
+              if status in (0,429,500,502,503,504,522,524,544) and attempt+1<retries: time.sleep(2*(attempt+1)); continue
+              break
+            raise RuntimeError(f'{method} {path} HTTP {last[0] if last else 0}: {str(last[1] if last else "")[:2000]}')
+          projects=req('GET','/projects',timeout=30); cand=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
           if len(cand)!=1: raise SystemExit(f'Expected one Truely project, got {len(cand)}')
           ref=str(cand[0].get('id') or cand[0].get('ref') or '')
-
-          def sql(q, read_only=True):
-              return req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':read_only},90)
-
-          source_prices={}
-          with open(SOURCE,newline='',encoding='utf-8-sig') as f:
-              for r in csv.DictReader(f):
-                  cid=str(r.get('collx_id') or '').strip()
-                  raw=str(r.get('asking_price') or '').strip().replace('$','').replace(',','')
-                  if not cid or not raw: continue
-                  try: p=Decimal(raw)
-                  except Exception: continue
-                  if p > 0: source_prices[cid]=p
-
-          rows=sql(f"""
+          q=f"""
           with bad as (
-            select id,store_id,sku,title,quantity,price
-            from public.products
-            where store_id='{STORE}'::uuid
-              and sku>='COLLX-' and sku<'COLLY'
-              and ebay_item_id is null
-              and archived_at is null
-              and quantity>0
-              and price<=0
+            select id,store_id,sku,title from public.products
+            where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY' and ebay_item_id is null
+              and archived_at is null and quantity>0 and price<=0
+          ), priced as (
+            select b.id,b.sku,b.title,
+                   count(p2.id)::int match_count,
+                   percentile_cont(0.5) within group(order by p2.price)::numeric median_price,
+                   min(p2.price)::numeric min_price,max(p2.price)::numeric max_price,
+                   count(p2.id) filter(where p2.ebay_item_id is not null)::int ebay_matches,
+                   count(p2.id) filter(where p2.archived_at is not null)::int archived_matches
+            from bad b left join public.products p2
+              on p2.store_id=b.store_id and p2.id<>b.id and p2.price>0 and p2.title=b.title
+            group by b.id,b.sku,b.title
           )
-          select b.id,b.sku,b.title,b.quantity,
-                 count(p2.id)::int sibling_count,
-                 percentile_cont(0.5) within group (order by p2.price)::numeric as sibling_median
-          from bad b
-          left join public.products p2
-            on p2.store_id=b.store_id
-           and p2.id<>b.id
-           and p2.archived_at is null
-           and p2.quantity>0
-           and p2.price>0
-           and p2.title=b.title
-          group by b.id,b.sku,b.title,b.quantity
-          order by b.id;
-          """) or []
-
-          plan=[]
-          unmatched=[]
-          source_used=0
-          sibling_used=0
-          for r in rows:
-              sku=str(r['sku'])
-              cid=sku[6:] if sku.startswith('COLLX-') else ''
-              p=source_prices.get(cid)
-              method='source'
-              if p is None:
-                  raw=r.get('sibling_median')
-                  if raw is not None:
-                      p=Decimal(str(raw))
-                      method='exact_title_sibling_median'
-              if p is None or p <= 0:
-                  unmatched.append({'id':r['id'],'sku':sku,'title':r.get('title'),'sibling_count':r.get('sibling_count')})
-              else:
-                  p=p.quantize(Decimal('0.01'))
-                  plan.append((int(r['id']),sku,p,method))
-                  if method=='source': source_used += 1
-                  else: sibling_used += 1
-
-          print('PRICE_REPAIR_V2_PREFLIGHT='+json.dumps({
-              'bad_price_rows':len(rows),
-              'repairable':len(plan),
-              'source_price_used':source_used,
-              'exact_title_sibling_price_used':sibling_used,
-              'unmatched':len(unmatched),
-              'unmatched_examples':unmatched[:30],
-          },default=str,sort_keys=True))
-
-          if not rows:
-              print('COLLX_PRICE_REPAIR_V2=NOTHING_TO_DO')
-          else:
-              if unmatched:
-                  raise SystemExit('FAIL: some zero-price CollX cards have neither a positive original asking price nor an exact-title priced sibling; no mutations performed')
-
-              repaired=0
-              for start in range(0,len(plan),50):
-                  batch=plan[start:start+50]
-                  values=','.join(
-                      "(%d,'%s',%s::numeric)" % (pid, sku.replace("'","''"), format(price,'f'))
-                      for pid,sku,price,method in batch
-                  )
-                  q=f"""
-                  update public.products p
-                  set price=v.new_price
-                  from (values {values}) as v(id,sku,new_price)
-                  where p.id=v.id
-                    and p.sku=v.sku
-                    and p.store_id='{STORE}'::uuid
-                    and p.ebay_item_id is null
-                    and p.archived_at is null
-                    and p.quantity>0
-                    and p.price<=0
-                  returning p.id,p.sku,p.price;
-                  """
-                  changed=sql(q,read_only=False) or []
-                  repaired += len(changed)
-                  print(f'PRICE_REPAIR_V2_BATCH start={start} planned={len(batch)} changed={len(changed)}')
-                  if len(changed) != len(batch):
-                      raise SystemExit(f'FAIL: repair batch mismatch at {start}: planned {len(batch)}, changed {len(changed)}')
-
-              verify=sql(f"""
-              select
-                count(*)::int total_rows,
-                coalesce(sum(greatest(quantity,0)),0)::int total_units,
-                count(*) filter (where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null)::int live_rows,
-                coalesce(sum(quantity) filter (where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),0)::int live_units,
-                count(*) filter (where archived_at is not null)::int archived_rows,
-                count(*) filter (where archived_at is null and quantity>0 and price<=0)::int bad_price_rows,
-                count(*) filter (where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is null)::int missing_front_rows
-              from public.products
-              where store_id='{STORE}'::uuid
-                and sku>='COLLX-' and sku<'COLLY'
-                and ebay_item_id is null;
-              """) or []
-              summary=verify[0] if verify else {}
-              summary.update({'repaired_rows':repaired,'source_price_used':source_used,'exact_title_sibling_price_used':sibling_used})
-              print('PRICE_REPAIR_V2_FINAL='+json.dumps(summary,sort_keys=True,default=str))
-              if summary.get('bad_price_rows') != 0:
-                  raise SystemExit('FAIL: CollX bad-price rows remain after repair')
-              if summary.get('missing_front_rows') != 0:
-                  raise SystemExit('FAIL: CollX live rows missing front image after repair')
-              print('COLLX_PRICE_REPAIR_V2=SUCCESS')
+          select count(*)::int bad_rows,
+                 count(*) filter(where median_price is not null)::int exact_title_covered,
+                 count(*) filter(where median_price is null)::int unmatched,
+                 coalesce(jsonb_agg(jsonb_build_object('id',id,'sku',sku,'title',title)) filter(where median_price is null),'[]'::jsonb) as unmatched_rows
+          from priced;
+          """
+          result=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},90)
+          print('ALL_HISTORY_PRICE_COVERAGE='+json.dumps(result,sort_keys=True,default=str))
+          print('COLLX_HISTORY_COVERAGE=SUCCESS')
           PY
