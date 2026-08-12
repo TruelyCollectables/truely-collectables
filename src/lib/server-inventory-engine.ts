@@ -129,6 +129,28 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     );
   }
 
+  private async resolveInventoryItemId(product: any) {
+    let query = this.publicDatabase
+      .from("inventory_items")
+      .select("id")
+      .eq("store_id", this.publicStoreId)
+      .eq("legacy_product_id", Number(product.id));
+
+    const sku = String(product.sku || "").trim();
+    if (sku) {
+      query = query.eq("sku", sku);
+    }
+
+    const { data, error } = await query
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (error) throw error;
+
+    const inventoryItemId = data?.[0]?.id;
+    return inventoryItemId ? String(inventoryItemId) : null;
+  }
+
   async listAvailable(
     params: {
       query?: string;
@@ -193,7 +215,12 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     if (!data) return null;
 
     const item = enforceStrictStorefrontFeatures(mapPublicProductRow(data));
-    return isPublicStorefrontItem(item) ? item : null;
+    if (!isPublicStorefrontItem(item)) return null;
+
+    return {
+      ...item,
+      inventoryItemId: await this.resolveInventoryItemId(data),
+    };
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
