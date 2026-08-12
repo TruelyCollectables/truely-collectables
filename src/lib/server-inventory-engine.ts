@@ -20,8 +20,9 @@ const STOREFRONT_INVENTORY_PAGE_SIZE = 1000;
 const STOREFRONT_LOOKUP_CHUNK_SIZE = 500;
 const STOREFRONT_LOOKUP_CONCURRENCY = 4;
 const MAX_STOREFRONT_INVENTORY_PAGES = 50;
-const STOREFRONT_DATABASE_TIMEOUT_MS = 2200;
-const STOREFRONT_LOOKUP_TIMEOUT_MS = 2500;
+const STOREFRONT_DATABASE_TIMEOUT_MS = 1200;
+const STOREFRONT_LOOKUP_TIMEOUT_MS = 1200;
+const STOREFRONT_RENDER_TIMEOUT_MS = 1500;
 
 function enforceStrictStorefrontFeatures(item: UniversalInventoryItem) {
   const identity = deriveCardIdentity({
@@ -85,6 +86,28 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       category?: string;
       sort?: StorefrontSort;
     } = {},
+  ) {
+    try {
+      return await withDeadline(
+        this.loadAvailable(params),
+        STOREFRONT_RENDER_TIMEOUT_MS,
+        "Storefront inventory render",
+      );
+    } catch (error) {
+      console.error("Storefront inventory degraded during database incident", error);
+      return [];
+    }
+  }
+
+  private async loadAvailable(
+    params: {
+      query?: string;
+      sport?: string;
+      section?: string;
+      feature?: string;
+      category?: string;
+      sort?: StorefrontSort;
+    },
   ) {
     const storeId = getActiveStoreId();
     const database = createSupabaseServerClient({ admin: true });
