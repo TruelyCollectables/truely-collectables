@@ -1,0 +1,100 @@
+name: CollX Price Coverage V3 20260812
+
+on:
+  push:
+    paths:
+      - '.github/workflows/collx-price-coverage-v3-20260812.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: 00000000-0000-4000-8000-000000000001
+      EXPECTED_SOURCE_ROWS: 6909
+      EXPECTED_SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit exact-title historical price coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          WORK=/tmp/collx-price-v3
+          mkdir -p "$WORK"
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10m0 \
+            .github/ops/collx-full-metadata.part10m1 \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14m \
+            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SOURCE_SHA"
+          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_SOURCE_ROWS"
+          python3 - <<'PY'
+          import csv,json,os,subprocess,tempfile,time
+          from decimal import Decimal
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['FLAGSHIP_STORE_ID']
+          def req(method,path,body=None,timeout=90,retries=6):
+            last=None
+            for attempt in range(retries):
+              out=tempfile.NamedTemporaryFile(delete=False); out.close()
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o',out.name,'-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True); raw=open(out.name).read(); os.unlink(out.name)
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              if status in (200,201): return payload
+              last=(status,payload)
+              if status in (0,429,500,502,503,504,522,524,544) and attempt+1<retries: time.sleep(2*(attempt+1)); continue
+              break
+            raise RuntimeError(f'{method} {path} HTTP {last[0] if last else 0}: {str(last[1] if last else "")[:2000]}')
+          projects=req('GET','/projects',timeout=30); cand=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(cand)!=1: raise SystemExit(f'Expected one Truely project, got {len(cand)}')
+          ref=str(cand[0].get('id') or cand[0].get('ref') or '')
+          def sql(q): return req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},90)
+          source_prices={}
+          with open('/tmp/collx-price-v3/source.csv',newline='',encoding='utf-8-sig') as f:
+            for r in csv.DictReader(f):
+              cid=str(r.get('collx_id') or '').strip(); raw=str(r.get('asking_price') or '').strip().replace('$','').replace(',','')
+              try: p=Decimal(raw)
+              except Exception: continue
+              if cid and p>0: source_prices[cid]=p
+          rows=sql(f"""
+          with bad as (
+            select id,store_id,sku,title,quantity from public.products
+            where store_id='{STORE}'::uuid and sku>='COLLX-' and sku<'COLLY' and ebay_item_id is null
+              and archived_at is null and quantity>0 and price<=0
+          )
+          select b.id,b.sku,b.title,
+                 count(p2.id)::int historical_exact_title_count,
+                 percentile_cont(0.5) within group(order by p2.price)::numeric historical_exact_title_median,
+                 min(p2.price)::numeric historical_exact_title_min,
+                 max(p2.price)::numeric historical_exact_title_max,
+                 count(p2.id) filter(where p2.ebay_item_id is not null)::int ebay_history_count,
+                 count(p2.id) filter(where p2.archived_at is not null)::int archived_history_count
+          from bad b left join public.products p2
+            on p2.store_id=b.store_id and p2.id<>b.id and p2.price>0 and p2.title=b.title
+          group by b.id,b.sku,b.title order by b.id;
+          """) or []
+          source=hist=unmatched=0; examples=[]
+          for r in rows:
+            cid=str(r['sku'])[6:]
+            if source_prices.get(cid): source+=1
+            elif r.get('historical_exact_title_median') is not None: hist+=1
+            else:
+              unmatched+=1
+              if len(examples)<50: examples.append({'id':r['id'],'sku':r['sku'],'title':r['title']})
+          print('PRICE_COVERAGE_V3='+json.dumps({'bad_rows':len(rows),'source_price':source,'historical_exact_title':hist,'covered_total':source+hist,'unmatched':unmatched,'unmatched_examples':examples},sort_keys=True,default=str))
+          print('COLLX_PRICE_COVERAGE_V3=SUCCESS')
+          PY
