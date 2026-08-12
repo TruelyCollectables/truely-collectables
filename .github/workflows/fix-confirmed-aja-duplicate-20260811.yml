@@ -1,0 +1,175 @@
+name: Fix Confirmed Aja Wilson Duplicate 20260811
+
+on:
+  push:
+    branches: [ops/fix-confirmed-aja-duplicate-20260811]
+    paths:
+      - ".github/workflows/fix-confirmed-aja-duplicate-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fix-confirmed-aja-duplicate-20260811
+  cancel-in-progress: false
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+  KEEP_SKU: "COLLX-1111931109962371072"
+  ARCHIVE_SKU: "COLLX-1116438452553061376"
+  EXPECTED_TITLE: "2025 Panini Select WNBA - Score Select Throwback A’ja Wilson #11"
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Archive confirmed duplicate and verify one sellable unit remains
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+          KEEP=os.environ['KEEP_SKU']
+          ARCHIVE=os.environ['ARCHIVE_SKU']
+          EXPECTED_TITLE=os.environ['EXPECTED_TITLE']
+
+          def req(method,path,body=None,timeout=60):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}',
+                   '-H','Accept: application/json','-H','Content-Type: application/json',
+                   '-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None:
+                  cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=599
+              if p.returncode != 0 and status == 0:
+                  status,payload=599,{'error':p.stderr.strip()}
+              return status,payload
+
+          s,projects=req('GET','/projects',timeout=30)
+          if s!=200 or not isinstance(projects,list):
+              print('PROJECT_LIST_FAILURE',s,projects); raise SystemExit(2)
+          candidates=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(candidates)!=1:
+              print('PROJECT_CANDIDATES',json.dumps(candidates,default=str)); raise SystemExit(3)
+          ref=str(candidates[0].get('id') or candidates[0].get('ref') or '')
+          print('PROJECT_REF='+ref)
+
+          def sql(q, read_only):
+              status,body=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':read_only},60)
+              if status not in (200,201):
+                  print('SQL_FAILURE',status,json.dumps(body,default=str)); raise SystemExit(4)
+              return body
+
+          pre=sql(f"""
+          select p.id as product_id,p.sku,p.title,p.player,p.price,p.quantity,p.image_url,p.archived_at,
+                 p.ebay_item_id,
+                 i.id as inventory_item_id,i.status as inventory_status,i.quantity as inventory_quantity,
+                 i.legacy_product_id,i.metadata
+          from public.products p
+          left join public.inventory_items i
+            on i.store_id=p.store_id and (i.legacy_product_id=p.id or i.sku=p.sku)
+          where p.store_id='{STORE}'::uuid and p.sku in ('{KEEP}','{ARCHIVE}')
+          order by p.sku;
+          """, True)
+          print('PRE_REPAIR='+json.dumps(pre,default=str))
+
+          if not isinstance(pre,list) or len(pre)!=2:
+              print('REFUSING_UNEXPECTED_PAIR_COUNT',len(pre) if isinstance(pre,list) else 'not-list'); raise SystemExit(10)
+          bysku={str(r.get('sku')):r for r in pre}
+          if set(bysku)!={KEEP,ARCHIVE}:
+              print('REFUSING_UNEXPECTED_SKUS',sorted(bysku)); raise SystemExit(11)
+          for sku,row in bysku.items():
+              title=str(row.get('title') or '')
+              if title != EXPECTED_TITLE:
+                  print('REFUSING_TITLE_MISMATCH',sku,repr(title),repr(EXPECTED_TITLE)); raise SystemExit(12)
+              if int(row.get('quantity') or 0)!=1 or int(row.get('inventory_quantity') or 0)!=1:
+                  print('REFUSING_QUANTITY_PRECONDITION',sku,row.get('quantity'),row.get('inventory_quantity')); raise SystemExit(13)
+              if row.get('archived_at') is not None or str(row.get('inventory_status') or '')!='active':
+                  print('REFUSING_STATE_PRECONDITION',sku,row.get('archived_at'),row.get('inventory_status')); raise SystemExit(14)
+              if str(row.get('ebay_item_id') or '').strip():
+                  print('REFUSING_EBAY_LINKED_RECORD',sku,row.get('ebay_item_id')); raise SystemExit(15)
+
+          archive_id=int(bysku[ARCHIVE]['product_id'])
+          archive_item=str(bysku[ARCHIVE]['inventory_item_id'])
+          keep_id=int(bysku[KEEP]['product_id'])
+
+          result=sql(f"""
+          WITH updated_item AS (
+            UPDATE public.inventory_items
+            SET quantity=0,
+                status='draft',
+                notes=CASE
+                  WHEN NULLIF(BTRIM(notes),'') IS NULL THEN 'Confirmed duplicate physical card; archived 2026-08-11; keep {KEEP}'
+                  WHEN notes ILIKE '%Confirmed duplicate physical card%' THEN notes
+                  ELSE BTRIM(notes) || ' | Confirmed duplicate physical card; archived 2026-08-11; keep {KEEP}'
+                END,
+                metadata=COALESCE(metadata,'{{}}'::jsonb) || jsonb_build_object(
+                  'confirmed_duplicate_20260811',jsonb_build_object(
+                    'state','archived','keep_sku','{KEEP}','reason','owner confirmed only one physical copy exists','recorded_at',now()
+                  )
+                ),
+                updated_at=now()
+            WHERE id='{archive_item}'::uuid AND store_id='{STORE}'::uuid AND sku='{ARCHIVE}' AND quantity=1 AND status='active'
+            RETURNING id
+          ), updated_product AS (
+            UPDATE public.products
+            SET quantity=0, archived_at=now()
+            WHERE id={archive_id} AND store_id='{STORE}'::uuid AND sku='{ARCHIVE}' AND quantity=1 AND archived_at IS NULL
+              AND EXISTS (SELECT 1 FROM updated_item)
+            RETURNING id
+          )
+          SELECT (SELECT count(*)::int FROM updated_item) AS updated_items,
+                 (SELECT count(*)::int FROM updated_product) AS updated_products;
+          """, False)
+          print('REPAIR_RESULT='+json.dumps(result,default=str))
+          if not isinstance(result,list) or len(result)!=1 or int(result[0].get('updated_items') or 0)!=1 or int(result[0].get('updated_products') or 0)!=1:
+              print('REPAIR_ATOMIC_COUNT_FAILURE'); raise SystemExit(20)
+
+          post=sql(f"""
+          select p.id as product_id,p.sku,p.title,p.quantity,p.archived_at,
+                 i.id as inventory_item_id,i.status as inventory_status,i.quantity as inventory_quantity
+          from public.products p
+          left join public.inventory_items i
+            on i.store_id=p.store_id and (i.legacy_product_id=p.id or i.sku=p.sku)
+          where p.store_id='{STORE}'::uuid and p.sku in ('{KEEP}','{ARCHIVE}')
+          order by p.sku;
+          """, True)
+          print('POST_REPAIR='+json.dumps(post,default=str))
+          pb={str(r.get('sku')):r for r in post}
+          keep=pb.get(KEEP,{})
+          gone=pb.get(ARCHIVE,{})
+          if int(keep.get('quantity') or 0)!=1 or keep.get('archived_at') is not None or str(keep.get('inventory_status') or '')!='active' or int(keep.get('inventory_quantity') or 0)!=1:
+              print('KEEP_VERIFICATION_FAILURE',json.dumps(keep,default=str)); raise SystemExit(21)
+          if int(gone.get('quantity') or 0)!=0 or gone.get('archived_at') is None or str(gone.get('inventory_status') or '')=='active' or int(gone.get('inventory_quantity') or 0)!=0:
+              print('ARCHIVE_VERIFICATION_FAILURE',json.dumps(gone,default=str)); raise SystemExit(22)
+
+          live=sql(f"""
+          select count(*)::int as live_rows,coalesce(sum(quantity),0)::int as live_units
+          from public.products
+          where store_id='{STORE}'::uuid and sku in ('{KEEP}','{ARCHIVE}')
+            and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null;
+          """, True)
+          print('PAIR_LIVE_VERIFY='+json.dumps(live,default=str))
+          if not isinstance(live,list) or len(live)!=1 or int(live[0].get('live_rows') or 0)!=1 or int(live[0].get('live_units') or 0)!=1:
+              raise SystemExit(23)
+
+          print('CONFIRMED_AJA_DUPLICATE_REPAIR=SUCCESS')
+          print('KEPT_PRODUCT_ID='+str(keep_id))
+          print('ARCHIVED_PRODUCT_ID='+str(archive_id))
+          PY
