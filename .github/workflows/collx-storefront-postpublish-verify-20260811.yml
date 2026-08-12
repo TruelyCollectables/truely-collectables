@@ -19,14 +19,14 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
     steps:
-      - name: Verify live shop and CollX product pages
+      - name: Verify live shop and actual CollX product pages
         shell: bash
         run: |
           set -euo pipefail
           test -n "${SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
           python3 - <<'PY'
-          import json, os, subprocess, time
+          import json, os, re, subprocess, time
           API='https://api.supabase.com/v1'
           TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
           STORE=os.environ['FLAGSHIP_STORE_ID']
@@ -57,35 +57,50 @@ jobs:
           c=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
           if len(c)!=1: raise SystemExit(3)
           ref=str(c[0].get('id') or c[0].get('ref') or '')
-          q=f"select id,sku,title,price,quantity,image_url from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and price>0 and quantity>0 and image_url is not null order by sku limit 3;"
+
+          q=f"select id,sku,title,price,quantity,image_url from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and price>0 and quantity>0 and image_url is not null and archived_at is null order by id limit 2000;"
           qs,rows=api('POST',f'/projects/{ref}/database/query/read-only',{'query':q,'parameters':[]},30)
-          print('SAMPLE_PRODUCTS',qs,json.dumps(rows,default=str))
-          if qs not in (200,201) or not isinstance(rows,list) or len(rows)<3: raise SystemExit(4)
+          print('COLLX_SELLABLE_DB_ROWS',qs,len(rows) if isinstance(rows,list) else 'invalid')
+          if qs not in (200,201) or not isinstance(rows,list) or not rows: raise SystemExit(4)
 
           shop_ok=False
+          shop_body=''
+          live_ids=set()
           for n in range(1,7):
               code,body,err=curl('https://truelycollectables.com/shop',30)
-              links=body.count('href="/product/')
+              ids=re.findall(r'href=["\']/product/(\d+)', body)
+              live_ids={int(x) for x in ids}
               empty='No active cards or collectibles found' in body
-              print('SHOP_PROBE',n,'http',code,'product_links',links,'empty',empty,'err',err[:200])
-              if code==200 and links>0 and not empty:
-                  shop_ok=True; break
+              active_match=re.search(r'([0-9][0-9,]*) active', body)
+              active_label=active_match.group(1) if active_match else 'unknown'
+              print('SHOP_PROBE',n,'http',code,'unique_product_ids',len(live_ids),'active_label',active_label,'empty',empty,'err',err[:200])
+              if code==200 and live_ids and not empty:
+                  shop_ok=True
+                  shop_body=body
+                  break
               time.sleep(5)
           if not shop_ok: raise SystemExit(5)
 
-          for row in rows:
+          live_collx=[row for row in rows if int(row['id']) in live_ids]
+          print('LIVE_COLLX_MATCHES',len(live_collx))
+          for row in live_collx[:10]:
+              print('LIVE_COLLX',row['id'],row['sku'],row['title'][:100])
+          if len(live_collx)<3: raise SystemExit(6)
+
+          for row in live_collx[:3]:
               pid=row['id']; sku=row['sku']
               ok=False
               for n in range(1,4):
                   code,body,err=curl(f'https://truelycollectables.com/product/{pid}',30)
                   has_title=str(row.get('title') or '')[:24].lower() in body.lower() if row.get('title') else True
-                  has_price=str(row.get('price') or '').split('.')[0] in body
-                  has_image='img' in body.lower()
-                  print('PRODUCT_PROBE',sku,n,'http',code,'title',has_title,'price',has_price,'image',has_image,'err',err[:160])
-                  if code==200 and has_title and has_image:
-                      ok=True; break
+                  has_image='<img' in body.lower()
+                  not_found='Product Not Found' in body
+                  print('PRODUCT_PROBE',sku,pid,n,'http',code,'title',has_title,'image',has_image,'not_found',not_found,'err',err[:160])
+                  if code==200 and has_title and has_image and not not_found:
+                      ok=True
+                      break
                   time.sleep(3)
-              if not ok: raise SystemExit(6)
+              if not ok: raise SystemExit(7)
 
           print('COLLX_STOREFRONT_POSTPUBLISH_VERIFY=SUCCESS')
           PY
