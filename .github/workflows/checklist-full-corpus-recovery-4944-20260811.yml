@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/checklist-full-corpus-recovery-4944-20260811.yml'
       - 'scripts/ingest-master-checklist-archive.mjs'
+      - 'scripts/checklist-catalog-retry-prepatch.mjs'
 
 permissions:
   contents: read
@@ -61,6 +62,16 @@ jobs:
           sudo apt-get install -y -qq poppler-utils
           python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
           npm ci
+      - name: Test nonblocking catalog recovery guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/checklist-catalog-retry-prepatch.mjs
+          node --check scripts/ingest-master-checklist-archive.mjs
+          grep -q 'catalog-deferred' scripts/checklist-catalog-retry-prepatch.mjs
+          grep -q 'safeCatalogUpsert' scripts/ingest-master-checklist-archive.mjs
+          grep -q 'const persistence=await persistPlan' scripts/ingest-master-checklist-archive.mjs
+          ! grep -q 'await ensureArchiveBucket' scripts/ingest-master-checklist-archive.mjs
       - name: Download immutable sanitized full corpus
         uses: actions/download-artifact@v4
         with:
@@ -104,7 +115,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          set -euo pipefail; test -s "$MASTER_CHECKLIST_OUTPUT"; jq 'if (.results|type)=="array" then {batch,statuses,normalizedTotals,results:[.results[]|{exactSetKey,status,counts,failures}]} else . end' "$MASTER_CHECKLIST_OUTPUT"
+          set -euo pipefail; test -s "$MASTER_CHECKLIST_OUTPUT"; jq 'if (.results|type)=="array" then {batch,statuses,normalizedTotals,catalog,results:[.results[]|{exactSetKey,status,counts,failures,catalog}]} else . end' "$MASTER_CHECKLIST_OUTPUT"
       - name: Upload full batch receipt
         if: always()
         uses: actions/upload-artifact@v4
