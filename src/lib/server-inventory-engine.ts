@@ -20,6 +20,8 @@ const STOREFRONT_INVENTORY_PAGE_SIZE = 1000;
 const STOREFRONT_LOOKUP_CHUNK_SIZE = 500;
 const STOREFRONT_LOOKUP_CONCURRENCY = 4;
 const MAX_STOREFRONT_INVENTORY_PAGES = 50;
+const STOREFRONT_DATABASE_TIMEOUT_MS = 2200;
+const STOREFRONT_LOOKUP_TIMEOUT_MS = 2500;
 
 function enforceStrictStorefrontFeatures(item: UniversalInventoryItem) {
   const identity = deriveCardIdentity({
@@ -51,6 +53,28 @@ function chunkValues<T>(values: T[], size: number) {
   return chunks;
 }
 
+async function withDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 class PublicStorefrontInventoryEngine extends InventoryEngine {
   async listAvailable(
     params: {
@@ -76,7 +100,8 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
         .eq("status", "active")
         .gt("quantity", 0)
         .order("id", { ascending: true })
-        .range(from, from + STOREFRONT_INVENTORY_PAGE_SIZE - 1);
+        .range(from, from + STOREFRONT_INVENTORY_PAGE_SIZE - 1)
+        .abortSignal(AbortSignal.timeout(STOREFRONT_DATABASE_TIMEOUT_MS));
 
       if (error) throw error;
 
@@ -108,7 +133,8 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
           .from("products")
           .select("id")
           .eq("store_id", storeId)
-          .in("sku", skuChunk);
+          .in("sku", skuChunk)
+          .abortSignal(AbortSignal.timeout(STOREFRONT_DATABASE_TIMEOUT_MS));
 
         if (error) throw error;
 
@@ -134,8 +160,10 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
         offset,
         offset + STOREFRONT_LOOKUP_CONCURRENCY,
       );
-      const results = await Promise.all(
-        lookupBatch.map((ids) => super.getByLegacyProductIds(ids)),
+      const results = await withDeadline(
+        Promise.all(lookupBatch.map((ids) => super.getByLegacyProductIds(ids))),
+        STOREFRONT_LOOKUP_TIMEOUT_MS,
+        "Storefront inventory lookup",
       );
       items.push(...results.flat());
     }
