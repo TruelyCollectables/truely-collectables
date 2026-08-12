@@ -27,23 +27,26 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SNAPSHOT_BRANCH: generated/instacomp-inventory-training-snapshot
-      SNAPSHOT_PATH: services/instacomp-ai/data/training/inventory-training-production-snapshot.json.gz
+      SNAPSHOT_PATH: services/instacomp-ai/data/training/inventory-training-production-snapshot.enc.json
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Export authoritative inventory through Supabase Management API
+      - name: Export and encrypt authoritative inventory through Supabase Management API
         shell: bash
         run: |
           set -euo pipefail
           test -n "${SUPABASE_ACCESS_TOKEN:-}"
           echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
           python3 - <<'PY'
+          import base64
           import gzip
           import hashlib
+          import hmac
           import json
           import os
+          import subprocess
           import time
           import urllib.error
           import urllib.request
@@ -52,7 +55,7 @@ jobs:
 
           API = 'https://api.supabase.com/v1'
           TOKEN = os.environ['SUPABASE_ACCESS_TOKEN']
-          OUT = Path('/tmp/inventory-training-production-snapshot.json.gz')
+          OUT = Path('/tmp/inventory-training-production-snapshot.enc.json')
           BATCH = 500
           MAX_ROWS = 100_000
           TRANSIENT = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526}
@@ -84,7 +87,7 @@ jobs:
                       if attempt >= retries:
                           raise RuntimeError(f'{method} {path} transport failure after {retries} attempts: {last}') from exc
                       delay = min(2 ** (attempt - 1), 15)
-                      print(f'RETRY management API {method} {path}: {last}; sleeping {delay}s', flush=True)
+                      print(f'RETRY management API {method} {path}: transport failure; sleeping {delay}s', flush=True)
                       time.sleep(delay)
                       continue
 
@@ -95,13 +98,13 @@ jobs:
                       payload = text
                   if status in (200, 201):
                       return payload
-                  last = f'HTTP {status}: {str(payload)[:1200]}'
+                  last = f'HTTP {status}'
                   if status in TRANSIENT and attempt < retries:
                       delay = min(2 ** (attempt - 1), 15)
-                      print(f'RETRY management API {method} {path}: {last}; sleeping {delay}s', flush=True)
+                      print(f'RETRY management API {method} {path}: HTTP {status}; sleeping {delay}s', flush=True)
                       time.sleep(delay)
                       continue
-                  raise RuntimeError(f'{method} {path} failed: {last}')
+                  raise RuntimeError(f'{method} {path} failed: HTTP {status}')
               raise RuntimeError(f'{method} {path} failed after retries: {last}')
 
           projects = req('GET', '/projects', timeout=45)
@@ -115,6 +118,20 @@ jobs:
           ref = str(candidates[0].get('id') or candidates[0].get('ref') or '').strip()
           if not ref:
               raise SystemExit('Could not resolve Supabase project ref')
+
+          api_keys = req('GET', f'/projects/{ref}/api-keys?reveal=true', timeout=45)
+          if not isinstance(api_keys, list):
+              raise SystemExit('Could not retrieve project API keys for encrypted snapshot transport')
+          service_key = None
+          for row in api_keys:
+              name = str((row or {}).get('name') or '').strip().lower().replace('-', '_').replace(' ', '_')
+              candidate = str((row or {}).get('api_key') or '').strip()
+              if candidate and name == 'service_role':
+                  service_key = candidate
+                  break
+          if not service_key:
+              raise SystemExit('Could not resolve the Production service_role key for snapshot encryption')
+          print(f'::add-mask::{service_key}')
 
           def sql(query):
               payload = req(
@@ -143,7 +160,7 @@ jobs:
                   )
                   page = sql(query)
                   rows.extend(page)
-                  print(f'SNAPSHOT {table} offset={offset} page={len(page)} total={len(rows)}', flush=True)
+                  print(f'SNAPSHOT {table} page_offset={offset} rows_received={len(page)}', flush=True)
                   if len(page) < BATCH:
                       break
               else:
@@ -153,37 +170,52 @@ jobs:
           row_counts = {name: len(rows) for name, rows in tables.items()}
           if row_counts['inventory_items'] <= 0:
               raise SystemExit('Refusing to publish empty inventory_items snapshot')
-          collx_rows = sum(
-              1 for row in tables['inventory_items']
-              if str(row.get('sku') or '').strip().upper().startswith('COLLX-')
-          )
 
-          payload = {
+          snapshot = {
               'schema_version': 'tcos.instacomp-ai.inventory-training-production-snapshot.v1',
               'generated_at': datetime.now(timezone.utc).isoformat(),
               'source': 'supabase_management_database_query_read_only',
               'source_project_ref': ref,
               'source_git_sha': os.environ.get('GITHUB_SHA'),
               'row_counts': row_counts,
-              'collx_inventory_rows': collx_rows,
               'tables': tables,
           }
-          encoded = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
-          OUT.parent.mkdir(parents=True, exist_ok=True)
-          with OUT.open('wb') as handle:
-              with gzip.GzipFile(filename='', mode='wb', fileobj=handle, compresslevel=9, mtime=0) as zipped:
-                  zipped.write(encoded)
-          digest = hashlib.sha256(OUT.read_bytes()).hexdigest()
+          encoded = json.dumps(snapshot, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+          compressed = gzip.compress(encoded, compresslevel=9, mtime=0)
+
+          enc_pass = hashlib.sha256(b'instacomp-snapshot-encryption-v1\0' + service_key.encode('utf-8')).hexdigest()
+          mac_key = hashlib.sha256(b'instacomp-snapshot-mac-v1\0' + service_key.encode('utf-8')).digest()
+          env = dict(os.environ)
+          env['INSTACOMP_SNAPSHOT_ENC_PASS'] = enc_pass
+          encrypted = subprocess.run(
+              [
+                  'openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '200000', '-salt',
+                  '-pass', 'env:INSTACOMP_SNAPSHOT_ENC_PASS',
+              ],
+              input=compressed,
+              capture_output=True,
+              check=False,
+              env=env,
+          )
+          if encrypted.returncode != 0 or not encrypted.stdout:
+              raise SystemExit('OpenSSL snapshot encryption failed')
+          ciphertext = encrypted.stdout
+          digest = hmac.new(mac_key, ciphertext, hashlib.sha256).hexdigest()
+          envelope = {
+              'schema_version': 'tcos.instacomp-ai.inventory-training-encrypted-envelope.v1',
+              'algorithm': 'openssl-aes-256-cbc-pbkdf2-sha256-hmac-v1',
+              'pbkdf2_iterations': 200000,
+              'hmac_sha256': digest,
+              'ciphertext_base64': base64.b64encode(ciphertext).decode('ascii'),
+          }
+          OUT.write_text(json.dumps(envelope, sort_keys=True, separators=(',', ':')), encoding='utf-8')
           size = OUT.stat().st_size
-          print('SNAPSHOT_ROW_COUNTS=' + json.dumps(row_counts, sort_keys=True))
-          print(f'SNAPSHOT_COLLX_ROWS={collx_rows}')
-          print(f'SNAPSHOT_BYTES={size}')
-          print(f'SNAPSHOT_SHA256={digest}')
+          print(f'ENCRYPTED_SNAPSHOT_BYTES={size}')
           if size >= 95 * 1024 * 1024:
-              raise SystemExit(f'Snapshot is too large for safe Git transport: {size} bytes')
+              raise SystemExit(f'Encrypted snapshot is too large for safe Git transport: {size} bytes')
           PY
 
-      - name: Publish snapshot to generated Git branch
+      - name: Publish encrypted snapshot to generated Git branch
         shell: bash
         run: |
           set -euo pipefail
@@ -192,12 +224,12 @@ jobs:
           git fetch origin "${SNAPSHOT_BRANCH}" || true
           git checkout -B "${SNAPSHOT_BRANCH}" "${GITHUB_SHA}"
           mkdir -p "$(dirname "${SNAPSHOT_PATH}")"
-          cp /tmp/inventory-training-production-snapshot.json.gz "${SNAPSHOT_PATH}"
+          cp /tmp/inventory-training-production-snapshot.enc.json "${SNAPSHOT_PATH}"
           git add -f "${SNAPSHOT_PATH}"
           if git diff --cached --quiet; then
-            echo 'Snapshot bytes unchanged; generated branch already current.'
+            echo 'Encrypted snapshot bytes unchanged; generated branch already current.'
           else
-            git commit -m "Refresh InstaComp inventory training snapshot"
+            git commit -m "Refresh encrypted InstaComp inventory training snapshot"
           fi
           git push --force origin "HEAD:refs/heads/${SNAPSHOT_BRANCH}"
-          echo "SNAPSHOT_PUBLISHED_BRANCH=${SNAPSHOT_BRANCH}"
+          echo "ENCRYPTED_SNAPSHOT_PUBLISHED_BRANCH=${SNAPSHOT_BRANCH}"
