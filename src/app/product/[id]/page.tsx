@@ -35,7 +35,6 @@ function isPublicProduct(
     product &&
       product.imageUrl &&
       product.quantity > 0 &&
-      product.price > 0 &&
       product.status === "active",
   );
 }
@@ -218,100 +217,157 @@ export default async function ProductPage({
   ];
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <Link href="/shop" className="text-sm font-bold underline underline-offset-4">
-          ← Back to Shop
-        </Link>
-        <span className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide">
-          {statusLabel(product.status, quantity)}
-        </span>
-      </div>
+    <main className="mx-auto max-w-7xl px-6 py-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(productJsonLd) }}
+      />
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-        <section>
-          <ProductImageGallery
-            inventoryItemId={product.inventoryItemId}
-            title={product.title}
-            primaryImageUrl={product.imageUrl}
-          />
-        </section>
+      <Link href="/shop" className="inline-block text-sm font-bold underline">
+        Back to Shop
+      </Link>
 
-        <section>
-          <p className="text-sm font-black uppercase tracking-[0.14em] text-neutral-500">
-            {product.storefrontSection || product.sport || "Collectible"}
-          </p>
-          <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">
-            {product.title}
-          </h1>
-          {product.player ? (
-            <p className="mt-3 text-lg font-bold text-neutral-600">{product.player}</p>
-          ) : null}
+      <section className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <ProductImageGallery
+          inventoryItemId={product.inventoryItemId}
+          primaryImageUrl={product.imageUrl}
+          title={product.title}
+        />
 
-          <p className="mt-6 text-3xl font-black">${Number(product.price).toFixed(2)}</p>
+        <div className="space-y-6">
+          <section>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded px-3 py-1 text-xs font-bold uppercase ${
+                  isSoldOut
+                    ? "bg-red-100 text-red-700"
+                    : "bg-green-100 text-green-700"
+                }`}
+              >
+                {statusLabel(product.status, quantity)}
+              </span>
+            </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 rounded border bg-white p-4 text-sm">
-            {facts.map(([label, value]) => (
-              <div key={label}>
-                <p className="text-xs font-black uppercase tracking-wide text-neutral-500">
-                  {label}
-                </p>
-                <p className="mt-1 font-bold break-words">{value}</p>
-              </div>
-            ))}
-          </div>
+            <h1 className="text-4xl font-black leading-tight md:text-5xl">
+              {product.title}
+            </h1>
+
+            <p className="mt-4 text-neutral-600">
+              {[product.sport, product.player].filter(Boolean).join(" - ") ||
+                "Collectable"}
+            </p>
+
+            <p className="mt-5 text-5xl font-black">
+              ${Number(product.price).toFixed(2)}
+            </p>
+          </section>
+
+          <section className="rounded border bg-white p-5">
+            <h2 className="text-xl font-bold">Collector Snapshot</h2>
+            <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+              {facts.map(([label, value]) => (
+                <div key={label} className="rounded bg-neutral-50 px-3 py-2">
+                  <dt className="font-bold text-neutral-500">{label}</dt>
+                  <dd className="mt-1 break-words text-neutral-950">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
 
           {hasAuthenticityDetails(product.authenticity) ? (
-            <section className="mt-6 rounded border bg-white p-4">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
-                Authenticity
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {authenticityBadges.map((badge) => (
-                  <span
-                    key={badge.label}
-                    className={`rounded-full border px-3 py-1 text-xs font-black ${authenticityToneClasses(badge.tone)}`}
-                  >
-                    {badge.label}
-                  </span>
-                ))}
-              </div>
-              {authenticityCallout ? (
-                <p className="mt-3 text-sm leading-6 text-neutral-700">
-                  {authenticityCallout}
-                </p>
-              ) : null}
-              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <section className="rounded border bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <dt className="font-black text-neutral-600">Status</dt>
-                  <dd className="mt-1">
+                  <h2 className="text-xl font-bold">Authenticity Disclosure</h2>
+                  <p className="mt-2 text-sm text-neutral-600">
+                    Truely Collectables shows the seller&apos;s certification,
+                    guarantee, and provenance disclosure here so buyers can make an
+                    informed call.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {authenticityBadges.map((badge) => (
+                    <span
+                      key={badge.label}
+                      className={`rounded border px-3 py-1 text-xs font-bold ${authenticityToneClasses(
+                        badge.tone,
+                      )}`}
+                    >
+                      {badge.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                className={`mt-4 rounded border px-4 py-3 text-sm ${authenticityToneClasses(
+                  authenticityCallout.tone,
+                )}`}
+              >
+                <p className="font-bold">{authenticityCallout.title}</p>
+                <p className="mt-1 leading-6">{authenticityCallout.detail}</p>
+              </div>
+
+              <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                <div className="rounded bg-neutral-50 px-3 py-2">
+                  <dt className="font-bold text-neutral-500">Authenticity Status</dt>
+                  <dd className="mt-1 text-neutral-950">
                     {authenticityStatusLabel(product.authenticity.status)}
                   </dd>
                 </div>
-                {product.authenticity.autographSource ? (
-                  <div>
-                    <dt className="font-black text-neutral-600">Autograph Source</dt>
-                    <dd className="mt-1">
+
+                {product.authenticity.autographSource !== "none" ? (
+                  <div className="rounded bg-neutral-50 px-3 py-2">
+                    <dt className="font-bold text-neutral-500">Autograph Source</dt>
+                    <dd className="mt-1 text-neutral-950">
                       {autographSourceLabel(product.authenticity.autographSource)}
                     </dd>
                   </div>
                 ) : null}
+
                 {product.authenticity.certProvider ? (
-                  <div>
-                    <dt className="font-black text-neutral-600">Certification</dt>
-                    <dd className="mt-1">
+                  <div className="rounded bg-neutral-50 px-3 py-2">
+                    <dt className="font-bold text-neutral-500">Certification Provider</dt>
+                    <dd className="mt-1 text-neutral-950">
                       {product.authenticity.certProvider}
-                      {product.authenticity.certNumber
-                        ? ` #${product.authenticity.certNumber}`
-                        : ""}
                     </dd>
                   </div>
                 ) : null}
+
+                {product.authenticity.certNumber ? (
+                  <div className="rounded bg-neutral-50 px-3 py-2">
+                    <dt className="font-bold text-neutral-500">Certification Number</dt>
+                    <dd className="mt-1 break-words text-neutral-950">
+                      {product.authenticity.certNumber}
+                    </dd>
+                  </div>
+                ) : null}
+
+                {product.authenticity.guaranteedAuthenticators.length > 0 ? (
+                  <div className="rounded bg-neutral-50 px-3 py-2 sm:col-span-2">
+                    <dt className="font-bold text-neutral-500">
+                      Seller Pass Guarantee Authenticators
+                    </dt>
+                    <dd className="mt-1 text-neutral-950">
+                      {product.authenticity.guaranteedAuthenticators.join(", ")}
+                    </dd>
+                  </div>
+                ) : null}
+
                 {product.authenticity.provenanceEvidence ? (
-                  <div className="sm:col-span-2">
-                    <dt className="font-black text-neutral-600">Provenance</dt>
-                    <dd className="mt-1 whitespace-pre-wrap">
+                  <div className="rounded bg-neutral-50 px-3 py-2 sm:col-span-2">
+                    <dt className="font-bold text-neutral-500">Provenance Evidence</dt>
+                    <dd className="mt-1 whitespace-pre-wrap text-neutral-950">
                       {product.authenticity.provenanceEvidence}
+                    </dd>
+                  </div>
+                ) : null}
+
+                {product.authenticity.authenticityNotes ? (
+                  <div className="rounded bg-neutral-50 px-3 py-2 sm:col-span-2">
+                    <dt className="font-bold text-neutral-500">Seller Disclosure Notes</dt>
+                    <dd className="mt-1 whitespace-pre-wrap text-neutral-950">
+                      {product.authenticity.authenticityNotes}
                     </dd>
                   </div>
                 ) : null}
@@ -320,38 +376,49 @@ export default async function ProductPage({
           ) : null}
 
           {product.description ? (
-            <section className="mt-6 rounded border bg-white p-4">
-              <h2 className="font-black">Description</h2>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-neutral-700">
+            <section className="rounded border bg-white p-5">
+              <h2 className="text-xl font-bold">Description</h2>
+              <p className="mt-3 whitespace-pre-wrap leading-7 text-neutral-700">
                 {product.description}
               </p>
             </section>
           ) : null}
 
-          {!isSoldOut ? (
-            <div className="mt-6 space-y-5">
-              <ProductActions
-                product={{
-                  id: product.legacyProductId,
-                  title: product.title,
-                  price: Number(product.price),
-                  image_url: product.imageUrl || undefined,
-                }}
-              />
-              <OfferForm
-                productId={product.legacyProductId}
-                productTitle={product.title}
-                price={Number(product.price)}
-              />
-            </div>
-          ) : null}
-        </section>
-      </div>
+          <section className="rounded border bg-white p-5">
+            {product.authenticity.status === "unverified_as_is" ? (
+              <div className="mb-4 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p className="font-bold">Unverified autograph disclosure</p>
+                <p className="mt-1 leading-6">
+                  This listing is marked unverified and sold as-is. Review the
+                  description, photos, and provenance before you make it yours.
+                </p>
+              </div>
+            ) : null}
 
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(productJsonLd) }}
-      />
+            {isSoldOut ? (
+              <div className="w-full rounded bg-red-600 py-3 text-center font-bold text-white">
+                SOLD OUT
+              </div>
+            ) : (
+              <>
+                <ProductActions
+                  product={{
+                    id: product.legacyProductId,
+                    title: product.title,
+                    price: Number(product.price),
+                    image_url: product.imageUrl || undefined,
+                  }}
+                />
+
+                <OfferForm
+                  productId={product.legacyProductId}
+                  price={Number(product.price)}
+                />
+              </>
+            )}
+          </section>
+        </div>
+      </section>
     </main>
   );
 }
