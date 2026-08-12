@@ -1,0 +1,22 @@
+{
+  "schema": "truelycollectables.collx-exact-card-highest-price-repair.v1",
+  "production_run_id": 31574532881,
+  "production_job_id": 94043571887,
+  "workflow": "CollX Exact Card Highest Price Repair V3 20260812",
+  "source_rows": 6909,
+  "source_sha256": "e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904",
+  "direct_collx_rows": 6155,
+  "live_rows_before": 6010,
+  "live_rows_after": 5271,
+  "live_units_before": 6171,
+  "live_units_after": 6171,
+  "exact_groups_consolidated": 545,
+  "extra_tiles_retired": 739,
+  "mixed_price_groups_set_to_highest": 208,
+  "remaining_exact_multi_listing_groups": 0,
+  "pricing_rule": "highest_current_live_price",
+  "aja_live_rows": 1,
+  "aja_live_units": 1,
+  "transaction_state": "committed",
+  "post_commit_verification": "success"
+}
