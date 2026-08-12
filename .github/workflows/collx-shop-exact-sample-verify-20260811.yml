@@ -1,0 +1,44 @@
+name: CollX Shop Exact Sample Verify 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-shop-exact-sample-verify-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify published CollX samples are rendered in shop
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS -L --connect-timeout 8 --max-time 45 https://truelycollectables.com/shop -o /tmp/shop.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import html
+          body=html.unescape(Path('/tmp/shop.html').read_text(errors='ignore'))
+          samples=[
+            ('COLLX-1003301661329359872','2024-25 Upper Deck NHL Star Rookies Box Set Macklin Celebrini #13','1003301661329359872/front.jpg'),
+            ('COLLX-1003302000714319872','2024-25 Upper Deck - O-Pee-Chee Glossy Macklin Celebrini #OPC-34','1003302000714319872/front.jpg'),
+            ('COLLX-1025593283668417536','2024-25 Upper Deck Allure - Autographs Red Rainbow Zach Dean #126 AU','1025593283668417536/front.jpg'),
+          ]
+          print('SHOP_BYTES='+str(len(body)))
+          print('PRODUCT_LINKS='+str(body.count('href="/product/')))
+          failures=[]
+          for sku,title,image_tail in samples:
+              title_ok=title in body
+              image_ok=image_tail in body
+              print(f'SAMPLE {sku} title={title_ok} image={image_ok}')
+              if not (title_ok and image_ok): failures.append(sku)
+          if failures:
+              print('FAILED_SAMPLES='+','.join(failures))
+              raise SystemExit(1)
+          print('COLLX_SHOP_EXACT_SAMPLE_VERIFY=SUCCESS')
+          PY
