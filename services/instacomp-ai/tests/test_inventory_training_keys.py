@@ -15,13 +15,13 @@ def test_existing_inventory_card_uuid_wins():
     assert source == "inventory_card_uuid"
 
 
-def test_product_card_uuid_is_second_priority():
+def test_inventory_item_uuid_beats_product_uuid_for_physical_copy_tracking():
     resolved, source = resolve_inventory_learning_uuid(
         {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "card_uuid": None},
         {"card_uuid": "22222222-2222-4222-8222-222222222222"},
     )
-    assert resolved == "22222222-2222-4222-8222-222222222222"
-    assert source == "product_card_uuid"
+    assert resolved == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    assert source == "inventory_item_id"
 
 
 def test_inventory_item_uuid_is_used_when_card_uuid_is_missing():
@@ -36,8 +36,20 @@ def test_inventory_item_uuid_is_used_when_card_uuid_is_missing():
     assert source == "inventory_item_id"
 
 
-def test_legacy_non_uuid_inventory_id_gets_stable_uuid5():
-    first, first_source = resolve_inventory_learning_uuid({"id": "legacy-item-123"}, None)
+def test_product_uuid_is_only_fallback_when_inventory_row_has_no_usable_key():
+    resolved, source = resolve_inventory_learning_uuid(
+        {"id": None, "card_uuid": None},
+        {"card_uuid": "22222222-2222-4222-8222-222222222222"},
+    )
+    assert resolved == "22222222-2222-4222-8222-222222222222"
+    assert source == "product_card_uuid"
+
+
+def test_legacy_non_uuid_inventory_id_gets_stable_uuid5_before_product_fallback():
+    first, first_source = resolve_inventory_learning_uuid(
+        {"id": "legacy-item-123"},
+        {"card_uuid": "22222222-2222-4222-8222-222222222222"},
+    )
     second, second_source = resolve_inventory_learning_uuid({"id": "legacy-item-123"}, None)
     other, _ = resolve_inventory_learning_uuid({"id": "legacy-item-124"}, None)
 
