@@ -36,7 +36,7 @@ jobs:
       MASTER_CHECKLIST_APPLY: 'true'
       MASTER_CHECKLIST_BATCH_INDEX: ${{ matrix.batch }}
       MASTER_CHECKLIST_BATCH_COUNT: '16'
-      MASTER_CHECKLIST_WORKERS: '1'
+      MASTER_CHECKLIST_WORKERS: '4'
       MASTER_CHECKLIST_CORPUS_ROOT: .master-checklist-corpus
       MASTER_CHECKLIST_EXTRACTED_ROOT: .master-checklist-extracted
       MASTER_CHECKLIST_OUTPUT: evidence/checklist-full-corpus-4944/batch-${{ matrix.batch }}-receipt.json
@@ -74,7 +74,9 @@ jobs:
           grep -q 'AbortSignal.timeout(DEFAULT_TIMEOUT_MS)' scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs
           grep -q 'catalog-deferred' scripts/checklist-catalog-retry-prepatch.mjs
           grep -q 'safeCatalogUpsert' scripts/ingest-master-checklist-archive.mjs
-          grep -q 'const persistence=await persistPlan' scripts/ingest-master-checklist-archive.mjs
+          grep -q 'persistPlanSerial' scripts/ingest-master-checklist-archive.mjs
+          grep -q 'registryWriter=serialized' scripts/ingest-master-checklist-archive.mjs
+          grep -q '\[progress\]' scripts/ingest-master-checklist-archive.mjs
           ! grep -q 'await ensureArchiveBucket' scripts/ingest-master-checklist-archive.mjs
       - name: Download immutable sanitized full corpus
         uses: actions/download-artifact@v4
