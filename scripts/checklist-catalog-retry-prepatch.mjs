@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const originalFetch = globalThis.fetch.bind(globalThis);
-const MAX_ATTEMPTS = Math.max(2, Math.min(10, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_ATTEMPTS || 8)));
+const MAX_ATTEMPTS = Math.max(2, Math.min(12, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_ATTEMPTS || 10)));
 const BASE_DELAY_MS = Math.max(1, Math.min(10_000, Number(process.env.MASTER_CHECKLIST_CATALOG_RETRY_BASE_MS || 750)));
 const OUTPUT = resolve(process.cwd(), process.env.MASTER_CHECKLIST_OUTPUT || ".checklist-discovery/master-archive-batch-unknown.json");
 const startedAt = new Date().toISOString();
@@ -18,20 +18,28 @@ function urlString(input) {
   return input?.url || "";
 }
 
-function isCatalogRequest(input) {
+function requestPath(input) {
   try {
-    const url = new URL(urlString(input));
-    return url.pathname.includes("/rest/v1/checklist_source_catalog");
+    return new URL(urlString(input)).pathname;
   } catch {
-    return false;
+    return "";
   }
 }
 
+function isCatalogRequest(input) {
+  return requestPath(input).includes("/rest/v1/checklist_source_catalog");
+}
+
+function isArchiveBucketRequest(input) {
+  const path = requestPath(input);
+  return path.includes("/storage/v1/bucket") || path.includes("/storage/v1/object");
+}
+
+function isProtectedRetryRequest(input) {
+  return isCatalogRequest(input) || isArchiveBucketRequest(input);
+}
+
 function isRetryableStatus(status) {
-  // 520/521 are transient Cloudflare origin errors. Production has emitted
-  // both during otherwise-idempotent checklist source-catalog reads/writes.
-  // Catalog writes are keyed by source_url, so retrying these transport-only
-  // failures is safe. Permanent schema/auth/validation responses still fail fast.
   return [408, 425, 429, 500, 502, 503, 504, 520, 521].includes(Number(status));
 }
 
@@ -49,31 +57,44 @@ function record(kind, attempt, detail) {
   });
 }
 
-function fatalCatalogTransport(kind, detail) {
+function fatalProtectedTransport(kind, detail) {
   record(kind, MAX_ATTEMPTS, detail);
   process.exit(74);
 }
 
-globalThis.fetch = async function checklistCatalogRetryFetch(input, init) {
-  if (!isCatalogRequest(input)) return originalFetch(input, init);
+async function responseLooksConnectionSaturated(response) {
+  if (!response || response.ok) return false;
+  try {
+    const text = await response.clone().text();
+    return /too many connections|connection.*pool|database.*connections/i.test(text);
+  } catch {
+    return false;
+  }
+}
+
+globalThis.fetch = async function checklistProtectedRetryFetch(input, init) {
+  if (!isProtectedRetryRequest(input)) return originalFetch(input, init);
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       const response = await originalFetch(retryInput(input), init);
-      if (!isRetryableStatus(response.status)) return response;
-      if (attempt === MAX_ATTEMPTS) fatalCatalogTransport("http-exhausted", `HTTP ${response.status}`);
-      record("http", attempt, `HTTP ${response.status}`);
+      const saturated = await responseLooksConnectionSaturated(response);
+      if (!isRetryableStatus(response.status) && !saturated) return response;
+      if (attempt === MAX_ATTEMPTS) {
+        fatalProtectedTransport("http-exhausted", `HTTP ${response.status}${saturated ? " database-connection-saturation" : ""}`);
+      }
+      record(isArchiveBucketRequest(input) ? "storage-http" : "catalog-http", attempt, `HTTP ${response.status}${saturated ? " database-connection-saturation" : ""}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (attempt === MAX_ATTEMPTS) fatalCatalogTransport("network-exhausted", message);
-      record("network", attempt, message);
+      if (attempt === MAX_ATTEMPTS) fatalProtectedTransport("network-exhausted", message);
+      record(isArchiveBucketRequest(input) ? "storage-network" : "catalog-network", attempt, message);
     }
 
-    const delay = Math.min(15_000, BASE_DELAY_MS * 2 ** (attempt - 1));
+    const delay = Math.min(30_000, BASE_DELAY_MS * 2 ** (attempt - 1));
     await sleep(delay);
   }
 
-  fatalCatalogTransport("unexpected-exhaustion", "Checklist catalog request left retry loop unexpectedly.");
+  fatalProtectedTransport("unexpected-exhaustion", "Protected checklist request left retry loop unexpectedly.");
 };
 
 process.on("exit", (code) => {
@@ -90,7 +111,7 @@ process.on("exit", (code) => {
         exitCode: code,
         batchIndex: Number(process.env.MASTER_CHECKLIST_BATCH_INDEX || -1),
         masterRunId: "31100986894",
-        retryEvents: retryEvents.slice(-50),
+        retryEvents: retryEvents.slice(-100),
       }, null, 2)}\n`,
       "utf8",
     );
