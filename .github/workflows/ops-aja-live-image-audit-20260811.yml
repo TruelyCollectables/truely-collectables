@@ -1,0 +1,61 @@
+name: Ops Aja Live Image Audit 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-aja-live-image-audit-20260811.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Read live Aja rows and images
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json,os,subprocess
+          API='https://api.supabase.com/v1'; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']; STORE=os.environ['STORE_ID']
+          def req(method,path,body=None):
+              cmd=['curl','-sS','--max-time','120','-X',method,'-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try: data=json.loads(raw) if raw else None
+              except: data=raw
+              return int((p.stdout or '0').strip()[-3:]),data
+          s,projects=req('GET','/projects')
+          candidates=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if s!=200 or len(candidates)!=1: raise SystemExit(f'project resolution failed {s} {len(candidates)}')
+          ref=str(candidates[0].get('id') or candidates[0].get('ref'))
+          q=f"""
+          with p as (
+            select id,sku,title,player,price,quantity,status,archived_at,image_url,ebay_item_id
+            from public.products
+            where store_id='{STORE}'::uuid
+              and (lower(coalesce(title,'')) like '%aja%wilson%' or lower(coalesce(title,'')) like '%a''ja%wilson%' or lower(coalesce(player,'')) like '%aja%wilson%' or lower(coalesce(player,'')) like '%a''ja%wilson%')
+          ), i as (
+            select ii.id,ii.legacy_product_id,ii.sku,ii.title,ii.status,ii.quantity,ii.price,ii.metadata
+            from public.inventory_items ii
+            join p on p.id=ii.legacy_product_id
+          )
+          select p.id product_id,p.sku product_sku,p.title product_title,p.player,p.price product_price,p.quantity product_qty,p.status product_status,p.archived_at,p.image_url product_image_url,p.ebay_item_id,
+                 i.id inventory_item_id,i.sku inventory_sku,i.status inventory_status,i.quantity inventory_qty,i.price inventory_price,i.metadata,
+                 coalesce((select jsonb_agg(jsonb_build_object('image_url',z.image_url,'is_primary',z.is_primary,'sort_order',z.sort_order) order by z.sort_order,z.created_at) from public.inventory_images z where z.inventory_item_id=i.id),'[]'::jsonb) inventory_images
+          from p left join i on i.legacy_product_id=p.id
+          order by p.id;
+          """
+          s,data=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True})
+          if s not in (200,201): raise SystemExit(f'query failed {s} {data}')
+          print('AJA_LIVE_AUDIT='+json.dumps(data,separators=(',',':')))
+          PY
