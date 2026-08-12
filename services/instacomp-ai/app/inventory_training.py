@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
+from .collx_authoritative_truth import (
+    collx_id_from_inventory,
+    load_authoritative_collx_source_cached,
+    merge_collx_fallback_attributes,
+)
 from .inventory_training_keys import resolve_inventory_learning_uuid
 from .models import CardIdentity
 
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 CARD_CATEGORY_MARKERS = (
     "sports card",
@@ -278,14 +286,24 @@ def extract_inventory_identity(
 ) -> CardIdentity:
     """Map already-correct structured inventory truth into CardIdentity.
 
-    Priority is explicit stored identity -> inventory attributes -> product fields ->
-    source metadata. We deliberately do not parse arbitrary listing-title prose into
-    card facts because this function is creating trusted teacher truth.
+    Priority is explicit stored identity -> current inventory attributes -> product
+    fields -> source metadata. For durable COLLX-* rows, the exact checksummed
+    6,909-row operator-owned CollX export is used only as a fallback beneath current
+    inventory attributes. Arbitrary listing-title prose is never promoted into
+    trusted truth.
     """
     metadata_raw = _mapping(item.get("metadata"))
     explicit_raw = _identity_container(metadata_raw)
     explicit = _normalized_mapping(explicit_raw)
-    attrs = _normalized_mapping(attributes or {})
+
+    current_attributes = dict(attributes or {})
+    collx_id = collx_id_from_inventory(item, product)
+    if collx_id:
+        source_rows = load_authoritative_collx_source_cached(str(REPO_ROOT))
+        source_row = source_rows.get(collx_id)
+        current_attributes = merge_collx_fallback_attributes(current_attributes, source_row)
+
+    attrs = _normalized_mapping(current_attributes)
     metadata = _normalized_mapping(metadata_raw)
     product_map = _normalized_mapping(product or {})
 
