@@ -16,7 +16,7 @@ import import_inventory_training_truth as inventory_import
 from inventory_training_git_snapshot import (
     SnapshotSupabaseReader,
     SnapshotUnavailable,
-    fetch_snapshot_from_git,
+    fetch_envelope_from_git,
 )
 
 
@@ -62,7 +62,7 @@ def _smaller_page_size(current: int, floor: int) -> int:
 
 
 class ResilientSupabaseReader(inventory_import.SupabaseReader):
-    """Read-only PostgREST pager used only if the Git DB snapshot is unavailable."""
+    """Read-only PostgREST pager used only if the encrypted Git snapshot is unavailable."""
 
     def table(
         self,
@@ -157,10 +157,10 @@ class ResilientSupabaseReader(inventory_import.SupabaseReader):
         return rows
 
 
-def _snapshot_reader_class(snapshot: dict[str, Any]):
+def _snapshot_reader_class(envelope: dict[str, Any]):
     class BoundSnapshotReader(SnapshotSupabaseReader):
         def __init__(self, base_url: str, service_key: str):
-            super().__init__(base_url, service_key, snapshot=snapshot)
+            super().__init__(base_url, service_key, envelope=envelope)
 
     BoundSnapshotReader.__name__ = "BoundSnapshotReader"
     return BoundSnapshotReader
@@ -169,27 +169,21 @@ def _snapshot_reader_class(snapshot: dict[str, Any]):
 def main() -> int:
     reader_class: type
     try:
-        snapshot = fetch_snapshot_from_git()
+        envelope = fetch_envelope_from_git()
     except SnapshotUnavailable as exc:
         print(
-            f"WARN inventory Git snapshot unavailable; falling back to resilient PostgREST: {exc}",
+            f"WARN encrypted inventory Git snapshot unavailable; falling back to resilient PostgREST: {exc}",
             file=sys.stderr,
             flush=True,
         )
         reader_class = ResilientSupabaseReader
     else:
-        counts = snapshot.get("row_counts") or {}
-        generated_at = snapshot.get("generated_at") or "unknown"
         print(
-            "USING authoritative direct-DB inventory snapshot from Git "
-            f"generated_at={generated_at} "
-            f"inventory_items={counts.get('inventory_items')} "
-            f"inventory_images={counts.get('inventory_images')} "
-            f"inventory_attributes={counts.get('inventory_attributes')} "
-            f"products={counts.get('products')}",
+            "USING encrypted authoritative direct-DB inventory snapshot from Git; "
+            "authentication and decryption will use the Mac Production service-role credential",
             flush=True,
         )
-        reader_class = _snapshot_reader_class(snapshot)
+        reader_class = _snapshot_reader_class(envelope)
 
     # Patch before importing v2 so its direct SupabaseReader binding uses the selected source.
     inventory_import.SupabaseReader = reader_class
