@@ -152,7 +152,7 @@ export default function BuyerProtectionOption({
             Shipment Protection — {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% (${feeAmount.toFixed(2)})
           </h3>
           <p className="mt-1 text-sm font-semibold">
-            The fee is 10% of the protected card/item subtotal. Shipping is not included in the fee calculation.
+            The fee is 10% of the protected card/item subtotal. Shipping is not included in the fee calculation. The maximum payout is ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}.
           </p>
         </div>
         <Link
