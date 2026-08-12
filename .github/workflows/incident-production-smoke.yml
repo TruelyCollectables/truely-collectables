@@ -1,0 +1,51 @@
+name: Incident Production Smoke
+
+on:
+  push:
+    branches:
+      - incident/production-smoke-20260811
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check production from GitHub network
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "DNS resolution:"
+          getent ahosts truelycollectables.com || true
+
+          failed=0
+          for url in \
+            "https://truelycollectables.com/" \
+            "https://truelycollectables.com/shop"; do
+            echo "===== $url ====="
+            rm -f /tmp/headers /tmp/body
+            if curl \
+              --location \
+              --silent \
+              --show-error \
+              --connect-timeout 5 \
+              --max-time 20 \
+              --dump-header /tmp/headers \
+              --output /tmp/body \
+              --write-out 'HTTP=%{http_code} CONNECT=%{time_connect}s TTFB=%{time_starttransfer}s TOTAL=%{time_total}s IP=%{remote_ip}\n' \
+              "$url"; then
+              cat /tmp/headers || true
+              echo "BODY_BYTES=$(wc -c </tmp/body 2>/dev/null || echo 0)"
+              head -c 500 /tmp/body 2>/dev/null || true
+              echo
+              code="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' /tmp/headers 2>/dev/null || true)"
+              case "$code" in
+                2*|3*) ;;
+                *) failed=1 ;;
+              esac
+            else
+              failed=1
+            fi
+          done
+
+          exit "$failed"
