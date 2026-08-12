@@ -21,7 +21,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Audit live CollX copy consolidation read-only
+      - name: Audit guarded same-price CollX consolidation
         shell: bash
         run: |
           set -euo pipefail
@@ -50,22 +50,72 @@ jobs:
               if status not in (200,201): print('SQL_FAILURE',status,json.dumps(body,default=str)); raise SystemExit(3)
               return body
 
-          totals=sql(f"""select count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY')::int as collx_products_total,count(*) filter (where sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null)::int as live from public.products where store_id='{STORE}'::uuid;""")
-          print('TOTALS='+json.dumps(totals,default=str))
+          audit=sql(f"""
+          with live as (
+            select p.id product_id,p.sku,p.title,p.player,p.price,p.quantity,p.image_url,p.ebay_item_id,
+                   i.id inventory_item_id,i.quantity inventory_quantity,i.price inventory_price,i.status inventory_status,
+                   lower(regexp_replace(btrim(coalesce(p.title,'')),'\\s+',' ','g')) nt,
+                   lower(regexp_replace(btrim(coalesce(p.player,'')),'\\s+',' ','g')) np,
+                   round(p.price*100)::bigint price_cents
+            from public.products p
+            join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id
+            where p.store_id='{STORE}'::uuid
+              and p.sku >= 'COLLX-' and p.sku < 'COLLY'
+              and p.archived_at is null and p.quantity>0 and p.price>0
+              and nullif(btrim(p.image_url),'') is not null
+              and coalesce(btrim(p.ebay_item_id::text),'')=''
+              and i.status='active' and i.quantity=p.quantity and round(i.price*100)=round(p.price*100)
+          ), grouped as (
+            select nt,np,price_cents,count(*)::int copies,sum(quantity)::int total_quantity,
+                   min(product_id) keeper_product_id,
+                   array_agg(product_id order by product_id) product_ids,
+                   array_agg(inventory_item_id order by product_id) inventory_item_ids,
+                   array_agg(sku order by product_id) skus
+            from live group by nt,np,price_cents having count(*)>1
+          ), candidate_products as (
+            select unnest(product_ids) product_id from grouped
+          ), reserved as (
+            select distinct r.legacy_product_id
+            from public.checkout_inventory_reservations r
+            join candidate_products c on c.product_id=r.legacy_product_id
+            where r.store_id='{STORE}'::uuid and r.status='active' and r.expires_at>now()
+          )
+          select
+            (select count(*)::int from live) eligible_live_rows,
+            (select count(*)::int from grouped) same_price_groups,
+            (select coalesce(sum(copies-1),0)::int from grouped) extra_tiles,
+            (select coalesce(sum(total_quantity),0)::int from grouped) units_in_groups,
+            (select count(*)::int from reserved) actively_reserved_candidate_products,
+            (select count(*)::int from public.products p where p.store_id='{STORE}'::uuid and p.sku >= 'COLLX-' and p.sku < 'COLLY' and p.archived_at is null and p.quantity>0 and coalesce(btrim(p.ebay_item_id::text),'')<>'') ebay_linked_live_collx,
+            (select count(*)::int from public.products p left join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id where p.store_id='{STORE}'::uuid and p.sku >= 'COLLX-' and p.sku < 'COLLY' and p.archived_at is null and p.quantity>0 and (i.id is null or i.quantity<>p.quantity or round(i.price*100)<>round(p.price*100) or i.status<>'active')) bridge_mismatch_live_collx;
+          """)
+          print('GUARD_AUDIT='+json.dumps(audit,default=str))
 
-          schema=sql("""select table_name,column_name,data_type from information_schema.columns where table_schema='public' and table_name in ('inventory_attributes','inventory_items','products') and column_name in ('id','inventory_item_id','attribute_name','attribute_value','status','category','metadata','sku','title','player','price','quantity','legacy_product_id') order by table_name,ordinal_position;""")
-          print('SCHEMA='+json.dumps(schema,default=str))
+          aja=sql(f"""
+          select p.id product_id,p.sku,p.title,p.player,p.price,p.quantity,i.id inventory_item_id,i.status,i.quantity inventory_quantity,
+                 exists(select 1 from public.checkout_inventory_reservations r where r.store_id=p.store_id and r.legacy_product_id=p.id and r.status='active' and r.expires_at>now()) actively_reserved
+          from public.products p join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id
+          where p.store_id='{STORE}'::uuid and p.archived_at is null and p.quantity>0
+            and p.sku >= 'COLLX-' and p.sku < 'COLLY'
+            and lower(p.title) like '%score select throwback%' and lower(p.title) like '%wilson%'
+          order by p.id;
+          """)
+          print('AJA_PREVIEW='+json.dumps(aja,default=str))
 
-          constraints=sql("""select conname,pg_get_constraintdef(c.oid) as definition from pg_constraint c join pg_class t on t.oid=c.conrelid join pg_namespace n on n.oid=t.relnamespace where n.nspname='public' and t.relname='inventory_items' and contype='c' order by conname;""")
-          print('INVENTORY_CHECKS='+json.dumps(constraints,default=str))
-
-          aja=sql(f"""with target as (select i.id,i.sku,i.legacy_product_id,p.id as product_id,p.title,p.player,p.price,p.quantity,p.image_url from public.inventory_items i join public.products p on p.store_id=i.store_id and (p.id=i.legacy_product_id or p.sku=i.sku) where i.store_id='{STORE}'::uuid and p.sku >= 'COLLX-' and p.sku < 'COLLY' and lower(coalesce(p.title,'')) like '%wilson%' and lower(coalesce(p.title,'')) like '%score select throwback%') select t.*,a.attribute_name,a.attribute_value from target t left join public.inventory_attributes a on a.inventory_item_id=t.id order by t.product_id,a.attribute_name;""")
-          print('AJA_ATTRIBUTES='+json.dumps(aja,default=str))
-
-          title_groups=sql(f"""with live as (select id,sku,title,player,price,quantity,image_url,lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) nt,lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) np from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),g as (select nt,np,count(*)::int copies,sum(quantity)::int total_quantity,min(price) min_price,max(price) max_price,count(distinct price)::int price_variants,count(distinct image_url)::int image_variants,array_agg(id order by id) product_ids,array_agg(sku order by id) skus from live group by nt,np having count(*)>1) select * from g order by copies desc,nt limit 250;""")
-          print('TITLE_COPY_GROUPS='+json.dumps(title_groups,default=str))
-
-          summary=sql(f"""with live as (select lower(regexp_replace(btrim(coalesce(title,'')),'\\s+',' ','g')) nt,lower(regexp_replace(btrim(coalesce(player,'')),'\\s+',' ','g')) np,price,quantity,image_url from public.products where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),g as (select count(*)::int copies,sum(quantity)::int total_qty,count(distinct price)::int prices,count(distinct image_url)::int images from live group by nt,np having count(*)>1) select count(*)::int as repeated_card_identity_groups,coalesce(sum(copies-1),0)::int as extra_product_tiles,coalesce(sum(total_qty),0)::int as units_in_repeated_groups,count(*) filter (where prices=1)::int as same_price_groups,count(*) filter (where prices>1)::int as mixed_price_groups,max(copies)::int as max_copies from g;""")
-          print('TITLE_COPY_SUMMARY='+json.dumps(summary,default=str))
-          print('COLLX_COPY_CONSOLIDATION_AUDIT=SUCCESS')
+          groups=sql(f"""
+          with live as (
+            select p.id product_id,p.sku,p.title,p.player,p.price,p.quantity,i.id inventory_item_id,
+                   lower(regexp_replace(btrim(coalesce(p.title,'')),'\\s+',' ','g')) nt,
+                   lower(regexp_replace(btrim(coalesce(p.player,'')),'\\s+',' ','g')) np,
+                   round(p.price*100)::bigint price_cents
+            from public.products p join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id
+            where p.store_id='{STORE}'::uuid and p.sku >= 'COLLX-' and p.sku < 'COLLY' and p.archived_at is null and p.quantity>0 and p.price>0
+              and nullif(btrim(p.image_url),'') is not null and coalesce(btrim(p.ebay_item_id::text),'')=''
+              and i.status='active' and i.quantity=p.quantity and round(i.price*100)=round(p.price*100)
+          )
+          select nt,np,price_cents,count(*)::int copies,sum(quantity)::int total_quantity,min(product_id) keeper_product_id,array_agg(product_id order by product_id) product_ids,array_agg(sku order by product_id) skus
+          from live group by nt,np,price_cents having count(*)>1 order by copies desc,nt limit 25;
+          """)
+          print('TOP_SAFE_GROUPS='+json.dumps(groups,default=str))
+          print('COLLX_GUARDED_CONSOLIDATION_AUDIT=SUCCESS')
           PY
