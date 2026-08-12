@@ -46,6 +46,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -s .vercel/.env.production.local
+          set -a
+          source .vercel/.env.production.local
+          set +a
           npx vercel@56.2.0 build --prod --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
 
       - name: Deploy corrected storefront recovery
