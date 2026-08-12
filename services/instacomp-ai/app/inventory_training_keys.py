@@ -18,25 +18,31 @@ def resolve_inventory_learning_uuid(
     """Resolve one stable local-learning UUID for a physical inventory card.
 
     Production inventory is intentionally read-only here. An explicit inventory
-    card UUID wins. The inventory row UUID is the next authority because it is
-    the stable key for that physical inventory record and must not be collapsed
-    into a shared product-level UUID. Product card_uuid is only a final legacy
-    fallback when the inventory row itself has no usable key. A deterministic
-    UUID5 fallback keeps old non-UUID inventory primary keys stable.
+    card UUID wins. The inventory row itself is next authority because it is the
+    stable key for that physical inventory record and must not be collapsed into
+    a product-level UUID shared by multiple copies. UUID inventory IDs are used
+    directly; legacy non-UUID inventory IDs receive a deterministic UUID5.
+    Product card_uuid is used only when the inventory row has no key at all.
     """
 
     product = product or {}
-    candidates = (
-        (item.get("card_uuid"), "inventory_card_uuid"),
-        (item.get("id"), "inventory_item_id"),
-        (product.get("card_uuid"), "product_card_uuid"),
-    )
-    for value, source in candidates:
-        resolved = canonical_uuid(value)
-        if resolved:
-            return resolved, source
+
+    explicit_card_uuid = canonical_uuid(item.get("card_uuid"))
+    if explicit_card_uuid:
+        return explicit_card_uuid, "inventory_card_uuid"
 
     item_id = str(item.get("id") or "").strip()
     if item_id:
-        return str(uuid5(NAMESPACE_URL, f"truelycollectables:inventory_item:{item_id}")), "inventory_item_id_uuid5"
+        inventory_uuid = canonical_uuid(item_id)
+        if inventory_uuid:
+            return inventory_uuid, "inventory_item_id"
+        return (
+            str(uuid5(NAMESPACE_URL, f"truelycollectables:inventory_item:{item_id}")),
+            "inventory_item_id_uuid5",
+        )
+
+    product_uuid = canonical_uuid(product.get("card_uuid"))
+    if product_uuid:
+        return product_uuid, "product_card_uuid"
+
     return None, "missing_inventory_identity_key"
