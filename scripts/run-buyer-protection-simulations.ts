@@ -13,6 +13,17 @@ import {
   getBuyerProtectionEligibility,
   getBuyerProtectionQuote,
 } from "../src/lib/buyer-protection";
+import {
+  calculateShipping,
+  FREE_GROUND_ADVANTAGE_THRESHOLD,
+  GROUND_ADVANTAGE_BUYER_PRICE,
+  PARCEL_INCLUDED_COVERAGE_LIMIT,
+  PRIORITY_MAIL_LARGE_ORDER_PRICE,
+  PRIORITY_MAIL_SMALL_ORDER_MAX_CARDS,
+  PRIORITY_MAIL_SMALL_ORDER_PRICE,
+  getMinimumShippingMethod,
+  getShippingCoverage,
+} from "../src/lib/shipping";
 
 function read(relativePath: string) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
@@ -20,7 +31,7 @@ function read(relativePath: string) {
 
 assert.equal(BUYER_PROTECTION_RATE, 0.1);
 assert.equal(BUYER_PROTECTION_MAX_ITEM_SUBTOTAL, 20);
-assert.equal(BUYER_PROTECTION_MAX_COVERAGE, 25);
+assert.equal(BUYER_PROTECTION_MAX_COVERAGE, 20);
 assert.equal(BUYER_PROTECTION_MIN_CLAIM_DAYS, 7);
 assert.equal(BUYER_PROTECTION_CLAIM_DEADLINE_DAYS, 21);
 assert.match(BUYER_PROTECTION_POLICY_VERSION, /^truely-shipment-protection-v\d+/);
@@ -42,11 +53,11 @@ assert.deepEqual(
   }),
   {
     eligible: true,
-    coveredAmount: 21.99,
+    coveredAmount: 20,
     reason: null,
     rate: 0.1,
-    feeBase: 21.99,
-    feeAmount: 2.2,
+    feeBase: 20,
+    feeAmount: 2,
     itemSubtotal: 20,
     shippingAmount: 1.99,
   },
@@ -67,6 +78,111 @@ assert.equal(
   }).eligible,
   false,
 );
+
+assert.equal(GROUND_ADVANTAGE_BUYER_PRICE, 4.99);
+assert.equal(FREE_GROUND_ADVANTAGE_THRESHOLD, 250);
+assert.equal(PRIORITY_MAIL_SMALL_ORDER_MAX_CARDS, 4);
+assert.equal(PRIORITY_MAIL_SMALL_ORDER_PRICE, 9.99);
+assert.equal(PRIORITY_MAIL_LARGE_ORDER_PRICE, 14.99);
+assert.equal(PARCEL_INCLUDED_COVERAGE_LIMIT, 100);
+assert.equal(
+  calculateShipping({
+    itemCount: 1,
+    subtotal: 100,
+    method: "GROUND_ADVANTAGE",
+    listingPriceBasis: 100,
+  }),
+  4.99,
+);
+assert.equal(
+  calculateShipping({
+    itemCount: 5,
+    subtotal: 250,
+    method: "GROUND_ADVANTAGE",
+    listingPriceBasis: 250,
+  }),
+  4.99,
+  "Ground Advantage becomes free only when the order is over $250, not at exactly $250.",
+);
+assert.equal(
+  calculateShipping({
+    itemCount: 5,
+    subtotal: 250.01,
+    method: "GROUND_ADVANTAGE",
+    listingPriceBasis: 250.01,
+  }),
+  0,
+);
+assert.equal(
+  calculateShipping({
+    itemCount: 1,
+    subtotal: 100,
+    method: "PRIORITY_MAIL",
+    listingPriceBasis: 100,
+  }),
+  9.99,
+);
+assert.equal(
+  calculateShipping({
+    itemCount: 4,
+    subtotal: 100,
+    method: "PRIORITY_MAIL",
+    listingPriceBasis: 100,
+  }),
+  9.99,
+);
+assert.equal(
+  calculateShipping({
+    itemCount: 5,
+    subtotal: 100,
+    method: "PRIORITY_MAIL",
+    listingPriceBasis: 100,
+  }),
+  14.99,
+);
+assert.equal(
+  calculateShipping({
+    itemCount: 20,
+    subtotal: 100,
+    method: "PRIORITY_MAIL",
+    listingPriceBasis: 100,
+  }),
+  14.99,
+);
+assert.equal(
+  getMinimumShippingMethod({
+    itemCount: 20,
+    subtotal: 100,
+    listingPriceBasis: 100,
+  }),
+  "GROUND_ADVANTAGE",
+  "Large card counts must no longer force Priority Mail.",
+);
+assert.deepEqual(
+  getShippingCoverage({ method: "GROUND_ADVANTAGE", subtotal: 75 }),
+  {
+    provider: "Included carrier coverage",
+    required: true,
+    sellerProtected: true,
+    buyerCharge: 0,
+    coveredAmount: 75,
+    includedCoverageLimit: 100,
+    uncoveredAmount: 0,
+    requiresAdditionalCoverageQuote: false,
+    additionalCoverageMustBeArrangedBeforeShipment: false,
+    status: "included_coverage",
+    coverageType: "carrier_included_up_to_100",
+    detail:
+      "Ground Advantage and Priority Mail include carrier coverage up to $100.00, subject to carrier terms and claim approval.",
+  },
+);
+const overOneHundredCoverage = getShippingCoverage({
+  method: "GROUND_ADVANTAGE",
+  subtotal: 175,
+});
+assert.equal(overOneHundredCoverage.coveredAmount, 100);
+assert.equal(overOneHundredCoverage.uncoveredAmount, 75);
+assert.equal(overOneHundredCoverage.requiresAdditionalCoverageQuote, true);
 
 const shippedAt = "2026-07-01T12:00:00.000Z";
 const window = buyerProtectionClaimWindow(shippedAt);
@@ -106,6 +222,7 @@ assert.match(cart, /BuyerProtectionOption/);
 assert.match(cart, /getBuyerProtectionQuote/);
 assert.match(cart, /buyerProtection=\{resolvedBuyerProtection\}/);
 assert.match(cart, /buyerProtectionAvailable=\{buyerProtectionAvailable\}/);
+assert.match(cart, /up to \$\{PARCEL_INCLUDED_COVERAGE_LIMIT\.toFixed\(2\)\} included coverage/);
 
 const protectionOption = read("src/app/cart/BuyerProtectionOption.tsx");
 for (const token of [
@@ -116,6 +233,7 @@ for (const token of [
   "requiresReacceptance",
   "declineAcknowledged",
   "10%",
+  "maximum payout",
   "loss or damage",
 ]) {
   assert.ok(
@@ -136,6 +254,7 @@ for (const token of [
   assert.ok(checkout.includes(token), `Checkout must include ${token}.`);
 }
 assert.match(checkout, /buyerProtection\.feeAmount \* 100/);
+assert.ok(checkout.includes("protected item subtotal up to $20"));
 
 const finalizer = read("src/lib/checkout-order-finalization.ts");
 assert.ok(finalizer.includes("persistBuyerProtectionForOrder"));
@@ -145,8 +264,11 @@ for (const token of [
   'params.shippingMethod !== "STANDARD_ENVELOPE"',
   "calculateBuyerProtectionFee",
   "BUYER_PROTECTION_POLICY_VERSION",
-  'covered_components: ["item_subtotal", "shipping"]',
-  'non_reimbursable: ["buyer_protection_fee"]',
+  "expectedFeeBase = itemSubtotal",
+  "shipping_reimbursable: false",
+  'covered_components: ["item_subtotal"]',
+  'non_reimbursable: ["shipping", "buyer_protection_fee"]',
+  "maximum_payout: BUYER_PROTECTION_MAX_COVERAGE",
 ]) {
   assert.ok(
     protectionOrder.includes(token),
@@ -213,9 +335,11 @@ const adminClaims = read(
 for (const token of [
   "refundAmountCents",
   "covered_item_amount",
-  'shipping_refunded: "true"',
+  "BUYER_PROTECTION_MAX_COVERAGE",
+  "maximumReimbursement",
+  "reimbursementScope",
+  "shippingRefunded",
   'protection_fee_refunded: "false"',
-  'reimbursement_scope: "item_subtotal_and_shipping"',
   "idempotencyKey",
 ]) {
   assert.ok(
@@ -223,6 +347,14 @@ for (const token of [
     `Admin reimbursement must include ${token}.`,
   );
 }
+assert.ok(
+  adminClaims.includes("const currentPolicyShippingRefunded = false"),
+  "Current Shipment Protection must never reimburse shipping.",
+);
+assert.ok(
+  adminClaims.includes('reimbursementScope = shippingRefunded\n      ? "item_subtotal_and_shipping"\n      : "item_subtotal"'),
+  "Current claims must record item-subtotal-only reimbursement while preserving historical policy records.",
+);
 
 const originalMigration = read(
   "supabase/migrations/20260726070000_truely_buyer_protection.sql",
@@ -249,13 +381,39 @@ for (const token of [
   "reimbursement_amount >= 0 and reimbursement_amount <= 25",
   "shipping_reimbursable set default true",
 ]) {
-  assert.ok(v2Migration.includes(token), `V2 migration must include ${token}.`);
+  assert.ok(v2Migration.includes(token), `Historical v2 migration must include ${token}.`);
+}
+const v3Migration = read(
+  "supabase/migrations/20260812020000_shipment_protection_v3.sql",
+);
+for (const token of [
+  "shipping_reimbursable set default false",
+  "fee_amount <= 2.00",
+  "covered_item_amount <= 20.00",
+  "buyer_protection_fee <= 2.00",
+  "buyer_protection_covered_amount <= 20.00",
+  "Historical v1/v2 rows",
+]) {
+  assert.ok(v3Migration.includes(token), `V3 migration must include ${token}.`);
 }
 
 const policy = read("src/app/buyer-protection/page.tsx");
 assert.ok(policy.includes("not insurance"));
 assert.ok(policy.includes("does not waive"));
 assert.ok(policy.includes("BUYER_PROTECTION_POLICY_VERSION"));
+assert.ok(policy.includes("BUYER_PROTECTION_MAX_COVERAGE"));
+
+const shippingPolicy = read("src/app/shipping/page.tsx");
+for (const token of [
+  "GROUND_ADVANTAGE_BUYER_PRICE",
+  "FREE_GROUND_ADVANTAGE_THRESHOLD",
+  "PRIORITY_MAIL_SMALL_ORDER_PRICE",
+  "PRIORITY_MAIL_LARGE_ORDER_PRICE",
+  "PARCEL_INCLUDED_COVERAGE_LIMIT",
+  "additional-coverage quote",
+]) {
+  assert.ok(shippingPolicy.includes(token), `Shipping policy must include ${token}.`);
+}
 
 const shop = read("src/app/shop/page.tsx");
 assert.ok(shop.includes("preferHighResolutionListingImage"));
