@@ -15,20 +15,21 @@ def resolve_inventory_learning_uuid(
     item: Mapping[str, Any],
     product: Mapping[str, Any] | None = None,
 ) -> tuple[str | None, str]:
-    """Resolve one stable local-learning UUID for an inventory card.
+    """Resolve one stable local-learning UUID for a physical inventory card.
 
-    Production inventory is intentionally read-only here. Existing permanent
-    card UUIDs win. Current inventory row IDs are already UUID primary keys in
-    Production and are therefore the correct stable fallback when card_uuid has
-    not been backfilled yet. A deterministic UUID5 fallback keeps the bridge
-    stable even for a legacy non-UUID inventory primary key.
+    Production inventory is intentionally read-only here. An explicit inventory
+    card UUID wins. The inventory row UUID is the next authority because it is
+    the stable key for that physical inventory record and must not be collapsed
+    into a shared product-level UUID. Product card_uuid is only a final legacy
+    fallback when the inventory row itself has no usable key. A deterministic
+    UUID5 fallback keeps old non-UUID inventory primary keys stable.
     """
 
     product = product or {}
     candidates = (
         (item.get("card_uuid"), "inventory_card_uuid"),
-        (product.get("card_uuid"), "product_card_uuid"),
         (item.get("id"), "inventory_item_id"),
+        (product.get("card_uuid"), "product_card_uuid"),
     )
     for value, source in candidates:
         resolved = canonical_uuid(value)
