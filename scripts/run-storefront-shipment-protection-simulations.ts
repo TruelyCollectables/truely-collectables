@@ -40,9 +40,9 @@ const quote = getBuyerProtectionQuote({
 });
 assert.equal(BUYER_PROTECTION_RATE, 0.1);
 assert.equal(quote.eligible, true);
-assert.equal(quote.feeBase, 16.99);
-assert.equal(quote.feeAmount, 1.7);
-assert.equal(quote.coveredAmount, 16.99);
+assert.equal(quote.feeBase, 15);
+assert.equal(quote.feeAmount, 1.5);
+assert.equal(quote.coveredAmount, 15);
 
 const maxQuote = getBuyerProtectionQuote({
   shippingMethod: "STANDARD_ENVELOPE",
@@ -50,8 +50,8 @@ const maxQuote = getBuyerProtectionQuote({
   shippingAmount: 1.99,
   itemCount: 4,
 });
-assert.equal(maxQuote.feeAmount, 2.2);
-assert.equal(maxQuote.coveredAmount, 21.99);
+assert.equal(maxQuote.feeAmount, 2);
+assert.equal(maxQuote.coveredAmount, 20);
 
 const ineligible = getBuyerProtectionQuote({
   shippingMethod: "STANDARD_ENVELOPE",
