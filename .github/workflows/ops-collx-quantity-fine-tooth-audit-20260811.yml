@@ -1,0 +1,248 @@
+name: Ops CollX Quantity Fine Tooth Audit 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-collx-quantity-fine-tooth-audit-20260811.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+      SOURCE_SHA: e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904
+      SOURCE_ROWS: '6909'
+      WORK: /tmp/collx-quantity-audit
+    steps:
+      - name: Check out checksum-locked CollX source
+        uses: actions/checkout@v4
+        with:
+          ref: ops/collx-full-inventory-migration-20260811
+          fetch-depth: 1
+
+      - name: Reconstruct exact source CSV
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK"
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10m0 \
+            .github/ops/collx-full-metadata.part10m1 \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14m \
+            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          ACTUAL_SHA="$(sha256sum "$WORK/source.csv" | awk '{print $1}')"
+          ACTUAL_ROWS="$(($(wc -l < "$WORK/source.csv")-1))"
+          echo "SOURCE_SHA=$ACTUAL_SHA"
+          echo "SOURCE_ROWS=$ACTUAL_ROWS"
+          test "$ACTUAL_SHA" = "$SOURCE_SHA"
+          test "$ACTUAL_ROWS" = "$SOURCE_ROWS"
+
+      - name: Compare every source quantity with Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import csv, hashlib, json, os, re, subprocess, sys
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          csv.field_size_limit(sys.maxsize)
+          WORK=Path(os.environ['WORK']); STORE=os.environ['STORE_ID']; TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          source_path=WORK/'source.csv'
+          raw=source_path.read_bytes()
+          sha=hashlib.sha256(raw).hexdigest()
+          if sha != os.environ['SOURCE_SHA']:
+              raise SystemExit(f'checksum mismatch {sha}')
+
+          with source_path.open('r',encoding='utf-8-sig',newline='') as f:
+              reader=csv.DictReader(f)
+              headers=reader.fieldnames or []
+              rows=list(reader)
+
+          required=['collx_id','name','asking_price','quantity']
+          missing=[x for x in required if x not in headers]
+          if missing: raise SystemExit(f'missing required source columns: {missing}; headers={headers}')
+          if len(rows) != int(os.environ['SOURCE_ROWS']): raise SystemExit(f'row count mismatch {len(rows)}')
+          print('HEADER_PROOF='+json.dumps({'headers':headers,'asking_price_index':headers.index('asking_price'),'quantity_index':headers.index('quantity')}))
+
+          invalid_qty=[]
+          def parse_qty(r, line_no):
+              v=str(r.get('quantity') or '').strip()
+              try:
+                  n=float(v)
+                  if n < 0 or int(n) != n: raise ValueError(v)
+                  return int(n)
+              except Exception:
+                  invalid_qty.append({'line':line_no,'collx_id':r.get('collx_id'),'quantity_raw':v,'name':r.get('name')})
+                  return None
+
+          src=[]
+          for idx,r in enumerate(rows,start=2):
+              cid=str(r.get('collx_id') or '').strip()
+              q=parse_qty(r,idx)
+              src.append({'line':idx,'collx_id':cid,'name':str(r.get('name') or ''),'asking_price':str(r.get('asking_price') or ''),'quantity':q})
+          if invalid_qty:
+              print('INVALID_SOURCE_QUANTITY='+json.dumps(invalid_qty[:100],separators=(',',':')))
+              raise SystemExit(f'{len(invalid_qty)} invalid source quantity values')
+
+          source_id_counts=Counter(r['collx_id'] for r in src)
+          source_dupes={k:v for k,v in source_id_counts.items() if k and v>1}
+          blank_source_ids=[r for r in src if not r['collx_id']]
+          total_source_units=sum(r['quantity'] for r in src)
+          print('SOURCE_SUMMARY='+json.dumps({'rows':len(src),'units':total_source_units,'unique_collx_ids':len(source_id_counts),'duplicate_collx_ids':len(source_dupes),'blank_collx_ids':len(blank_source_ids)},separators=(',',':')))
+          if source_dupes: print('SOURCE_DUPLICATE_IDS='+json.dumps(source_dupes,separators=(',',':')))
+
+          def norm(s): return re.sub(r'[^a-z0-9]+',' ',str(s or '').lower()).strip()
+          aja=[r for r in src if 'aja wilson' in norm(r['name']) or 'a ja wilson' in norm(r['name'])]
+          print('AJA_SOURCE='+json.dumps(aja,separators=(',',':')))
+
+          API='https://api.supabase.com/v1'
+          def mgmt(method,path,body=None):
+              cmd=['curl','-sS','--max-time','180','-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json',
+                   '-o',str(WORK/'sb.json'),'-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body,separators=(',',':'))]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=(WORK/'sb.json').read_text() if (WORK/'sb.json').exists() else ''
+              try: data=json.loads(raw) if raw else None
+              except Exception: data=raw
+              return int((p.stdout or '0').strip()[-3:]), data
+
+          s,projects=mgmt('GET','/projects')
+          if s!=200 or not isinstance(projects,list): raise SystemExit(f'project lookup failed {s}: {projects}')
+          candidates=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(candidates)!=1: raise SystemExit(f'project resolution ambiguous count={len(candidates)}')
+          ref=str(candidates[0].get('id') or candidates[0].get('ref'))
+
+          # Read-only, one row per COLLX product with all linked inventory items.
+          q=f"""
+          select p.id as product_id,p.sku as product_sku,p.title as product_title,p.player,
+                 p.quantity as product_quantity,p.archived_at,p.ebay_item_id,
+                 coalesce(jsonb_agg(jsonb_build_object(
+                   'inventory_item_id',ii.id,'inventory_sku',ii.sku,'inventory_quantity',ii.quantity,'inventory_status',ii.status
+                 ) order by ii.id) filter (where ii.id is not null),'[]'::jsonb) as inventory_items
+          from public.products p
+          left join public.inventory_items ii on ii.legacy_product_id=p.id
+          where p.store_id='{STORE}'::uuid and p.sku like 'COLLX-%'
+          group by p.id,p.sku,p.title,p.player,p.quantity,p.archived_at,p.ebay_item_id
+          order by p.id;
+          """
+          s,dbrows=mgmt('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True})
+          if s not in (200,201) or not isinstance(dbrows,list): raise SystemExit(f'product query failed {s}: {dbrows}')
+
+          # Catch COLLX inventory rows that are not linked to a matching COLLX product.
+          q2=f"""
+          select ii.id as inventory_item_id,ii.legacy_product_id,ii.sku as inventory_sku,ii.quantity as inventory_quantity,ii.status as inventory_status
+          from public.inventory_items ii
+          where ii.store_id='{STORE}'::uuid and ii.sku like 'COLLX-%'
+          order by ii.id;
+          """
+          s,all_items=mgmt('POST',f'/projects/{ref}/database/query',{'query':q2,'parameters':[],'read_only':True})
+          if s not in (200,201) or not isinstance(all_items,list): raise SystemExit(f'inventory query failed {s}: {all_items}')
+
+          prods_by_cid=defaultdict(list)
+          for p in dbrows:
+              sku=str(p.get('product_sku') or '')
+              cid=sku[6:] if sku.startswith('COLLX-') else ''
+              prods_by_cid[cid].append(p)
+
+          src_by_cid=defaultdict(list)
+          for r in src: src_by_cid[r['collx_id']].append(r)
+
+          linked_item_ids=set()
+          mismatches=[]
+          for r in src:
+              cid=r['collx_id']; expected=r['quantity']; ps=prods_by_cid.get(cid,[])
+              if len(ps)==0:
+                  mismatches.append({'kind':'MISSING_PRODUCT','collx_id':cid,'source_line':r['line'],'name':r['name'],'source_quantity':expected,'asking_price':r['asking_price']})
+                  continue
+              if len(ps)>1:
+                  mismatches.append({'kind':'DUPLICATE_PRODUCTS','collx_id':cid,'source_line':r['line'],'name':r['name'],'source_quantity':expected,'product_ids':[p.get('product_id') for p in ps]})
+              for p in ps:
+                  items=p.get('inventory_items') or []
+                  for i in items:
+                      if i.get('inventory_item_id') is not None: linked_item_ids.add(str(i.get('inventory_item_id')))
+                  if p.get('product_quantity') != expected:
+                      mismatches.append({'kind':'PRODUCT_QTY','collx_id':cid,'source_line':r['line'],'name':r['name'],'asking_price':r['asking_price'],'source_quantity':expected,'product_id':p.get('product_id'),'product_quantity':p.get('product_quantity'),'archived_at':p.get('archived_at'),'ebay_item_id':p.get('ebay_item_id')})
+                  if len(items)==0:
+                      mismatches.append({'kind':'MISSING_INVENTORY_ITEM','collx_id':cid,'source_line':r['line'],'name':r['name'],'source_quantity':expected,'product_id':p.get('product_id')})
+                  if len(items)>1:
+                      mismatches.append({'kind':'MULTIPLE_INVENTORY_ITEMS','collx_id':cid,'source_line':r['line'],'name':r['name'],'source_quantity':expected,'product_id':p.get('product_id'),'items':items})
+                  for i in items:
+                      iq=i.get('inventory_quantity')
+                      if iq != expected:
+                          mismatches.append({'kind':'INVENTORY_QTY','collx_id':cid,'source_line':r['line'],'name':r['name'],'asking_price':r['asking_price'],'source_quantity':expected,'product_id':p.get('product_id'),'product_quantity':p.get('product_quantity'),'inventory_item_id':i.get('inventory_item_id'),'inventory_quantity':iq,'inventory_status':i.get('inventory_status')})
+                      if iq != p.get('product_quantity'):
+                          mismatches.append({'kind':'PRODUCT_ITEM_DISAGREE','collx_id':cid,'source_line':r['line'],'name':r['name'],'source_quantity':expected,'product_id':p.get('product_id'),'product_quantity':p.get('product_quantity'),'inventory_item_id':i.get('inventory_item_id'),'inventory_quantity':iq})
+
+          for cid,ps in prods_by_cid.items():
+              if cid not in src_by_cid:
+                  for p in ps:
+                      mismatches.append({'kind':'EXTRA_PRODUCT_NOT_SOURCE','collx_id':cid,'product_id':p.get('product_id'),'product_title':p.get('product_title'),'product_quantity':p.get('product_quantity'),'archived_at':p.get('archived_at')})
+
+          orphan_items=[]
+          product_ids={str(p.get('product_id')) for p in dbrows}
+          for i in all_items:
+              iid=str(i.get('inventory_item_id'))
+              legacy=str(i.get('legacy_product_id')) if i.get('legacy_product_id') is not None else ''
+              if iid not in linked_item_ids or legacy not in product_ids:
+                  orphan_items.append(i)
+                  mismatches.append({'kind':'ORPHAN_OR_UNLINKED_COLLX_ITEM',**i})
+
+          by_kind=Counter(m['kind'] for m in mismatches)
+          prod_unit_sum=sum(int(p.get('product_quantity') or 0) for p in dbrows if p.get('archived_at') is None)
+          item_unit_sum=sum(int(i.get('inventory_quantity') or 0) for i in all_items)
+          summary={
+            'source_rows':len(src),'source_units':total_source_units,'source_unique_ids':len(source_id_counts),'source_duplicate_ids':len(source_dupes),
+            'production_collx_products':len(dbrows),'production_active_product_units':prod_unit_sum,'production_collx_inventory_items':len(all_items),'production_inventory_units':item_unit_sum,
+            'mismatch_events':len(mismatches),'mismatch_by_kind':dict(by_kind),'orphan_or_unlinked_items':len(orphan_items)
+          }
+          print('AUDIT_SUMMARY='+json.dumps(summary,separators=(',',':')))
+
+          aja_ids={r['collx_id'] for r in aja}
+          aja_db=[]
+          for cid in sorted(aja_ids):
+              for p in prods_by_cid.get(cid,[]):
+                  aja_db.append({'collx_id':cid,'product_id':p.get('product_id'),'product_title':p.get('product_title'),'product_quantity':p.get('product_quantity'),'archived_at':p.get('archived_at'),'inventory_items':p.get('inventory_items') or []})
+          aja_mismatches=[m for m in mismatches if str(m.get('collx_id') or '') in aja_ids]
+          print('AJA_DB='+json.dumps(aja_db,separators=(',',':')))
+          print('AJA_MISMATCHES='+json.dumps(aja_mismatches,separators=(',',':')))
+
+          # Persist complete forensic output and print every mismatch in deterministic JSONL form.
+          WORK.mkdir(parents=True,exist_ok=True)
+          (WORK/'audit-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+          (WORK/'mismatches.json').write_text(json.dumps(mismatches,indent=2,sort_keys=True))
+          with (WORK/'mismatches.jsonl').open('w') as f:
+              for m in mismatches:
+                  line=json.dumps(m,separators=(',',':'),sort_keys=True)
+                  f.write(line+'\n')
+                  print('MISMATCH='+line)
+
+          # A source-of-truth audit is CLEAN only when every layer agrees exactly.
+          clean=(not source_dupes and not blank_source_ids and not mismatches)
+          print('AUDIT_STATUS='+('CLEAN' if clean else 'MISMATCHES_FOUND'))
+          PY
+
+      - name: Upload full audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-quantity-fine-tooth-audit-20260811
+          path: |
+            /tmp/collx-quantity-audit/audit-summary.json
+            /tmp/collx-quantity-audit/mismatches.json
+            /tmp/collx-quantity-audit/mismatches.jsonl
+          if-no-files-found: warn
