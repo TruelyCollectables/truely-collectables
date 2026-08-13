@@ -68,9 +68,17 @@ export default function RootLayout({
     "@type": "Organization",
     name: STORE_LEGAL_NAME,
     alternateName: STORE_BRAND_NAME,
+    description:
+      "Online sports-card and collectibles retailer operating TruelyCollectables.com.",
     url: siteOrigin,
     email: STORE_SUPPORT_EMAIL,
-    sameAs: [],
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "customer service",
+      email: STORE_SUPPORT_EMAIL,
+      availableLanguage: ["English"],
+    },
+    sameAs: ["https://www.ebay.com/str/truelycollectablessports"],
   };
 
   return (
