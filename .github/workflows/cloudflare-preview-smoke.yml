@@ -1,0 +1,54 @@
+name: Cloudflare Preview Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-preview-smoke-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      BASE_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+    steps:
+      - name: Smoke test live Cloudflare preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_200() {
+            local path="$1"
+            local body
+            body=$(mktemp)
+            local status
+            status=$(curl --fail-with-body -sS -L --max-time 30 -o "$body" -w '%{http_code}' "${BASE_URL}${path}" || true)
+            printf '%s -> HTTP %s\n' "$path" "$status"
+            if [ "$status" != "200" ]; then
+              echo "Unexpected response body (first 800 bytes):"
+              head -c 800 "$body" || true
+              echo
+              rm -f "$body"
+              exit 1
+            fi
+            if [ ! -s "$body" ]; then
+              echo "Empty response body for $path"
+              rm -f "$body"
+              exit 1
+            fi
+            rm -f "$body"
+          }
+
+          check_200 /
+          check_200 /shop
+          check_200 /admin/login
+          check_200 /api/ebay/test
+          check_200 /robots.txt
+          check_200 /sitemap.xml
+          check_200 /google-merchant-feed.xml
+
+          echo 'Cloudflare preview smoke test passed.'
