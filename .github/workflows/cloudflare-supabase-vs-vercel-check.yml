@@ -1,0 +1,59 @@
+name: Cloudflare Supabase vs Vercel Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-supabase-vs-vercel-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+    steps:
+      - name: Compare live Vercel route and direct Supabase REST
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- live production product route ---'
+          curl -L -sS --max-time 25 -D /tmp/live.headers -o /tmp/live.body -w 'HTTP=%{http_code} TIME=%{time_total} BYTES=%{size_download}\n' https://truelycollectables.com/product/1991 || true
+          grep -Ei '^(server:|x-vercel-|x-truely-origin:|cf-ray:|content-type:)' /tmp/live.headers || true
+
+          echo '--- recover current Supabase project API keys without printing them ---'
+          curl -sS --fail-with-body \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys?reveal=true" \
+            -o /tmp/keys.json
+          node <<'NODE'
+          const fs=require('fs');
+          const keys=JSON.parse(fs.readFileSync('/tmp/keys.json','utf8'));
+          const service=keys.find(k=>String(k?.name||'').toLowerCase()==='service_role'&&k?.api_key)?.api_key || keys.find(k=>String(k?.type||'').toLowerCase()==='secret'&&k?.api_key)?.api_key;
+          if(!service) throw new Error('Current Supabase service key unavailable');
+          console.log(`::add-mask::${service}`);
+          fs.writeFileSync('/tmp/service.key',service,{mode:0o600});
+          NODE
+
+          service=$(cat /tmp/service.key)
+          echo '--- direct current Supabase REST product query ---'
+          curl -sS --max-time 15 \
+            -D /tmp/supa.headers \
+            -H "apikey: $service" \
+            -H "Authorization: Bearer $service" \
+            "https://$PROJECT_REF.supabase.co/rest/v1/products?select=id&store_id=eq.7f2f7e32-2f49-4bcb-b699-ea9298409c2c&id=eq.1991&limit=1" \
+            -o /tmp/supa.body \
+            -w 'HTTP=%{http_code} TIME=%{time_total} BYTES=%{size_download}\n' || true
+          echo -n 'Supabase body: '
+          cat /tmp/supa.body | head -c 300
+          echo
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/live.headers /tmp/live.body /tmp/keys.json /tmp/service.key /tmp/supa.headers /tmp/supa.body
