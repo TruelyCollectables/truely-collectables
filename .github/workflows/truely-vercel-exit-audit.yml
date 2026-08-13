@@ -1,0 +1,186 @@
+name: Truely Vercel Exit Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/truely-vercel-exit-audit.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-vercel-exit-audit
+  cancel-in-progress: false
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require migration credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN VERCEL_TOKEN; do
+            if [ -z "${!key:-}" ]; then
+              echo "MISSING_GITHUB_SECRET=$key"
+              exit 2
+            fi
+          done
+          echo 'MIGRATION_CREDENTIALS=PRESENT'
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pull current Truely Vercel Production environment privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false vercel@56.2.0 dotenv@latest >/dev/null 2>&1
+          npx vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null 2>&1
+          umask 077
+          npx vercel env pull .env.vercel-production --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --yes --no-color >/dev/null 2>&1
+          test -s .env.vercel-production
+          node <<'NODE'
+          const fs = require('fs');
+          const dotenv = require('dotenv');
+          const env = dotenv.parse(fs.readFileSync('.env.vercel-production'));
+          for (const value of Object.values(env)) {
+            const v = String(value || '');
+            if (v) console.log(`::add-mask::${v}`);
+          }
+          fs.writeFileSync('/tmp/vercel-names.txt', Object.keys(env).sort().join('\n') + '\n');
+          console.log(`VERCEL_PRODUCTION_VARIABLE_COUNT=${Object.keys(env).length}`);
+          NODE
+
+      - name: Read Cloudflare Production and Preview binding names only
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_bindings() {
+            local worker="$1"
+            local out="$2"
+            local tmp
+            tmp="$(mktemp)"
+            code="$(curl -sS --connect-timeout 10 --max-time 40 -o "$tmp" -w '%{http_code}' \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/settings")"
+            echo "CLOUDFLARE_SETTINGS_${worker}_HTTP=$code"
+            [ "$code" = '200' ]
+            jq -e '.success == true' "$tmp" >/dev/null
+            jq -r '.result.bindings[]? | select(.name != null) | [.name, .type] | @tsv' "$tmp" | sort -u > "$out"
+          }
+          fetch_bindings 'truely-collectables' /tmp/cf-prod-bindings.tsv
+          fetch_bindings 'truely-collectables-preview' /tmp/cf-preview-bindings.tsv
+          cut -f1 /tmp/cf-prod-bindings.tsv | sort -u > /tmp/cf-prod-names.txt
+          cut -f1 /tmp/cf-preview-bindings.tsv | sort -u > /tmp/cf-preview-names.txt
+          echo "CLOUDFLARE_PRODUCTION_BINDING_COUNT=$(wc -l < /tmp/cf-prod-names.txt | tr -d ' ')"
+          echo "CLOUDFLARE_PREVIEW_BINDING_COUNT=$(wc -l < /tmp/cf-preview-names.txt | tr -d ' ')"
+
+      - name: Scan current Truely runtime environment references
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const roots = ['src'];
+          const files = ['cloudflare-worker.ts','next.config.ts','open-next.config.ts'];
+          const names = new Set();
+          const patterns = [
+            /process\.env\.([A-Z][A-Z0-9_]*)/g,
+            /process\.env\[['"]([A-Z][A-Z0-9_]*)['"]\]/g,
+            /env\.([A-Z][A-Z0-9_]*)/g,
+          ];
+          function scan(file) {
+            if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return;
+            const text = fs.readFileSync(file, 'utf8');
+            for (const re of patterns) {
+              re.lastIndex = 0;
+              for (const m of text.matchAll(re)) names.add(m[1]);
+            }
+          }
+          function walk(dir) {
+            if (!fs.existsSync(dir)) return;
+            for (const ent of fs.readdirSync(dir, {withFileTypes:true})) {
+              const p = path.join(dir, ent.name);
+              if (ent.isDirectory()) walk(p);
+              else if (/\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(ent.name)) scan(p);
+            }
+          }
+          for (const root of roots) walk(root);
+          for (const file of files) scan(file);
+          fs.writeFileSync('/tmp/runtime-names.txt', [...names].sort().join('\n') + '\n');
+          console.log(`RUNTIME_ENV_REFERENCE_COUNT=${names.size}`);
+          NODE
+
+      - name: Report parity using names and booleans only
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== REQUIRED RUNTIME PARITY ==='
+          required=(
+            NEXT_PUBLIC_SUPABASE_URL
+            NEXT_PUBLIC_SUPABASE_ANON_KEY
+            SUPABASE_SERVICE_ROLE_KEY
+            NEXT_PUBLIC_SITE_URL
+            ADMIN_PASSWORD
+            ADMIN_SESSION_SECRET
+            STRIPE_LIVE_SECRET_KEY
+            NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY
+            STRIPE_LIVE_WEBHOOK_SECRET
+            TCOS_LIVE_PAYMENTS_ENABLED
+            EBAY_CLIENT_ID
+            EBAY_CLIENT_SECRET
+            EBAY_ENVIRONMENT
+            RESEND_API_KEY
+            CRON_SECRET
+          )
+          failures=0
+          for key in "${required[@]}"; do
+            v=no; p=no; q=no
+            grep -Fxq "$key" /tmp/vercel-names.txt && v=yes
+            grep -Fxq "$key" /tmp/cf-prod-names.txt && p=yes
+            grep -Fxq "$key" /tmp/cf-preview-names.txt && q=yes
+            echo "$key vercel=$v cf_prod=$p cf_preview=$q"
+            if [ "$v" = yes ] && [ "$p" != yes ]; then failures=$((failures+1)); fi
+          done
+
+          echo '=== RUNTIME REFERENCES MISSING FROM CLOUDFLARE PRODUCTION ==='
+          comm -23 /tmp/runtime-names.txt /tmp/cf-prod-names.txt | tee /tmp/runtime-missing-cf-prod.txt
+
+          echo '=== VERCEL PRODUCTION NAMES NOT PRESENT IN CLOUDFLARE PRODUCTION ==='
+          comm -23 /tmp/vercel-names.txt /tmp/cf-prod-names.txt | tee /tmp/vercel-only.txt
+
+          echo '=== CLOUDFLARE PRODUCTION BINDING TYPES ==='
+          cat /tmp/cf-prod-bindings.tsv
+
+          if grep -Fxq 'RESEND_API_KEY' /tmp/cf-prod-names.txt; then
+            echo 'RESEND_CLOUDFLARE_PRODUCTION=PRESENT'
+          else
+            echo 'RESEND_CLOUDFLARE_PRODUCTION=MISSING'
+            failures=$((failures+1))
+          fi
+
+          echo "REQUIRED_MISSING_CF_PROD_COUNT=$failures"
+          if [ "$failures" -eq 0 ]; then
+            echo 'TRUELY_REQUIRED_SECRET_PARITY=PASS'
+          else
+            echo 'TRUELY_REQUIRED_SECRET_PARITY=FAIL'
+          fi
+
+      - name: Remove temporary Vercel environment
+        if: always()
+        shell: bash
+        run: rm -f .env.vercel-production
