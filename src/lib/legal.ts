@@ -13,6 +13,7 @@ export const PRIVACY_POLICY_PATH = "/privacy";
 export const SHIPPING_POLICY_PATH = "/shipping";
 export const RETURNS_POLICY_PATH = "/returns";
 export const CONTACT_PATH = "/contact";
+export const ABOUT_PATH = "/about";
 export const SELLER_TERMS_OF_SERVICE_VERSION = "2026-06-27";
 export const SELLER_TERMS_OF_SERVICE_PATH = "/seller-terms";
 export const SELLER_COMMISSION_RATE = 0.08;
