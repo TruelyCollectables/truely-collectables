@@ -1,0 +1,56 @@
+name: Cloudflare Supabase Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-supabase-probe-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      PROBE_URL: https://truely-collectables-preview.truelycollectables.workers.dev/api/cron/cloudflare-supabase-probe
+    steps:
+      - name: Install probe tooling
+        run: npm install --no-save --package-lock=false vercel@56.2.0 dotenv@latest
+
+      - name: Pull cron credential without printing it and call live Worker probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null
+          umask 077
+          npx vercel env pull .env.probe --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --yes --no-color >/dev/null
+          node <<'NODE'
+          const fs = require('node:fs');
+          const dotenv = require('dotenv');
+          const env = dotenv.parse(fs.readFileSync('.env.probe'));
+          const secret = String(env.CRON_SECRET || '').trim();
+          if (!secret) throw new Error('CRON_SECRET is missing from Vercel Production.');
+          console.log(`::add-mask::${secret}`);
+
+          async function main() {
+            const response = await fetch(process.env.PROBE_URL, {
+              headers: { authorization: `Bearer ${secret}` },
+            });
+            const text = await response.text();
+            console.log(`Probe HTTP ${response.status}`);
+            console.log(text);
+            if (!response.ok) process.exit(2);
+          }
+
+          main().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          NODE
+          rm -f .env.probe
