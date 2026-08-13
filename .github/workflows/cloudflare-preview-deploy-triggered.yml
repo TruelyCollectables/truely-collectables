@@ -54,6 +54,75 @@ jobs:
       - name: Install migration tooling without changing lockfile
         run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest vercel@56.2.0 dotenv@latest
 
+      - name: Ensure Truely workers.dev account subdomain exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          async function cf(path, init = {}) {
+            return fetch(`https://api.cloudflare.com/client/v4${path}`, {
+              ...init,
+              headers: {
+                authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+                'content-type': 'application/json',
+                accept: 'application/json',
+                ...(init.headers || {}),
+              },
+            });
+          }
+
+          async function main() {
+            const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+            if (!accountId) throw new Error('Cloudflare account ID is unavailable.');
+
+            const existingResponse = await cf(`/accounts/${accountId}/workers/subdomain`);
+            if (existingResponse.ok) {
+              const payload = await existingResponse.json();
+              const existing = String(payload?.result?.subdomain || '').trim();
+              if (existing) {
+                console.log(`workers.dev account subdomain already registered: ${existing}.workers.dev`);
+                return;
+              }
+            } else if (existingResponse.status === 401 || existingResponse.status === 403) {
+              throw new Error(`Cloudflare rejected workers.dev lookup with HTTP ${existingResponse.status}.`);
+            }
+
+            const suffix = accountId.slice(-6).toLowerCase();
+            const candidates = [
+              'truelycollectables',
+              'truelycollectablesllc',
+              `truelycollectables-${suffix}`,
+            ];
+
+            let lastError = '';
+            for (const candidate of candidates) {
+              const response = await cf(`/accounts/${accountId}/workers/subdomain`, {
+                method: 'PUT',
+                body: JSON.stringify({ subdomain: candidate }),
+              });
+              const payload = await response.json().catch(() => null);
+              if (response.ok && payload?.success !== false) {
+                const created = String(payload?.result?.subdomain || candidate).trim();
+                console.log(`Registered workers.dev account subdomain: ${created}.workers.dev`);
+                return;
+              }
+              if (response.status === 401 || response.status === 403) {
+                throw new Error(`Cloudflare rejected workers.dev registration with HTTP ${response.status}.`);
+              }
+              lastError = Array.isArray(payload?.errors)
+                ? payload.errors.map((error) => String(error?.message || error?.code || '')).filter(Boolean).join('; ')
+                : `HTTP ${response.status}`;
+            }
+
+            throw new Error(`Could not register a workers.dev account subdomain${lastError ? `: ${lastError}` : '.'}`);
+          }
+
+          main().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(6);
+          });
+          NODE
+
       - name: Link only the Truely Vercel project
         shell: bash
         run: |
