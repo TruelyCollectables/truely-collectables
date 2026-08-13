@@ -50,7 +50,7 @@ jobs:
         run: npm ci
 
       - name: Install migration tooling without changing lockfile
-        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest vercel@56.2.0
+        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest vercel@56.2.0 dotenv@latest
 
       - name: Link only the Truely Vercel project
         shell: bash
@@ -103,7 +103,35 @@ jobs:
           printf 'Pulled %s Vercel Production variable(s); values remain masked and are not printed.\n' "$count"
 
       - name: Build OpenNext with Truely Production environment
-        run: npx opennextjs-cloudflare build
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { spawnSync } = require('node:child_process');
+          const dotenv = require('dotenv');
+          const parsed = dotenv.parse(fs.readFileSync('.env.production.local'));
+          const required = [
+            'NEXT_PUBLIC_SUPABASE_URL',
+            'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+            'SUPABASE_SERVICE_ROLE_KEY',
+          ];
+          const empty = required.filter((key) => !String(parsed[key] || '').trim());
+          if (empty.length) {
+            console.error(`Vercel Production has empty required value(s): ${empty.join(' ')}`);
+            process.exit(4);
+          }
+          console.log('Verified non-empty Supabase production values; secret values remain masked and are not printed.');
+          const result = spawnSync(
+            'npx',
+            ['opennextjs-cloudflare', 'build'],
+            {
+              stdio: 'inherit',
+              env: { ...process.env, ...parsed },
+            },
+          );
+          process.exit(result.status ?? 1);
+          NODE
 
       - name: Deploy isolated no-cron Cloudflare preview with migrated secrets
         run: npx wrangler deploy --config wrangler.preview.jsonc --secrets-file .env.production.local
