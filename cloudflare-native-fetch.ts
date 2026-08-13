@@ -4,6 +4,18 @@ declare global {
   var __TRUELY_CLOUDFLARE_NATIVE_FETCH__: typeof fetch | undefined;
 }
 
+// The one-time Vercel secret handoff copied Vercel's own platform marker as a
+// runtime binding. This module is imported only by the Cloudflare Worker entry,
+// so neutralize that marker before OpenNext evaluates. Application secrets are
+// untouched; this prevents Cloudflare from being misdetected as Vercel.
+if (typeof process !== "undefined" && process.env) {
+  try {
+    delete process.env.VERCEL;
+  } catch {
+    process.env.VERCEL = "";
+  }
+}
+
 if (!globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__) {
   globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__ = globalThis.fetch.bind(globalThis);
 }
