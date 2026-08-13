@@ -1,0 +1,88 @@
+name: Cloudflare Integration Precheck
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-integration-precheck-trigger'
+      - '.github/workflows/cloudflare-integration-precheck.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  WORKER: truely-collectables-preview
+  PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install env tools
+        run: npm install --no-save --package-lock=false vercel@56.2.0 dotenv@latest
+      - name: Pull production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN VERCEL_TOKEN; do test -n "${!key:-}" || { echo "Missing $key"; exit 2; }; done
+          npx vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null
+          umask 077
+          npx vercel env pull .env.production.local --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --yes --no-color >/dev/null
+          test -s .env.production.local
+      - name: Validate Cloudflare preview and integrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in '/product/1991|product' '/shop|shop' '/|home' '/admin/login|admin' '/robots.txt|robots'; do
+            path=${spec%%|*}; tag=${spec##*|}
+            code=$(curl -L --fail-with-body -sS --max-time 45 -D "/tmp/$tag.headers" -o /dev/null -w '%{http_code}' "$PREVIEW_URL$path")
+            echo "$path -> $code"
+            grep -qi '^x-truely-origin: cloudflare-worker' "/tmp/$tag.headers" || exit 31
+          done
+          code=$(curl -L -sS --max-time 35 -D /tmp/instacomp.headers "$PREVIEW_URL/api/instacomp/internal-readiness" -o /tmp/instacomp.json -w '%{http_code}')
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/instacomp.headers
+          test "$code" = 200
+          node <<'NODE'
+          const fs=require('fs'); const b=JSON.parse(fs.readFileSync('/tmp/instacomp.json','utf8'));
+          console.log(`InstaComp configured=${b.configured}; reachable=${b.reachable}; reason=${b.reason||'none'}`);
+          if(!b.configured||!b.reachable) throw new Error('InstaComp readiness failed');
+          NODE
+          node <<'NODE'
+          const fs=require('fs'); const dotenv=require('dotenv'); const e=dotenv.parse(fs.readFileSync('.env.production.local'));
+          for(const k of ['EBAY_CLIENT_ID','EBAY_CLIENT_SECRET','STRIPE_SECRET_KEY']) if(!String(e[k]||'').trim()) throw new Error(`Missing ${k}`);
+          fs.writeFileSync('/tmp/i.json',JSON.stringify({a:e.EBAY_CLIENT_ID,b:e.EBAY_CLIENT_SECRET,s:e.STRIPE_SECRET_KEY}),{mode:0o600});
+          NODE
+          node <<'NODE'
+          const fs=require('fs'); const e=JSON.parse(fs.readFileSync('/tmp/i.json','utf8'));
+          async function main(){
+            const basic=Buffer.from(`${e.a}:${e.b}`).toString('base64');
+            const er=await fetch('https://api.ebay.com/identity/v1/oauth2/token',{method:'POST',headers:{Authorization:`Basic ${basic}`,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'client_credentials',scope:'https://api.ebay.com/oauth/api_scope'})});
+            const ej=await er.json().catch(()=>({})); if(!er.ok||!ej.access_token) throw new Error(`eBay auth failed HTTP ${er.status}`); console.log('eBay production credentials -> PASS');
+            const sr=await fetch('https://api.stripe.com/v1/account',{headers:{Authorization:`Bearer ${e.s}`}}); if(!sr.ok) throw new Error(`Stripe auth failed HTTP ${sr.status}`); console.log('Stripe production secret -> PASS');
+            const hr=await fetch('https://api.stripe.com/v1/webhook_endpoints?limit=100',{headers:{Authorization:`Bearer ${e.s}`}}); if(!hr.ok) throw new Error(`Stripe webhook list failed HTTP ${hr.status}`);
+            const h=await hr.json(); const urls=(h.data||[]).map(x=>String(x.url||''));
+            const canonical=urls.some(u=>u==='https://truelycollectables.com/api/stripe/webhook'||u==='https://truelycollectables.com/api/webhook');
+            console.log(`Stripe canonical webhook present=${canonical}; vercelAppWebhookCount=${urls.filter(u=>u.includes('vercel.app')).length}`);
+            if(!canonical) throw new Error('Canonical Truely Stripe webhook missing');
+          }
+          main().catch(e=>{console.error(e.message||String(e));process.exit(1)});
+          NODE
+          curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/settings" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/cf.json
+          node <<'NODE'
+          const fs=require('fs'); const r=JSON.parse(fs.readFileSync('/tmp/cf.json','utf8')); if(!r.success) throw new Error('Cloudflare Worker settings read failed');
+          const names=new Set((r.result?.bindings||[]).map(x=>x.name)); const required=['EBAY_CLIENT_ID','EBAY_CLIENT_SECRET','STRIPE_SECRET_KEY','CRON_SECRET']; const missing=required.filter(x=>!names.has(x));
+          console.log(`Cloudflare required bindings=${required.length-missing.length}/${required.length}`); if(missing.length) throw new Error(`Missing Cloudflare bindings: ${missing.join(', ')}`);
+          NODE
+      - name: Cleanup
+        if: always()
+        run: rm -f .env.production.local /tmp/i.json /tmp/*.json /tmp/*.headers
