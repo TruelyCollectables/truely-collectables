@@ -25,7 +25,7 @@ jobs:
       - name: Install probe tooling
         run: npm install --no-save --package-lock=false vercel@56.2.0 dotenv@latest wrangler@4.122.0
 
-      - name: Repair empty preview cron secret and call live Worker probe
+      - name: Derive preview cron secret and call live Worker probe
         shell: bash
         run: |
           set -euo pipefail
@@ -34,13 +34,19 @@ jobs:
           npx vercel env pull .env.probe --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --yes --no-color >/dev/null
           node <<'NODE'
           const fs = require('node:fs');
+          const { createHmac } = require('node:crypto');
           const { spawnSync } = require('node:child_process');
           const dotenv = require('dotenv');
           const env = dotenv.parse(fs.readFileSync('.env.probe'));
           const cronSecret = String(env.CRON_SECRET || '').trim();
-          const fallbackSecret = String(env.PROFIT_HUNTER_RUN_SECRET || '').trim();
-          const secret = cronSecret || fallbackSecret;
-          if (!secret) throw new Error('Neither CRON_SECRET nor PROFIT_HUNTER_RUN_SECRET is available.');
+          const sessionSecret = String(env.ADMIN_SESSION_SECRET || '').trim();
+          if (!cronSecret && !sessionSecret) {
+            throw new Error('Neither CRON_SECRET nor ADMIN_SESSION_SECRET is available for stable derivation.');
+          }
+          const derived = sessionSecret
+            ? createHmac('sha256', sessionSecret).update('truely-cloudflare-cron-v1').digest('base64url')
+            : '';
+          const secret = cronSecret || derived;
           console.log(`::add-mask::${secret}`);
 
           const repair = spawnSync(
@@ -53,7 +59,7 @@ jobs:
             },
           );
           if (repair.status !== 0) process.exit(repair.status || 3);
-          console.log(cronSecret ? 'Preview CRON_SECRET already had a source value; refreshed live secret.' : 'Preview CRON_SECRET repaired from stable Profit Hunter server secret.');
+          console.log(cronSecret ? 'Preview CRON_SECRET refreshed from its existing source.' : 'Preview CRON_SECRET set from stable HMAC derivation; source secret remains undisclosed.');
 
           async function main() {
             const response = await fetch(process.env.PROBE_URL, {
