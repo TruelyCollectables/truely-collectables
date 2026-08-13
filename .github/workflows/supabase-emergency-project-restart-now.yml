@@ -13,11 +13,35 @@ permissions:
 jobs:
   repair-and-verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 18
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       PROJECT_REF: rfdzsoykhnngzdnvzlhz
     steps:
+      - name: Restart Supabase and wait for stable database recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+          base="https://api.supabase.com/v1/projects/$PROJECT_REF"
+          echo 'Requesting non-destructive Supabase restart...'
+          curl -sS --fail-with-body -X POST -H "$auth" "$base/restart" -o /tmp/restart.json
+          stable=0
+          for attempt in $(seq 1 36); do
+            echo "recovery_probe=$attempt/36"
+            db=$(curl -sS --max-time 15 -o /tmp/db.json -w '%{http_code}' -X POST -H "$auth" -H 'Content-Type: application/json' "$base/database/query" --data '{"query":"select 1 as ok;","read_only":true}' || true)
+            rest=$(curl -sS --max-time 15 -o /tmp/rest.out -w '%{http_code}' "https://$PROJECT_REF.supabase.co/rest/v1/" || true)
+            echo "database_query_http=$db postgrest_http=$rest stable=$stable"
+            if [ "$db" = "201" ] && { [ "$rest" = "401" ] || [ "$rest" = "200" ]; }; then
+              stable=$((stable+1))
+              if [ "$stable" -ge 3 ]; then echo 'Supabase stable for three consecutive probes.'; break; fi
+            else
+              stable=0
+            fi
+            sleep 10
+          done
+          test "$stable" -ge 3 || { echo 'Supabase failed stable recovery gate.'; exit 9; }
+
       - name: Add storefront query indexes and refresh planner stats
         shell: bash
         run: |
@@ -26,9 +50,14 @@ jobs:
           api="https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
           run_sql() {
             node -e 'process.stdout.write(JSON.stringify({query:process.argv[1],read_only:false}))' "$1" >/tmp/q.json
-            code=$(curl -sS --max-time 90 -o /tmp/q.out -w '%{http_code}' -X POST -H "$auth" -H 'Content-Type: application/json' "$api" --data-binary @/tmp/q.json || true)
-            echo "database_query_http=$code"
-            if [ "$code" != "201" ]; then cat /tmp/q.out || true; exit 10; fi
+            for attempt in $(seq 1 4); do
+              code=$(curl -sS --max-time 120 -o /tmp/q.out -w '%{http_code}' -X POST -H "$auth" -H 'Content-Type: application/json' "$api" --data-binary @/tmp/q.json || true)
+              echo "sql_attempt=$attempt database_query_http=$code"
+              if [ "$code" = "201" ]; then return 0; fi
+              cat /tmp/q.out || true
+              sleep 8
+            done
+            return 10
           }
           run_sql 'create index if not exists idx_inventory_items_store_legacy_created on public.inventory_items (store_id, legacy_product_id, created_at);'
           run_sql 'create index if not exists idx_inventory_images_item_sort on public.inventory_images (inventory_item_id, sort_order);'
@@ -41,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           url='https://truely-collectables-preview.truelycollectables.workers.dev/api/internal/cloudflare-product-runtime-probe'
-          code=$(curl -sS --max-time 60 -o /tmp/probe.json -w '%{http_code}' "$url" || true)
+          code=$(curl -sS --max-time 75 -o /tmp/probe.json -w '%{http_code}' "$url" || true)
           echo "runtime_probe_http=$code"
           cat /tmp/probe.json || true
           echo
@@ -61,7 +90,7 @@ jobs:
             'https://truely-collectables-preview.truelycollectables.workers.dev/shop|cloudflare-shop' \
             'https://truely-collectables-preview.truelycollectables.workers.dev/|cloudflare-home'; do
             url=${spec%%|*}; label=${spec##*|}
-            out=$(curl -L --fail-with-body -sS --max-time 35 -D "/tmp/${label}.headers" -o /dev/null -w '%{http_code} %{time_total}' "$url")
+            out=$(curl -L --fail-with-body -sS --max-time 40 -D "/tmp/${label}.headers" -o /dev/null -w '%{http_code} %{time_total}' "$url")
             echo "$label -> $out"
           done
           grep -qi '^x-truely-origin: cloudflare-worker' /tmp/cloudflare-preview.headers
@@ -69,4 +98,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/q.json /tmp/q.out /tmp/probe.json /tmp/*.headers
+        run: rm -f /tmp/restart.json /tmp/db.json /tmp/rest.out /tmp/q.json /tmp/q.out /tmp/probe.json /tmp/*.headers
