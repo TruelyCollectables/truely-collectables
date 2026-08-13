@@ -1,0 +1,58 @@
+name: Cloudflare Supabase URL Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-supabase-url-audit-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      EXPECTED_SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+    steps:
+      - name: Install Vercel env tooling
+        run: npm install --no-save --package-lock=false vercel@56.2.0 dotenv@latest
+
+      - name: Audit public Supabase URL without printing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null
+          umask 077
+          npx vercel env pull .env.audit --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --yes --no-color >/dev/null
+          node <<'NODE'
+          const fs = require('node:fs');
+          const dotenv = require('dotenv');
+          const env = dotenv.parse(fs.readFileSync('.env.audit'));
+          const raw = String(env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+          if (!raw) throw new Error('NEXT_PUBLIC_SUPABASE_URL is empty.');
+          const parsed = new URL(raw);
+          const expectedHost = `${process.env.EXPECTED_SUPABASE_PROJECT_REF}.supabase.co`;
+          console.log(JSON.stringify({
+            protocol: parsed.protocol,
+            hostname: parsed.hostname,
+            pathname: parsed.pathname,
+            expectedHostname: expectedHost,
+            matchesExpectedProject: parsed.hostname.toLowerCase() === expectedHost.toLowerCase(),
+          }));
+          const started = Date.now();
+          fetch(`${parsed.origin}/rest/v1/`, { signal: AbortSignal.timeout(5000) })
+            .then(async (response) => {
+              await response.text().catch(() => '');
+              console.log(JSON.stringify({ githubReachable: true, httpStatus: response.status, elapsedMs: Date.now() - started }));
+            })
+            .catch((error) => {
+              console.log(JSON.stringify({ githubReachable: false, elapsedMs: Date.now() - started, error: String(error?.message || error).slice(0, 180) }));
+            });
+          NODE
+          rm -f .env.audit
