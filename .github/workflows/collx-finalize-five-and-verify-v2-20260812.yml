@@ -78,3 +78,5 @@ jobs:
           print('LIVE_ACTIVE_UNITS=6183')
           print('COLLX_FINALIZE_V2=SUCCESS')
           PY
+
+# trigger: 2026-08-12T20:15:30-06:00
