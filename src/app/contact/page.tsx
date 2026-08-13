@@ -6,9 +6,12 @@ import {
   PRIVACY_POLICY_PATH,
   RETURNS_POLICY_PATH,
   SHIPPING_POLICY_PATH,
+  STORE_ADDRESS_FORMATTED,
   STORE_BRAND_NAME,
   STORE_LEGAL_NAME,
   STORE_SUPPORT_EMAIL,
+  STORE_SUPPORT_PHONE,
+  STORE_SUPPORT_PHONE_E164,
   TERMS_OF_SERVICE_PATH,
 } from "../../lib/legal";
 
@@ -33,6 +36,23 @@ export default function ContactPage() {
             <dt className="font-black text-neutral-500">Store website</dt>
             <dd className="mt-1 text-base font-black text-neutral-950">
               TruelyCollectables.com
+            </dd>
+          </div>
+          <div className="bg-neutral-50 p-4">
+            <dt className="font-black text-neutral-500">Business address</dt>
+            <dd className="mt-1 text-base font-black text-neutral-950">
+              {STORE_ADDRESS_FORMATTED}
+            </dd>
+          </div>
+          <div className="bg-neutral-50 p-4">
+            <dt className="font-black text-neutral-500">Business phone</dt>
+            <dd className="mt-1 text-base font-black text-neutral-950">
+              <a
+                href={`tel:${STORE_SUPPORT_PHONE_E164}`}
+                className="underline decoration-2 underline-offset-4"
+              >
+                {STORE_SUPPORT_PHONE}
+              </a>
             </dd>
           </div>
         </dl>
