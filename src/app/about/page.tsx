@@ -5,9 +5,12 @@ import {
   CONTACT_PATH,
   RETURNS_POLICY_PATH,
   SHIPPING_POLICY_PATH,
+  STORE_ADDRESS_FORMATTED,
   STORE_BRAND_NAME,
   STORE_LEGAL_NAME,
   STORE_SUPPORT_EMAIL,
+  STORE_SUPPORT_PHONE,
+  STORE_SUPPORT_PHONE_E164,
 } from "../../lib/legal";
 
 export const metadata: Metadata = {
@@ -26,6 +29,25 @@ export default function AboutPage() {
           browse current inventory, review listing photos and product details, and
           complete payment through the store&apos;s secure checkout.
         </p>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div className="border-2 border-neutral-950 bg-white p-4">
+            <dt className="font-black text-neutral-500">Business address</dt>
+            <dd className="mt-1 font-black text-neutral-950">
+              {STORE_ADDRESS_FORMATTED}
+            </dd>
+          </div>
+          <div className="border-2 border-neutral-950 bg-white p-4">
+            <dt className="font-black text-neutral-500">Business phone</dt>
+            <dd className="mt-1 font-black text-neutral-950">
+              <a
+                href={`tel:${STORE_SUPPORT_PHONE_E164}`}
+                className="underline decoration-2 underline-offset-4"
+              >
+                {STORE_SUPPORT_PHONE}
+              </a>
+            </dd>
+          </div>
+        </dl>
       </section>
 
       <section>
@@ -86,12 +108,14 @@ export default function AboutPage() {
           </Link>
         </div>
         <p className="mt-5">
-          Customer support: <a
+          Customer support:{" "}
+          <a
             href={`mailto:${STORE_SUPPORT_EMAIL}`}
             className="font-black underline decoration-2 underline-offset-4"
           >
             {STORE_SUPPORT_EMAIL}
-          </a>.
+          </a>
+          .
         </p>
       </section>
     </PolicyShell>

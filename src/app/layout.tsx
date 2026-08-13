@@ -3,9 +3,15 @@ import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import GoogleCustomerReviewsBadge from "../components/GoogleCustomerReviewsBadge";
 import {
+  STORE_ADDRESS_CITY,
+  STORE_ADDRESS_COUNTRY,
+  STORE_ADDRESS_POSTAL_CODE,
+  STORE_ADDRESS_REGION,
+  STORE_ADDRESS_STREET,
   STORE_BRAND_NAME,
   STORE_LEGAL_NAME,
   STORE_SUPPORT_EMAIL,
+  STORE_SUPPORT_PHONE_E164,
 } from "../lib/legal";
 import { configuredSiteOrigin } from "../lib/site-origin";
 import "./globals.css";
@@ -72,10 +78,20 @@ export default function RootLayout({
       "Online sports-card and collectibles retailer operating TruelyCollectables.com.",
     url: siteOrigin,
     email: STORE_SUPPORT_EMAIL,
+    telephone: STORE_SUPPORT_PHONE_E164,
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: STORE_ADDRESS_STREET,
+      addressLocality: STORE_ADDRESS_CITY,
+      addressRegion: STORE_ADDRESS_REGION,
+      postalCode: STORE_ADDRESS_POSTAL_CODE,
+      addressCountry: STORE_ADDRESS_COUNTRY,
+    },
     contactPoint: {
       "@type": "ContactPoint",
       contactType: "customer service",
       email: STORE_SUPPORT_EMAIL,
+      telephone: STORE_SUPPORT_PHONE_E164,
       availableLanguage: ["English"],
     },
     sameAs: ["https://www.ebay.com/str/truelycollectablessports"],
