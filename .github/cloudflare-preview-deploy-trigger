@@ -1,1 +1,1 @@
-Retry Truely Cloudflare preview deployment with automatic workers.dev account subdomain bootstrap after commit ab821b82cdf361922e0bd2a127ad51a00884665d.
+Deploy preview with temporary Cloudflare Supabase runtime probe after commit 68da9f2039ff80cc03d3fe04cf484e33b2f985eb.
