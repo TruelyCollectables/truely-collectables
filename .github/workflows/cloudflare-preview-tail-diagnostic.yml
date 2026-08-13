@@ -23,28 +23,43 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install Wrangler for live tail
+        run: npm install --global wrangler@4.122.0
+
       - name: Tail Worker while probing preview
         shell: bash
         run: |
           set -u
-          rm -f tail.log root.headers root.body favicon.headers favicon.body
+          rm -f tail.log
 
-          timeout 40s npx --yes wrangler@latest tail truely-collectables-preview --format json >tail.log 2>&1 &
+          timeout 55s wrangler tail truely-collectables-preview --format json >tail.log 2>&1 &
           tail_pid=$!
-          sleep 8
+          sleep 5
 
-          echo '=== favicon probe (middleware bypass) ==='
-          curl -sS --max-time 8 -D favicon.headers -o favicon.body -w 'HTTP %{http_code} total=%{time_total}s\n' "${BASE_URL}/favicon.ico" || true
-          head -n 20 favicon.headers || true
+          probe() {
+            local label="$1"
+            local path="$2"
+            local seconds="$3"
+            local body headers
+            body=$(mktemp)
+            headers=$(mktemp)
+            echo "=== ${label}: ${path} ==="
+            curl -sS --max-time "$seconds" -D "$headers" -o "$body" -w 'HTTP %{http_code} total=%{time_total}s\n' "${BASE_URL}${path}" || true
+            head -n 20 "$headers" || true
+            if [ -s "$body" ]; then
+              echo 'Body first 300 bytes:'
+              head -c 300 "$body" || true
+              echo
+            fi
+            rm -f "$body" "$headers"
+          }
 
-          echo '=== root probe ==='
-          curl -sS --max-time 15 -D root.headers -o root.body -w 'HTTP %{http_code} total=%{time_total}s\n' "${BASE_URL}/" || true
-          head -n 30 root.headers || true
-          if [ -s root.body ]; then
-            echo 'Root body first 500 bytes:'
-            head -c 500 root.body || true
-            echo
-          fi
+          probe 'static middleware bypass' '/favicon.ico' 5
+          probe 'cron middleware exempt' '/api/cron/profit-hunter' 6
+          probe 'Stripe webhook middleware exempt GET' '/api/stripe/webhook' 6
+          probe 'protected API through middleware' '/api/ebay/test' 6
+          probe 'public admin through middleware' '/admin/login' 8
+          probe 'Supabase-backed homepage' '/' 10
 
           sleep 5
           kill "$tail_pid" 2>/dev/null || true
