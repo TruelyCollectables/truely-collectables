@@ -5,7 +5,7 @@ import {
   PRIVACY_POLICY_PATH,
   RETURNS_POLICY_PATH,
   SHIPPING_POLICY_PATH,
-  SOFTWARE_OWNER_NAME,
+  STORE_LEGAL_NAME,
   STORE_SUPPORT_EMAIL,
   TERMS_OF_SERVICE_VERSION,
 } from "../../lib/legal";
@@ -34,8 +34,8 @@ export default async function TermsPage() {
       <h1 className="text-4xl font-bold">Terms of Service</h1>
 
       <p className="mt-3 text-sm text-gray-600">
-        {SOFTWARE_OWNER_NAME}. {storeSettings.displayName} storefront. Version{" "}
-        {TERMS_OF_SERVICE_VERSION}.
+        Terms for purchases from {STORE_LEGAL_NAME}, operating the{" "}
+        {storeSettings.displayName} storefront. Version {TERMS_OF_SERVICE_VERSION}.
       </p>
 
       <div className="mt-8 space-y-6 text-gray-800">

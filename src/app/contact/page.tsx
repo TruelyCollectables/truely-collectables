@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PolicyShell from "../components/PolicyShell";
 import {
+  ABOUT_PATH,
   PRIVACY_POLICY_PATH,
   RETURNS_POLICY_PATH,
   SHIPPING_POLICY_PATH,
@@ -13,23 +14,54 @@ import {
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: `Order, offer, account, and policy support for ${STORE_BRAND_NAME}.`,
+  description: `Business identity, order support, and customer contact information for ${STORE_BRAND_NAME}.`,
 };
 
 export default function ContactPage() {
   return (
     <PolicyShell eyebrow={STORE_LEGAL_NAME} title="Contact Truely Collectables">
       <section className="border-2 border-neutral-950 bg-white p-6 shadow-[4px_4px_0_#111318]">
-        <h2 className="text-2xl font-black">Email support</h2>
+        <h2 className="text-2xl font-black">Business & customer support</h2>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div className="bg-neutral-50 p-4">
+            <dt className="font-black text-neutral-500">Legal business name</dt>
+            <dd className="mt-1 text-base font-black text-neutral-950">
+              {STORE_LEGAL_NAME}
+            </dd>
+          </div>
+          <div className="bg-neutral-50 p-4">
+            <dt className="font-black text-neutral-500">Store website</dt>
+            <dd className="mt-1 text-base font-black text-neutral-950">
+              TruelyCollectables.com
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-5 font-bold">Customer support email</p>
         <a
           href={`mailto:${STORE_SUPPORT_EMAIL}`}
-          className="mt-3 inline-block text-xl font-black text-blue-700 underline decoration-2 underline-offset-4"
+          className="mt-2 inline-block text-xl font-black text-blue-700 underline decoration-2 underline-offset-4"
         >
           {STORE_SUPPORT_EMAIL}
         </a>
         <p className="mt-3">
           Use this address for order questions, shipping issues, returns, refunds,
           offers, account activity, privacy requests, and storefront support.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-2xl font-black">Who operates this store</h2>
+        <p className="mt-2">
+          {STORE_LEGAL_NAME} operates {STORE_BRAND_NAME} and TruelyCollectables.com.
+          Learn more about the store, inventory model, checkout, and marketplace
+          relationships on the{" "}
+          <Link
+            href={ABOUT_PATH}
+            className="font-black underline decoration-2 underline-offset-4"
+          >
+            About page
+          </Link>
+          .
         </p>
       </section>
 
