@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BUYER_PROTECTION_PATH } from "../../lib/buyer-protection";
 import {
+  ABOUT_PATH,
   CONTACT_PATH,
   PRIVACY_POLICY_PATH,
   RETURNS_POLICY_PATH,
@@ -12,6 +13,7 @@ import {
 } from "../../lib/legal";
 
 const policyLinks = [
+  { href: ABOUT_PATH, label: "About" },
   { href: SHIPPING_POLICY_PATH, label: "Shipping" },
   { href: BUYER_PROTECTION_PATH, label: "Buyer Protection" },
   { href: RETURNS_POLICY_PATH, label: "Returns & Refunds" },
@@ -27,8 +29,9 @@ export default function Footer() {
         <div>
           <p className="text-lg font-black">{STORE_BRAND_NAME}</p>
           <p className="mt-1 max-w-xl text-sm font-semibold text-neutral-300">
-            Sports-card inventory, secure checkout, clear shipping options, and
-            order support from {STORE_LEGAL_NAME}.
+            {STORE_LEGAL_NAME} operates TruelyCollectables.com as an online sports-card
+            and collectibles store with secure checkout, published shipping and return
+            policies, and customer support.
           </p>
           <a
             href={`mailto:${STORE_SUPPORT_EMAIL}`}
