@@ -1,0 +1,158 @@
+name: CollX Finalize Management Key 20260812
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/collx-finalize-management-key-20260812.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-finalize-management-key-20260812
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+      SUPABASE_URL: https://rfdzsoykhnngzdnvzlhz.supabase.co
+    steps:
+      - name: Park all pending CollX cards and activate every clean remaining card
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          from decimal import Decimal
+
+          mgmt_token=os.environ['SUPABASE_ACCESS_TOKEN']
+          ref=os.environ['PROJECT_REF']
+          base=os.environ['SUPABASE_URL'].rstrip('/')
+          store=os.environ['STORE_ID']
+
+          def open_json(req, timeout=60):
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:
+                      raw=r.read().decode()
+                      return json.loads(raw) if raw else None
+              except Exception as e:
+                  raise SystemExit(f'HTTP request failed: {e}')
+
+          key_req=urllib.request.Request(
+              f'https://api.supabase.com/v1/projects/{ref}/api-keys',
+              headers={'Authorization':'Bearer '+mgmt_token,'Accept':'application/json'},
+              method='GET',
+          )
+          keys=open_json(key_req)
+          candidates=keys if isinstance(keys,list) else (keys.get('data') if isinstance(keys,dict) else [])
+          service_key=''
+          names=[]
+          for item in candidates or []:
+              if not isinstance(item,dict): continue
+              name=str(item.get('name') or item.get('role') or item.get('type') or '')
+              names.append(name)
+              if 'service_role' in name.lower() or name.lower()=='service-role':
+                  service_key=str(item.get('api_key') or item.get('key') or item.get('value') or '')
+                  if service_key: break
+          print('SUPABASE_API_KEY_NAMES='+json.dumps(names))
+          if not service_key:
+              raise SystemExit('Could not resolve service_role key from Supabase Management API')
+
+          def request(method, path, params=None, body=None, prefer=None):
+              url=base+path
+              if params:
+                  url += '?' + urllib.parse.urlencode(params, safe='(),.*-_:')
+              data=None if body is None else json.dumps(body).encode()
+              headers={'apikey':service_key,'Authorization':'Bearer '+service_key,'Accept':'application/json'}
+              if body is not None: headers['Content-Type']='application/json'
+              if prefer: headers['Prefer']=prefer
+              req=urllib.request.Request(url,data=data,headers=headers,method=method)
+              return open_json(req)
+
+          def fetch_pages(table, select, extra):
+              rows=[]; offset=0; size=1000
+              while True:
+                  params={'select':select,'limit':str(size),'offset':str(offset),**extra}
+                  page=request('GET',f'/rest/v1/{table}',params)
+                  if not isinstance(page,list): raise SystemExit(f'Unexpected {table} response')
+                  rows.extend(page)
+                  if len(page)<size: break
+                  offset += size
+              return rows
+
+          products=fetch_pages('products','id,sku,quantity,price,image_url,archived_at,ebay_item_id',{
+              'store_id':'eq.'+store,'sku':'gte.COLLX-','order':'id.asc'
+          })
+          products=[p for p in products if str(p.get('sku') or '') < 'COLLY' and p.get('ebay_item_id') is None]
+
+          def qty(p): return max(int(p.get('quantity') or 0),0)
+          def price(p):
+              try: return Decimal(str(p.get('price') or '0'))
+              except Exception: return Decimal('0')
+          def front_ok(p): return bool(str(p.get('image_url') or '').strip())
+
+          archived=[p for p in products if p.get('archived_at') is not None]
+          current=[p for p in products if p.get('archived_at') is None and qty(p)>0]
+          bad_price=[p for p in current if price(p)<=0]
+          missing_front=[p for p in current if price(p)>0 and not front_ok(p)]
+          live=[p for p in current if price(p)>0 and front_ok(p)]
+          zero_qty=[p for p in products if p.get('archived_at') is None and qty(p)<=0]
+          metrics={'total_rows':len(products),'total_units':sum(qty(p) for p in products),'archived_rows':len(archived),'archived_units':sum(qty(p) for p in archived),'bad_price_rows':len(bad_price),'bad_price_units':sum(qty(p) for p in bad_price),'missing_front_rows':len(missing_front),'missing_front_units':sum(qty(p) for p in missing_front),'live_rows':len(live),'live_units':sum(qty(p) for p in live),'zero_qty_rows':len(zero_qty)}
+          print('COLLX_DIRECT_PRE='+json.dumps(metrics,sort_keys=True))
+          expected={'total_rows':6155,'total_units':6315,'archived_rows':740,'archived_units':0,'bad_price_rows':127,'bad_price_units':127,'missing_front_rows':5,'missing_front_units':5,'live_rows':5283,'live_units':6183,'zero_qty_rows':0}
+          if metrics != expected: raise SystemExit('Safety stop: Production metrics changed: '+json.dumps(metrics,sort_keys=True))
+
+          inventory=fetch_pages('inventory_items','id,legacy_product_id,sku,status',{'store_id':'eq.'+store,'order':'id.asc'})
+          by_legacy={}; by_null_sku={}
+          for ii in inventory:
+              lp=ii.get('legacy_product_id')
+              if lp is not None: by_legacy.setdefault(str(lp),[]).append(ii)
+              elif ii.get('sku'): by_null_sku.setdefault(str(ii['sku']),[]).append(ii)
+          def matches(p): return by_legacy.get(str(p['id']),[])+by_null_sku.get(str(p['sku']),[])
+
+          pending=bad_price+missing_front
+          no_bridge=[p['sku'] for p in pending+live if not matches(p)]
+          if no_bridge: raise SystemExit(f'Safety stop: {len(no_bridge)} current CollX products lack bridge rows')
+
+          def chunks(xs,n=80):
+              for i in range(0,len(xs),n): yield xs[i:i+n]
+          def patch_status(rows,status):
+              ids=sorted({str(p['id']) for p in rows})
+              skus=sorted({str(p['sku']) for p in rows})
+              for ch in chunks(ids): request('PATCH','/rest/v1/inventory_items',{'store_id':'eq.'+store,'legacy_product_id':'in.('+','.join(ch)+')'},{'status':status},'return=minimal')
+              for ch in chunks(skus): request('PATCH','/rest/v1/inventory_items',{'store_id':'eq.'+store,'legacy_product_id':'is.null','sku':'in.('+','.join(ch)+')'},{'status':status},'return=minimal')
+
+          patch_status(pending,'draft')
+          patch_status(live,'active')
+          print('COLLX_DIRECT_MUTATION='+json.dumps({'pending_products_set_draft':len(pending),'live_products_set_active':len(live)},sort_keys=True))
+
+          inventory2=fetch_pages('inventory_items','id,legacy_product_id,sku,status',{'store_id':'eq.'+store,'order':'id.asc'})
+          by_legacy2={}; by_null_sku2={}
+          for ii in inventory2:
+              lp=ii.get('legacy_product_id')
+              if lp is not None: by_legacy2.setdefault(str(lp),[]).append(ii)
+              elif ii.get('sku'): by_null_sku2.setdefault(str(ii['sku']),[]).append(ii)
+          def matches2(p): return by_legacy2.get(str(p['id']),[])+by_null_sku2.get(str(p['sku']),[])
+
+          wrong=[]
+          for p in pending:
+              ms=matches2(p)
+              if not ms or any(str(ii.get('status'))!='draft' for ii in ms): wrong.append(('pending',p['sku']))
+          for p in live:
+              ms=matches2(p)
+              if not ms or any(str(ii.get('status'))!='active' for ii in ms): wrong.append(('live',p['sku']))
+          if wrong: raise SystemExit(f'Final status verification failed for {len(wrong)} products; sample={wrong[:10]}')
+
+          final={'pending_bad_price_draft':len(bad_price),'pending_missing_front_draft':len(missing_front),'pending_total_draft':len(pending),'live_active_rows':len(live),'live_active_units':sum(qty(p) for p in live),'archived_rows':len(archived),'archived_units':sum(qty(p) for p in archived),'total_rows':len(products),'total_units':sum(qty(p) for p in products)}
+          print('COLLX_DIRECT_FINAL='+json.dumps(final,sort_keys=True))
+          print('COLLX_DIRECT_FINALIZE=SUCCESS')
+          PY
