@@ -21,14 +21,15 @@ env:
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
   SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
 
 jobs:
   deploy-preview:
-    name: Pull Vercel production env and deploy no-cron Cloudflare preview
+    name: Build current main and deploy no-cron Cloudflare preview
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Require Truely account deployment credentials
+      - name: Require Truely deployment credentials
         shell: bash
         run: |
           set -euo pipefail
@@ -48,82 +49,12 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install locked application dependencies
-        run: npm ci
-
-      - name: Install migration tooling without changing lockfile
-        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest vercel@56.2.0 dotenv@latest
-
-      - name: Ensure Truely workers.dev account subdomain exists
-        shell: bash
+      - name: Install application and Cloudflare tooling
         run: |
-          set -euo pipefail
-          node <<'NODE'
-          async function cf(path, init = {}) {
-            return fetch(`https://api.cloudflare.com/client/v4${path}`, {
-              ...init,
-              headers: {
-                authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
-                'content-type': 'application/json',
-                accept: 'application/json',
-                ...(init.headers || {}),
-              },
-            });
-          }
+          npm ci
+          npm install --no-save --package-lock=false @opennextjs/cloudflare@1.20.2 wrangler@4.122.0 vercel@56.2.0 dotenv@latest
 
-          async function main() {
-            const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-            if (!accountId) throw new Error('Cloudflare account ID is unavailable.');
-
-            const existingResponse = await cf(`/accounts/${accountId}/workers/subdomain`);
-            if (existingResponse.ok) {
-              const payload = await existingResponse.json();
-              const existing = String(payload?.result?.subdomain || '').trim();
-              if (existing) {
-                console.log(`workers.dev account subdomain already registered: ${existing}.workers.dev`);
-                return;
-              }
-            } else if (existingResponse.status === 401 || existingResponse.status === 403) {
-              throw new Error(`Cloudflare rejected workers.dev lookup with HTTP ${existingResponse.status}.`);
-            }
-
-            const suffix = accountId.slice(-6).toLowerCase();
-            const candidates = [
-              'truelycollectables',
-              'truelycollectablesllc',
-              `truelycollectables-${suffix}`,
-            ];
-
-            let lastError = '';
-            for (const candidate of candidates) {
-              const response = await cf(`/accounts/${accountId}/workers/subdomain`, {
-                method: 'PUT',
-                body: JSON.stringify({ subdomain: candidate }),
-              });
-              const payload = await response.json().catch(() => null);
-              if (response.ok && payload?.success !== false) {
-                const created = String(payload?.result?.subdomain || candidate).trim();
-                console.log(`Registered workers.dev account subdomain: ${created}.workers.dev`);
-                return;
-              }
-              if (response.status === 401 || response.status === 403) {
-                throw new Error(`Cloudflare rejected workers.dev registration with HTTP ${response.status}.`);
-              }
-              lastError = Array.isArray(payload?.errors)
-                ? payload.errors.map((error) => String(error?.message || error?.code || '')).filter(Boolean).join('; ')
-                : `HTTP ${response.status}`;
-            }
-
-            throw new Error(`Could not register a workers.dev account subdomain${lastError ? `: ${lastError}` : '.'}`);
-          }
-
-          main().catch((error) => {
-            console.error(error instanceof Error ? error.message : String(error));
-            process.exit(6);
-          });
-          NODE
-
-      - name: Link only the Truely Vercel project
+      - name: Link only the Truely Vercel project and pull build environment
         shell: bash
         run: |
           set -euo pipefail
@@ -131,119 +62,48 @@ jobs:
             --project "$VERCEL_PROJECT_NAME" \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
-            --no-color
-
-      - name: Pull Vercel Production environment without printing values
-        shell: bash
-        run: |
-          set -euo pipefail
+            --no-color >/dev/null
           umask 077
           npx vercel env pull .env.production.local \
             --environment=production \
             --scope "$VERCEL_SCOPE" \
             --token "$VERCEL_TOKEN" \
             --yes \
-            --no-color
+            --no-color >/dev/null
           test -s .env.production.local
-          required=(
-            NEXT_PUBLIC_SUPABASE_URL
-            NEXT_PUBLIC_SUPABASE_ANON_KEY
-            SUPABASE_SERVICE_ROLE_KEY
-            NEXT_PUBLIC_SITE_URL
-            ADMIN_PASSWORD
-            ADMIN_SESSION_SECRET
-            STRIPE_LIVE_SECRET_KEY
-            NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY
-            STRIPE_LIVE_WEBHOOK_SECRET
-            TCOS_LIVE_PAYMENTS_ENABLED
-            EBAY_CLIENT_ID
-            EBAY_CLIENT_SECRET
-            EBAY_ENVIRONMENT
-            RESEND_API_KEY
-            CRON_SECRET
-          )
-          missing=()
-          for key in "${required[@]}"; do
-            if ! grep -qE "^${key}=" .env.production.local; then missing+=("$key"); fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Vercel Production is missing required migration variable name(s): %s\n' "${missing[*]}"
-            exit 3
-          fi
-          count=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' .env.production.local || true)
-          printf 'Pulled %s Vercel Production variable(s); values remain masked and are not printed.\n' "$count"
 
-      - name: Recover empty Supabase production keys without printing values
+      - name: Recover only build-critical Supabase keys if Vercel redacts them
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require('node:fs');
           const dotenv = require('dotenv');
-
           async function main() {
             const path = '.env.production.local';
             const parsed = dotenv.parse(fs.readFileSync(path));
             const needAnon = !String(parsed.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
             const needService = !String(parsed.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-
-            if (!needAnon && !needService) {
-              console.log('Vercel Production already contains non-empty Supabase keys.');
-              return;
-            }
-
-            const token = String(process.env.SUPABASE_ACCESS_TOKEN || '').trim();
-            const projectRef = String(process.env.SUPABASE_PROJECT_REF || '').trim();
-            if (!token || !projectRef) throw new Error('Supabase management credential is unavailable.');
-
-            const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`, {
-              headers: {
-                authorization: `Bearer ${token}`,
-                accept: 'application/json',
-              },
+            if (!needAnon && !needService) return;
+            const response = await fetch(`https://api.supabase.com/v1/projects/${process.env.SUPABASE_PROJECT_REF}/api-keys?reveal=true`, {
+              headers: { authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, accept: 'application/json' },
             });
-            if (!response.ok) throw new Error(`Supabase Management API returned HTTP ${response.status}.`);
-
+            if (!response.ok) throw new Error(`Supabase Management API HTTP ${response.status}`);
             const keys = await response.json();
-            if (!Array.isArray(keys)) throw new Error('Supabase Management API returned an invalid key list.');
-
-            const namedAnon = keys.find((key) => String(key?.name || '').toLowerCase() === 'anon' && key?.api_key);
-            const publishable = keys.filter((key) => String(key?.type || '').toLowerCase() === 'publishable' && key?.api_key);
-            const namedService = keys.find((key) => String(key?.name || '').toLowerCase() === 'service_role' && key?.api_key);
-            const secretKeys = keys.filter((key) => String(key?.type || '').toLowerCase() === 'secret' && key?.api_key);
-
-            const anon = namedAnon?.api_key || (publishable.length === 1 ? publishable[0].api_key : null);
-            const service = namedService?.api_key || (secretKeys.length === 1 ? secretKeys[0].api_key : null);
-
-            if (needAnon && !anon) throw new Error('Could not resolve the Production Supabase anon/publishable key.');
-            if (needService && !service) throw new Error('Could not resolve the Production Supabase service-role/secret key.');
-
-            let recovered = 0;
-            if (needAnon) {
-              parsed.NEXT_PUBLIC_SUPABASE_ANON_KEY = String(anon);
-              console.log(`::add-mask::${anon}`);
-              recovered += 1;
-            }
-            if (needService) {
-              parsed.SUPABASE_SERVICE_ROLE_KEY = String(service);
-              console.log(`::add-mask::${service}`);
-              recovered += 1;
-            }
-
-            const serialized = Object.entries(parsed)
-              .map(([key, value]) => `${key}=${JSON.stringify(String(value ?? ''))}`)
-              .join('\n') + '\n';
-            fs.writeFileSync(path, serialized, { mode: 0o600 });
-            console.log(`Recovered ${recovered} empty Supabase production key(s) directly from the linked Production project; values remain masked.`);
+            const anon = keys.find((key) => String(key?.name || '').toLowerCase() === 'anon' && key?.api_key)?.api_key
+              || keys.filter((key) => String(key?.type || '').toLowerCase() === 'publishable' && key?.api_key)[0]?.api_key;
+            const service = keys.find((key) => String(key?.name || '').toLowerCase() === 'service_role' && key?.api_key)?.api_key
+              || keys.filter((key) => String(key?.type || '').toLowerCase() === 'secret' && key?.api_key)[0]?.api_key;
+            if (needAnon && !anon) throw new Error('Could not recover Supabase anon key');
+            if (needService && !service) throw new Error('Could not recover Supabase service key');
+            if (needAnon) { parsed.NEXT_PUBLIC_SUPABASE_ANON_KEY = String(anon); console.log(`::add-mask::${anon}`); }
+            if (needService) { parsed.SUPABASE_SERVICE_ROLE_KEY = String(service); console.log(`::add-mask::${service}`); }
+            fs.writeFileSync(path, Object.entries(parsed).map(([k,v]) => `${k}=${JSON.stringify(String(v ?? ''))}`).join('\n') + '\n', { mode: 0o600 });
           }
-
-          main().catch((error) => {
-            console.error(error instanceof Error ? error.message : String(error));
-            process.exit(5);
-          });
+          main().catch((error) => { console.error(error.message || String(error)); process.exit(5); });
           NODE
 
-      - name: Build OpenNext with Truely Production environment
+      - name: Build current main with production build environment
         shell: bash
         run: |
           set -euo pipefail
@@ -252,32 +112,62 @@ jobs:
           const { spawnSync } = require('node:child_process');
           const dotenv = require('dotenv');
           const parsed = dotenv.parse(fs.readFileSync('.env.production.local'));
-          const required = [
-            'NEXT_PUBLIC_SUPABASE_URL',
-            'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-            'SUPABASE_SERVICE_ROLE_KEY',
-          ];
-          const empty = required.filter((key) => !String(parsed[key] || '').trim());
-          if (empty.length) {
-            console.error(`Production environment still has empty required value(s): ${empty.join(' ')}`);
-            process.exit(4);
+          for (const key of ['NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY','NEXT_PUBLIC_SITE_URL']) {
+            if (!String(parsed[key] || '').trim()) throw new Error(`Missing build-critical value: ${key}`);
           }
-          console.log('Verified non-empty Supabase production values; secret values remain masked and are not printed.');
-          const result = spawnSync(
-            'npx',
-            ['opennextjs-cloudflare', 'build'],
-            {
-              stdio: 'inherit',
-              env: { ...process.env, ...parsed },
-            },
-          );
+          console.log('Build-critical production values verified; values are not printed.');
+          const result = spawnSync('npx', ['opennextjs-cloudflare', 'build'], { stdio: 'inherit', env: { ...process.env, ...parsed } });
           process.exit(result.status ?? 1);
           NODE
 
-      - name: Deploy isolated no-cron Cloudflare preview with migrated secrets
-        run: npx wrangler deploy --config wrangler.preview.jsonc --secrets-file .env.production.local
+      - name: Deploy code and assets while preserving recovered Cloudflare secrets
+        run: npx wrangler deploy --config wrangler.preview.jsonc
 
-      - name: Remove temporary environment file
+      - name: Smoke current Cloudflare preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 5
+          probe() {
+            local path="$1"
+            local out
+            out=$(curl -L --fail-with-body -sS --max-time 35 -o /dev/null -w '%{http_code} %{time_total}' "$PREVIEW_URL$path")
+            echo "$path -> $out"
+          }
+          probe '/'
+          probe '/shop'
+          probe '/product/1991'
+          probe '/admin/login'
+          probe '/robots.txt'
+
+          curl -L --fail-with-body -sS --max-time 25 "$PREVIEW_URL/api/ebay/listings" -o /tmp/ebay.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/ebay.json','utf8'));
+          if (body.authenticated !== true) throw new Error('Cloudflare eBay client authentication failed');
+          console.log(`eBay authentication -> PASS; environment=${body.environment || 'production'}; tokenReturned=true`);
+          NODE
+
+          curl -L -sS --max-time 30 "$PREVIEW_URL/api/instacomp/internal-readiness" -o /tmp/instacomp.json -w '%{http_code}' > /tmp/instacomp.status
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const status = Number(fs.readFileSync('/tmp/instacomp.status','utf8'));
+          const body = JSON.parse(fs.readFileSync('/tmp/instacomp.json','utf8'));
+          console.log(`InstaComp readiness -> HTTP ${status}; configured=${body.configured}; reachable=${body.reachable}; databaseReady=${body.internalMemoryReady}; checklistReady=${body.checklistReady}; reason=${body.reason || 'none'}`);
+          if (!body.configured || !body.reachable) throw new Error('Cloudflare cannot reach the configured InstaComp engine');
+          NODE
+
+          curl -L --fail-with-body -sS --max-time 35 "$PREVIEW_URL/api/admin/live-payment-launch" -o /tmp/payments.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/payments.json','utf8'));
+          if (body.success !== true || !body.report) throw new Error('Cloudflare live-payment readiness route failed');
+          const checks = Array.isArray(body.report.checks) ? body.report.checks : [];
+          const stripeRelated = checks.filter((check) => /stripe|payment/i.test(`${check.key || ''} ${check.label || ''}`));
+          console.log(`Live-payment readiness -> PASS; checks=${checks.length}; stripe/payment checks=${stripeRelated.map((c) => `${c.key}:${c.status}`).join(',') || 'none'}`);
+          NODE
+
+      - name: Remove temporary files
         if: always()
         shell: bash
-        run: rm -f .env.production.local
+        run: rm -f .env.production.local /tmp/ebay.json /tmp/instacomp.json /tmp/instacomp.status /tmp/payments.json
