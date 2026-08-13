@@ -11,16 +11,24 @@ from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
-IMPORTER = SERVICE_ROOT / "scripts" / "import_inventory_training_truth.py"
+SYNCER = SERVICE_ROOT / "scripts" / "sync_all_inventory_training_truth_guarded.py"
 TRAINER = SERVICE_ROOT / "scripts" / "run_lora_training_checkpoint_safe.py"
 IMPORT_RECEIPT = SERVICE_ROOT / "data" / "training" / "inventory-training-import-latest.json"
 TRAINING_RECEIPT = SERVICE_ROOT / "data" / "training" / "full-inventory-lora-latest.json"
 EXPORT_ROOT = SERVICE_ROOT / "data" / "training" / "exports"
 ADAPTER_ROOT = SERVICE_ROOT / "data" / "training" / "adapters"
+SERVICE_PYTHON = SERVICE_ROOT / ".venv" / "bin" / "python"
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _python_executable() -> str:
+    """Use the service virtualenv for dependency-heavy child processes when available."""
+    if SERVICE_PYTHON.is_file():
+        return str(SERVICE_PYTHON)
+    return sys.executable
 
 
 def _latest_manifest(root: Path) -> tuple[Path, dict] | None:
@@ -70,10 +78,12 @@ def main() -> int:
     if min(args.image_resize_shape) < 224:
         raise SystemExit("--image-resize-shape values must be at least 224")
 
+    python_executable = _python_executable()
+
     if not args.skip_import:
         import_command = [
-            sys.executable,
-            str(IMPORTER),
+            python_executable,
+            str(SYNCER),
             "--receipt",
             str(IMPORT_RECEIPT),
         ]
@@ -84,7 +94,7 @@ def main() -> int:
         code = _run(import_command)
         if code != 0:
             raise SystemExit(
-                "Inventory truth import did not reach 100% eligible coverage. "
+                "Inventory truth sync did not reach 100% eligible coverage. "
                 "LoRA training is blocked until the receipt has zero eligible outstanding cards."
             )
 
@@ -124,7 +134,7 @@ def main() -> int:
     adapter_dirs_before = {path.resolve() for path in ADAPTER_ROOT.glob("instacomp-*") if path.is_dir()}
 
     command = [
-        sys.executable,
+        python_executable,
         str(TRAINER),
         "--epochs",
         str(args.epochs),
