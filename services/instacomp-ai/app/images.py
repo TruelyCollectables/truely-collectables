@@ -63,7 +63,17 @@ def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedIma
             image_format = (source.format or "").upper()
             if image_format not in ALLOWED_FORMATS:
                 raise ValueError("Only JPEG, PNG, and WebP images are accepted")
-            source = ImageOps.exif_transpose(source)
+
+            # EXIF orientation is useful but non-essential. Some marketplace/card
+            # images contain malformed EXIF/TIFF metadata that Pillow can reject
+            # even though the underlying pixels decode correctly. Never let bad
+            # metadata abort a full inventory-training run; fall back to the
+            # decoded image without applying EXIF orientation.
+            try:
+                source = ImageOps.exif_transpose(source)
+            except Exception:
+                source = source.copy()
+
             if source.width < 200 or source.height < 200:
                 raise ValueError("Image is too small for reliable card identification")
             if source.width * source.height > 60_000_000:
