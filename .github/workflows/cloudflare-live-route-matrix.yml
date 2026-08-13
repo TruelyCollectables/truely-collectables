@@ -1,0 +1,38 @@
+name: Cloudflare Live Route Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-live-route-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      BASE: https://truely-collectables-preview.truelycollectables.workers.dev
+    steps:
+      - name: Probe static and dynamic routes independently
+        shell: bash
+        run: |
+          set -u
+          for path in \
+            /favicon.ico \
+            /api/ebay/test \
+            /admin/login \
+            /api/internal/cloudflare-product-runtime-probe \
+            /product/1991; do
+            tag=$(echo "$path" | tr '/?' '__')
+            start=$(date +%s)
+            code=$(curl -L -sS --max-time 12 -D "/tmp/${tag}.headers" -o "/tmp/${tag}.body" -w '%{http_code}' "$BASE$path" 2>"/tmp/${tag}.err" || true)
+            elapsed=$(( $(date +%s) - start ))
+            bytes=$(wc -c < "/tmp/${tag}.body" 2>/dev/null || echo 0)
+            origin=$(grep -i '^x-truely-origin:' "/tmp/${tag}.headers" 2>/dev/null | tail -1 | tr -d '\r' || true)
+            error=$(cat "/tmp/${tag}.err" 2>/dev/null | tail -1 || true)
+            echo "$path status=${code:-none} elapsed=${elapsed}s bytes=$bytes origin=${origin:-missing} error=${error:-none}"
+          done
