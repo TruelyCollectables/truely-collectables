@@ -1,0 +1,21 @@
+name: Dispatch Cloudflare Complete Migration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-complete-migration-dispatch-trigger'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch guarded Cloudflare completion workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run cloudflare-complete-migration.yml --repo "$GITHUB_REPOSITORY" --ref main
