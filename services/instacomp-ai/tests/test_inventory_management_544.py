@@ -79,3 +79,66 @@ def test_management_http_544_retries_then_recovers(monkeypatch: pytest.MonkeyPat
     assert payload == [{"column_name": "id"}]
     assert len(calls) == 2
     assert sleeps == [1]
+
+
+def test_reliable_batch_uses_one_management_sql_call_and_paces(monkeypatch: pytest.MonkeyPatch):
+    reliable = _load(RELIABLE_EXPORTER, "inventory_management_single_query")
+    target = reliable.target
+    columns = {
+        "inventory_items": ["id", "legacy_product_id", "card_uuid", "sku", "title"],
+        "inventory_images": ["id", "inventory_item_id", "image_url"],
+        "inventory_attributes": ["id", "inventory_item_id", "attribute_name", "attribute_value"],
+        "products": ["id", "card_uuid", "title"],
+    }
+    item_id = "3a40789e-0011-41b5-9430-d071a5fe4810"
+    product_id = "45f746d0-8b91-40e2-acb6-d3e525d0eb1f"
+    calls: list[str] = []
+
+    def fake_sql(token: str, ref: str, query: str):
+        calls.append(query)
+        return [{
+            "inventory_items": [{
+                "id": item_id,
+                "legacy_product_id": product_id,
+                "card_uuid": None,
+                "sku": "COLLX-123",
+                "title": "Test Card",
+            }],
+            "inventory_images": [{
+                "id": "image-1",
+                "inventory_item_id": item_id,
+                "image_url": "https://example.test/front.jpg",
+            }],
+            "inventory_attributes": [{
+                "id": "attribute-1",
+                "inventory_item_id": item_id,
+                "attribute_name": "year",
+                "attribute_value": "2025",
+            }],
+            "products": [{"id": product_id, "card_uuid": None, "title": "Test Card"}],
+        }]
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(target, "_sql", fake_sql)
+    monkeypatch.setattr(reliable.time, "sleep", sleeps.append)
+
+    items, images, attributes, products = reliable._fetch_inventory_batch_single_query(
+        "token",
+        "ref",
+        columns,
+        last_id=None,
+        batch_size=50,
+    )
+
+    assert len(calls) == 1
+    query = calls[0]
+    assert "with item_page as materialized" in query.lower()
+    assert "image_page as materialized" in query.lower()
+    assert "attribute_page as materialized" in query.lower()
+    assert "product_page as materialized" in query.lower()
+    assert items[0]["id"] == item_id
+    assert images[0]["inventory_item_id"] == item_id
+    assert attributes[0]["attribute_name"] == "year"
+    assert products[0]["id"] == product_id
+    assert sleeps == [reliable.SUCCESS_BATCH_PACE_SECONDS]
+    assert target._fetch_inventory_batch is reliable._fetch_inventory_batch_single_query
