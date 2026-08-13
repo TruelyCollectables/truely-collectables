@@ -21,6 +21,7 @@ import { createSupabaseServerClient } from "./supabase-server";
 
 const PUBLIC_PRODUCT_PAGE_SIZE = 1000;
 const PUBLIC_PRODUCT_MAX_PAGES = 20;
+const PUBLIC_PRODUCT_PAGE_CONCURRENCY = 5;
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
@@ -102,26 +103,54 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     super(publicStoreId, repository, publicDatabase);
   }
 
+  private async readPublicProductPage(page: number) {
+    const from = page * PUBLIC_PRODUCT_PAGE_SIZE;
+    const { data, error } = await this.publicDatabase
+      .from("products")
+      .select(PUBLIC_PRODUCT_COLUMNS)
+      .eq("store_id", this.publicStoreId)
+      .gt("price", 0)
+      .gt("quantity", 0)
+      .not("image_url", "is", null)
+      .is("archived_at", null)
+      .order("id", { ascending: true })
+      .range(from, from + PUBLIC_PRODUCT_PAGE_SIZE - 1);
+
+    if (error) throw error;
+    return data || [];
+  }
+
   private async readPublicProducts() {
     const rows: any[] = [];
+    const firstBatch = await this.readPublicProductPage(0);
+    rows.push(...firstBatch);
+    if (firstBatch.length < PUBLIC_PRODUCT_PAGE_SIZE) return rows;
 
-    for (let page = 0; page < PUBLIC_PRODUCT_MAX_PAGES; page += 1) {
-      const from = page * PUBLIC_PRODUCT_PAGE_SIZE;
-      const { data, error } = await this.publicDatabase
-        .from("products")
-        .select(PUBLIC_PRODUCT_COLUMNS)
-        .eq("store_id", this.publicStoreId)
-        .gt("price", 0)
-        .gt("quantity", 0)
-        .not("image_url", "is", null)
-        .is("archived_at", null)
-        .order("id", { ascending: true })
-        .range(from, from + PUBLIC_PRODUCT_PAGE_SIZE - 1);
+    // Fetch the remaining pages in small parallel waves. This preserves the
+    // exact page ordering and 20,000-row safety ceiling while avoiding a long
+    // chain of sequential Supabase round trips on Cloudflare.
+    for (
+      let startPage = 1;
+      startPage < PUBLIC_PRODUCT_MAX_PAGES;
+      startPage += PUBLIC_PRODUCT_PAGE_CONCURRENCY
+    ) {
+      const pageNumbers = Array.from(
+        {
+          length: Math.min(
+            PUBLIC_PRODUCT_PAGE_CONCURRENCY,
+            PUBLIC_PRODUCT_MAX_PAGES - startPage,
+          ),
+        },
+        (_, index) => startPage + index,
+      );
+      const batches = await Promise.all(
+        pageNumbers.map((page) => this.readPublicProductPage(page)),
+      );
 
-      if (error) throw error;
-      const batch = data || [];
-      rows.push(...batch);
-      if (batch.length < PUBLIC_PRODUCT_PAGE_SIZE) return rows;
+      for (const batch of batches) {
+        rows.push(...batch);
+        if (batch.length < PUBLIC_PRODUCT_PAGE_SIZE) return rows;
+      }
     }
 
     throw new Error(
