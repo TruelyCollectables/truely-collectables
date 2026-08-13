@@ -1,5 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
+type CloudflareFetchGlobal = typeof globalThis & {
+  __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
+};
+
 function getSupabaseUrl() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -30,11 +34,19 @@ function getServiceRoleKey() {
   return serviceRoleKey.trim();
 }
 
+function getServerFetch() {
+  const nativeFetch = (globalThis as CloudflareFetchGlobal)
+    .__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
+  return typeof nativeFetch === "function" ? nativeFetch : undefined;
+}
+
 export function createSupabaseServerClient(options?: { admin?: boolean }) {
   const supabaseUrl = getSupabaseUrl();
   const supabaseKey = options?.admin ? getServiceRoleKey() : getAnonKey();
+  const nativeFetch = getServerFetch();
 
   return createClient(supabaseUrl, supabaseKey, {
+    ...(nativeFetch ? { global: { fetch: nativeFetch } } : {}),
     auth: {
       autoRefreshToken: false,
       persistSession: false,
