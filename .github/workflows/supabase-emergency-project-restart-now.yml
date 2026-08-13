@@ -1,0 +1,86 @@
+name: Supabase Emergency Project Restart Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/supabase-emergency-project-restart-now.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restart-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+    steps:
+      - name: Restart project through Supabase Management API
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+          api="https://api.supabase.com/v1/projects/$PROJECT_REF"
+          echo 'Requesting non-destructive Supabase project restart...'
+          curl -sS --fail-with-body -X POST -H "$auth" "$api/restart" -o /tmp/restart.json
+          cat /tmp/restart.json
+          echo
+          echo 'Supabase restart accepted.'
+
+      - name: Wait for database and REST to recover
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+          api="https://api.supabase.com/v1/projects/$PROJECT_REF"
+          recovered=0
+          for attempt in $(seq 1 24); do
+            echo "Recovery probe $attempt/24"
+            project_status=$(curl -sS --max-time 10 -H "$auth" "$api" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s).status||'unknown')}catch{console.log('unavailable')}})" || true)
+            echo "project_status=$project_status"
+
+            db_code=$(curl -sS --max-time 12 -o /tmp/db.json -w '%{http_code}' -X POST \
+              -H "$auth" -H 'Content-Type: application/json' \
+              "$api/database/query" \
+              --data '{"query":"select 1 as ok;","read_only":true}' || true)
+            echo "database_query_http=$db_code"
+
+            rest_code=$(curl -sS --max-time 12 -o /tmp/rest.body -w '%{http_code}' \
+              "https://$PROJECT_REF.supabase.co/rest/v1/" || true)
+            echo "postgrest_http=$rest_code"
+
+            if [ "$db_code" = "201" ] && { [ "$rest_code" = "401" ] || [ "$rest_code" = "200" ]; }; then
+              recovered=1
+              echo 'Supabase database and PostgREST are responding again.'
+              break
+            fi
+            sleep 15
+          done
+          test "$recovered" = 1 || { echo 'Supabase did not recover within the emergency polling window.'; exit 10; }
+
+      - name: Verify live Vercel and Cloudflare product paths after database recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            'https://truelycollectables.com/product/1991|vercel-live' \
+            'https://truely-collectables-preview.truelycollectables.workers.dev/product/1991|cloudflare-preview'; do
+            url=${spec%%|*}; label=${spec##*|}
+            ok=0
+            for attempt in $(seq 1 8); do
+              code=$(curl -L -sS --max-time 35 -D "/tmp/${label}.headers" -o /dev/null -w '%{http_code}' "$url" || true)
+              echo "$label attempt=$attempt status=$code"
+              case "$code" in 2*|3*) ok=1; break;; esac
+              sleep 5
+            done
+            test "$ok" = 1 || { echo "$label product path did not recover"; exit 20; }
+          done
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/cloudflare-preview.headers || { echo 'Cloudflare origin proof missing after recovery'; exit 21; }
+          echo 'Both Vercel live and Cloudflare preview product paths are healthy after Supabase restart.'
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/restart.json /tmp/db.json /tmp/rest.body /tmp/vercel-live.headers /tmp/cloudflare-preview.headers
