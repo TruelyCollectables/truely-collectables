@@ -1,0 +1,344 @@
+name: Cloudflare Complete Migration V2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-cloudflare-complete-migration-v2
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TEAM_SLUG: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  WORKER: truely-collectables-preview
+  PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+  APEX: truelycollectables.com
+  WWW: www.truelycollectables.com
+  ZONE_PROBE: cf-complete-v2-probe.truelycollectables.com
+
+jobs:
+  migrate:
+    name: Prove parity, cut over, pause Vercel, and certify independence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Require migration credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN VERCEL_TOKEN; do
+            test -n "${!key:-}" || { echo "Missing GitHub Actions secret: $key"; exit 2; }
+          done
+          echo 'Migration credentials present.'
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install one-time migration tooling
+        run: npm install --no-save --package-lock=false vercel@58.10.0
+
+      - name: Resolve Vercel project state
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body --max-time 30 \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_NAME?slug=$VERCEL_TEAM_SLUG" \
+            -o /tmp/vercel-before.json
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('/tmp/vercel-before.json','utf8'));
+          if(!p.id) throw new Error('Vercel project not resolved');
+          const paused=Boolean(p.paused || p.pausedAt);
+          fs.writeFileSync('/tmp/vercel-project-id',String(p.id));
+          fs.writeFileSync('/tmp/vercel-was-paused',paused?'1':'0');
+          console.log(`Vercel resolved; initiallyPaused=${paused}`);
+          NODE
+
+      - name: Make Vercel available only for the one-time encrypted migration handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(cat /tmp/vercel-was-paused)" = '1' ]; then
+            project=$(cat /tmp/vercel-project-id)
+            curl -sS --fail-with-body -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' \
+              "https://api.vercel.com/v1/projects/$project/unpause?slug=$VERCEL_TEAM_SLUG" \
+              -o /tmp/vercel-temp-unpause.json
+            sleep 6
+            echo 'Vercel temporarily unpaused for migration handoff.'
+          fi
+
+      - name: Stage same production build and generate temporary admin probe session
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          npx vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null
+          rm -f .env.local .env.production.local
+          EXPORT_KEY=$(node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64url'))")
+          echo "::add-mask::$EXPORT_KEY"
+          export EXPORT_KEY
+          DEPLOYMENT_URL=$(npx vercel deploy --prod --skip-domain --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --env "TCOS_CF_SECRET_EXPORT_KEY=$EXPORT_KEY" --no-color)
+          printf '%s' "$DEPLOYMENT_URL" | grep -qE '^https://[^[:space:]]+\.vercel\.app$' || { echo 'No valid staged Vercel URL'; exit 3; }
+          printf '%s' "$DEPLOYMENT_URL" > /tmp/staged-vercel-url
+          export DEPLOYMENT_URL
+          printf '%s' '{"names":["ADMIN_SESSION_SECRET"]}' > /tmp/export-request.json
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            "$DEPLOYMENT_URL/api/internal/cloudflare-secret-export" \
+            -X POST -H "Authorization: Bearer $EXPORT_KEY" \
+            -H 'X-TCOS-Secret-Export-Confirm: truely-cloudflare-cutover-v1' \
+            -H 'Content-Type: application/json' --data-binary @/tmp/export-request.json \
+            -o /tmp/encrypted-export.json
+          node <<'NODE'
+          const fs=require('fs');
+          const {createDecipheriv,createHash,createHmac}=require('node:crypto');
+          const keyMaterial=String(process.env.EXPORT_KEY||'');
+          const envelope=JSON.parse(fs.readFileSync('/tmp/encrypted-export.json','utf8'));
+          if(!envelope?.ok || envelope.version!==1 || envelope.algorithm!=='aes-256-gcm') throw new Error('Invalid encrypted handoff');
+          const key=createHash('sha256').update(keyMaterial,'utf8').digest();
+          const d=createDecipheriv('aes-256-gcm',key,Buffer.from(envelope.iv,'base64'));
+          d.setAuthTag(Buffer.from(envelope.tag,'base64'));
+          const payload=JSON.parse(Buffer.concat([d.update(Buffer.from(envelope.ciphertext,'base64')),d.final()]).toString('utf8'));
+          const secret=String(payload?.values?.ADMIN_SESSION_SECRET||'').trim();
+          if(!secret) throw new Error('ADMIN_SESSION_SECRET not recovered from encrypted runtime handoff');
+          console.log(`::add-mask::${secret}`);
+          const issued=String(Math.floor(Date.now()/1000));
+          const sig=createHmac('sha256',secret).update(issued).digest('base64url');
+          fs.writeFileSync('/tmp/admin-session',`${issued}.${sig}`,{mode:0o600});
+          console.log('Temporary admin probe session generated securely.');
+          NODE
+          rm -f /tmp/export-request.json /tmp/encrypted-export.json .env.local .env.production.local
+
+      - name: Establish current Vercel InstaComp baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=$(cat /tmp/staged-vercel-url)
+          code=$(curl -L -sS --max-time 35 "$url/api/instacomp/internal-readiness" -o /tmp/vercel-instacomp.json -w '%{http_code}' || true)
+          VERCEL_INSTACOMP_STATUS="$code" node <<'NODE'
+          const fs=require('fs');
+          const status=Number(process.env.VERCEL_INSTACOMP_STATUS||0);
+          let b={}; try{b=JSON.parse(fs.readFileSync('/tmp/vercel-instacomp.json','utf8'))}catch{}
+          const ready=status===200 && b.reachable===true && b.internalMemoryReady===true && b.checklistReady===true;
+          fs.writeFileSync('/tmp/instacomp-baseline-required',ready?'1':'0');
+          console.log(`Vercel InstaComp baseline -> HTTP ${status}; configured=${b.configured}; reachable=${b.reachable}; dnsResolved=${b.dnsResolved}; internalMemoryReady=${b.internalMemoryReady}; checklistReady=${b.checklistReady}; reason=${b.reason||'none'}; ready=${ready}`);
+          NODE
+
+      - name: Validate Cloudflare runtime bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body --max-time 30 \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/settings" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/cf-settings.json
+          node <<'NODE'
+          const fs=require('fs'); const r=JSON.parse(fs.readFileSync('/tmp/cf-settings.json','utf8'));
+          if(!r.success) throw new Error('Cloudflare settings read failed');
+          const names=new Set((r.result?.bindings||[]).map(x=>x.name));
+          const required=['NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY','NEXT_PUBLIC_SITE_URL','ADMIN_PASSWORD','ADMIN_SESSION_SECRET','CRON_SECRET','EBAY_CLIENT_ID','EBAY_CLIENT_SECRET','EBAY_ENVIRONMENT','RESEND_API_KEY','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY'];
+          const missing=required.filter(x=>!names.has(x));
+          console.log(`Cloudflare required bindings=${required.length-missing.length}/${required.length}`);
+          if(missing.length) throw new Error(`Missing bindings: ${missing.join(', ')}`);
+          NODE
+
+      - name: Validate Cloudflare preview and migration parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          session=$(cat /tmp/admin-session)
+          probe(){
+            local path="$1" tag="$2"
+            code=$(curl -L -sS --max-time 45 -D "/tmp/${tag}.headers" -o /dev/null -w '%{http_code}' "$PREVIEW_URL$path" || true)
+            echo "$path -> $code"
+            case "$code" in 2*|3*) ;; *) exit 30;; esac
+            grep -qi '^x-truely-origin: cloudflare-worker' "/tmp/${tag}.headers" || exit 31
+          }
+          probe '/product/1991' product
+          probe '/shop' shop
+          probe '/' home
+          probe '/admin/login' admin
+          probe '/robots.txt' robots
+
+          code=$(curl -L -sS --max-time 35 -D /tmp/cf-instacomp.headers "$PREVIEW_URL/api/instacomp/internal-readiness" -o /tmp/cf-instacomp.json -w '%{http_code}' || true)
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/cf-instacomp.headers
+          CF_INSTACOMP_STATUS="$code" BASELINE_REQUIRED="$(cat /tmp/instacomp-baseline-required)" node <<'NODE'
+          const fs=require('fs'); const status=Number(process.env.CF_INSTACOMP_STATUS||0); const b=JSON.parse(fs.readFileSync('/tmp/cf-instacomp.json','utf8'));
+          const ready=status===200 && b.reachable===true && b.internalMemoryReady===true && b.checklistReady===true;
+          console.log(`Cloudflare InstaComp -> HTTP ${status}; configured=${b.configured}; reachable=${b.reachable}; dnsResolved=${b.dnsResolved}; internalMemoryReady=${b.internalMemoryReady}; checklistReady=${b.checklistReady}; reason=${b.reason||'none'}; ready=${ready}`);
+          if(process.env.BASELINE_REQUIRED==='1' && !ready) throw new Error('Cloudflare regresses a working Vercel InstaComp baseline');
+          if(process.env.BASELINE_REQUIRED!=='1' && !ready) console.log('InstaComp external engine is unavailable on the Vercel baseline too; migration parity preserved and cutover may continue.');
+          NODE
+
+          curl -L --fail-with-body -sS --max-time 45 -H "Cookie: tcos_admin_auth_v3=$session" -D /tmp/ebay.headers "$PREVIEW_URL/api/ebay/listings" -o /tmp/ebay.json
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/ebay.headers
+          node -e "const b=require('/tmp/ebay.json'); if(b.authenticated!==true) throw Error('eBay auth failed'); console.log('Cloudflare eBay auth -> PASS')"
+
+          curl -L --fail-with-body -sS --max-time 45 -H "Cookie: tcos_admin_auth_v3=$session" -D /tmp/payments.headers "$PREVIEW_URL/api/admin/live-payment-launch" -o /tmp/payments.json
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/payments.headers
+          node -e "const b=require('/tmp/payments.json'); if(b.success!==true||!b.report) throw Error('payment readiness failed'); console.log('Cloudflare payment readiness -> PASS')"
+
+          code=$(curl -L -sS --max-time 45 -D /tmp/product-runtime.headers "$PREVIEW_URL/api/internal/cloudflare-product-runtime-probe" -o /tmp/product-runtime.json -w '%{http_code}' || true)
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/product-runtime.headers
+          PRODUCT_STATUS="$code" node <<'NODE'
+          const b=require('/tmp/product-runtime.json'); const status=Number(process.env.PRODUCT_STATUS||0);
+          console.log(`Cloudflare product/Supabase runtime -> HTTP ${status}; ok=${b.ok}; checks=${Array.isArray(b.results)?b.results.length:0}`);
+          if(status!==200||b.ok!==true) throw Error('Cloudflare product/Supabase runtime failed');
+          NODE
+
+      - name: Resolve Cloudflare zone and snapshot current production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          domains="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains"
+          curl -sS --fail-with-body -X PUT "$domains" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' \
+            --data "{\"hostname\":\"$ZONE_PROBE\",\"service\":\"$WORKER\",\"zone_name\":\"$APEX\"}" -o /tmp/zone-probe.json
+          node <<'NODE'
+          const fs=require('fs'); const r=require('/tmp/zone-probe.json'); if(!r.success||!r.result?.zone_id||!r.result?.id) throw Error('Cloudflare zone resolution failed');
+          fs.writeFileSync('/tmp/zone-id',String(r.result.zone_id)); fs.writeFileSync('/tmp/probe-id',String(r.result.id)); console.log('Cloudflare zone resolved.');
+          NODE
+          curl -sS --fail-with-body -X DELETE "$domains/$(cat /tmp/probe-id)" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" >/tmp/probe-delete.json
+          zone=$(cat /tmp/zone-id)
+          routes="https://api.cloudflare.com/client/v4/zones/$zone/workers/routes"
+          schedules="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules"
+          curl -sS --fail-with-body "$routes" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/routes-before.json
+          curl -sS --fail-with-body "$schedules" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/schedules-before.json
+          node <<'NODE'
+          const fs=require('fs'); const r=require('/tmp/routes-before.json'); if(!r.success||!Array.isArray(r.result)) throw Error('Route snapshot failed');
+          const s={}; for(const p of ['truelycollectables.com/*','www.truelycollectables.com/*']){const x=r.result.find(v=>v.pattern===p); s[p]=x?{id:x.id,script:x.script??null}:null;} fs.writeFileSync('/tmp/route-snapshot.json',JSON.stringify(s));
+          console.log('Pre-cutover routes and scheduler snapshotted.');
+          NODE
+
+      - name: Switch live hostnames to Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          zone=$(cat /tmp/zone-id); base="https://api.cloudflare.com/client/v4/zones/$zone/workers/routes"
+          for pattern in 'truelycollectables.com/*' 'www.truelycollectables.com/*'; do
+            id=$(node -e "const s=require('/tmp/route-snapshot.json'); process.stdout.write(s[process.argv[1]]?.id||'')" "$pattern")
+            body=$(node -e "process.stdout.write(JSON.stringify({pattern:process.argv[1],script:process.argv[2]}))" "$pattern" "$WORKER")
+            if [ -n "$id" ]; then
+              curl -sS --fail-with-body -X PUT "$base/$id" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data "$body" >/tmp/route-write.json
+            else
+              curl -sS --fail-with-body -X POST "$base" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data "$body" >/tmp/route-write.json
+            fi
+          done
+          touch /tmp/routes-switched
+          curl -sS --fail-with-body "$base" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/routes-after.json
+          node <<'NODE'
+          const r=require('/tmp/routes-after.json'); for(const p of ['truelycollectables.com/*','www.truelycollectables.com/*']){const x=r.result?.find(v=>v.pattern===p); if(!x||x.script!=='truely-collectables-preview') throw Error(`Route not active: ${p}`);} console.log('Both live hostnames route to Cloudflare Worker.');
+          NODE
+
+      - name: Prove live Cloudflare origin before Vercel pause
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify(){ local url="$1" tag="$2"; for i in $(seq 1 15); do code=$(curl -L -sS --max-time 45 -D "/tmp/$tag.headers" -o /dev/null -w '%{http_code}' "$url" || true); origin=$(grep -i '^x-truely-origin:' "/tmp/$tag.headers"|tail -1|tr -d '\r'||true); echo "$url attempt=$i status=$code origin=${origin:-missing}"; case "$code" in 2*|3*) grep -qi '^x-truely-origin: cloudflare-worker' "/tmp/$tag.headers" && return 0;; esac; sleep 2; done; return 1; }
+          verify "https://$APEX/product/1991" live_product
+          verify "https://$APEX/shop" live_shop
+          verify "https://$APEX/" live_home
+          verify "https://$WWW/" live_www
+          verify "https://$APEX/admin/login" live_admin
+
+      - name: Pause Vercel production
+        shell: bash
+        run: |
+          set -euo pipefail
+          project=$(cat /tmp/vercel-project-id)
+          curl -sS --fail-with-body -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' \
+            "https://api.vercel.com/v1/projects/$project/pause?slug=$VERCEL_TEAM_SLUG" -o /tmp/vercel-pause.json
+          touch /tmp/vercel-paused-by-migration
+          echo 'Vercel pause request succeeded.'
+          sleep 12
+
+      - name: Enable Cloudflare every-minute scheduler
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules"
+          curl -sS --fail-with-body -X PUT "$endpoint" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data '[{"cron":"* * * * *"}]' -o /tmp/schedule-put.json
+          curl -sS --fail-with-body "$endpoint" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/schedule-get.json
+          node <<'NODE'
+          const r=require('/tmp/schedule-get.json'); const s=r.result?.schedules||r.result||[]; if(!Array.isArray(s)||!s.some(x=>x.cron==='* * * * *')) throw Error('Scheduler not confirmed'); console.log('Cloudflare scheduler -> PASS');
+          NODE
+
+      - name: Prove application survives with Vercel paused
+        shell: bash
+        run: |
+          set -euo pipefail
+          session=$(cat /tmp/admin-session)
+          for spec in "https://$APEX/product/1991|p" "https://$APEX/shop|s" "https://$APEX/|h" "https://$WWW/|w" "https://$APEX/admin/login|a"; do
+            url=${spec%%|*}; tag=${spec##*|}; code=$(curl -L -sS --max-time 45 -D "/tmp/post-$tag.headers" -o /dev/null -w '%{http_code}' "$url" || true); echo "post-pause $url -> $code"; case "$code" in 2*|3*) ;; *) exit 60;; esac; grep -qi '^x-truely-origin: cloudflare-worker' "/tmp/post-$tag.headers" || exit 61
+          done
+          curl -L --fail-with-body -sS --max-time 45 -H "Cookie: tcos_admin_auth_v3=$session" -D /tmp/live-ebay.headers "https://$APEX/api/ebay/listings" -o /tmp/live-ebay.json
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/live-ebay.headers
+          node -e "const b=require('/tmp/live-ebay.json'); if(b.authenticated!==true) throw Error('Live eBay failed'); console.log('Live eBay with Vercel paused -> PASS')"
+          curl -L --fail-with-body -sS --max-time 45 -H "Cookie: tcos_admin_auth_v3=$session" -D /tmp/live-payments.headers "https://$APEX/api/admin/live-payment-launch" -o /tmp/live-payments.json
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/live-payments.headers
+          node -e "const b=require('/tmp/live-payments.json'); if(b.success!==true||!b.report) throw Error('Live payments failed'); console.log('Live payments with Vercel paused -> PASS')"
+          code=$(curl -L -sS --max-time 35 -D /tmp/live-instacomp.headers "https://$APEX/api/instacomp/internal-readiness" -o /tmp/live-instacomp.json -w '%{http_code}' || true)
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/live-instacomp.headers
+          LIVE_STATUS="$code" BASELINE_REQUIRED="$(cat /tmp/instacomp-baseline-required)" node <<'NODE'
+          const b=require('/tmp/live-instacomp.json'); const status=Number(process.env.LIVE_STATUS||0); const ready=status===200&&b.reachable===true&&b.internalMemoryReady===true&&b.checklistReady===true; console.log(`Live InstaComp with Vercel paused -> HTTP ${status}; reachable=${b.reachable}; reason=${b.reason||'none'}; ready=${ready}`); if(process.env.BASELINE_REQUIRED==='1'&&!ready) throw Error('InstaComp regressed after Vercel pause');
+          NODE
+
+      - name: Certify final Cloudflare ownership and Vercel exit
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body --max-time 30 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_NAME?slug=$VERCEL_TEAM_SLUG" -o /tmp/vercel-after.json
+          zone=$(cat /tmp/zone-id)
+          curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/routes-final.json
+          curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/schedules-final.json
+          node <<'NODE'
+          const p=require('/tmp/vercel-after.json'); if(!Boolean(p.paused||p.pausedAt)) throw Error('Vercel not confirmed paused');
+          const r=require('/tmp/routes-final.json'); for(const pattern of ['truelycollectables.com/*','www.truelycollectables.com/*']){const x=r.result?.find(v=>v.pattern===pattern); if(!x||x.script!=='truely-collectables-preview') throw Error(`Final route failed: ${pattern}`);}
+          const q=require('/tmp/schedules-final.json'); const s=q.result?.schedules||q.result||[]; if(!Array.isArray(s)||!s.some(x=>x.cron==='* * * * *')) throw Error('Final scheduler missing');
+          console.log('VERCEL_EXIT=PASS'); console.log('CLOUDFLARE_LIVE_ROUTES=PASS'); console.log('CLOUDFLARE_SCHEDULER=PASS');
+          NODE
+          echo 'CUTOVER COMPLETE: Truely Collectables is operational on Cloudflare and Vercel is paused.'
+
+      - name: Emergency rollback if cutover fails
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          if [ ! -f /tmp/routes-switched ]; then
+            if [ -s /tmp/vercel-project-id ] && [ -s /tmp/vercel-was-paused ] && [ "$(cat /tmp/vercel-was-paused)" = '1' ]; then
+              project=$(cat /tmp/vercel-project-id); curl -sS -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' "https://api.vercel.com/v1/projects/$project/pause?slug=$VERCEL_TEAM_SLUG" >/dev/null
+            fi
+            echo 'Pre-cutover failure: live production routes were never changed.'
+            exit 0
+          fi
+          project=$(cat /tmp/vercel-project-id)
+          curl -sS -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' "https://api.vercel.com/v1/projects/$project/unpause?slug=$VERCEL_TEAM_SLUG" >/tmp/rollback-unpause.json
+          zone=$(cat /tmp/zone-id); base="https://api.cloudflare.com/client/v4/zones/$zone/workers/routes"
+          curl -sS "$base" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/routes-current.json
+          node <<'NODE' > /tmp/rollback.tsv
+          const snap=require('/tmp/route-snapshot.json'); const cur=require('/tmp/routes-current.json').result||[]; for(const [p,old] of Object.entries(snap)){const now=cur.find(x=>x.pattern===p); if(old) console.log(['restore',now?.id||old.id,p,old.script??''].join('\t')); else if(now) console.log(['delete',now.id,p,''].join('\t'));}
+          NODE
+          while IFS=$'\t' read -r action id pattern script; do [ -n "$id" ]||continue; if [ "$action" = delete ]; then curl -sS -X DELETE "$base/$id" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" >/dev/null; else body=$(node -e "process.stdout.write(JSON.stringify({pattern:process.argv[1],script:process.argv[2]||undefined}))" "$pattern" "$script"); curl -sS -X PUT "$base/$id" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data "$body" >/dev/null; fi; done < /tmp/rollback.tsv
+          if [ -s /tmp/schedules-before.json ]; then
+            endpoint="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules"
+            node <<'NODE' > /tmp/schedules-restore.json
+          const r=require('/tmp/schedules-before.json'); const s=r.result?.schedules||r.result||[]; process.stdout.write(JSON.stringify(Array.isArray(s)?s.map(x=>({cron:x.cron})).filter(x=>x.cron):[]));
+          NODE
+            curl -sS -X PUT "$endpoint" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data-binary @/tmp/schedules-restore.json >/dev/null
+          fi
+          echo 'Emergency rollback restored Vercel and previous Cloudflare production state.'
+
+      - name: Cleanup migration material
+        if: always()
+        shell: bash
+        run: rm -f .env.local .env.production.local /tmp/admin-session /tmp/export-request.json /tmp/encrypted-export.json /tmp/*instacomp*.json /tmp/ebay.json /tmp/payments.json /tmp/live-ebay.json /tmp/live-payments.json /tmp/product-runtime.json
