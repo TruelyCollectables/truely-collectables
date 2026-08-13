@@ -1,0 +1,207 @@
+name: Cloudflare External Integration Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-external-integration-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Install audit tooling
+        run: npm install --no-save --package-lock=false wrangler@4.122.0 vercel@56.2.0 dotenv@latest
+
+      - name: Pull Truely Vercel production environment and prepare minimal probe secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null
+          umask 077
+          npx vercel env pull .env.integration --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --yes --no-color >/dev/null
+          node <<'NODE'
+          const fs = require('node:fs');
+          const dotenv = require('dotenv');
+          const env = dotenv.parse(fs.readFileSync('.env.integration'));
+          const emptyNames = Object.entries(env)
+            .filter(([, value]) => !String(value || '').trim())
+            .map(([key]) => key)
+            .sort();
+          console.log(`Defined-but-empty Vercel Production variable names (${emptyNames.length}): ${emptyNames.join(', ') || '(none)'}`);
+
+          const keep = [
+            'STRIPE_LIVE_SECRET_KEY',
+            'STRIPE_SECRET_KEY',
+            'EBAY_CLIENT_ID',
+            'EBAY_CLIENT_SECRET',
+            'EBAY_ENVIRONMENT',
+            'RESEND_API_KEY',
+            'INSTACOMP_AI_LOCAL_URL',
+            'INSTACOMP_AI_LOCAL_KEY',
+            'NEXT_PUBLIC_SUPABASE_URL',
+          ];
+          const lines = [];
+          for (const key of keep) {
+            const value = String(env[key] || '');
+            if (value) console.log(`::add-mask::${value}`);
+            lines.push(`${key}=${JSON.stringify(value)}`);
+          }
+          fs.writeFileSync('/tmp/integration.env', lines.join('\n') + '\n', { mode: 0o600 });
+          NODE
+
+      - name: Create tiny Cloudflare integration probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/integration-probe.mjs <<'EOF'
+          async function timed(name, task, timeoutMs = 8000) {
+            const started = Date.now();
+            try {
+              const result = await task(AbortSignal.timeout(timeoutMs));
+              return { name, elapsedMs: Date.now() - started, ...result };
+            } catch (error) {
+              return {
+                name,
+                ok: false,
+                elapsedMs: Date.now() - started,
+                error: String(error?.name || error?.message || error).slice(0, 120),
+              };
+            }
+          }
+
+          export default {
+            async fetch(_request, env) {
+              const results = [];
+
+              results.push(await timed('stripe', async (signal) => {
+                const key = String(env.STRIPE_LIVE_SECRET_KEY || env.STRIPE_SECRET_KEY || '').trim();
+                if (!key) return { ok: false, configured: false };
+                const response = await fetch('https://api.stripe.com/v1/account', {
+                  headers: { authorization: `Bearer ${key}` },
+                  signal,
+                });
+                await response.body?.cancel().catch(() => {});
+                return { ok: response.ok, configured: true, status: response.status };
+              }));
+
+              results.push(await timed('ebay-client-credentials', async (signal) => {
+                const clientId = String(env.EBAY_CLIENT_ID || '').trim();
+                const clientSecret = String(env.EBAY_CLIENT_SECRET || '').trim();
+                if (!clientId || !clientSecret) return { ok: false, configured: false };
+                const sandbox = String(env.EBAY_ENVIRONMENT || '').toLowerCase() === 'sandbox';
+                const origin = sandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+                const credentials = btoa(`${clientId}:${clientSecret}`);
+                const response = await fetch(`${origin}/identity/v1/oauth2/token`, {
+                  method: 'POST',
+                  headers: {
+                    authorization: `Basic ${credentials}`,
+                    'content-type': 'application/x-www-form-urlencoded',
+                  },
+                  body: new URLSearchParams({
+                    grant_type: 'client_credentials',
+                    scope: 'https://api.ebay.com/oauth/api_scope',
+                  }),
+                  signal,
+                });
+                const payload = await response.json().catch(() => null);
+                return {
+                  ok: response.ok && Boolean(payload?.access_token),
+                  configured: true,
+                  environment: sandbox ? 'sandbox' : 'production',
+                  status: response.status,
+                  tokenReturned: Boolean(payload?.access_token),
+                };
+              }));
+
+              results.push(await timed('resend', async (signal) => {
+                const key = String(env.RESEND_API_KEY || '').trim();
+                if (!key) return { ok: false, configured: false };
+                const response = await fetch('https://api.resend.com/domains', {
+                  headers: { authorization: `Bearer ${key}` },
+                  signal,
+                });
+                await response.body?.cancel().catch(() => {});
+                return { ok: response.ok, configured: true, status: response.status };
+              }));
+
+              results.push(await timed('instacomp-health', async (signal) => {
+                const raw = String(env.INSTACOMP_AI_LOCAL_URL || '').trim().replace(/\/+$/, '');
+                if (!raw) return { ok: false, configured: false };
+                let parsed;
+                try { parsed = new URL(raw); } catch { return { ok: false, configured: false, invalidUrl: true }; }
+                const isLoopback = /^(localhost|127\.0\.0\.1|::1)$/i.test(parsed.hostname);
+                const headers = {};
+                const key = String(env.INSTACOMP_AI_LOCAL_KEY || '').trim();
+                if (key) headers['X-InstaComp-AI-Key'] = key;
+                const response = await fetch(`${parsed.origin}/health`, {
+                  headers,
+                  redirect: 'manual',
+                  signal,
+                });
+                const payload = await response.json().catch(() => null);
+                return {
+                  ok: response.ok,
+                  configured: true,
+                  loopbackHostname: isLoopback,
+                  status: response.status,
+                  healthAppPresent: typeof payload?.app === 'string',
+                  databaseReady: payload?.database === 'ready',
+                  checklistReady: payload?.checklist === 'ready',
+                };
+              }, 12000));
+
+              results.push(await timed('supabase-public-host', async (signal) => {
+                const raw = String(env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+                if (!raw) return { ok: false, configured: false };
+                const response = await fetch(`${raw.replace(/\/$/, '')}/rest/v1/`, { signal });
+                await response.body?.cancel().catch(() => {});
+                return {
+                  ok: response.status === 401 || response.ok,
+                  configured: true,
+                  status: response.status,
+                };
+              }));
+
+              return Response.json({
+                ok: results.every((result) => result.ok),
+                results,
+              });
+            },
+          };
+          EOF
+
+          cat > /tmp/wrangler-integration.jsonc <<'EOF'
+          {
+            "name": "truely-external-integration-probe",
+            "main": "/tmp/integration-probe.mjs",
+            "compatibility_date": "2026-08-12",
+            "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+            "workers_dev": true
+          }
+          EOF
+
+          npx wrangler deploy --config /tmp/wrangler-integration.jsonc --secrets-file /tmp/integration.env >/tmp/integration-deploy.log 2>&1
+
+      - name: Run read-only Cloudflare external integration audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body -sS --max-time 50 https://truely-external-integration-probe.truelycollectables.workers.dev/
+          echo
+
+      - name: Remove temporary environment files
+        if: always()
+        shell: bash
+        run: rm -f .env.integration /tmp/integration.env /tmp/integration-probe.mjs /tmp/wrangler-integration.jsonc
