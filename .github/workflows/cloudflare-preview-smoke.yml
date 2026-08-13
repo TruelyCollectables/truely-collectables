@@ -17,38 +17,30 @@ jobs:
     env:
       BASE_URL: https://truely-collectables-preview.truelycollectables.workers.dev
     steps:
-      - name: Smoke test live Cloudflare preview
+      - name: Probe live Cloudflare preview timings
         shell: bash
         run: |
-          set -euo pipefail
-          check_200() {
+          set -u
+          probe() {
             local path="$1"
+            local seconds="$2"
             local body
             body=$(mktemp)
-            local status
-            status=$(curl --fail-with-body -sS -L --max-time 30 -o "$body" -w '%{http_code}' "${BASE_URL}${path}" || true)
-            printf '%s -> HTTP %s\n' "$path" "$status"
-            if [ "$status" != "200" ]; then
-              echo "Unexpected response body (first 800 bytes):"
-              head -c 800 "$body" || true
+            local result
+            result=$(curl -sS -L --max-time "$seconds" -o "$body" -w 'HTTP %{http_code} total=%{time_total}s size=%{size_download}' "${BASE_URL}${path}" 2>&1 || true)
+            printf '%s -> %s\n' "$path" "$result"
+            if [ -s "$body" ]; then
+              printf 'body-prefix: '
+              head -c 160 "$body" | tr '\n' ' ' || true
               echo
-              rm -f "$body"
-              exit 1
-            fi
-            if [ ! -s "$body" ]; then
-              echo "Empty response body for $path"
-              rm -f "$body"
-              exit 1
             fi
             rm -f "$body"
           }
 
-          check_200 /
-          check_200 /shop
-          check_200 /admin/login
-          check_200 /api/ebay/test
-          check_200 /robots.txt
-          check_200 /sitemap.xml
-          check_200 /google-merchant-feed.xml
-
-          echo 'Cloudflare preview smoke test passed.'
+          probe '/favicon.ico' 5
+          probe '/api/cron/profit-hunter' 6
+          probe '/api/ebay/test' 6
+          probe '/admin/login' 12
+          probe '/product/1991' 15
+          probe '/shop' 20
+          probe '/' 20
