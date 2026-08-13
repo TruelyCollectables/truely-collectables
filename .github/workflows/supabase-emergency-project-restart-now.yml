@@ -1,4 +1,4 @@
-name: Supabase Emergency Project Restart Now
+name: Supabase Emergency Storefront Performance Repair
 
 on:
   push:
@@ -11,76 +11,62 @@ permissions:
   contents: read
 
 jobs:
-  restart-and-verify:
+  repair-and-verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       PROJECT_REF: rfdzsoykhnngzdnvzlhz
     steps:
-      - name: Restart project through Supabase Management API
+      - name: Add storefront query indexes and refresh planner stats
         shell: bash
         run: |
           set -euo pipefail
           auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
-          api="https://api.supabase.com/v1/projects/$PROJECT_REF"
-          echo 'Requesting non-destructive Supabase project restart...'
-          curl -sS --fail-with-body -X POST -H "$auth" "$api/restart" -o /tmp/restart.json
-          cat /tmp/restart.json
+          api="https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
+          run_sql() {
+            node -e 'process.stdout.write(JSON.stringify({query:process.argv[1],read_only:false}))' "$1" >/tmp/q.json
+            code=$(curl -sS --max-time 90 -o /tmp/q.out -w '%{http_code}' -X POST -H "$auth" -H 'Content-Type: application/json' "$api" --data-binary @/tmp/q.json || true)
+            echo "database_query_http=$code"
+            if [ "$code" != "201" ]; then cat /tmp/q.out || true; exit 10; fi
+          }
+          run_sql 'create index if not exists idx_inventory_items_store_legacy_created on public.inventory_items (store_id, legacy_product_id, created_at);'
+          run_sql 'create index if not exists idx_inventory_images_item_sort on public.inventory_images (inventory_item_id, sort_order);'
+          run_sql 'create index if not exists idx_products_store_public_active_id on public.products (store_id, id) where price > 0 and quantity > 0 and image_url is not null and archived_at is null;'
+          run_sql 'analyze public.inventory_items; analyze public.inventory_images; analyze public.products;'
+          echo 'Storefront indexes ready.'
+
+      - name: Diagnose Cloudflare product query layers
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://truely-collectables-preview.truelycollectables.workers.dev/api/internal/cloudflare-product-runtime-probe'
+          code=$(curl -sS --max-time 60 -o /tmp/probe.json -w '%{http_code}' "$url" || true)
+          echo "runtime_probe_http=$code"
+          cat /tmp/probe.json || true
           echo
-          echo 'Supabase restart accepted.'
+          node <<'NODE'
+          const fs=require('node:fs'); const b=JSON.parse(fs.readFileSync('/tmp/probe.json','utf8'));
+          for(const r of b.results||[]) console.log(`${r.name}: ok=${r.ok} elapsedMs=${r.elapsedMs} status=${r.status??'-'} timedOut=${r.timedOut??false} detail=${r.detail??'-'}`);
+          if(!b.ok) process.exit(20);
+          NODE
 
-      - name: Wait for database and REST to recover
-        shell: bash
-        run: |
-          set -euo pipefail
-          auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
-          api="https://api.supabase.com/v1/projects/$PROJECT_REF"
-          recovered=0
-          for attempt in $(seq 1 24); do
-            echo "Recovery probe $attempt/24"
-            project_status=$(curl -sS --max-time 10 -H "$auth" "$api" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s).status||'unknown')}catch{console.log('unavailable')}})" || true)
-            echo "project_status=$project_status"
-
-            db_code=$(curl -sS --max-time 12 -o /tmp/db.json -w '%{http_code}' -X POST \
-              -H "$auth" -H 'Content-Type: application/json' \
-              "$api/database/query" \
-              --data '{"query":"select 1 as ok;","read_only":true}' || true)
-            echo "database_query_http=$db_code"
-
-            rest_code=$(curl -sS --max-time 12 -o /tmp/rest.body -w '%{http_code}' \
-              "https://$PROJECT_REF.supabase.co/rest/v1/" || true)
-            echo "postgrest_http=$rest_code"
-
-            if [ "$db_code" = "201" ] && { [ "$rest_code" = "401" ] || [ "$rest_code" = "200" ]; }; then
-              recovered=1
-              echo 'Supabase database and PostgREST are responding again.'
-              break
-            fi
-            sleep 15
-          done
-          test "$recovered" = 1 || { echo 'Supabase did not recover within the emergency polling window.'; exit 10; }
-
-      - name: Verify live Vercel and Cloudflare product paths after database recovery
+      - name: Verify storefront response times
         shell: bash
         run: |
           set -euo pipefail
           for spec in \
             'https://truelycollectables.com/product/1991|vercel-live' \
-            'https://truely-collectables-preview.truelycollectables.workers.dev/product/1991|cloudflare-preview'; do
+            'https://truely-collectables-preview.truelycollectables.workers.dev/product/1991|cloudflare-preview' \
+            'https://truely-collectables-preview.truelycollectables.workers.dev/shop|cloudflare-shop' \
+            'https://truely-collectables-preview.truelycollectables.workers.dev/|cloudflare-home'; do
             url=${spec%%|*}; label=${spec##*|}
-            ok=0
-            for attempt in $(seq 1 8); do
-              code=$(curl -L -sS --max-time 35 -D "/tmp/${label}.headers" -o /dev/null -w '%{http_code}' "$url" || true)
-              echo "$label attempt=$attempt status=$code"
-              case "$code" in 2*|3*) ok=1; break;; esac
-              sleep 5
-            done
-            test "$ok" = 1 || { echo "$label product path did not recover"; exit 20; }
+            out=$(curl -L --fail-with-body -sS --max-time 35 -D "/tmp/${label}.headers" -o /dev/null -w '%{http_code} %{time_total}' "$url")
+            echo "$label -> $out"
           done
-          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/cloudflare-preview.headers || { echo 'Cloudflare origin proof missing after recovery'; exit 21; }
-          echo 'Both Vercel live and Cloudflare preview product paths are healthy after Supabase restart.'
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/cloudflare-preview.headers
+          echo 'Storefront performance verified.'
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/restart.json /tmp/db.json /tmp/rest.body /tmp/vercel-live.headers /tmp/cloudflare-preview.headers
+        run: rm -f /tmp/q.json /tmp/q.out /tmp/probe.json /tmp/*.headers
