@@ -32,8 +32,9 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VERCEL_TOKEN:-}"
-          mkdir -p .vercel "$RUNNER_TEMP/collx-finalize"
-          printf '{"orgId":"%s","projectId":"%s"}\n' 'team_6B7I58gZQ0IcyD66VaZxsErH' 'prj_4hA2Vk68yiKo0pQSgXYFfUAEy0zA' > .vercel/project.json
+          mkdir -p "$RUNNER_TEMP/collx-finalize"
+          rm -rf .vercel
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           npx --yes vercel@56.2.0 env pull "$RUNNER_TEMP/collx-finalize/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
           echo "PROD_ENV=$RUNNER_TEMP/collx-finalize/production.env" >> "$GITHUB_ENV"
 
@@ -189,4 +190,4 @@ jobs:
           print('COLLX_DIRECT_FINALIZE=SUCCESS')
           PY
 
-# trigger: 2026-08-12T20:08:00-06:00
+# trigger: 2026-08-12T20:10:00-06:00
