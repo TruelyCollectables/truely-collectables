@@ -12,10 +12,7 @@ const navigationLinks = [
   { href: "/account", label: "Account" },
 ];
 
-const mobileNavigationLinks = [
-  ...navigationLinks,
-  { href: "/admin", label: "Admin" },
-];
+const mobileNavigationLinks = navigationLinks;
 
 function storeMark(value: string) {
   const initials = value
@@ -44,7 +41,7 @@ export default function Navbar() {
   return (
     <>
       <div className="border-b-2 border-neutral-950 bg-neutral-950 px-4 py-2 text-center text-[11px] font-black uppercase tracking-[0.16em] text-yellow-300 sm:text-xs">
-        Real sports cards · live inventory · secure checkout · tracking included
+        Real sports cards · live inventory · secure checkout · clear shipping options
       </div>
       <nav className="sticky top-0 z-50 w-full border-b-2 border-neutral-950 bg-white px-4 py-3 sm:px-6">
         <div className="mx-auto max-w-7xl">
@@ -73,14 +70,6 @@ export default function Navbar() {
                   <NavigationLink key={item.href} {...item} />
                 ))}
               </div>
-
-              <Link
-                href="/admin"
-                prefetch={false}
-                className="inline-flex min-h-11 items-center justify-center border-2 border-neutral-950 bg-white px-3 py-2 text-sm font-black text-neutral-950 shadow-[3px_3px_0_#111318] transition hover:-translate-y-0.5 sm:px-4"
-              >
-                Admin
-              </Link>
 
               <Link
                 href="/cart"
