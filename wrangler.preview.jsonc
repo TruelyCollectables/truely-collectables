@@ -9,6 +9,16 @@
   ],
   "workers_dev": true,
   "preview_urls": true,
+  "routes": [
+    {
+      "pattern": "truelycollectables.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.truelycollectables.com",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
