@@ -15,12 +15,11 @@ export default function ReturnsPage() {
   return (
     <PolicyShell eyebrow={STORE_LEGAL_NAME} title="Returns & Refunds">
       <section>
-        <h2 className="text-2xl font-black">Collectibles are generally final sale</h2>
+        <h2 className="text-2xl font-black">General return policy</h2>
         <p className="mt-2">
-          Sports cards and other collectibles are generally final sale because
-          condition, scarcity, and market value can change quickly. This does not
-          limit remedies required by law or the protections below for legitimate
-          order problems.
+          Sports cards and other collectibles are final sale unless there is a
+          qualifying order problem described below or a remedy is required by law.
+          There is no general buyer-remorse return or exchange window.
         </p>
       </section>
 
@@ -36,13 +35,14 @@ export default function ReturnsPage() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-black">Condition and grading expectations</h2>
+        <h2 className="text-2xl font-black">Buyer remorse and grading opinions</h2>
         <p className="mt-2">
-          Raw cards are sold based on the listing photos and description and are not
-          guaranteed to receive a particular grade. Differences in personal grading
-          opinion, later market-price changes, or buyer remorse are not normally a
-          basis for return. Graded cards are sold according to the visible holder,
-          label, certification information, and disclosed holder condition.
+          Buyer-remorse returns and exchanges are not accepted as a standard store
+          policy. Raw cards are sold based on the listing photos and description and
+          are not guaranteed to receive a particular grade. Differences in personal
+          grading opinion or later market-price changes are not qualifying return
+          reasons. Graded cards are sold according to the visible holder, label,
+          certification information, and disclosed holder condition.
         </p>
       </section>
 
@@ -83,8 +83,9 @@ export default function ReturnsPage() {
         <p className="mt-2">
           When the store shipped the wrong item or confirms another qualifying
           fulfillment problem, reasonable return-shipping instructions will be
-          provided. Original or return shipping is not normally refundable for
-          buyer-remorse requests or other discretionary returns.
+          provided. Original or return shipping is not refundable for buyer-remorse
+          requests because buyer-remorse returns are not part of the standard return
+          policy.
         </p>
       </section>
 
