@@ -138,3 +138,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+# No-op refresh marker to force a fresh authoritative inventory snapshot.
