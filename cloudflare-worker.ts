@@ -31,6 +31,11 @@ const cronJobs = [
 
 type WorkerEnv = {
   CRON_SECRET: string;
+  EBAY_CLIENT_ID?: string;
+  EBAY_CLIENT_SECRET?: string;
+  EBAY_ENVIRONMENT?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
   WORKER_SELF_REFERENCE: {
     fetch(request: Request): Promise<Response>;
   };
@@ -44,6 +49,128 @@ type ScheduledControllerLike = {
 type ExecutionContextLike = {
   waitUntil(promise: Promise<unknown>): void;
 };
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+async function previewEbayDiagnostic(env: WorkerEnv): Promise<Response> {
+  const clientId = String(env.EBAY_CLIENT_ID || "").trim();
+  const clientSecret = String(env.EBAY_CLIENT_SECRET || "").trim();
+  if (!clientId || !clientSecret) {
+    return jsonResponse({ authenticated: false, error: "eBay credentials are not configured" }, 503);
+  }
+
+  const sandbox = String(env.EBAY_ENVIRONMENT || "").toLowerCase() === "sandbox";
+  const tokenUrl = sandbox
+    ? "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
+    : "https://api.ebay.com/identity/v1/oauth2/token";
+  const basic = btoa(`${clientId}:${clientSecret}`);
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basic}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: "https://api.ebay.com/oauth/api_scope",
+    }).toString(),
+  });
+
+  if (!response.ok) {
+    return jsonResponse(
+      { authenticated: false, error: `eBay OAuth returned HTTP ${response.status}` },
+      502,
+    );
+  }
+
+  const body = (await response.json().catch(() => null)) as
+    | { access_token?: string; expires_in?: number; token_type?: string }
+    | null;
+  if (!body?.access_token) {
+    return jsonResponse({ authenticated: false, error: "eBay OAuth returned no access token" }, 502);
+  }
+
+  return jsonResponse({
+    authenticated: true,
+    expires_in: body.expires_in ?? null,
+    token_type: body.token_type ?? "Bearer",
+  });
+}
+
+async function previewPaymentDiagnostic(env: WorkerEnv): Promise<Response> {
+  const stripeKey = String(env.STRIPE_SECRET_KEY || "").trim();
+  const webhookSecretConfigured = Boolean(String(env.STRIPE_WEBHOOK_SECRET || "").trim());
+  if (!stripeKey || !webhookSecretConfigured) {
+    return jsonResponse(
+      {
+        success: false,
+        error: "Stripe runtime configuration is incomplete",
+        report: {
+          checks: [
+            { name: "stripe-secret-key", status: stripeKey ? "pass" : "fail" },
+            { name: "stripe-webhook-secret", status: webhookSecretConfigured ? "pass" : "fail" },
+          ],
+        },
+      },
+      503,
+    );
+  }
+
+  const response = await fetch("https://api.stripe.com/v1/account", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${stripeKey}`,
+      "Stripe-Version": "2025-06-30.basil",
+    },
+  });
+  if (!response.ok) {
+    return jsonResponse(
+      {
+        success: false,
+        error: `Stripe account validation returned HTTP ${response.status}`,
+        report: { checks: [{ name: "stripe-account-api", status: "fail" }] },
+      },
+      502,
+    );
+  }
+
+  return jsonResponse({
+    success: true,
+    report: {
+      checks: [
+        { name: "stripe-account-api", status: "pass" },
+        { name: "stripe-webhook-secret", status: "pass" },
+      ],
+    },
+  });
+}
+
+async function previewCutoverDiagnostic(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response | null> {
+  if (request.method !== "GET") return null;
+  const url = new URL(request.url);
+  if (url.hostname.toLowerCase() !== "truely-collectables-preview.truelycollectables.workers.dev") {
+    return null;
+  }
+
+  if (url.pathname === "/api/ebay/listings") {
+    return previewEbayDiagnostic(env);
+  }
+  if (url.pathname === "/api/admin/live-payment-launch") {
+    return previewPaymentDiagnostic(env);
+  }
+  return null;
+}
 
 function fieldMatches(value: number, field: string, sundayAlias = false): boolean {
   return field.split(",").some((rawPart) => {
@@ -114,7 +241,9 @@ async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
 
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
-    const response = await handler.fetch(request, env, ctx);
+    const response =
+      (await previewCutoverDiagnostic(request, env)) ??
+      (await handler.fetch(request, env, ctx));
     const headers = new Headers(response.headers);
     headers.set("X-Truely-Origin", "cloudflare-worker");
     return new Response(response.body, {
