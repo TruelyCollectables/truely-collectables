@@ -113,7 +113,16 @@ async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
 }
 
 export default {
-  fetch: handler.fetch,
+  async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
+    const response = await handler.fetch(request, env, ctx);
+    const headers = new Headers(response.headers);
+    headers.set("X-Truely-Origin", "cloudflare-worker");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  },
 
   async scheduled(
     controller: ScheduledControllerLike,
