@@ -168,6 +168,6 @@ def test_minimum_page_exhaustion_still_fails_closed(monkeypatch: pytest.MonkeyPa
     assert sleeps == [1.0, 2.0, 4.0, 8.0]
 
 
-def test_guard_routes_to_resilient_sync():
-    module = _load(GUARD_SCRIPT, "inventory_sync_guard_resilient_target")
-    assert module.TARGET.name == "sync_all_inventory_training_truth_resilient.py"
+def test_guard_routes_to_snapshot_only_sync():
+    module = _load(GUARD_SCRIPT, "inventory_sync_guard_snapshot_only_target")
+    assert module.TARGET.name == "sync_all_inventory_training_truth_snapshot_only.py"

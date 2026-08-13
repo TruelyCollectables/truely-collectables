@@ -13,6 +13,11 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 import import_inventory_training_truth as inventory_import
+from inventory_training_git_snapshot import (
+    SnapshotSupabaseReader,
+    SnapshotUnavailable,
+    fetch_envelope_from_git,
+)
 
 
 DEFAULT_PAGE_SIZE = 250
@@ -57,7 +62,7 @@ def _smaller_page_size(current: int, floor: int) -> int:
 
 
 class ResilientSupabaseReader(inventory_import.SupabaseReader):
-    """Read-only PostgREST pager that survives transient Production network failures."""
+    """Read-only PostgREST pager used only if the encrypted Git snapshot is unavailable."""
 
     def table(
         self,
@@ -152,12 +157,39 @@ class ResilientSupabaseReader(inventory_import.SupabaseReader):
         return rows
 
 
+def _snapshot_reader_class(envelope: dict[str, Any]):
+    class BoundSnapshotReader(SnapshotSupabaseReader):
+        def __init__(self, base_url: str, service_key: str):
+            super().__init__(base_url, service_key, envelope=envelope)
+
+    BoundSnapshotReader.__name__ = "BoundSnapshotReader"
+    return BoundSnapshotReader
+
+
 def main() -> int:
-    # Patch before importing v2 so its direct SupabaseReader binding is resilient too.
-    inventory_import.SupabaseReader = ResilientSupabaseReader
+    reader_class: type
+    try:
+        envelope = fetch_envelope_from_git()
+    except SnapshotUnavailable as exc:
+        print(
+            f"WARN encrypted inventory Git snapshot unavailable; falling back to resilient PostgREST: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        reader_class = ResilientSupabaseReader
+    else:
+        print(
+            "USING encrypted authoritative direct-DB inventory snapshot from Git; "
+            "authentication and decryption will use the Mac Production service-role credential",
+            flush=True,
+        )
+        reader_class = _snapshot_reader_class(envelope)
+
+    # Patch before importing v2 so its direct SupabaseReader binding uses the selected source.
+    inventory_import.SupabaseReader = reader_class
     import sync_all_inventory_training_truth_v2 as target
 
-    target.SupabaseReader = ResilientSupabaseReader
+    target.SupabaseReader = reader_class
     return target.main()
 
 

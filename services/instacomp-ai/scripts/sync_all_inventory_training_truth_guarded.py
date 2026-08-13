@@ -11,7 +11,7 @@ from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
-TARGET = SERVICE_ROOT / "scripts" / "sync_all_inventory_training_truth_resilient.py"
+TARGET = SERVICE_ROOT / "scripts" / "sync_all_inventory_training_truth_snapshot_only.py"
 DEFAULT_RECEIPT = SERVICE_ROOT / "data" / "training" / "inventory-training-import-latest.json"
 DEFAULT_LOG = SERVICE_ROOT / "data" / "training" / "inventory-training-sync-latest.log"
 WRAPPER_SCHEMA = "tcos.instacomp-ai.inventory-training-sync-guard.v1"
@@ -34,7 +34,7 @@ def _guard_payload(*, status: str, started_at: str, exit_code: int | None = None
         "status": status,
         "started_at": started_at,
         "updated_at": utc_now(),
-        "source": "production_inventory_read_only",
+        "source": "production_inventory_read_only_encrypted_snapshot",
         "message": (
             "Guard receipt for the all-inventory InstaComp truth sync. A completed v3 inventory receipt "
             "replaces this file when the underlying sync reaches receipt generation."
@@ -58,8 +58,9 @@ def _receipt_is_guard(path: Path) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the complete inventory truth sync with durable stdout/stderr logging and a non-stale "
-            "failure receipt if the underlying process exits before writing its normal receipt."
+            "Run the complete inventory truth sync from the encrypted direct-DB snapshot with durable "
+            "stdout/stderr logging and a non-stale failure receipt if the underlying process exits "
+            "before writing its normal receipt."
         )
     )
     parser.add_argument("--allow-vercel-env-pull", action="store_true")
