@@ -142,3 +142,65 @@ def test_reliable_batch_uses_one_management_sql_call_and_paces(monkeypatch: pyte
     assert products[0]["id"] == product_id
     assert sleeps == [reliable.SUCCESS_BATCH_PACE_SECONDS]
     assert target._fetch_inventory_batch is reliable._fetch_inventory_batch_single_query
+
+
+def test_reliable_batch_waits_through_57p03_and_retries_same_query(monkeypatch: pytest.MonkeyPatch):
+    reliable = _load(RELIABLE_EXPORTER, "inventory_management_57p03_recovery")
+    target = reliable.target
+    columns = {
+        "inventory_items": ["id", "legacy_product_id", "card_uuid", "sku", "title"],
+        "inventory_images": ["id", "inventory_item_id", "image_url"],
+        "inventory_attributes": ["id", "inventory_item_id", "attribute_name", "attribute_value"],
+        "products": ["id", "card_uuid", "title"],
+    }
+    item_id = "3a40789e-0011-41b5-9430-d071a5fe4810"
+    calls: list[str] = []
+    effects = [
+        target.ManagementAPIError(
+            400,
+            {"message": "FATAL: 57P03: the database system is not accepting connections; Hot standby mode is disabled."},
+            "POST /projects/ref/database/query",
+        ),
+        [{
+            "inventory_items": [{
+                "id": item_id,
+                "legacy_product_id": None,
+                "card_uuid": None,
+                "sku": "COLLX-123",
+                "title": "Test Card",
+            }],
+            "inventory_images": [],
+            "inventory_attributes": [],
+            "products": [],
+        }],
+    ]
+
+    def fake_sql(token: str, ref: str, query: str):
+        calls.append(query)
+        effect = effects.pop(0)
+        if isinstance(effect, BaseException):
+            raise effect
+        return effect
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(target, "_sql", fake_sql)
+    monkeypatch.setattr(reliable.time, "sleep", sleeps.append)
+
+    items, images, attributes, products = reliable._fetch_inventory_batch_single_query(
+        "token",
+        "ref",
+        columns,
+        last_id=None,
+        batch_size=50,
+    )
+
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+    assert items[0]["id"] == item_id
+    assert images == []
+    assert attributes == []
+    assert products == []
+    assert sleeps == [
+        reliable.DATABASE_RECOVERY_DELAYS_SECONDS[0],
+        reliable.SUCCESS_BATCH_PACE_SECONDS,
+    ]
