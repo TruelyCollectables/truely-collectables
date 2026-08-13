@@ -6,9 +6,12 @@ import {
   PRIVACY_POLICY_PATH,
   RETURNS_POLICY_PATH,
   SHIPPING_POLICY_PATH,
+  STORE_ADDRESS_FORMATTED,
   STORE_BRAND_NAME,
   STORE_LEGAL_NAME,
   STORE_SUPPORT_EMAIL,
+  STORE_SUPPORT_PHONE,
+  STORE_SUPPORT_PHONE_E164,
   TERMS_OF_SERVICE_PATH,
 } from "../../lib/legal";
 
@@ -33,12 +36,24 @@ export default function Footer() {
             and collectibles store with secure checkout, published shipping and return
             policies, and customer support.
           </p>
-          <a
-            href={`mailto:${STORE_SUPPORT_EMAIL}`}
-            className="mt-3 inline-block text-sm font-black text-yellow-300 underline decoration-2 underline-offset-4"
-          >
-            {STORE_SUPPORT_EMAIL}
-          </a>
+          <address className="mt-3 not-italic text-sm font-semibold text-neutral-300">
+            <span className="block">{STORE_ADDRESS_FORMATTED}</span>
+            <a
+              href={`tel:${STORE_SUPPORT_PHONE_E164}`}
+              className="mt-1 inline-block font-black text-yellow-300 underline decoration-2 underline-offset-4"
+            >
+              {STORE_SUPPORT_PHONE}
+            </a>
+            <span className="mx-2 text-neutral-500" aria-hidden="true">
+              ·
+            </span>
+            <a
+              href={`mailto:${STORE_SUPPORT_EMAIL}`}
+              className="inline-block font-black text-yellow-300 underline decoration-2 underline-offset-4"
+            >
+              {STORE_SUPPORT_EMAIL}
+            </a>
+          </address>
         </div>
 
         <div className="md:text-right">
