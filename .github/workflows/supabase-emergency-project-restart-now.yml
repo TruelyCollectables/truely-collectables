@@ -1,4 +1,5 @@
 name: Supabase Emergency Storefront Performance Repair
+# retrigger 2026-08-13 storefront performance repair
 
 on:
   push:
