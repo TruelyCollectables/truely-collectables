@@ -17,9 +17,12 @@ target.TRANSIENT_HTTP.add(544)
 # inventory batch (items, images, attributes, products). On a healthy Production
 # database that eventually hit Management API 429 throttling, then a connection
 # timeout, after thousands of otherwise-successful rows. Fetch each bounded batch
-# with one read-only SQL request instead and pace successful batches so the full
-# corpus can complete without hammering the Management control plane.
-SUCCESS_BATCH_PACE_SECONDS = 0.75
+# with one read-only SQL request instead and deliberately pace successful batches.
+# The Production DB has also been observed to enter a short 57P03 recovery window
+# during a long read. Keep the already-collected in-memory corpus and retry the
+# exact same keyset batch instead of throwing the whole export away.
+SUCCESS_BATCH_PACE_SECONDS = 2.0
+DATABASE_RECOVERY_DELAYS_SECONDS = (15, 30, 45, 60)
 
 
 def _json_rows(value: object, label: str) -> list[dict[str, Any]]:
@@ -33,6 +36,38 @@ def _json_rows(value: object, label: str) -> list[dict[str, Any]]:
     if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
         raise RuntimeError(f"Direct DB batch returned an unexpected {label} payload")
     return [dict(row) for row in value]
+
+
+def _is_database_temporarily_unavailable(exc: target.ManagementAPIError) -> bool:
+    text = str(exc.payload).lower()
+    if exc.status == 544:
+        return True
+    return exc.status == 400 and (
+        "57p03" in text
+        or "database system is not accepting connections" in text
+        or "hot standby mode is disabled" in text
+        or "cannot connect now" in text
+    )
+
+
+def _sql_with_database_recovery(token: str, ref: str, query: str) -> list[dict[str, Any]]:
+    for recovery_attempt in range(len(DATABASE_RECOVERY_DELAYS_SECONDS) + 1):
+        try:
+            return target._sql(token, ref, query)
+        except target.ManagementAPIError as exc:
+            if (
+                not _is_database_temporarily_unavailable(exc)
+                or recovery_attempt >= len(DATABASE_RECOVERY_DELAYS_SECONDS)
+            ):
+                raise
+            delay = DATABASE_RECOVERY_DELAYS_SECONDS[recovery_attempt]
+            print(
+                "WAIT direct DB recovery after transient Production database unavailability: "
+                f"HTTP {exc.status}; retrying same inventory batch in {delay}s",
+                flush=True,
+            )
+            time.sleep(delay)
+    raise RuntimeError("Unreachable direct DB recovery loop")
 
 
 def _fetch_inventory_batch_single_query(
@@ -83,7 +118,7 @@ select
   coalesce((select jsonb_agg(to_jsonb(a) order by a.inventory_item_id) from attribute_page a), '[]'::jsonb) as inventory_attributes,
   coalesce((select jsonb_agg(to_jsonb(p) order by p.id) from product_page p), '[]'::jsonb) as products;
 """
-    result = target._sql(token, ref, query)
+    result = _sql_with_database_recovery(token, ref, query)
     if len(result) != 1:
         raise RuntimeError(f"Direct DB batch expected one aggregate row, got {len(result)}")
     aggregate = result[0]
