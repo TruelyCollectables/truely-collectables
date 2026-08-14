@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: checklist-recovery-wave2-transport-missing-20260814
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   MASTER_CHECKLIST_CORPUS_ROOT: .master-checklist-corpus
