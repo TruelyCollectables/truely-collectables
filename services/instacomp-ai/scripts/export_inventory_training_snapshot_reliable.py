@@ -25,6 +25,45 @@ SUCCESS_BATCH_PACE_SECONDS = 2.0
 DATABASE_RECOVERY_DELAYS_SECONDS = (15, 30, 45, 60)
 
 
+def _resolve_snapshot_encryption_key(token: str, ref: str) -> str:
+    """Prefer the current opaque Supabase secret key; retain legacy fallback."""
+    payload = target._request(token, "GET", f"/projects/{ref}/api-keys?reveal=true", timeout=45)
+    if not isinstance(payload, list):
+        raise SystemExit("Could not retrieve project API keys for encrypted snapshot transport")
+
+    modern: list[tuple[str, str, str]] = []
+    legacy_service_role = ""
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        candidate = str(row.get("api_key") or "").strip()
+        if not candidate:
+            continue
+        name = str(row.get("name") or "").strip().lower().replace("-", "_").replace(" ", "_")
+        inserted_at = str(row.get("inserted_at") or row.get("updated_at") or "").strip()
+        if candidate.startswith("sb_secret_"):
+            modern.append((inserted_at, name, candidate))
+        elif name == "service_role":
+            legacy_service_role = candidate
+
+    if modern:
+        # Rotation can temporarily leave more than one secret key active. Prefer
+        # the newest one so scheduled snapshots converge on the current backend
+        # credential without publishing or logging the key itself.
+        modern.sort(key=lambda row: (row[0], row[1]), reverse=True)
+        return modern[0][2]
+    if legacy_service_role:
+        return legacy_service_role
+    raise SystemExit("Could not resolve a Production elevated key for snapshot encryption")
+
+
+# The base exporter historically encrypted snapshots only with the legacy
+# service_role JWT. During migration the Mac/runtime can instead hold an opaque
+# sb_secret_* key, whose bytes are intentionally different. Bind encryption to
+# the newest current secret key when present while preserving legacy projects.
+target._resolve_service_role_key = _resolve_snapshot_encryption_key
+
+
 def _json_rows(value: object, label: str) -> list[dict[str, Any]]:
     if value is None:
         return []
