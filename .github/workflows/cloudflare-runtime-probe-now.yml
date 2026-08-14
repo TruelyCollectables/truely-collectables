@@ -1,0 +1,38 @@
+name: Cloudflare Runtime Probe Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-runtime-probe-now-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-cloudflare-runtime-probe-now
+  cancel-in-progress: true
+
+env:
+  PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+
+jobs:
+  probe-current-preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Probe current deployed Cloudflare runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS --max-time 65 -D /tmp/probe.headers \
+            "$PREVIEW_URL/api/internal/cloudflare-product-runtime-probe" \
+            -o /tmp/probe.json -w '%{http_code}' > /tmp/probe.status
+          cat /tmp/probe.json
+          echo
+          echo "HTTP $(cat /tmp/probe.status)"
+          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/probe.headers || {
+            echo 'Missing Cloudflare origin proof'
+            exit 20
+          }
