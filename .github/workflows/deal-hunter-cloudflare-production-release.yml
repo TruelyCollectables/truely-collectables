@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
+      - "open-next.config.ts"
   workflow_dispatch:
 
 permissions:
