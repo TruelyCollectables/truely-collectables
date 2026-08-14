@@ -99,7 +99,7 @@ async function cloudflareInstaCompReadiness(env: WorkerEnv) {
     const response = await fetch(`${baseUrl}/health`, {
       headers,
       cache: "no-store",
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(20_000),
     });
     const health = (await response.json().catch(() => null)) as
