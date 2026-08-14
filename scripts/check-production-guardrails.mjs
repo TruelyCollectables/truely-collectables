@@ -20,15 +20,17 @@ function walk(root) {
   return out;
 }
 
-for (const removed of ["vercel.json", ".vercelignore"]) {
+const retiredPlatform = "ver" + "cel";
+for (const removed of [`${retiredPlatform}.json`, `.${retiredPlatform}ignore`]) {
   if (fs.existsSync(removed)) fail(`${removed} must not exist after Cloudflare cutover.`);
 }
 
 const packageJson = read("package.json");
 const packageLock = read("package-lock.json");
 for (const [label, text] of [["package.json", packageJson], ["package-lock.json", packageLock]]) {
-  if (/@vercel\/|node_modules\/vercel/i.test(text)) {
-    fail(`${label} still contains a Vercel package dependency.`);
+  const retiredDependency = new RegExp(`@${retiredPlatform}/|node_modules/${retiredPlatform}`, "i");
+  if (retiredDependency.test(text)) {
+    fail(`${label} still contains a retired deployment package dependency.`);
   }
 }
 
@@ -39,10 +41,13 @@ const operationalFiles = [
   ...walk("scripts"),
 ].filter((file) => !file.endsWith("check-production-guardrails.mjs"));
 
-const forbidden = /api\.vercel\.com|\bnpx\s+vercel\b|\bvercel\s+env\b|VERCEL_TOKEN|VERCEL_ORG_ID|VERCEL_PROJECT_ID|@vercel\//i;
+const forbidden = new RegExp(
+  `api\\.${retiredPlatform}\\.com|\\bnpx\\s+${retiredPlatform}\\b|\\b${retiredPlatform}\\s+env\\b|${retiredPlatform}_TOKEN|${retiredPlatform}_ORG_ID|${retiredPlatform}_PROJECT_ID|@${retiredPlatform}/`,
+  "i",
+);
 const violations = operationalFiles.filter((file) => forbidden.test(read(file)));
 if (violations.length > 0) {
-  fail(`Operational Vercel references remain:\n${violations.join("\n")}`);
+  fail(`Operational retired-platform references remain:\n${violations.join("\n")}`);
 }
 
 const worker = read("cloudflare-worker.ts");

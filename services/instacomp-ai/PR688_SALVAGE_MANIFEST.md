@@ -117,7 +117,7 @@ Required adaptations:
 - Central authenticated Registry health must remain distinct from local cache health.
 - Pricing authorization remains false unless the current scan contains the complete central Registry receipt.
 - Google Drive for Desktop sync is optional local support infrastructure, not Production canonical ingestion.
-- Documentation must describe Mac versus cloud responsibilities without claiming Vercel or Supabase are removed from the unified system.
+- Documentation must describe Mac versus cloud responsibilities without claiming Cloudflare or Supabase are removed from the unified system.
 - CI must test the retained local capabilities and the no-second-authority boundary.
 
 ### SUPERSEDED — current `main` implementation wins
@@ -158,7 +158,7 @@ The following are rejected even when present implicitly in old documentation or 
 1. Local SQLite exact match acting as canonical identity.
 2. Local cache identity authorizing marketplace pricing by itself.
 3. A local Registry fingerprint being represented as the central Registry fingerprint.
-4. Vercel, Supabase, or the central Registry being removed from the unified architecture.
+4. Cloudflare, Supabase, or the central Registry being removed from the unified architecture.
 5. A separate InstaComp seller account, inventory database, publishing route, or seller application.
 6. Automatic publication after a scan or settings change.
 7. External teacher suggestions becoming trusted memory without canonical or operator verification.
@@ -191,7 +191,7 @@ This branch may merge only when:
 - TypeScript passes;
 - the Production web build passes;
 - boundary tests prove the Mac cannot publish or create canonical identity;
-- Vercel preview/runtime smoke passes;
+- Cloudflare preview/runtime smoke passes;
 - the PR is synchronized with current `main`.
 
 Physical Mac launch, restart, backup destination, and restore acceptance remain post-merge Beta gates and must not be marked complete from CI alone.

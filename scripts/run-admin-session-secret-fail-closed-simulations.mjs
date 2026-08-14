@@ -58,7 +58,7 @@ for (const [label, fragment] of [
   ],
   [
     "Production remediation",
-    "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET in the Vercel Production environment",
+    "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET in the Cloudflare Production Worker",
   ],
 ]) {
   assert.ok(pageSource.includes(fragment), `Launch Readiness page is missing ${label}.`);

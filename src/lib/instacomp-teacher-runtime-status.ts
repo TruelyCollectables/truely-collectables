@@ -40,10 +40,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const directGeminiConfigured =
     String(env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() !== "true" &&
     configured(env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY);
-  const gatewayPlatformConfigured = configured(env.AI_GATEWAY_API_KEY);
-  const gatewayGeminiConfigured =
-    String(env.INSTACOMP_GATEWAY_GEMINI_DISABLED || "").trim().toLowerCase() !== "true" &&
-    gatewayPlatformConfigured;
+  const gatewayGeminiConfigured = false;
   const geminiConfigured = directGeminiConfigured || gatewayGeminiConfigured;
   const anthropicConfigured = configured(env.ANTHROPIC_API_KEY);
   const xaiConfigured = configured(env.XAI_API_KEY);
@@ -52,7 +49,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   // backed by the same Groq credential/provider family and therefore count as
   // one independent trust vote.
   const groqBrowserConfigured = groqConfigured;
-  const gatewayPerplexityConfigured = gatewayPlatformConfigured;
+  const gatewayPerplexityConfigured = false;
   const openRouterConfigured = configured(env.OPENROUTER_API_KEY);
   const cloudflareConfigured = Boolean(
     configured(env.CLOUDFLARE_ACCOUNT_ID) && configured(env.CLOUDFLARE_AUTH_TOKEN || env.CLOUDFLARE_API_TOKEN),

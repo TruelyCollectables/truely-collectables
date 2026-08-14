@@ -53,7 +53,7 @@ export default async function MarketIntelTestEmailPage({
           </p>
           <h1 className="mt-2 text-4xl font-black">Send a controlled test email</h1>
           <p className="mt-3 font-semibold leading-7 text-neutral-300">
-            This confirms the production Vercel variables, Resend API key, verified
+            This confirms the production Cloudflare secrets, Resend API key, verified
             sender domain, and private recipient inbox without creating a fake deal.
           </p>
         </section>

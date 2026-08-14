@@ -68,7 +68,6 @@ def main() -> int:
     )
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--image-resize-shape", type=int, nargs=2, default=(768, 768))
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     parser.add_argument("--skip-import", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -87,8 +86,6 @@ def main() -> int:
             "--receipt",
             str(IMPORT_RECEIPT),
         ]
-        if args.allow_vercel_env_pull:
-            import_command.append("--allow-vercel-env-pull")
         if args.dry_run:
             import_command.append("--dry-run")
         code = _run(import_command)

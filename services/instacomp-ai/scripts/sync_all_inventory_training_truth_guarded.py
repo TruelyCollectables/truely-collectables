@@ -104,7 +104,6 @@ def main() -> int:
             "if the underlying process exits before writing its normal receipt."
         )
     )
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
@@ -117,8 +116,6 @@ def main() -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     command = [sys.executable, "-u", str(TARGET), "--receipt", str(receipt)]
-    if args.allow_vercel_env_pull:
-        command.append("--allow-vercel-env-pull")
     if args.dry_run:
         command.append("--dry-run")
 

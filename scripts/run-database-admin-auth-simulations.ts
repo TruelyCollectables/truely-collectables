@@ -54,7 +54,7 @@ assert.match(loginRoute, /verifyAdminPassword\(candidate\)/);
 assert.ok(
   loginRoute.indexOf("verifyDatabaseAdminPasswordCandidates") <
     loginRoute.indexOf("verifyAdminPassword(candidate)"),
-  "Database password must be authoritative before the Vercel fallback.",
+  "Database password must be authoritative before the environment fallback.",
 );
 
 assert.match(loginPage, /Permanent database owner password configured/);

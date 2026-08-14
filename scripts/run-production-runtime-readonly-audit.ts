@@ -4,7 +4,7 @@ import { evaluateLiveShippingLaunch } from "../src/lib/live-shipping-launch";
 import { createSupabaseServerClient } from "../src/lib/supabase-server";
 import { getActiveStoreId } from "../src/lib/stores";
 
-const namesPath = process.env.TCOS_VERCEL_ENV_NAMES_PATH || ".codex-run/vercel-production-env-names.txt";
+const namesPath = process.env.TCOS_RUNTIME_ENV_NAMES_PATH || ".codex-run/cloudflare-production-env-names.txt";
 const outputPath = process.env.TCOS_RUNTIME_AUDIT_OUTPUT || ".codex-run/production-runtime-readiness.json";
 
 const requiredNames = [

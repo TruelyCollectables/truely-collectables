@@ -197,7 +197,7 @@ function buildReadinessItems(
         ? "SUPABASE_SERVICE_ROLE_KEY is configured for admin-only writes, launch checks, and webhook operations."
         : "SUPABASE_SERVICE_ROLE_KEY is missing. Privileged Supabase clients fail closed, so admin writes, database launch checks, and payment webhooks cannot rely on the public anon key.",
       action:
-        "Set SUPABASE_SERVICE_ROLE_KEY in the Vercel Production environment and the local operator environment, then rerun Launch Readiness before any live-payment or deployment approval.",
+        "Set SUPABASE_SERVICE_ROLE_KEY in the Cloudflare Production Worker and the local operator environment, then rerun Launch Readiness before any live-payment or deployment approval.",
     },
     {
       label: "Admin Access",
@@ -212,7 +212,7 @@ function buildReadinessItems(
           ? "Admin password and an independently configured signed-session secret are ready."
           : "ADMIN_PASSWORD and ADMIN_SESSION_SECRET are both required. Admin session creation and validation fail closed when the dedicated session-signing secret is missing.",
       action:
-        "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET in the Vercel Production environment and local operator environment before launch.",
+        "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET in the Cloudflare Production Worker and local operator environment before launch.",
     },
     {
       label: "Stripe Key Mode",
@@ -1455,7 +1455,7 @@ export default async function LaunchReadinessPage() {
               schedule health, scheduler proof, launchd runtime evidence,
               verification result, verified archive path, and SHA-256. The
               combined runway command now carries those fields beside Git,
-              Vercel quota, and live-money state.
+              Cloudflare deployment state, and live-money state.
             </p>
           </div>
           <a
@@ -1539,8 +1539,8 @@ export default async function LaunchReadinessPage() {
           <div>
             <h2 className="text-2xl font-bold">Production Deploy Queue</h2>
             <p className="mt-1 max-w-3xl text-sm">
-              Use this after the GitHub stack is pushed and Vercel accepts new
-              production deployments. If Vercel reports{" "}
+              Use this after the GitHub stack is pushed and Cloudflare accepts new
+              production deployments. If Cloudflare reports{" "}
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.quotaBlockCode}
               </code>
@@ -1562,7 +1562,7 @@ export default async function LaunchReadinessPage() {
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.quotaRetryOverrideFlag}
               </code>
-              . The deploy live safety contract keeps Vercel quota messaging,
+              . The deploy live safety contract keeps Cloudflare failure messaging,
               local quota cooldown marker handling, unwanted alias removal for{" "}
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.unwantedAlias}
@@ -1579,7 +1579,7 @@ export default async function LaunchReadinessPage() {
               {" "}
               {DEPLOY_SAFETY.deployResultRequirement}
               {" "}
-              {DEPLOY_SAFETY.vercelCliRequirement}
+              {DEPLOY_SAFETY.cloudflareCliRequirement}
               {" "}
               {DEPLOY_SAFETY.scopeRequirement}
               {" "}
@@ -1638,7 +1638,7 @@ npm run preflight:production`}
               Local <code>HEAD</code> and <code>origin/main</code> should match
               before production deploy. The deploy helper also blocks
               uncommitted deploy-relevant files, and the preflight command
-              checks that without starting a Vercel deployment. Use verify to
+              checks that without starting a Cloudflare deployment. Use verify to
               run lint, InstaComp™ regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the
               twenty-scenario shipping simulation suite, build, production
               guardrail checks, and production preflight together. Production
@@ -1984,7 +1984,7 @@ function ShippingProviderUnlockPlan({
           href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
           className="rounded border border-indigo-300 bg-white px-3 py-2"
         >
-          Export Vercel commands
+          Export Cloudflare commands
         </a>
         <a
           href="/api/admin/shipping/provider-setup?format=operator-checklist"

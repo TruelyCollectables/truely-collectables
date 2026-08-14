@@ -42,13 +42,13 @@ const smokeChecks = [
 
 const failureMeanings = [
   {
-    label: "Vercel quota capped",
+    label: "Cloudflare deployment blocked",
     detail: `If deploy reports ${DEPLOY_SAFETY.quotaBlockCode}, ${DEPLOY_SAFETY.quotaResetInstruction}`,
   },
   {
     label: "Queued feature missing",
     detail:
-      "If smoke says queued launch features are not visible, production is behind GitHub. Read the Queued launch feature failure(s) line for the exact checks, then deploy the pushed stack again when Vercel accepts it.",
+      "If smoke says queued launch features are not visible, production is behind GitHub. Read the queued-feature failures, then run the Cloudflare production workflow again.",
   },
   {
     label: `${DEPLOY_SAFETY.unwantedAlias} responds`,
@@ -68,7 +68,7 @@ const manualVerificationChecks = [
     proof:
       "Launch readiness JSON reports the current origin/main Git SHA, main ref, and clean production domain.",
     ifBlocked:
-      "Treat this as deploy lag; rerun deploy/smoke after Vercel accepts the pushed stack.",
+      "Treat this as deploy lag; rerun the Cloudflare deploy and smoke checks.",
   },
   {
     label: "Launch gate drill evidence",
@@ -161,7 +161,7 @@ export default function ProductionSmokePage() {
               </h1>
               <p className="mt-3 max-w-4xl text-sm leading-6 text-neutral-300 md:text-base">
                 Operator-facing map for the production smoke suite. This page does
-                not run Vercel, charge cards, buy postage, or contact providers;
+                not deploy Cloudflare, charge cards, buy postage, or contact providers;
                 it shows exactly what launch smoke must prove after a successful
                 production deployment.
               </p>
@@ -245,7 +245,7 @@ export default function ProductionSmokePage() {
         <section className="mb-8 rounded-[2rem] border border-blue-200 bg-blue-50 p-6 text-blue-950 shadow-sm">
           <h2 className="text-2xl font-black">Launch command</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6">
-            Use the one-shot launch command when Vercel accepts production
+            Use the one-shot launch command when Cloudflare accepts production
             deployments. It verifies the pushed GitHub stack, deploys
             production, then runs the smoke.
           </p>
@@ -262,11 +262,11 @@ export default function ProductionSmokePage() {
         <section className="mb-8 rounded-[2rem] border border-amber-200 bg-amber-50 p-6 text-amber-950 shadow-sm">
           <h2 className="text-xl font-black">Deploy live safety contract</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6">
-            The production deploy helper must keep Vercel quota messaging,
+            The production deploy helper must keep Cloudflare failure messaging,
             unwanted alias removal for{" "}
             <code>{DEPLOY_SAFETY.unwantedAlias}</code>, clean-domain aliasing,
             deployed URL output, clean URL output, and the{" "}
-            <code>{DEPLOY_SAFETY.smokeCommand}</code> handoff intact. If Vercel returns{" "}
+            <code>{DEPLOY_SAFETY.smokeCommand}</code> handoff intact. If Cloudflare returns{" "}
             <code>{DEPLOY_SAFETY.quotaBlockCode}</code>,{" "}
             {DEPLOY_SAFETY.quotaResetInstruction}{" "}
             Use the exact read-only local retry status command{" "}
@@ -280,7 +280,7 @@ export default function ProductionSmokePage() {
             {" "}
             {DEPLOY_SAFETY.deployResultRequirement}
             {" "}
-            {DEPLOY_SAFETY.vercelCliRequirement}
+            {DEPLOY_SAFETY.cloudflareCliRequirement}
             {" "}
             {DEPLOY_SAFETY.scopeRequirement}
             {" "}
@@ -309,7 +309,7 @@ export default function ProductionSmokePage() {
           <h2 className="text-xl font-black">Production go/no-go ladder</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6">
             Use this ladder when deciding whether to keep going, split the run,
-            or halt for Vercel quota. It is deliberately conservative: verify
+            or halt for a Cloudflare deployment block. It is deliberately conservative: verify
             first, launch only when quota is open, and ship only after smoke
             proves the clean production domain.
           </p>

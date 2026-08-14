@@ -196,7 +196,7 @@ function envTemplateResponse(params: {
   ]);
   const lines = [
     "# TCOS shipping provider setup template",
-    "# Paste these keys into Vercel production/preview environment variables.",
+    "# Store these keys as Cloudflare production/preview Worker secrets.",
     "# Do not commit real secret values to git. This export contains names only.",
     `# Provider decision: ${params.decision.status}`,
     `# Next action: ${params.decision.nextAction}`,

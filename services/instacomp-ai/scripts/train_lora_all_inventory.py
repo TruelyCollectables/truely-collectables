@@ -28,13 +28,10 @@ def main() -> int:
     )
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--image-resize-shape", type=int, nargs=2, default=(768, 768))
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     sync_command = [sys.executable, str(SYNC)]
-    if args.allow_vercel_env_pull:
-        sync_command.append("--allow-vercel-env-pull")
     if args.dry_run:
         sync_command.append("--dry-run")
     sync_code = _run(sync_command)

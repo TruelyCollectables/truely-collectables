@@ -94,12 +94,12 @@ Required production variables:
 
 ```text
 INSTACOMP_BASE_URL=https://truelycollectables.com
-INSTACOMP_SERVICE_TOKEN=<same strong random value configured in Vercel Production>
+INSTACOMP_SERVICE_TOKEN=<same strong random value configured in the Cloudflare Production Worker>
 INSTACOMP_TIMEOUT_MS=240000
 TCOS_REQUIRE_INSTACOMP=true
 ```
 
-The service token is separate from the connector bearer token. Vercel and the connector runtime must contain the same secret value. The scanner continues to fail closed when Supabase job storage, identity evidence, exact sold providers, or delivered-price support is missing.
+The service token is separate from the connector bearer token. Cloudflare and the connector runtime must contain the same secret value. The scanner continues to fail closed when Supabase job storage, identity evidence, exact sold providers, or delivered-price support is missing.
 
 ## Public-source adapters
 
@@ -164,7 +164,7 @@ Production requirements:
 
 - HTTPS endpoint reachable by ChatGPT.
 - Strong random `TCOS_CONNECTOR_TOKEN`.
-- Same strong random `INSTACOMP_SERVICE_TOKEN` in Vercel and connector runtime.
+- Same strong random `INSTACOMP_SERVICE_TOKEN` in Cloudflare and connector runtime.
 - Supabase service-role key stored server-side.
 - Public-search keys stored as encrypted deployment secrets.
 - `TCOS_ALLOWED_ORIGINS` restricted to approved clients when applicable.
@@ -183,7 +183,7 @@ Configure bearer authentication with `TCOS_CONNECTOR_TOKEN`. Keep write-tool app
 ## Release sequence
 
 1. Merge and deploy the production InstaComp service-auth change.
-2. Configure the same `INSTACOMP_SERVICE_TOKEN` in Vercel and the connector host.
+2. Configure the same `INSTACOMP_SERVICE_TOKEN` in Cloudflare and the connector host.
 3. Deploy the connector over HTTPS with persistence and hardened InstaComp required.
 4. Confirm `/health` shows `hardenedInstaComp.configured: true`.
 5. Process a known correct card and the permanent negative fixtures:

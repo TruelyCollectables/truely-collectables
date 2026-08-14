@@ -23,21 +23,8 @@ const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || "").trim();
 const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();
 const GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();
 const PERPLEXITY_API_KEY = String(process.env.PERPLEXITY_API_KEY || "").trim();
-const AI_GATEWAY_TOKEN = String(
-  process.env.AI_GATEWAY_API_KEY || "",
-).trim();
-
-function gatewayPlatformAvailable() {
-  return Boolean(AI_GATEWAY_TOKEN);
-}
-
-async function gatewayBearerToken() {
-  return AI_GATEWAY_TOKEN;
-}
 const DIRECT_GEMINI_DISABLED =
   String(process.env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() === "true";
-const GATEWAY_GEMINI_DISABLED =
-  String(process.env.INSTACOMP_GATEWAY_GEMINI_DISABLED || "").trim().toLowerCase() === "true";
 
 const GEMINI_MODEL = String(
   process.env.INSTACOMP_TEACHER_GEMINI_MODEL || "gemini-3.6-flash",
@@ -50,12 +37,6 @@ const XAI_MODEL = String(
 ).trim();
 const GROQ_MODEL = String(
   process.env.INSTACOMP_TEACHER_GROQ_MODEL || "groq/compound-mini",
-).trim();
-const GATEWAY_PERPLEXITY_MODEL = String(
-  process.env.INSTACOMP_GATEWAY_PERPLEXITY_MODEL || "perplexity/sonar",
-).trim();
-const GATEWAY_GEMINI_MODEL = String(
-  process.env.INSTACOMP_GATEWAY_GEMINI_MODEL || "google/gemini-2.5-flash-lite",
 ).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 8;
@@ -310,78 +291,8 @@ async function runGemini(prompt: string): Promise<TeacherAttempt> {
 }
 
 
-function gatewayResponsesOutputText(payload: any) {
-  return (Array.isArray(payload?.output) ? payload.output : [])
-    .flatMap((item: any) => (Array.isArray(item?.content) ? item.content : []))
-    .filter((part: any) => part?.type === "output_text" && typeof part?.text === "string")
-    .map((part: any) => part.text)
-    .join("\n")
-    .trim();
-}
-
-function gatewayGeminiGroundingObserved(payload: any) {
-  const metadata = payload?.provider_metadata || payload?.providerMetadata || null;
-  if (!metadata) return false;
-  const serialized = JSON.stringify(metadata);
-  return /groundingMetadata|webSearchQueries|searchEntryPoint|groundingChunks|groundingSupports/i.test(serialized);
-}
-
-async function runGatewayGemini(prompt: string): Promise<TeacherAttempt> {
-  const configured = gatewayPlatformAvailable() && !GATEWAY_GEMINI_DISABLED;
-  if (!configured) {
-    return { teacher: "gateway_gemini", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
-  }
-  try {
-    const token = await gatewayBearerToken();
-    if (!token) throw new Error("Vercel AI Gateway credential unavailable at request time.");
-    const response = await fetch("https://ai-gateway.vercel.sh/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: GATEWAY_GEMINI_MODEL,
-        input: [{ type: "message", role: "user", content: prompt }],
-        max_output_tokens: 6000,
-        temperature: 0,
-        tools: [{ type: "google_search" }],
-        tool_choice: "required",
-        providerOptions: { gateway: { only: ["vertex"] } },
-      }),
-      signal: AbortSignal.timeout(TEACHER_TIMEOUT_MS),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(clean(payload?.error?.message) || `Vercel Gateway Gemini HTTP ${response.status}`);
-    }
-    if (!gatewayGeminiGroundingObserved(payload)) {
-      throw new Error("Vercel Gateway Gemini returned without native Google Search grounding metadata.");
-    }
-    const text = gatewayResponsesOutputText(payload);
-    if (!text) throw new Error("Vercel Gateway Gemini returned no output text.");
-    const parsed = parseJsonObject(text);
-    return {
-      teacher: "gateway_gemini",
-      configured: true,
-      ok: true,
-      ...parsed,
-      notes: [parsed.notes, `Vercel Gateway ${GATEWAY_GEMINI_MODEL} with native Google Search grounding.`]
-        .filter(Boolean)
-        .join(" "),
-      error: null,
-    };
-  } catch (error) {
-    return {
-      teacher: "gateway_gemini",
-      configured: true,
-      ok: false,
-      sold: [],
-      active: [],
-      notes: "",
-      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
-    };
-  }
+async function runGatewayGemini(_prompt: string): Promise<TeacherAttempt> {
+  return { teacher: "gateway_gemini", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
 }
 
 async function runAnthropic(prompt: string): Promise<TeacherAttempt> {
@@ -588,46 +499,8 @@ async function runPerplexity(exactTitle: string): Promise<TeacherAttempt> {
 }
 
 
-async function runGatewayPerplexity(prompt: string): Promise<TeacherAttempt> {
-  const configured = gatewayPlatformAvailable();
-  if (!configured) {
-    return { teacher: "gateway_perplexity", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
-  }
-  try {
-    const gatewayToken = await gatewayBearerToken();
-    if (!gatewayToken) throw new Error("Vercel Gateway OIDC token was unavailable at request time.");
-    const response = await fetch("https://ai-gateway.vercel.sh/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${gatewayToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: GATEWAY_PERPLEXITY_MODEL,
-        temperature: 0,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 2400,
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(TEACHER_TIMEOUT_MS),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(clean(payload?.error?.message) || `Vercel Gateway Perplexity HTTP ${response.status}`);
-    }
-    const parsed = parseJsonObject(clean(payload?.choices?.[0]?.message?.content));
-    return { teacher: "gateway_perplexity", configured: true, ok: true, ...parsed, error: null };
-  } catch (error) {
-    return {
-      teacher: "gateway_perplexity",
-      configured: true,
-      ok: false,
-      sold: [],
-      active: [],
-      notes: "",
-      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
-    };
-  }
+async function runGatewayPerplexity(_prompt: string): Promise<TeacherAttempt> {
+  return { teacher: "gateway_perplexity", configured: false, ok: false, sold: [], active: [], notes: "", error: null };
 }
 
 function toComp(row: TeacherMarketRow, teacher: TeacherName, lane: "sold" | "active") {

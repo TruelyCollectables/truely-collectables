@@ -26,8 +26,8 @@ for (const [label, fragment] of [
     "Privileged Supabase clients fail closed, so admin writes, database launch checks, and payment webhooks cannot rely on the public anon key.",
   ],
   [
-    "Vercel Production remediation",
-    "Set SUPABASE_SERVICE_ROLE_KEY in the Vercel Production environment and the local operator environment",
+    "Cloudflare Production remediation",
+    "Set SUPABASE_SERVICE_ROLE_KEY in the Cloudflare Production Worker and the local operator environment",
   ],
 ]) {
   assert.ok(pageSource.includes(fragment), `Launch Readiness page is missing ${label}.`);

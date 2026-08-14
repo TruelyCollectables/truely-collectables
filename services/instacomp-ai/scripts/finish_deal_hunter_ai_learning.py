@@ -163,7 +163,6 @@ def main() -> int:
     parser.add_argument("--image-resize-shape", type=int, nargs=2, default=(768, 768))
     parser.add_argument("--required-examples", type=int, default=30)
     parser.add_argument("--max-tokens", type=int, default=768)
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     args = parser.parse_args()
 
     if args.epochs <= 0:
@@ -184,8 +183,6 @@ def main() -> int:
         str(args.image_resize_shape[0]),
         str(args.image_resize_shape[1]),
     ]
-    if args.allow_vercel_env_pull:
-        train_command.append("--allow-vercel-env-pull")
 
     train_code = _run(train_command)
     if train_code != 0:

@@ -119,7 +119,7 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
           <p className="mt-1 text-sm font-semibold">
             {credentialsConfigured
               ? "The scanner can request an eBay application token and search active EBAY_US listings."
-              : "Add EBAY_CLIENT_ID and EBAY_CLIENT_SECRET in Vercel Production before scanning."}
+              : "Add EBAY_CLIENT_ID and EBAY_CLIENT_SECRET to the Cloudflare Production Worker before scanning."}
           </p>
         </section>
 
@@ -301,7 +301,7 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
           </p>
           <p className="mt-3 text-sm font-semibold leading-6 text-neutral-300">
             The route uses the same CRON_SECRET protection as the existing scheduled
-            reconciliation jobs. The Vercel cron configuration will call it hourly.
+            reconciliation jobs. The Cloudflare Worker scheduler calls it hourly.
           </p>
         </section>
       </div>

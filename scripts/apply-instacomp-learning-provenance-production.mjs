@@ -44,7 +44,7 @@ export function productionProjectRef(productionUrl) {
     /^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/i,
   );
   if (!match) {
-    throw new Error("Production Supabase URL was not pulled from Vercel.");
+    throw new Error("Production Supabase URL is missing from the execution environment.");
   }
   return match[1];
 }

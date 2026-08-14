@@ -86,7 +86,7 @@ export default async function AdminLoginPage({
             </h1>
             <p className="mt-4 text-sm font-semibold leading-6 text-neutral-300">
               Sign in with the permanent owner password stored in the private TCOS
-              database. Once created, Vercel deployments cannot replace it.
+              database. Once created, deployments cannot replace it.
             </p>
 
             <dl className="mt-8 space-y-3 text-sm">
@@ -98,7 +98,7 @@ export default async function AdminLoginPage({
                   {databaseCredential.configured
                     ? "Permanent database owner password configured"
                     : emergencyPasswordConfigured
-                      ? "Temporary Vercel fallback configured"
+                      ? "Temporary environment fallback configured"
                       : "No owner password configured"}
                 </dd>
               </div>

@@ -133,7 +133,6 @@ def _is_collx_row(item: Mapping[str, Any], product: Mapping[str, Any] | None) ->
 
 def run_sync(
     *,
-    allow_vercel_env_pull: bool,
     dry_run: bool,
     receipt_path: Path,
 ) -> dict[str, Any]:
@@ -147,9 +146,7 @@ def run_sync(
     before_readiness = training_readiness(before_examples)
     trusted_pairs = _trusted_pair_rows(store)
 
-    supabase_url, service_key, credential_source = _resolve_supabase_env(
-        allow_vercel_pull=allow_vercel_env_pull
-    )
+    supabase_url, service_key, credential_source = _resolve_supabase_env()
     reader = SupabaseReader(supabase_url, service_key)
     try:
         items = reader.table("inventory_items")
@@ -487,13 +484,11 @@ def main() -> int:
             "using the real Production inventory schema and auditing the complete card census."
         )
     )
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     args = parser.parse_args()
 
     receipt = run_sync(
-        allow_vercel_env_pull=args.allow_vercel_env_pull,
         dry_run=args.dry_run,
         receipt_path=args.receipt.expanduser().resolve(),
     )

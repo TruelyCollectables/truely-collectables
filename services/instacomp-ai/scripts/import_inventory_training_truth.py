@@ -4,9 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
-import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,7 +57,7 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def _resolve_supabase_env(*, allow_vercel_pull: bool) -> tuple[str, str, str]:
+def _resolve_supabase_env() -> tuple[str, str, str]:
     candidates: dict[str, str] = dict(os.environ)
     for path in (
         REPO_ROOT / ".env.local",
@@ -81,39 +79,11 @@ def _resolve_supabase_env(*, allow_vercel_pull: bool) -> tuple[str, str, str]:
 
     url, key = resolved()
     source = "local_environment"
-    if (not url or not key) and allow_vercel_pull:
-        with tempfile.TemporaryDirectory(prefix="instacomp-inventory-env-") as tmp:
-            env_path = Path(tmp) / "production.env"
-            command = [
-                "npx",
-                "--yes",
-                "vercel",
-                "env",
-                "pull",
-                str(env_path),
-                "--environment=production",
-                "--yes",
-            ]
-            completed = subprocess.run(
-                command,
-                cwd=REPO_ROOT,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if completed.returncode == 0 and env_path.is_file():
-                for env_key, value in _parse_env_file(env_path).items():
-                    candidates.setdefault(env_key, value)
-                url, key = resolved()
-                source = "authenticated_vercel_env_pull"
 
     if not url or not key:
         raise SystemExit(
             "Inventory training import requires NEXT_PUBLIC_SUPABASE_URL and "
-            "SUPABASE_SERVICE_ROLE_KEY. They were not found in the local environment. "
-            "Run with --allow-vercel-env-pull on the authenticated Mac to resolve them "
-            "without printing secrets."
+            "SUPABASE_SERVICE_ROLE_KEY. They were not found in the local environment."
         )
     return url.rstrip("/"), key, source
 
@@ -358,7 +328,6 @@ def _create_inventory_lesson(
 
 def run_import(
     *,
-    allow_vercel_env_pull: bool,
     dry_run: bool,
     receipt_path: Path,
     limit: int | None = None,
@@ -372,9 +341,7 @@ def run_import(
     before_readiness = training_readiness(before_examples)
     existing_uuids = _existing_training_card_uuids(store)
 
-    supabase_url, service_key, credential_source = _resolve_supabase_env(
-        allow_vercel_pull=allow_vercel_env_pull
-    )
+    supabase_url, service_key, credential_source = _resolve_supabase_env()
     reader = SupabaseReader(supabase_url, service_key)
     try:
         items = reader.table("inventory_items")
@@ -573,11 +540,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Import already-correct Truely Collectables inventory as trusted InstaComp lessons."
     )
-    parser.add_argument(
-        "--allow-vercel-env-pull",
-        action="store_true",
-        help="If Supabase credentials are not local, resolve Production env through authenticated Vercel CLI without printing secrets.",
-    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
@@ -586,7 +548,6 @@ def main() -> int:
         raise SystemExit("--limit must be greater than zero")
 
     receipt = run_import(
-        allow_vercel_env_pull=args.allow_vercel_env_pull,
         dry_run=args.dry_run,
         receipt_path=args.receipt.expanduser().resolve(),
         limit=args.limit,

@@ -86,7 +86,6 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
 
 def run_sync(
     *,
-    allow_vercel_env_pull: bool,
     dry_run: bool,
     receipt_path: Path,
 ) -> dict[str, Any]:
@@ -96,7 +95,6 @@ def run_sync(
     v2._download_image = _download_image_resilient
     try:
         receipt = v2.run_sync(
-            allow_vercel_env_pull=allow_vercel_env_pull,
             dry_run=dry_run,
             receipt_path=receipt_path,
         )
@@ -122,14 +120,12 @@ def main() -> int:
             "preserve the strict all-card audit, and quarantine rows that cannot train vision."
         )
     )
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     args = parser.parse_args()
 
     receipt_path = args.receipt.expanduser().resolve()
     receipt = run_sync(
-        allow_vercel_env_pull=args.allow_vercel_env_pull,
         dry_run=args.dry_run,
         receipt_path=receipt_path,
     )

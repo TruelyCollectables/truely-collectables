@@ -24,15 +24,13 @@ from import_inventory_training_truth import (
 )
 
 
-def _strict_coverage(*, allow_vercel_env_pull: bool) -> dict:
+def _strict_coverage() -> dict:
     settings.ensure_directories()
     store = MemoryStore(settings.resolve_local_path(settings.database_path))
     store.initialize()
     learned_uuids = _existing_training_card_uuids(store)
 
-    supabase_url, service_key, _credential_source = _resolve_supabase_env(
-        allow_vercel_pull=allow_vercel_env_pull
-    )
+    supabase_url, service_key, _credential_source = _resolve_supabase_env()
     reader = SupabaseReader(supabase_url, service_key)
     try:
         items = reader.table("inventory_items")
@@ -88,18 +86,16 @@ def main() -> int:
             "not merely the subset that was easy to import."
         )
     )
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     args = parser.parse_args()
     receipt_path = args.receipt.expanduser().resolve()
 
     receipt = run_import(
-        allow_vercel_env_pull=args.allow_vercel_env_pull,
         dry_run=args.dry_run,
         receipt_path=receipt_path,
     )
-    strict = _strict_coverage(allow_vercel_env_pull=args.allow_vercel_env_pull)
+    strict = _strict_coverage()
     receipt["strict_inventory_coverage"] = strict
     receipt["training"]["inventory_eligible_learned"] = strict["inventory_card_learned"]
     receipt["training"]["inventory_eligible_total"] = strict["inventory_card_total"]

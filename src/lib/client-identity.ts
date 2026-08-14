@@ -14,7 +14,6 @@ const IP_HEADER_NAMES = [
   "true-client-ip",
   "x-real-ip",
   "x-forwarded-for",
-  "x-vercel-forwarded-for",
   "forwarded",
 ] as const;
 

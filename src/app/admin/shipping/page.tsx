@@ -1068,7 +1068,7 @@ export default async function AdminShippingPage() {
                   href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
                   className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50"
                 >
-                  Vercel
+                  Cloudflare
                 </a>
                 <a
                   href="/api/admin/shipping/provider-setup?format=operator-checklist"

@@ -19,7 +19,7 @@ export const DEPLOY_SAFETY = {
     "Treat a release as complete only after the Cloudflare deployment and production smoke checks pass.",
   deployResultRequirement:
     "Require the Cloudflare deployment workflow to finish successfully before recording a production release.",
-  vercelCliRequirement:
+  cloudflareCliRequirement:
     "Use the repository-pinned Cloudflare build and Wrangler versions in the production workflow.",
   scopeRequirement:
     "Restrict production deployment credentials to the Truely Collectables Cloudflare account and Worker.",

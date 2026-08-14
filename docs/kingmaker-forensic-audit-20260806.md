@@ -103,4 +103,4 @@ The normal `prebuild` now runs `scripts/check-instacomp-text-orientation-checkli
 
 ## Runtime verification still required
 
-A successful Vercel build proves source contracts and TypeScript/build compatibility. The one-hour browser test must still prove the authenticated production workflow against real Supabase rows, stored images, checklist data, and the Mac scanner service.
+A successful Cloudflare build proves source contracts and TypeScript/build compatibility. The one-hour browser test must still prove the authenticated production workflow against real Supabase rows, stored images, checklist data, and the Mac scanner service.

@@ -111,7 +111,7 @@ export default async function MarketIntelIngestionPage({
           <p className="mt-1 text-sm font-semibold">
             {health.ingestSecretConfigured
               ? "The gateway will accept requests authenticated with MARKET_INTEL_INGEST_SECRET or the existing CRON_SECRET."
-              : "Add MARKET_INTEL_INGEST_SECRET in Vercel Production before connecting hourly research automation. Never expose the value in browser code."}
+              : "Add MARKET_INTEL_INGEST_SECRET to the Cloudflare Production Worker before connecting hourly research automation. Never expose the value in browser code."}
           </p>
         </section>
 

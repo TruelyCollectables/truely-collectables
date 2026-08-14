@@ -40,7 +40,7 @@ export default async function AdminResetPasswordPage({
             Choose a permanent admin password
           </h1>
           <p className="mt-3 text-sm font-semibold leading-6 text-neutral-600">
-            This password is stored as a private database hash. Vercel
+            This password is stored as a private database hash. Cloudflare
             deployments, environment refreshes, and code releases cannot replace
             it.
           </p>

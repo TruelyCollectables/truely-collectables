@@ -54,9 +54,6 @@ __pycache__/
 /instacomp-trial-inbox/
 /instacomp-trial-images/
 
-# vercel
-.vercel
-
 # Supabase CLI link/cache metadata
 /supabase/.temp/
 

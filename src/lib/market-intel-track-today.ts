@@ -91,7 +91,7 @@ export async function trackMarketIntelIdentityToday(identityId: string) {
   if (!id) throw new Error("Exact collectible identity is required.");
 
   // Keep the manual button intentionally lightweight. Heavy eBay, Discovery, Growth,
-  // alert, and cleanup work runs on the shared six-hour Vercel cron cycle.
+  // alert, and cleanup work runs on the Cloudflare Worker scheduler.
   // Recalculation inserts a dated exact-card market snapshot from already verified comps;
   // the market-observation trigger preserves today's history point.
   const market = await recalculateMarketIntelValue(id);

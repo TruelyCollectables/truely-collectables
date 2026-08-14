@@ -181,7 +181,7 @@ export default function ChecklistSentinelAdminPage() {
             <div className="text-xs font-black uppercase tracking-[0.24em] text-cyan-300">InstaComp AI</div>
             <h1 className="mt-2 text-3xl font-black sm:text-5xl">Checklist Sentinel™</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
-              The Mac owns the 24-hour checklist search and automatically drains newly pending checklist targets in safe batches. This page securely controls and reads it through Vercel and the permanent Cloudflare tunnel.
+              The Mac owns the 24-hour checklist search and automatically drains newly pending checklist targets in safe batches. This page securely controls and reads it through the permanent Cloudflare tunnel.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

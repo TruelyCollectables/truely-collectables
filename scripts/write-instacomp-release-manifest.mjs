@@ -34,7 +34,7 @@ export function resolveReleaseCommit(explicitValue) {
   return normalizeReleaseCommit(
     explicitValue ||
       process.env.TCOS_RELEASE_COMMIT ||
-      process.env.VERCEL_GIT_COMMIT_SHA ||
+      process.env.TCOS_GIT_COMMIT_SHA ||
       process.env.GITHUB_SHA ||
       gitHead(),
   );
