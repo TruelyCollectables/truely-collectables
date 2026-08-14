@@ -1,5 +1,6 @@
 name: BALLS DEEP Portfolio Intelligence
 
+# Production portfolio intelligence: scheduled + on-demand + change-triggered.
 on:
   push:
     branches: [main]
