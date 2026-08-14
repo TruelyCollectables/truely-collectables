@@ -32,6 +32,18 @@ async function timed(
   }
 }
 
+function restUrl(base: string) {
+  return `${base}/rest/v1/products?select=id&limit=1`;
+}
+
+function restHeaders(key: string) {
+  return {
+    apikey: key,
+    authorization: `Bearer ${key}`,
+    accept: "application/json",
+  };
+}
+
 export async function GET() {
   const nativeFetch = globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
   const base = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim().replace(/\/$/, "");
@@ -59,37 +71,43 @@ export async function GET() {
     });
   }
 
-  const rawNative = await timed("native_rest", async (signal) => {
-    const response = await nativeFetch(`${base}/rest/v1/products?select=id&limit=1`, {
-      headers: {
-        apikey: key,
-        authorization: `Bearer ${key}`,
-        accept: "application/json",
-      },
-      cache: "no-store",
-      signal,
-    });
-    await response.body?.cancel().catch(() => {});
-    return { ok: response.ok, status: response.status };
-  });
-
-  const supabaseJs = await timed("supabase_js", async (signal) => {
-    const client = createSupabaseServerClient({ admin: true });
-    const { error } = await client
-      .from("products")
-      .select("id")
-      .limit(1)
-      .abortSignal(signal);
-    return { ok: !error, detail: error ? "query_error" : undefined };
-  });
+  const [rawNative, rawGlobal, supabaseJs] = await Promise.all([
+    timed("captured_native_rest", async (signal) => {
+      const response = await nativeFetch(restUrl(base), {
+        headers: restHeaders(key),
+        cache: "no-store",
+        signal,
+      });
+      await response.body?.cancel().catch(() => {});
+      return { ok: response.ok, status: response.status };
+    }),
+    timed("current_global_rest", async (signal) => {
+      const response = await globalThis.fetch(restUrl(base), {
+        headers: restHeaders(key),
+        cache: "no-store",
+        signal,
+      });
+      await response.body?.cancel().catch(() => {});
+      return { ok: response.ok, status: response.status };
+    }),
+    timed("supabase_js", async (signal) => {
+      const client = createSupabaseServerClient({ admin: true });
+      const { error } = await client
+        .from("products")
+        .select("id")
+        .limit(1)
+        .abortSignal(signal);
+      return { ok: !error, detail: error ? "query_error" : undefined };
+    }),
+  ]);
 
   return NextResponse.json({
-    ok: rawNative.ok && supabaseJs.ok,
+    ok: rawNative.ok && rawGlobal.ok && supabaseJs.ok,
     runtime: "opennext",
     nativeFetchPresent: true,
     globalFetchIsNative: globalThis.fetch === nativeFetch,
     timeoutMs: TIMEOUT_MS,
-    probes: [rawNative, supabaseJs],
+    probes: [rawNative, rawGlobal, supabaseJs],
   }, {
     headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
