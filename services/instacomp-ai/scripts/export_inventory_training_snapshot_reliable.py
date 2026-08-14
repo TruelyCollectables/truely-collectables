@@ -13,15 +13,17 @@ import export_inventory_training_snapshot as target
 # like the already-covered 52x origin/transport failures.
 target.TRANSIENT_HTTP.add(544)
 
-# The original exporter used four Management API database/query requests for every
-# inventory batch (items, images, attributes, products). On a healthy Production
-# database that eventually hit Management API 429 throttling, then a connection
-# timeout, after thousands of otherwise-successful rows. Fetch each bounded batch
-# with one read-only SQL request instead and deliberately pace successful batches.
-# The Production DB has also been observed to enter a short 57P03 recovery window
-# during a long read. Keep the already-collected in-memory corpus and retry the
-# exact same keyset batch instead of throwing the whole export away.
-SUCCESS_BATCH_PACE_SECONDS = 2.0
+# The single-query exporter preserves deterministic UUID keyset pagination while
+# keeping all related rows in the same bounded database/query request. Production
+# proved that 50-card pages still created too much connection churn: the run made
+# 38 successful batch connections (1,900 items) before database/query stopped
+# accepting connections and returned persistent HTTP 544 timeouts. Use 500-card
+# pages instead. For ~7,800 items this cuts the expected batch-query connection
+# count from ~157 to 16 without changing coverage semantics. A short success pace
+# remains to avoid hammering the Management API between completed pages.
+PRODUCTION_BATCH_SIZE = 500
+target.DEFAULT_BATCH_SIZE = PRODUCTION_BATCH_SIZE
+SUCCESS_BATCH_PACE_SECONDS = 0.5
 DATABASE_RECOVERY_DELAYS_SECONDS = (15, 30, 45, 60)
 
 
