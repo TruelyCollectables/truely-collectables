@@ -92,6 +92,41 @@ jobs:
           jq -e '.success == true' "$worker" >/dev/null
           echo 'CLOUDFLARE_PRODUCTION_OWNER=VERIFIED'
 
+      - name: Remove copied Vercel platform markers from Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          for worker in truely-collectables truely-collectables-preview; do
+            secrets="$(mktemp)"
+            code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$secrets" -w '%{http_code}' \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/secrets")"
+            echo "CLOUDFLARE_SECRET_LIST worker=$worker http=$code"
+            [ "$code" = '200' ]
+            jq -e '.success == true' "$secrets" >/dev/null
+
+            mapfile -t stale < <(jq -r '.result[]?.name | select(test("^VERCEL($|_)"))' "$secrets")
+            for name in "${stale[@]}"; do
+              result="$(mktemp)"
+              delete_code="$(curl -sS --connect-timeout 10 --max-time 45 -X DELETE -o "$result" -w '%{http_code}' \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/secrets/$name")"
+              echo "CLOUDFLARE_STALE_PLATFORM_SECRET_DELETE worker=$worker name=$name http=$delete_code"
+              [ "$delete_code" = '200' ]
+              jq -e '.success == true' "$result" >/dev/null
+            done
+
+            verify="$(mktemp)"
+            curl -sS --connect-timeout 10 --max-time 45 -o "$verify" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/secrets"
+            if jq -e '.result[]?.name | select(test("^VERCEL($|_)"))' "$verify" >/dev/null; then
+              echo "Copied Vercel platform secrets remain on $worker."
+              exit 1
+            fi
+          done
+          echo 'CLOUDFLARE_STALE_VERCEL_PLATFORM_BINDINGS=REMOVED'
+
       - name: Delete the Vercel project and every attached deployment
         shell: bash
         run: |
