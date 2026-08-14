@@ -1,4 +1,5 @@
 name: BALLS DEEP Deal Hunter Production E2E
+# Trigger marker: live production verification requested 2026-08-14.
 
 on:
   push:
