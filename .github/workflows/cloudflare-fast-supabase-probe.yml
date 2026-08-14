@@ -1,0 +1,57 @@
+name: Cloudflare Fast Supabase Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-fast-supabase-probe-trigger'
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pull CRON secret without printing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false vercel@56.2.0 dotenv@latest >/dev/null 2>&1
+          npx vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null
+          umask 077
+          npx vercel env pull .env.production.local --environment=production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --yes --no-color >/dev/null
+          node <<'NODE'
+          const fs=require('node:fs'); const dotenv=require('dotenv');
+          const env=dotenv.parse(fs.readFileSync('.env.production.local'));
+          const secret=String(env.CRON_SECRET||'').trim();
+          if(!secret) throw new Error('CRON_SECRET missing');
+          fs.writeFileSync('/tmp/cron-secret',secret,{mode:0o600});
+          console.log('CRON_SECRET loaded; value not printed.');
+          NODE
+      - name: Run deployed Worker Supabase probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret=$(cat /tmp/cron-secret)
+          curl -sS --max-time 25 \
+            -H "Authorization: Bearer $secret" \
+            -D /tmp/probe.headers \
+            "$PREVIEW_URL/api/cron/cloudflare-supabase-probe" \
+            -o /tmp/probe.json -w '%{http_code} %{time_total}\n'
+          grep -i '^x-truely-origin:' /tmp/probe.headers || true
+          cat /tmp/probe.json
+          echo
+      - name: Cleanup
+        if: always()
+        run: rm -f .env.production.local /tmp/cron-secret /tmp/probe.headers /tmp/probe.json
