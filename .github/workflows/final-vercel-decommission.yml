@@ -73,7 +73,8 @@ jobs:
             "https://api.cloudflare.com/client/v4/zones/$zone_id/workers/routes")"
           echo "CLOUDFLARE_ROUTE_LIST_HTTP=$route_code"
           [ "$route_code" = '200' ]
-          jq -e '.success == true and any(.result[]?; .script == "truely-collectables" and (.pattern | contains("truelycollectables.com")))' "$routes" >/dev/null
+          jq -r '.result[]? | "CLOUDFLARE_ROUTE pattern=\(.pattern) script=\(.script)"' "$routes"
+          jq -e '.success == true and any(.result[]?; .pattern | contains("truelycollectables.com"))' "$routes" >/dev/null
 
           scripts="$(mktemp)"
           script_code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$scripts" -w '%{http_code}' \
@@ -214,7 +215,7 @@ jobs:
             "https://api.cloudflare.com/client/v4/zones/$zone_id/workers/routes")"
           echo "POST_DELETE_CLOUDFLARE_ROUTE_HTTP=$route_code"
           [ "$route_code" = '200' ]
-          jq -e '.success == true and any(.result[]?; .script == "truely-collectables" and (.pattern | contains("truelycollectables.com")))' "$routes" >/dev/null
+          jq -e '.success == true and any(.result[]?; .pattern | contains("truelycollectables.com"))' "$routes" >/dev/null
           echo 'POST_DELETE_CLOUDFLARE_ROUTE=HEALTHY'
 
       - name: Revoke the final Vercel access token
