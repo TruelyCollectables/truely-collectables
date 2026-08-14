@@ -59,14 +59,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          domains="$(mktemp)"
-          code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$domains" -w '%{http_code}' \
+          zones="$(mktemp)"
+          code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$zones" -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains")"
-          echo "CLOUDFLARE_DOMAIN_LOOKUP_HTTP=$code"
+            "https://api.cloudflare.com/client/v4/zones?name=truelycollectables.com&account.id=$CLOUDFLARE_ACCOUNT_ID")"
+          echo "CLOUDFLARE_ZONE_LOOKUP_HTTP=$code"
           [ "$code" = '200' ]
-          jq -r '.result[]? | "CLOUDFLARE_DOMAIN hostname=\(.hostname) service=\(.service) zone=\(.zone_name)"' "$domains"
-          jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com" or .zone_name == "truelycollectables.com")' "$domains" >/dev/null
+          zone_id="$(jq -er '.result[] | select(.name == "truelycollectables.com") | .id' "$zones" | head -1)"
+
+          routes="$(mktemp)"
+          route_code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$routes" -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$zone_id/workers/routes")"
+          echo "CLOUDFLARE_ROUTE_LIST_HTTP=$route_code"
+          [ "$route_code" = '200' ]
+          jq -e '.success == true and any(.result[]?; .script == "truely-collectables" and (.pattern | contains("truelycollectables.com")))' "$routes" >/dev/null
 
           scripts="$(mktemp)"
           script_code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$scripts" -w '%{http_code}' \
@@ -194,14 +201,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          domains="$(mktemp)"
-          code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$domains" -w '%{http_code}' \
+          zones="$(mktemp)"
+          code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$zones" -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains")"
-          echo "POST_DELETE_CLOUDFLARE_DOMAIN_HTTP=$code"
+            "https://api.cloudflare.com/client/v4/zones?name=truelycollectables.com&account.id=$CLOUDFLARE_ACCOUNT_ID")"
+          echo "POST_DELETE_CLOUDFLARE_ZONE_HTTP=$code"
           [ "$code" = '200' ]
-          jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com" or .zone_name == "truelycollectables.com")' "$domains" >/dev/null
-          echo 'POST_DELETE_CLOUDFLARE_DOMAIN=HEALTHY'
+          zone_id="$(jq -er '.result[] | select(.name == "truelycollectables.com") | .id' "$zones" | head -1)"
+          routes="$(mktemp)"
+          route_code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$routes" -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$zone_id/workers/routes")"
+          echo "POST_DELETE_CLOUDFLARE_ROUTE_HTTP=$route_code"
+          [ "$route_code" = '200' ]
+          jq -e '.success == true and any(.result[]?; .script == "truely-collectables" and (.pattern | contains("truelycollectables.com")))' "$routes" >/dev/null
+          echo 'POST_DELETE_CLOUDFLARE_ROUTE=HEALTHY'
 
       - name: Revoke the final Vercel access token
         shell: bash
