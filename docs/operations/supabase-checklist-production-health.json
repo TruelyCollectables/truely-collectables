@@ -1,6 +1,6 @@
 {
   "schema": "tcos.supabase.checklistProductionHealth.v3",
-  "checkedAt": "2026-08-07T18:18:17Z",
+  "checkedAt": "2026-08-14T04:41:58Z",
   "managementProject": {
     "httpCode": "200",
     "data": {
@@ -17,7 +17,7 @@
         "name": "db",
         "healthy": null,
         "status": "UNHEALTHY",
-        "error": "Failed to connect to database"
+        "error": "Failed to connect to database: connect ECONNREFUSED 2600:1f14:2c31:7601:26cf:1b26:1bde:69cf:5432"
       },
       {
         "name": "rest",
@@ -29,45 +29,23 @@
         "name": "storage",
         "healthy": null,
         "status": "UNHEALTHY",
-        "error": "Failed to retrieve project's storage service health"
+        "error": "Storage is not healthy"
       },
       {
         "name": "auth",
-        "healthy": true,
-        "status": "ACTIVE_HEALTHY",
-        "error": null
+        "healthy": null,
+        "status": "UNHEALTHY",
+        "error": "upstream connect error or disconnect/reset before headers. retried and the latest reset reason: remote connection failure, transport failure reason: delayed connect error: 111"
       }
     ],
     "error": null,
     "transportError": null
   },
   "readOnlyDatabaseQuery": {
-    "httpCode": "201",
-    "result": [
-      {
-        "health": {
-          "max_connections": 60,
-          "total_connections": 23,
-          "active_connections": 6,
-          "waiting_connections": 19,
-          "waiting_locks": 1,
-          "checklist_catalog_readable": true,
-          "blockers": [
-            {
-              "blocked_pid": 2419,
-              "blocked_application": "mgmt-api",
-              "blocked_wait_type": "Lock",
-              "blocked_wait_event": "relation",
-              "blocker_pid": 2294,
-              "blocker_application": "mgmt-api",
-              "blocker_state": "active",
-              "blocker_age_seconds": 67.8,
-              "blocker_query_hash": "aa9c0f544799ee579dfc02f0245c3afa"
-            }
-          ]
-        }
-      }
-    ],
+    "httpCode": "400",
+    "result": {
+      "message": "Failed to run sql query: connect ECONNREFUSED 2600:1f14:2c31:7601:26cf:1b26:1bde:69cf:5432"
+    },
     "transportError": null
   }
 }
