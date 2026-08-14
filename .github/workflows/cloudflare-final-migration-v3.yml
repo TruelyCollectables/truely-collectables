@@ -424,11 +424,14 @@ jobs:
           set -euo pipefail
           live_probe(){
             local url="$1" tag="$2" ok=0
-            for i in $(seq 1 12); do
+            # The formerly unproxied records have a 300-second DNS TTL. Let the
+            # runner's recursive resolver age out its cached Vercel answer before
+            # declaring the Cloudflare route unhealthy.
+            for i in $(seq 1 72); do
               code=$(curl -L -sS --max-time 45 -D "/tmp/$tag.headers" -o /dev/null -w '%{http_code}' "$url" || true)
               origin=$(grep -i '^x-truely-origin:' "/tmp/$tag.headers"|tail -1|tr -d '\r'||true); echo "$url attempt=$i status=$code origin=${origin:-missing}"
               case "$code" in 2*|3*) grep -qi '^x-truely-origin: cloudflare-worker' "/tmp/$tag.headers" && ok=1;; esac
-              [ "$ok" = 1 ] && break; sleep 3
+              [ "$ok" = 1 ] && break; sleep 5
             done
             [ "$ok" = 1 ] || exit 50
           }
