@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 
 from . import checklist as checklist_module
@@ -18,17 +20,44 @@ class AuthoritativeRegistryChecklistGateway:
         identity: CardIdentity,
         ocr_text: str | None = None,
     ) -> ChecklistResult:
+        result, _diagnostics = await self.match_with_diagnostics(identity, ocr_text)
+        return result
+
+    async def match_with_diagnostics(
+        self,
+        identity: CardIdentity,
+        ocr_text: str | None = None,
+    ) -> tuple[ChecklistResult, dict[str, Any]]:
+        """Resolve once and return the exact Registry exchange for promotion diagnostics."""
         base_url = _registry_base_url()
+        diagnostics: dict[str, Any] = {
+            "registry_url": (
+                f"{base_url}/api/instacomp/registry-lock" if base_url else None
+            ),
+            "registry_request": None,
+            "registry_http_status": None,
+            "registry_raw_response": None,
+            "registry_status": None,
+            "registry_resolver_status": None,
+            "registry_reasons": [],
+            "registry_candidate_count": 0,
+            "registry_identity_id": None,
+            "registry_fingerprint_sha256": None,
+            "registry_transport_error": None,
+        }
+
         if not base_url:
-            return ChecklistResult(
+            result = ChecklistResult(
                 outcome=ChecklistOutcome.NOT_CONFIGURED,
                 reasons=["INSTACOMP_AI_REGISTRY_URL is not configured."],
             )
+            return result, diagnostics
         if not identity.card_number:
-            return ChecklistResult(
+            result = ChecklistResult(
                 outcome=ChecklistOutcome.INPUT_INCOMPLETE,
                 reasons=["Missing identity field: card_number"],
             )
+            return result, diagnostics
 
         payload = {
             "year": identity.year,
@@ -48,6 +77,7 @@ class AuthoritativeRegistryChecklistGateway:
             "variation": identity.variation,
             "ocrText": _bounded_ocr(ocr_text),
         }
+        diagnostics["registry_request"] = payload
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -57,32 +87,52 @@ class AuthoritativeRegistryChecklistGateway:
                     json=payload,
                 )
         except httpx.HTTPError as error:
-            return ChecklistResult(
+            diagnostics["registry_transport_error"] = (
+                f"{type(error).__name__}: {error}"
+            )
+            result = ChecklistResult(
                 outcome=ChecklistOutcome.NOT_CONFIGURED,
                 reasons=[f"Checklist Registry request failed: {error}"],
             )
+            return result, diagnostics
 
         data = response.json() if response.content else {}
+        diagnostics["registry_http_status"] = response.status_code
+        diagnostics["registry_raw_response"] = data
+        diagnostics["registry_status"] = _text(data.get("status"))
+        diagnostics["registry_resolver_status"] = _text(data.get("resolverStatus"))
+        diagnostics["registry_reasons"] = [
+            str(value) for value in data.get("reasons", []) if value
+        ]
+        diagnostics["registry_candidate_count"] = int(data.get("candidateCount") or 0)
+        diagnostics["registry_identity_id"] = _text(
+            data.get("registryIdentityId") or data.get("identityId")
+        )
+        diagnostics["registry_fingerprint_sha256"] = _text(
+            data.get("registryFingerprintSha256") or data.get("fingerprintSha256")
+        )
+
         if response.status_code in {401, 403}:
-            return ChecklistResult(
+            result = ChecklistResult(
                 outcome=ChecklistOutcome.NOT_CONFIGURED,
                 reasons=["Checklist Registry authentication failed."],
             )
+            return result, diagnostics
         if not response.is_success or data.get("ok") is not True:
-            return ChecklistResult(
+            result = ChecklistResult(
                 outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
-                reasons=[_text(data.get("error")) or "Checklist Registry exact lock failed."],
+                reasons=[
+                    _text(data.get("error"))
+                    or "Checklist Registry exact lock failed."
+                ],
             )
+            return result, diagnostics
 
-        status = _text(data.get("status"))
-        registry_identity_id = _text(
-            data.get("registryIdentityId") or data.get("identityId")
-        )
-        registry_fingerprint = _text(
-            data.get("registryFingerprintSha256") or data.get("fingerprintSha256")
-        )
-        reasons = [str(value) for value in data.get("reasons", []) if value]
-        candidate_count = int(data.get("candidateCount") or 0)
+        status = diagnostics["registry_status"]
+        registry_identity_id = diagnostics["registry_identity_id"]
+        registry_fingerprint = diagnostics["registry_fingerprint_sha256"]
+        reasons = diagnostics["registry_reasons"]
+        candidate_count = diagnostics["registry_candidate_count"]
 
         if status == "exact_match" and registry_identity_id and registry_fingerprint:
             locked = data.get("lockedFields") or {}
@@ -90,13 +140,20 @@ class AuthoritativeRegistryChecklistGateway:
                 sport=_text(locked.get("sport")) or identity.sport,
                 league=_text(locked.get("league")) or identity.league,
                 year=_text(locked.get("year")) or identity.year,
-                manufacturer=_text(locked.get("manufacturer")) or identity.manufacturer,
+                manufacturer=_text(locked.get("manufacturer"))
+                or identity.manufacturer,
                 brand=_text(locked.get("brand")) or identity.brand,
-                set_name=_text(locked.get("setName") or locked.get("set_name")) or identity.set_name,
+                set_name=_text(
+                    locked.get("setName") or locked.get("set_name")
+                )
+                or identity.set_name,
                 subset=identity.subset,
                 player=_text(locked.get("player")) or identity.player,
                 team=_text(locked.get("team")) or identity.team,
-                card_number=_text(locked.get("cardNumber") or locked.get("card_number")) or identity.card_number,
+                card_number=_text(
+                    locked.get("cardNumber") or locked.get("card_number")
+                )
+                or identity.card_number,
                 parallel=_text(locked.get("parallel")) or identity.parallel,
                 variation=_text(locked.get("variation")) or identity.variation,
                 serial_number=identity.serial_number,
@@ -108,7 +165,7 @@ class AuthoritativeRegistryChecklistGateway:
                 memorabilia=identity.memorabilia,
                 memorabilia_type=identity.memorabilia_type,
             )
-            return ChecklistResult(
+            result = ChecklistResult(
                 outcome=ChecklistOutcome.EXACT_MATCH,
                 identity_id=registry_identity_id,
                 identity=canonical,
@@ -120,6 +177,7 @@ class AuthoritativeRegistryChecklistGateway:
                     "registry_resolver:resolveChecklistRegistry",
                 ],
             )
+            return result, diagnostics
 
         if status == "input_incomplete":
             outcome = ChecklistOutcome.INPUT_INCOMPLETE
@@ -129,12 +187,14 @@ class AuthoritativeRegistryChecklistGateway:
             outcome = ChecklistOutcome.NOT_CONFIGURED
         else:
             outcome = ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH
-        return ChecklistResult(
+
+        result = ChecklistResult(
             outcome=outcome,
             candidate_count=candidate_count,
             reasons=reasons or ["Checklist Registry exact lock requires review."],
             source_receipts=["registry_resolver:resolveChecklistRegistry"],
         )
+        return result, diagnostics
 
     async def health(self) -> bool:
         return _registry_base_url() is not None
