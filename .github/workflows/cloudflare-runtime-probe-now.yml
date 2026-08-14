@@ -77,3 +77,38 @@ jobs:
           echo "Direct Supabase product -> $status"
           head -c 1000 /tmp/product.json || true
           echo
+
+  inspect-supabase-control-plane:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Read project status and Data API configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+          base="https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF"
+
+          project_status=$(curl -sS --max-time 20 -H "$auth" -H 'Accept: application/json' \
+            -o /tmp/project.json -w '%{http_code}' "$base")
+          postgrest_status=$(curl -sS --max-time 20 -H "$auth" -H 'Accept: application/json' \
+            -o /tmp/postgrest.json -w '%{http_code}' "$base/postgrest")
+          context_status=$(curl -sS --max-time 20 -H "$auth" -H 'Accept: application/json' \
+            -o /tmp/context.json -w '%{http_code}' "$base/database/context")
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const read = p => { try { return JSON.parse(fs.readFileSync(p,'utf8')); } catch { return null; } };
+          const project = read('/tmp/project.json');
+          const postgrest = read('/tmp/postgrest.json');
+          const context = read('/tmp/context.json');
+          console.log('Project status:', project?.status || 'unavailable');
+          console.log('PostgREST db_schema:', postgrest?.db_schema || 'unavailable');
+          console.log('PostgREST extra search path:', postgrest?.db_extra_search_path || 'unavailable');
+          const schemas = Array.isArray(context?.databases)
+            ? [...new Set(context.databases.flatMap(db => Array.isArray(db?.schemas) ? db.schemas.map(s => s?.name).filter(Boolean) : []))].sort()
+            : [];
+          console.log('Database schemas:', schemas.length ? schemas.join(',') : 'unavailable');
+          NODE
+          echo "Control-plane HTTP: project=$project_status postgrest=$postgrest_status context=$context_status"
