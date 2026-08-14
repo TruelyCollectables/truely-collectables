@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -17,6 +18,7 @@ TRAINING_RECEIPT = SERVICE_ROOT / "data" / "training" / "full-inventory-lora-lat
 COMPLETION_RECEIPT = SERVICE_ROOT / "data" / "training" / "deal-hunter-ai-learning-latest.json"
 LORA_VENV = SERVICE_ROOT / ".venv-lora"
 SERVICE_PYTHON = SERVICE_ROOT / ".venv" / "bin" / "python"
+LOCK_SELECTION_NAMESPACE = "tcos.instacomp.locked-validation.v1"
 
 
 def utc_now() -> str:
@@ -79,9 +81,9 @@ def _training_gate(receipt: dict[str, Any], required_examples: int) -> tuple[Pat
         raise SystemExit(
             f"Full inventory LoRA receipt failed coverage gate: {coverage:.2f}% ({learned}/{eligible})"
         )
-    if held_out != required_examples:
+    if held_out < required_examples:
         raise SystemExit(
-            f"Locked validation split mismatch: expected {required_examples}, training receipt has {held_out}."
+            f"Locked validation pool is too small: need {required_examples}, training receipt has {held_out}."
         )
 
     adapter = Path(str(receipt.get("adapter_directory") or "")).expanduser().resolve()
@@ -100,12 +102,91 @@ def _training_gate(receipt: dict[str, Any], required_examples: int) -> tuple[Pat
     return adapter, dataset
 
 
+def _locked_validation_dataset(dataset: Path, required_examples: int) -> Path:
+    manifest_path = dataset / "manifest.json"
+    validation_path = dataset / "validation.jsonl"
+    manifest = _read_json(manifest_path)
+    try:
+        rows = [
+            json.loads(line)
+            for line in validation_path.read_text("utf-8").splitlines()
+            if line.strip()
+        ]
+    except Exception as exc:
+        raise SystemExit(f"Held-out validation split is not valid JSONL: {validation_path}") from exc
+
+    manifest_count = int(manifest.get("validation_examples", -1))
+    if manifest_count != len(rows):
+        raise SystemExit(
+            "Held-out validation row count disagrees with manifest: "
+            f"manifest={manifest_count} rows={len(rows)}"
+        )
+    if len(rows) < required_examples:
+        raise SystemExit(
+            f"Promotion gate needs {required_examples} untouched held-out examples; found {len(rows)}."
+        )
+
+    ids = [str(row.get("id") or "").strip() for row in rows]
+    if not all(ids) or len(ids) != len(set(ids)):
+        raise SystemExit("Held-out validation rows must have unique non-empty ids.")
+
+    ranked = sorted(
+        zip(ids, rows),
+        key=lambda pair: (
+            hashlib.sha256(
+                f"{LOCK_SELECTION_NAMESPACE}:{pair[0]}".encode("utf-8")
+            ).hexdigest(),
+            pair[0],
+        ),
+    )
+    selected = [row for _row_id, row in ranked[:required_examples]]
+    selected_ids = [str(row["id"]) for row in selected]
+    selected_ids_sha256 = hashlib.sha256(
+        ("\n".join(selected_ids) + "\n").encode("utf-8")
+    ).hexdigest()
+
+    locked = dataset / f"locked-validation-{required_examples}"
+    locked.mkdir(parents=True, exist_ok=True)
+    locked_validation = locked / "validation.jsonl"
+    locked_manifest = locked / "manifest.json"
+
+    validation_body = "".join(
+        json.dumps(row, ensure_ascii=False) + "\n" for row in selected
+    )
+    locked_validation.write_text(validation_body, encoding="utf-8")
+    locked_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "tcos.instacomp-ai.locked-validation.v1",
+                "created_at": utc_now(),
+                "source_dataset": str(dataset),
+                "source_validation_examples": len(rows),
+                "validation_examples": required_examples,
+                "selection_policy": "sha256_namespace_rank_v1",
+                "selection_namespace": LOCK_SELECTION_NAMESPACE,
+                "selected_ids_sha256": selected_ids_sha256,
+                "source_validation_untouched": True,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"LOCKED VALIDATION: selected exactly {required_examples} deterministic untouched "
+        f"examples from {len(rows)} held-out rows; fingerprint={selected_ids_sha256}",
+        flush=True,
+    )
+    return locked
+
+
 def _final_gate(
     *,
     training_receipt: dict[str, Any],
     validation_receipt: dict[str, Any],
     adapter: Path,
-    dataset: Path,
+    training_dataset: Path,
+    locked_dataset: Path,
     required_examples: int,
 ) -> dict[str, Any]:
     held_out = int(validation_receipt.get("held_out_examples") or 0)
@@ -138,16 +219,19 @@ def _final_gate(
         "checks": checks,
         "inventory_eligible_learned": int(training_receipt.get("inventory_eligible_learned") or 0),
         "inventory_eligible_total": int(training_receipt.get("inventory_eligible_total") or 0),
+        "source_held_out_validation_examples": int(training_receipt.get("held_out_validation_examples") or 0),
         "held_out_validation_examples": held_out,
         "adapter_directory": str(adapter),
-        "dataset_path": str(dataset),
-        "validation_receipt": str(_validation_receipt(adapter, dataset)),
+        "dataset_path": str(training_dataset),
+        "locked_validation_dataset": str(locked_dataset),
+        "validation_receipt": str(_validation_receipt(adapter, locked_dataset)),
         "critical_regressions": len(regressions),
         "automatic_deployment": False,
         "meaning": (
             "Learning is complete only when the full eligible inventory corpus trained successfully and the "
-            "fresh adapter strictly beat the untouched base model on exactly the locked held-out examples with "
-            "zero critical regressions. This receipt does not automatically deploy the candidate."
+            "fresh adapter strictly beat the untouched base model on exactly the deterministic locked held-out "
+            "examples with zero critical regressions. The larger held-out pool remains excluded from training. "
+            "This receipt does not automatically deploy the candidate."
         ),
     }
 
@@ -163,6 +247,12 @@ def main() -> int:
     parser.add_argument("--image-resize-shape", type=int, nargs=2, default=(768, 768))
     parser.add_argument("--required-examples", type=int, default=30)
     parser.add_argument("--max-tokens", type=int, default=768)
+    parser.add_argument("--allow-vercel-env-pull", action="store_true")
+    parser.add_argument(
+        "--validation-only",
+        action="store_true",
+        help="Reuse an already successful full-inventory training receipt and run only locked validation.",
+    )
     args = parser.parse_args()
 
     if args.epochs <= 0:
@@ -174,32 +264,42 @@ def main() -> int:
     if args.max_tokens <= 0:
         raise SystemExit("--max-tokens must be greater than zero")
 
-    train_command = [
-        str(_service_python()),
-        str(TRAIN_FULL),
-        "--epochs",
-        str(args.epochs),
-        "--image-resize-shape",
-        str(args.image_resize_shape[0]),
-        str(args.image_resize_shape[1]),
-    ]
+    if not args.validation_only:
+        train_command = [
+            str(_service_python()),
+            str(TRAIN_FULL),
+            "--epochs",
+            str(args.epochs),
+            "--image-resize-shape",
+            str(args.image_resize_shape[0]),
+            str(args.image_resize_shape[1]),
+        ]
+        if args.allow_vercel_env_pull:
+            train_command.append("--allow-vercel-env-pull")
 
-    train_code = _run(train_command)
-    if train_code != 0:
-        failure = {
-            "schema_version": "tcos.instacomp-ai.deal-hunter-learning-completion.v1",
-            "created_at": utc_now(),
-            "status": "training_or_inventory_sync_failed",
-            "complete": False,
-            "train_exit_code": train_code,
-            "automatic_deployment": False,
-        }
-        _write_completion(failure)
-        return train_code
+        train_code = _run(train_command)
+        if train_code != 0:
+            failure = {
+                "schema_version": "tcos.instacomp-ai.deal-hunter-learning-completion.v1",
+                "created_at": utc_now(),
+                "status": "training_or_inventory_sync_failed",
+                "complete": False,
+                "train_exit_code": train_code,
+                "automatic_deployment": False,
+            }
+            _write_completion(failure)
+            return train_code
+    else:
+        print(
+            "VALIDATION ONLY: reusing the existing successful full-inventory training receipt; "
+            "no inventory sync or LoRA retraining will run.",
+            flush=True,
+        )
 
     training_receipt = _read_json(TRAINING_RECEIPT)
-    adapter, dataset = _training_gate(training_receipt, args.required_examples)
-    validation_receipt_path = _validation_receipt(adapter, dataset)
+    adapter, training_dataset = _training_gate(training_receipt, args.required_examples)
+    locked_dataset = _locked_validation_dataset(training_dataset, args.required_examples)
+    validation_receipt_path = _validation_receipt(adapter, locked_dataset)
     if validation_receipt_path.exists():
         validation_receipt_path.unlink()
 
@@ -210,7 +310,7 @@ def main() -> int:
         "--adapter",
         str(adapter),
         "--dataset-export",
-        str(dataset),
+        str(locked_dataset),
         "--required-examples",
         str(args.required_examples),
         "--max-tokens",
@@ -226,7 +326,8 @@ def main() -> int:
             "complete": False,
             "validation_preflight_exit_code": preflight_code,
             "adapter_directory": str(adapter),
-            "dataset_path": str(dataset),
+            "dataset_path": str(training_dataset),
+            "locked_validation_dataset": str(locked_dataset),
             "automatic_deployment": False,
         }
         _write_completion(failure)
@@ -241,7 +342,8 @@ def main() -> int:
             "complete": False,
             "validation_exit_code": validation_code,
             "adapter_directory": str(adapter),
-            "dataset_path": str(dataset),
+            "dataset_path": str(training_dataset),
+            "locked_validation_dataset": str(locked_dataset),
             "automatic_deployment": False,
         }
         _write_completion(failure)
@@ -252,7 +354,8 @@ def main() -> int:
         training_receipt=training_receipt,
         validation_receipt=validation_receipt,
         adapter=adapter,
-        dataset=dataset,
+        training_dataset=training_dataset,
+        locked_dataset=locked_dataset,
         required_examples=args.required_examples,
     )
     final["validation_exit_code"] = validation_code
