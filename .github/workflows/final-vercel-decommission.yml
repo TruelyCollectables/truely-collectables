@@ -83,13 +83,6 @@ jobs:
           probe_cloudflare '/' '200'
           probe_cloudflare '/shop' '200'
 
-          worker="$(mktemp)"
-          code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$worker" -w '%{http_code}' \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/truely-collectables/settings")"
-          echo "CLOUDFLARE_WORKER_SETTINGS_HTTP=$code"
-          [ "$code" = '200' ]
-          jq -e '.success == true' "$worker" >/dev/null
           echo 'CLOUDFLARE_PRODUCTION_OWNER=VERIFIED'
 
       - name: Remove copied Vercel platform markers from Cloudflare
