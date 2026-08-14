@@ -80,10 +80,17 @@ class RegistryChecklistGateway:
                 reasons=["Missing identity field: card_number"],
             )
 
+        # The website checklist-first resolver requires a release-family manufacturer
+        # hint even when the learned identity stores the same visible label in `brand`.
+        # Preserve an explicit manufacturer when present; otherwise use brand as the
+        # bounded release-family hint. Never overwrite a real manufacturer value.
+        registry_manufacturer = _text(identity.manufacturer) or _text(identity.brand)
+        registry_brand = _text(identity.brand) or _text(identity.manufacturer)
+
         payload = {
             "year": identity.year,
-            "manufacturer": identity.manufacturer,
-            "brand": identity.brand,
+            "manufacturer": registry_manufacturer,
+            "brand": registry_brand,
             "setName": identity.set_name,
             "cardNumber": identity.card_number,
             "player": identity.player,
