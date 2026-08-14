@@ -209,17 +209,9 @@ export class EbayBrowseAdapter {
           Accept: "application/json",
         },
         signal: controller.signal,
-        // Cloudflare Workers does not implement `redirect: "error"`. Manual
-        // mode preserves the same security boundary because no redirect is
-        // followed and every 3xx response is rejected before its body is used.
-        redirect: "manual",
+        redirect: "error",
         cache: "no-store",
       });
-      if (response.status >= 300 && response.status < 400) {
-        throw new Error(
-          `eBay Browse redirect refused (HTTP ${response.status}).`,
-        );
-      }
       const text = await response.text();
       return { response, text };
     } catch (error) {
