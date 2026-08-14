@@ -96,6 +96,10 @@ jobs:
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/secrets")"
             echo "CLOUDFLARE_SECRET_LIST worker=$worker http=$code"
+            if [ "$code" = '404' ]; then
+              echo "CLOUDFLARE_WORKER_ABSENT worker=$worker"
+              continue
+            fi
             [ "$code" = '200' ]
             jq -e '.success == true' "$secrets" >/dev/null
 
