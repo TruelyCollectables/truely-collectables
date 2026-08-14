@@ -1,0 +1,197 @@
+name: Deal Hunter Cloudflare Production Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: deal-hunter-cloudflare-production-release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked application dependencies
+        run: npm ci
+
+      - name: Install Cloudflare deployment tooling without changing the lockfile
+        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest
+
+      - name: Download encrypted production vault
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-vault-31773508121
+          path: /tmp/truely-production-vault
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Download separate recovery key
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-recovery-key-31773508121
+          path: /tmp/truely-production-key
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Recover production build environment without logging values
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { createDecipheriv, createHash } = require('node:crypto');
+
+          function filesBelow(root) {
+            return fs.readdirSync(root, { recursive: true, withFileTypes: true })
+              .filter((entry) => entry.isFile())
+              .map((entry) => path.join(entry.parentPath || entry.path, entry.name));
+          }
+
+          const vaultPath = filesBelow('/tmp/truely-production-vault')
+            .find((file) => file.endsWith('.tcosvault'));
+          const keyPath = filesBelow('/tmp/truely-production-key')
+            .find((file) => file.endsWith('.recovery-key.txt'));
+          if (!vaultPath || !keyPath) throw new Error('Production recovery artifacts are incomplete.');
+
+          const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+          const keyText = fs.readFileSync(keyPath, 'utf8');
+          const keyMatch = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
+          if (!keyMatch) throw new Error('Production recovery key is invalid.');
+          if (envelope?.format !== 'tcos-secrets-vault' || envelope?.cipher !== 'aes-256-gcm') {
+            throw new Error('Production vault envelope is invalid.');
+          }
+
+          const decipher = createDecipheriv(
+            'aes-256-gcm',
+            Buffer.from(keyMatch[1], 'base64url'),
+            Buffer.from(envelope.iv, 'base64'),
+          );
+          decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
+          const plaintext = Buffer.concat([
+            decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
+            decipher.final(),
+          ]);
+          const digest = createHash('sha256').update(plaintext).digest('hex');
+          if (digest !== envelope.plaintextSha256) throw new Error('Production vault checksum failed.');
+
+          const payload = JSON.parse(plaintext.toString('utf8'));
+          const buildEnv = {
+            ...(payload?.sources?.vercelProductionApplicationVariables || {}),
+            ...(payload?.sources?.githubActionsReferencedSecrets || {}),
+            NEXT_PUBLIC_SITE_URL: 'https://truelycollectables.com',
+            SITE_URL: 'https://truelycollectables.com',
+            TCOS_DEPLOYMENT_ENV: 'production',
+            TCOS_GIT_COMMIT_SHA: process.env.GITHUB_SHA,
+            TCOS_GIT_COMMIT_REF: 'main',
+          };
+          for (const name of [
+            'CLOUDFLARE_ACCOUNT_ID',
+            'CLOUDFLARE_API_TOKEN',
+            'SUPABASE_ACCESS_TOKEN',
+            'VERCEL_ORG_ID',
+            'VERCEL_PROJECT_ID',
+            'VERCEL_TOKEN',
+          ]) {
+            delete buildEnv[name];
+          }
+          const required = [
+            'NEXT_PUBLIC_SUPABASE_URL',
+            'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+            'SUPABASE_SERVICE_ROLE_KEY',
+            'EBAY_CLIENT_ID',
+            'EBAY_CLIENT_SECRET',
+          ];
+          const missing = required.filter((name) => !String(buildEnv[name] || ''));
+          if (missing.length) throw new Error(`Production build environment is missing ${missing.join(', ')}.`);
+          fs.writeFileSync('/tmp/deal-hunter-production-env.json', JSON.stringify(buildEnv), { mode: 0o600 });
+          console.log(`Production build environment recovered: ${Object.keys(buildEnv).length} variables; values withheld.`);
+          NODE
+
+      - name: Build current main for Cloudflare Workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { spawnSync } = require('node:child_process');
+          const buildEnv = JSON.parse(fs.readFileSync('/tmp/deal-hunter-production-env.json', 'utf8'));
+          const result = spawnSync(
+            'npx',
+            ['--no-install', 'opennextjs-cloudflare', 'build'],
+            {
+              stdio: 'inherit',
+              env: { ...process.env, ...buildEnv, NODE_ENV: 'production' },
+            },
+          );
+          process.exit(result.status ?? 1);
+          NODE
+
+      - name: Deploy current main to the production Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --no-install wrangler deploy --config wrangler.jsonc --keep-vars
+
+      - name: Verify routed Deal Hunter execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const endpoint = 'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?perQuery=1&scope=ivan_demidov';
+          let lastFailure = 'No request attempted.';
+          for (let attempt = 1; attempt <= 6; attempt += 1) {
+            try {
+              const response = await fetch(`${endpoint}&release_check=${Date.now()}`, {
+                headers: { Accept: 'application/json' },
+                redirect: 'manual',
+                signal: AbortSignal.timeout(60_000),
+              });
+              const payload = await response.json();
+              const valid =
+                response.status === 200 &&
+                response.headers.get('x-truely-origin') === 'cloudflare-worker' &&
+                payload?.ok === true &&
+                payload?.schema === 'TCOS_NATIVE_EBAY_FEED_V1' &&
+                payload?.queryFamilyCount === 3 &&
+                payload?.successfulQueryCount === 3 &&
+                payload?.failedQueryCount === 0 &&
+                payload?.nativeEbayUsed === true;
+              if (valid) {
+                console.log('Production Deal Hunter verified: Cloudflare Worker, 3/3 Ivan Demidov query families complete.');
+                process.exit(0);
+              }
+              lastFailure = `attempt=${attempt} status=${response.status} successful=${payload?.successfulQueryCount} failed=${payload?.failedQueryCount}`;
+            } catch (error) {
+              lastFailure = `attempt=${attempt} error=${error instanceof Error ? error.message : String(error)}`;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10_000));
+          }
+          throw new Error(`Production Deal Hunter verification failed: ${lastFailure}`);
+          NODE
+
+      - name: Remove recovered secret material
+        if: always()
+        shell: bash
+        run: |
+          find /tmp/truely-production-vault /tmp/truely-production-key -type f -exec shred -u {} + 2>/dev/null || true
+          shred -u /tmp/deal-hunter-production-env.json 2>/dev/null || true
