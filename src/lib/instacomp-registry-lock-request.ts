@@ -10,6 +10,62 @@ function optionalBoolean(value: unknown) {
   return typeof value === "boolean" ? value : null;
 }
 
+const PARALLEL_HINTS = [
+  "silver",
+  "ice",
+  "cracked ice",
+  "red",
+  "blue",
+  "green",
+  "gold",
+  "purple",
+  "orange",
+  "pink",
+  "black",
+  "white",
+  "mojo",
+  "wave",
+  "pulsar",
+  "shimmer",
+  "velocity",
+  "checkerboard",
+  "sparkle",
+] as const;
+
+function normalized(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function registrySetName(body: Record<string, unknown>, visibleBrand: string | null) {
+  const rawSetName = text(body.setName ?? body.set_name ?? body.subset, 180);
+  if (!rawSetName) return visibleBrand;
+
+  const setName = normalized(rawSetName);
+  const ocr = normalized(body.registryVisibleText ?? body.ocrText);
+  const parallel = normalized(body.parallel);
+  const brand = normalized(visibleBrand);
+
+  // A local VLM may turn generic foil appearance into a display title such as
+  // "2025 Panini Prizm WNBA - Silver Prizms" even when neither OCR nor its own
+  // parallel field supports Silver. In that case, preserve only the visible
+  // product-line clue and let the central Registry referee decide Base vs a
+  // real parallel. Never collapse a logical insert/subset such as Groovy.
+  const unsupportedParallelHint = PARALLEL_HINTS.find(
+    (hint) => setName.includes(hint) && !ocr.includes(hint) && !parallel.includes(hint),
+  );
+  const setContainsBrand = Boolean(brand && setName.includes(brand));
+  if (unsupportedParallelHint && setContainsBrand && visibleBrand) {
+    return visibleBrand;
+  }
+
+  return rawSetName;
+}
+
 export function buildInstaCompRegistryLockProbe(body: Record<string, unknown>) {
   const manufacturer = text(body.manufacturer, 120);
   const visibleBrand = text(body.brand, 160);
@@ -20,11 +76,12 @@ export function buildInstaCompRegistryLockProbe(body: Record<string, unknown>) {
   // otherwise preserve its visible brand. This matches the historical frozen-five
   // Production proof, which used `brand: "Panini"`.
   const registryBrand = manufacturer || visibleBrand;
+  const visibleText = text(body.registryVisibleText ?? body.ocrText, 12_000);
 
   return {
     year: text(body.year, 20),
     brand: registryBrand,
-    setName: text(body.setName ?? body.set_name ?? body.subset, 180),
+    setName: registrySetName(body, visibleBrand),
     cardNumber: text(body.cardNumber ?? body.card_number, 80),
     player: text(body.player, 240),
     team: text(body.team, 180),
@@ -40,7 +97,7 @@ export function buildInstaCompRegistryLockProbe(body: Record<string, unknown>) {
     isRelic: optionalBoolean(body.isRelic ?? body.memorabilia),
     parallel: text(body.parallel, 180),
     variation: text(body.variation, 180),
-    registryVisibleText: text(body.registryVisibleText ?? body.ocrText, 12_000),
+    registryVisibleText: visibleText,
   };
 }
 
