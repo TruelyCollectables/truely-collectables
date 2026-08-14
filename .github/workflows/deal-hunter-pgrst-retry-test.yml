@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - main
+      - agent/deal-hunter-outer-sync-retry
     paths:
       - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_snapshot_only.py'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_guarded.py'
       - 'services/instacomp-ai/tests/test_inventory_learning_completion.py'
       - 'services/instacomp-ai/tests/test_supabase_read_retry.py'
+      - 'services/instacomp-ai/tests/test_inventory_sync_guard_retry.py'
       - '.github/workflows/deal-hunter-pgrst-retry-test.yml'
 
 jobs:
@@ -26,14 +29,19 @@ jobs:
         run: |
           python -m py_compile \
             scripts/sync_all_inventory_training_truth_snapshot_only.py \
+            scripts/sync_all_inventory_training_truth_guarded.py \
             scripts/sync_all_inventory_training_truth_v3.py \
             scripts/train_lora_full_inventory.py \
             scripts/finish_deal_hunter_ai_learning.py \
             tests/test_inventory_learning_completion.py \
-            tests/test_supabase_read_retry.py
+            tests/test_supabase_read_retry.py \
+            tests/test_inventory_sync_guard_retry.py
       - name: Run snapshot and completion regression tests
         working-directory: services/instacomp-ai
         run: python tests/test_inventory_learning_completion.py -v
       - name: Run exact Supabase PGRST retry regression tests
         working-directory: services/instacomp-ai
         run: python tests/test_supabase_read_retry.py -v
+      - name: Run guarded full-sync retry regression tests
+        working-directory: services/instacomp-ai
+        run: python tests/test_inventory_sync_guard_retry.py -v
