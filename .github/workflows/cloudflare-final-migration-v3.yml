@@ -215,16 +215,22 @@ jobs:
         run: |
           set -euo pipefail
           session=$(cat /tmp/admin-session)
+          for i in $(seq 1 4); do
+            code=$(curl -L -sS --max-time 30 "$PREVIEW_URL/api/internal/cloudflare-supabase-runtime-probe" -o /tmp/warmup.json -w '%{http_code}' || true)
+            echo "Cloudflare Supabase warmup attempt=$i status=$code"
+            [ "$code" = 200 ] && break
+            sleep 5
+          done
           probe(){
             local path="$1" tag="$2" ok=0
-            for i in $(seq 1 6); do
+            for i in $(seq 1 12); do
               rm -f "/tmp/$tag.headers"
-              code=$(curl -L -sS --max-time 45 -D "/tmp/$tag.headers" -o /dev/null -w '%{http_code}' "$PREVIEW_URL$path" || true)
+              code=$(curl -L -sS --max-time 60 -D "/tmp/$tag.headers" -o /dev/null -w '%{http_code}' "$PREVIEW_URL$path" || true)
               origin=$(grep -i '^x-truely-origin:' "/tmp/$tag.headers"|tail -1|tr -d '\r'||true)
               echo "preview $path attempt=$i status=$code origin=${origin:-missing}"
               case "$code" in 2*|3*) grep -qi '^x-truely-origin: cloudflare-worker' "/tmp/$tag.headers" && ok=1;; esac
               [ "$ok" = 1 ] && break
-              sleep 3
+              sleep 5
             done
             [ "$ok" = 1 ] || { echo "Persistent Cloudflare preview failure: $path"; exit 30; }
           }
