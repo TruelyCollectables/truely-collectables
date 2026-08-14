@@ -1,0 +1,44 @@
+name: Apply Cloudflare-only Cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-cloudflare-only-cleanup.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-cloudflare-only-cleanup
+  cancel-in-progress: false
+
+jobs:
+  apply-cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply validated Cloudflare-only patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .github/cloudflare-only-cleanup.patch.gz.b64 | gzip -d > /tmp/cloudflare-only-cleanup.patch
+          git apply --check /tmp/cloudflare-only-cleanup.patch
+          git apply /tmp/cloudflare-only-cleanup.patch
+
+          git rm -f \
+            .github/cloudflare-only-cleanup.patch.gz.b64 \
+            .github/workflows/apply-cloudflare-only-cleanup.yml \
+            .github/workflows/final-vercel-decommission.yml
+
+          git add -A
+          git diff --cached --check
+          git config user.name 'Truely Collectables Cloudflare Migration'
+          git config user.email 'david@truelycollectables.com'
+          git commit -m 'Remove Vercel deployment surface'
+          git push origin HEAD:main
