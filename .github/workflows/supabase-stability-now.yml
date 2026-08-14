@@ -102,16 +102,17 @@ jobs:
           echo "Supabase recent Postgres error-log query -> HTTP ${status:-curl_error}"
           if [ "$status" = "200" ]; then
             node <<'NODE'
-            const fs = require('node:fs');
-            const body = JSON.parse(fs.readFileSync('/tmp/logs.json','utf8'));
-            const rows = Array.isArray(body?.result) ? body.result : [];
-            console.log(`Recent matching Postgres log rows: ${rows.length}`);
-            for (const row of rows.slice(0, 30)) {
-              const ts = row.timestamp || '';
-              const sev = row.severity_text || '';
-              const msg = String(row.event_message || '').replace(/\s+/g,' ').slice(0,500);
-              console.log(`${ts} ${sev} ${msg}`);
-            }
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/logs.json','utf8'));
+          const rows = Array.isArray(body?.result) ? body.result : [];
+          console.log(`Recent matching Postgres log rows: ${rows.length}`);
+          for (const row of rows.slice(0, 30)) {
+            const ts = row.timestamp || '';
+            const sev = row.severity_text || '';
+            const msg = String(row.event_message || '').replace(/\s+/g,' ').slice(0,500);
+            console.log(`${ts} ${sev} ${msg}`);
+          }
+          NODE
           else
             head -c 1000 /tmp/logs.json || true
             echo
