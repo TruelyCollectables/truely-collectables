@@ -12,10 +12,12 @@ from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = SERVICE_ROOT / "scripts" / "run_lora_training.py"
+COMPAT_LAUNCHER = SERVICE_ROOT / "scripts" / "mlx_vlm_lora_compat.py"
 ADAPTER_ROOT = SERVICE_ROOT / "data" / "training" / "adapters"
 STATUS_PATH = SERVICE_ROOT / "data" / "training" / "lora-training-status.json"
 DEFAULT_CHUNK_TIMEOUT_SECONDS = 3600
 DEFAULT_TIMEOUT_RETRIES = 2
+DEFAULT_MAX_SEQ_LENGTH = 4096
 
 
 def _load_launcher():
@@ -149,7 +151,9 @@ def _is_training_command(command) -> bool:
     if not isinstance(command, (list, tuple)):
         return False
     values = [str(item) for item in command]
-    return "mlx_vlm.lora" in values and "--help" not in values
+    uses_upstream_module = "mlx_vlm.lora" in values
+    uses_compat_launcher = str(COMPAT_LAUNCHER) in values
+    return (uses_upstream_module or uses_compat_launcher) and "--help" not in values
 
 
 def _run_training_supervised(command, *run_args, original_run, **run_kwargs):
@@ -372,7 +376,20 @@ def main() -> int:
             config_dest = output_dir / "adapter_config.json"
             shutil.copy2(config_source, config_dest)
             print(f"Seeded resumable output config: {config_dest}", flush=True)
-        return original_build(**kwargs)
+
+        command = [str(item) for item in original_build(**kwargs)]
+        if len(command) < 3 or command[1:3] != ["-m", "mlx_vlm.lora"]:
+            raise SystemExit(
+                "Refusing to launch LoRA because the upstream command shape changed; "
+                f"expected '<python> -m mlx_vlm.lora ...', got: {command[:4]}"
+            )
+        command = [command[0], str(COMPAT_LAUNCHER), *command[3:]]
+        command = _set_arg(
+            command,
+            "--max-seq-length",
+            str(DEFAULT_MAX_SEQ_LENGTH),
+        )
+        return command
 
     def guarded_run(command, *args, **kwargs):
         if _is_training_command(command):
