@@ -1,4 +1,5 @@
 name: Probe Portfolio InstaComp Live
+# Rerun after guarded Cloudflare deployment of the clone-free evaluator.
 
 on:
   push:
