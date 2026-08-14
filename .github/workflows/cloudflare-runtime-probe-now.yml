@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           base="https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1/products"
-          url="$base?select=id%2Ctitle%2Cprice%2Cquantity%2Cimage_url&store_id=eq.00000000-0000-0000-0000-000000000001&id=eq.1991&limit=1"
+          url="$base?select=id%2Ctitle%2Cprice%2Cquantity%2Cimage_url&store_id=eq.00000000-0000-4000-8000-000000000001&id=eq.1991&limit=1"
           status=$(curl -sS --max-time 20 \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
