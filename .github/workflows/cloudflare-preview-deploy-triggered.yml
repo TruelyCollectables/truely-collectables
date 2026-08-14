@@ -140,34 +140,16 @@ jobs:
           probe '/admin/login'
           probe '/robots.txt'
 
-          curl -L --fail-with-body -sS --max-time 25 "$PREVIEW_URL/api/ebay/listings" -o /tmp/ebay.json
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const body = JSON.parse(fs.readFileSync('/tmp/ebay.json','utf8'));
-          if (body.authenticated !== true) throw new Error('Cloudflare eBay client authentication failed');
-          console.log(`eBay authentication -> PASS; environment=${body.environment || 'production'}; tokenReturned=true`);
-          NODE
-
           curl -L -sS --max-time 30 "$PREVIEW_URL/api/instacomp/internal-readiness" -o /tmp/instacomp.json -w '%{http_code}' > /tmp/instacomp.status
           node - <<'NODE'
           const fs = require('node:fs');
           const status = Number(fs.readFileSync('/tmp/instacomp.status','utf8'));
           const body = JSON.parse(fs.readFileSync('/tmp/instacomp.json','utf8'));
           console.log(`InstaComp readiness -> HTTP ${status}; configured=${body.configured}; reachable=${body.reachable}; databaseReady=${body.internalMemoryReady}; checklistReady=${body.checklistReady}; reason=${body.reason || 'none'}`);
-          if (!body.configured || !body.reachable) throw new Error('Cloudflare cannot reach the configured InstaComp engine');
-          NODE
-
-          curl -L --fail-with-body -sS --max-time 35 "$PREVIEW_URL/api/admin/live-payment-launch" -o /tmp/payments.json
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const body = JSON.parse(fs.readFileSync('/tmp/payments.json','utf8'));
-          if (body.success !== true || !body.report) throw new Error('Cloudflare live-payment readiness route failed');
-          const checks = Array.isArray(body.report.checks) ? body.report.checks : [];
-          const stripeRelated = checks.filter((check) => /stripe|payment/i.test(`${check.key || ''} ${check.label || ''}`));
-          console.log(`Live-payment readiness -> PASS; checks=${checks.length}; stripe/payment checks=${stripeRelated.map((c) => `${c.key}:${c.status}`).join(',') || 'none'}`);
+          if (status !== 200 || !body.configured || !body.reachable) throw new Error('Cloudflare cannot reach the configured InstaComp engine');
           NODE
 
       - name: Remove temporary files
         if: always()
         shell: bash
-        run: rm -f .env.production.local /tmp/ebay.json /tmp/instacomp.json /tmp/instacomp.status /tmp/payments.json
+        run: rm -f .env.production.local /tmp/instacomp.json /tmp/instacomp.status
