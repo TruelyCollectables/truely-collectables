@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,14 @@ if str(SERVICE_ROOT) not in sys.path:
 
 import import_inventory_training_truth as inventory_import
 from inventory_training_git_snapshot import SnapshotInvalid, SnapshotSupabaseReader, fetch_envelope_from_git
+
+
+_RETRYABLE_READ_STATUSES = {
+    408, 425, 429, 500, 502, 503, 504,
+    520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 544,
+}
+_MAX_READ_ATTEMPTS = 8
+_sleep = time.sleep
 
 
 def _is_snapshot_key_mismatch(exc: SnapshotInvalid) -> bool:
@@ -36,6 +45,39 @@ def _supabase_readonly_headers(server_key: str) -> dict[str, str]:
     return headers
 
 
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    raw = str(response.headers.get("retry-after") or "").strip()
+    if not raw:
+        return None
+    try:
+        return max(0.0, min(float(raw), 30.0))
+    except ValueError:
+        return None
+
+
+def _retry_delay_seconds(attempt: int, response: httpx.Response | None = None) -> float:
+    if response is not None:
+        retry_after = _retry_after_seconds(response)
+        if retry_after is not None:
+            return retry_after
+    return min(0.75 * (2 ** max(0, attempt - 1)), 12.0)
+
+
+def _response_error_code(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        return ""
+    return str(payload.get("code") or "").strip() if isinstance(payload, dict) else ""
+
+
+def _is_retryable_read_response(response: httpx.Response) -> bool:
+    return (
+        response.status_code in _RETRYABLE_READ_STATUSES
+        or _response_error_code(response) == "PGRST002"
+    )
+
+
 class _CurrentServerKeySupabaseReader:
     """Read-only Production PostgREST reader supporting legacy and sb_secret keys."""
 
@@ -50,21 +92,83 @@ class _CurrentServerKeySupabaseReader:
     def close(self) -> None:
         self.client.close()
 
+    def _get_page(
+        self,
+        name: str,
+        *,
+        select: str,
+        start: int,
+        end: int,
+    ) -> httpx.Response:
+        url = f"{self.rest_url}/{name}"
+        request_headers = {"Range-Unit": "items", "Range": f"{start}-{end}"}
+        last_transport_error: Exception | None = None
+
+        for attempt in range(1, _MAX_READ_ATTEMPTS + 1):
+            try:
+                response = self.client.get(
+                    url,
+                    params={"select": select},
+                    headers=request_headers,
+                )
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_transport_error = exc
+                if attempt >= _MAX_READ_ATTEMPTS:
+                    raise SystemExit(
+                        f"Read-only Supabase query failed for {name} after "
+                        f"{_MAX_READ_ATTEMPTS} attempts: {type(exc).__name__}: {exc}"
+                    ) from exc
+                delay = _retry_delay_seconds(attempt)
+                print(
+                    f"Transient Supabase read error for {name} "
+                    f"({type(exc).__name__}); retrying {attempt + 1}/{_MAX_READ_ATTEMPTS} "
+                    f"in {delay:.2f}s.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                _sleep(delay)
+                continue
+
+            if response.status_code in {200, 206}:
+                return response
+
+            if _is_retryable_read_response(response) and attempt < _MAX_READ_ATTEMPTS:
+                delay = _retry_delay_seconds(attempt, response)
+                code = _response_error_code(response)
+                detail = f" {code}" if code else ""
+                print(
+                    f"Transient Supabase read failure for {name}: "
+                    f"HTTP {response.status_code}{detail}; "
+                    f"retrying {attempt + 1}/{_MAX_READ_ATTEMPTS} in {delay:.2f}s.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                _sleep(delay)
+                continue
+
+            raise SystemExit(
+                f"Read-only Supabase query failed for {name}: HTTP {response.status_code}: "
+                f"{response.text[:500]}"
+            )
+
+        if last_transport_error is not None:
+            raise SystemExit(
+                f"Read-only Supabase query failed for {name}: "
+                f"{type(last_transport_error).__name__}: {last_transport_error}"
+            )
+        raise SystemExit(f"Read-only Supabase query failed for {name}")
+
     def table(self, name: str, *, select: str = "*", page_size: int = 1000) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         start = 0
         while True:
             end = start + page_size - 1
-            response = self.client.get(
-                f"{self.rest_url}/{name}",
-                params={"select": select},
-                headers={"Range-Unit": "items", "Range": f"{start}-{end}"},
+            response = self._get_page(
+                name,
+                select=select,
+                start=start,
+                end=end,
             )
-            if response.status_code not in {200, 206}:
-                raise SystemExit(
-                    f"Read-only Supabase query failed for {name}: HTTP {response.status_code}: "
-                    f"{response.text[:500]}"
-                )
             page = response.json()
             if not isinstance(page, list):
                 raise SystemExit(f"Unexpected Supabase payload for {name}")
