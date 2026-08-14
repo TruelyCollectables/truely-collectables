@@ -1,4 +1,5 @@
-// @ts-expect-error Cloudflare adapter is installed ephemerally in the Cloudflare build pipeline.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore -- Cloudflare adapter is installed ephemerally in the Cloudflare build pipeline.
 import { defineCloudflareConfig } from "@opennextjs/cloudflare";
 
 /**
