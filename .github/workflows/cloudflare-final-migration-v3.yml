@@ -285,12 +285,21 @@ jobs:
           fs.writeFileSync('/tmp/zone-id',String(r.result.zone_id)); fs.writeFileSync('/tmp/probe-id',String(r.result.id)); console.log('Cloudflare zone resolved.');
           NODE
           curl -sS --fail-with-body -X DELETE "$domains/$(cat /tmp/probe-id)" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" >/dev/null
-          zone=$(cat /tmp/zone-id); routes="https://api.cloudflare.com/client/v4/zones/$zone/workers/routes"; schedules="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules"
+          zone=$(cat /tmp/zone-id); routes="https://api.cloudflare.com/client/v4/zones/$zone/workers/routes"; schedules="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules"; dns="https://api.cloudflare.com/client/v4/zones/$zone/dns_records"
           curl -sS --fail-with-body "$routes" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/routes-before.json
           curl -sS --fail-with-body "$schedules" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/schedules-before.json
+          curl -sS --fail-with-body --get "$dns" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$APEX" --data-urlencode 'per_page=100' -o /tmp/dns-apex-before.json
+          curl -sS --fail-with-body --get "$dns" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$WWW" --data-urlencode 'per_page=100' -o /tmp/dns-www-before.json
           node <<'NODE'
           const fs=require('fs'); const r=require('/tmp/routes-before.json'); if(!r.success||!Array.isArray(r.result)) throw new Error('Cloudflare route snapshot failed');
           const s={}; for(const p of ['truelycollectables.com/*','www.truelycollectables.com/*']){const x=r.result.find(v=>v.pattern===p);s[p]=x?{id:x.id,script:x.script??null}:null;} fs.writeFileSync('/tmp/route-snapshot.json',JSON.stringify(s)); console.log('Live route and scheduler state snapshotted for rollback.');
+          const responses=[require('/tmp/dns-apex-before.json'),require('/tmp/dns-www-before.json')];
+          if(responses.some(x=>!x.success||!Array.isArray(x.result))) throw new Error('Cloudflare DNS snapshot failed');
+          const hosts=['truelycollectables.com','www.truelycollectables.com']; const eligible=new Set(['A','AAAA','CNAME']);
+          const records=responses.flatMap(x=>x.result).filter(x=>hosts.includes(x.name)&&eligible.has(x.type));
+          for(const host of hosts) if(!records.some(x=>x.name===host)) throw new Error(`No proxy-eligible Cloudflare DNS record found for ${host}`);
+          fs.writeFileSync('/tmp/dns-snapshot.json',JSON.stringify(records.map(x=>({id:x.id,name:x.name,type:x.type,proxied:Boolean(x.proxied)}))));
+          console.log(`Live DNS state snapshotted for rollback; records=${records.length}.`);
           NODE
 
       - name: Cut both live hostnames over to Cloudflare Worker
@@ -298,6 +307,7 @@ jobs:
         run: |
           set -euo pipefail
           zone=$(cat /tmp/zone-id); base="https://api.cloudflare.com/client/v4/zones/$zone/workers/routes"
+          touch /tmp/routes-switched
           for pattern in 'truelycollectables.com/*' 'www.truelycollectables.com/*'; do
             id=$(node -e "const s=require('/tmp/route-snapshot.json');process.stdout.write(s[process.argv[1]]?.id||'')" "$pattern")
             body=$(node -e "process.stdout.write(JSON.stringify({pattern:process.argv[1],script:process.argv[2]}))" "$pattern" "$WORKER")
@@ -307,11 +317,39 @@ jobs:
               curl -sS --fail-with-body --retry 3 --retry-all-errors --retry-delay 2 -X POST "$base" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data "$body" >/tmp/route-write.json
             fi
           done
-          touch /tmp/routes-switched
           curl -sS --fail-with-body "$base" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/routes-after.json
           node <<'NODE'
           const r=require('/tmp/routes-after.json'); for(const p of ['truelycollectables.com/*','www.truelycollectables.com/*']){const x=r.result?.find(v=>v.pattern===p);if(!x||x.script!=='truely-collectables-preview')throw new Error(`Cloudflare route not active: ${p}`)} console.log('Both live hostnames now route to Cloudflare Worker.');
           NODE
+
+      - name: Proxy live DNS through Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          zone=$(cat /tmp/zone-id); dns="https://api.cloudflare.com/client/v4/zones/$zone/dns_records"
+          touch /tmp/dns-switch-attempted
+          node <<'NODE' > /tmp/dns-proxy.tsv
+          for(const record of require('/tmp/dns-snapshot.json')) console.log([record.id,record.name,record.type].join('\t'));
+          NODE
+          while IFS=$'\t' read -r id name type; do
+            [ -n "$id" ] || continue
+            curl -sS --fail-with-body --retry 3 --retry-all-errors --retry-delay 2 -X PATCH "$dns/$id" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' \
+              --data '{"proxied":true}' -o /tmp/dns-write.json
+            node -e "const r=require('/tmp/dns-write.json');if(!r.success||r.result?.proxied!==true)throw Error('Cloudflare DNS proxy update failed')"
+            echo "Cloudflare DNS proxied: $name ($type)"
+          done < /tmp/dns-proxy.tsv
+
+          for host in "$APEX" "$WWW"; do
+            curl -sS --fail-with-body --get "$dns" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              --data-urlencode "name=$host" --data-urlencode 'per_page=100' -o /tmp/dns-verify.json
+            DNS_HOST="$host" node <<'NODE'
+          const r=require('/tmp/dns-verify.json');const host=process.env.DNS_HOST;const eligible=new Set(['A','AAAA','CNAME']);
+          const records=(r.result||[]).filter(x=>x.name===host&&eligible.has(x.type));
+          if(!r.success||!records.length||records.some(x=>x.proxied!==true)) throw new Error(`Cloudflare DNS proxy not active for ${host}`);
+          NODE
+          done
+          echo 'Apex and www DNS now traverse Cloudflare Worker routes.'
 
       - name: Prove live Cloudflare origin before Vercel pause
         shell: bash
@@ -408,11 +446,15 @@ jobs:
           zone=$(cat /tmp/zone-id)
           curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/zones/$zone/workers/routes" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/routes-final.json
           curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o /tmp/schedules-final.json
+          dns="https://api.cloudflare.com/client/v4/zones/$zone/dns_records"
+          curl -sS --fail-with-body --get "$dns" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$APEX" --data-urlencode 'per_page=100' -o /tmp/dns-apex-final.json
+          curl -sS --fail-with-body --get "$dns" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$WWW" --data-urlencode 'per_page=100' -o /tmp/dns-www-final.json
           node <<'NODE'
           const p=require('/tmp/vercel-after.json');if(!Boolean(p.paused||p.pausedAt))throw new Error('Vercel project is not confirmed paused');
           const r=require('/tmp/routes-final.json');for(const pattern of ['truelycollectables.com/*','www.truelycollectables.com/*']){const x=r.result?.find(v=>v.pattern===pattern);if(!x||x.script!=='truely-collectables-preview')throw new Error(`Final Cloudflare route failed: ${pattern}`)}
           const q=require('/tmp/schedules-final.json');const s=q.result?.schedules||q.result||[];if(!Array.isArray(s)||!s.some(x=>x.cron==='* * * * *'))throw new Error('Final Cloudflare scheduler missing');
-          console.log('VERCEL_EXIT=PASS');console.log('CLOUDFLARE_LIVE_ROUTES=PASS');console.log('CLOUDFLARE_SCHEDULER=PASS');
+          const eligible=new Set(['A','AAAA','CNAME']);for(const file of ['/tmp/dns-apex-final.json','/tmp/dns-www-final.json']){const d=require(file);const records=(d.result||[]).filter(x=>eligible.has(x.type));if(!d.success||!records.length||records.some(x=>x.proxied!==true))throw Error('Final Cloudflare DNS proxy certification failed')}
+          console.log('VERCEL_EXIT=PASS');console.log('CLOUDFLARE_LIVE_ROUTES=PASS');console.log('CLOUDFLARE_DNS_PROXY=PASS');console.log('CLOUDFLARE_SCHEDULER=PASS');
           NODE
           echo 'CUTOVER COMPLETE: current main is deployed on Cloudflare, Truely Collectables is live there, and Vercel is paused.'
 
@@ -446,6 +488,17 @@ jobs:
               curl -sS -X PUT "$base/$id" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data "$body" >/dev/null
             fi
           done < /tmp/rollback.tsv
+          if [ -s /tmp/dns-snapshot.json ]; then
+            dns="https://api.cloudflare.com/client/v4/zones/$zone/dns_records"
+            node <<'NODE' > /tmp/dns-rollback.tsv
+          for(const record of require('/tmp/dns-snapshot.json')) console.log([record.id,record.proxied?'true':'false'].join('\t'));
+          NODE
+            while IFS=$'\t' read -r id proxied; do
+              [ -n "$id" ] || continue
+              body=$(node -e "process.stdout.write(JSON.stringify({proxied:process.argv[1]==='true'}))" "$proxied")
+              curl -sS -X PATCH "$dns/$id" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data "$body" >/dev/null
+            done < /tmp/dns-rollback.tsv
+          fi
           if [ -s /tmp/schedules-before.json ]; then
             endpoint="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER/schedules"
             node <<'NODE' > /tmp/schedules-restore.json
@@ -453,7 +506,7 @@ jobs:
           NODE
             curl -sS -X PUT "$endpoint" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data-binary @/tmp/schedules-restore.json >/dev/null
           fi
-          echo 'ROLLBACK COMPLETE: Vercel restored and prior Cloudflare routing/scheduler state restored.'
+          echo 'ROLLBACK COMPLETE: Vercel restored and prior Cloudflare routing, DNS proxy, and scheduler state restored.'
 
       - name: Cleanup migration material
         if: always()
