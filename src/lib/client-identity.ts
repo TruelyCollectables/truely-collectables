@@ -154,7 +154,12 @@ export async function getClientIdentity(request: Request): Promise<ClientIdentit
     };
   }
 
-  const intelligence = await checkIpIntelligence(ipAddress);
+  const isCloudflareEdgeRequest = Boolean(
+    request.headers.get("cf-ray") || request.headers.get("cf-connecting-ip"),
+  );
+  const intelligence = isCloudflareEdgeRequest
+    ? { observedRisk: "cloudflare_edge_bypass", verified: false }
+    : await checkIpIntelligence(ipAddress);
 
   return {
     ipAddress,
