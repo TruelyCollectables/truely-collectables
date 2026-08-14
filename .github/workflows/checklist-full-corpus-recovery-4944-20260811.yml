@@ -133,7 +133,7 @@ jobs:
               --header 'Content-Type: application/json' \
               --data-binary "@$proof_body" \
               "https://api.supabase.com/v1/projects/$project_ref/database/query" || true)"
-            if [ "$code" = "200" ] && jq -e 'type == "array" and length == 1 and .[0].has_catalog == true and .[0].has_source_bucket == true' "$proof" >/dev/null 2>&1; then
+            if { [ "$code" = "200" ] || [ "$code" = "201" ]; } && jq -e 'type == "array" and length == 1 and .[0].has_catalog == true and .[0].has_source_bucket == true' "$proof" >/dev/null 2>&1; then
               break
             fi
             echo "Management DB registry proof attempt=$n http=$code" >&2
