@@ -1,0 +1,118 @@
+name: Supabase Stability Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/supabase-stability-now-trigger'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-supabase-stability-now
+  cancel-in-progress: true
+
+env:
+  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  consecutive-product-reads:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Resolve service key without printing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          curl -sS --fail-with-body --max-time 20 \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys?reveal=true" \
+            -o /tmp/keys.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const keys = JSON.parse(fs.readFileSync('/tmp/keys.json','utf8'));
+          const service = keys.find(k => String(k?.name||'').toLowerCase() === 'service_role' && k?.api_key)?.api_key
+            || keys.find(k => String(k?.type||'').toLowerCase() === 'secret' && k?.api_key)?.api_key;
+          if (!service) throw new Error('Supabase service key unavailable');
+          console.log(`::add-mask::${service}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY=${service}\n`);
+          NODE
+
+      - name: Require three consecutive healthy product reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1/products?select=id&store_id=eq.00000000-0000-4000-8000-000000000001&id=eq.1991&limit=1"
+          consecutive=0
+          for attempt in $(seq 1 18); do
+            project_http=$(curl -sS --max-time 10 \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H 'Accept: application/json' \
+              -o /tmp/project.json -w '%{http_code}' \
+              "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" || true)
+            state=$(node -e "try{const x=require('/tmp/project.json');process.stdout.write(String(x.status||'unknown'))}catch{process.stdout.write('unknown')}")
+            result=$(curl -sS --max-time 20 \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Accept: application/json' \
+              -o /tmp/product.json -w '%{http_code} %{time_total}' "$api" || true)
+            http=$(printf '%s' "$result" | awk '{print $1}')
+            elapsed=$(printf '%s' "$result" | awk '{print $2}')
+            if [ "$http" = "200" ] && grep -q '"id":1991' /tmp/product.json; then
+              consecutive=$((consecutive+1))
+            else
+              consecutive=0
+            fi
+            echo "Stability attempt $attempt -> project=${project_http:-curl_error}/$state REST=${http:-curl_error} time=${elapsed:-n/a}s consecutive=$consecutive"
+            if [ "$consecutive" -ge 3 ]; then
+              echo 'Supabase stability gate PASSED: three consecutive product reads succeeded.'
+              exit 0
+            fi
+            sleep 15
+          done
+          echo 'Supabase stability gate FAILED.'
+          head -c 1200 /tmp/product.json || true
+          echo
+          exit 4
+
+  recent-database-errors:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Query only recent Postgres error events
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          start=$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          end=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          sql="select timestamp, severity_text, event_message from logs where source = 'postgres_logs' and match(event_message, 'ERROR|FATAL|PANIC|too many connections|connection|schema cache') order by timestamp desc limit 60"
+          status=$(curl -sS --max-time 30 --get \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            --data-urlencode "sql=$sql" \
+            --data-urlencode "iso_timestamp_start=$start" \
+            --data-urlencode "iso_timestamp_end=$end" \
+            -o /tmp/logs.json -w '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/analytics/endpoints/logs" || true)
+          echo "Supabase recent Postgres error-log query -> HTTP ${status:-curl_error}"
+          if [ "$status" = "200" ]; then
+            node <<'NODE'
+            const fs = require('node:fs');
+            const body = JSON.parse(fs.readFileSync('/tmp/logs.json','utf8'));
+            const rows = Array.isArray(body?.result) ? body.result : [];
+            console.log(`Recent matching Postgres log rows: ${rows.length}`);
+            for (const row of rows.slice(0, 30)) {
+              const ts = row.timestamp || '';
+              const sev = row.severity_text || '';
+              const msg = String(row.event_message || '').replace(/\s+/g,' ').slice(0,500);
+              console.log(`${ts} ${sev} ${msg}`);
+            }
+          else
+            head -c 1000 /tmp/logs.json || true
+            echo
+          fi
