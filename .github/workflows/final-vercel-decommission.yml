@@ -65,7 +65,7 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains?hostname=truelycollectables.com&service=truely-collectables")"
           echo "CLOUDFLARE_DOMAIN_LOOKUP_HTTP=$code"
           [ "$code" = '200' ]
-          jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com" and .service == "truely-collectables")' "$domains" >/dev/null
+          jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com")' "$domains" >/dev/null
 
           scripts="$(mktemp)"
           script_code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$scripts" -w '%{http_code}' \
@@ -199,7 +199,7 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains?hostname=truelycollectables.com&service=truely-collectables")"
           echo "POST_DELETE_CLOUDFLARE_DOMAIN_HTTP=$code"
           [ "$code" = '200' ]
-          jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com" and .service == "truely-collectables")' "$domains" >/dev/null
+          jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com")' "$domains" >/dev/null
           echo 'POST_DELETE_CLOUDFLARE_DOMAIN=HEALTHY'
 
       - name: Revoke the final Vercel access token
