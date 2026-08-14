@@ -8,11 +8,22 @@ declare global {
 // runtime binding. This module is imported only by the Cloudflare Worker entry,
 // so neutralize that marker before OpenNext evaluates. Application secrets are
 // untouched; this prevents Cloudflare from being misdetected as Vercel.
+//
+// The IP-intelligence integration is observational/fail-open in request-gate
+// and can add a long external network wait to every request on Cloudflare.
+// Keep that optional lookup on Vercel, but disable it in the Cloudflare runtime
+// so storefront and API traffic are never held up by the external provider.
 if (typeof process !== "undefined" && process.env) {
   try {
     delete process.env.VERCEL;
   } catch {
     process.env.VERCEL = "";
+  }
+
+  try {
+    delete process.env.IP_INTELLIGENCE_API_URL;
+  } catch {
+    process.env.IP_INTELLIGENCE_API_URL = "";
   }
 }
 
