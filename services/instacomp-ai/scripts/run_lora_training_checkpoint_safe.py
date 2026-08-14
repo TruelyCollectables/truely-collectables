@@ -159,6 +159,7 @@ def _is_training_command(command) -> bool:
 def _run_training_supervised(command, *run_args, original_run, **run_kwargs):
     base_command = [str(item) for item in command]
     raw_iters = _arg_value(base_command, "--iters")
+    raw_epochs = _arg_value(base_command, "--epochs")
     output_path_raw = _arg_value(base_command, "--output-path")
     raw_steps = _arg_value(base_command, "--steps-per-save")
 
@@ -170,6 +171,30 @@ def _run_training_supervised(command, *run_args, original_run, **run_kwargs):
         0,
         int(os.environ.get("INSTACOMP_LORA_TIMEOUT_RETRIES", str(DEFAULT_TIMEOUT_RETRIES))),
     )
+
+    if raw_iters is None and raw_epochs is not None and output_path_raw is not None:
+        requested_epochs = int(raw_epochs)
+        _write_status(
+            state="running_epoch_schedule",
+            requested_iters=None,
+            completed_iters=None,
+            remaining_iters=None,
+            requested_epochs=requested_epochs,
+            timeout_seconds=None,
+            output_bundle=str(Path(output_path_raw).parent),
+        )
+        result = original_run(base_command, *run_args, **run_kwargs)
+        _write_status(
+            state="completed" if result.returncode == 0 else "failed",
+            requested_iters=None,
+            completed_iters=None,
+            remaining_iters=None,
+            requested_epochs=requested_epochs,
+            timeout_seconds=None,
+            output_bundle=str(Path(output_path_raw).parent),
+            returncode=result.returncode,
+        )
+        return result
 
     if raw_iters is None or output_path_raw is None:
         guarded_kwargs = dict(run_kwargs)
