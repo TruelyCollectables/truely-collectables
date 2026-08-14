@@ -12,12 +12,30 @@ from typing import Any
 import promote_lora_candidate_frozen_five as base
 
 
-def case_evidence(item: dict[str, Any], suggestion, registry, case: tuple) -> dict[str, Any]:
+def receipt_value(registry, prefix: str) -> str | None:
+    if registry is None:
+        return None
+    for value in registry.source_receipts or []:
+        text = str(value)
+        if text.startswith(prefix):
+            return text[len(prefix):]
+    return None
+
+
+def case_evidence(
+    item: dict[str, Any],
+    suggestion,
+    registry,
+    case: tuple,
+    registry_diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     reg_dump = registry.model_dump(mode="json") if registry is not None else None
+    diagnostics = registry_diagnostics or {}
     return {
         "key": case[0],
         "player": case[1],
         "card_number": case[2],
+        "expected_parallel_marker": case[3],
         "expected_registry_identity_id": case[4],
         "expected_registry_fingerprint_sha256": case[5],
         "fixture_row_id": item["row_id"],
@@ -26,13 +44,32 @@ def case_evidence(item: dict[str, Any], suggestion, registry, case: tuple) -> di
         "candidate_fallback": bool(suggestion.raw.get("lora_candidate_fallback")),
         "candidate_identity": suggestion.identity.model_dump(mode="json"),
         "candidate_evidence": suggestion.evidence.model_dump(mode="json"),
+        "registry_request": diagnostics.get("registry_request"),
+        "registry_http_status": diagnostics.get("registry_http_status"),
+        "registry_raw_response": diagnostics.get("registry_raw_response"),
+        "registry_status": diagnostics.get("registry_status"),
+        "registry_resolver_status": diagnostics.get("registry_resolver_status"),
+        "registry_reasons": diagnostics.get("registry_reasons"),
+        "registry_candidate_count": diagnostics.get("registry_candidate_count"),
+        "registry_transport_error": diagnostics.get("registry_transport_error"),
         "registry_result": reg_dump,
-        "registry_identity_id": registry.identity_id if registry is not None else None,
+        "registry_identity_id": (
+            diagnostics.get("registry_identity_id")
+            or (registry.identity_id if registry is not None else None)
+        ),
+        "registry_fingerprint_sha256": (
+            diagnostics.get("registry_fingerprint_sha256")
+            or receipt_value(registry, "registry_fingerprint:")
+        ),
         "passed": False,
     }
 
 
-async def run_round(number: int, fixtures: list[dict[str, Any]], adapter_sha: str) -> dict[str, Any]:
+async def run_round(
+    number: int,
+    fixtures: list[dict[str, Any]],
+    adapter_sha: str,
+) -> dict[str, Any]:
     from app.checklist import checklist_gateway
     from app.config import settings
     from app.local_vision import analyze_local_vision
@@ -57,10 +94,58 @@ async def run_round(number: int, fixtures: list[dict[str, Any]], adapter_sha: st
             evidence = case_evidence(item, suggestion, None, case)
             evidence["error"] = str(error)
             cases.append(evidence)
-            return {"round": number, "passed": False, "cases": cases, "error": str(error)}
+            return {
+                "round": number,
+                "passed": False,
+                "cases": cases,
+                "error": str(error),
+            }
 
-        registry = await checklist_gateway.match(suggestion.identity, base.visible(suggestion))
-        evidence = case_evidence(item, suggestion, registry, case)
+        diagnostic_match = getattr(
+            checklist_gateway,
+            "match_with_diagnostics",
+            None,
+        )
+        if not callable(diagnostic_match):
+            error = RuntimeError(
+                "Authoritative Registry diagnostic gateway is not installed"
+            )
+            evidence = case_evidence(item, suggestion, None, case)
+            evidence["error"] = str(error)
+            cases.append(evidence)
+            return {
+                "round": number,
+                "passed": False,
+                "cases": cases,
+                "error": str(error),
+            }
+
+        try:
+            registry, registry_diagnostics = await diagnostic_match(
+                suggestion.identity,
+                base.visible(suggestion),
+            )
+        except Exception as error:
+            evidence = case_evidence(item, suggestion, None, case)
+            evidence["error"] = (
+                "Registry diagnostic request raised "
+                f"{type(error).__name__}: {error}"
+            )
+            cases.append(evidence)
+            return {
+                "round": number,
+                "passed": False,
+                "cases": cases,
+                "error": evidence["error"],
+            }
+
+        evidence = case_evidence(
+            item,
+            suggestion,
+            registry,
+            case,
+            registry_diagnostics,
+        )
         try:
             base.registry_gate(registry.model_dump(mode="json"), case)
         except RuntimeError as error:
@@ -69,10 +154,20 @@ async def run_round(number: int, fixtures: list[dict[str, Any]], adapter_sha: st
             print(
                 f"ROUND {number} FAIL {case[1]} #{case[2]}: {error}; "
                 f"candidate={json.dumps(evidence['candidate_identity'], sort_keys=True)}; "
+                f"registry_status={evidence['registry_status']!r}; "
+                f"resolver_status={evidence['registry_resolver_status']!r}; "
+                f"candidate_count={evidence['registry_candidate_count']!r}; "
+                f"registry_uuid={evidence['registry_identity_id']!r}; "
+                f"registry_fingerprint={evidence['registry_fingerprint_sha256']!r}; "
                 f"registry={json.dumps(evidence['registry_result'], sort_keys=True)}",
                 flush=True,
             )
-            return {"round": number, "passed": False, "cases": cases, "error": str(error)}
+            return {
+                "round": number,
+                "passed": False,
+                "cases": cases,
+                "error": str(error),
+            }
 
         evidence["passed"] = True
         cases.append(evidence)
@@ -91,8 +186,11 @@ def self_test() -> int:
     fake_case = base.FROZEN[0]
 
     class FakeModel:
-        def __init__(self, value): self.value = value
-        def model_dump(self, mode="json"): return self.value
+        def __init__(self, value):
+            self.value = value
+
+        def model_dump(self, mode="json"):
+            return self.value
 
     class FakeSuggestion:
         provider = base.PROVIDER
@@ -102,14 +200,57 @@ def self_test() -> int:
 
     class FakeRegistry:
         identity_id = "wrong"
-        def model_dump(self, mode="json"):
-            return {"outcome": "set_present_no_exact_match", "identity_id": None, "reasons": ["diagnostic"]}
+        source_receipts = ["registry_fingerprint:wrong-fingerprint"]
 
-    record = case_evidence(fake_item, FakeSuggestion(), FakeRegistry(), fake_case)
+        def model_dump(self, mode="json"):
+            return {
+                "outcome": "set_present_no_exact_match",
+                "identity_id": None,
+                "reasons": ["diagnostic"],
+            }
+
+    fake_diagnostics = {
+        "registry_request": {
+            "year": "2025",
+            "brand": "Panini",
+            "cardNumber": "122",
+        },
+        "registry_http_status": 200,
+        "registry_raw_response": {
+            "ok": True,
+            "status": "ambiguous",
+            "resolverStatus": "ambiguous",
+            "candidateCount": 2,
+            "reasons": ["diagnostic"],
+            "registryIdentityId": None,
+            "registryFingerprintSha256": None,
+        },
+        "registry_status": "ambiguous",
+        "registry_resolver_status": "ambiguous",
+        "registry_reasons": ["diagnostic"],
+        "registry_candidate_count": 2,
+        "registry_identity_id": None,
+        "registry_fingerprint_sha256": None,
+        "registry_transport_error": None,
+    }
+    record = case_evidence(
+        fake_item,
+        FakeSuggestion(),
+        FakeRegistry(),
+        fake_case,
+        fake_diagnostics,
+    )
     assert record["expected_registry_identity_id"] == fake_case[4]
     assert record["candidate_identity"]["player"] == "Sonia Citron"
     assert record["registry_result"]["reasons"] == ["diagnostic"]
-    print("PASS failed-case candidate and Registry diagnostics are retained")
+    assert record["registry_request"]["cardNumber"] == "122"
+    assert record["registry_http_status"] == 200
+    assert record["registry_status"] == "ambiguous"
+    assert record["registry_resolver_status"] == "ambiguous"
+    assert record["registry_candidate_count"] == 2
+    assert record["registry_identity_id"] == "wrong"
+    assert record["registry_fingerprint_sha256"] == "wrong-fingerprint"
+    print("PASS failed-case candidate and raw Registry diagnostics are retained")
     return 0
 
 
@@ -121,18 +262,23 @@ def main() -> int:
     if args.self_test:
         return self_test()
     if platform.system() != "Darwin":
-        raise SystemExit("Frozen-five Production promotion must run on the Apple Silicon Mac.")
+        raise SystemExit(
+            "Frozen-five Production promotion must run on the Apple Silicon Mac."
+        )
 
     receipt, validated, dataset = base.completion_gate()
     adapter = args.adapter.expanduser().resolve() if args.adapter else validated
     if adapter != validated:
-        raise SystemExit("Explicit adapter does not match complete_and_validated receipt")
+        raise SystemExit(
+            "Explicit adapter does not match complete_and_validated receipt"
+        )
     sha = base.file_sha(adapter / "adapters.safetensors")
     fixtures = base.fixtures(dataset, True)
     print(
         "FROZEN FIVE FIXTURES: "
         + ", ".join(
-            f"{item['case'][1]} #{item['case'][2]}[{item['split']}:{item['row_id']}]"
+            f"{item['case'][1]} #{item['case'][2]}"
+            f"[{item['split']}:{item['row_id']}]"
             for item in fixtures
         ),
         flush=True,
@@ -143,22 +289,37 @@ def main() -> int:
     activation = None
     rounds: list[dict[str, Any]] = []
     try:
-        subprocess.run(["bash", str(base.ENABLE), str(adapter)], cwd=base.REPO_ROOT, check=True)
+        subprocess.run(
+            ["bash", str(base.ENABLE), str(adapter)],
+            cwd=base.REPO_ROOT,
+            check=True,
+        )
         activated = True
         activation = base.activation_receipt(started, adapter, sha)
         for number in (1, 2):
             round_result = asyncio.run(run_round(number, fixtures, sha))
             rounds.append(round_result)
             if round_result.get("passed") is not True:
-                raise RuntimeError(str(round_result.get("error") or f"Round {number} failed"))
+                raise RuntimeError(
+                    str(
+                        round_result.get("error")
+                        or f"Round {number} failed"
+                    )
+                )
         base.rounds_gate(rounds)
     except BaseException as error:
         if activated:
-            subprocess.run(["bash", str(base.DISABLE)], cwd=base.REPO_ROOT, check=False)
+            subprocess.run(
+                ["bash", str(base.DISABLE)],
+                cwd=base.REPO_ROOT,
+                check=False,
+            )
         data = {
             "schema_version": "tcos.instacomp-ai.lora-frozen-five-promotion.v2",
             "created_at": base.now(),
-            "status": "failed_rolled_back" if activated else "failed_before_activation",
+            "status": (
+                "failed_rolled_back" if activated else "failed_before_activation"
+            ),
             "complete": False,
             "adapter": str(adapter),
             "adapter_weights_sha256": sha,
@@ -167,7 +328,9 @@ def main() -> int:
             "rounds": rounds,
             "error_type": type(error).__name__,
             "error": str(error)[:1000],
-            "runtime_candidate_enabled_after_failure": False if activated else None,
+            "runtime_candidate_enabled_after_failure": (
+                False if activated else None
+            ),
             "automatic_deployment": False,
         }
         path = base.write_receipt(data)
@@ -189,7 +352,10 @@ def main() -> int:
         "dataset_sha256": receipt.get("dataset_sha256"),
         "activation_receipt": activation.get("_path") if activation else None,
         "registry_resolver": "resolveChecklistRegistry",
-        "frozen_five_source": "historical_final_registry_v3_live_proof_55b0866947a05125371fd9d5554d1f497fbc19ff",
+        "frozen_five_source": (
+            "historical_final_registry_v3_live_proof_"
+            "55b0866947a05125371fd9d5554d1f497fbc19ff"
+        ),
         "rounds": rounds,
         "passes": 2,
         "cards_per_pass": 5,
