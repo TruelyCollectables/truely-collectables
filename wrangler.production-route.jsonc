@@ -1,4 +1,5 @@
 {
+  // Release trigger: Frozen Five Registry recovery fix 2026-08-14.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "truely-collectables-preview",
   "main": "./cloudflare-worker.ts",
@@ -21,6 +22,3 @@
     "enabled": true
   }
 }
-
-
-
