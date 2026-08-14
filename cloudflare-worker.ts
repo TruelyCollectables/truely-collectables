@@ -91,31 +91,12 @@ async function cloudflareInstaCompReadiness(env: WorkerEnv) {
     );
   }
 
-  const nativeFetch = globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
-  if (typeof nativeFetch !== "function") {
-    return readinessJson(
-      {
-        ok: false,
-        configured: true,
-        reachable: false,
-        dnsResolved: false,
-        internalMemoryReady: false,
-        checklistReady: false,
-        localModelReady: false,
-        runtimeSourceFingerprint: null,
-        architecture: ["instacomp_ai"],
-        reason: "cloudflare_native_fetch_unavailable",
-      },
-      503,
-    );
-  }
-
   const headers = new Headers({ Accept: "application/json" });
   const key = String(env.INSTACOMP_AI_LOCAL_KEY || "").trim();
   if (key) headers.set("X-InstaComp-AI-Key", key);
 
   try {
-    const response = await nativeFetch(`${baseUrl}/health`, {
+    const response = await fetch(`${baseUrl}/health`, {
       headers,
       cache: "no-store",
       redirect: "error",
