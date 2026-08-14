@@ -12,8 +12,6 @@ permissions:
   actions: read
 
 env:
-  MASTER_RUN_ID: '31100986894'
-  MASTER_ARTIFACT_ID: '8972199339'
   SANITIZED_RUN_ID: '31200568510'
   SANITIZED_ARTIFACT_NAME: master-checklist-sanitized-safe-v4-final-31200568510
 
@@ -26,8 +24,7 @@ jobs:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
       - name: Prove read-only operations scope
         shell: bash
@@ -38,99 +35,67 @@ jobs:
           bad="$(git diff --name-only "$base"...HEAD | grep -Ev '^\.github/workflows/checklist-production-universe-census-20260811\.yml$' || true)"
           test -z "$bad" || { echo "$bad"; exit 1; }
 
-      - name: Download audited 2000-2026 master catalog
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf .checklist-universe-census
-          mkdir -p .checklist-universe-census/master .checklist-universe-census/sanitized
-          curl --fail --location --retry 5 --retry-all-errors \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${MASTER_ARTIFACT_ID}/zip" \
-            --output .checklist-universe-census/master-catalog.zip
-          unzip -q .checklist-universe-census/master-catalog.zip -d .checklist-universe-census/master
-          test -f .checklist-universe-census/master/phase1-sports-2000-plus/sports-sets.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          p=Path('.checklist-universe-census/master/phase1-sports-2000-plus/sports-sets.json')
-          rows=json.loads(p.read_text())
-          assert len(rows)==5643, len(rows)
-          keys=[str(r['exactSetKey']).lower() for r in rows]
-          assert len(keys)==len(set(keys))==5643
-          print('audited canonical universe=5643')
-          PY
-
-      - name: Download immutable sanitized 5,098-release corpus
+      - name: Download immutable sanitized recovery corpus
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.SANITIZED_ARTIFACT_NAME }}
-          path: .checklist-universe-census/sanitized
+          path: .checklist-registry-readback/sanitized
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ env.SANITIZED_RUN_ID }}
 
-      - name: Verify sanitized corpus and exact keys
+      - name: Verify exact 5,098 import dispositions
         shell: bash
         run: |
           set -euo pipefail
-          cd .checklist-universe-census/sanitized
+          cd .checklist-registry-readback/sanitized
           sha256sum -c master-checklist-sanitized-safe-v4-final.sha256
-          tar -xzf master-checklist-sanitized-safe-v4-final.tar.gz -C "$GITHUB_WORKSPACE/.checklist-universe-census"
+          tar -xzf master-checklist-sanitized-safe-v4-final.tar.gz -C "$GITHUB_WORKSPACE/.checklist-registry-readback"
           cd "$GITHUB_WORKSPACE"
-          proof=.checklist-universe-census/.checklist-discovery/sanitized-master-corpus-proof-v4.json
+          proof=.checklist-registry-readback/.checklist-discovery/sanitized-master-corpus-proof-v4.json
           jq -e '.ok == true and .canonicalImportSets == 5098 and .runnableCandidates == 5782 and .uniqueRunnableSourceUrls == 5782 and .crossCanonicalDirectShaCollisions == 0 and .duplicateEvidenceReferencesRemaining == 0' "$proof" >/dev/null
           python3 - <<'PY'
           import json
           from pathlib import Path
-          root=Path('.checklist-universe-census/.master-checklist-corpus')
-          rows=[]
+          root=Path('.checklist-registry-readback/.master-checklist-corpus')
+          all_rows=[]
           for i in range(16):
               p=root/f'batch-{i}.json'
               assert p.is_file(), p
-              rows.extend(json.loads(p.read_text()).get('sets') or [])
-          keys=[str(r['exactSetKey']).lower() for r in rows]
-          assert len(rows)==5098, len(rows)
+              all_rows.extend(json.loads(p.read_text()).get('sets') or [])
+          imports=[r for r in all_rows if r.get('disposition')=='import']
+          keys=[str(r['exactSetKey']).lower() for r in imports]
+          assert len(all_rows)==5548, len(all_rows)
+          assert len(imports)==5098, len(imports)
           assert len(keys)==len(set(keys))==5098
-          Path('.checklist-universe-census/corpus-exact-keys.json').write_text(json.dumps(sorted(keys),indent=2)+'\n')
-          print('sanitized corpus exact keys=5098')
+          Path('.checklist-registry-readback/corpus-import-keys.json').write_text(json.dumps(sorted(keys),indent=2)+'\n')
+          print(f'corpus rows={len(all_rows)} import dispositions={len(imports)} non-import={len(all_rows)-len(imports)}')
           PY
 
       - name: Resolve Production Supabase directly
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/checklist-census"
+          root="$RUNNER_TEMP/checklist-registry-readback"
           mkdir -p "$root"
           projects="$root/projects.json"
           for n in 1 2 3 4 5; do
             if curl --silent --show-error --fail --max-time 45 \
               --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-              --output "$projects" \
-              "https://api.supabase.com/v1/projects"; then break; fi
+              --output "$projects" "https://api.supabase.com/v1/projects"; then break; fi
             test "$n" -lt 5 || exit 1
-            sleep $((n * 3))
+            sleep $((n*3))
           done
-          jq -e 'type == "array" and length > 0' "$projects" >/dev/null
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$projects")
-          if [ "${#candidates[@]}" -ne 1 ]; then
-            echo "Expected exactly one Truely Collectables Supabase project; found ${#candidates[@]}." >&2
-            jq '[.[] | {id:(.id // .ref),name,status,region}]' "$projects" >&2
-            exit 1
-          fi
+          test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
           keys="$root/api-keys.json"
           for n in 1 2 3 4 5; do
             if curl --silent --show-error --fail --max-time 45 \
               --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-              --output "$keys" \
-              "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"; then break; fi
+              --output "$keys" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"; then break; fi
             test "$n" -lt 5 || exit 1
-            sleep $((n * 3))
+            sleep $((n*3))
           done
           service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
           test -n "$service_key"
@@ -141,7 +106,6 @@ jobs:
           chmod 600 "$root/production.env"
           echo "PRODUCTION_ENV_PATH=$root/production.env" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
-
           ok=0
           for n in 1 2 3 4 5; do
             code="$(curl --silent --show-error --max-time 30 --output "$root/probe.json" --write-out '%{http_code}' \
@@ -149,11 +113,11 @@ jobs:
               "$project_url/rest/v1/checklist_versions?select=release_id&limit=1" || true)"
             if [ "$code" = "200" ]; then ok=1; break; fi
             echo "Registry REST probe attempt=$n http=$code" >&2
-            sleep $((n * 3))
+            sleep $((n*3))
           done
           test "$ok" = 1
 
-      - name: Read back active Production Registry coverage
+      - name: Read back active Production Registry against all 5,098 imports
         shell: bash
         run: |
           set -euo pipefail
@@ -163,34 +127,29 @@ jobs:
           import json, os, re, time, urllib.parse, urllib.request
           from pathlib import Path
           from collections import Counter
-
           root=os.environ['NEXT_PUBLIC_SUPABASE_URL'].rstrip('/')
           key=os.environ['SUPABASE_SERVICE_ROLE_KEY']
           headers={'apikey':key,'Authorization':'Bearer '+key,'Accept':'application/json'}
 
           def get(path, attempts=8):
-              url=root+'/rest/v1/'+path
-              last=None
+              url=root+'/rest/v1/'+path; last=None
               for i in range(attempts):
                   try:
-                      req=urllib.request.Request(url, headers=headers)
-                      with urllib.request.urlopen(req, timeout=45) as r:
-                          return json.loads(r.read().decode())
+                      req=urllib.request.Request(url,headers=headers)
+                      with urllib.request.urlopen(req,timeout=45) as r: return json.loads(r.read().decode())
                   except Exception as e:
                       last=e
                       if i+1<attempts: time.sleep(min(2**i,15))
               raise last
 
-          def pages(table, select, filters=''):
+          def pages(table,select,filters=''):
               out=[]; offset=0; limit=1000
               while True:
-                  q=f'{table}?select={urllib.parse.quote(select, safe=",.*()")}&limit={limit}&offset={offset}'
-                  if filters: q += '&'+filters
-                  batch=get(q)
-                  out.extend(batch)
-                  if len(batch)<limit: break
-                  offset += limit
-              return out
+                  q=f'{table}?select={urllib.parse.quote(select,safe=",.*()")}&limit={limit}&offset={offset}'
+                  if filters: q+='&'+filters
+                  batch=get(q); out.extend(batch)
+                  if len(batch)<limit: return out
+                  offset+=limit
 
           def slug(v):
               s=str(v or '').strip().lower().replace('&',' and ')
@@ -204,105 +163,62 @@ jobs:
               elif isinstance(obj,list):
                   for v in obj: yield from strings(v)
 
-          master=json.loads(Path('.checklist-universe-census/master/phase1-sports-2000-plus/sports-sets.json').read_text())
-          universe={str(r['exactSetKey']).lower():r for r in master}
-          corpus=set(json.loads(Path('.checklist-universe-census/corpus-exact-keys.json').read_text()))
-          assert len(universe)==5643 and len(corpus)==5098
-
+          corpus=set(json.loads(Path('.checklist-registry-readback/corpus-import-keys.json').read_text()))
+          assert len(corpus)==5098
           manufacturers=pages('checklist_manufacturers','id,name,slug')
           sports=pages('checklist_sports','id,name,slug')
-          releases=pages('checklist_releases','id,manufacturer_id,sport_id,product_name,slug,release_year,season,checklist_status,import_status,metadata')
+          releases=pages('checklist_releases','id,manufacturer_id,sport_id,product_name,release_year,season,metadata')
           versions=pages('checklist_versions','release_id,status,is_active,normalized_card_count','is_active=eq.true&status=eq.live')
-          catalog=pages('checklist_source_catalog','source_url,status,metadata','status=in.(imported,unchanged)')
-
           man={r['id']:slug(r.get('slug') or r.get('name')) for r in manufacturers}
           sport={r['id']:slug(r.get('slug') or r.get('name')) for r in sports}
           live_versions=[v for v in versions if v.get('is_active') and v.get('status')=='live' and int(v.get('normalized_card_count') or 0)>0]
           live_release_ids={v['release_id'] for v in live_versions}
-
           matched=set(); methods=Counter(); active_release_rows=0
           for r in releases:
               if r['id'] not in live_release_ids: continue
-              active_release_rows += 1
-              explicit={str(s).strip().lower() for s in strings(r.get('metadata') or {}) if str(s).strip().lower() in universe}
+              active_release_rows+=1
+              explicit={str(s).strip().lower() for s in strings(r.get('metadata') or {}) if str(s).strip().lower() in corpus}
               if explicit:
-                  matched.update(explicit); methods['release_metadata_exact'] += len(explicit)
-              sp=sport.get(r.get('sport_id'),'')
-              ma=man.get(r.get('manufacturer_id'),'')
-              season=str(r.get('season') or r.get('release_year') or '').strip().lower()
-              product=slug(r.get('product_name'))
-              derived='|'.join([sp,season,ma,product])
-              if derived in universe:
-                  matched.add(derived); methods['derived_taxonomy_exact'] += 1
-
-          catalog_exact=set()
-          for row in catalog:
-              for s in strings(row.get('metadata') or {}):
-                  k=str(s).strip().lower()
-                  if k in universe: catalog_exact.add(k)
-
-          matched_universe=matched & set(universe)
-          matched_corpus=matched & corpus
-          missing_universe=set(universe)-matched_universe
-          missing_corpus=corpus-matched_corpus
-          universe_missing_by_sport=Counter(universe[k]['sport'] for k in missing_universe)
-          universe_covered_by_sport=Counter(universe[k]['sport'] for k in matched_universe)
-          corpus_missing_by_sport=Counter(universe[k]['sport'] for k in missing_corpus if k in universe)
-          corpus_covered_by_sport=Counter(universe[k]['sport'] for k in matched_corpus if k in universe)
-
+                  matched.update(explicit); methods['release_metadata_exact']+=len(explicit)
+              derived='|'.join([
+                  sport.get(r.get('sport_id'),''),
+                  str(r.get('season') or r.get('release_year') or '').strip().lower(),
+                  man.get(r.get('manufacturer_id'),''),
+                  slug(r.get('product_name')),
+              ])
+              if derived in corpus:
+                  matched.add(derived); methods['derived_taxonomy_exact']+=1
+          missing=corpus-matched
+          by_sport_covered=Counter(k.split('|',1)[0] for k in matched)
+          by_sport_missing=Counter(k.split('|',1)[0] for k in missing)
           receipt={
-              'schema':'tcos.checklist.productionRegistryReadback.v2',
+              'schema':'tcos.checklist.recoveryCorpusProductionReadback.v1',
               'generatedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
               'authoritativeCoverageBasis':'active live checklist_versions with normalized_card_count > 0',
+              'recoveryCorpusImportDispositions':5098,
               'productionActiveLiveReleaseRows':active_release_rows,
               'productionActiveLiveVersionRows':len(live_versions),
               'productionActiveLiveNormalizedCards':sum(int(v.get('normalized_card_count') or 0) for v in live_versions),
-              'auditedUniverse':{
-                  'canonicalSets':len(universe),
-                  'matchedActiveLive':len(matched_universe),
-                  'missingActiveLive':len(missing_universe),
-                  'coveragePercent':round(len(matched_universe)*100/len(universe),4),
-                  'coveredBySport':dict(sorted(universe_covered_by_sport.items())),
-                  'missingBySport':dict(sorted(universe_missing_by_sport.items())),
-                  'missingExactSetKeys':sorted(missing_universe),
-              },
-              'recoveryCorpus':{
-                  'canonicalSets':len(corpus),
-                  'matchedActiveLive':len(matched_corpus),
-                  'missingActiveLive':len(missing_corpus),
-                  'coveragePercent':round(len(matched_corpus)*100/len(corpus),4),
-                  'coveredBySport':dict(sorted(corpus_covered_by_sport.items())),
-                  'missingBySport':dict(sorted(corpus_missing_by_sport.items())),
-                  'missingExactSetKeys':sorted(missing_corpus),
-              },
+              'matchedRecoveryCorpusActiveLive':len(matched),
+              'missingRecoveryCorpusActiveLive':len(missing),
+              'coveragePercent':round(len(matched)*100/5098,4),
               'matchMethods':dict(methods),
-              'supplementaryCatalogExactKeys':len(catalog_exact),
-              'supplementaryCatalogNotActiveLive':len(catalog_exact-matched_universe),
+              'coveredBySport':dict(sorted(by_sport_covered.items())),
+              'missingBySport':dict(sorted(by_sport_missing.items())),
+              'missingExactSetKeys':sorted(missing),
           }
-          out=Path('.checklist-universe-census/production-registry-readback.json')
-          out.write_text(json.dumps(receipt,indent=2)+'\n')
-          summary={
-              'productionActiveLiveReleaseRows':active_release_rows,
-              'productionActiveLiveVersionRows':len(live_versions),
-              'productionActiveLiveNormalizedCards':receipt['productionActiveLiveNormalizedCards'],
-              'auditedUniverse':{k:v for k,v in receipt['auditedUniverse'].items() if k!='missingExactSetKeys'},
-              'recoveryCorpus':{k:v for k,v in receipt['recoveryCorpus'].items() if k!='missingExactSetKeys'},
-              'matchMethods':receipt['matchMethods'],
-              'supplementaryCatalogExactKeys':receipt['supplementaryCatalogExactKeys'],
-              'supplementaryCatalogNotActiveLive':receipt['supplementaryCatalogNotActiveLive'],
-          }
-          print(json.dumps(summary,indent=2))
+          Path('.checklist-registry-readback/production-readback.json').write_text(json.dumps(receipt,indent=2)+'\n')
+          print(json.dumps({k:v for k,v in receipt.items() if k!='missingExactSetKeys'},indent=2))
           PY
 
-      - name: Upload exact Registry readback receipt
+      - name: Upload Production readback receipt
         uses: actions/upload-artifact@v4
         with:
-          name: checklist-production-registry-readback-${{ github.run_id }}
-          path: .checklist-universe-census/production-registry-readback.json
+          name: checklist-recovery-corpus-production-readback-${{ github.run_id }}
+          path: .checklist-registry-readback/production-readback.json
           if-no-files-found: error
           retention-days: 90
 
       - name: Cleanup
         if: always()
-        shell: bash
-        run: rm -rf .checklist-universe-census "$RUNNER_TEMP/checklist-census" .env.local .env.production.local .vercel
+        run: rm -rf .checklist-registry-readback "$RUNNER_TEMP/checklist-registry-readback" .env.local .env.production.local .vercel
