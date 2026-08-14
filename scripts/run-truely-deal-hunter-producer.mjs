@@ -7,7 +7,6 @@ const OUTPUT_DIR = path.resolve(
 );
 
 const PRIMARY_HOST = "https://truelycollectables.com";
-const FAILOVER_HOST = "https://truely-collectables.vercel.app";
 const SCHEMA = "TCOS_NATIVE_EBAY_FEED_V1";
 const ARTIFACT_SCHEMA = "TRUELY_COLLECTABLES_DEAL_HUNTER_ARTIFACT_V1";
 
@@ -181,7 +180,7 @@ function validateFeed(payload, spec) {
 
 async function retrieveFeed(spec) {
   const attempts = [];
-  for (const host of [PRIMARY_HOST, FAILOVER_HOST]) {
+  for (const host of [PRIMARY_HOST]) {
     const url = `${host}${spec.path}`;
     const startedAt = Date.now();
     try {

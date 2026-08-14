@@ -7,13 +7,13 @@ import {
 import { instaCompMutationSecurityDecision } from "../src/lib/instacomp-mutation-security";
 
 const previewRequestUrl =
-  "https://truely-collectables-preview.vercel.app/api/instacomp/benchmark/ebay-25";
+  "https://preview.truelycollectables.com/api/instacomp/benchmark/ebay-25";
 const scanUrl = buildInstaCompBenchmarkLiveScanUrl(previewRequestUrl);
 const headers = buildInstaCompBenchmarkSameOriginHeaders(scanUrl);
 
 assert.equal(
   scanUrl.href,
-  "https://truely-collectables-preview.vercel.app/api/instacomp/live-scan",
+  "https://preview.truelycollectables.com/api/instacomp/live-scan",
 );
 assert.deepEqual(Object.keys(headers).sort(), [
   "origin",

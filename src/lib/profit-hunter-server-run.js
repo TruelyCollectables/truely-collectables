@@ -615,13 +615,13 @@ async function saveReport({ schedule, discovery, hotWatch, actionableDeals, mark
       ? null
       : discovery.errors.map((error) => `${error.familyId}: ${error.error}`).join(" | ").slice(0, 5000),
     metadata: {
-      source: "vercel_server_cron",
+      source: "cloudflare_worker_cron",
       time_zone: MOUNTAIN_TIME_ZONE,
       slot: schedule.slot,
       checksum,
       deployment_sha:
-        safeText(process.env.VERCEL_GIT_COMMIT_SHA).slice(0, 40) || null,
-      deployment_region: process.env.VERCEL_REGION || null,
+        safeText(process.env.TCOS_GIT_COMMIT_SHA).slice(0, 40) || null,
+      deployment_region: process.env.CLOUDFLARE_REGION || null,
     },
   };
   const { data, error } = await supabase

@@ -242,10 +242,10 @@ export default async function LiveShippingLaunchPage() {
                 Env Template
               </Link>
               <Link
-                href="/api/admin/shipping/provider-setup?format=vercel-commands"
+                href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
                 className={gateAmberLinkClass}
               >
-                Vercel Commands
+                Cloudflare Commands
               </Link>
               <Link
                 href="/api/admin/shipping/provider-setup?format=operator-checklist"
@@ -596,10 +596,10 @@ function ProviderUnlockActionPlan({
           Env Template
         </Link>
         <Link
-          href="/api/admin/shipping/provider-setup?format=vercel-commands"
+          href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
           className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md"
         >
-          Vercel Commands
+          Cloudflare Commands
         </Link>
         <Link
           href="/admin/launch-readiness"

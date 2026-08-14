@@ -14,11 +14,11 @@ export const maxDuration = 300;
 
 function deploymentInfo() {
   return {
-    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || null,
+    environment: process.env.TCOS_DEPLOYMENT_ENV || process.env.NODE_ENV || null,
     commitSha:
-      String(process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 12) || null,
-    branch: process.env.VERCEL_GIT_COMMIT_REF || null,
-    region: process.env.VERCEL_REGION || null,
+      String(process.env.TCOS_GIT_COMMIT_SHA || "").slice(0, 12) || null,
+    branch: process.env.TCOS_GIT_COMMIT_REF || null,
+    region: process.env.CLOUDFLARE_REGION || null,
   };
 }
 
@@ -77,7 +77,7 @@ async function run(request) {
       deployment: deploymentInfo(),
       schedule,
       contract: PROFIT_HUNTER_SERVER_CONTRACT,
-      executionPath: "vercel_server_cron",
+      executionPath: "cloudflare_worker_cron",
     });
   }
 
@@ -86,7 +86,7 @@ async function run(request) {
       {
         ok: false,
         code: "PROFIT_HUNTER_CRON_UNAUTHORIZED",
-        error: "A valid Profit Hunter, Vercel cron, or Market Intel server secret is required.",
+        error: "A valid Profit Hunter, Cloudflare cron, or Market Intel server secret is required.",
         deployment: deploymentInfo(),
       },
       401,
@@ -124,7 +124,7 @@ async function run(request) {
         error:
           error instanceof Error
             ? error.message
-            : "Unable to run Profit Hunter inside Vercel.",
+            : "Unable to run Profit Hunter inside Cloudflare.",
         deployment: deploymentInfo(),
         schedule,
         forced: force,

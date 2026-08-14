@@ -52,10 +52,7 @@ function releaseOrigins() {
     .filter(Boolean);
   return configured.length
     ? configured
-    : [
-        "https://truely-collectables.vercel.app",
-        "https://truelycollectables.com",
-      ];
+    : ["https://truelycollectables.com"];
 }
 
 async function fetchRelease(origin, expectedCommit) {

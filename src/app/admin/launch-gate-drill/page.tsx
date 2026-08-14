@@ -380,10 +380,10 @@ function ShippingProviderUnlockPlan({
           Env Template
         </Link>
         <Link
-          href="/api/admin/shipping/provider-setup?format=vercel-commands"
+          href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
           className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
-          Vercel Commands
+          Cloudflare Commands
         </Link>
         <Link
           href="/admin/live-shipping-launch"

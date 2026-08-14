@@ -42,8 +42,8 @@ type BriefItem = {
 
 const SHIPPING_PROVIDER_ENV_TEMPLATE_HREF =
   "/api/admin/shipping/provider-setup?format=env-template";
-const SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF =
-  "/api/admin/shipping/provider-setup?format=vercel-commands";
+const SHIPPING_PROVIDER_CLOUDFLARE_COMMANDS_HREF =
+  "/api/admin/shipping/provider-setup?format=cloudflare-commands";
 const SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF =
   "/api/admin/shipping/provider-setup?format=operator-checklist";
 
@@ -63,7 +63,7 @@ function buildPrivilegedSupabaseBlocker(
   const href = "/admin/launch-readiness";
   const detail =
     "Launch Readiness cannot verify privileged runtime state because required server-only bootstrap environment is incomplete. Admin Supabase clients and admin sessions fail closed; the public anon key cannot replace the service-role key, and ADMIN_PASSWORD cannot replace the session-signing secret.";
-  const action = `Set the missing Vercel Production and local operator environment variable name${
+  const action = `Set the missing Cloudflare Production and local operator environment variable name${
     missingEnvironmentVariables.length === 1 ? "" : "s"
   }: ${missingEnvironmentVariables.join(", ")}. Then rerun Launch Readiness before any live-payment or deployment approval.`;
   const attentionItem = {
@@ -257,8 +257,8 @@ function deploymentSourceMarkdownLines(
   return [
     "## Deployment Source",
     "",
-    `- Vercel environment: ${deployment.vercelEnv}`,
-    `- Vercel URL: ${deployment.vercelUrl}`,
+    `- Cloudflare environment: ${deployment.deploymentEnvironment}`,
+    `- Deployment URL: ${deployment.deploymentUrl}`,
     `- Git commit SHA: ${deployment.gitCommitSha}`,
     `- Git ref: ${deployment.gitCommitRef}`,
     `- Git repo: ${deployment.gitRepo}`,
@@ -311,7 +311,7 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `- Unexpected purchase audit keys: ${inlineList(brief.shipping.purchaseAttemptAuditUnexpectedScenarioKeys)}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
-    `- Provider Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
+    `- Provider Cloudflare commands: ${brief.shipping.providerSetupCloudflareCommandsUrl || brief.shipping.providerSetupCloudflareCommandsHref}`,
     `- Provider operator checklist: ${brief.shipping.providerSetupOperatorChecklistUrl || brief.shipping.providerSetupOperatorChecklistHref}`,
     "",
     "## Shipping Provider Unlock Action Plan",
@@ -400,7 +400,7 @@ function markdownForHandoffBundle(
     "## Shipping Setup Exports",
     "",
     `- Env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
-    `- Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
+    `- Cloudflare commands: ${brief.shipping.providerSetupCloudflareCommandsUrl || brief.shipping.providerSetupCloudflareCommandsHref}`,
     `- Operator checklist: ${brief.shipping.providerSetupOperatorChecklistUrl || brief.shipping.providerSetupOperatorChecklistHref}`,
     "",
     "## Shipping Provider Unlock Action Plan",
@@ -497,17 +497,15 @@ function absoluteUrl(origin: string | null, href: string | undefined) {
 }
 
 function buildDeploymentSource(origin: string | null) {
-  const vercelUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : origin || "local";
-  const gitOwner = process.env.VERCEL_GIT_REPO_OWNER || "unknown-owner";
-  const gitRepoSlug = process.env.VERCEL_GIT_REPO_SLUG || "unknown-repo";
-  const gitCommitSha = process.env.VERCEL_GIT_COMMIT_SHA || "local-unknown";
-  const gitCommitRef = process.env.VERCEL_GIT_COMMIT_REF || "local";
+  const deploymentUrl = process.env.TCOS_DEPLOYMENT_URL || origin || "local";
+  const gitOwner = process.env.TCOS_GIT_REPO_OWNER || "unknown-owner";
+  const gitRepoSlug = process.env.TCOS_GIT_REPO_SLUG || "unknown-repo";
+  const gitCommitSha = process.env.TCOS_GIT_COMMIT_SHA || "local-unknown";
+  const gitCommitRef = process.env.TCOS_GIT_COMMIT_REF || "local";
 
   return {
-    vercelEnv: process.env.VERCEL_ENV || "local",
-    vercelUrl,
+    deploymentEnvironment: process.env.TCOS_DEPLOYMENT_ENVIRONMENT || "local",
+    deploymentUrl,
     gitCommitSha,
     gitCommitShortSha:
       gitCommitSha.length >= 7 ? gitCommitSha.slice(0, 7) : gitCommitSha,
@@ -752,10 +750,10 @@ async function buildBrief(origin: string | null = null) {
         origin,
         SHIPPING_PROVIDER_ENV_TEMPLATE_HREF,
       ),
-      providerSetupVercelCommandsHref: SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF,
-      providerSetupVercelCommandsUrl: absoluteUrl(
+      providerSetupCloudflareCommandsHref: SHIPPING_PROVIDER_CLOUDFLARE_COMMANDS_HREF,
+      providerSetupCloudflareCommandsUrl: absoluteUrl(
         origin,
-        SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF,
+        SHIPPING_PROVIDER_CLOUDFLARE_COMMANDS_HREF,
       ),
       providerSetupOperatorChecklistHref:
         SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF,

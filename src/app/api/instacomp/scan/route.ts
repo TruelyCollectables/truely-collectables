@@ -3996,7 +3996,7 @@ async function failPersistentJobScan(
 }
 
 function authorizedEphemeralBenchmark(req: NextRequest) {
-  if (String(process.env.VERCEL_ENV || "").trim() !== "preview") return false;
+  if (String(process.env.TCOS_ENABLE_BENCHMARKS || "").trim() !== "true") return false;
   const expected = String(process.env.INSTACOMP_BENCHMARK_TOKEN || "").trim();
   const supplied = String(req.headers.get("x-instacomp-benchmark-ephemeral") || "").trim();
   if (expected.length < 32 || supplied.length !== expected.length) return false;

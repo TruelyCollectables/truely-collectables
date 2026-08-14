@@ -6,9 +6,9 @@ import { default as handler } from "./.open-next/worker.js";
 /**
  * Cloudflare cutover scheduler.
  *
- * Vercel previously owned these schedules in vercel.json. Cloudflare uses one
- * every-minute Cron Trigger and dispatches the same 16 routes from here. This
- * keeps the Worker trigger count low while preserving the original UTC timing.
+ * Cloudflare uses one every-minute Cron Trigger and dispatches the 16 routes
+ * from here. This keeps the Worker trigger count low while preserving the UTC
+ * timing in one production-owned scheduler.
  */
 const cronJobs = [
   { path: "/api/instacomp/checklist-sentinel/progress", schedule: "*/5 * * * *" },

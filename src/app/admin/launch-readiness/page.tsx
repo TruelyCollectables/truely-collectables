@@ -146,7 +146,7 @@ function buildReadinessItems(
   const shippingProviderReadiness = shippingProviderSetup.readiness;
   const siteUrl = configuredHttpsSiteUrl(
     process.env.NEXT_PUBLIC_SITE_URL,
-    storeSettings.primaryDomain || process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    storeSettings.primaryDomain,
   );
   const paymentMode = getPaymentMode();
   const liveCredentialsStaged = Boolean(
@@ -1118,10 +1118,10 @@ export default async function LaunchReadinessPage() {
             Shipping Env Template
           </a>
           <a
-            href="/api/admin/shipping/provider-setup?format=vercel-commands"
+            href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
             className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100"
           >
-            Shipping Vercel Commands
+            Shipping Cloudflare Commands
           </a>
           <a
             href="/api/admin/shipping/provider-setup?format=operator-checklist"
@@ -1981,7 +1981,7 @@ function ShippingProviderUnlockPlan({
           Export env template
         </a>
         <a
-          href="/api/admin/shipping/provider-setup?format=vercel-commands"
+          href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
           className="rounded border border-indigo-300 bg-white px-3 py-2"
         >
           Export Vercel commands

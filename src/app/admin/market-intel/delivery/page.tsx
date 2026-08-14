@@ -333,7 +333,7 @@ export default async function MarketIntelDeliveryPage({
             <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-300">
               Required Production Variables
             </p>
-            <h2 className="mt-1 text-2xl font-black">Vercel Environment</h2>
+            <h2 className="mt-1 text-2xl font-black">Cloudflare Environment</h2>
             <pre className="mt-4 overflow-x-auto rounded-2xl border border-neutral-700 bg-black p-4 text-xs leading-6 text-neutral-200 shadow-inner">{`MARKET_INTEL_EMAIL_ENABLED=true
 MARKET_INTEL_FROM_EMAIL=TCOS Market Intel <alerts@your-verified-domain.com>
 MARKET_INTEL_ALERT_EMAIL=your-private-inbox@example.com

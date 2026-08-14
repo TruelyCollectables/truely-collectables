@@ -24,9 +24,9 @@ function json(payload, status = 200) {
 
 function deployment() {
   return {
-    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || null,
-    commitSha: String(process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 12) || null,
-    region: process.env.VERCEL_REGION || null,
+    environment: process.env.TCOS_DEPLOYMENT_ENV || process.env.NODE_ENV || null,
+    commitSha: String(process.env.TCOS_GIT_COMMIT_SHA || "").slice(0, 12) || null,
+    region: process.env.CLOUDFLARE_REGION || null,
   };
 }
 

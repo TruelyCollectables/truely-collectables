@@ -444,7 +444,7 @@ export default function ProductionSmokePage() {
             <SmokeLink href="/api/admin/shipping/provider-setup" label="Shipping Provider JSON" />
             <SmokeLink href="/api/admin/shipping/provider-setup?format=csv" label="Shipping Setup CSV" />
             <SmokeLink href="/api/admin/shipping/provider-setup?format=env-template" label="Shipping Env Template" />
-            <SmokeLink href="/api/admin/shipping/provider-setup?format=vercel-commands" label="Shipping Vercel Commands" />
+            <SmokeLink href="/api/admin/shipping/provider-setup?format=cloudflare-commands" label="Shipping Cloudflare Commands" />
             <SmokeLink href="/api/admin/shipping/provider-setup?format=operator-checklist" label="Shipping Checklist" />
           </div>
         </section>

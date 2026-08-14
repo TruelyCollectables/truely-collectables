@@ -2363,9 +2363,9 @@ export default async function AdminDashboard() {
                 />
                 <BaseLinkButton
                   href={adminHref(
-                    "/api/admin/shipping/provider-setup?format=vercel-commands",
+                    "/api/admin/shipping/provider-setup?format=cloudflare-commands",
                   )}
-                  label="Vercel Commands"
+                  label="Cloudflare Commands"
                 />
                 <BaseLinkButton
                   href={adminHref(

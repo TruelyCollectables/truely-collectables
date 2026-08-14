@@ -220,7 +220,8 @@ async function validAdminCookie(req: NextRequest) {
 async function canonicalAdminHostRedirect(req: NextRequest) {
   const hostname = req.nextUrl.hostname.toLowerCase();
   const isSafeRedirectMethod = req.method === "GET" || req.method === "HEAD";
-  const isKnownNoncanonicalAdminHost = hostname.endsWith(".vercel.app");
+  const isKnownNoncanonicalAdminHost =
+    process.env.NODE_ENV === "production" && hostname !== "truelycollectables.com";
 
   if (
     !isSafeRedirectMethod ||

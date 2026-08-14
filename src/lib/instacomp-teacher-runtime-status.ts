@@ -40,9 +40,7 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   const directGeminiConfigured =
     String(env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() !== "true" &&
     configured(env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY);
-  const gatewayPlatformConfigured = Boolean(
-    configured(env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN) || env.VERCEL === "1",
-  );
+  const gatewayPlatformConfigured = configured(env.AI_GATEWAY_API_KEY);
   const gatewayGeminiConfigured =
     String(env.INSTACOMP_GATEWAY_GEMINI_DISABLED || "").trim().toLowerCase() !== "true" &&
     gatewayPlatformConfigured;

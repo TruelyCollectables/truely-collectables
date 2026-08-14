@@ -132,15 +132,15 @@ function safeTokenEqual(left: string, right: string) {
 
 function authorizeBenchmark(request: NextRequest) {
   const expected = clean(process.env.INSTACOMP_BENCHMARK_TOKEN);
-  const environment = clean(process.env.VERCEL_ENV);
+  const environment = clean(process.env.TCOS_DEPLOYMENT_ENV || process.env.NODE_ENV);
   const authorization = request.headers.get("authorization") || "";
   const supplied = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || "";
 
-  if (environment !== "preview") {
+  if (environment !== "preview" && process.env.TCOS_ENABLE_BENCHMARKS !== "true") {
     return json(
       {
         ok: false,
-        error: "The eBay benchmark is disabled outside a Vercel preview deployment.",
+        error: "The eBay benchmark is disabled outside an authorized preview environment.",
       },
       404,
     );

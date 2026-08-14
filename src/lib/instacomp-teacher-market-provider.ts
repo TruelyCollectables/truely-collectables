@@ -1,4 +1,3 @@
-import { getVercelOidcToken } from "@vercel/oidc";
 import type {
   InstaCompAiResult,
   InstaCompComp,
@@ -25,17 +24,15 @@ const XAI_API_KEY = String(process.env.XAI_API_KEY || "").trim();
 const GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();
 const PERPLEXITY_API_KEY = String(process.env.PERPLEXITY_API_KEY || "").trim();
 const AI_GATEWAY_TOKEN = String(
-  process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN || "",
+  process.env.AI_GATEWAY_API_KEY || "",
 ).trim();
 
 function gatewayPlatformAvailable() {
-  return Boolean(AI_GATEWAY_TOKEN || process.env.VERCEL === "1");
+  return Boolean(AI_GATEWAY_TOKEN);
 }
 
 async function gatewayBearerToken() {
-  if (AI_GATEWAY_TOKEN) return AI_GATEWAY_TOKEN;
-  if (process.env.VERCEL !== "1") return "";
-  return String(await getVercelOidcToken()).trim();
+  return AI_GATEWAY_TOKEN;
 }
 const DIRECT_GEMINI_DISABLED =
   String(process.env.INSTACOMP_TEACHER_GEMINI_DISABLED || "").trim().toLowerCase() === "true";

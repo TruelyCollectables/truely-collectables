@@ -42,7 +42,7 @@ require_command() {
   fi
 }
 
-for command_name in curl launchctl plutil openssl python3 npx git ps awk sed; do
+for command_name in curl launchctl plutil openssl python3 git ps awk sed; do
   require_command "$command_name"
 done
 
@@ -143,7 +143,7 @@ local_key="$(read_env_value "$env_file" INSTACOMP_AI_API_KEY)"
 if [[ -z "$local_key" || ! "$local_key" =~ ^[0-9a-fA-F]{64}$ ]]; then
   local_key="$(generate_secret)"
 fi
-[[ "$local_key" =~ ^[0-9a-fA-F]{64}$ ]] || fail "Could not create the 256-bit Mac/Vercel shared key"
+[[ "$local_key" =~ ^[0-9a-fA-F]{64}$ ]] || fail "Could not create the 256-bit Mac/Cloudflare shared key"
 
 archive_token="$(read_env_value "$env_file" INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN)"
 if [[ -z "$archive_token" || ! "$archive_token" =~ ^[0-9a-fA-F]{64}$ ]]; then
@@ -282,23 +282,6 @@ launchctl bootstrap "$domain" "$tunnel_plist"
 launchctl kickstart -k "${domain}/${tunnel_label}"
 pass "Cloudflare tunnel LaunchAgent installed"
 
-info "Synchronizing Vercel connection settings"
-set_vercel_env() {
-  local name="$1"
-  local value="$2"
-  local environment="$3"
-  local sensitivity="$4"
-  if [[ "$sensitivity" == "sensitive" ]]; then
-    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force --sensitive >/dev/null
-  else
-    printf '%s' "$value" | npx vercel env add "$name" "$environment" --force >/dev/null
-  fi
-}
-set_vercel_env INSTACOMP_AI_LOCAL_URL "$tunnel_url" production plain
-set_vercel_env INSTACOMP_AI_LOCAL_KEY "$local_key" production sensitive
-set_vercel_env INSTACOMP_SENTINEL_ARCHIVE_TOKEN "$archive_token" production sensitive
-pass "Vercel Production tunnel URL and dedicated keys synchronized"
-
 info "Restarting InstaComp AI"
 service_plist="$launch_agents/${service_label}.plist"
 if [[ ! -f "$service_plist" ]]; then
@@ -329,9 +312,6 @@ assert status.get("freeze_protection", {}).get("stale") is False, "Sentinel hear
 PY
 pass "Local service, scheduler, archive relay, and freeze protection healthy"
 
-info "Deploying website Production"
-npx vercel --prod --yes
-
 info "Verifying every network hop"
 for ((attempt=1; attempt<=60; attempt++)); do
   if curl -fsS --max-time 10 -H "X-InstaComp-AI-Key: $local_key" "${tunnel_url}/v1/checklist-sentinel/status" > "$tmp_dir/tunnel-status.json" 2>/dev/null; then
@@ -353,10 +333,10 @@ PY
   then
     break
   fi
-  [[ "$attempt" -lt 30 ]] || fail "Vercel cannot reach the Mac through the permanent tunnel"
+  [[ "$attempt" -lt 30 ]] || fail "Cloudflare Production cannot reach the Mac through the permanent tunnel. Verify the existing Worker secrets match the preserved Mac keys."
   sleep 3
 done
-pass "Vercel reaches the Mac"
+pass "Cloudflare Production reaches the Mac"
 
 archive_probe_url="${site_url}/api/instacomp/checklist-sentinel/import"
 curl -fsS --max-time 60 \

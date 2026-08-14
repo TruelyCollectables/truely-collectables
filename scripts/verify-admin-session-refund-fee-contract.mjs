@@ -29,9 +29,9 @@ const files = {
 };
 
 assert(
-  files.proxy.includes('hostname.endsWith(".vercel.app")') &&
+  files.proxy.includes('hostname !== "truelycollectables.com"') &&
     files.proxy.includes("canonicalAdminHostRedirect"),
-  "Admin browser routes must canonicalize Vercel aliases to the customer domain.",
+  "Admin browser routes must canonicalize non-production hosts to the customer domain.",
 );
 assert(
   files.proxy.includes(
