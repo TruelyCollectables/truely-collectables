@@ -353,10 +353,15 @@ for listing in artifact["aggregateListings"]:
     }
     candidate_rows.append([csv_value(values.get(header)) for header in CANDIDATE_HEADERS])
 
-if len(candidate_rows) != 476 or len(set(candidate_ids)) != 476:
+candidate_count = len(candidate_rows)
+if candidate_count != len(artifact["aggregateListings"]):
     raise SystemExit("Candidate reconciliation failed")
-if len({row[17] for row in candidate_rows}) != 476:
+if len(set(candidate_ids)) != candidate_count:
+    raise SystemExit("Candidate ID reconciliation failed")
+if len({row[17] for row in candidate_rows}) != candidate_count:
     raise SystemExit("Physical-copy key reconciliation failed")
+if int(artifact["summary"].get("globallyDeduplicatedListingCount", candidate_count)) != candidate_count:
+    raise SystemExit("Producer deduplicated listing count reconciliation failed")
 
 coverage_rows = []
 source_keys = []
@@ -426,16 +431,17 @@ source_keys.append("CollX Public Indexed|all card lanes|COMPLETE")
 if len(coverage_rows) != 52:
     raise SystemExit("Coverage reconciliation failed")
 
+summary = artifact["summary"]
 counts = {
-    "query_family_count": 51,
-    "source_count": 52,
-    "discovered_count": 583,
-    "deduplicated_count": 476,
+    "query_family_count": int(summary.get("successfulQueryFamilyCount", len(family_meta))),
+    "source_count": len(coverage_rows),
+    "discovered_count": int(summary.get("rawResultCount", candidate_count)),
+    "deduplicated_count": candidate_count,
     "verified_count": 0,
     "actionable_count": 0,
-    "manual_review_count": 476,
-    "suppressed_count": 476,
-    "error_count": 0,
+    "manual_review_count": candidate_count,
+    "suppressed_count": candidate_count,
+    "error_count": int(summary.get("failedQueryFamilyCount", 0)),
 }
 canonical = {
     "schema": "TCOS_HANDOFF_V1",
