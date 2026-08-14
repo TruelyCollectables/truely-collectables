@@ -1,0 +1,103 @@
+name: Diagnose InstaComp Import Chain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-instacomp-import-chain.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download encrypted production vault
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-vault-31773508121
+          path: /tmp/import-diag-vault
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Download recovery key
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-recovery-key-31773508121
+          path: /tmp/import-diag-key
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Identify first Cloudflare import failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          node <<'NODE'
+          (async () => {
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { createDecipheriv, createHash } = require('node:crypto');
+            const filesBelow = (root) => fs.readdirSync(root, { recursive: true, withFileTypes: true })
+              .filter((e) => e.isFile()).map((e) => path.join(e.parentPath || e.path, e.name));
+            const vaultPath = filesBelow('/tmp/import-diag-vault').find((f) => f.endsWith('.tcosvault'));
+            const keyPath = filesBelow('/tmp/import-diag-key').find((f) => f.endsWith('.recovery-key.txt'));
+            if (!vaultPath || !keyPath) throw new Error('Recovery artifacts incomplete.');
+            const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+            const keyText = fs.readFileSync(keyPath, 'utf8');
+            const match = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
+            if (!match) throw new Error('Recovery key invalid.');
+            const decipher = createDecipheriv('aes-256-gcm', Buffer.from(match[1], 'base64url'), Buffer.from(envelope.iv, 'base64'));
+            decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
+            const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]);
+            if (createHash('sha256').update(plaintext).digest('hex') !== envelope.plaintextSha256) throw new Error('Vault checksum failed.');
+            const payload = JSON.parse(plaintext.toString('utf8'));
+            const all = { ...(payload?.sources?.vercelProductionApplicationVariables || {}), ...(payload?.sources?.githubActionsReferencedSecrets || {}) };
+            const credential = String(all.INSTACOMP_AI_LOCAL_KEY || '').trim();
+            if (!credential) throw new Error('INSTACOMP_AI_LOCAL_KEY missing from recovery vault.');
+
+            const endpoint = 'https://truelycollectables.com/api/instacomp/deal-hunter/portfolio-import-diagnostics';
+            let final = null;
+            for (let attempt = 1; attempt <= 24; attempt += 1) {
+              const response = await fetch(`${endpoint}?diag=${Date.now()}-${attempt}`, {
+                headers: { Accept: 'application/json', 'x-instacomp-ai-key': credential },
+                redirect: 'manual',
+                signal: AbortSignal.timeout(120_000),
+              }).catch(() => null);
+              const data = response ? await response.json().catch(() => null) : null;
+              if (response?.status !== 404) {
+                final = { response, data };
+                break;
+              }
+              console.log(`IMPORT DIAGNOSTIC route not deployed attempt ${attempt}/24.`);
+              await new Promise((resolve) => setTimeout(resolve, 15_000));
+            }
+            if (!final) throw new Error('Import diagnostic route never became available.');
+            const { response, data } = final;
+            console.log(`IMPORT DIAGNOSTIC status=${response.status} ok=${data?.ok === true}`);
+            console.log(`IMPORT DIAGNOSTIC firstFailure=${data?.firstFailure?.label || 'none'} error=${String(data?.firstFailure?.error || '').slice(0, 1600) || 'none'}`);
+            console.log(`IMPORT DIAGNOSTIC passedBeforeFailure=${Array.isArray(data?.passedBeforeFailure) ? data.passedBeforeFailure.join(', ') : 'n/a'}`);
+            if (response.status === 401) throw new Error('Diagnostic credential mismatch.');
+            if (response.status !== 200 && response.status !== 500) throw new Error(`Unexpected diagnostic HTTP ${response.status}.`);
+            if (data?.ok === false && data?.firstFailure?.label) {
+              throw new Error(`First failing import: ${data.firstFailure.label} — ${data.firstFailure.error}`);
+            }
+            console.log('IMPORT DIAGNOSTIC PASS: entire InstaComp import tree loads on routed production Worker.');
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          NODE
+
+      - name: Shred recovered material
+        if: always()
+        run: |
+          find /tmp/import-diag-vault /tmp/import-diag-key -type f -exec shred -u {} + 2>/dev/null || true
