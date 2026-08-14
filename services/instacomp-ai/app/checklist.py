@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 from typing import Any, Protocol
 
 import httpx
@@ -29,8 +30,26 @@ def _bounded_ocr(value: str | None) -> str | None:
 
 
 def _registry_base_url() -> str | None:
-    value = os.getenv("INSTACOMP_AI_REGISTRY_URL", "").strip().rstrip("/")
-    return value or None
+    explicit = os.getenv("INSTACOMP_AI_REGISTRY_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+
+    # Older Mac installs predate INSTACOMP_AI_REGISTRY_URL but already carry the
+    # central Sentinel import URL. Recover only its HTTPS origin; never retain
+    # credentials, paths, query strings, or fragments from the fallback value.
+    central = os.getenv("INSTACOMP_AI_SENTINEL_CENTRAL_IMPORT_URL", "").strip()
+    if central:
+        try:
+            parsed = urlsplit(central)
+        except ValueError:
+            parsed = None
+        if parsed and parsed.scheme == "https" and parsed.netloc:
+            return f"https://{parsed.netloc}".rstrip("/")
+
+    # Truely Collectables is this service's canonical central Registry. Keeping
+    # the project default here prevents an upgraded existing .env from silently
+    # losing Registry authority just because the newer key was absent.
+    return "https://truelycollectables.com"
 
 
 def _registry_headers() -> dict[str, str]:
@@ -44,6 +63,14 @@ def _registry_headers() -> dict[str, str]:
         # the dedicated internal-service header expected by the website route.
         headers["authorization"] = f"Bearer {token}"
         headers["x-tcos-instacomp-service-token"] = token
+        return headers
+
+    # The Mac and central site already share a dedicated Sentinel credential.
+    # Use it only as a read-only Registry-lock authentication fallback so older
+    # installs do not require another manually synchronized secret.
+    archive_token = os.getenv("INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN", "").strip()
+    if archive_token:
+        headers["x-instacomp-sentinel-archive-token"] = archive_token
     return headers
 
 
