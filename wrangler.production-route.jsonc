@@ -1,3 +1,4 @@
+// Production routed Worker. Touching this file intentionally runs the guarded Cloudflare release.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "truely-collectables-preview",
