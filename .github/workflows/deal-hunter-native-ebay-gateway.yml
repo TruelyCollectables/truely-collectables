@@ -5,9 +5,14 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deal-hunter-native-ebay-gateway.yml"
+      - "connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs"
+      - "connectors/tcos-market-intel-mcp/src/public-search.mjs"
       - "src/app/api/tcos/deal-hunter-native-ebay/route.js"
+      - "src/app/api/tcos/deal-hunter-michkov-opc-platinum/route.js"
       - "src/lib/deal-hunter-ebay-query-families.js"
+      - "scripts/run-deal-hunter-cloudflare-fetch-contracts.mjs"
       - "scripts/run-deal-hunter-native-ebay-route-contracts.mjs"
+      - "scripts/run-truely-deal-hunter-producer.mjs"
 
 permissions:
   contents: read
@@ -53,7 +58,9 @@ jobs:
         run: npm ci
 
       - name: Verify fixed query and screening contracts
-        run: node scripts/run-deal-hunter-native-ebay-route-contracts.mjs
+        run: |
+          node scripts/run-deal-hunter-native-ebay-route-contracts.mjs
+          node scripts/run-deal-hunter-cloudflare-fetch-contracts.mjs
 
       - name: Lint TypeScript and Production build
         run: |

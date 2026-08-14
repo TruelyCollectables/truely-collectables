@@ -61,8 +61,16 @@ async function mintApplicationToken() {
       },
       body,
       signal: controller.signal,
-      redirect: "error",
+      // Cloudflare Workers supports only `follow` and `manual`. Keep this
+      // credential-bearing request fail-closed by observing redirects without
+      // following them, then rejecting every 3xx response below.
+      redirect: "manual",
     });
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error(
+        `eBay application token redirect refused (HTTP ${response.status}).`,
+      );
+    }
     const text = await response.text();
     let payload = {};
     try {

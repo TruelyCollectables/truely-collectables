@@ -1,4 +1,4 @@
-// @ts-ignore Cloudflare adapter is installed ephemerally in the Cloudflare build pipeline.
+// @ts-expect-error Cloudflare adapter is installed ephemerally in the Cloudflare build pipeline.
 import { defineCloudflareConfig } from "@opennextjs/cloudflare";
 
 /**
