@@ -154,10 +154,12 @@ export async function getClientIdentity(request: Request): Promise<ClientIdentit
     };
   }
 
-  const isCloudflareEdgeRequest = Boolean(
-    request.headers.get("cf-ray") || request.headers.get("cf-connecting-ip"),
+  const isCloudflareRuntime = Boolean(
+    globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__ ||
+      request.headers.get("cf-ray") ||
+      request.headers.get("cf-connecting-ip"),
   );
-  const intelligence = isCloudflareEdgeRequest
+  const intelligence = isCloudflareRuntime
     ? { observedRisk: "cloudflare_edge_bypass", verified: false }
     : await checkIpIntelligence(ipAddress);
 
