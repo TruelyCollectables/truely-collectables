@@ -35,9 +35,13 @@ def main() -> int:
     )
 
     inventory_import.SupabaseReader = reader_class
-    import sync_all_inventory_training_truth_v2 as target
+    import sync_all_inventory_training_truth_v3 as target
 
-    target.SupabaseReader = reader_class
+    # v3 delegates the audited census/import loop to v2, so bind the snapshot
+    # reader on the delegated module as well. This keeps the standard guarded
+    # full-corpus path on the authoritative encrypted snapshot while enabling
+    # v3 retry/quarantine completion policy.
+    target.v2.SupabaseReader = reader_class
     return target.main()
 
 
