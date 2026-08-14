@@ -20,6 +20,7 @@ REST_TRANSIENT_HTTP = {
     408, 425, 429, 500, 502, 503, 504,
     520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 544,
 }
+INTEGER_ID_TABLES = {"products"}
 _sleep = time.sleep
 
 
@@ -101,6 +102,29 @@ def _retry_delay_seconds(attempt: int, headers: Any | None = None) -> float:
     return min(0.75 * (2 ** max(0, attempt - 1)), 12.0)
 
 
+def _canonical_id(value: object, *, table: str) -> str:
+    raw = str(value).strip()
+    if table in INTEGER_ID_TABLES:
+        try:
+            parsed = int(raw)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(f"Supabase REST {table} returned a non-integer id") from exc
+        if parsed < 0:
+            raise RuntimeError(f"Supabase REST {table} returned a negative id")
+        return str(parsed)
+    try:
+        return str(uuid.UUID(raw))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise RuntimeError(f"Supabase REST {table} returned a non-UUID id") from exc
+
+
+def _id_order_value(value: object, *, table: str) -> int:
+    canonical = _canonical_id(value, table=table)
+    if table in INTEGER_ID_TABLES:
+        return int(canonical)
+    return uuid.UUID(canonical).int
+
+
 def _rest_get_page(
     ref: str,
     server_key: str,
@@ -115,7 +139,7 @@ def _rest_get_page(
         "limit": str(int(page_size)),
     }
     if last_id is not None:
-        params["id"] = f"gt.{uuid.UUID(str(last_id))}"
+        params["id"] = f"gt.{_canonical_id(last_id, table=table)}"
     url = f"https://{ref}.supabase.co/rest/v1/{table}?{urllib.parse.urlencode(params)}"
     headers = _supabase_rest_headers(server_key)
 
@@ -171,13 +195,6 @@ def _rest_get_page(
     raise RuntimeError(f"Supabase REST {table} unexpectedly exhausted retries")
 
 
-def _uuid_int(value: object, *, table: str) -> int:
-    try:
-        return uuid.UUID(str(value)).int
-    except (ValueError, TypeError, AttributeError) as exc:
-        raise RuntimeError(f"Supabase REST {table} returned a non-UUID id") from exc
-
-
 def _fetch_rest_table(
     ref: str,
     server_key: str,
@@ -188,7 +205,7 @@ def _fetch_rest_table(
     rows: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     last_id: str | None = None
-    last_uuid_int: int | None = None
+    last_order_value: int | None = None
 
     while True:
         page = _rest_get_page(
@@ -199,18 +216,19 @@ def _fetch_rest_table(
             page_size=page_size,
         )
         for row in page:
-            row_id = str(row.get("id") or "").strip()
-            if not row_id:
+            raw_id = row.get("id")
+            if raw_id is None or str(raw_id).strip() == "":
                 raise RuntimeError(f"Supabase REST {table} returned a row without id")
-            current_uuid_int = _uuid_int(row_id, table=table)
-            if last_uuid_int is not None and current_uuid_int <= last_uuid_int:
+            row_id = _canonical_id(raw_id, table=table)
+            current_order_value = _id_order_value(row_id, table=table)
+            if last_order_value is not None and current_order_value <= last_order_value:
                 raise RuntimeError(f"Supabase REST {table} keyset order is not strictly increasing")
             if row_id in seen_ids:
                 raise RuntimeError(f"Supabase REST {table} returned duplicate id {row_id}")
             seen_ids.add(row_id)
             rows.append(row)
             last_id = row_id
-            last_uuid_int = current_uuid_int
+            last_order_value = current_order_value
 
         print(
             f"SNAPSHOT REST table={table} rows={len(rows)} page={len(page)}",
@@ -243,7 +261,7 @@ def _build_snapshot_via_rest(token: str, ref: str) -> dict[str, Any]:
     # Management database/query is intentionally not used here. It is currently
     # failing even for information_schema reads with HTTP 544 connection timeouts.
     # Management API remains only for project/key discovery; table reads use the
-    # authenticated Production Data API with deterministic UUID keyset pagination.
+    # authenticated Production Data API with deterministic type-aware keyset pagination.
     server_key = _resolve_snapshot_encryption_key(token, ref)
 
     raw_items = _fetch_rest_table(ref, server_key, "inventory_items")
@@ -295,7 +313,7 @@ def _build_snapshot_via_rest(token: str, ref: str) -> dict[str, Any]:
     return {
         "schema_version": target.SNAPSHOT_SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "source": "supabase_authenticated_rest_uuid_keyset_v1",
+        "source": "supabase_authenticated_rest_type_aware_keyset_v2",
         "source_git_sha": __import__("os").environ.get("GITHUB_SHA"),
         "row_counts": row_counts,
         "collx_inventory_rows": collx_rows,
