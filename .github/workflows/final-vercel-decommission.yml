@@ -81,7 +81,7 @@ jobs:
           }
 
           probe_cloudflare '/' '200'
-          probe_cloudflare '/products' '200'
+          probe_cloudflare '/shop' '200'
 
           worker="$(mktemp)"
           code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$worker" -w '%{http_code}' \
@@ -174,7 +174,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /products; do
+          for path in / /shop; do
             headers="$(mktemp)"
             code="$(curl -sS --connect-timeout 10 --max-time 45 -D "$headers" -o /dev/null -w '%{http_code}' "$PRODUCTION_ORIGIN$path")"
             origin="$(awk 'BEGIN{IGNORECASE=1} /^x-truely-origin:/ {gsub(/\r/, "", $2); print $2}' "$headers" | tail -1)"
