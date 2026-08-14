@@ -62,7 +62,7 @@ jobs:
           domains="$(mktemp)"
           code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$domains" -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains?hostname=truelycollectables.com&service=truely-collectables")"
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains?hostname=truelycollectables.com")"
           echo "CLOUDFLARE_DOMAIN_LOOKUP_HTTP=$code"
           [ "$code" = '200' ]
           jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com")' "$domains" >/dev/null
@@ -196,7 +196,7 @@ jobs:
           domains="$(mktemp)"
           code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$domains" -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains?hostname=truelycollectables.com&service=truely-collectables")"
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains?hostname=truelycollectables.com")"
           echo "POST_DELETE_CLOUDFLARE_DOMAIN_HTTP=$code"
           [ "$code" = '200' ]
           jq -e '.success == true and any(.result[]?; .hostname == "truelycollectables.com")' "$domains" >/dev/null
