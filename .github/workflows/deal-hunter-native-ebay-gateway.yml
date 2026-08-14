@@ -7,6 +7,7 @@ on:
       - ".github/workflows/deal-hunter-native-ebay-gateway.yml"
       - "connectors/tcos-market-intel-mcp/src/ebay-application-token.mjs"
       - "connectors/tcos-market-intel-mcp/src/public-search.mjs"
+      - "scripts/apply-ebay-browse-auto-token.mjs"
       - "src/app/api/tcos/deal-hunter-native-ebay/route.js"
       - "src/app/api/tcos/deal-hunter-michkov-opc-platinum/route.js"
       - "src/lib/deal-hunter-ebay-query-families.js"

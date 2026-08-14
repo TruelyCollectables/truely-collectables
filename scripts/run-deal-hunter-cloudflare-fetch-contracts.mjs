@@ -102,6 +102,14 @@ try {
   assert.match(producerSource, /for \(const host of \[PRIMARY_HOST\]\)/);
   assert.doesNotMatch(producerSource, /FAILOVER_HOST/);
 
+  const materializerSource = await fs.readFile(
+    new URL("./apply-ebay-browse-auto-token.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(materializerSource, /redirect: \"manual\"/);
+  assert.match(materializerSource, /eBay Browse redirect refused/);
+  assert.doesNotMatch(materializerSource, /^\s*redirect: \"error\",?$/m);
+
   console.log(
     JSON.stringify(
       {
