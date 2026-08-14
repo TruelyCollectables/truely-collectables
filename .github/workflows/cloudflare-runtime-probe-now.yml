@@ -16,99 +16,100 @@ concurrency:
 
 env:
   PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
-  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
-  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  WORKER_NAME: truely-collectables-preview
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
 jobs:
-  probe-current-preview:
+  probe-instacomp:
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: Probe current deployed Cloudflare runtime
+      - name: Require existing credentials
         shell: bash
         run: |
           set -euo pipefail
-          curl -sS --max-time 65 -D /tmp/probe.headers \
-            "$PREVIEW_URL/api/internal/cloudflare-product-runtime-probe" \
-            -o /tmp/probe.json -w '%{http_code}' > /tmp/probe.status
-          cat /tmp/probe.json
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN VERCEL_TOKEN; do
+            test -n "${!key:-}" || { echo "Missing $key"; exit 2; }
+          done
+
+      - name: Probe Cloudflare InstaComp readiness endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --max-time 20 -D /tmp/readiness.headers \
+            -o /tmp/readiness.json -w '%{http_code} %{time_total}' \
+            "$PREVIEW_URL/api/instacomp/internal-readiness" || true)
+          echo "Cloudflare InstaComp readiness -> $code"
+          origin=$(awk 'BEGIN{IGNORECASE=1} /^x-truely-origin:/ {gsub("\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' /tmp/readiness.headers || true)
+          echo "Origin proof: ${origin:-missing}"
+          cat /tmp/readiness.json || true
           echo
-          echo "HTTP $(cat /tmp/probe.status)"
-          grep -qi '^x-truely-origin: cloudflare-worker' /tmp/probe.headers || {
-            echo 'Missing Cloudflare origin proof'
-            exit 20
-          }
 
-  probe-supabase-direct:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 3
-    steps:
-      - name: Resolve production Supabase service key without printing it
+      - name: Inspect Cloudflare binding names and types only
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${SUPABASE_ACCESS_TOKEN:-}"
-          curl -sS --fail-with-body --max-time 20 \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            -H 'Accept: application/json' \
-            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys?reveal=true" \
-            -o /tmp/keys.json
-          node <<'NODE'
-          const fs = require('node:fs');
-          const keys = JSON.parse(fs.readFileSync('/tmp/keys.json','utf8'));
-          const service = keys.find(k => String(k?.name||'').toLowerCase() === 'service_role' && k?.api_key)?.api_key
-            || keys.find(k => String(k?.type||'').toLowerCase() === 'secret' && k?.api_key)?.api_key;
-          if (!service) throw new Error('Supabase service key unavailable');
-          console.log(`::add-mask::${service}`);
-          fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY=${service}\n`);
-          NODE
-
-      - name: Query exact storefront product directly from Supabase REST
-        shell: bash
-        run: |
-          set -euo pipefail
-          base="https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1/products"
-          url="$base?select=id%2Ctitle%2Cprice%2Cquantity%2Cimage_url&store_id=eq.00000000-0000-4000-8000-000000000001&id=eq.1991&limit=1"
           status=$(curl -sS --max-time 20 \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H 'Accept: application/json' \
-            -o /tmp/product.json -w '%{http_code} %{time_total}' "$url")
-          echo "Direct Supabase product -> $status"
-          head -c 1000 /tmp/product.json || true
-          echo
+            -o /tmp/settings.json -w '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/settings")
+          echo "Cloudflare Worker settings -> HTTP $status"
+          test "$status" = "200"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/settings.json','utf8'));
+          const bindings = Array.isArray(body?.result?.bindings) ? body.result.bindings : [];
+          const wanted = ['INSTACOMP_AI_LOCAL_URL','EBAY_CLIENT_ID','EBAY_CLIENT_SECRET','STRIPE_SECRET_KEY','CRON_SECRET'];
+          for (const name of wanted) {
+            const b = bindings.find(x => x?.name === name);
+            console.log(`${name}: ${b ? `present (${b.type || 'unknown'})` : 'MISSING'}`);
+          }
+          NODE
 
-  inspect-supabase-control-plane:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 3
-    steps:
-      - name: Read project status and Data API configuration
+      - name: Pull current Truely Vercel production environment
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${SUPABASE_ACCESS_TOKEN:-}"
-          auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
-          base="https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF"
+          npx --yes vercel@56.2.0 link --yes \
+            --project "$VERCEL_PROJECT_NAME" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --no-color >/dev/null
+          umask 077
+          npx --yes vercel@56.2.0 env pull .env.production.local \
+            --environment=production \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --yes --no-color >/dev/null
+          test -s .env.production.local
 
-          project_status=$(curl -sS --max-time 20 -H "$auth" -H 'Accept: application/json' \
-            -o /tmp/project.json -w '%{http_code}' "$base")
-          postgrest_status=$(curl -sS --max-time 20 -H "$auth" -H 'Accept: application/json' \
-            -o /tmp/postgrest.json -w '%{http_code}' "$base/postgrest")
-          context_status=$(curl -sS --max-time 20 -H "$auth" -H 'Accept: application/json' \
-            -o /tmp/context.json -w '%{http_code}' "$base/database/context")
-
+      - name: Probe configured InstaComp engine without printing its URL
+        shell: bash
+        run: |
+          set -euo pipefail
           node <<'NODE'
           const fs = require('node:fs');
-          const read = p => { try { return JSON.parse(fs.readFileSync(p,'utf8')); } catch { return null; } };
-          const project = read('/tmp/project.json');
-          const postgrest = read('/tmp/postgrest.json');
-          const context = read('/tmp/context.json');
-          console.log('Project status:', project?.status || 'unavailable');
-          console.log('PostgREST db_schema:', postgrest?.db_schema || 'unavailable');
-          console.log('PostgREST extra search path:', postgrest?.db_extra_search_path || 'unavailable');
-          const schemas = Array.isArray(context?.databases)
-            ? [...new Set(context.databases.flatMap(db => Array.isArray(db?.schemas) ? db.schemas.map(s => s?.name).filter(Boolean) : []))].sort()
-            : [];
-          console.log('Database schemas:', schemas.length ? schemas.join(',') : 'unavailable');
+          const text = fs.readFileSync('.env.production.local','utf8');
+          const row = text.split(/\r?\n/).find(line => line.startsWith('INSTACOMP_AI_LOCAL_URL='));
+          if (!row) { console.log('Vercel INSTACOMP_AI_LOCAL_URL: MISSING'); process.exit(3); }
+          let value = row.slice(row.indexOf('=') + 1).trim();
+          try { value = JSON.parse(value); } catch {}
+          value = String(value || '').trim().replace(/\/$/, '');
+          if (!value) { console.log('Vercel INSTACOMP_AI_LOCAL_URL: EMPTY'); process.exit(4); }
+          console.log('Vercel INSTACOMP_AI_LOCAL_URL: present');
+          console.log(`::add-mask::${value}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `INSTACOMP_PROBE_URL=${value}/api/health/inventory\n`);
           NODE
-          echo "Control-plane HTTP: project=$project_status postgrest=$postgrest_status context=$context_status"
+          result=$(curl -sS --max-time 20 -o /tmp/engine.json -w '%{http_code} %{time_total}' "$INSTACOMP_PROBE_URL" || true)
+          echo "Direct InstaComp health -> $result"
+          head -c 2000 /tmp/engine.json || true
+          echo
+
+      - name: Cleanup
+        if: always()
+        run: rm -f .env.production.local /tmp/readiness.headers /tmp/readiness.json /tmp/settings.json /tmp/engine.json
