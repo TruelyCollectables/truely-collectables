@@ -158,28 +158,6 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     );
   }
 
-  private async resolveInventoryItemId(product: any) {
-    let query = this.publicDatabase
-      .from("inventory_items")
-      .select("id")
-      .eq("store_id", this.publicStoreId)
-      .eq("legacy_product_id", Number(product.id));
-
-    const sku = String(product.sku || "").trim();
-    if (sku) {
-      query = query.eq("sku", sku);
-    }
-
-    const { data, error } = await query
-      .order("created_at", { ascending: true })
-      .limit(1);
-
-    if (error) throw error;
-
-    const inventoryItemId = data?.[0]?.id;
-    return inventoryItemId ? String(inventoryItemId) : null;
-  }
-
   async listAvailable(
     params: {
       query?: string;
@@ -229,7 +207,10 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   }
 
   async getByLegacyProductId(legacyProductId: number) {
-    const { data, error } = await this.publicDatabase
+    // The public product row and its inventory-item identity are independent
+    // lookups once the legacy id is known. Run them together so a slow
+    // PostgREST round trip cannot make the product route pay the latency twice.
+    const productRequest = this.publicDatabase
       .from("products")
       .select(PUBLIC_PRODUCT_COLUMNS)
       .eq("store_id", this.publicStoreId)
@@ -240,12 +221,37 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       .is("archived_at", null)
       .maybeSingle();
 
+    const inventoryRequest = this.publicDatabase
+      .from("inventory_items")
+      .select("id,sku")
+      .eq("store_id", this.publicStoreId)
+      .eq("legacy_product_id", legacyProductId)
+      .order("created_at", { ascending: true })
+      .limit(100);
+
+    const [productResult, inventoryResult] = await Promise.all([
+      productRequest,
+      inventoryRequest,
+    ]);
+
+    const { data, error } = productResult;
     if (error) throw error;
     if (!data) return null;
 
+    if (inventoryResult.error) throw inventoryResult.error;
+
+    const productSku = String(data.sku || "").trim();
+    const inventoryRows = inventoryResult.data || [];
+    const inventoryMatch = productSku
+      ? inventoryRows.find((row: any) => String(row.sku || "") === productSku)
+      : inventoryRows[0];
+    const inventoryItemId = inventoryMatch?.id
+      ? String(inventoryMatch.id)
+      : null;
+
     const item = {
       ...enforceStrictStorefrontFeatures(mapPublicProductRow(data)),
-      inventoryItemId: await this.resolveInventoryItemId(data),
+      inventoryItemId,
     };
 
     return item && isPublicStorefrontItem(item) ? item : null;
