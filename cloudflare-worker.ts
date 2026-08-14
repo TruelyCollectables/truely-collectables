@@ -31,6 +31,8 @@ const cronJobs = [
 
 type WorkerEnv = {
   CRON_SECRET: string;
+  INSTACOMP_AI_LOCAL_URL?: string;
+  INSTACOMP_AI_LOCAL_KEY?: string;
   WORKER_SELF_REFERENCE: {
     fetch(request: Request): Promise<Response>;
   };
@@ -44,6 +46,146 @@ type ScheduledControllerLike = {
 type ExecutionContextLike = {
   waitUntil(promise: Promise<unknown>): void;
 };
+
+function withCloudflareOrigin(response: Response) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Truely-Origin", "cloudflare-worker");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function readinessJson(payload: Record<string, unknown>, status: number) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "private, no-store, max-age=0",
+      "X-Content-Type-Options": "nosniff",
+      "X-Truely-Origin": "cloudflare-worker",
+    },
+  });
+}
+
+async function cloudflareInstaCompReadiness(env: WorkerEnv) {
+  const baseUrl = String(env.INSTACOMP_AI_LOCAL_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(baseUrl)) {
+    return readinessJson(
+      {
+        ok: false,
+        configured: false,
+        reachable: false,
+        dnsResolved: false,
+        internalMemoryReady: false,
+        checklistReady: false,
+        localModelReady: false,
+        runtimeSourceFingerprint: null,
+        architecture: ["instacomp_ai"],
+        reason: "internal_engine_url_not_configured",
+      },
+      503,
+    );
+  }
+
+  const nativeFetch = globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
+  if (typeof nativeFetch !== "function") {
+    return readinessJson(
+      {
+        ok: false,
+        configured: true,
+        reachable: false,
+        dnsResolved: false,
+        internalMemoryReady: false,
+        checklistReady: false,
+        localModelReady: false,
+        runtimeSourceFingerprint: null,
+        architecture: ["instacomp_ai"],
+        reason: "cloudflare_native_fetch_unavailable",
+      },
+      503,
+    );
+  }
+
+  const headers = new Headers({ Accept: "application/json" });
+  const key = String(env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  if (key) headers.set("X-InstaComp-AI-Key", key);
+
+  try {
+    const response = await nativeFetch(`${baseUrl}/health`, {
+      headers,
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const health = (await response.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+
+    if (!response.ok || !health) {
+      return readinessJson(
+        {
+          ok: false,
+          configured: true,
+          reachable: true,
+          dnsResolved: true,
+          internalMemoryReady: false,
+          checklistReady: false,
+          localModelReady: false,
+          runtimeSourceFingerprint: null,
+          architecture: ["instacomp_ai"],
+          reason: `internal_health_http_${response.status}`,
+        },
+        503,
+      );
+    }
+
+    const internalMemoryReady = health.database === "ready";
+    const checklistReady = health.checklist === "ready";
+    const localModelReady = internalMemoryReady && checklistReady;
+    return readinessJson(
+      {
+        ok: localModelReady,
+        configured: true,
+        reachable: true,
+        dnsResolved: true,
+        internalMemoryReady,
+        checklistReady,
+        localModelReady,
+        app: typeof health.app === "string" ? health.app : "InstaComp AI",
+        version: typeof health.version === "string" ? health.version : null,
+        runtimeSourceFingerprint: null,
+        architecture: ["instacomp_ai"],
+        reason: localModelReady ? null : "internal_engine_not_fully_ready",
+      },
+      localModelReady ? 200 : 503,
+    );
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "unknown";
+    return readinessJson(
+      {
+        ok: false,
+        configured: true,
+        reachable: false,
+        dnsResolved: true,
+        internalMemoryReady: false,
+        checklistReady: false,
+        localModelReady: false,
+        runtimeSourceFingerprint: null,
+        architecture: ["instacomp_ai"],
+        reason:
+          name === "TimeoutError" || name === "AbortError"
+            ? "internal_engine_health_timeout"
+            : "internal_engine_health_unreachable",
+        networkErrorName: name,
+      },
+      503,
+    );
+  }
+}
 
 function fieldMatches(value: number, field: string, sundayAlias = false): boolean {
   return field.split(",").some((rawPart) => {
@@ -114,14 +256,15 @@ async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
 
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
-    const response = await handler.fetch(request, env, ctx);
-    const headers = new Headers(response.headers);
-    headers.set("X-Truely-Origin", "cloudflare-worker");
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
+    const url = new URL(request.url);
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/instacomp/internal-readiness"
+    ) {
+      return cloudflareInstaCompReadiness(env);
+    }
+
+    return withCloudflareOrigin(await handler.fetch(request, env, ctx));
   },
 
   async scheduled(
