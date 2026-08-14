@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
       - "open-next.config.ts"
+      - "wrangler.jsonc"
+      - "wrangler.production-route.jsonc"
   workflow_dispatch:
 
 permissions:
@@ -147,11 +149,40 @@ jobs:
           process.exit(result.status ?? 1);
           NODE
 
-      - name: Deploy current main to the production Worker
+      - name: Validate scheduler and routed Worker split
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const scheduler = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const routed = JSON.parse(fs.readFileSync('wrangler.production-route.jsonc', 'utf8'));
+          if (scheduler.name !== 'truely-collectables') {
+            throw new Error(`Unexpected scheduler Worker: ${scheduler.name}`);
+          }
+          if (routed.name !== 'truely-collectables-preview') {
+            throw new Error(`Unexpected routed production Worker: ${routed.name}`);
+          }
+          if (!scheduler.triggers?.crons?.length) {
+            throw new Error('Scheduler Worker must retain its cron trigger.');
+          }
+          if (routed.triggers?.crons?.length) {
+            throw new Error('Routed production Worker must not have cron triggers.');
+          }
+          console.log('Cloudflare target split validated: scheduler + routed production Worker.');
+          NODE
+
+      - name: Deploy current main to scheduler Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx --no-install wrangler deploy --config wrangler.jsonc --keep-vars
+
+      - name: Deploy current main to routed production Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --no-install wrangler deploy --config wrangler.production-route.jsonc --keep-vars
 
       - name: Verify routed Deal Hunter execution
         shell: bash
