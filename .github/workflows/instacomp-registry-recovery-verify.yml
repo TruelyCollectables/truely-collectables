@@ -1,0 +1,101 @@
+name: InstaComp Registry Recovery Verify
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-registry-recovery-verify.yml"
+      - "services/instacomp-ai/app/checklist.py"
+      - "src/app/api/instacomp/registry-lock/route.ts"
+      - "src/lib/instacomp-registry-lock-request.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-registry-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Verify Mac Registry endpoint and credential fallback
+        run: |
+          set -euo pipefail
+          python -m py_compile services/instacomp-ai/app/checklist.py services/instacomp-ai/app/authoritative_registry_gateway.py
+          PYTHONPATH=services/instacomp-ai python - <<'PY'
+          import os
+          from app.checklist import _registry_base_url, _registry_headers
+
+          for key in (
+              "INSTACOMP_AI_REGISTRY_URL",
+              "INSTACOMP_AI_SENTINEL_CENTRAL_IMPORT_URL",
+              "INSTACOMP_AI_REGISTRY_TOKEN",
+              "INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN",
+          ):
+              os.environ.pop(key, None)
+          assert _registry_base_url() == "https://truelycollectables.com"
+
+          os.environ["INSTACOMP_AI_SENTINEL_CENTRAL_IMPORT_URL"] = "https://example.com/api/instacomp/checklist-sentinel/import"
+          assert _registry_base_url() == "https://example.com"
+
+          os.environ["INSTACOMP_AI_REGISTRY_URL"] = "https://registry.example.test/"
+          assert _registry_base_url() == "https://registry.example.test"
+
+          os.environ["INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN"] = "archive-secret"
+          headers = _registry_headers()
+          assert headers["x-instacomp-sentinel-archive-token"] == "archive-secret"
+          assert "authorization" not in headers
+
+          os.environ["INSTACOMP_AI_REGISTRY_TOKEN"] = "registry-secret"
+          headers = _registry_headers()
+          assert headers["authorization"] == "Bearer registry-secret"
+          assert headers["x-tcos-instacomp-service-token"] == "registry-secret"
+          assert "x-instacomp-sentinel-archive-token" not in headers
+          print("PASS Mac Registry URL/auth fallback")
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify Registry probe sanitizes unsupported Silver hallucination
+        run: |
+          set -euo pipefail
+          node --import tsx - <<'TS'
+          import { buildInstaCompRegistryLockProbe } from "./src/lib/instacomp-registry-lock-request.ts";
+
+          const sonia = buildInstaCompRegistryLockProbe({
+            year: "2025",
+            brand: "Prizm",
+            setName: "2025 Panini Prizm WNBA - Silver Prizms",
+            cardNumber: "22",
+            player: "Sonia Citron",
+            parallel: null,
+            ocrText: "SONIA CITRON ROOKIE PRIZ PRZN RC CARD 22 WASHINGTON MYSTICS",
+          });
+          if (sonia.setName !== "Prizm") throw new Error(`expected Prizm, got ${sonia.setName}`);
+
+          const supportedSilver = buildInstaCompRegistryLockProbe({
+            brand: "Prizm",
+            setName: "2025 Panini Prizm WNBA - Silver Prizms",
+            parallel: "Silver",
+            ocrText: "SILVER PRIZM",
+          });
+          if (supportedSilver.setName !== "2025 Panini Prizm WNBA - Silver Prizms") {
+            throw new Error("supported Silver evidence was incorrectly stripped");
+          }
+          console.log("PASS Registry set-name evidence sanitizer");
+          TS
+
+      - name: TypeScript check
+        run: npx tsc --noEmit --pretty false
