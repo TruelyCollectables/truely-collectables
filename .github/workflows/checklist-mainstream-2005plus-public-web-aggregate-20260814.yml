@@ -1,0 +1,95 @@
+name: Checklist Mainstream 2005 Plus Public Web Aggregate 20260814
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-mainstream-2005plus-public-web-aggregate-20260814.yml'
+      - 'scripts/aggregate-mainstream-2005plus-public-web.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: checklist-mainstream-2005plus-public-web-aggregate-20260814
+  cancel-in-progress: true
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      SOURCE_RUN_ID: '31843569171'
+      EXPECTED_SHARDS: '64'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Wait for all 64 source shards and artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          for attempt in $(seq 1 300); do
+            jobs_json="$(gh api "repos/$repo/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100")"
+            total_jobs="$(jq -r '.total_count' <<<"$jobs_json")"
+            completed_jobs="$(jq -r '[.jobs[] | select(.status == "completed")] | length' <<<"$jobs_json")"
+            failed_jobs="$(jq -r '[.jobs[] | select(.status == "completed" and .conclusion != "success")] | length' <<<"$jobs_json")"
+            artifact_count="$(gh api "repos/$repo/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" --jq '.total_count')"
+
+            echo "source run $SOURCE_RUN_ID: jobs=$completed_jobs/$total_jobs failed=$failed_jobs artifacts=$artifact_count/$EXPECTED_SHARDS"
+
+            if [ "$failed_jobs" -ne 0 ]; then
+              echo "A source mining shard completed unsuccessfully; fail closed before aggregation." >&2
+              exit 1
+            fi
+
+            if [ "$total_jobs" -eq "$EXPECTED_SHARDS" ] \
+              && [ "$completed_jobs" -eq "$EXPECTED_SHARDS" ] \
+              && [ "$artifact_count" -eq "$EXPECTED_SHARDS" ]; then
+              echo "All source shards completed successfully and all artifacts are present."
+              break
+            fi
+
+            if [ "$attempt" -eq 300 ]; then
+              echo "Timed out waiting for all source mining shards/artifacts." >&2
+              exit 1
+            fi
+            sleep 60
+          done
+
+      - name: Download every source shard artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/public-web-shards"
+          gh run download "$SOURCE_RUN_ID" \
+            -p 'mainstream-2005plus-public-web-shard-*' \
+            -D "$RUNNER_TEMP/public-web-shards"
+          receipt_count="$(find "$RUNNER_TEMP/public-web-shards" -name receipt.json | wc -l | tr -d ' ')"
+          test "$receipt_count" = "$EXPECTED_SHARDS"
+
+      - name: Aggregate exact candidates and direct evidence fail closed
+        run: |
+          set -euo pipefail
+          python scripts/aggregate-mainstream-2005plus-public-web.py \
+            "$RUNNER_TEMP/public-web-shards" \
+            "$RUNNER_TEMP/public-web-aggregate"
+          test -s "$RUNNER_TEMP/public-web-aggregate/aggregate.json"
+          test -s "$RUNNER_TEMP/public-web-aggregate/candidate-validation-queue.json"
+          test -s "$RUNNER_TEMP/public-web-aggregate/direct-evidence-validation-queue.json"
+
+      - name: Upload aggregate validation queues
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainstream-2005plus-public-web-aggregate-${{ github.run_id }}
+          path: ${{ runner.temp }}/public-web-aggregate
+          if-no-files-found: error
+          retention-days: 90
