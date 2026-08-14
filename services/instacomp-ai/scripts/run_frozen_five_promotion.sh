@@ -3,14 +3,14 @@ set -euo pipefail
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/promote_lora_candidate_frozen_five.py"
+target="$service_root/scripts/promote_lora_candidate_frozen_five_v2.py"
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
   exit 2
 }
 [[ -f "$target" ]] || {
-  echo "Frozen-five promotion runner is missing: $target" >&2
+  echo "Frozen-five v2 promotion runner is missing: $target" >&2
   exit 2
 }
 

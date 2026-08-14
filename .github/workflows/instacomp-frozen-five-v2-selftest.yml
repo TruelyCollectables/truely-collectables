@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-frozen-five-v2-selftest.yml"
+      - "services/instacomp-ai/scripts/run_frozen_five_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
       - "services/instacomp-ai/app/authoritative_registry_gateway.py"
@@ -31,8 +32,13 @@ jobs:
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py \
             services/instacomp-ai/app/authoritative_registry_gateway.py
+          bash -n services/instacomp-ai/scripts/run_frozen_five_promotion.sh
 
-      - name: Run exact Frozen Five v2 self-test
+      - name: Prove canonical launcher resolves app and runs v2 self-test
         run: |
           set -euo pipefail
-          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py --self-test
+          python -m venv services/instacomp-ai/.venv
+          bash services/instacomp-ai/scripts/run_frozen_five_promotion.sh --self-test \
+            | tee /tmp/frozen-five-v2-launcher.log
+          grep -q 'PASS InstaComp app import path:' /tmp/frozen-five-v2-launcher.log
+          grep -q 'PASS failed-case candidate and raw Registry diagnostics are retained' /tmp/frozen-five-v2-launcher.log
