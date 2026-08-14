@@ -4,13 +4,14 @@ import sys
 import unittest
 from pathlib import Path
 
-from app.inventory_learning_completion import apply_learning_completion_policy
-
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_ROOT = SERVICE_ROOT / "scripts"
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from app.inventory_learning_completion import apply_learning_completion_policy
 from inventory_training_git_snapshot import SnapshotInvalid
 import sync_all_inventory_training_truth_snapshot_only as snapshot_target
 
