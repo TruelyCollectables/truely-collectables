@@ -50,9 +50,13 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
     if not raw:
         return None
     try:
-        return max(0.0, min(float(raw), 30.0))
+        value = min(float(raw), 30.0)
     except ValueError:
         return None
+    # Retry-After: 0 means "retry immediately" to HTTP, but immediate retry loops
+    # are exactly what we must avoid while PostgREST is restarting/recovering.
+    # Fall back to exponential backoff for zero/negative values instead.
+    return value if value > 0 else None
 
 
 def _retry_delay_seconds(attempt: int, response: httpx.Response | None = None) -> float:
