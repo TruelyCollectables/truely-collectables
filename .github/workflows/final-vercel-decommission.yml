@@ -74,7 +74,8 @@ jobs:
           echo "CLOUDFLARE_ROUTE_LIST_HTTP=$route_code"
           [ "$route_code" = '200' ]
           jq -r '.result[]? | "CLOUDFLARE_ROUTE pattern=\(.pattern) script=\(.script)"' "$routes"
-          jq -e '.success == true and any(.result[]?; .pattern | contains("truelycollectables.com"))' "$routes" >/dev/null
+          route_script="$(jq -er '.result[] | select(.pattern == "truelycollectables.com/*") | .script' "$routes" | head -1)"
+          [[ "$route_script" == truely-collectables* ]]
 
           scripts="$(mktemp)"
           script_code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$scripts" -w '%{http_code}' \
@@ -82,7 +83,7 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
           echo "CLOUDFLARE_WORKER_LIST_HTTP=$script_code"
           [ "$script_code" = '200' ]
-          jq -e '.success == true and any(.result[]?; .id == "truely-collectables")' "$scripts" >/dev/null
+          jq -e --arg route_script "$route_script" '.success == true and any(.result[]?; .id == $route_script)' "$scripts" >/dev/null
           echo 'CLOUDFLARE_PRODUCTION_DOMAIN_AND_WORKER=VERIFIED'
 
       - name: Remove copied Vercel platform markers from Cloudflare
