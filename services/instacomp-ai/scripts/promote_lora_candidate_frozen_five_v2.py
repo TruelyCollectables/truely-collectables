@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import platform
+import subprocess
+from datetime import datetime, timezone
+from typing import Any
+
+import promote_lora_candidate_frozen_five as base
+
+
+def case_evidence(item: dict[str, Any], suggestion, registry, case: tuple) -> dict[str, Any]:
+    reg_dump = registry.model_dump(mode="json") if registry is not None else None
+    return {
+        "key": case[0],
+        "player": case[1],
+        "card_number": case[2],
+        "expected_registry_identity_id": case[4],
+        "expected_registry_fingerprint_sha256": case[5],
+        "fixture_row_id": item["row_id"],
+        "fixture_split": item["split"],
+        "candidate_provider": suggestion.provider,
+        "candidate_fallback": bool(suggestion.raw.get("lora_candidate_fallback")),
+        "candidate_identity": suggestion.identity.model_dump(mode="json"),
+        "candidate_evidence": suggestion.evidence.model_dump(mode="json"),
+        "registry_result": reg_dump,
+        "registry_identity_id": registry.identity_id if registry is not None else None,
+        "passed": False,
+    }
+
+
+async def run_round(number: int, fixtures: list[dict[str, Any]], adapter_sha: str) -> dict[str, Any]:
+    from app.checklist import checklist_gateway
+    from app.config import settings
+    from app.local_vision import analyze_local_vision
+    from app.ollama import OllamaReader
+
+    if settings.lora_candidate_enabled is not True:
+        raise RuntimeError("Candidate setting did not reload enabled")
+    reader = OllamaReader(settings)
+    cases: list[dict[str, Any]] = []
+
+    for item in fixtures:
+        case = item["case"]
+        paths = item["images"]
+        front = paths[0].read_bytes()
+        back = paths[1].read_bytes() if len(paths) > 1 else None
+        vision = await analyze_local_vision(front, back, settings)
+        suggestion = await reader.analyze(front, back, local_vision=vision)
+
+        try:
+            base.suggestion_gate(suggestion.model_dump(mode="json"), adapter_sha)
+        except RuntimeError as error:
+            evidence = case_evidence(item, suggestion, None, case)
+            evidence["error"] = str(error)
+            cases.append(evidence)
+            return {"round": number, "passed": False, "cases": cases, "error": str(error)}
+
+        registry = await checklist_gateway.match(suggestion.identity, base.visible(suggestion))
+        evidence = case_evidence(item, suggestion, registry, case)
+        try:
+            base.registry_gate(registry.model_dump(mode="json"), case)
+        except RuntimeError as error:
+            evidence["error"] = str(error)
+            cases.append(evidence)
+            print(
+                f"ROUND {number} FAIL {case[1]} #{case[2]}: {error}; "
+                f"candidate={json.dumps(evidence['candidate_identity'], sort_keys=True)}; "
+                f"registry={json.dumps(evidence['registry_result'], sort_keys=True)}",
+                flush=True,
+            )
+            return {"round": number, "passed": False, "cases": cases, "error": str(error)}
+
+        evidence["passed"] = True
+        cases.append(evidence)
+        print(
+            f"ROUND {number} PASS {case[1]} #{case[2]} "
+            f"provider={suggestion.provider} registry={registry.identity_id}",
+            flush=True,
+        )
+
+    return {"round": number, "passed": len(cases) == 5, "cases": cases}
+
+
+def self_test() -> int:
+    base.self_test()
+    fake_item = {"row_id": "row-1", "split": "validation"}
+    fake_case = base.FROZEN[0]
+
+    class FakeModel:
+        def __init__(self, value): self.value = value
+        def model_dump(self, mode="json"): return self.value
+
+    class FakeSuggestion:
+        provider = base.PROVIDER
+        raw = {"lora_candidate_fallback": False}
+        identity = FakeModel({"player": "Sonia Citron", "card_number": "122"})
+        evidence = FakeModel({"visible_text": ["SONIA CITRON", "122"]})
+
+    class FakeRegistry:
+        identity_id = "wrong"
+        def model_dump(self, mode="json"):
+            return {"outcome": "set_present_no_exact_match", "identity_id": None, "reasons": ["diagnostic"]}
+
+    record = case_evidence(fake_item, FakeSuggestion(), FakeRegistry(), fake_case)
+    assert record["expected_registry_identity_id"] == fake_case[4]
+    assert record["candidate_identity"]["player"] == "Sonia Citron"
+    assert record["registry_result"]["reasons"] == ["diagnostic"]
+    print("PASS failed-case candidate and Registry diagnostics are retained")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--adapter", type=base.Path)
+    args = parser.parse_args()
+    if args.self_test:
+        return self_test()
+    if platform.system() != "Darwin":
+        raise SystemExit("Frozen-five Production promotion must run on the Apple Silicon Mac.")
+
+    receipt, validated, dataset = base.completion_gate()
+    adapter = args.adapter.expanduser().resolve() if args.adapter else validated
+    if adapter != validated:
+        raise SystemExit("Explicit adapter does not match complete_and_validated receipt")
+    sha = base.file_sha(adapter / "adapters.safetensors")
+    fixtures = base.fixtures(dataset, True)
+    print(
+        "FROZEN FIVE FIXTURES: "
+        + ", ".join(
+            f"{item['case'][1]} #{item['case'][2]}[{item['split']}:{item['row_id']}]"
+            for item in fixtures
+        ),
+        flush=True,
+    )
+
+    started = datetime.now(timezone.utc).timestamp()
+    activated = False
+    activation = None
+    rounds: list[dict[str, Any]] = []
+    try:
+        subprocess.run(["bash", str(base.ENABLE), str(adapter)], cwd=base.REPO_ROOT, check=True)
+        activated = True
+        activation = base.activation_receipt(started, adapter, sha)
+        for number in (1, 2):
+            round_result = asyncio.run(run_round(number, fixtures, sha))
+            rounds.append(round_result)
+            if round_result.get("passed") is not True:
+                raise RuntimeError(str(round_result.get("error") or f"Round {number} failed"))
+        base.rounds_gate(rounds)
+    except BaseException as error:
+        if activated:
+            subprocess.run(["bash", str(base.DISABLE)], cwd=base.REPO_ROOT, check=False)
+        data = {
+            "schema_version": "tcos.instacomp-ai.lora-frozen-five-promotion.v2",
+            "created_at": base.now(),
+            "status": "failed_rolled_back" if activated else "failed_before_activation",
+            "complete": False,
+            "adapter": str(adapter),
+            "adapter_weights_sha256": sha,
+            "dataset": str(dataset),
+            "dataset_sha256": receipt.get("dataset_sha256"),
+            "rounds": rounds,
+            "error_type": type(error).__name__,
+            "error": str(error)[:1000],
+            "runtime_candidate_enabled_after_failure": False if activated else None,
+            "automatic_deployment": False,
+        }
+        path = base.write_receipt(data)
+        print(json.dumps(data, indent=2))
+        print(f"FROZEN FIVE FAILURE RECEIPT: {path}")
+        if isinstance(error, KeyboardInterrupt):
+            raise
+        return 2
+
+    data = {
+        "schema_version": "tcos.instacomp-ai.lora-frozen-five-promotion.v2",
+        "created_at": base.now(),
+        "status": "promoted_runtime_candidate",
+        "complete": True,
+        "adapter": str(adapter),
+        "adapter_weights_sha256": sha,
+        "validation_receipt": receipt.get("validation_receipt"),
+        "dataset": str(dataset),
+        "dataset_sha256": receipt.get("dataset_sha256"),
+        "activation_receipt": activation.get("_path") if activation else None,
+        "registry_resolver": "resolveChecklistRegistry",
+        "frozen_five_source": "historical_final_registry_v3_live_proof_55b0866947a05125371fd9d5554d1f497fbc19ff",
+        "rounds": rounds,
+        "passes": 2,
+        "cards_per_pass": 5,
+        "candidate_fallbacks": 0,
+        "critical_regressions": 0,
+        "runtime_candidate_enabled": True,
+        "registry_remains_identity_authority": True,
+        "automatic_deployment": False,
+        "automatic_promotion": False,
+        "nothing_published": True,
+    }
+    path = base.write_receipt(data)
+    print(json.dumps(data, indent=2))
+    print(f"FROZEN FIVE PROMOTION RECEIPT: {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,59 +1,14 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Protocol
-
 import httpx
 
+from . import checklist as checklist_module
+from .checklist import _bounded_ocr, _registry_base_url, _registry_headers, _text
 from .models import CardIdentity, ChecklistOutcome, ChecklistResult
 
 
-class ChecklistGateway(Protocol):
-    async def match(
-        self,
-        identity: CardIdentity,
-        ocr_text: str | None = None,
-    ) -> ChecklistResult: ...
-
-    async def health(self) -> bool: ...
-
-
-def _text(value: Any) -> str | None:
-    normalized = str(value or "").strip()
-    return normalized or None
-
-
-def _bounded_ocr(value: str | None) -> str | None:
-    normalized = " ".join(str(value or "").replace("\x00", " ").split())
-    return normalized[:12_000] or None
-
-
-def _registry_base_url() -> str | None:
-    value = os.getenv("INSTACOMP_AI_REGISTRY_URL", "").strip().rstrip("/")
-    return value or None
-
-
-def _registry_headers() -> dict[str, str]:
-    headers = {
-        "content-type": "application/json",
-        "x-instacomp-client": "mac-mini-local-v1",
-    }
-    token = os.getenv("INSTACOMP_AI_REGISTRY_TOKEN", "").strip()
-    if token:
-        # Keep bearer support for seller-session compatibility while also sending
-        # the dedicated internal-service header expected by the website route.
-        headers["authorization"] = f"Bearer {token}"
-        headers["x-tcos-instacomp-service-token"] = token
-    return headers
-
-
-class RegistryChecklistGateway:
-    """Calls the website's authenticated Checklist Registry resolver.
-
-    Trusted image memory and bounded OCR evidence run before the Ollama backup.
-    Exact identity remains owned by the central Registry, and pricing stays
-    blocked unless that resolver returns both an identity ID and fingerprint.
-    """
+class AuthoritativeRegistryChecklistGateway:
+    """Post-AI exact Registry lock using the same resolver as Production scan."""
 
     def __init__(self, timeout_seconds: float = 20.0) -> None:
         self.timeout_seconds = timeout_seconds
@@ -69,11 +24,6 @@ class RegistryChecklistGateway:
                 outcome=ChecklistOutcome.NOT_CONFIGURED,
                 reasons=["INSTACOMP_AI_REGISTRY_URL is not configured."],
             )
-
-        # The Registry may use bounded OCR to infer player/year/manufacturer,
-        # but exact locking must also prove product-family/brand and set/subset.
-        # Card number remains the minimum pre-query field so the server can load
-        # a bounded candidate space without scanning the full Registry.
         if not identity.card_number:
             return ChecklistResult(
                 outcome=ChecklistOutcome.INPUT_INCOMPLETE,
@@ -85,8 +35,12 @@ class RegistryChecklistGateway:
             "manufacturer": identity.manufacturer,
             "brand": identity.brand,
             "setName": identity.set_name,
+            "subset": identity.subset,
             "cardNumber": identity.card_number,
             "player": identity.player,
+            "team": identity.team,
+            "sport": identity.sport,
+            "league": identity.league,
             "serialNumber": identity.serial_number,
             "isAuto": identity.autograph,
             "isRelic": identity.memorabilia,
@@ -98,7 +52,7 @@ class RegistryChecklistGateway:
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
-                    f"{base_url}/api/instacomp/checklist-lookup",
+                    f"{base_url}/api/instacomp/registry-lock",
                     headers=_registry_headers(),
                     json=payload,
                 )
@@ -117,7 +71,7 @@ class RegistryChecklistGateway:
         if not response.is_success or data.get("ok") is not True:
             return ChecklistResult(
                 outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
-                reasons=[_text(data.get("error")) or "Checklist Registry lookup failed."],
+                reasons=[_text(data.get("error")) or "Checklist Registry exact lock failed."],
             )
 
         status = _text(data.get("status"))
@@ -131,23 +85,18 @@ class RegistryChecklistGateway:
         candidate_count = int(data.get("candidateCount") or 0)
 
         if status == "exact_match" and registry_identity_id and registry_fingerprint:
-            locked = data.get("lockedFields") or data.get("identity") or {}
+            locked = data.get("lockedFields") or {}
             canonical = CardIdentity(
                 sport=_text(locked.get("sport")) or identity.sport,
                 league=_text(locked.get("league")) or identity.league,
                 year=_text(locked.get("year")) or identity.year,
-                manufacturer=_text(locked.get("manufacturer"))
-                or identity.manufacturer,
+                manufacturer=_text(locked.get("manufacturer")) or identity.manufacturer,
                 brand=_text(locked.get("brand")) or identity.brand,
-                set_name=_text(locked.get("setName") or locked.get("set_name"))
-                or identity.set_name,
-                subset=_text(locked.get("subset")) or identity.subset,
+                set_name=_text(locked.get("setName") or locked.get("set_name")) or identity.set_name,
+                subset=identity.subset,
                 player=_text(locked.get("player")) or identity.player,
                 team=_text(locked.get("team")) or identity.team,
-                card_number=_text(
-                    locked.get("cardNumber") or locked.get("card_number")
-                )
-                or identity.card_number,
+                card_number=_text(locked.get("cardNumber") or locked.get("card_number")) or identity.card_number,
                 parallel=_text(locked.get("parallel")) or identity.parallel,
                 variation=_text(locked.get("variation")) or identity.variation,
                 serial_number=identity.serial_number,
@@ -168,22 +117,28 @@ class RegistryChecklistGateway:
                 source_receipts=[
                     f"registry_identity:{registry_identity_id}",
                     f"registry_fingerprint:{registry_fingerprint}",
+                    "registry_resolver:resolveChecklistRegistry",
                 ],
             )
 
-        outcome = (
-            ChecklistOutcome.SET_ABSENT
-            if status in {"set_absent", "no_release_match"}
-            else ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH
-        )
+        if status == "input_incomplete":
+            outcome = ChecklistOutcome.INPUT_INCOMPLETE
+        elif status == "set_absent":
+            outcome = ChecklistOutcome.SET_ABSENT
+        elif status == "lookup_unavailable":
+            outcome = ChecklistOutcome.NOT_CONFIGURED
+        else:
+            outcome = ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH
         return ChecklistResult(
             outcome=outcome,
             candidate_count=candidate_count,
-            reasons=reasons or ["Checklist Registry requires operator review."],
+            reasons=reasons or ["Checklist Registry exact lock requires review."],
+            source_receipts=["registry_resolver:resolveChecklistRegistry"],
         )
 
     async def health(self) -> bool:
         return _registry_base_url() is not None
 
 
-checklist_gateway: ChecklistGateway = RegistryChecklistGateway()
+def install_authoritative_registry_gateway() -> None:
+    checklist_module.checklist_gateway = AuthoritativeRegistryChecklistGateway()

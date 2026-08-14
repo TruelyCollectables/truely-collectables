@@ -8,6 +8,7 @@ never override or crash an otherwise valid Registry-authorized scan.
 
 from . import local_vision as _local_vision
 from . import verified_checklist_sources_modern_extra as _verified_checklist_sources_modern_extra
+from .authoritative_registry_gateway import install_authoritative_registry_gateway
 from .deterministic_checklist_recovery import install_deterministic_checklist_recovery
 from .lora_candidate_runtime import install_lora_candidate_runtime
 from .models import LocalVisionEvidence, SideVisionEvidence
@@ -83,4 +84,5 @@ _local_vision.analyze_local_vision = _analyze_local_vision_with_trusted_style_me
 install_psa_lead_only_policy()
 install_sentinel_runtime_compat()
 install_deterministic_checklist_recovery()
+install_authoritative_registry_gateway()
 install_lora_candidate_runtime()
