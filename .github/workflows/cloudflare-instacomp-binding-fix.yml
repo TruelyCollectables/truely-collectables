@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/cloudflare-instacomp-binding-fix-trigger'
+      - '.github/workflows/cloudflare-instacomp-binding-fix.yml'
 
 permissions:
   contents: read
@@ -49,13 +50,7 @@ jobs:
             code=$(printf '%s' "$result" | awk '{print $1}')
             echo "Cloudflare InstaComp readiness attempt $attempt -> $result"
             grep -qi '^x-truely-origin: cloudflare-worker' /tmp/headers || true
-            if [ "$code" = "200" ] && node - <<'NODE'
-const fs=require('node:fs');
-const b=JSON.parse(fs.readFileSync('/tmp/body','utf8'));
-if (!b.configured || !b.reachable) process.exit(1);
-console.log(`configured=${b.configured}; reachable=${b.reachable}; databaseReady=${b.internalMemoryReady}; checklistReady=${b.checklistReady}; reason=${b.reason||'none'}`);
-NODE
-            then
+            if [ "$code" = "200" ] && node -e "const fs=require('node:fs');const b=JSON.parse(fs.readFileSync('/tmp/body','utf8'));if(!b.configured||!b.reachable)process.exit(1);console.log('configured='+b.configured+'; reachable='+b.reachable+'; databaseReady='+b.internalMemoryReady+'; checklistReady='+b.checklistReady+'; reason='+(b.reason||'none'));"; then
               ok=1
               break
             fi
