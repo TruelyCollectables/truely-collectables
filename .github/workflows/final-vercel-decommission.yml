@@ -1,0 +1,225 @@
+name: Final Vercel Decommission
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-vercel-decommission.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: final-vercel-decommission
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+jobs:
+  guarded-decommission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Require recovery and migration credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in VERCEL_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
+            if [ -z "${!key:-}" ]; then
+              echo "MISSING_REQUIRED_SECRET=$key"
+              exit 2
+            fi
+          done
+          echo 'DECOMMISSION_CREDENTIALS=PRESENT'
+
+      - name: Require successful encrypted recovery backup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$(mktemp)"
+          code="$(curl -sS --connect-timeout 10 --max-time 30 -o "$receipt" -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/31773508121")"
+          echo "RECOVERY_BACKUP_RUN_HTTP=$code"
+          [ "$code" = '200' ]
+          jq -e '.status == "completed" and .conclusion == "success"' "$receipt" >/dev/null
+          echo 'ENCRYPTED_RECOVERY_BACKUP=VERIFIED'
+
+      - name: Verify Cloudflare owns the live storefront
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe_cloudflare() {
+            local path="$1"
+            local expected="$2"
+            local headers body code origin
+            headers="$(mktemp)"
+            body="$(mktemp)"
+            for attempt in 1 2 3 4 5; do
+              code="$(curl -sS --connect-timeout 10 --max-time 45 -D "$headers" -o "$body" -w '%{http_code}' \
+                "$PRODUCTION_ORIGIN$path" || true)"
+              origin="$(awk 'BEGIN{IGNORECASE=1} /^x-truely-origin:/ {gsub(/\r/, "", $2); print $2}' "$headers" | tail -1)"
+              echo "CLOUDFLARE_PROBE path=$path attempt=$attempt http=$code origin=${origin:-missing}"
+              if [ "$code" = "$expected" ] && [ "$origin" = 'cloudflare-worker' ]; then
+                rm -f "$headers" "$body"
+                return 0
+              fi
+              sleep 5
+            done
+            rm -f "$headers" "$body"
+            return 1
+          }
+
+          probe_cloudflare '/' '200'
+          probe_cloudflare '/products' '200'
+
+          worker="$(mktemp)"
+          code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$worker" -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/truely-collectables/settings")"
+          echo "CLOUDFLARE_WORKER_SETTINGS_HTTP=$code"
+          [ "$code" = '200' ]
+          jq -e '.success == true' "$worker" >/dev/null
+          echo 'CLOUDFLARE_PRODUCTION_OWNER=VERIFIED'
+
+      - name: Delete the Vercel project and every attached deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth=(-H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json')
+          project="$(mktemp)"
+          project_url="https://api.vercel.com/v9/projects/$VERCEL_PROJECT_NAME?slug=$VERCEL_SCOPE"
+          code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$project" -w '%{http_code}' "${auth[@]}" "$project_url")"
+          echo "VERCEL_PROJECT_LOOKUP_HTTP=$code"
+
+          if [ "$code" = '404' ]; then
+            echo 'VERCEL_PROJECT=ALREADY_DELETED'
+            exit 0
+          fi
+          [ "$code" = '200' ]
+
+          project_id="$(jq -er '.id' "$project")"
+          team_id="$(jq -er '.accountId' "$project")"
+          project_name="$(jq -er '.name' "$project")"
+          [ "$project_name" = "$VERCEL_PROJECT_NAME" ]
+          echo "VERCEL_PROJECT_ID=$project_id"
+          echo "VERCEL_TEAM_ID=$team_id"
+
+          domains="$(mktemp)"
+          domain_code="$(curl -sS --connect-timeout 10 --max-time 45 -o "$domains" -w '%{http_code}' "${auth[@]}" \
+            "https://api.vercel.com/v9/projects/$project_id/domains?teamId=$team_id&slug=$VERCEL_SCOPE")"
+          echo "VERCEL_PROJECT_DOMAINS_HTTP=$domain_code"
+          if [ "$domain_code" = '200' ]; then
+            echo "VERCEL_PROJECT_DOMAIN_COUNT=$(jq '.domains | length' "$domains")"
+          fi
+
+          deleted="$(mktemp)"
+          delete_code="$(curl -sS --connect-timeout 10 --max-time 90 -X DELETE -o "$deleted" -w '%{http_code}' "${auth[@]}" \
+            "https://api.vercel.com/v9/projects/$project_id?teamId=$team_id&slug=$VERCEL_SCOPE")"
+          echo "VERCEL_PROJECT_DELETE_HTTP=$delete_code"
+          case "$delete_code" in
+            200|202|204) ;;
+            *)
+              jq -r '.error.code // "unknown_error"' "$deleted" 2>/dev/null || true
+              exit 1
+              ;;
+          esac
+
+          for attempt in $(seq 1 12); do
+            verify_code="$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' "${auth[@]}" "$project_url" || true)"
+            echo "VERCEL_PROJECT_POST_DELETE attempt=$attempt http=$verify_code"
+            if [ "$verify_code" = '404' ]; then
+              echo 'VERCEL_PROJECT=DELETED'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Vercel project still resolves through the project API after deletion request.'
+          exit 1
+
+      - name: Verify public Vercel aliases no longer serve the site
+        shell: bash
+        run: |
+          set -euo pipefail
+          aliases=(
+            'https://truely-collectables.vercel.app/'
+            'https://truely-collectables-truelycollectables-projects.vercel.app/'
+          )
+          for url in "${aliases[@]}"; do
+            healthy=no
+            for attempt in $(seq 1 12); do
+              code="$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' "$url" || true)"
+              echo "VERCEL_ALIAS_POST_DELETE url=$url attempt=$attempt http=$code"
+              if [ "$code" != '200' ]; then
+                healthy=yes
+                break
+              fi
+              sleep 5
+            done
+            [ "$healthy" = yes ]
+          done
+          echo 'VERCEL_PUBLIC_ALIASES=NOT_SERVING'
+
+      - name: Reverify Cloudflare after destructive cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /products; do
+            headers="$(mktemp)"
+            code="$(curl -sS --connect-timeout 10 --max-time 45 -D "$headers" -o /dev/null -w '%{http_code}' "$PRODUCTION_ORIGIN$path")"
+            origin="$(awk 'BEGIN{IGNORECASE=1} /^x-truely-origin:/ {gsub(/\r/, "", $2); print $2}' "$headers" | tail -1)"
+            echo "POST_DELETE_CLOUDFLARE path=$path http=$code origin=${origin:-missing}"
+            [ "$code" = '200' ]
+            [ "$origin" = 'cloudflare-worker' ]
+          done
+          echo 'POST_DELETE_CLOUDFLARE=HEALTHY'
+
+      - name: Revoke the final Vercel access token
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(mktemp)"
+          code="$(curl -sS --connect-timeout 10 --max-time 45 -X DELETE -o "$result" -w '%{http_code}' \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            'https://api.vercel.com/v3/user/tokens/current')"
+          echo "VERCEL_TOKEN_REVOKE_HTTP=$code"
+          case "$code" in
+            200|202|204) ;;
+            *)
+              jq -r '.error.code // "unknown_error"' "$result" 2>/dev/null || true
+              exit 1
+              ;;
+          esac
+
+          verify="$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            'https://api.vercel.com/v2/user' || true)"
+          echo "VERCEL_TOKEN_POST_REVOKE_HTTP=$verify"
+          case "$verify" in
+            401|403) echo 'VERCEL_TOKEN=REVOKED' ;;
+            *) echo 'Vercel token remained usable after revocation.'; exit 1 ;;
+          esac
+
+      - name: Record final decommission receipt
+        shell: bash
+        run: |
+          {
+            echo '## Truely Collectables Vercel decommission'
+            echo ''
+            echo '- Encrypted recovery backup: verified'
+            echo '- Cloudflare production ownership: verified before deletion'
+            echo '- Vercel project and deployments: deleted'
+            echo '- Vercel public aliases: not serving'
+            echo '- Cloudflare production: healthy after deletion'
+            echo '- Vercel access token: revoked'
+          } >> "$GITHUB_STEP_SUMMARY"
