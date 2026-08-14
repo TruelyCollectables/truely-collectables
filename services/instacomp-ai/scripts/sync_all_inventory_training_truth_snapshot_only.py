@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
@@ -18,16 +20,68 @@ def _is_snapshot_key_mismatch(exc: SnapshotInvalid) -> bool:
     return "snapshot authentication failed" in str(exc).lower()
 
 
+def _supabase_readonly_headers(server_key: str) -> dict[str, str]:
+    key = str(server_key or "").strip()
+    if not key:
+        raise ValueError("Supabase server key is required")
+    headers = {
+        "apikey": key,
+        "Accept": "application/json",
+    }
+    # Modern sb_secret_* keys are opaque API keys, not JWTs. Supabase requires
+    # them on apikey only; sending one as Authorization: Bearer is rejected as
+    # an invalid JWT. Legacy service_role keys remain JWTs and use Bearer auth.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
+class _CurrentServerKeySupabaseReader:
+    """Read-only Production PostgREST reader supporting legacy and sb_secret keys."""
+
+    def __init__(self, base_url: str, server_key: str):
+        self.rest_url = f"{str(base_url).rstrip('/')}/rest/v1"
+        self.client = httpx.Client(
+            headers=_supabase_readonly_headers(server_key),
+            timeout=httpx.Timeout(60.0),
+            follow_redirects=True,
+        )
+
+    def close(self) -> None:
+        self.client.close()
+
+    def table(self, name: str, *, select: str = "*", page_size: int = 1000) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        start = 0
+        while True:
+            end = start + page_size - 1
+            response = self.client.get(
+                f"{self.rest_url}/{name}",
+                params={"select": select},
+                headers={"Range-Unit": "items", "Range": f"{start}-{end}"},
+            )
+            if response.status_code not in {200, 206}:
+                raise SystemExit(
+                    f"Read-only Supabase query failed for {name}: HTTP {response.status_code}: "
+                    f"{response.text[:500]}"
+                )
+            page = response.json()
+            if not isinstance(page, list):
+                raise SystemExit(f"Unexpected Supabase payload for {name}")
+            rows.extend(row for row in page if isinstance(row, dict))
+            if len(page) < page_size:
+                break
+            start += page_size
+        return rows
+
+
 def _snapshot_reader_class(
     envelope: dict[str, Any],
     *,
     direct_reader_class=None,
     snapshot_reader_class=None,
 ):
-    # Capture the real authenticated direct reader before inventory_import.SupabaseReader
-    # is rebound below. This prevents recursion if the encrypted snapshot was produced
-    # with the legacy service_role key while the Mac now carries an sb_secret_* key.
-    direct_reader = direct_reader_class or inventory_import.SupabaseReader
+    direct_reader = direct_reader_class or _CurrentServerKeySupabaseReader
     snapshot_reader = snapshot_reader_class or SnapshotSupabaseReader
 
     class BoundInventoryReader:
@@ -40,12 +94,13 @@ def _snapshot_reader_class(
                 )
                 self.source = "encrypted_authoritative_direct_db_snapshot"
             except SnapshotInvalid as exc:
-                # The snapshot exporter encrypts with the legacy service_role key.
-                # Supabase's newer sb_secret_* server keys have equivalent elevated
-                # database access but different bytes, so they cannot authenticate an
-                # older service_role-key-encrypted envelope. In that one known mismatch
-                # case, use the current elevated key for a read-only Production API read.
-                # All other snapshot integrity/decode/schema failures still fail closed.
+                # The encrypted snapshot may have been produced with the legacy
+                # service_role key while this Mac now has a newer sb_secret_* key.
+                # Those credentials have equivalent elevated access but different
+                # bytes, so the old envelope cannot authenticate with the new key.
+                # In only that known case, perform an authenticated read-only
+                # Production API read with the current server key. Every other
+                # snapshot integrity/decode/schema error still fails closed.
                 if not _is_snapshot_key_mismatch(exc):
                     raise
                 print(
@@ -74,11 +129,7 @@ def main() -> int:
     # the current authenticated elevated key. Malformed/tampered snapshots still
     # fail closed and are never silently bypassed.
     envelope = fetch_envelope_from_git()
-    direct_reader_class = inventory_import.SupabaseReader
-    reader_class = _snapshot_reader_class(
-        envelope,
-        direct_reader_class=direct_reader_class,
-    )
+    reader_class = _snapshot_reader_class(envelope)
     print(
         "USING encrypted authoritative direct-DB inventory snapshot from Git; "
         "authenticated read-only Production API fallback is allowed only for a "
