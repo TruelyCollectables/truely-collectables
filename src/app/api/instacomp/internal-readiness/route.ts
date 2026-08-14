@@ -7,6 +7,16 @@ export const dynamic = "force-dynamic";
 const HEALTH_TIMEOUT_MS = 20_000;
 const DNS_TIMEOUT_MS = 5_000;
 
+type CloudflareFetchGlobal = typeof globalThis & {
+  __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
+};
+
+function getServerFetch(): typeof fetch {
+  const nativeFetch = (globalThis as CloudflareFetchGlobal)
+    .__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
+  return typeof nativeFetch === "function" ? nativeFetch : fetch;
+}
+
 function configuredLocalUrl() {
   const value = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
     .trim()
@@ -121,7 +131,7 @@ async function resolveConfiguredHostname(baseUrl: string) {
 
 async function fetchRuntimeIdentity(baseUrl: string, headers: Headers) {
   try {
-    const response = await fetch(`${baseUrl}/v1/runtime-identity`, {
+    const response = await getServerFetch()(`${baseUrl}/v1/runtime-identity`, {
       headers,
       cache: "no-store",
       redirect: "error",
@@ -164,7 +174,7 @@ export async function GET() {
     const headers = new Headers();
     const key = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
     if (key) headers.set("X-InstaComp-AI-Key", key);
-    const response = await fetch(`${baseUrl}/health`, {
+    const response = await getServerFetch()(`${baseUrl}/health`, {
       headers,
       cache: "no-store",
       redirect: "error",
