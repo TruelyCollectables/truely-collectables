@@ -67,7 +67,7 @@ for (const [name, badOrder, expected] of [
   ["missing country", order({ shipping_country: null }), "country are required"],
   ["foreign country", order({ shipping_country: "CA" }), "restricted to United States"],
   ["bad state", order({ shipping_state: "Colorado" }), "two-letter US state"],
-  ["bad ZIP", order({ shipping_postal_code: "8020" }), "valid 5-digit or ZIP+4"],
+  ["bad ZIP", order({ shipping_postal_code: "8020" }), "valid 5-digit or ZIP\\+4"],
 ] as const) {
   const result = build(badOrder);
   assert.equal(result.rows.length, 0, name);
