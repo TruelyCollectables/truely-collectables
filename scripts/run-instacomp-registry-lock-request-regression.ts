@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { buildInstaCompRegistryLockProbe } from "../src/lib/instacomp-registry-lock-request";
+import { chooseRegistryMatch } from "../src/lib/instacomp-learning-server";
+
+const RICKEA_BASE_UUID = "70ad307e-06bb-45c2-90ea-689b6e2f302e";
+const RICKEA_BASE_FINGERPRINT = "bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028";
 
 const rickeaVisible = [
   "PANINI",
@@ -33,6 +37,56 @@ assert.equal(rickea.parallel, "Base");
 assert.equal(rickea.cardNumber, "118");
 assert.equal(rickea.player, "Rickea Jackson");
 assert.ok(!String(rickea.setName).toLowerCase().includes("green"));
+
+const rickeaMatch = chooseRegistryMatch(
+  rickea,
+  [
+    {
+      card_number: "118",
+      variation: null,
+      autograph_status: "non-auto",
+      memorabilia_status: "non-memorabilia",
+      players: [{ player: { canonical_name: "Rickea Jackson" } }],
+      teams: [{ team: { canonical_name: "Los Angeles Sparks" } }],
+      release: {
+        release_year: "2025",
+        season: "2025",
+        manufacturer: { name: "Panini" },
+        brand: { name: "Prizm" },
+        product_name: "2025 Panini Prizm WNBA",
+        sport: { name: "Basketball" },
+        league: { name: "WNBA" },
+      },
+      set: { name: "Base" },
+      identities: [
+        {
+          id: RICKEA_BASE_UUID,
+          fingerprint_sha256: RICKEA_BASE_FINGERPRINT,
+          variation: null,
+          autograph_status: "non-auto",
+          memorabilia_status: "non-memorabilia",
+          parallel: { name: "Base", serial_run: null },
+          metadata: {},
+          canonical_key: "",
+        },
+        {
+          id: "9052ccc6-4cd2-462c-a7d5-773482f378ac",
+          fingerprint_sha256: "1".repeat(64),
+          variation: null,
+          autograph_status: "non-auto",
+          memorabilia_status: "non-memorabilia",
+          parallel: { name: "Prizms Black Finite", serial_run: 1 },
+          metadata: {},
+          canonical_key: "",
+        },
+      ],
+    },
+  ],
+);
+assert.ok(rickeaMatch, "Rickea Base must resolve uniquely after request sanitization");
+assert.equal(rickeaMatch.identityId, RICKEA_BASE_UUID);
+assert.equal(rickeaMatch.fingerprintSha256, RICKEA_BASE_FINGERPRINT);
+assert.equal(rickeaMatch.parallel, "Base");
 
 const sonia = buildInstaCompRegistryLockProbe({
   year: "2025",
@@ -73,4 +127,6 @@ const groovy = buildInstaCompRegistryLockProbe({
 });
 assert.equal(groovy.setName, "2025 Panini Prizm WNBA Groovy");
 
-console.log("PASS Registry-lock request keeps product family while stripping unsupported parallel display titles");
+console.log(
+  "PASS Registry-lock request keeps product family, resolves Rickea Base UUID/fingerprint, and strips only unsupported parallel titles",
+);
