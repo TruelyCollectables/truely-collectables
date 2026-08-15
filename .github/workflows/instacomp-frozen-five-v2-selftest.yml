@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/instacomp-frozen-five-v2-selftest.yml"
       - "services/instacomp-ai/scripts/run_frozen_five_promotion.sh"
+      - "services/instacomp-ai/scripts/run-local.sh"
+      - "services/instacomp-ai/scripts/ensure-runtime-dependencies.sh"
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -22,6 +24,8 @@ on:
     paths:
       - ".github/workflows/instacomp-frozen-five-v2-selftest.yml"
       - "services/instacomp-ai/scripts/run_frozen_five_promotion.sh"
+      - "services/instacomp-ai/scripts/run-local.sh"
+      - "services/instacomp-ai/scripts/ensure-runtime-dependencies.sh"
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -42,7 +46,7 @@ permissions:
 jobs:
   frozen-five-v2-selftest:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -50,15 +54,51 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install exact InstaComp runtime dependencies
+      - name: Prove runtime synchronizer repairs stale native dependencies
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check -q -r services/instacomp-ai/requirements.txt
-          python - <<'PY'
-          import cv2, numpy, platform, sys
-          print(f"Python={sys.version.split()[0]} platform={platform.platform()}")
-          print(f"OpenCV={cv2.__version__} NumPy={numpy.__version__}")
+          python -m venv services/instacomp-ai/.venv
+          bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+            services/instacomp-ai/.venv/bin/python \
+            | tee /tmp/instacomp-runtime-sync-first.log
+          grep -q 'PASS InstaComp runtime dependencies synchronized' /tmp/instacomp-runtime-sync-first.log
+          services/instacomp-ai/.venv/bin/python - <<'PY'
+          import cv2, numpy
+          assert cv2.__version__ == "4.12.0", cv2.__version__
+          assert numpy.__version__ == "2.2.6", numpy.__version__
+          print("PASS exact native runtime pins installed")
           PY
+
+          # Reproduce the class of drift allowed by the old launcher: the venv
+          # exists, but a native dependency no longer matches requirements.txt.
+          services/instacomp-ai/.venv/bin/python -m pip install \
+            --disable-pip-version-check --no-deps 'numpy==2.3.5' >/dev/null
+          services/instacomp-ai/.venv/bin/python - <<'PY'
+          import numpy
+          assert numpy.__version__ == "2.3.5", numpy.__version__
+          print("PASS stale native dependency fixture created")
+          PY
+
+          bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+            services/instacomp-ai/.venv/bin/python \
+            | tee /tmp/instacomp-runtime-sync-repair.log
+          grep -q 'Synchronizing InstaComp runtime dependencies' /tmp/instacomp-runtime-sync-repair.log
+          grep -q 'PASS InstaComp runtime dependencies synchronized' /tmp/instacomp-runtime-sync-repair.log
+          services/instacomp-ai/.venv/bin/python - <<'PY'
+          import cv2, numpy
+          assert cv2.__version__ == "4.12.0", cv2.__version__
+          assert numpy.__version__ == "2.2.6", numpy.__version__
+          print("PASS stale native runtime repaired to exact pins")
+          PY
+
+          bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+            services/instacomp-ai/.venv/bin/python \
+            | tee /tmp/instacomp-runtime-sync-idempotent.log
+          grep -q 'PASS InstaComp runtime dependencies synchronized' /tmp/instacomp-runtime-sync-idempotent.log
+          if grep -q 'Synchronizing InstaComp runtime dependencies' /tmp/instacomp-runtime-sync-idempotent.log; then
+            echo 'Runtime synchronizer was not idempotent.' >&2
+            exit 1
+          fi
 
       - name: Mount immutable Frozen Five physical images
         env:
@@ -78,25 +118,29 @@ jobs:
           test -f /tmp/instacomp-five-card-image-truth-20260807/receipt.json
           echo "PASS immutable Frozen Five physical image artifact mounted"
 
-      - name: Prove native OpenCV pattern stage on synthetic and exact physical images three times
+      - name: Prove exact synchronized runtime handles all physical images three times
         env:
           INSTACOMP_FROZEN_IMAGE_DIR: /tmp/instacomp-five-card-image-truth-20260807
         run: |
           set -euo pipefail
           for run in 1 2 3; do
-            PYTHONPATH=services/instacomp-ai python -m pytest -q \
+            PYTHONPATH=services/instacomp-ai \
+              services/instacomp-ai/.venv/bin/python -m pytest -q \
               services/instacomp-ai/tests/test_opencv_pattern_native.py \
               | tee "/tmp/opencv-pattern-native-${run}.log"
           done
 
-      - name: Compile exact promotion and diagnostic scripts
+      - name: Compile exact promotion and runtime scripts
         run: |
           set -euo pipefail
-          python -m py_compile \
+          services/instacomp-ai/.venv/bin/python -m py_compile \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py \
             services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py \
-            services/instacomp-ai/app/authoritative_registry_gateway.py
+            services/instacomp-ai/app/authoritative_registry_gateway.py \
+            services/instacomp-ai/app/local_vision.py
+          bash -n services/instacomp-ai/scripts/ensure-runtime-dependencies.sh
+          bash -n services/instacomp-ai/scripts/run-local.sh
           bash -n services/instacomp-ai/scripts/run_frozen_five_promotion.sh
           bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
 
@@ -104,7 +148,8 @@ jobs:
         run: |
           set -euo pipefail
           for run in 1 2 3; do
-            python services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py --self-test \
+            services/instacomp-ai/.venv/bin/python \
+              services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py --self-test \
               | tee "/tmp/frozen-five-full-diagnostic-selftest-${run}.log"
             grep -q 'PASS full five continues after card failure' "/tmp/frozen-five-full-diagnostic-selftest-${run}.log"
             grep -q 'PASS per-card exceptions do not hide later diagnostics' "/tmp/frozen-five-full-diagnostic-selftest-${run}.log"
@@ -114,9 +159,6 @@ jobs:
       - name: Prove stale exported LoRA flag cannot override updated env file
         run: |
           set -euo pipefail
-          python -m venv services/instacomp-ai/.venv
-          services/instacomp-ai/.venv/bin/python -m pip install --disable-pip-version-check \
-            'pydantic==2.11.7' 'pydantic-settings==2.10.1' >/dev/null
           cat > services/instacomp-ai/.env <<'ENV'
           INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN=ci-registry-auth-fixture
           INSTACOMP_AI_LORA_CANDIDATE_ENABLED=true
@@ -157,6 +199,7 @@ jobs:
           for run in 1 2 3; do
             bash services/instacomp-ai/scripts/run_frozen_five_promotion.sh --diagnostic-all --self-test \
               | tee "/tmp/frozen-five-diagnostic-launcher-${run}.log"
+            grep -q 'PASS InstaComp runtime dependencies synchronized' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
             grep -q 'PASS Registry client authentication configured' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
             grep -q 'PASS InstaComp app import path:' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
             grep -q 'PASS Frozen Five launcher mode: diagnostic' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
@@ -168,6 +211,7 @@ jobs:
           set -euo pipefail
           bash services/instacomp-ai/scripts/run_frozen_five_promotion.sh --self-test \
             | tee /tmp/frozen-five-v2-launcher.log
+          grep -q 'PASS InstaComp runtime dependencies synchronized' /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS Registry client authentication configured' /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS InstaComp app import path:' /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS Frozen Five launcher mode: promotion' /tmp/frozen-five-v2-launcher.log
