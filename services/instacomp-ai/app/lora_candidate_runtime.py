@@ -29,51 +29,111 @@ def _candidate_core_usable(identity: CardIdentity) -> bool:
     )
 
 
+def _trusted_style_memory_support(
+    local_vision: LocalVisionEvidence,
+    required_label: str,
+) -> bool:
+    pattern = local_vision.front.pattern
+    try:
+        score = float(pattern.scores.get("trusted_style_memory", 0) or 0)
+    except (TypeError, ValueError):
+        score = 0.0
+    hint = str(local_vision.identity_hints.parallel or "").strip().casefold()
+    if score < 0.90:
+        return False
+    if required_label == "cracked_ice":
+        return "cracked" in hint and "ice" in hint
+    if required_label == "velocity":
+        return "velocity" in hint
+    return False
+
+
+def _pattern_parallel_supported(
+    parallel: str,
+    local_vision: LocalVisionEvidence | None,
+) -> bool:
+    """Require discriminative geometry before a pattern name can filter Registry.
+
+    The Frozen Five Mac receipt exposed an important distinction: Rickea Base can
+    score as ``cracked_ice`` from dense polygon/edge texture even though it lacks
+    the directional facet geometry present on the real Ice examples. A label or
+    confidence score by itself is therefore not an independent witness.
+
+    For Cracked Ice we require the mixed geometry actually observed on the real
+    Ice cards: diagonal structure plus irregular polygons plus high multi-angle
+    entropy, together with either a direct deterministic label or reinforced
+    trusted style memory. Velocity remains directional and likewise needs an
+    independently measured directional witness.
+    """
+    lowered = str(parallel or "").strip().casefold()
+    if not lowered:
+        return True
+
+    required_label: str | None = None
+    if "cracked" in lowered and "ice" in lowered:
+        required_label = "cracked_ice"
+    elif "velocity" in lowered:
+        required_label = "velocity"
+    if required_label is None:
+        return True
+    if local_vision is None:
+        return False
+
+    pattern = local_vision.front.pattern
+    label = str(pattern.label or "").strip().casefold()
+    try:
+        confidence = float(pattern.confidence or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    geometry = [str(value or "").strip().casefold() for value in pattern.geometry]
+
+    has_directional_diagonal = any(
+        "directional diagonal line geometry" in value for value in geometry
+    )
+    has_irregular_polygons = (
+        int(pattern.polygon_count or 0) >= 12
+        or any("irregular polygon" in value for value in geometry)
+    )
+    has_multi_angle_geometry = (
+        float(pattern.angle_entropy or 0) >= 0.72
+        or any("non-directional multi-angle edge geometry" in value for value in geometry)
+    )
+    direct_support = label == required_label and confidence >= 0.70
+    memory_support = _trusted_style_memory_support(local_vision, required_label)
+
+    if required_label == "cracked_ice":
+        return bool(
+            has_directional_diagonal
+            and has_irregular_polygons
+            and has_multi_angle_geometry
+            and (direct_support or memory_support)
+        )
+    return bool(has_directional_diagonal and (direct_support or memory_support))
+
+
 def _guard_model_pattern_parallel(
     parsed: dict[str, Any],
     local_vision: LocalVisionEvidence | None,
 ) -> dict[str, Any]:
-    """Do not let LoRA invent a geometry-named parallel for Registry filtering.
+    """Strip unsupported Cracked Ice/Velocity from the final Registry candidate.
 
-    The LoRA candidate is an evidence reader, not an identity authority. Named
-    surface-pattern parallels that we can independently measure (Cracked Ice and
-    Velocity) may reach the Registry only when the deterministic OpenCV witness
-    agrees at the same confidence threshold used by local identity hints.
-
-    This is intentionally narrow: it does not turn an unsupported candidate
-    guess into Base. It only removes the unsupported pattern claim so the central
-    Registry can resolve from the remaining player/card/release evidence or fail
-    closed if that evidence is ambiguous.
+    This guard is intentionally shape-tolerant. It accepts either the normalized
+    nested ``identity`` object or a flat sidecar payload, because the real MLX
+    sidecar has emitted both shapes during promotion work.
     """
-    if local_vision is None:
-        return parsed
-
     root = dict(parsed)
     identity_source = root.get("identity")
-    if not isinstance(identity_source, dict):
-        return root
-    identity = dict(identity_source)
+    nested = isinstance(identity_source, dict)
+    identity = dict(identity_source) if nested else dict(root)
     parallel = str(identity.get("parallel") or "").strip()
-    lowered = parallel.casefold()
-    if not parallel:
+    if not parallel or _pattern_parallel_supported(parallel, local_vision):
         return root
 
-    pattern = local_vision.front.pattern
-    deterministic_label = str(pattern.label or "").strip().casefold()
-    deterministic_confidence = float(pattern.confidence or 0)
-
-    requires_label: str | None = None
-    if "cracked" in lowered and "ice" in lowered:
-        requires_label = "cracked_ice"
-    elif "velocity" in lowered:
-        requires_label = "velocity"
-
-    if requires_label and not (
-        deterministic_label == requires_label
-        and deterministic_confidence >= 0.70
-    ):
-        identity["parallel"] = None
+    identity["parallel"] = None
+    if nested:
         root["identity"] = identity
+    else:
+        root["parallel"] = None
     return root
 
 
@@ -95,12 +155,17 @@ def _candidate_response_to_suggestion(
     # Training answers also contain checklist_identity_id/fingerprint fields.
     # Those are deliberately ignored here. Runtime identity authority comes
     # only from a fresh central Registry lookup performed by the main pipeline.
-    # Pattern-named parallel claims get an additional independent OpenCV gate so
-    # a LoRA hallucination cannot steer Registry lookup to the wrong parallel.
-    guarded = _guard_model_pattern_parallel(parsed, local_vision)
+    #
+    # IMPORTANT: merge first, then normalize, then guard the exact final identity
+    # that will be sent to Registry. The previous guard ran before normalization,
+    # so a flat sidecar payload could bypass it and local deterministic hints could
+    # re-inject a bad parallel after the guard had already run.
     normalized = normalize_identity_payload(
-        merge_local_vision_payload(guarded, local_vision)
+        merge_local_vision_payload(parsed, local_vision)
     )
+    normalized = _guard_model_pattern_parallel(normalized, local_vision)
+    normalized = normalize_identity_payload(normalized)
+
     identity = CardIdentity.model_validate(normalized.get("identity") or {})
     if not _candidate_core_usable(identity):
         raise ValueError("LoRA candidate did not return enough core identity evidence")
@@ -126,6 +191,7 @@ def _candidate_response_to_suggestion(
             "validation_eligible": True,
             "candidate_checklist_fields_ignored": True,
             "pattern_parallel_requires_deterministic_support": True,
+            "pattern_parallel_guard_stage": "post_normalization_post_local_merge",
             "pipeline_slot": "local_model_fallback",
         },
     )
