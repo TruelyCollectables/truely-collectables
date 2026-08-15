@@ -46,13 +46,18 @@ function trustedProductLineFallback(
   visibleBrand: string | null,
 ) {
   const setName = normalized(rawSetName);
+  const brand = normalized(visibleBrand);
 
-  // Do not throw away a stronger visible product-family clue just because the
-  // VLM placed an unsupported parallel name at the end of its display title.
-  // This is deliberately narrow and maps only the product-line-only evidence
-  // the central Registry resolver already treats specially. In particular,
-  // `brand=Panini` plus `... Panini Prizm WNBA - Green Prizms` must retain
-  // `Panini Prizm`, not collapse all the way to the manufacturer `Panini`.
+  // If the reader already supplied product-line evidence, keep it exactly as
+  // the bounded resolver expects. Sonia's `brand=Prizm` remains `Prizm`.
+  if (["prizm", "prism", "panini prizm", "panini prism"].includes(brand)) {
+    return visibleBrand;
+  }
+
+  // Do not throw away a stronger product-family clue just because the reader
+  // put an unsupported parallel at the end of a display title. Rickea's
+  // `brand=Panini` still carries `Panini Prizm` in set_name; retaining that
+  // product line is what lets the Registry referee Base vs Green safely.
   if (
     /\bpanini\s+priz(?:m|ms|sm|sms)\b/.test(setName) ||
     /\bpriz(?:m|ms|sm|sms)\s+(?:wnba|nba)\b/.test(setName)
