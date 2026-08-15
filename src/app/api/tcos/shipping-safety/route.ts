@@ -19,10 +19,15 @@ export async function GET() {
   );
   const livePostagePossible =
     purchaseMode === "live" && liveShippingEnabled && liveAdapterSupported;
+  const safeForControlledShippingTest =
+    purchaseMode === "dry_run" &&
+    liveShippingEnabled === false &&
+    liveAdapterSupported === false &&
+    livePostagePossible === false;
 
   return Response.json(
     {
-      ok: !livePostagePossible,
+      ok: safeForControlledShippingTest,
       scope: "shipping_runtime_safety",
       purchaseMode,
       liveShippingEnabled,
@@ -36,10 +41,12 @@ export async function GET() {
       deploymentSha: process.env.TCOS_GIT_COMMIT_SHA || null,
     },
     {
-      status: livePostagePossible ? 503 : 200,
+      status: safeForControlledShippingTest ? 200 : 503,
       headers: {
         "Cache-Control": "no-store",
-        "X-TCOS-Shipping-Safety": livePostagePossible ? "blocked" : "safe",
+        "X-TCOS-Shipping-Safety": safeForControlledShippingTest
+          ? "safe"
+          : "blocked",
       },
     },
   );
