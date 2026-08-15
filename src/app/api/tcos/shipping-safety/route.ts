@@ -1,4 +1,5 @@
 import { getLetterTrackShipStationBridgeStatus } from "../../../../lib/lettertrack-shipstation";
+import { getShipStationParcelBridgeStatus } from "../../../../lib/shipstation-parcel";
 import { getShippingProviderAdapterProfile } from "../../../../lib/shipping-provider-adapter";
 
 export const dynamic = "force-dynamic";
@@ -16,19 +17,24 @@ export async function GET() {
     getShippingProviderAdapterProfile(method),
   );
   const letterTrackShipStation = getLetterTrackShipStationBridgeStatus();
+  const shipStationParcel = getShipStationParcelBridgeStatus();
   const liveAdapterSupported = profiles.some(
     (profile) => profile.livePurchaseSupported,
   );
   const genericLivePostagePossible =
     purchaseMode === "live" && liveShippingEnabled && liveAdapterSupported;
   const letterTrackLivePostagePossible = letterTrackShipStation.ready;
+  const parcelLivePostagePossible = shipStationParcel.ready;
   const livePostagePossible =
-    genericLivePostagePossible || letterTrackLivePostagePossible;
+    genericLivePostagePossible ||
+    letterTrackLivePostagePossible ||
+    parcelLivePostagePossible;
   const safeForControlledShippingTest =
     purchaseMode === "dry_run" &&
     liveShippingEnabled === false &&
     liveAdapterSupported === false &&
     letterTrackLivePostagePossible === false &&
+    parcelLivePostagePossible === false &&
     livePostagePossible === false;
 
   return Response.json(
@@ -58,6 +64,19 @@ export async function GET() {
         shipFromConfigured: letterTrackShipStation.shipFromConfigured,
         serviceCode: letterTrackShipStation.serviceCode,
         packageCode: letterTrackShipStation.packageCode,
+      },
+      shipStationParcel: {
+        enabled: shipStationParcel.enabled,
+        ready: shipStationParcel.ready,
+        provider: shipStationParcel.provider,
+        apiKeyConfigured: shipStationParcel.apiKeyConfigured,
+        carrierConfigured: shipStationParcel.carrierConfigured,
+        warehouseConfigured: shipStationParcel.warehouseConfigured,
+        shipFromConfigured: shipStationParcel.shipFromConfigured,
+        groundAdvantageServiceCode:
+          shipStationParcel.groundAdvantageServiceCode,
+        priorityMailServiceCode: shipStationParcel.priorityMailServiceCode,
+        packageCode: shipStationParcel.packageCode,
       },
       deploymentSha: process.env.TCOS_GIT_COMMIT_SHA || null,
     },
