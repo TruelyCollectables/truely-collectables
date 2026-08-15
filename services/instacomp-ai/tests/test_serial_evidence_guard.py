@@ -131,15 +131,23 @@ def test_clean_denominator_only_stamp_remains_visible_evidence() -> None:
     assert evidence.visible_denominator == 299
 
 
+def test_explicit_print_run_context_preserves_denominator_without_copy_stamp() -> None:
+    evidence = parse_serial_evidence([_obs("Parallel print run /99")])
+    assert evidence.stamp_present is False
+    assert evidence.exact_stamp is None
+    assert evidence.numerator is None
+    assert evidence.visible_denominator == 99
+
+
 def test_noisy_denominator_only_requires_independent_corroboration() -> None:
     evidence = parse_serial_evidence([_obs("PRINT RUN /299 MAYBE")])
     assert evidence.stamp_present is False
-    assert evidence.visible_denominator is None
+    assert evidence.visible_denominator == 299
 
     corroborated = parse_serial_evidence(
         [
-            _obs("PRINT RUN /299 MAYBE", side="front", source="apple-vision"),
-            _obs("FOIL /299 READ", side="back", source="apple-vision"),
+            _obs("FOIL /299 READ", side="front", source="apple-vision"),
+            _obs("PARALLEL /299 READ", side="back", source="apple-vision"),
         ]
     )
     assert corroborated.stamp_present is False
