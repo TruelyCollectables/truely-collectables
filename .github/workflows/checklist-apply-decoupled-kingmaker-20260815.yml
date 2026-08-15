@@ -1,5 +1,6 @@
 name: Checklist Apply Decoupled Kingmaker 20260815
 
+# Apply once; verification fails closed if synchronous rematch remains.
 on:
   push:
     branches:
