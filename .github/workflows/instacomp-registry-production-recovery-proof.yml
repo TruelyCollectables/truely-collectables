@@ -5,163 +5,88 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-registry-production-recovery-proof.yml"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
+      - "src/lib/instacomp-learning-server.ts"
+      - "scripts/run-instacomp-registry-production-data-regression.ts"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-registry-production-recovery-proof.yml"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
+      - "src/lib/instacomp-learning-server.ts"
+      - "scripts/run-instacomp-registry-production-data-regression.ts"
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
-  group: instacomp-registry-production-recovery-proof
+  group: instacomp-registry-production-recovery-proof-${{ github.event_name }}
   cancel-in-progress: true
 
+env:
+  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+
 jobs:
-  prove-live-registry-recovery:
+  prove-production-registry-data-recovery:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download encrypted production vault
-        uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: truely-production-secrets-vault-31773508121
-          path: /tmp/truely-production-vault
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
+          node-version: "22"
+          cache: npm
 
-      - name: Download separate recovery key
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-recovery-key-31773508121
-          path: /tmp/truely-production-key
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
+      - name: Install locked application dependencies
+        run: npm ci --ignore-scripts
 
-      - name: Prove live Sonia 22-to-122 Registry recovery
+      - name: Recover production Registry database credentials
         shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           umask 077
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo 'SUPABASE_ACCESS_TOKEN is unavailable.'; exit 2; }
+          curl -sS --fail-with-body --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys?reveal=true" \
+            -o /tmp/instacomp-registry-api-keys.json
           node <<'NODE'
           const fs = require('node:fs');
-          const path = require('node:path');
-          const { createDecipheriv, createHash } = require('node:crypto');
-
-          async function main() {
-            function filesBelow(root) {
-              return fs.readdirSync(root, { recursive: true, withFileTypes: true })
-                .filter((entry) => entry.isFile())
-                .map((entry) => path.join(entry.parentPath || entry.path, entry.name));
-            }
-
-            const vaultPath = filesBelow('/tmp/truely-production-vault')
-              .find((file) => file.endsWith('.tcosvault'));
-            const keyPath = filesBelow('/tmp/truely-production-key')
-              .find((file) => file.endsWith('.recovery-key.txt'));
-            if (!vaultPath || !keyPath) throw new Error('Production recovery artifacts are incomplete.');
-
-            const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
-            const keyText = fs.readFileSync(keyPath, 'utf8');
-            const keyMatch = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
-            if (!keyMatch) throw new Error('Production recovery key is invalid.');
-
-            const decipher = createDecipheriv(
-              'aes-256-gcm',
-              Buffer.from(keyMatch[1], 'base64url'),
-              Buffer.from(envelope.iv, 'base64'),
-            );
-            decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
-            const plaintext = Buffer.concat([
-              decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
-              decipher.final(),
-            ]);
-            const digest = createHash('sha256').update(plaintext).digest('hex');
-            if (digest !== envelope.plaintextSha256) throw new Error('Production vault checksum failed.');
-
-            const payload = JSON.parse(plaintext.toString('utf8'));
-            const variables = {
-              ...(payload?.sources?.vercelProductionApplicationVariables || {}),
-              ...(payload?.sources?.githubActionsReferencedSecrets || {}),
-            };
-            const sentinelToken = String(variables.INSTACOMP_SENTINEL_ARCHIVE_TOKEN || '').trim();
-            if (sentinelToken.length < 32) {
-              throw new Error('Production vault does not contain the shared InstaComp Sentinel archive token.');
-            }
-
-            const endpoint = 'https://truelycollectables.com/api/instacomp/registry-lock';
-            const expectedIdentity = '2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f';
-            const expectedFingerprint = '4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59';
-            const body = {
-              year: '2025',
-              manufacturer: null,
-              brand: 'Prizm',
-              setName: '2025 Panini Prizm WNBA - Silver Prizms',
-              subset: null,
-              cardNumber: '22',
-              player: 'Sonia Citron',
-              team: 'Washington Mystics',
-              sport: 'Basketball',
-              league: null,
-              serialNumber: null,
-              isAuto: null,
-              isRelic: null,
-              parallel: null,
-              variation: null,
-              ocrText: 'SONIA CITRON ROOKIE PRIZ PRZN RC CARD 22 WASHINGTON MYSTICS',
-            };
-
-            let last = 'No request attempted.';
-            for (let attempt = 1; attempt <= 30; attempt += 1) {
-              try {
-                const response = await fetch(endpoint, {
-                  method: 'POST',
-                  headers: {
-                    accept: 'application/json',
-                    'content-type': 'application/json',
-                    'x-instacomp-client': 'github-production-recovery-proof',
-                    'x-instacomp-sentinel-archive-token': sentinelToken,
-                  },
-                  body: JSON.stringify(body),
-                  redirect: 'manual',
-                  signal: AbortSignal.timeout(60_000),
-                });
-                const data = await response.json().catch(() => ({}));
-                const reasons = Array.isArray(data?.reasons) ? data.reasons.map(String) : [];
-                const lockedCardNumber = String(data?.lockedFields?.cardNumber || '');
-                const valid =
-                  response.status === 200 &&
-                  data?.ok === true &&
-                  data?.status === 'exact_match' &&
-                  data?.registryIdentityId === expectedIdentity &&
-                  data?.registryFingerprintSha256 === expectedFingerprint &&
-                  lockedCardNumber === '122' &&
-                  reasons.some((reason) => reason === 'unique_leading_digit_card_number_recovery:22->122');
-
-                if (valid) {
-                  console.log('PASS live Registry recovery: Sonia #22 evidence resolved uniquely and authoritatively to Sonia #122.');
-                  return;
-                }
-                last = `attempt=${attempt} status=${response.status} registryStatus=${data?.status || null} resolverStatus=${data?.resolverStatus || null} candidateCount=${data?.candidateCount ?? null} identity=${data?.registryIdentityId || null} card=${lockedCardNumber || null} reasons=${JSON.stringify(reasons)}`;
-              } catch (error) {
-                last = `attempt=${attempt} error=${error instanceof Error ? error.message : String(error)}`;
-              }
-              console.log(`Waiting for Cloudflare Registry release: ${last}`);
-              await new Promise((resolve) => setTimeout(resolve, 20_000));
-            }
-            throw new Error(`Live Registry recovery proof failed: ${last}`);
-          }
-
-          main().catch((error) => {
-            console.error(error);
-            process.exit(1);
-          });
+          const keys = JSON.parse(fs.readFileSync('/tmp/instacomp-registry-api-keys.json', 'utf8'));
+          if (!Array.isArray(keys) || !keys.length) throw new Error('Supabase returned no API keys.');
+          const normalized = keys.map((row) => ({
+            discriminator: String(row?.name || row?.type || '').trim().toLowerCase(),
+            value: String(row?.api_key || '').trim(),
+          }));
+          const serverKey = normalized.find((row) => ['service_role', 'secret'].includes(row.discriminator) && row.value);
+          if (!serverKey) throw new Error('Supabase server API key was not resolved.');
+          const ref = String(process.env.SUPABASE_PROJECT_REF || '').trim();
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEXT_PUBLIC_SUPABASE_URL=https://${ref}.supabase.co\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY=${serverKey.value}\n`);
+          console.log('PASS production Registry credentials recovered from Supabase management API; values withheld.');
           NODE
 
-      - name: Remove recovered secret material
+      - name: Prove all five Frozen Five Registry identities three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            echo "=== production Registry proof ${run}/3 ==="
+            node --import tsx scripts/run-instacomp-registry-production-data-regression.ts \
+              | tee "/tmp/production-registry-proof-${run}.log"
+            grep -q 'PASS production Registry data resolves all five Frozen Five canonical identities exactly' "/tmp/production-registry-proof-${run}.log"
+          done
+
+      - name: TypeScript check
+        run: npx tsc --noEmit --pretty false
+
+      - name: Remove recovered Registry secret material
         if: always()
         shell: bash
-        run: |
-          find /tmp/truely-production-vault /tmp/truely-production-key -type f -exec shred -u {} + 2>/dev/null || true
+        run: shred -u /tmp/instacomp-registry-api-keys.json 2>/dev/null || true
