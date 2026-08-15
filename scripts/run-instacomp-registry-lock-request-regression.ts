@@ -44,7 +44,7 @@ const sonia = buildInstaCompRegistryLockProbe({
   parallel: null,
   ocrText: "SONIA CITRON\nPRIZ\n22\nWASHINGTON MYSTICS",
 });
-assert.equal(sonia.setName, "Panini Prizm");
+assert.equal(sonia.setName, "Prizm");
 assert.ok(!String(sonia.setName).toLowerCase().includes("silver"));
 
 const supportedGreen = buildInstaCompRegistryLockProbe({
