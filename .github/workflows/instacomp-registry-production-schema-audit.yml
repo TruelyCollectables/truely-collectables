@@ -35,7 +35,15 @@ jobs:
             select tablename, indexname, indexdef
             from pg_catalog.pg_indexes
             where schemaname = 'public'
-              and tablename in ('checklist_cards', 'checklist_versions', 'checklist_releases')
+              and tablename in (
+                'checklist_cards',
+                'checklist_versions',
+                'checklist_releases',
+                'checklist_card_identities',
+                'checklist_card_players',
+                'checklist_card_teams',
+                'checklist_sets'
+              )
             order by tablename, indexname
           `;
           fs.writeFileSync('/tmp/registry-index-query.json', JSON.stringify({ query }));
