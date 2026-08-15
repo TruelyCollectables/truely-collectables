@@ -18,8 +18,8 @@ concurrency:
 
 env:
   PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
-  TARGET_NET_NEW: '75'
-  MAX_KEYS_PER_RUN: '450'
+  TARGET_NET_NEW: '500'
+  MAX_KEYS_PER_RUN: '1100'
   ATTEMPTED_LEDGER: 'ops/checklists/gogts-attempted-ledger-20260815.json'
 
 jobs:
@@ -143,8 +143,8 @@ jobs:
           const ledger = JSON.parse(readFileSync(process.env.LEDGER, 'utf8'));
           const handled = new Set(ledger.exactSetKeys || []);
           const out = process.env.OUT;
-          const targetNetNew = Number(process.env.TARGET || 75);
-          const maxKeys = Number(process.env.MAX_KEYS || 450);
+          const targetNetNew = Number(process.env.TARGET || 500);
+          const maxKeys = Number(process.env.MAX_KEYS || 1100);
           const sleep = ms => new Promise(r => setTimeout(r, ms));
           const clean = s => String(s || '').replaceAll('&amp;', '&');
           const summary = {
@@ -187,13 +187,19 @@ jobs:
           async function fetchText(url) {
             for (let a = 0; a < 3; a++) {
               try {
+                if (a === 0) await sleep(700 + Math.floor(Math.random() * 900));
                 const c = new AbortController();
                 const t = setTimeout(() => c.abort(), 15000);
-                const r = await fetch(url, { signal: c.signal, redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 TCOS Streaming Checklist Hunter/1.0' } });
+                const r = await fetch(url, {
+                  signal: c.signal,
+                  redirect: 'follow',
+                  headers: { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8' }
+                });
                 clearTimeout(t);
                 if (r.ok) return await r.text();
+                if (r.status === 429) await sleep(60000);
               } catch {}
-              await sleep(300 * (a + 1));
+              await sleep(1000 * (a + 1));
             }
             return '';
           }
@@ -310,8 +316,8 @@ jobs:
           test -s "$out/ledger.json" || exit 0
           git checkout -- scripts/mainstream-checklist/source-tools.mjs || true
           cp "$out/ledger.json" "$ATTEMPTED_LEDGER"
-          git config user.name "TCOS Checklist Conveyor"
-          git config user.email "david@truelycollectables.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$ATTEMPTED_LEDGER"
           if git diff --cached --quiet; then
             echo "Ledger unchanged"
