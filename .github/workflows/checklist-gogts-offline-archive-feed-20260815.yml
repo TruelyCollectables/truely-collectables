@@ -8,6 +8,8 @@ on:
       - '.github/workflows/checklist-gogts-offline-archive-feed-20260815.yml'
       - 'scripts/mainstream-checklist/gogts-offline-archive-feed.ts'
       - 'scripts/mainstream-checklist/build-gogts-offline-queue.py'
+      - 'scripts/mainstream-checklist/registry-tools.mjs'
+      - 'scripts/mainstream-checklist/gogts-structured-normalizer.mjs'
   workflow_dispatch:
 
 permissions:
@@ -28,6 +30,8 @@ jobs:
       GOGTS_OFFLINE_APPLY: 'true'
       GOGTS_OFFLINE_MAX: '2200'
       GOGTS_OFFLINE_MIN_ROWS: '25'
+      GOGTS_OFFLINE_PARSE_WORKERS: '6'
+      GOGTS_OFFLINE_PREP_BATCH_SIZE: '36'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
