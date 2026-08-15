@@ -34,6 +34,7 @@ type ShippingLabelRow = {
 
 type StoredPostagePurchase = {
   status?: unknown;
+  claim_id?: unknown;
   provider_label_id?: unknown;
   provider_shipment_id?: unknown;
   postage_amount?: unknown;
@@ -73,6 +74,10 @@ function isCompletedPurchase(value: StoredPostagePurchase | null) {
       cleanText(value.provider_pdf_url) &&
       Number.isFinite(Number(value.postage_amount)),
   );
+}
+
+function isLockedPurchase(value: StoredPostagePurchase | null) {
+  return value?.status === "purchase_in_progress" || value?.status === "purchase_unknown";
 }
 
 function proxyPdfUrl(orderId: number) {
@@ -146,6 +151,23 @@ function estimatedOunces(label: ShippingLabelRow) {
   const value = label.metadata?.standard_envelope_estimated_oz;
   const ounces = Number(value ?? 1);
   return Number.isFinite(ounces) && ounces > 0 ? ounces : 1;
+}
+
+function reusedPurchaseResponse(orderId: number, previous: StoredPostagePurchase) {
+  return Response.json({
+    success: true,
+    reused: true,
+    postagePurchased: true,
+    letterTrackFinalizeRequired: true,
+    provider: "ShipStation",
+    providerLabelId: cleanText(previous.provider_label_id),
+    providerShipmentId: cleanText(previous.provider_shipment_id),
+    postageAmount: Number(previous.postage_amount),
+    labelPdfUrl: proxyPdfUrl(orderId),
+    letterTrackUrl: letterTrackFinalizeUrl(),
+    message:
+      "Existing paid USPS letter postage was reused. No second ShipStation charge was submitted. Finalize the PDF in LetterTrack to add the IMb barcode.",
+  });
 }
 
 export async function POST(
@@ -236,20 +258,19 @@ export async function POST(
 
     const previous = storedPurchase(label);
     if (isCompletedPurchase(previous)) {
-      return Response.json({
-        success: true,
-        reused: true,
-        postagePurchased: true,
-        letterTrackFinalizeRequired: true,
-        provider: "ShipStation",
-        providerLabelId: cleanText(previous?.provider_label_id),
-        providerShipmentId: cleanText(previous?.provider_shipment_id),
-        postageAmount: Number(previous?.postage_amount),
-        labelPdfUrl: proxyPdfUrl(orderId),
-        letterTrackUrl: letterTrackFinalizeUrl(),
-        message:
-          "Existing paid USPS letter postage was reused. No second ShipStation charge was submitted. Finalize the PDF in LetterTrack to add the IMb barcode.",
-      });
+      return reusedPurchaseResponse(orderId, previous!);
+    }
+
+    if (isLockedPurchase(previous)) {
+      return Response.json(
+        {
+          error:
+            "A ShipStation postage purchase is already in progress or has an uncertain provider result. TCOS locked this order to prevent a duplicate charge. Reconcile the existing attempt before retrying.",
+          purchaseStatus: previous?.status || null,
+          claimId: cleanText(previous?.claim_id),
+        },
+        { status: 409 },
+      );
     }
 
     const externalReferences = [
@@ -290,24 +311,124 @@ export async function POST(
       );
     }
 
-    const purchase = await purchaseLetterTrackShipStationPostage({
-      orderId,
-      ounces,
-      shipTo: {
-        name:
-          cleanText(order.shipping_name) || cleanText(order.customer_name) || "",
-        addressLine1: cleanText(order.shipping_address_line1) || "",
-        addressLine2: cleanText(order.shipping_address_line2),
-        city: cleanText(order.shipping_city) || "",
-        state: cleanText(order.shipping_state) || "",
-        postalCode: cleanText(order.shipping_postal_code) || "",
-        countryCode: cleanText(order.shipping_country) || "US",
+    const claimId = `shipstation-${crypto.randomUUID()}`;
+    const claimedAt = new Date().toISOString();
+    const claimMetadata = {
+      ...(label.metadata || {}),
+      lettertrack_shipstation_postage: {
+        status: "purchase_in_progress",
+        claim_id: claimId,
+        claimed_at: claimedAt,
+        claimed_by_identity: identity,
+        estimated_ounces: ounces,
+        standard_envelope_machinable_attested: true,
+        lettertrack_finalize_required: true,
       },
-    });
+      latest_purchase_attempt: {
+        status: "shipstation_letter_postage_claimed",
+        attempted_at: claimedAt,
+        attempted_by_identity: identity,
+        claim_id: claimId,
+        lettertrack_finalize_required: true,
+      },
+    };
+
+    let claimQuery = supabase
+      .from("order_shipping_labels")
+      .update({
+        label_status: "rate_selected",
+        metadata: claimMetadata,
+        updated_at: claimedAt,
+      })
+      .eq("id", label.id)
+      .eq("store_id", storeId);
+
+    claimQuery = label.label_status === null
+      ? claimQuery.is("label_status", null)
+      : claimQuery.eq("label_status", label.label_status);
+
+    const { data: claimedRows, error: claimError } = await claimQuery.select("id");
+    if (claimError) throw claimError;
+
+    if (!claimedRows?.length) {
+      const refreshed = await loadActiveLabel({ supabase, storeId, orderId });
+      const refreshedPurchase = refreshed ? storedPurchase(refreshed) : null;
+      if (isCompletedPurchase(refreshedPurchase)) {
+        return reusedPurchaseResponse(orderId, refreshedPurchase!);
+      }
+      return Response.json(
+        {
+          error:
+            "Another shipping action changed this label before the ShipStation purchase lock was acquired. No provider charge was submitted.",
+        },
+        { status: 409 },
+      );
+    }
+
+    let purchase;
+    try {
+      purchase = await purchaseLetterTrackShipStationPostage({
+        orderId,
+        ounces,
+        shipTo: {
+          name:
+            cleanText(order.shipping_name) || cleanText(order.customer_name) || "",
+          addressLine1: cleanText(order.shipping_address_line1) || "",
+          addressLine2: cleanText(order.shipping_address_line2),
+          city: cleanText(order.shipping_city) || "",
+          state: cleanText(order.shipping_state) || "",
+          postalCode: cleanText(order.shipping_postal_code) || "",
+          countryCode: cleanText(order.shipping_country) || "US",
+        },
+      });
+    } catch (providerError: any) {
+      const failedAt = new Date().toISOString();
+      await supabase
+        .from("order_shipping_labels")
+        .update({
+          label_status: "rate_selected",
+          updated_at: failedAt,
+          metadata: {
+            ...claimMetadata,
+            lettertrack_shipstation_postage: {
+              ...((claimMetadata.lettertrack_shipstation_postage || {}) as Record<string, unknown>),
+              status: "purchase_unknown",
+              failed_at: failedAt,
+              provider_error:
+                providerError?.message || "Unknown ShipStation provider error.",
+            },
+            latest_purchase_attempt: {
+              status: "shipstation_letter_postage_unknown",
+              attempted_at: failedAt,
+              attempted_by_identity: identity,
+              claim_id: claimId,
+              provider_error:
+                providerError?.message || "Unknown ShipStation provider error.",
+              duplicate_purchase_locked: true,
+            },
+          },
+        })
+        .eq("id", label.id)
+        .eq("store_id", storeId)
+        .eq("label_status", "rate_selected");
+
+      return Response.json(
+        {
+          error:
+            "ShipStation did not return a safely reconcilable purchase result. TCOS locked this order against retry to prevent a duplicate charge. Check the ShipStation account before clearing the attempt.",
+          providerError:
+            providerError?.message || "Unknown ShipStation provider error.",
+          claimId,
+          duplicatePurchaseLocked: true,
+        },
+        { status: 502 },
+      );
+    }
 
     const now = new Date().toISOString();
     const stored = {
       status: "purchased",
+      claim_id: claimId,
       provider: "ShipStation",
       provider_label_id: purchase.labelId,
       provider_shipment_id: purchase.shipmentId,
@@ -326,7 +447,7 @@ export async function POST(
       final_imb_recorded: false,
     };
 
-    const { error: updateError } = await supabase
+    const { data: savedRows, error: updateError } = await supabase
       .from("order_shipping_labels")
       .update({
         provider: "ShipStation + LetterTrack",
@@ -347,6 +468,7 @@ export async function POST(
             status: "shipstation_letter_postage_purchased",
             attempted_at: now,
             attempted_by_identity: identity,
+            claim_id: claimId,
             provider_label_id: purchase.labelId,
             provider_shipment_id: purchase.shipmentId,
             postage_amount: purchase.postageAmount,
@@ -355,9 +477,21 @@ export async function POST(
         },
       })
       .eq("id", label.id)
-      .eq("store_id", storeId);
+      .eq("store_id", storeId)
+      .eq("label_status", "rate_selected")
+      .select("id");
 
-    if (updateError) throw updateError;
+    if (updateError || !savedRows?.length) {
+      return Response.json(
+        {
+          error:
+            "ShipStation appears to have purchased postage, but TCOS could not persist the final provider result. DO NOT retry this purchase. Reconcile the ShipStation label using the locked claim.",
+          claimId,
+          duplicatePurchaseLocked: true,
+        },
+        { status: 500 },
+      );
+    }
 
     const { error: eventError } = await supabase
       .from("order_shipping_tracking_events")
@@ -374,6 +508,7 @@ export async function POST(
           "USPS First-Class Letter postage was purchased through ShipStation. LetterTrack IMb finalization is still required before mailing.",
         occurred_at: now,
         raw_payload: {
+          claim_id: claimId,
           provider_label_id: purchase.labelId,
           provider_shipment_id: purchase.shipmentId,
           carrier_id: purchase.carrierId,
@@ -387,7 +522,23 @@ export async function POST(
         },
       });
 
-    if (eventError) throw eventError;
+    if (eventError) {
+      return Response.json({
+        success: true,
+        reused: false,
+        postagePurchased: true,
+        auditEventWarning: eventError.message,
+        letterTrackFinalizeRequired: true,
+        provider: "ShipStation",
+        providerLabelId: purchase.labelId,
+        providerShipmentId: purchase.shipmentId,
+        postageAmount: purchase.postageAmount,
+        labelPdfUrl: proxyPdfUrl(orderId),
+        letterTrackUrl: letterTrackFinalizeUrl(),
+        message:
+          "USPS letter postage was purchased and saved, but the tracking audit-event insert needs review. No retry is required. Finalize the PDF in LetterTrack before mailing.",
+      });
+    }
 
     return Response.json({
       success: true,
