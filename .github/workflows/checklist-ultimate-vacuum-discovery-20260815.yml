@@ -9,14 +9,18 @@ on:
       - 'scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs'
       - 'scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs'
       - 'scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-continuous-prepatch.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-exact-feed.ts'
       - 'ops/checklists/ultimate-vacuum-source-policy-20260815.json'
+      - 'ops/checklists/ultimate-vacuum-seen-urls-20260815.json'
   workflow_dispatch:
 
 permissions:
   contents: write
   actions: read
 
-# Ultimate Vacuum: discovery only. Production persistence remains behind the strict checklist validator.
+# Continuous discovery producers. Production persistence stays serialized behind
+# the same exact-set/registry-writer concurrency lane as the GoGTS hunter.
 jobs:
   discover:
     strategy:
@@ -32,8 +36,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Verify vacuum scripts
+      - name: Verify and arm continuous vacuum scripts
         run: |
+          node --check scripts/mainstream-checklist/ultimate-vacuum-continuous-prepatch.mjs
+          node scripts/mainstream-checklist/ultimate-vacuum-continuous-prepatch.mjs
           node --check scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs
           node --check scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
           node --check scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs
@@ -43,9 +49,10 @@ jobs:
         env:
           VACUUM_SHARD_INDEX: ${{ matrix.shard }}
           VACUUM_SHARD_COUNT: '8'
-          VACUUM_MAX_PAGES: '450'
+          VACUUM_MAX_PAGES: '650'
           VACUUM_MAX_SITEMAPS_PER_HOST: '40'
           VACUUM_REQUEST_TIMEOUT_MS: '12000'
+          VACUUM_SEEN_URLS: ops/checklists/ultimate-vacuum-seen-urls-20260815.json
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/ultimate-vacuum-${{ matrix.shard }}"
@@ -97,14 +104,35 @@ jobs:
           pattern: checklist-ultimate-vacuum-discovery-${{ github.run_id }}-shard-*
           path: ${{ runner.temp }}/vacuum-shards
 
-      - name: Merge outcomes, persist learning, and build human handoff
+      - name: Merge outcomes, candidates, learning, and seen-url conveyor
+        id: merge
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/vacuum-shards"
           all="$RUNNER_TEMP/ultimate-vacuum-all-events.ndjson"
+          ranked_ndjson="$RUNNER_TEMP/ultimate-vacuum-all-ranked.ndjson"
+          ranked_json="$RUNNER_TEMP/ultimate-vacuum-all-ranked.json"
           : > "$all"
+          : > "$ranked_ndjson"
           find "$root" -type f -name events.ndjson -print0 | sort -z | xargs -0 -r cat >> "$all"
+          find "$root" -type f -name ranked.json -print0 | sort -z | xargs -0 -r -n1 jq -c '.ranked[]?' >> "$ranked_ndjson"
+          jq -s 'sort_by(-(.reputationScore // 0)) | unique_by(.url) | {schema:"tcos.checklist.ultimateVacuumCombinedRanked.v1",generatedAt:(now|todateiso8601),rankedCount:length,ranked:.}' "$ranked_ndjson" > "$ranked_json"
+
+          seen="ops/checklists/ultimate-vacuum-seen-urls-20260815.json"
+          old="$RUNNER_TEMP/old-seen.txt"
+          pass="$RUNNER_TEMP/pass-seen.txt"
+          union="$RUNNER_TEMP/union-seen.txt"
+          jq -r '.urls[]?' "$seen" | sort -u > "$old"
+          jq -r '.ranked[]?.url' "$ranked_json" | sort -u > "$pass"
+          cat "$old" "$pass" | sed '/^$/d' | sort -u > "$union"
+          new_seen="$(comm -13 "$old" "$union" | wc -l | tr -d ' ')"
+          urls_json="$(jq -R -s 'split("\n") | map(select(length > 0))' "$union")"
+          jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson urls "$urls_json" '{schema:"tcos.checklist.ultimateVacuumSeenUrls.v1",updatedAt:$now,count:($urls|length),urls:$urls}' > "$seen"
+          echo "new_seen_count=$new_seen" >> "$GITHUB_OUTPUT"
+          echo "ranked_count=$(jq '.rankedCount' "$ranked_json")" >> "$GITHUB_OUTPUT"
+          echo "Vacuum newly discovered URLs this pass: $new_seen"
+          echo "Vacuum total seen URLs: $(jq '.count' "$seen")"
 
           cp ops/checklists/ultimate-vacuum-source-state-20260815.json "$RUNNER_TEMP/merged-vacuum-state.json"
           printf '{"candidates":[]}\n' > "$RUNNER_TEMP/empty-vacuum-candidates.json"
@@ -121,26 +149,97 @@ jobs:
           cp "$RUNNER_TEMP/merged-vacuum-state.json" ops/checklists/ultimate-vacuum-source-state-20260815.json
           jq '{generatedAt,totalBlockedUrls,actionableCount,skipCount,counts}' ops/checklists/ultimate-vacuum-human-handoff-20260815.json
 
-      - name: Persist source learning and handoff queue without retriggering vacuum
+      - name: Persist learning and self-feed only when new URLs exist
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "TCOS Ultimate Vacuum"
+          git config user.name "Checklist Discovery Conveyor"
           git config user.email "david@truelycollectables.com"
-          git add ops/checklists/ultimate-vacuum-source-state-20260815.json ops/checklists/ultimate-vacuum-human-handoff-20260815.json
+          git add \
+            ops/checklists/ultimate-vacuum-source-state-20260815.json \
+            ops/checklists/ultimate-vacuum-human-handoff-20260815.json \
+            ops/checklists/ultimate-vacuum-seen-urls-20260815.json
           if git diff --cached --quiet; then
             echo "Vacuum learning unchanged"
           else
-            git commit -m "checklists: persist vacuum learning $GITHUB_RUN_ID"
+            git commit -m "checklists: persist continuous vacuum learning $GITHUB_RUN_ID"
             git push origin "HEAD:$GITHUB_REF_NAME"
           fi
+          echo "New URLs this pass: ${{ steps.merge.outputs.new_seen_count }}"
+          echo "Only a changed seen-url ledger is a workflow trigger, so the conveyor stops naturally when a pass finds nothing new."
 
-      - name: Upload merged learning and human handoff
+      - name: Upload merged learning, ranked feed, and human handoff
         uses: actions/upload-artifact@v4
         with:
           name: checklist-ultimate-vacuum-learning-${{ github.run_id }}
           path: |
             ops/checklists/ultimate-vacuum-source-state-20260815.json
             ops/checklists/ultimate-vacuum-human-handoff-20260815.json
+            ops/checklists/ultimate-vacuum-seen-urls-20260815.json
             ${{ runner.temp }}/ultimate-vacuum-all-events.ndjson
+            ${{ runner.temp }}/ultimate-vacuum-all-ranked.json
           retention-days: 30
+
+  exact-set-production-feed:
+    needs: aggregate-learning
+    if: always()
+    concurrency:
+      group: checklist-mainstream-gogts-harvest-tranche2-20260815
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install registry dependencies
+        run: |
+          npm ci
+          npx tsc --noEmit --pretty false --incremental false || true
+
+      - name: Download this pass discovery shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checklist-ultimate-vacuum-discovery-${{ github.run_id }}-shard-*
+          path: ${{ runner.temp }}/vacuum-feed-shards
+
+      - name: Build deduped exact-feed candidate queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndjson="$RUNNER_TEMP/vacuum-feed-ranked.ndjson"
+          out="$RUNNER_TEMP/vacuum-feed-ranked.json"
+          : > "$ndjson"
+          find "$RUNNER_TEMP/vacuum-feed-shards" -type f -name ranked.json -print0 | sort -z | xargs -0 -r -n1 jq -c '.ranked[]?' >> "$ndjson"
+          jq -s 'sort_by(-(.reputationScore // 0)) | unique_by(.url) | {schema:"tcos.checklist.ultimateVacuumCombinedRanked.v1",generatedAt:(now|todateiso8601),rankedCount:length,ranked:.}' "$ndjson" > "$out"
+          jq '{rankedCount,top:.ranked[:20]}' "$out"
+
+      - name: Exact-set resolve, validate, and serialize Production persistence
+        shell: bash
+        env:
+          VACUUM_FEED_INPUT: ${{ runner.temp }}/vacuum-feed-ranked.json
+          VACUUM_FEED_OUTPUT: ${{ runner.temp }}/vacuum-feed-receipt.json
+          VACUUM_FEED_APPLY: 'true'
+          VACUUM_FEED_MAX_CANDIDATES: '200'
+          VACUUM_FEED_MINIMUM_CARD_ROWS: '25'
+        run: |
+          set -euo pipefail
+          npx tsx scripts/mainstream-checklist/ultimate-vacuum-exact-feed.ts
+          jq '{mode,masterExactSetCount,candidateInputCount,eligibleCandidateCount,selectedCount,statuses,netNew}' "$RUNNER_TEMP/vacuum-feed-receipt.json"
+
+      - name: Upload exact-feed Production receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-ultimate-vacuum-exact-feed-${{ github.run_id }}
+          path: ${{ runner.temp }}/vacuum-feed-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
