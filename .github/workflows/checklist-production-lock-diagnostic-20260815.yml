@@ -1,5 +1,6 @@
 name: Checklist Production Lock Diagnostic 20260815
 
+# Direct read-only SQL through the Supabase Management API; never takes the writer lane.
 on:
   push:
     branches:
