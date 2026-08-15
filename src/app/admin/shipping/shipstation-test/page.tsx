@@ -20,12 +20,20 @@ export default function ShipStationTestPage() {
                 Configure the TruelyCollectables ship-from address, authenticate the standalone ShipStation API account (formerly ShipEngine), inspect the connected USPS carrier, and verify First-Class Mail, Ground Advantage, Priority Mail, and package codes before allowing a live label purchase.
               </p>
             </div>
-            <Link
-              href="/admin/shipping"
-              className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
-            >
-              Back to Shipping
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/admin/shipping/test-shipment"
+                className="rounded-2xl bg-emerald-950 px-4 py-2 text-sm font-black text-white hover:bg-emerald-900"
+              >
+                Controlled 1 oz Test Shipment
+              </Link>
+              <Link
+                href="/admin/shipping"
+                className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Back to Shipping
+              </Link>
+            </div>
           </div>
 
           <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold leading-6 text-emerald-950">
