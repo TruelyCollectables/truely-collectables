@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import os
+import tarfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -37,13 +38,36 @@ if not source_manifest.is_file():
 manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
 by_article = {str(i.get("sourceUrl", "")): i for i in manifest.get("items", [])}
 
-# The archive artifact's physical layout has changed across generations. Do not
-# depend on directory names. Index every structured checklist file by the SHA-256
-# already preserved in the source manifest and join by content identity.
+# GitHub's artifact contains the preserved archive as a nested tar.gz. Extract it
+# locally first, then ignore physical directory names and join by preserved hash.
+scan_root = ARCHIVE_ROOT
+nested_archives = sorted(
+    [p for p in ARCHIVE_ROOT.rglob("*") if p.is_file() and p.name.lower().endswith((".tar.gz", ".tgz"))],
+    key=lambda p: str(p),
+)
+if nested_archives:
+    if len(nested_archives) != 1:
+        raise SystemExit(f"Expected one preserved master tarball, found {len(nested_archives)}")
+    tar_path = nested_archives[0]
+    extracted = ARCHIVE_ROOT / "_extracted_master_archive"
+    extracted.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(tar_path, "r:gz") as tf:
+        root_resolved = extracted.resolve()
+        safe_members = []
+        for member in tf.getmembers():
+            target = (extracted / member.name).resolve()
+            if target != root_resolved and root_resolved not in target.parents:
+                raise SystemExit(f"Unsafe archive member path: {member.name}")
+            if member.issym() or member.islnk():
+                continue
+            safe_members.append(member)
+        tf.extractall(extracted, members=safe_members)
+    scan_root = extracted
+
 sha_to_paths = defaultdict(list)
 scanned_files = 0
 scanned_bytes = 0
-for p in ARCHIVE_ROOT.rglob("*"):
+for p in scan_root.rglob("*"):
     if not p.is_file() or p.suffix.lower() not in ALLOWED:
         continue
     scanned_files += 1
@@ -65,9 +89,9 @@ for p in ARCHIVE_ROOT.rglob("*"):
     sha_to_paths[h.hexdigest()].append(p)
 
 if scanned_files < 100:
-    sample = [str(p.relative_to(ARCHIVE_ROOT)) for p in ARCHIVE_ROOT.rglob("*") if p.is_file()][:100]
+    sample = [str(p.relative_to(scan_root)) for p in scan_root.rglob("*") if p.is_file()][:100]
     raise SystemExit(
-        "Preserved archive exposed unexpectedly few structured files: "
+        "Preserved archive exposed unexpectedly few structured files after extraction: "
         f"{scanned_files}. Sample files: {json.dumps(sample)}"
     )
 
@@ -143,10 +167,11 @@ def year_sort(candidate):
 queue.sort(key=lambda x: (-year_sort(x), x["exactSetKey"]))
 
 payload = {
-    "schema": "tcos.checklist.gogtsOfflineArchiveQueue.v2",
+    "schema": "tcos.checklist.gogtsOfflineArchiveQueue.v3",
     "sourceRunId": "31100986894",
     "candidates": queue,
     "counts": {
+        "nestedArchiveExtracted": bool(nested_archives),
         "exactSetRows": len(rows),
         "manifestItems": len(by_article),
         "archiveStructuredFilesScanned": scanned_files,
@@ -163,4 +188,4 @@ QUEUE_OUT.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(payload["counts"], indent=2))
 
 if len(queue) < 1000:
-    raise SystemExit(f"Archive queue unexpectedly small after hash join: {len(queue)}")
+    raise SystemExit(f"Archive queue unexpectedly small after extracted hash join: {len(queue)}")
