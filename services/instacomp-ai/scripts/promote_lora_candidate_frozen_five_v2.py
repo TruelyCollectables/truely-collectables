@@ -4,12 +4,32 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import platform
 import subprocess
 from datetime import datetime, timezone
 from typing import Any
 
 import promote_lora_candidate_frozen_five as base
+
+
+MUTABLE_CANDIDATE_ENV_KEYS = (
+    "INSTACOMP_AI_LORA_CANDIDATE_ENABLED",
+    "INSTACOMP_AI_LORA_CANDIDATE_URL",
+)
+
+
+def clear_mutable_candidate_env_overrides() -> None:
+    """Let post-activation app.config read the newly written protected .env.
+
+    The canonical launcher exports .env so Registry credentials are available to
+    this process. That can also export the *pre-activation* LoRA enabled/url
+    values. Those two settings are intentionally mutable during this promotion,
+    so retaining them in os.environ would outrank pydantic's later .env reload
+    after enable-lora-candidate-macos.sh writes enabled=true.
+    """
+    for key in MUTABLE_CANDIDATE_ENV_KEYS:
+        os.environ.pop(key, None)
 
 
 def receipt_value(registry, prefix: str) -> str | None:
@@ -182,6 +202,24 @@ async def run_round(
 
 def self_test() -> int:
     base.self_test()
+
+    saved_candidate_env = {
+        key: os.environ.get(key) for key in MUTABLE_CANDIDATE_ENV_KEYS
+    }
+    try:
+        os.environ["INSTACOMP_AI_LORA_CANDIDATE_ENABLED"] = "false"
+        os.environ["INSTACOMP_AI_LORA_CANDIDATE_URL"] = "http://127.0.0.1:9999"
+        clear_mutable_candidate_env_overrides()
+        assert "INSTACOMP_AI_LORA_CANDIDATE_ENABLED" not in os.environ
+        assert "INSTACOMP_AI_LORA_CANDIDATE_URL" not in os.environ
+    finally:
+        for key, value in saved_candidate_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    print("PASS parent candidate environment refresh gate")
+
     fake_item = {"row_id": "row-1", "split": "validation"}
     fake_case = base.FROZEN[0]
 
@@ -265,6 +303,11 @@ def main() -> int:
         raise SystemExit(
             "Frozen-five Production promotion must run on the Apple Silicon Mac."
         )
+
+    # Registry credentials stay inherited from the launcher's protected .env,
+    # but the candidate enabled/url keys must not remain frozen at their
+    # pre-activation values in this long-running promotion process.
+    clear_mutable_candidate_env_overrides()
 
     receipt, validated, dataset = base.completion_gate()
     adapter = args.adapter.expanduser().resolve() if args.adapter else validated
