@@ -54,10 +54,213 @@ const REGISTRY_ARCHIVE_MIME_TYPES = new Set([
 ]);
 
 const BLOCKED_INGEST_DOMAINS = new Set([
-  // Public Beckett news pages remain useful discovery leads, but their current
-  // site terms do not make them an automatic commercial Registry-ingest source.
+  // Beckett remains discovery/reference only unless separately licensed for
+  // commercial Registry ingestion.
   "beckett.com",
   "www.beckett.com",
+]);
+
+// Stronger public sources discovered after the broad sweep. These do not bypass
+// Registry validation: they merely give the existing parser better evidence.
+const SUPPLEMENTAL_SOURCES = new Map([
+  [
+    "baseball|2026|topps|chrome",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Chrome_Baseball_Checklist_Final_7.22.pdf?v=1785169183",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "baseball|2026|topps|finest",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/CheckList_26TFBB_VERSION3.pdf?v=1783523381",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "soccer|2026|panini|prizm-fifa-world-cup",
+    [
+      {
+        url: "https://gogts.net/2026-panini-prizm-fifa-world-cup-soccer-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "baseball|2025|panini|select",
+    [
+      {
+        url: "https://gogts.net/2025-panini-select-baseball-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "basketball|2025-26|panini|prizm",
+    [
+      {
+        url: "https://gogts.net/2025-26-panini-prizm-basketball-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "football|2025|donruss|optic",
+    [
+      {
+        url: "https://gogts.net/2025-donruss-optic-nfl-football-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "football|2025|panini|national-treasures",
+    [
+      {
+        url: "https://gogts.net/2025-panini-national-treasures-nfl-football-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "football|2025|panini|prizm",
+    [
+      {
+        url: "https://gogts.net/2025-panini-prizm-nfl-football-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "football|2025|topps|chrome",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Chrome_Football_Checklist_040826.pdf?v=1775678965",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "football|2025|topps|finest",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Finest_Checklist_041626.pdf?v=1776446779",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "football|2025|topps|resurgence",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Resurgence_Football_Checklist.pdf?v=1782407891",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "tennis|2024|topps|chrome",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2024_Topps_Chrome_Tennis_Checklist.pdf?v=1735316763",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "football|2023|topps|composite",
+    [
+      {
+        url: "https://uk.topps.com/pages/2023-topps-composite-football",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "baseball|2022|topps|chrome",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2022ToppsChromeBaseball.pdf",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "baseball|2021|topps|chrome",
+    [
+      {
+        url: "https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2021ToppsChromeBaseball.pdf",
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority: "official_manufacturer",
+      },
+    ],
+  ],
+  [
+    "baseball|2019|panini|prizm",
+    [
+      {
+        url: "https://gogts.net/2019-panini-prizm-baseball-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "football|2019|panini|luminance",
+    [
+      {
+        url: "https://gogts.net/2019-panini-luminance-football-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
+  [
+    "football|2016|panini|immaculate",
+    [
+      {
+        url: "https://gogts.net/2016-panini-immaculate-football-cards-checklist/",
+        trustScore: 84,
+        importPolicy: "auto_import",
+        authority: "approved_reference_dataset",
+      },
+    ],
+  ],
 ]);
 
 const ACRONYMS = new Map([
@@ -106,7 +309,7 @@ function hostname(url) {
 
 function directDocument(url) {
   try {
-    return /\.(?:pdf|csv|tsv|xls|xlsx)(?:$|[?#])/i.test(new URL(url).pathname);
+    return /\.(?:pdf|csv|tsv|xls|xlsx)$/i.test(new URL(url).pathname);
   } catch {
     return false;
   }
@@ -127,6 +330,7 @@ function candidateScore(candidate) {
   const domain = hostname(candidate?.url || "");
   if (
     domain.endsWith("topps.com") ||
+    domain === "cdn.shopify.com" ||
     domain.endsWith("upperdeck.com") ||
     domain.endsWith("leaftradingcards.com") ||
     domain.endsWith("paniniamerica.net")
@@ -144,31 +348,85 @@ function displayToken(value) {
     .join(" ");
 }
 
+function candidateAuthority(candidate) {
+  if (candidate?.authority) return candidate.authority;
+  const domain = hostname(candidate?.url || "");
+  if (domain.endsWith("topps.com") || domain === "cdn.shopify.com") {
+    return "official_manufacturer";
+  }
+  return "approved_reference_dataset";
+}
+
 function loadFilter() {
   if (!FILTER_PATH) return null;
   const parsed = JSON.parse(readFileSync(FILTER_PATH, "utf8"));
-  const values =
-    parsed.exactSetKeys ||
-    parsed.validatedExactSetKeys ||
-    parsed.targets ||
-    [];
-  const keys = Array.isArray(values)
-    ? values.map((value) =>
-        typeof value === "string" ? value : value?.exactSetKey,
-      )
-    : [];
-  return new Set(keys.filter(Boolean).map((value) => String(value).toLowerCase()));
+  const output = new Map();
+
+  if (Array.isArray(parsed.targets)) {
+    for (const target of parsed.targets) {
+      const exactSetKey =
+        typeof target === "string" ? target : target?.exactSetKey;
+      if (!exactSetKey) continue;
+      output.set(
+        String(exactSetKey).toLowerCase(),
+        typeof target === "object" ? target?.sourceUrl || null : null,
+      );
+    }
+  }
+
+  for (const value of parsed.exactSetKeys || parsed.validatedExactSetKeys || []) {
+    if (value) output.set(String(value).toLowerCase(), output.get(String(value).toLowerCase()) || null);
+  }
+  return output;
 }
 
-function buildEntry(target) {
+function dedupeCandidates(values) {
+  const byUrl = new Map();
+  for (const candidate of values) {
+    if (!candidate?.url) continue;
+    const current = byUrl.get(candidate.url);
+    if (!current || candidateScore(candidate) > candidateScore(current)) {
+      byUrl.set(candidate.url, {
+        ...candidate,
+        domain: candidate.domain || hostname(candidate.url),
+      });
+    }
+  }
+  return [...byUrl.values()];
+}
+
+function buildEntry(target, pinnedSourceUrl = null) {
   const parts = String(target.exactSetKey || "").split("|");
   if (parts.length !== 4) {
     throw new Error(`Invalid exactSetKey: ${target.exactSetKey}`);
   }
   const [sportKey, seasonKey, manufacturerKey, productKey] = parts;
-  const candidates = (target.candidates || [])
-    .filter(eligibleCandidate)
-    .sort((a, b) => candidateScore(b) - candidateScore(a));
+
+  let candidates;
+  if (pinnedSourceUrl) {
+    candidates = [
+      {
+        url: pinnedSourceUrl,
+        domain: hostname(pinnedSourceUrl),
+        trustScore: 100,
+        importPolicy: "auto_import",
+        authority:
+          hostname(pinnedSourceUrl).endsWith("topps.com") ||
+          hostname(pinnedSourceUrl) === "cdn.shopify.com"
+            ? "official_manufacturer"
+            : "approved_reference_dataset",
+        pinnedValidationSource: true,
+      },
+    ];
+  } else {
+    candidates = dedupeCandidates([
+      ...(SUPPLEMENTAL_SOURCES.get(String(target.exactSetKey).toLowerCase()) || []),
+      ...(target.candidates || []),
+    ])
+      .filter(eligibleCandidate)
+      .sort((a, b) => candidateScore(b) - candidateScore(a));
+  }
+
   if (!candidates.length) return null;
 
   const chosen = candidates[0];
@@ -187,8 +445,8 @@ function buildEntry(target) {
       disposition: "import",
       sourceName: chosen.domain || hostname(chosen.url),
       sourceUrl: chosen.url,
-      fallbackUrls: candidates.slice(1).map((candidate) => candidate.url),
-      authority: "approved_reference_dataset",
+      fallbackUrls: pinnedSourceUrl ? [] : candidates.slice(1).map((candidate) => candidate.url),
+      authority: candidateAuthority(chosen),
       redistributionAllowed: false,
       minimumCardRows: MINIMUM_CARD_ROWS,
       release: {
@@ -206,8 +464,8 @@ function buildEntry(target) {
   };
 }
 
-async function processTarget(db, target) {
-  const built = buildEntry(target);
+async function processTarget(db, target, pinnedSourceUrl = null) {
+  const built = buildEntry(target, pinnedSourceUrl);
   if (!built) {
     return {
       exactSetKey: target.exactSetKey,
@@ -223,7 +481,7 @@ async function processTarget(db, target) {
   let selectedSourceUrl = entry.sourceUrl;
 
   const baseMetadata = {
-    promotionSchema: "tcos.checklist.publicWebPromotion.v1",
+    promotionSchema: "tcos.checklist.publicWebPromotion.v2",
     exactSetKey: target.exactSetKey,
     miningRunId: MINING_RUN_ID,
     aggregateRunId: AGGREGATE_RUN_ID,
@@ -234,6 +492,12 @@ async function processTarget(db, target) {
     candidateCount: Number(target.exactCandidateCount || 0),
     trustedCandidateCount: Number(target.trustedAutoImportCandidateCount || 0),
     eligibleCommercialIngestCandidates: eligibleCandidates.length,
+    supplementalSource: Boolean(
+      (SUPPLEMENTAL_SOURCES.get(String(target.exactSetKey).toLowerCase()) || []).some(
+        (candidate) => candidate.url === chosen.url,
+      ),
+    ),
+    pinnedValidationSource: Boolean(pinnedSourceUrl),
   };
 
   try {
@@ -296,6 +560,7 @@ async function processTarget(db, target) {
         exactSetKey: target.exactSetKey,
         status: "validated",
         sourceUrl: selectedSourceUrl,
+        sourceSha256: archive.digest,
         counts: plan.validation.counts,
       };
     }
@@ -310,6 +575,7 @@ async function processTarget(db, target) {
       exactSetKey: target.exactSetKey,
       status: "imported",
       sourceUrl: selectedSourceUrl,
+      sourceSha256: archive.digest,
       counts: plan.validation.counts,
       persistence,
     };
@@ -379,13 +645,15 @@ async function main() {
 
   const startedAt = new Date().toISOString();
   const results = [];
-  // Registry writes are intentionally serialized. Prior recovery runs proved that
-  // parallel authoritative writers create avoidable lock/transaction timeouts.
+  // Registry writes remain serialized. We are increasing source quality, not
+  // weakening validation or reopening parallel authoritative writers.
   for (const target of selectedTargets) {
+    const key = String(target.exactSetKey).toLowerCase();
+    const pinnedSourceUrl = filter?.get(key) || null;
     console.log(
-      `[public-web-promotion] ${APPLY ? "apply" : "validate"} ${target.exactSetKey}`,
+      `[public-web-promotion] ${APPLY ? "apply" : "validate"} ${target.exactSetKey}${pinnedSourceUrl ? " pinned" : ""}`,
     );
-    results.push(await processTarget(db, target));
+    results.push(await processTarget(db, target, pinnedSourceUrl));
   }
 
   const statuses = {};
@@ -397,12 +665,17 @@ async function main() {
     }
   }
 
-  const validatedExactSetKeys = results
+  const validatedTargets = results
     .filter((result) => ["validated", "imported"].includes(result.status))
-    .map((result) => result.exactSetKey);
+    .map((result) => ({
+      exactSetKey: result.exactSetKey,
+      sourceUrl: result.sourceUrl,
+      sourceSha256: result.sourceSha256 || null,
+    }));
+  const validatedExactSetKeys = validatedTargets.map((target) => target.exactSetKey);
 
   const receipt = {
-    schema: "tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v1",
+    schema: "tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2",
     mode: APPLY ? "apply" : "validate",
     startedAt,
     completedAt: new Date().toISOString(),
@@ -411,22 +684,25 @@ async function main() {
     queueCount: queue.targets.length,
     selectedCount: selectedTargets.length,
     minimumCardRows: MINIMUM_CARD_ROWS,
+    supplementalSourceTargets: SUPPLEMENTAL_SOURCES.size,
     blockedAutomaticIngestDomains: [...BLOCKED_INGEST_DOMAINS],
     registryWriter: "serialized",
     statuses,
     normalizedTotals,
     validatedExactSetKeys,
+    validatedTargets,
     results,
   };
 
   writeJson(OUTPUT_PATH, receipt);
   writeJson(VALIDATED_PATH, {
-    schema: "tcos.checklist.mainstream2005plusValidatedTargets.v1",
+    schema: "tcos.checklist.mainstream2005plusValidatedTargets.v2",
     mode: receipt.mode,
     miningRunId: MINING_RUN_ID,
     aggregateRunId: AGGREGATE_RUN_ID,
-    count: validatedExactSetKeys.length,
+    count: validatedTargets.length,
     exactSetKeys: validatedExactSetKeys,
+    targets: validatedTargets,
   });
 
   console.log(JSON.stringify(receipt, null, 2));
