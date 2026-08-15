@@ -19,12 +19,16 @@ async function resolveWithBoundedLeadingDigitRecovery(body: Record<string, unkno
   const observed = String(probe.cardNumber || "").trim();
 
   if (resolution.status !== "internal_exact_match" && /^\d{1,3}$/.test(observed)) {
+    const attempts = await Promise.all(
+      Array.from({ length: 9 }, (_, index) =>
+        resolveChecklistRegistry(
+          { ...probe, cardNumber: `${index + 1}${observed}` },
+          { evidenceTrusted: false },
+        ),
+      ),
+    );
     const recovered = new Map<string, ChecklistRegistryLookupResult>();
-    for (let prefix = 1; prefix <= 9; prefix += 1) {
-      const attempt = await resolveChecklistRegistry(
-        { ...probe, cardNumber: `${prefix}${observed}` },
-        { evidenceTrusted: false },
-      );
+    for (const attempt of attempts) {
       if (attempt.status === "internal_exact_match" && attempt.match) {
         recovered.set(attempt.match.identityId, attempt);
       }
