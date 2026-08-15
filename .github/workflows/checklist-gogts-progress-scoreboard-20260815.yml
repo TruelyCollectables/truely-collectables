@@ -49,35 +49,36 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/gogts-scoreboard"
-          : > "$root/catalog.ndjson"
-          for start in $(seq 0 1000 15000); do
-            end=$((start + 999))
-            page="$root/page-$start.json"
-            curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 45 \
+          count_query() {
+            local name="$1" query="$2" headers="$root/$name.headers" body="$root/$name.json"
+            curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+              --dump-header "$headers" \
               --header "apikey: $SB_KEY" \
               --header "Authorization: Bearer $SB_KEY" \
-              --header "Range: $start-$end" \
-              --header "Range-Unit: items" \
-              --output "$page" \
-              "$SB_URL/rest/v1/checklist_source_catalog?select=status,metadata,imported_at,source_url&order=source_url.asc"
-            jq -c '.[]?' "$page" >> "$root/catalog.ndjson"
-            count="$(jq 'length' "$page")"
-            if [ "$count" -lt 1000 ]; then break; fi
-          done
-          jq -s '
-            def exactkey: (.metadata.masterArchiveExactSetKey // .metadata.exactSetKey // "");
-            def offline: (.metadata.gogtsOfflineArchive == true);
-            def parser: (.metadata.parserPath // "");
-            {
-              generatedAt:(now|todateiso8601),
-              catalogRows:length,
-              importedRows:map(select(.status=="imported"))|length,
-              offlineGoGtsRows:map(select(offline))|length,
-              offlineGoGtsImportedRows:map(select(offline and .status=="imported"))|length,
-              offlineGoGtsImportedExactSets:(map(select(offline and .status=="imported")|exactkey)|map(select(length>0))|unique|length),
-              mainstreamImportedExactSets:(map(select(.status=="imported" and parser=="mainstream-reference-checklist-v1")|exactkey)|map(select(length>0))|unique|length),
-              latestOfflineImports:(map(select(offline and .status=="imported"))|sort_by(.imported_at // "")|reverse|.[0:10]|map({exactSetKey:exactkey,imported_at,source_url}))
-            }' "$root/catalog.ndjson" > "$root/scoreboard.json"
+              --header "Prefer: count=exact" \
+              --output "$body" \
+              "$SB_URL/rest/v1/checklist_source_catalog?$query&limit=1"
+            tr -d '\r' < "$headers" | awk -F'/' 'tolower($1) ~ /^content-range:/ {print $2}' | tail -1
+          }
+          imported_rows="$(count_query imported 'select=source_url&status=eq.imported')"
+          offline_rows="$(count_query offline 'select=source_url&metadata-%3E%3EgogtsOfflineArchive=eq.true')"
+          offline_imported="$(count_query offline-imported 'select=source_url&status=eq.imported&metadata-%3E%3EgogtsOfflineArchive=eq.true')"
+          mainstream_imported="$(count_query mainstream-imported 'select=source_url&status=eq.imported&metadata-%3E%3EparserPath=eq.mainstream-reference-checklist-v1')"
+          latest="$root/latest.json"
+          curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+            --header "apikey: $SB_KEY" \
+            --header "Authorization: Bearer $SB_KEY" \
+            --output "$latest" \
+            "$SB_URL/rest/v1/checklist_source_catalog?select=metadata,imported_at,source_url&status=eq.imported&metadata-%3E%3EgogtsOfflineArchive=eq.true&order=imported_at.desc.nullslast&limit=10"
+          jq -n \
+            --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson importedRows "${imported_rows:-0}" \
+            --argjson offlineGoGtsRows "${offline_rows:-0}" \
+            --argjson offlineGoGtsImportedRows "${offline_imported:-0}" \
+            --argjson mainstreamImportedRows "${mainstream_imported:-0}" \
+            --slurpfile latest "$latest" \
+            '{generatedAt:$now,importedRows:$importedRows,offlineGoGtsRows:$offlineGoGtsRows,offlineGoGtsImportedRows:$offlineGoGtsImportedRows,mainstreamImportedRows:$mainstreamImportedRows,latestOfflineImports:($latest[0]|map({exactSetKey:(.metadata.masterArchiveExactSetKey // .metadata.exactSetKey // ""),imported_at,source_url}))}' \
+            > "$root/scoreboard.json"
           cat "$root/scoreboard.json"
       - name: Upload scoreboard
         uses: actions/upload-artifact@v4
