@@ -14,6 +14,23 @@ import type { UniversalInventoryItem } from "../modules/inventory";
 
 export const SOLD_STOREFRONT_RETENTION_DAYS = 7;
 
+const RECENT_SOLD_CACHE_TTL_MS = 15_000;
+const RECENT_SOLD_CACHE_TTL_SECONDS = Math.floor(RECENT_SOLD_CACHE_TTL_MS / 1000);
+const RECENT_SOLD_CACHE_MAX_STORES = 16;
+const RECENT_SOLD_EDGE_CACHE_VERSION = "v1";
+
+type RecentSoldCacheEntry = {
+  expiresAt: number;
+  promise: Promise<UniversalInventoryItem[]>;
+};
+
+type WorkerCache = {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
+};
+
+const recentSoldCatalogCache = new Map<string, RecentSoldCacheEntry>();
+
 export type SaleEvidenceStatus = "verified" | "manual" | "unresolved";
 
 export type CollectibleSaleRecord = {
@@ -85,6 +102,96 @@ function normalizeEvidenceStatus(value: unknown): SaleEvidenceStatus {
   return value === "verified" || value === "manual" ? value : "unresolved";
 }
 
+function getWorkerDefaultCache(): WorkerCache | null {
+  try {
+    const cacheStorage = (globalThis as any).caches as
+      | { default?: WorkerCache }
+      | undefined;
+    return cacheStorage?.default || null;
+  } catch {
+    return null;
+  }
+}
+
+function recentSoldEdgeCacheRequest(storeId: string) {
+  return new Request(
+    `https://truelycollectables.com/__internal-cache/recent-sold/${encodeURIComponent(storeId)}?version=${RECENT_SOLD_EDGE_CACHE_VERSION}`,
+    { method: "GET" },
+  );
+}
+
+async function readRecentSoldFromEdgeCache(storeId: string) {
+  const cache = getWorkerDefaultCache();
+  if (!cache) return null;
+
+  try {
+    const response = await cache.match(recentSoldEdgeCacheRequest(storeId));
+    if (!response) return null;
+    const items = (await response.json()) as UniversalInventoryItem[];
+    return Array.isArray(items) ? items : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeRecentSoldToEdgeCache(
+  storeId: string,
+  items: UniversalInventoryItem[],
+) {
+  const cache = getWorkerDefaultCache();
+  if (!cache) return;
+
+  try {
+    await cache.put(
+      recentSoldEdgeCacheRequest(storeId),
+      new Response(JSON.stringify(items), {
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": `public, s-maxage=${RECENT_SOLD_CACHE_TTL_SECONDS}`,
+        },
+      }),
+    );
+  } catch {
+    // Recent-sale caching is only a performance optimization. The storefront
+    // must continue to work from Supabase if the Cache API is unavailable.
+  }
+}
+
+function getCachedRecentSoldCatalog(
+  storeId: string,
+  loader: () => Promise<UniversalInventoryItem[]>,
+) {
+  const now = Date.now();
+  const cached = recentSoldCatalogCache.get(storeId);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  if (cached) recentSoldCatalogCache.delete(storeId);
+
+  const promise = loader();
+  const entry: RecentSoldCacheEntry = {
+    expiresAt: now + RECENT_SOLD_CACHE_TTL_MS,
+    promise,
+  };
+  recentSoldCatalogCache.set(storeId, entry);
+
+  void promise.catch(() => {
+    if (recentSoldCatalogCache.get(storeId) === entry) {
+      recentSoldCatalogCache.delete(storeId);
+    }
+  });
+
+  if (recentSoldCatalogCache.size > RECENT_SOLD_CACHE_MAX_STORES) {
+    for (const [key, value] of recentSoldCatalogCache) {
+      if (value.expiresAt <= now || key !== storeId) {
+        recentSoldCatalogCache.delete(key);
+        if (recentSoldCatalogCache.size <= RECENT_SOLD_CACHE_MAX_STORES) break;
+      }
+    }
+  }
+
+  return promise;
+}
+
 export async function recordCollectibleSale(params: {
   supabase: SupabaseClient;
   storeId: string;
@@ -137,43 +244,47 @@ export async function archiveExpiredCollectibleSales(params: {
   };
 }
 
-export async function listRecentSoldStorefrontItems(params: {
+async function loadRecentSoldCatalog(params: {
   supabase: SupabaseClient;
   storeId: string;
-  query?: string;
-  section?: string;
-  feature?: string;
-  category?: string;
-  sort?: StorefrontSort;
 }): Promise<UniversalInventoryItem[]> {
+  const edgeCached = await readRecentSoldFromEdgeCache(params.storeId);
+  if (edgeCached) return edgeCached;
+
   const cutoff = new Date(
     Date.now() - SOLD_STOREFRONT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  const { data: collxOnlyRows, error: collxOnlyError } = await params.supabase
-    .from("collx_only_inventory_boundary_violations")
-    .select("legacy_product_id")
-    .eq("store_id", params.storeId);
-  if (collxOnlyError) throw collxOnlyError;
+  const [collxOnlyResult, productsResult] = await Promise.all([
+    params.supabase
+      .from("collx_only_inventory_boundary_violations")
+      .select("legacy_product_id")
+      .eq("store_id", params.storeId),
+    params.supabase
+      .from("products")
+      .select(
+        "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,sold_at,sold_price,sold_source,sold_reference,sold_price_status,archive_after,archived_at",
+      )
+      .eq("store_id", params.storeId)
+      .lte("quantity", 0)
+      .not("sold_at", "is", null)
+      .gte("sold_at", cutoff)
+      .is("archived_at", null)
+      .order("sold_at", { ascending: false })
+      .limit(500),
+  ]);
+
+  if (collxOnlyResult.error) throw collxOnlyResult.error;
+  if (productsResult.error) throw productsResult.error;
+
   const collxOnlyProductIds = new Set(
-    (collxOnlyRows || []).map((row: any) => Number(row.legacy_product_id)),
+    (collxOnlyResult.data || []).map((row: any) => Number(row.legacy_product_id)),
   );
-
-  const { data: products, error: productError } = await params.supabase
-    .from("products")
-    .select(
-      "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,sold_at,sold_price,sold_source,sold_reference,sold_price_status,archive_after,archived_at",
-    )
-    .eq("store_id", params.storeId)
-    .lte("quantity", 0)
-    .not("sold_at", "is", null)
-    .gte("sold_at", cutoff)
-    .is("archived_at", null)
-    .order("sold_at", { ascending: false })
-    .limit(500);
-
-  if (productError) throw productError;
-  if (!products?.length) return [];
+  const products = productsResult.data || [];
+  if (!products.length) {
+    await writeRecentSoldToEdgeCache(params.storeId, []);
+    return [];
+  }
 
   const productIds = products.map((product: any) => Number(product.id));
   const { data: inventoryRows, error: inventoryError } = await params.supabase
@@ -193,7 +304,6 @@ export async function listRecentSoldStorefrontItems(params: {
     }
   }
 
-  const requestedFeature = normalizeStorefrontFeature(params.feature);
   const soldItems = products
     .map((product: any) => {
       const inventory = inventoryByProduct.get(Number(product.id)) || null;
@@ -256,6 +366,36 @@ export async function listRecentSoldStorefrontItems(params: {
     .filter((item) => isLaunchCollectible(item))
     .filter((item) => !collxOnlyProductIds.has(item.legacyProductId))
     .filter((item) => !isMergedEbayAliasItemId(item.ebayItemId))
+    .sort(
+      (left, right) =>
+        new Date(right.soldAt || 0).getTime() -
+        new Date(left.soldAt || 0).getTime(),
+    );
+
+  await writeRecentSoldToEdgeCache(params.storeId, soldItems);
+  return soldItems;
+}
+
+function readRecentSoldCatalog(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+}) {
+  return getCachedRecentSoldCatalog(params.storeId, () =>
+    loadRecentSoldCatalog(params),
+  );
+}
+
+export async function listRecentSoldStorefrontItems(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  query?: string;
+  section?: string;
+  feature?: string;
+  category?: string;
+  sort?: StorefrontSort;
+}): Promise<UniversalInventoryItem[]> {
+  const requestedFeature = normalizeStorefrontFeature(params.feature);
+  const soldItems = (await readRecentSoldCatalog(params))
     .filter((item) =>
       matchesStorefrontFilters(item, {
         query: params.query,
@@ -271,10 +411,10 @@ export async function listRecentSoldStorefrontItems(params: {
     params.sort === "price_high" ||
     params.sort === "title"
   ) {
-    return sortStorefrontItems(soldItems, params.sort);
+    return sortStorefrontItems([...soldItems], params.sort);
   }
 
-  return soldItems.sort(
+  return [...soldItems].sort(
     (left, right) =>
       new Date(right.soldAt || 0).getTime() -
       new Date(left.soldAt || 0).getTime(),
