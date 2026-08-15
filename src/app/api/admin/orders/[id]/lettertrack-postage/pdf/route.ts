@@ -1,3 +1,4 @@
+import { safeShipStationDownloadUrl } from "@/src/lib/lettertrack-shipstation";
 import { getActiveStoreId } from "@/src/lib/stores";
 import { createSupabaseServerClient } from "@/src/lib/supabase-server";
 
@@ -16,25 +17,6 @@ function metadataRecord(
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function safeProviderPdfUrl(value: unknown) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  try {
-    const url = new URL(raw);
-    if (
-      !["http:", "https:"].includes(url.protocol) ||
-      url.hostname !== "api.shipstation.com"
-    ) {
-      return null;
-    }
-    url.protocol = "https:";
-    return url.toString();
-  } catch {
-    return null;
-  }
 }
 
 export async function GET(
@@ -73,7 +55,7 @@ export async function GET(
       label.metadata,
       "lettertrack_shipstation_postage",
     );
-    const providerPdfUrl = safeProviderPdfUrl(postage?.provider_pdf_url);
+    const providerPdfUrl = safeShipStationDownloadUrl(postage?.provider_pdf_url);
 
     if (postage?.status !== "purchased" || !providerPdfUrl) {
       return Response.json(
