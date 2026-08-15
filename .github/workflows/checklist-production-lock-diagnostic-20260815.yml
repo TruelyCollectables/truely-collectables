@@ -1,0 +1,79 @@
+name: Checklist Production Lock Diagnostic 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-production-lock-diagnostic-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Resolve Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-lock-diagnostic"; mkdir -p "$root"
+          curl --silent --show-error --fail --retry 2 --retry-all-errors --max-time 20 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t refs < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#refs[@]}" -eq 1
+          echo "PROJECT_REF=${refs[0]}" >> "$GITHUB_ENV"
+      - name: Inspect active database work and checklist functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-lock-diagnostic"
+          jq -n --arg q "
+            select jsonb_build_object(
+              'captured_at', clock_timestamp(),
+              'active', coalesce((select jsonb_agg(x order by x.query_start) from (
+                select pid, usename, application_name, client_addr, state,
+                       wait_event_type, wait_event, xact_start, query_start,
+                       clock_timestamp() - query_start as query_age,
+                       clock_timestamp() - xact_start as xact_age,
+                       left(query, 800) as query
+                from pg_catalog.pg_stat_activity
+                where datname = current_database()
+                  and pid <> pg_backend_pid()
+                  and state <> 'idle'
+              ) x), '[]'::jsonb),
+              'blocked', coalesce((select jsonb_agg(y) from (
+                select a.pid,
+                       pg_catalog.pg_blocking_pids(a.pid) as blocking_pids,
+                       a.wait_event_type, a.wait_event,
+                       clock_timestamp() - a.query_start as query_age,
+                       left(a.query, 500) as query
+                from pg_catalog.pg_stat_activity a
+                where a.datname = current_database()
+                  and cardinality(pg_catalog.pg_blocking_pids(a.pid)) > 0
+              ) y), '[]'::jsonb),
+              'writer_config', (select to_jsonb(p.proconfig) from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tcos_apply_checklist_import_plan' order by p.oid desc limit 1),
+              'trigger_definition', (select pg_catalog.pg_get_functiondef(p.oid) from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tcos_trigger_kingmaker_beckett_rematch' limit 1)
+            ) as diagnostic;
+          " '{query:$q}' > "$root/request.json"
+          curl --silent --show-error --fail --retry 1 --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data-binary @"$root/request.json" \
+            --output "$root/result.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query/read-only"
+          cat "$root/result.json"
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-production-lock-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/checklist-lock-diagnostic/result.json
+          retention-days: 14
