@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   type BallsDeepSummary,
   sendBallsDeepDealHunterEmail,
-} from "../../../../../lib/deal-hunter-balls-deep-email";
+} from "../../../../lib/deal-hunter-balls-deep-email";
 
 export const dynamic = "force-dynamic";
+
+const RESPONSE_HEADERS = {
+  "Cache-Control": "no-store",
+  "X-Truely-Origin": "cloudflare-worker",
+};
 
 const EXPECTED_LABELS = [
   "WNBA",
@@ -124,7 +129,7 @@ export async function POST(request: NextRequest) {
   if (!configuredSecret) {
     return NextResponse.json(
       { ok: false, error: "Production delivery authorization is not configured." },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
+      { status: 503, headers: RESPONSE_HEADERS },
     );
   }
 
@@ -135,7 +140,7 @@ export async function POST(request: NextRequest) {
   if (!suppliedSecret || !safeEqual(suppliedSecret, configuredSecret)) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized." },
-      { status: 401, headers: { "Cache-Control": "no-store" } },
+      { status: 401, headers: RESPONSE_HEADERS },
     );
   }
 
@@ -145,7 +150,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json(
       { ok: false, error: "Invalid JSON payload." },
-      { status: 400, headers: { "Cache-Control": "no-store" } },
+      { status: 400, headers: RESPONSE_HEADERS },
     );
   }
 
@@ -153,7 +158,7 @@ export async function POST(request: NextRequest) {
   if (!summary) {
     return NextResponse.json(
       { ok: false, error: "BALLS DEEP production proof payload failed validation." },
-      { status: 400, headers: { "Cache-Control": "no-store" } },
+      { status: 400, headers: RESPONSE_HEADERS },
     );
   }
 
@@ -167,7 +172,7 @@ export async function POST(request: NextRequest) {
         recipientCount: delivery.recipientCount,
         sentAt: delivery.sentAt,
       },
-      { status: 200, headers: { "Cache-Control": "no-store" } },
+      { status: 200, headers: RESPONSE_HEADERS },
     );
   } catch (error) {
     console.error(
@@ -176,7 +181,7 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json(
       { ok: false, error: "Production email delivery failed." },
-      { status: 502, headers: { "Cache-Control": "no-store" } },
+      { status: 502, headers: RESPONSE_HEADERS },
     );
   }
 }
