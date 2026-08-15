@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/checklist-mainstream-structured-retry-20260814.yml'
+      - 'scripts/mainstream-checklist/gogts-structured-normalizer.mjs'
   workflow_dispatch:
 
 permissions:
@@ -49,6 +50,34 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
           npm ci
           node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/mainstream-checklist/gogts-structured-normalizer.mjs
+          node --input-type=module -e 'import { runGoGtsStructuredNormalizerSelfTest } from "./scripts/mainstream-checklist/gogts-structured-normalizer.mjs"; console.log(JSON.stringify(runGoGtsStructuredNormalizerSelfTest()));'
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+      - name: Patch GoGTS structured normalization into existing parser path
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const path = "scripts/mainstream-checklist/source-tools.mjs";
+          let source = readFileSync(path, "utf8");
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error("GoGTS normalizer import anchor not found");
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = "  const text = extractText(downloaded, filename);";
+          const normalizedParse = "  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));";
+          if (!source.includes(normalizedParse)) {
+            const occurrences = source.split(parseAnchor).length - 1;
+            if (occurrences !== 1) throw new Error(`Expected one parser handoff anchor, found ${occurrences}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, "utf8");
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
           MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
 
       - name: Download immutable public-web aggregate
