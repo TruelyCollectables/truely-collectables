@@ -4037,6 +4037,19 @@ async function identifyCardWithConfiguredProviderFailover(params: {
             return ai;
           },
         },
+        {
+          provider: "openai_primary",
+          family: "openai",
+          configured: Boolean(OPENAI_API_KEY),
+          run: () =>
+            identifyCardWithOpenAI(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+              { readerFocus: "primary" },
+            ),
+        },
       ]);
     }
 
