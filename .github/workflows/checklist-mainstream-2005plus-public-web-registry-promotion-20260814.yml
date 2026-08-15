@@ -58,6 +58,8 @@ jobs:
           grep -q 'persistPlan' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
           grep -q 'registryWriter: "serialized"' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
           grep -q 'minimumCardRows: MINIMUM_CARD_ROWS' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          grep -q 'pinnedValidationSource' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          grep -q 'SUPPLEMENTAL_SOURCES' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
 
       - name: Download completed 2005+ public-web aggregate
         uses: actions/download-artifact@v4
@@ -143,17 +145,24 @@ jobs:
           export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$RUNNER_TEMP/public-web-validation/validated-targets.json"
           node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
           jq -e '
-            .schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v1"
+            .schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2"
             and .mode=="validate"
             and .queueCount==20
             and .selectedCount==20
             and .minimumCardRows>=25
+            and .supplementalSourceTargets>=18
             and .registryWriter=="serialized"
             and (.blockedAutomaticIngestDomains|index("www.beckett.com")!=null)
           ' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
-          jq '{mode,statuses,normalizedTotals,validatedExactSetKeys}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
+          jq -e '
+            .schema=="tcos.checklist.mainstream2005plusValidatedTargets.v2"
+            and .count==(.targets|length)
+            and .count==(.exactSetKeys|length)
+            and ([.targets[].sourceUrl]|all(type=="string" and length>0))
+          ' "$PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT" >/dev/null
+          jq '{mode,statuses,normalizedTotals,validatedTargets}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
 
-      - name: Apply only candidates that passed validation
+      - name: Apply only exact sources that passed validation
         shell: bash
         run: |
           set -euo pipefail
@@ -166,8 +175,13 @@ jobs:
           expected="$(jq -r '.count' "$PUBLIC_WEB_TARGET_FILTER")"
           actual="$(jq -r '.selectedCount' "$PUBLIC_WEB_PROMOTION_OUTPUT")"
           test "$actual" = "$expected"
-          jq -e '.mode=="apply" and .registryWriter=="serialized"' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
-          jq '{mode,statuses,normalizedTotals,validatedExactSetKeys}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
+          jq -e '
+            .schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2"
+            and .mode=="apply"
+            and .registryWriter=="serialized"
+            and ([.results[] | select(.status=="imported") | .exactSetKey] | length) == (.statuses.imported // 0)
+          ' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
+          jq '{mode,statuses,normalizedTotals,validatedTargets}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
 
       - name: Upload validation and apply receipts
         if: always()
