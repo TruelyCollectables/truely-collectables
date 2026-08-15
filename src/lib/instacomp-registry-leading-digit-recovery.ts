@@ -46,6 +46,10 @@ function normalizedCardNumber(value: unknown) {
   return normalizedText(value).replace(/[\s-]/g, "");
 }
 
+function yearStart(value: unknown) {
+  return String(value ?? "").match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
+}
+
 function unique(values: unknown[]) {
   return Array.from(
     new Set(values.map((value) => String(value || "")).filter(Boolean)),
@@ -80,60 +84,46 @@ function lookupUnavailable(reason: string): ChecklistRegistryLookupResult {
 }
 
 async function loadActiveCandidateRows(
+  ai: Record<string, any>,
   candidateNumbers: string[],
 ): Promise<CandidateRowsResult> {
   const supabase = serviceClient();
+  const targetYear = yearStart(ai.year);
+  if (!targetYear) {
+    throw new Error("candidate_year_evidence_missing");
+  }
+  const year = Number(targetYear);
+  const yearCandidates = [String(year - 1), String(year), String(year + 1)];
 
-  // Production has checklist_cards_instacomp_number_lookup_idx on
-  // (normalized_card_number, version_id, release_id). Start there directly.
-  // Never enumerate every release or every active version before using the
-  // strongest visible card-number evidence.
+  // Keep all three predicates inside one PostgreSQL plan. Production EXPLAIN
+  // proved this shape starts from the bounded release window, uses the long-
+  // standing (release_id, normalized_card_number) card index, and joins only
+  // active/live versions. This avoids both failed extremes: scanning every live
+  // Registry version first and fetching every common card number globally first.
   const cardResult = await supabase
     .from("checklist_cards")
     .select(
-      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+      `id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status,
+       version:checklist_versions!inner(id,is_active,status),
+       release:checklist_releases!inner(id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name))`,
     )
     .in("normalized_card_number", candidateNumbers)
+    .eq("version.is_active", true)
+    .eq("version.status", "live")
+    .or(
+      `release_year.in.(${yearCandidates.join(",")}),season.in.(${yearCandidates.join(",")})`,
+      { referencedTable: "release" },
+    )
     .limit(2500);
 
   if (cardResult.error) {
-    throw new Error(`candidate_card_lookup_failed:${String(cardResult.error.code || "unknown")}`);
+    throw new Error(`candidate_joined_card_lookup_failed:${String(cardResult.error.code || "unknown")}`);
   }
   if ((cardResult.data || []).length >= 2500) {
-    throw new Error("candidate_card_scope_truncated");
+    throw new Error("candidate_joined_card_scope_truncated");
   }
 
-  const rawCards = cardResult.data || [];
-  if (!rawCards.length) {
-    return {
-      rows: [],
-      candidateCount: 0,
-      releaseIds: [],
-      versionIds: [],
-      setIds: [],
-    };
-  }
-
-  // Validate only versions referenced by the indexed card-number result. This
-  // eliminates the old global is_active/status scan that hit statement_timeout.
-  const referencedVersionIds = unique(rawCards.map((card: any) => card.version_id));
-  const versionResult = await supabase
-    .from("checklist_versions")
-    .select("id,is_active,status")
-    .in("id", referencedVersionIds)
-    .eq("is_active", true)
-    .eq("status", "live");
-
-  if (versionResult.error) {
-    throw new Error(`candidate_version_lookup_failed:${String(versionResult.error.code || "unknown")}`);
-  }
-
-  const activeVersionIds = new Set(
-    (versionResult.data || []).map((row: any) => String(row.id)).filter(Boolean),
-  );
-  const cards = rawCards.filter((card: any) =>
-    activeVersionIds.has(String(card.version_id)),
-  );
+  const cards = cardResult.data || [];
   if (!cards.length) {
     return {
       rows: [],
@@ -149,53 +139,40 @@ async function loadActiveCandidateRows(
   const versionIds = unique(cards.map((card: any) => card.version_id));
   const setIds = unique(cards.map((card: any) => card.set_id));
 
-  // Expand only the small card-number candidate set. These exact detail indexes
-  // are also verified by the Production schema audit before certification.
-  const [releaseResult, setResult, playerResult, teamResult, identityResult] =
-    await Promise.all([
-      supabase
-        .from("checklist_releases")
-        .select(
-          "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
-        )
-        .in("id", releaseIds)
-        .limit(2500),
-      supabase
-        .from("checklist_sets")
-        .select("id,name,normalized_name,release_id,version_id")
-        .in("id", setIds)
-        .limit(2500),
-      supabase
-        .from("checklist_card_players")
-        .select("card_id,display_order,player:checklist_players(canonical_name)")
-        .in("card_id", cardIds)
-        .limit(5000),
-      supabase
-        .from("checklist_card_teams")
-        .select("card_id,display_order,team:checklist_teams(canonical_name)")
-        .in("card_id", cardIds)
-        .limit(5000),
-      supabase
-        .from("checklist_card_identities")
-        .select(
-          "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
-        )
-        .in("card_id", cardIds)
-        .limit(5000),
-    ]);
+  // Expand only the already bounded candidate cards. Production schema audit
+  // verifies each detail path below has its intended card/id lookup index.
+  const [setResult, playerResult, teamResult, identityResult] = await Promise.all([
+    supabase
+      .from("checklist_sets")
+      .select("id,name,normalized_name,release_id,version_id")
+      .in("id", setIds)
+      .limit(2500),
+    supabase
+      .from("checklist_card_players")
+      .select("card_id,display_order,player:checklist_players(canonical_name)")
+      .in("card_id", cardIds)
+      .limit(5000),
+    supabase
+      .from("checklist_card_teams")
+      .select("card_id,display_order,team:checklist_teams(canonical_name)")
+      .in("card_id", cardIds)
+      .limit(5000),
+    supabase
+      .from("checklist_card_identities")
+      .select(
+        "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
+      )
+      .in("card_id", cardIds)
+      .limit(5000),
+  ]);
 
   const detailError =
-    releaseResult.error ||
-    setResult.error ||
-    playerResult.error ||
-    teamResult.error ||
-    identityResult.error;
+    setResult.error || playerResult.error || teamResult.error || identityResult.error;
   if (detailError) {
     throw new Error(`candidate_detail_lookup_failed:${String(detailError.code || "unknown")}`);
   }
 
   if (
-    (releaseResult.data || []).length >= 2500 ||
     (setResult.data || []).length >= 2500 ||
     (playerResult.data || []).length >= 5000 ||
     (teamResult.data || []).length >= 5000 ||
@@ -204,9 +181,6 @@ async function loadActiveCandidateRows(
     throw new Error("candidate_detail_scope_truncated");
   }
 
-  const releaseById = new Map(
-    (releaseResult.data || []).map((row: any) => [String(row.id), row]),
-  );
   const setById = new Map(
     (setResult.data || []).map((row: any) => [String(row.id), row]),
   );
@@ -216,9 +190,9 @@ async function loadActiveCandidateRows(
 
   const rows = cards.map((card: any) => ({
     ...card,
-    version: { id: card.version_id, is_active: true, status: "live" },
+    version: card.version || { id: card.version_id, is_active: true, status: "live" },
     set: setById.get(String(card.set_id)) || null,
-    release: releaseById.get(String(card.release_id)) || null,
+    release: card.release || null,
     players: playersByCard.get(String(card.id)) || [],
     teams: teamsByCard.get(String(card.id)) || [],
     identities: identitiesByCard.get(String(card.id)) || [],
@@ -258,22 +232,16 @@ function matchedCandidate(
   };
 }
 
-/**
- * Production-facing authoritative resolver for requests that already contain a
- * visible card number. It starts at the live normalized-card-number index,
- * validates only referenced active versions, expands only that candidate set,
- * and delegates every identity decision to the existing chooseRegistryMatch
- * referee. No unique exact identity still means no lock.
- */
 export async function resolveChecklistRegistryCardFirst(
   ai: Record<string, any>,
 ): Promise<ChecklistRegistryLookupResult> {
   const cardNumber = normalizedCardNumber(ai.cardNumber);
-  if (!cardNumber) {
+  const targetYear = yearStart(ai.year);
+  if (!cardNumber || !targetYear) {
     return {
       status: "input_incomplete",
       match: null,
-      reasons: ["missing_or_uncertain_visible_card_number_evidence"],
+      reasons: ["missing_visible_year_or_card_number_evidence"],
       candidateCount: 0,
       coveredReleaseIds: [],
       coveredVersionIds: [],
@@ -285,12 +253,12 @@ export async function resolveChecklistRegistryCardFirst(
   }
 
   try {
-    const scope = await loadActiveCandidateRows([cardNumber]);
+    const scope = await loadActiveCandidateRows(ai, [cardNumber]);
     if (!scope.rows.length) {
       return {
         status: "internal_set_present_no_exact_match",
         match: null,
-        reasons: ["active_registry_contains_no_card_with_observed_number"],
+        reasons: ["active_registry_contains_no_card_with_observed_number_in_bounded_year_scope"],
         candidateCount: 0,
         coveredReleaseIds: [],
         coveredVersionIds: [],
@@ -346,27 +314,19 @@ export async function resolveChecklistRegistryCardFirst(
       externalLookupAttempted: false,
     };
   } catch (error) {
-    console.error("Checklist Registry card-first lookup failed:", error);
+    console.error("Checklist Registry joined card-first lookup failed:", error);
     return lookupUnavailable(
-      error instanceof Error ? error.message : "card_first_registry_lookup_failed",
+      error instanceof Error ? error.message : "joined_card_first_registry_lookup_failed",
     );
   }
 }
 
-/**
- * Recover one OCR/VLM-dropped leading digit (for example 122 -> 22) without
- * re-running a full Registry scope resolver nine times. The nine bounded card
- * numbers are loaded in one indexed query. Recovery remains exact-year only so
- * it can never relax both the year and card number simultaneously, and it is
- * accepted only when exactly one distinct Registry identity survives all
- * visible evidence.
- */
 export async function resolveChecklistRegistryLeadingDigitRecovery(
   ai: Record<string, any>,
   observedCardNumber: string,
 ): Promise<ChecklistRegistryLookupResult | null> {
   const observed = normalizedCardNumber(observedCardNumber);
-  if (!/^\d{1,3}$/.test(observed)) return null;
+  if (!/^\d{1,3}$/.test(observed) || !yearStart(ai.year)) return null;
 
   const candidateNumbers = Array.from(
     { length: 9 },
@@ -374,7 +334,7 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
   );
 
   try {
-    const scope = await loadActiveCandidateRows(candidateNumbers);
+    const scope = await loadActiveCandidateRows(ai, candidateNumbers);
     if (!scope.rows.length) return null;
 
     const recovered = new Map<string, ResolvedCandidate>();
@@ -384,6 +344,8 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
       );
       if (!candidateRows.length) continue;
 
+      // Do not relax year while recovering a dropped card digit. This fallback
+      // therefore changes only one piece of evidence and remains fail-closed.
       const match = chooseRegistryMatch(
         { ...ai, cardNumber },
         candidateRows,
@@ -413,7 +375,7 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
       externalLookupAttempted: false,
     };
   } catch (error) {
-    console.error("Checklist Registry leading-digit recovery failed:", error);
+    console.error("Checklist Registry joined leading-digit recovery failed:", error);
     return null;
   }
 }
