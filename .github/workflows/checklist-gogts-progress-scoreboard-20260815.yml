@@ -1,0 +1,86 @@
+name: Checklist GoGTS Production Scoreboard 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-gogts-progress-scoreboard-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  scoreboard:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Resolve Production Supabase read credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gogts-scoreboard"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "SB_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SB_KEY=$service_key" >> "$GITHUB_ENV"
+      - name: Read current checklist catalog scoreboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gogts-scoreboard"
+          : > "$root/catalog.ndjson"
+          for start in $(seq 0 1000 15000); do
+            end=$((start + 999))
+            page="$root/page-$start.json"
+            curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 45 \
+              --header "apikey: $SB_KEY" \
+              --header "Authorization: Bearer $SB_KEY" \
+              --header "Range: $start-$end" \
+              --header "Range-Unit: items" \
+              --output "$page" \
+              "$SB_URL/rest/v1/checklist_source_catalog?select=status,metadata,imported_at,source_url&order=source_url.asc"
+            jq -c '.[]?' "$page" >> "$root/catalog.ndjson"
+            count="$(jq 'length' "$page")"
+            if [ "$count" -lt 1000 ]; then break; fi
+          done
+          jq -s '
+            def exactkey: (.metadata.masterArchiveExactSetKey // .metadata.exactSetKey // "");
+            def offline: (.metadata.gogtsOfflineArchive == true);
+            def parser: (.metadata.parserPath // "");
+            {
+              generatedAt:(now|todateiso8601),
+              catalogRows:length,
+              importedRows:map(select(.status=="imported"))|length,
+              offlineGoGtsRows:map(select(offline))|length,
+              offlineGoGtsImportedRows:map(select(offline and .status=="imported"))|length,
+              offlineGoGtsImportedExactSets:(map(select(offline and .status=="imported")|exactkey)|map(select(length>0))|unique|length),
+              mainstreamImportedExactSets:(map(select(.status=="imported" and parser=="mainstream-reference-checklist-v1")|exactkey)|map(select(length>0))|unique|length),
+              latestOfflineImports:(map(select(offline and .status=="imported"))|sort_by(.imported_at // "")|reverse|.[0:10]|map({exactSetKey:exactkey,imported_at,source_url}))
+            }' "$root/catalog.ndjson" > "$root/scoreboard.json"
+          cat "$root/scoreboard.json"
+      - name: Upload scoreboard
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-gogts-production-scoreboard-${{ github.run_id }}
+          path: ${{ runner.temp }}/gogts-scoreboard/scoreboard.json
+          retention-days: 7
