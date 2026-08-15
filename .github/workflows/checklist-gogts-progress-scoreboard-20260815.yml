@@ -50,7 +50,11 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/gogts-scoreboard"
           count_query() {
-            local name="$1" query="$2" headers="$root/$name.headers" body="$root/$name.json"
+            local name query headers body
+            name="$1"
+            query="$2"
+            headers="$root/$name.headers"
+            body="$root/$name.json"
             curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
               --dump-header "$headers" \
               --header "apikey: $SB_KEY" \
