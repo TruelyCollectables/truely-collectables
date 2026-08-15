@@ -242,9 +242,15 @@ export async function purchaseLetterTrackShipStationPostage(
       Accept: "application/json",
     },
     body: JSON.stringify(payload),
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(45_000),
   });
+
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(
+      `ShipStation postage purchase refused an unexpected redirect (HTTP ${response.status}).`,
+    );
+  }
 
   const providerPayload = (await response.json().catch(() => ({}))) as Record<
     string,
