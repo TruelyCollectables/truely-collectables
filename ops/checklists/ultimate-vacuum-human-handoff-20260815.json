@@ -1,6 +1,6 @@
 {
   "schema": "tcos.checklist.ultimateVacuumHumanHandoff.v1",
-  "generatedAt": "2026-08-15T16:30:18.164Z",
+  "generatedAt": "2026-08-15T17:40:51.646Z",
   "totalBlockedUrls": 20,
   "actionableUrlCount": 0,
   "humanTaskCount": 0,
@@ -24,8 +24,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:10.761Z",
-      "lastSeenAt": "2026-08-15T16:26:10.761Z",
+      "firstSeenAt": "2026-08-15T17:36:42.793Z",
+      "lastSeenAt": "2026-08-15T17:36:42.793Z",
       "occurrences": 1
     },
     {
@@ -36,8 +36,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:51.640Z",
-      "lastSeenAt": "2026-08-15T16:25:51.640Z",
+      "firstSeenAt": "2026-08-15T17:36:24.156Z",
+      "lastSeenAt": "2026-08-15T17:36:24.156Z",
       "occurrences": 1
     },
     {
@@ -48,8 +48,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:03.958Z",
-      "lastSeenAt": "2026-08-15T16:26:03.958Z",
+      "firstSeenAt": "2026-08-15T17:36:36.475Z",
+      "lastSeenAt": "2026-08-15T17:36:36.475Z",
       "occurrences": 1
     },
     {
@@ -60,8 +60,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:57.854Z",
-      "lastSeenAt": "2026-08-15T16:25:57.854Z",
+      "firstSeenAt": "2026-08-15T17:36:30.370Z",
+      "lastSeenAt": "2026-08-15T17:36:30.370Z",
       "occurrences": 1
     },
     {
@@ -72,8 +72,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:53.425Z",
-      "lastSeenAt": "2026-08-15T16:25:53.425Z",
+      "firstSeenAt": "2026-08-15T17:36:26.553Z",
+      "lastSeenAt": "2026-08-15T17:36:26.553Z",
       "occurrences": 1
     },
     {
@@ -84,8 +84,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:59.417Z",
-      "lastSeenAt": "2026-08-15T16:25:59.417Z",
+      "firstSeenAt": "2026-08-15T17:36:32.931Z",
+      "lastSeenAt": "2026-08-15T17:36:32.931Z",
       "occurrences": 1
     },
     {
@@ -96,8 +96,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:56.165Z",
-      "lastSeenAt": "2026-08-15T16:25:56.165Z",
+      "firstSeenAt": "2026-08-15T17:36:29.740Z",
+      "lastSeenAt": "2026-08-15T17:36:29.740Z",
       "occurrences": 1
     },
     {
@@ -108,8 +108,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:02.394Z",
-      "lastSeenAt": "2026-08-15T16:26:02.394Z",
+      "firstSeenAt": "2026-08-15T17:36:36.304Z",
+      "lastSeenAt": "2026-08-15T17:36:36.304Z",
       "occurrences": 1
     },
     {
@@ -120,8 +120,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:05.405Z",
-      "lastSeenAt": "2026-08-15T16:26:05.405Z",
+      "firstSeenAt": "2026-08-15T17:36:39.179Z",
+      "lastSeenAt": "2026-08-15T17:36:39.179Z",
       "occurrences": 1
     },
     {
@@ -132,8 +132,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:00.632Z",
-      "lastSeenAt": "2026-08-15T16:26:00.632Z",
+      "firstSeenAt": "2026-08-15T17:36:32.818Z",
+      "lastSeenAt": "2026-08-15T17:36:32.818Z",
       "occurrences": 1
     },
     {
@@ -144,8 +144,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:03.298Z",
-      "lastSeenAt": "2026-08-15T16:26:03.298Z",
+      "firstSeenAt": "2026-08-15T17:36:35.731Z",
+      "lastSeenAt": "2026-08-15T17:36:35.731Z",
       "occurrences": 1
     },
     {
@@ -156,8 +156,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:00.254Z",
-      "lastSeenAt": "2026-08-15T16:26:00.254Z",
+      "firstSeenAt": "2026-08-15T17:36:32.360Z",
+      "lastSeenAt": "2026-08-15T17:36:32.360Z",
       "occurrences": 1
     },
     {
@@ -168,8 +168,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:59.469Z",
-      "lastSeenAt": "2026-08-15T16:25:59.469Z",
+      "firstSeenAt": "2026-08-15T17:36:32.032Z",
+      "lastSeenAt": "2026-08-15T17:36:32.032Z",
       "occurrences": 1
     },
     {
@@ -180,8 +180,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:50.155Z",
-      "lastSeenAt": "2026-08-15T16:25:50.155Z",
+      "firstSeenAt": "2026-08-15T17:36:22.688Z",
+      "lastSeenAt": "2026-08-15T17:36:22.688Z",
       "occurrences": 1
     },
     {
@@ -192,8 +192,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:56.078Z",
-      "lastSeenAt": "2026-08-15T16:25:56.078Z",
+      "firstSeenAt": "2026-08-15T17:36:28.682Z",
+      "lastSeenAt": "2026-08-15T17:36:28.682Z",
       "occurrences": 1
     },
     {
@@ -204,8 +204,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:52.967Z",
-      "lastSeenAt": "2026-08-15T16:25:52.967Z",
+      "firstSeenAt": "2026-08-15T17:36:25.455Z",
+      "lastSeenAt": "2026-08-15T17:36:25.455Z",
       "occurrences": 1
     },
     {
@@ -216,8 +216,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:09.249Z",
-      "lastSeenAt": "2026-08-15T16:26:09.249Z",
+      "firstSeenAt": "2026-08-15T17:36:41.765Z",
+      "lastSeenAt": "2026-08-15T17:36:41.765Z",
       "occurrences": 1
     },
     {
@@ -228,8 +228,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:25:59.528Z",
-      "lastSeenAt": "2026-08-15T16:25:59.528Z",
+      "firstSeenAt": "2026-08-15T17:36:32.084Z",
+      "lastSeenAt": "2026-08-15T17:36:32.084Z",
       "occurrences": 1
     },
     {
@@ -240,8 +240,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:05.965Z",
-      "lastSeenAt": "2026-08-15T16:26:05.965Z",
+      "firstSeenAt": "2026-08-15T17:36:38.587Z",
+      "lastSeenAt": "2026-08-15T17:36:38.587Z",
       "occurrences": 1
     },
     {
@@ -252,8 +252,8 @@
       "priority": 0,
       "action": "Do not bypass the site restriction. Search for the same checklist on another public source.",
       "detail": "HTTP 403",
-      "firstSeenAt": "2026-08-15T16:26:02.681Z",
-      "lastSeenAt": "2026-08-15T16:26:02.681Z",
+      "firstSeenAt": "2026-08-15T17:36:35.387Z",
+      "lastSeenAt": "2026-08-15T17:36:35.387Z",
       "occurrences": 1
     }
   ]
