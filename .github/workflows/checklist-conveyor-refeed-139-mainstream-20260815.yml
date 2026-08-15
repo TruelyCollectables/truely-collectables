@@ -1,6 +1,6 @@
 name: Checklist Conveyor Refeed 139 Mainstream 20260815
 
-# Requeued after the hardened GoGTS writer; never preempts saved-archive ingestion.
+# GoGTS runs first. This possession then imports the preserved 139 and drains AI rematches.
 on:
   push:
     branches:
@@ -22,7 +22,7 @@ jobs:
   refeed-139:
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
@@ -80,13 +80,45 @@ jobs:
           set -euo pipefail
           node --import tsx scripts/mainstream-checklist/vacuum-mainstream-asset-feed.ts
           test -s "$VACUUM_MAINSTREAM_OUTPUT"
-          jq '{candidates,processed,statuses,imported,netNew,idempotent}' "$VACUUM_MAINSTREAM_OUTPUT"
-      - name: Upload strict Production receipt
+          jq '{candidates,processed,statuses,imported,netNew,idempotent,preserved139}' "$VACUUM_MAINSTREAM_OUTPUT"
+      - name: Drain Kingmaker rematches after checklist imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/refeed-production"
+          : > "$root/kingmaker-drain.ndjson"
+          for pass in $(seq 1 500); do
+            out="$root/drain-$pass.json"
+            curl --silent --show-error --fail --retry 4 --retry-all-errors --max-time 90 \
+              --request POST \
+              --header "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              --header "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              --header "Content-Type: application/json" \
+              --data '{"p_batch_size":1000,"p_trigger_source":"post_checklist_bulk_import"}' \
+              --output "$out" \
+              "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/rpc/tcos_drain_kingmaker_price_rematch_batch"
+            jq -c --argjson pass "$pass" '{pass:$pass,result:.}' "$out" >> "$root/kingmaker-drain.ndjson"
+            status="$(jq -r '.drain_status // empty' "$out")"
+            has_more="$(jq -r '.has_more // false' "$out")"
+            echo "kingmaker_pass=$pass status=$status has_more=$has_more"
+            if [ "$status" = "idle" ] || [ "$has_more" != "true" ]; then
+              jq -s '{passes:length,last:(.[-1] // null)}' "$root/kingmaker-drain.ndjson" > "$root/kingmaker-drain-summary.json"
+              cat "$root/kingmaker-drain-summary.json"
+              exit 0
+            fi
+          done
+          jq -s '{passes:length,last:(.[-1] // null),exhausted:true}' "$root/kingmaker-drain.ndjson" > "$root/kingmaker-drain-summary.json"
+          cat "$root/kingmaker-drain-summary.json"
+          exit 1
+      - name: Upload strict Production receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checklist-conveyor-refeed-139-${{ github.run_id }}
-          path: ${{ runner.temp }}/refeed-139-receipt.json
+          path: |
+            ${{ runner.temp }}/refeed-139-receipt.json
+            ${{ runner.temp }}/refeed-production/kingmaker-drain.ndjson
+            ${{ runner.temp }}/refeed-production/kingmaker-drain-summary.json
           if-no-files-found: warn
           retention-days: 90
       - name: Cleanup protected files
