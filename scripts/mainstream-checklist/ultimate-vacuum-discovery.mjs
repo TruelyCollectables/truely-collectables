@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
 
 const policyPath = resolve(process.env.VACUUM_POLICY || 'ops/checklists/ultimate-vacuum-source-policy-20260815.json');
 const outPath = resolve(process.env.VACUUM_DISCOVERY_OUTPUT || 'tmp/ultimate-vacuum-discovery.json');
@@ -15,15 +14,11 @@ const policy = JSON.parse(readFileSync(policyPath, 'utf8'));
 
 const candidateMap = new Map();
 const events = [];
-const hostLastRequest = new Map();
-const stats = { shardIndex, shardCount, hosts: 0, sitemapUrls: 0, pagesAttempted: 0, pagesOk: 0, assetsFound: 0, pageLeadsFound: 0, dead: 0, blocked: 0, rateLimited: 0, timeouts: 0 };
+const hostNextRequest = new Map();
+const stats = { shardIndex, shardCount, sourceId: null, hosts: 0, workers: 0, sitemapUrls: 0, pagesAttempted: 0, pagesOk: 0, assetsFound: 0, pageLeadsFound: 0, dead: 0, blocked: 0, rateLimited: 0, timeouts: 0 };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cleanText = s => String(s || '').replace(/&amp;/g, '&');
-function shardFor(value) {
-  const h = createHash('sha1').update(String(value)).digest();
-  return h.readUInt32BE(0) % shardCount;
-}
 function hostOf(url) { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } }
 function addEvent(url, outcome, detail = null, sourceFound = false) {
   events.push({ at: new Date().toISOString(), url, host: hostOf(url), outcome, detail, sourceFound });
@@ -37,16 +32,23 @@ function addCandidate(url, sourceId, kind, parentUrl = null, extra = {}) {
     if (!candidateMap.has(key)) candidateMap.set(key, { url: normalized, host: u.hostname.toLowerCase(), sourceId, kind, parentUrl, ...extra });
   } catch {}
 }
-async function throttle(host, rps) {
-  const gap = Math.max(0, 1000 / Math.max(0.1, Number(rps || 1)));
-  const last = hostLastRequest.get(host) || 0;
-  const wait = last + gap - Date.now();
-  if (wait > 0) await sleep(wait);
-  hostLastRequest.set(host, Date.now());
+function reserveHostSlot(host, rps) {
+  const gap = Math.max(250, 1000 / Math.max(0.05, Number(rps || 0.4)));
+  const now = Date.now();
+  const slot = Math.max(now, hostNextRequest.get(host) || now);
+  const jitter = Math.floor(gap * (0.15 + Math.random() * 0.25));
+  hostNextRequest.set(host, slot + gap + jitter);
+  return Math.max(0, slot - now);
+}
+function pushHostBack(host, seconds) {
+  const until = Date.now() + Math.max(0, Number(seconds || 0)) * 1000;
+  hostNextRequest.set(host, Math.max(hostNextRequest.get(host) || 0, until));
 }
 async function fetchText(url, source) {
   const host = hostOf(url);
-  await throttle(host, source.maxRequestsPerSecondPerHost || policy.defaults?.maxRequestsPerSecondPerHost || 1);
+  const rps = source.maxRequestsPerSecondPerHost || policy.defaults?.maxRequestsPerSecondPerHost || 0.4;
+  const wait = reserveHostSlot(host, rps);
+  if (wait > 0) await sleep(wait);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
@@ -59,13 +61,21 @@ async function fetchText(url, source) {
     const text = await r.text().catch(() => '');
     if (r.status === 404 || r.status === 410) { stats.dead++; addEvent(url, 'dead_url', `HTTP ${r.status}`); return { ok: false, status: r.status, text }; }
     if (r.status === 401 || r.status === 403) { stats.blocked++; addEvent(url, 'robots_blocked', `HTTP ${r.status}`); return { ok: false, status: r.status, text }; }
-    if (r.status === 429) { stats.rateLimited++; addEvent(url, 'http_429', 'HTTP 429'); return { ok: false, status: r.status, text }; }
+    if (r.status === 429) {
+      stats.rateLimited++;
+      pushHostBack(host, source.backoffOn429Seconds || policy.defaults?.backoffOn429Seconds || 60);
+      addEvent(url, 'http_429', 'HTTP 429');
+      return { ok: false, status: r.status, text };
+    }
     if (!r.ok) { addEvent(url, 'bunk_content', `HTTP ${r.status}`); return { ok: false, status: r.status, text }; }
     return { ok: true, status: r.status, text, contentType: r.headers.get('content-type') || '' };
   } catch (e) {
     clearTimeout(timer);
-    if (e?.name === 'AbortError') { stats.timeouts++; addEvent(url, 'timeout', 'request timeout'); }
-    else addEvent(url, 'bunk_content', String(e?.message || e));
+    if (e?.name === 'AbortError') {
+      stats.timeouts++;
+      pushHostBack(host, source.backoffOnTimeoutSeconds || policy.defaults?.backoffOnTimeoutSeconds || 15);
+      addEvent(url, 'timeout', 'request timeout');
+    } else addEvent(url, 'bunk_content', String(e?.message || e));
     return { ok: false, status: 0, text: '' };
   }
 }
@@ -98,10 +108,19 @@ function isActualChallengePage(text, contentType = '') {
     /cf-chl-|challenge-platform|turnstile-wrapper|g-recaptcha[^\w-]|hcaptcha-container/i.test(head)
   );
 }
+function newestFirst(urls) {
+  return [...urls].map((url, index) => {
+    const years = [...String(url).matchAll(/(?:19|20)\d{2}/g)].map(m => Number(m[0]));
+    return { url, index, year: years.length ? Math.max(...years) : 0 };
+  }).sort((a, b) => b.year - a.year || a.index - b.index).map(x => x.url);
+}
 
-for (const source of policy.sources || []) {
-  if (source.mode === 'lead-only-public-pages' && source.id === 'beckett-public') continue;
-  if (source.singleShardOnly === true && shardIndex !== 0) continue;
+const eligibleSources = (policy.sources || []).filter(source => !(source.mode === 'lead-only-public-pages' && source.id === 'beckett-public'));
+for (let sourceIndex = 0; sourceIndex < eligibleSources.length; sourceIndex++) {
+  const source = eligibleSources[sourceIndex];
+  if ((sourceIndex % shardCount) !== shardIndex) continue;
+  stats.sourceId = source.id;
+
   for (const configuredHost of source.hosts || []) {
     const host = String(configuredHost).toLowerCase();
     if (host.startsWith('www.') && (source.hosts || []).includes(host.slice(4))) continue;
@@ -126,9 +145,7 @@ for (const source of policy.sources || []) {
         for (const loc of xmlLocs(fetched.text)) {
           if (/\.xml(?:\.gz)?(?:\?|$)/i.test(loc)) {
             if (sitemapQueue.length + seenSitemaps.size < maxSitemapsPerHost * 3) sitemapQueue.push(loc);
-          } else if (looksLikeChecklistPage(loc)) {
-            discoveredUrls.add(loc);
-          }
+          } else if (looksLikeChecklistPage(loc)) discoveredUrls.add(loc);
         }
       }
       stats.sitemapUrls += discoveredUrls.size;
@@ -139,46 +156,70 @@ for (const source of policy.sources || []) {
     if (source.id === 'cardboard-connection') {
       for (let i = 1; i <= 40; i++) discoveredUrls.add(`${schemeHost}/page/${i}`);
     }
-    if (source.id === 'blowout-forums') {
-      discoveredUrls.add(`${schemeHost}/index.php`);
+    if (source.id === 'blowout-forums') discoveredUrls.add(`${schemeHost}/index.php`);
+
+    const queue = source.newestFirst === false ? [...discoveredUrls] : newestFirst(discoveredUrls);
+    const seen = new Set();
+    const queued = new Set(queue);
+    const workerCount = Math.max(1, Math.min(2, Number(source.maxConcurrentPerHost || policy.defaults?.maxConcurrentPerHost || 2)));
+    stats.workers = workerCount;
+
+    async function worker(workerId) {
+      while (stats.pagesAttempted < maxPages) {
+        const url = queue.shift();
+        if (!url) return;
+        queued.delete(url);
+        if (seen.has(url)) continue;
+        seen.add(url);
+        stats.pagesAttempted++;
+
+        if (isAsset(url)) {
+          addCandidate(url, source.id, 'asset', null, { workerId });
+          stats.assetsFound++;
+          continue;
+        }
+
+        const fetched = await fetchText(url, source);
+        if (!fetched.ok) continue;
+        stats.pagesOk++;
+        if (isActualChallengePage(fetched.text, fetched.contentType)) {
+          stats.blocked++;
+          addEvent(url, 'captcha', 'challenge page');
+          continue;
+        }
+        const textLower = fetched.text.toLowerCase();
+        if (/please login|log in to continue|subscribe to access|sign in to continue/.test(textLower) && source.mode !== 'authoritative-harvest') {
+          stats.blocked++;
+          addEvent(url, 'login_wall', 'access wall');
+          continue;
+        }
+
+        const links = htmlLinks(fetched.text, url);
+        let found = false;
+        for (const link of links) {
+          if (isAsset(link) && /checklist|check-list|card|set/i.test(link)) {
+            addCandidate(link, source.id, 'asset', url, { workerId });
+            stats.assetsFound++;
+            found = true;
+          } else if (source.mode === 'lead-only' && hostOf(link) !== host && isAsset(link)) {
+            addCandidate(link, source.id, 'outbound-asset-lead', url, { workerId });
+            stats.assetsFound++;
+            found = true;
+          } else if (usefulPageLink(link, host) && seen.size + queue.length < maxPages * 3 && !seen.has(link) && !queued.has(link)) {
+            queue.push(link);
+            queued.add(link);
+          }
+        }
+        if (looksLikeChecklistPage(url, fetched.text)) {
+          addCandidate(url, source.id, source.mode === 'lead-only' ? 'page-lead' : 'checklist-page', null, { workerId });
+          stats.pageLeadsFound++;
+          found = true;
+        }
+        addEvent(url, found ? 'validated' : 'no_checklist', found ? 'checklist lead/source detected' : 'no checklist lead detected', found);
+      }
     }
 
-    const queue = [...discoveredUrls].filter(url => source.singleShardOnly === true || shardFor(url) === shardIndex);
-    const seen = new Set();
-    while (queue.length && stats.pagesAttempted < maxPages) {
-      const url = queue.shift();
-      if (!url || seen.has(url)) continue;
-      seen.add(url);
-      stats.pagesAttempted++;
-      if (isAsset(url)) { addCandidate(url, source.id, 'asset'); stats.assetsFound++; continue; }
-      const fetched = await fetchText(url, source);
-      if (!fetched.ok) continue;
-      stats.pagesOk++;
-      if (isActualChallengePage(fetched.text, fetched.contentType)) { stats.blocked++; addEvent(url, 'captcha', 'challenge page'); continue; }
-      const textLower = fetched.text.toLowerCase();
-      if (/please login|log in to continue|subscribe to access|sign in to continue/.test(textLower) && source.mode !== 'authoritative-harvest') { stats.blocked++; addEvent(url, 'login_wall', 'access wall'); continue; }
-      const links = htmlLinks(fetched.text, url);
-      let found = false;
-      for (const link of links) {
-        if (isAsset(link) && /checklist|check-list|card|set/i.test(link)) {
-          addCandidate(link, source.id, 'asset', url);
-          stats.assetsFound++;
-          found = true;
-        } else if (source.mode === 'lead-only' && hostOf(link) !== host && isAsset(link)) {
-          addCandidate(link, source.id, 'outbound-asset-lead', url);
-          stats.assetsFound++;
-          found = true;
-        } else if (usefulPageLink(link, host) && seen.size + queue.length < maxPages * 3) {
-          if (source.singleShardOnly === true || shardFor(link) === shardIndex) queue.push(link);
-        }
-      }
-      if (looksLikeChecklistPage(url, fetched.text)) {
-        addCandidate(url, source.id, source.mode === 'lead-only' ? 'page-lead' : 'checklist-page');
-        stats.pageLeadsFound++;
-        found = true;
-      }
-      addEvent(url, found ? 'validated' : 'no_checklist', found ? 'checklist lead/source detected' : 'no checklist lead detected', found);
-    }
+    await Promise.all(Array.from({ length: workerCount }, (_, i) => worker(i + 1)));
   }
 }
 
