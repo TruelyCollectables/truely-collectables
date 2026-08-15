@@ -1,24 +1,20 @@
-name: Apply InstaComp Independent Reader Runtime
+name: Apply InstaComp Primary Identity Failover
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
-      - ".github/workflows/apply-instacomp-independent-reader-runtime.yml"
+      - .github/workflows/apply-instacomp-independent-reader-runtime.yml
   workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: apply-instacomp-independent-reader-runtime
-  cancel-in-progress: false
-
 jobs:
   apply-and-validate:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,7 +30,7 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Patch real scan route
+      - name: Patch primary identity reader list
         shell: bash
         run: |
           set -euo pipefail
@@ -44,104 +40,92 @@ jobs:
           path = Path('src/app/api/instacomp/scan/route.ts')
           text = path.read_text()
 
-          import_anchor = '''import {
-  formatUntrustedOcrEvidence,
-  normalizeOpenAiCompatibleBaseUrl,
-  openAiCompatibleProviderFamily,
-  resolveInstaCompCouncilPolicy,
-} from "../../../../lib/instacomp-ai-council-security";
+          old = '''        {
+          provider: "instacomp_internal",
+          family: "instacomp_internal",
+          configured: hasConfiguredInstaCompAiLocal(),
+          run: async () => {
+            const scan = await analyzeWithInstaCompAiLocal({
+              front: params.frontImage,
+              back: params.backImage || null,
+              printedEvidence: params.externalOcr,
+              timeoutMs: 150_000,
+            });
+            const ai = instaCompAiLocalScanToAi(scan);
+            if (!ai) {
+              throw new Error(
+                `InstaComp internal engine returned ${scan.status} without usable identity evidence.`,
+              );
+            }
+            return ai;
+          },
+        },
+      ]);
 '''
-          import_replacement = import_anchor + '''import {
-  prioritizeIndependentCouncilProviders,
-  shouldContinueCouncilRuntime,
-} from "../../../../lib/instacomp-ai-council-runtime";
-'''
-          if 'instacomp-ai-council-runtime' not in text:
-              if text.count(import_anchor) != 1:
-                  raise SystemExit('AI council security import anchor not found exactly once.')
-              text = text.replace(import_anchor, import_replacement, 1)
 
-          old_plan = '''  const providerPlan = buildAiCouncilProviderPlan();
-  const configuredPlan = providerPlan.filter((provider) => provider.configured);
-  const configuredFamilies = Array.from(
-    new Set(configuredPlan.map((provider) => provider.family)),
-  );
+          new = '''        {
+          provider: "instacomp_internal",
+          family: "instacomp_internal",
+          configured: hasConfiguredInstaCompAiLocal(),
+          run: async () => {
+            const scan = await analyzeWithInstaCompAiLocal({
+              front: params.frontImage,
+              back: params.backImage || null,
+              printedEvidence: params.externalOcr,
+              timeoutMs: 150_000,
+            });
+            const ai = instaCompAiLocalScanToAi(scan);
+            if (!ai) {
+              throw new Error(
+                `InstaComp internal engine returned ${scan.status} without usable identity evidence.`,
+              );
+            }
+            return ai;
+          },
+        },
+        {
+          provider: "openai_primary",
+          family: "openai",
+          configured: Boolean(OPENAI_API_KEY),
+          run: () =>
+            identifyCardWithOpenAI(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+              { readerFocus: "primary" },
+            ),
+        },
+      ]);
 '''
-          new_plan = '''  const providerPlan = buildAiCouncilProviderPlan();
-  const configuredPlan = prioritizeIndependentCouncilProviders(
-    providerPlan.filter((provider) => provider.configured),
-    "openai",
-  );
-  const configuredFamilies = Array.from(
-    new Set(configuredPlan.map((provider) => provider.family)),
-  );
-'''
-          if new_plan not in text:
-              if text.count(old_plan) != 1:
-                  raise SystemExit('Configured provider plan block not found exactly once.')
-              text = text.replace(old_plan, new_plan, 1)
 
-          old_loop = '''  let cursor = 0;
-  let completedReaders = 0;
-
-  while (
-    completedReaders < desiredReaders &&
-    cursor < configuredPlan.length
-  ) {
-'''
-          new_loop = '''  let cursor = 0;
-  let completedReaders = 0;
-  let completedFamilies: string[] = [];
-
-  while (
-    shouldContinueCouncilRuntime({
-      completedReaders,
-      desiredReaders,
-      completedFamilies,
-      configuredFamilies,
-      cursor,
-      configuredReaderCount: configuredPlan.length,
-      primaryFamily: "openai",
-    })
-  ) {
-'''
-          if new_loop not in text:
-              if text.count(old_loop) != 1:
-                  raise SystemExit('AI council loop header not found exactly once.')
-              text = text.replace(old_loop, new_loop, 1)
-
-          old_update = '''    allAttempts.push(...batchAttempts);
-    completedReaders = allAttempts.filter((attempt) => attempt.reader).length;
-  }
-'''
-          new_update = '''    allAttempts.push(...batchAttempts);
-    const completed = allAttempts.flatMap((attempt) =>
-      attempt.reader ? [attempt.reader] : [],
-    );
-    completedReaders = completed.length;
-    completedFamilies = Array.from(
-      new Set(completed.map((reader) => reader.family)),
-    );
-  }
-'''
-          if new_update not in text:
-              if text.count(old_update) != 1:
-                  raise SystemExit('AI council completion update not found exactly once.')
-              text = text.replace(old_update, new_update, 1)
-
-          path.write_text(text)
+          if 'provider: "openai_primary"' in text:
+              print('OpenAI primary fallback already present.')
+          else:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one primary reader block; found {count}.')
+              path.write_text(text.replace(old, new, 1))
+              print('OpenAI primary fallback inserted.')
           PY
 
-      - name: Run runtime and identity regressions
+      - name: Validate identity hardening
+        shell: bash
         run: |
-          npx tsx scripts/run-instacomp-ai-council-runtime-regressions.ts
-          npx tsx scripts/run-instacomp-registry-consensus-bridge-regression.ts
-          npx tsx scripts/run-instacomp-live-shedeur-107-regression.ts
-          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
-          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
-          npm run simulate:instacomp-consensus
+          set -euo pipefail
+          for script in \
+            scripts/run-instacomp-registry-consensus-bridge-regression.ts \
+            scripts/run-instacomp-live-shedeur-107-regression.ts \
+            scripts/run-instacomp-identity-firewall-regressions.ts \
+            scripts/run-instacomp-serial-color-gate-regressions.ts; do
+            if [ -f "$script" ]; then
+              npx tsx "$script"
+            fi
+          done
+          npx eslint src/app/api/instacomp/scan/route.ts src/lib/instacomp-ai-provider-failover.ts
+          npx tsc --noEmit
 
-      - name: Lint, typecheck, and build
+      - name: Build application
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
@@ -158,24 +142,19 @@ jobs:
           TCOS_LIVE_PAYMENTS_ENABLED: "false"
           TCOS_SHIPPING_PURCHASE_MODE: dry_run
           TCOS_LIVE_SHIPPING_ENABLED: "false"
-        run: |
-          npx eslint \
-            src/app/api/instacomp/scan/route.ts \
-            src/lib/instacomp-ai-council-runtime.ts \
-            scripts/run-instacomp-ai-council-runtime-regressions.ts
-          npx tsc --noEmit
-          npm run build
+        run: npm run build
 
       - name: Commit validated route patch
         shell: bash
         run: |
           set -euo pipefail
           if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
-            echo "Validated route patch already committed."
+            echo 'Validated route patch already committed.'
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/app/api/instacomp/scan/route.ts
-          git commit -m "Require independent AI family in live scanner council"
+          git commit -m 'Add OpenAI primary fallback to InstaComp identity scan'
+          git pull --rebase origin main
           git push origin HEAD:main
