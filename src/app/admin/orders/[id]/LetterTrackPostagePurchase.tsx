@@ -9,6 +9,15 @@ type PurchaseResult = {
   reused?: boolean;
 };
 
+type QuoteResult = {
+  postageAmount?: number;
+  ounces?: number;
+  serviceCode?: string;
+  packageCode?: string;
+  destination?: { city?: string; state?: string; postalCode?: string };
+  message?: string;
+};
+
 export default function LetterTrackPostagePurchase({
   orderId,
   activeDryRunLabel,
@@ -20,11 +29,44 @@ export default function LetterTrackPostagePurchase({
   const [machinable, setMachinable] = useState(false);
   const [confirmCharge, setConfirmCharge] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
+  const [quoting, setQuoting] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<PurchaseResult | null>(null);
+  const [quote, setQuote] = useState<QuoteResult | null>(null);
 
   const blocked =
     purchasing || activeDryRunLabel || !machinable || !confirmCharge;
+
+  async function quoteOneOunce() {
+    if (quoting) return;
+    setQuoting(true);
+    setQuote(null);
+    setMessage("Quoting 1 oz USPS First-Class Mail letter through ShipStation API — no purchase...");
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${orderId}/lettertrack-postage/quote`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ ounces: 1 }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setMessage(data.error || "Could not quote 1 oz letter postage.");
+        return;
+      }
+      setQuote(data);
+      setMessage(
+        data.message ||
+          "ShipStation API returned a 1 oz First-Class Mail letter rate. No postage was purchased.",
+      );
+    } catch (error: any) {
+      setMessage(error?.message || "Could not quote 1 oz letter postage.");
+    } finally {
+      setQuoting(false);
+    }
+  }
 
   async function buyPostage() {
     if (runningRef.current || purchasing) return;
@@ -38,7 +80,7 @@ export default function LetterTrackPostagePurchase({
 
     if (!machinable || !confirmCharge) {
       setMessage(
-        "Confirm machinable packaging and the ShipStation charge before buying postage.",
+        "Confirm machinable packaging and the ShipStation API charge before buying postage.",
       );
       return;
     }
@@ -46,7 +88,7 @@ export default function LetterTrackPostagePurchase({
     runningRef.current = true;
     setPurchasing(true);
     setResult(null);
-    setMessage("Buying USPS letter postage through ShipStation...");
+    setMessage("Buying USPS letter postage through ShipStation API...");
 
     try {
       const prepareResponse = await fetch(
@@ -108,17 +150,37 @@ export default function LetterTrackPostagePurchase({
           <p className="text-xs font-black uppercase tracking-widest text-emerald-800">
             Integrated Standard Envelope
           </p>
-          <h3 className="mt-1 text-xl font-black">Buy + Print Letter Postage</h3>
+          <h3 className="mt-1 text-xl font-black">Quote + Buy + Print Letter Postage</h3>
           <p className="mt-2 max-w-3xl text-sm font-semibold leading-6">
-            TCOS sends this order to ShipStation, charges the connected postage
-            account, saves the provider IDs, and gives you the paid 4×6 PDF back
-            inside TruelyCollectables. LetterTrack finalization is the last step
-            until LetterTrack exposes a direct custom API for adding the IMb.
+            TCOS talks directly to the standalone ShipStation API account. Quote the
+            cheap 1 oz First-Class Mail letter first without purchasing anything;
+            when authorized, TCOS buys the postage, stores the provider IDs, and
+            returns the paid PDF inside TruelyCollectables. LetterTrack finalization
+            remains the last IMb step.
           </p>
         </div>
         <span className="rounded-full border border-emerald-700 px-3 py-1 text-xs font-black uppercase">
           One-charge guard
         </span>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+        <button
+          type="button"
+          onClick={quoteOneOunce}
+          disabled={quoting}
+          className="rounded-xl bg-sky-950 px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+        >
+          {quoting ? "Quoting 1 oz Letter..." : "Quote 1 oz First-Class Letter — No Purchase"}
+        </button>
+        {quote ? (
+          <p className="mt-3 text-sm font-black">
+            Quote: ${Number(quote.postageAmount || 0).toFixed(2)} · {quote.serviceCode || "USPS First-Class Mail"} · {quote.packageCode || "letter"}
+            {quote.destination?.city
+              ? ` · ${quote.destination.city}, ${quote.destination.state || ""} ${quote.destination.postalCode || ""}`
+              : ""}
+          </p>
+        ) : null}
       </div>
 
       {activeDryRunLabel ? (
@@ -151,7 +213,7 @@ export default function LetterTrackPostagePurchase({
           />
           <span>
             I authorize this click to purchase real USPS letter postage from the
-            connected ShipStation balance/account. Repeating the same order will
+            connected ShipStation API balance/account. Repeating the same order will
             return the stored purchase instead of intentionally charging it twice.
           </span>
         </label>
@@ -195,7 +257,7 @@ export default function LetterTrackPostagePurchase({
           ) : null}
           <p className="basis-full text-xs font-bold text-neutral-700">
             {result.reused ? "Existing purchase reused. " : "Postage purchase saved. "}
-            ShipStation charge: ${Number(result.postageAmount || 0).toFixed(2)}.
+            ShipStation API charge: ${Number(result.postageAmount || 0).toFixed(2)}.
             Do not mail until the LetterTrack IMb has been added and recorded back
             in TCOS.
           </p>
