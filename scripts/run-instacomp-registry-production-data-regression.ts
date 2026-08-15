@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
-import {
-  resolveChecklistRegistry,
-  type ChecklistRegistryLookupResult,
-} from "../src/lib/instacomp-learning-server";
+import { resolveChecklistRegistry } from "../src/lib/instacomp-learning-server";
 import { buildInstaCompRegistryLockProbe } from "../src/lib/instacomp-registry-lock-request";
+import { resolveChecklistRegistryLeadingDigitRecovery } from "../src/lib/instacomp-registry-leading-digit-recovery";
 
 type Expected = {
   key: string;
@@ -19,23 +17,11 @@ async function resolveWithBoundedLeadingDigitRecovery(body: Record<string, unkno
   const observed = String(probe.cardNumber || "").trim();
 
   if (resolution.status !== "internal_exact_match" && /^\d{1,3}$/.test(observed)) {
-    const attempts = await Promise.all(
-      Array.from({ length: 9 }, (_, index) =>
-        resolveChecklistRegistry(
-          { ...probe, cardNumber: `${index + 1}${observed}` },
-          { evidenceTrusted: false },
-        ),
-      ),
+    const recovered = await resolveChecklistRegistryLeadingDigitRecovery(
+      probe,
+      observed,
     );
-    const recovered = new Map<string, ChecklistRegistryLookupResult>();
-    for (const attempt of attempts) {
-      if (attempt.status === "internal_exact_match" && attempt.match) {
-        recovered.set(attempt.match.identityId, attempt);
-      }
-    }
-    if (recovered.size === 1) {
-      resolution = [...recovered.values()][0];
-    }
+    if (recovered) resolution = recovered;
   }
 
   return { probe, resolution };
