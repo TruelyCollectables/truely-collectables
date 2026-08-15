@@ -151,10 +151,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const { createDecipheriv, createHash } = require('node:crypto');
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createDecipheriv, createHash } from 'node:crypto';
 
           function filesBelow(root) {
             return fs.readdirSync(root, { recursive: true, withFileTypes: true })
