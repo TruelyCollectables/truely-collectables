@@ -1,4 +1,4 @@
-# Post-deploy certification trigger: 2026-08-15T05:50:00-06:00
+# Storefront performance certification trigger: 2026-08-15
 name: Cloudflare Live Route Matrix
 
 on:
@@ -58,6 +58,7 @@ jobs:
           probe home "$PROD_BASE/" 200
           probe shop1 "$PROD_BASE/shop?audit=production" 200
           probe shop2 "$PROD_BASE/shop?page=2&audit=production" 200
+          probe shop1_warm "$PROD_BASE/shop?audit=production&warm=1" 200
           probe admin_login "$PROD_BASE/admin/login" 200
 
       - name: Assert production shop pagination contract
@@ -83,6 +84,7 @@ jobs:
 
           const page1 = visibleText('/tmp/shop1.body');
           const page2 = visibleText('/tmp/shop2.body');
+          const page1Warm = visibleText('/tmp/shop1_warm.body');
 
           const checks = [
             ['page 1 heading', page1.includes('Shop Sports Cards & Collectibles')],
@@ -93,6 +95,8 @@ jobs:
             ['page 2 has no load error', !/Error loading products/i.test(page2)],
             ['page 2 range is 49–96', /Showing\s+49\s*[–-]\s*96\s+of\s+[\d,]+/i.test(page2)],
             ['page 2 indicator', /Page\s+2\s+of\s+[\d,]+/i.test(page2)],
+            ['warm page 1 has no load error', !/Error loading products/i.test(page1Warm)],
+            ['warm page 1 range is 1–48', /Showing\s+1\s*[–-]\s*48\s+of\s+[\d,]+/i.test(page1Warm)],
           ];
 
           for (const [label, ok] of checks) {
@@ -103,9 +107,10 @@ jobs:
             console.error(`Shop pagination audit failed ${failed.length} assertion(s).`);
             console.error('Page 1 excerpt:', page1.slice(0, 1200));
             console.error('Page 2 excerpt:', page2.slice(0, 1200));
+            console.error('Warm page 1 excerpt:', page1Warm.slice(0, 1200));
             process.exit(1);
           }
-          console.log('PASS production /shop pagination renders exactly 48 active items per full page with working page 2 boundaries.');
+          console.log('PASS production /shop pagination renders exactly 48 active items per full page with working page 2 boundaries, including a warm-cache repeat.');
           NODE
 
       - name: Probe direct Cloudflare Worker routes
