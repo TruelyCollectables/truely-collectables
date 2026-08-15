@@ -75,9 +75,7 @@ fi
 "$python_bootstrap" -m venv "$service_root/.venv"
 python_bin="$service_root/.venv/bin/python"
 "$python_bin" -m pip install --upgrade pip
-# Keep installer and normal service startup on one dependency contract. This is
-# also what repairs older Macs whose venv predates the exact native vision pins.
-bash "$service_root/scripts/ensure-runtime-dependencies.sh" "$python_bin"
+"$python_bin" -m pip install -r "$service_root/requirements.txt"
 
 cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
