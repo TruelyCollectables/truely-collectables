@@ -1,0 +1,68 @@
+name: InstaComp live Production Registry gateway proof
+
+on:
+  push:
+    branches:
+      - fix/instacomp-live-registry-proof-20260815
+    paths:
+      - ".github/workflows/instacomp-live-registry-gateway-proof.yml"
+      - "services/instacomp-ai/scripts/probe_frozen_five_registry_live.py"
+      - "services/instacomp-ai/app/authoritative_registry_gateway.py"
+      - "services/instacomp-ai/app/checklist.py"
+      - "services/instacomp-ai/app/models.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-live-registry-gateway-proof-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prove-live-production-registry-gateway:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      INSTACOMP_AI_REGISTRY_BASE_URL: https://truelycollectables.com
+      INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN: ${{ secrets.INSTACOMP_SENTINEL_ARCHIVE_TOKEN || secrets.INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN || secrets.TCOS_INSTACOMP_SENTINEL_ARCHIVE_TOKEN }}
+      INSTACOMP_AI_SERVICE_TOKEN: ${{ secrets.TCOS_INSTACOMP_SERVICE_TOKEN || secrets.INSTACOMP_AI_SERVICE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned InstaComp runtime
+        run: |
+          set -euo pipefail
+          python -m venv services/instacomp-ai/.venv
+          bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+            services/instacomp-ai/.venv/bin/python
+
+      - name: Prove Production credential is available without revealing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN:-}" ] && [ -z "${INSTACOMP_AI_SERVICE_TOKEN:-}" ]; then
+            echo 'No compatible Production Registry credential is present in GitHub Actions secrets.'
+            exit 2
+          fi
+          echo 'PASS compatible Production Registry credential is present; value withheld.'
+
+      - name: Hit real Production Registry through exact Python gateway 15 times
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=services/instacomp-ai \
+            services/instacomp-ai/.venv/bin/python \
+            services/instacomp-ai/scripts/probe_frozen_five_registry_live.py
+
+      - name: Compile live proof and exact gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/instacomp-ai/.venv/bin/python -m py_compile \
+            services/instacomp-ai/scripts/probe_frozen_five_registry_live.py \
+            services/instacomp-ai/app/authoritative_registry_gateway.py
