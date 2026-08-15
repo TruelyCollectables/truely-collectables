@@ -3,55 +3,23 @@ import fs from 'node:fs';
 const path = 'src/app/api/instacomp/scan/route.ts';
 const source = fs.readFileSync(path, 'utf8');
 
-if (source.includes('provider: "openai_primary"')) {
-  console.log('OpenAI primary identity fallback is already present.');
+const hasOpenAi = source.includes('provider: "openai_primary"');
+const hasGemini = source.includes('provider: "gemini_primary"');
+const hasGroq = source.includes('provider: "groq_primary"');
+
+if (hasOpenAi && hasGemini && hasGroq) {
+  console.log('Mac → OpenAI → Gemini → Groq primary identity failover is already present.');
   process.exit(0);
 }
 
-const oldTail = `        {
-          provider: "instacomp_internal",
-          family: "instacomp_internal",
-          configured: hasConfiguredInstaCompAiLocal(),
-          run: async () => {
-            const scan = await analyzeWithInstaCompAiLocal({
-              front: params.frontImage,
-              back: params.backImage || null,
-              printedEvidence: params.externalOcr,
-              timeoutMs: 150_000,
-            });
-            const ai = instaCompAiLocalScanToAi(scan);
-            if (!ai) {
-              throw new Error(
-                \`InstaComp internal engine returned \${scan.status} without usable identity evidence.\`,
-              );
-            }
-            return ai;
-          },
-        },
-      ]);
-`;
+if (!hasOpenAi) {
+  throw new Error('Expected existing openai_primary reader before extending primary failover.');
+}
+if (hasGemini !== hasGroq) {
+  throw new Error('Partial Gemini/Groq primary failover detected; refusing ambiguous patch.');
+}
 
-const newTail = `        {
-          provider: "instacomp_internal",
-          family: "instacomp_internal",
-          configured: hasConfiguredInstaCompAiLocal(),
-          run: async () => {
-            const scan = await analyzeWithInstaCompAiLocal({
-              front: params.frontImage,
-              back: params.backImage || null,
-              printedEvidence: params.externalOcr,
-              timeoutMs: 150_000,
-            });
-            const ai = instaCompAiLocalScanToAi(scan);
-            if (!ai) {
-              throw new Error(
-                \`InstaComp internal engine returned \${scan.status} without usable identity evidence.\`,
-              );
-            }
-            return ai;
-          },
-        },
-        {
+const openAiTail = `        {
           provider: "openai_primary",
           family: "openai",
           configured: Boolean(OPENAI_API_KEY),
@@ -67,10 +35,50 @@ const newTail = `        {
       ]);
 `;
 
-const occurrences = source.split(oldTail).length - 1;
+const extendedTail = `        {
+          provider: "openai_primary",
+          family: "openai",
+          configured: Boolean(OPENAI_API_KEY),
+          run: () =>
+            identifyCardWithOpenAI(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+              { readerFocus: "primary" },
+            ),
+        },
+        {
+          provider: "gemini_primary",
+          family: "gemini",
+          configured: Boolean(GEMINI_API_KEY),
+          run: () =>
+            identifyCardWithGemini(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+            ),
+        },
+        {
+          provider: "groq_primary",
+          family: "groq",
+          configured: Boolean(GROQ_API_KEY),
+          run: () =>
+            identifyCardWithGroq(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+            ),
+        },
+      ]);
+`;
+
+const occurrences = source.split(openAiTail).length - 1;
 if (occurrences !== 1) {
-  throw new Error(`Expected exactly one InstaComp primary reader tail; found ${occurrences}.`);
+  throw new Error(`Expected exactly one OpenAI primary reader tail; found ${occurrences}.`);
 }
 
-fs.writeFileSync(path, source.replace(oldTail, newTail));
-console.log('Inserted OpenAI primary identity fallback after Mac/internal reader.');
+fs.writeFileSync(path, source.replace(openAiTail, extendedTail));
+console.log('Inserted Gemini and Groq primary identity fallbacks after OpenAI.');
