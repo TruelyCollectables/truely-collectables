@@ -130,20 +130,27 @@ const cases: Expected[] = [
   },
 ];
 
-for (const testCase of cases) {
-  const { probe, resolution } = await resolveWithBoundedLeadingDigitRecovery(testCase.body);
-  assert.equal(
-    resolution.status,
-    "internal_exact_match",
-    `${testCase.key}: expected exact Registry match, got ${resolution.status} reasons=${JSON.stringify(resolution.reasons)} count=${resolution.candidateCount} probe=${JSON.stringify(probe)}`,
-  );
-  assert.ok(resolution.match, `${testCase.key}: exact status missing Registry match`);
-  assert.equal(resolution.match.identityId, testCase.identityId, `${testCase.key}: UUID regression`);
-  assert.equal(resolution.match.fingerprintSha256, testCase.fingerprint, `${testCase.key}: fingerprint regression`);
-  assert.equal(resolution.match.cardNumber, testCase.cardNumber, `${testCase.key}: card-number regression`);
-  console.log(
-    `PASS production Registry ${testCase.key}: ${resolution.match.identityId} #${resolution.match.cardNumber} ${resolution.match.parallel}`,
-  );
+async function main() {
+  for (const testCase of cases) {
+    const { probe, resolution } = await resolveWithBoundedLeadingDigitRecovery(testCase.body);
+    assert.equal(
+      resolution.status,
+      "internal_exact_match",
+      `${testCase.key}: expected exact Registry match, got ${resolution.status} reasons=${JSON.stringify(resolution.reasons)} count=${resolution.candidateCount} probe=${JSON.stringify(probe)}`,
+    );
+    assert.ok(resolution.match, `${testCase.key}: exact status missing Registry match`);
+    assert.equal(resolution.match.identityId, testCase.identityId, `${testCase.key}: UUID regression`);
+    assert.equal(resolution.match.fingerprintSha256, testCase.fingerprint, `${testCase.key}: fingerprint regression`);
+    assert.equal(resolution.match.cardNumber, testCase.cardNumber, `${testCase.key}: card-number regression`);
+    console.log(
+      `PASS production Registry ${testCase.key}: ${resolution.match.identityId} #${resolution.match.cardNumber} ${resolution.match.parallel}`,
+    );
+  }
+
+  console.log("PASS production Registry data resolves all five Frozen Five canonical identities exactly");
 }
 
-console.log("PASS production Registry data resolves all five Frozen Five canonical identities exactly");
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
