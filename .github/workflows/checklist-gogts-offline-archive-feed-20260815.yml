@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: checklist-mainstream-gogts-harvest-tranche2-20260815
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   offline-gogts-feed:
@@ -88,12 +88,11 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import csv, json, os, pathlib, re, sys
+          import csv, json, os, pathlib, re
 
           root = pathlib.Path(os.environ['ARCHIVE_ROOT'])
           out = pathlib.Path(os.environ['QUEUE_OUT'])
-          csvs = list(root.rglob('source-items.csv'))
-          csvs = [p for p in csvs if 'gogts' in str(p).lower()]
+          csvs = [p for p in root.rglob('source-items.csv') if 'gogts' in str(p).lower()]
           if not csvs:
               raise SystemExit('GoGTS source-items.csv not found in preserved archive')
           source_csv = csvs[0]
@@ -142,7 +141,6 @@ jobs:
                   item = by_article.get(article) or {}
                   file_meta = next((x for x in item.get('files', []) if x.get('name') == local.name and x.get('role') == 'source-download'), None)
                   if not file_meta:
-                      # Organized copies can preserve the same extension/name with a path prefix. Fall back to extension match.
                       same_ext = [x for x in item.get('files', []) if x.get('role') == 'source-download' and pathlib.Path(str(x.get('name',''))).suffix.lower() == local.suffix.lower()]
                       file_meta = same_ext[0] if same_ext else None
                   asset_url = str((file_meta or {}).get('sourceUrl') or article)
