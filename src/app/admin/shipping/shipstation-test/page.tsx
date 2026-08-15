@@ -14,12 +14,10 @@ export default function ShipStationTestPage() {
                 Shipping provider setup
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight">
-                ShipStation Connection Test
+                ShipStation API Connection Test
               </h1>
               <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
-                Authenticate the configured ShipStation API key, inspect connected
-                carrier IDs, and verify the USPS service codes TCOS needs for
-                First-Class Letter, Ground Advantage, and Priority Mail.
+                Configure the TruelyCollectables ship-from address, authenticate the standalone ShipStation API account (formerly ShipEngine), inspect the connected USPS carrier, and verify First-Class Mail, Ground Advantage, Priority Mail, and package codes before allowing a live label purchase.
               </p>
             </div>
             <Link
@@ -31,8 +29,7 @@ export default function ShipStationTestPage() {
           </div>
 
           <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold leading-6 text-emerald-950">
-            This diagnostic uses ShipStation read-only carrier/service GET requests.
-            It never calls the label-purchase endpoint and cannot buy postage.
+            The diagnostic uses read-only ShipStation API carrier, service, and package GET requests. Saving the ship-from address only updates TruelyCollectables store settings. Neither action calls the label-purchase endpoint or buys postage.
           </div>
         </section>
 
