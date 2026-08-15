@@ -237,3 +237,66 @@ def test_dataset_export_uses_only_trusted_examples(tmp_path: Path) -> None:
     readiness = training_readiness(examples)
     assert readiness["trusted_examples"] == 1
     assert readiness["ready_for_trial_lora"] is False
+
+
+def test_exact_registry_identity_overrides_stale_teacher_display_title(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.sqlite3")
+    store.initialize()
+    registry_identity = CardIdentity(
+        sport="Basketball",
+        year="2025",
+        manufacturer="Panini",
+        brand="Prizm",
+        set_name="Base",
+        player="Rickea Jackson",
+        team="Los Angeles Sparks",
+        card_number="118",
+        parallel="Base",
+    )
+    checklist = ChecklistResult(
+        outcome=ChecklistOutcome.EXACT_MATCH,
+        identity_id="70ad307e-06bb-45c2-90ea-689b6e2f302e",
+        identity=registry_identity,
+        candidate_count=1,
+        source_receipts=[
+            "registry_identity:70ad307e-06bb-45c2-90ea-689b6e2f302e",
+            "registry_fingerprint:" + "bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028",
+        ],
+    )
+    store.save_scan(
+        scan_id="rickea-118",
+        created_at=datetime.now(timezone.utc),
+        front_sha256="9" * 64,
+        back_sha256="a" * 64,
+        image_pair_sha256="b" * 64,
+        local_suggestion=None,
+        local_vision=None,
+        checklist=checklist.model_dump(mode="json"),
+        status="trusted_memory_match",
+    )
+    store.create_lesson(
+        LessonCreate(
+            scan_id="rickea-118",
+            state=LearningState.CHECKLIST_CONFIRMED,
+            identity=CardIdentity(
+                sport="Basketball",
+                year="2025",
+                brand="Panini",
+                set_name="2025 Panini Prizm WNBA - Green Prizms",
+                player="Rickea Jackson",
+                card_number="118",
+                parallel=None,
+            ),
+            verification_source="registry:70ad307e-06bb-45c2-90ea-689b6e2f302e",
+        )
+    )
+
+    example = store.list_training_examples(trusted_only=True)[0]
+    assert example.confirmed_identity == registry_identity
+    assert example.confirmed_identity.set_name == "Base"
+    assert example.confirmed_identity.parallel == "Base"
+    assert "green" not in json.dumps(
+        example.confirmed_identity.model_dump(mode="json")
+    ).lower()
+    assert example.registry_identity_id == "70ad307e-06bb-45c2-90ea-689b6e2f302e"
+    assert example.registry_fingerprint_sha256 == "bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028"

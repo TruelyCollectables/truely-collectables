@@ -95,6 +95,23 @@ def _registry_receipts(checklist: ChecklistResult) -> tuple[str | None, str | No
     return identity_id, fingerprint
 
 
+def _canonical_confirmed_identity(
+    *,
+    lesson: LessonRecord,
+    checklist: ChecklistResult,
+) -> CardIdentity:
+    """Never train a trusted label that contradicts an exact Registry lock.
+
+    Lesson identity is still preserved for audit/correction provenance, but once
+    the authoritative Registry has locked an exact identity its canonical fields
+    become the teacher answer. This prevents stale display-title guesses such as
+    a color parallel name from being baked into the next LoRA dataset.
+    """
+    if checklist.outcome == ChecklistOutcome.EXACT_MATCH and checklist.identity is not None:
+        return checklist.identity
+    return lesson.identity
+
+
 def build_serial_truth(
     *,
     identity: CardIdentity,
@@ -148,6 +165,10 @@ def build_training_example(
             source_receipts=["legacy_scan_checklist_receipt_missing"],
         )
     registry_identity_id, registry_fingerprint = _registry_receipts(checklist)
+    confirmed_identity = _canonical_confirmed_identity(
+        lesson=lesson,
+        checklist=checklist,
+    )
     predicted = lesson.rejected_identity or (
         local_suggestion.identity if local_suggestion else None
     )
@@ -162,10 +183,10 @@ def build_training_example(
         verification_source=lesson.verification_source,
         operator_id=lesson.operator_id,
         notes=lesson.notes,
-        confirmed_identity=lesson.identity,
+        confirmed_identity=confirmed_identity,
         predicted_identity=predicted,
         rejected_identity=lesson.rejected_identity,
-        correction_fields=changed_fields(predicted, lesson.identity),
+        correction_fields=changed_fields(predicted, confirmed_identity),
         local_suggestion=local_suggestion,
         local_vision=local_vision,
         checklist=checklist,
@@ -177,7 +198,7 @@ def build_training_example(
         front_perceptual_hash=scan.get("front_perceptual_hash"),
         back_perceptual_hash=scan.get("back_perceptual_hash"),
         serial_truth=build_serial_truth(
-            identity=lesson.identity,
+            identity=confirmed_identity,
             local_vision=local_vision,
         ),
     )
@@ -317,6 +338,7 @@ def export_training_dataset(
             "latest_teacher_truth_per_physical_card_when_uuid_present": True,
             "card_uuid_is_tracking_metadata_not_visual_label": True,
             "physical_serial_numerator_separate_from_print_run": True,
+            "exact_registry_identity_is_canonical_teacher_truth": True,
             "unconfirmed_examples_excluded": True,
         },
     }

@@ -19,9 +19,13 @@ python_bin="${INSTACOMP_AI_PYTHON:-$service_root/.venv/bin/python}"
 if [[ ! -x "$python_bin" ]]; then
   python3 -m venv "$service_root/.venv"
   python_bin="$service_root/.venv/bin/python"
-  "$python_bin" -m pip install --upgrade pip
-  "$python_bin" -m pip install -r "$service_root/requirements.txt"
 fi
+
+# Existing Macs can carry a months-old .venv even after the repo requirements
+# advance. Native vision must never run against that stale environment. The
+# synchronizer is hash/idempotency guarded, so normal restarts only verify the
+# exact pins while an outdated runtime is repaired before app import.
+bash "$service_root/scripts/ensure-runtime-dependencies.sh" "$python_bin"
 
 runtime_settings="$(
   "$python_bin" - <<'PY'
