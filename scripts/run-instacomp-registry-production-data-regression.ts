@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { resolveChecklistRegistry } from "../src/lib/instacomp-learning-server";
 import { buildInstaCompRegistryLockProbe } from "../src/lib/instacomp-registry-lock-request";
-import { resolveChecklistRegistryLeadingDigitRecovery } from "../src/lib/instacomp-registry-leading-digit-recovery";
+import {
+  resolveChecklistRegistryCardFirst,
+  resolveChecklistRegistryLeadingDigitRecovery,
+} from "../src/lib/instacomp-registry-leading-digit-recovery";
 
 type Expected = {
   key: string;
@@ -11,9 +13,9 @@ type Expected = {
   cardNumber: string;
 };
 
-async function resolveWithBoundedLeadingDigitRecovery(body: Record<string, unknown>) {
+async function resolveThroughProductionCardFirstPath(body: Record<string, unknown>) {
   const probe = buildInstaCompRegistryLockProbe(body);
-  let resolution = await resolveChecklistRegistry(probe, { evidenceTrusted: false });
+  let resolution = await resolveChecklistRegistryCardFirst(probe);
   const observed = String(probe.cardNumber || "").trim();
 
   if (resolution.status !== "internal_exact_match" && /^\d{1,3}$/.test(observed)) {
@@ -124,7 +126,7 @@ const cases: Expected[] = [
 
 async function main() {
   for (const testCase of cases) {
-    const { probe, resolution } = await resolveWithBoundedLeadingDigitRecovery(testCase.body);
+    const { probe, resolution } = await resolveThroughProductionCardFirstPath(testCase.body);
     assert.equal(
       resolution.status,
       "internal_exact_match",
