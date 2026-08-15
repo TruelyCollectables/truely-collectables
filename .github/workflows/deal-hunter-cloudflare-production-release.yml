@@ -1,10 +1,15 @@
-name: Deal Hunter Cloudflare Production Release
+name: Cloudflare Production Release
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "next.config.*"
       - "open-next.config.ts"
       - "wrangler.jsonc"
       - "wrangler.production-route.jsonc"
