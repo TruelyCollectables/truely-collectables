@@ -72,7 +72,12 @@ jobs:
             safety?.letterTrackShipStation?.enabled === false &&
             safety?.letterTrackShipStation?.ready === false &&
             safety?.shipStationParcel?.enabled === false &&
-            safety?.shipStationParcel?.ready === false;
+            safety?.shipStationParcel?.ready === false &&
+            safety?.controlledTestShipment?.enabled === false &&
+            safety?.controlledTestShipment?.ready === false &&
+            safety?.controlledTestShipment?.ounces === 1 &&
+            safety?.controlledTestShipment?.serviceCode === 'usps_first_class_mail' &&
+            safety?.controlledTestShipment?.packageCode === 'letter';
 
           if (!safetyValid) {
             throw new Error(
@@ -104,6 +109,24 @@ jobs:
               label: 'ShipStation connection test GET',
               url: `${base}/api/admin/shipping/shipstation-connection-test`,
               init: { method: 'GET', headers: { Accept: 'application/json' } },
+            },
+            {
+              label: 'Controlled ShipStation test quote POST',
+              url: `${base}/api/admin/shipping/controlled-test-shipment/quote`,
+              init: {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ name: 'Auth Boundary', addressLine1: '1 Test St', city: 'Denver', state: 'CO', postalCode: '80202', countryCode: 'US' }),
+              },
+            },
+            {
+              label: 'Controlled ShipStation test purchase POST',
+              url: `${base}/api/admin/shipping/controlled-test-shipment/purchase`,
+              init: {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ confirmPurchase: true, machinableAttested: true, name: 'Auth Boundary', addressLine1: '1 Test St', city: 'Denver', state: 'CO', postalCode: '80202', countryCode: 'US' }),
+              },
             },
             {
               label: 'LetterTrack ShipStation postage POST',
@@ -142,8 +165,10 @@ jobs:
           console.log('- Generic live provider adapter supported: false.');
           console.log('- LetterTrack/ShipStation live lane: disabled + not ready.');
           console.log('- ShipStation parcel live lane: disabled + not ready.');
+          console.log('- Controlled 1 oz ShipStation test purchase lane: disabled + not ready.');
           console.log('- Unauthenticated LetterTrack export GET/POST: 401.');
           console.log('- Unauthenticated ShipStation connection test GET: 401.');
+          console.log('- Unauthenticated controlled test quote/purchase POST: 401.');
           console.log('- Unauthenticated LetterTrack postage POST: 401.');
           console.log('- Unauthenticated ShipStation parcel postage POST: 401.');
           console.log('- No authenticated mutation or postage purchase was attempted.');
