@@ -10,7 +10,7 @@ from . import local_vision as _local_vision
 from . import verified_checklist_sources_modern_extra as _verified_checklist_sources_modern_extra
 from .authoritative_registry_gateway import install_authoritative_registry_gateway
 from .deterministic_checklist_recovery import install_deterministic_checklist_recovery
-from .lora_candidate_runtime import install_lora_candidate_runtime
+from .lora_candidate_runtime_v2 import install_lora_candidate_runtime
 from .models import LocalVisionEvidence, SideVisionEvidence
 from .pattern_memory import apply_trusted_pattern_style
 from .psa_policy import install_psa_lead_only_policy
