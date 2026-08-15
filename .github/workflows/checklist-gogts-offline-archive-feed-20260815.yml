@@ -14,7 +14,6 @@ permissions:
   contents: read
   actions: read
 
-# Saved checklist ingestion owns the Production writer lane until exhausted.
 concurrency:
   group: checklist-mainstream-gogts-harvest-tranche2-20260815
   cancel-in-progress: true
@@ -31,16 +30,13 @@ jobs:
       GOGTS_OFFLINE_MIN_ROWS: '25'
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install proven checklist parser dependencies
         shell: bash
         run: |
@@ -51,7 +47,6 @@ jobs:
           npm ci
           python -m py_compile scripts/mainstream-checklist/build-gogts-offline-queue.py
           npx tsc --noEmit --pretty false --incremental false || true
-
       - name: Resolve Production Supabase
         shell: bash
         run: |
@@ -59,21 +54,16 @@ jobs:
           root="$RUNNER_TEMP/gogts-offline-production"
           mkdir -p "$root"
           test -n "$GH_SUPABASE_ACCESS_TOKEN"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
-            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/projects.json" "https://api.supabase.com/v1/projects"
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
-            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
           service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
           test -n "$service_key"
           echo "::add-mask::$service_key"
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
-
       - name: Download preserved GoGTS master archive payload
         uses: actions/download-artifact@v4
         with:
@@ -82,7 +72,16 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 31100986894
           github-token: ${{ github.token }}
-
+      - name: Extract preserved master archive payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gogts-master-archive/sports-card-checklist-master-archive.tar.gz"
+          dest="$RUNNER_TEMP/gogts-master-extracted"
+          test -s "$archive"
+          mkdir -p "$dest"
+          tar -xzf "$archive" -C "$dest"
+          echo "structured_files=$(find "$dest" -type f \( -iname '*.pdf' -o -iname '*.xls' -o -iname '*.xlsx' -o -iname '*.csv' \) | wc -l)"
       - name: Download preserved GoGTS status index
         uses: actions/download-artifact@v4
         with:
@@ -91,18 +90,16 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 31100986894
           github-token: ${{ github.token }}
-
       - name: Build offline exact-set queue by preserved file hash
         shell: bash
         env:
-          ARCHIVE_ROOT: ${{ runner.temp }}/gogts-master-archive
+          ARCHIVE_ROOT: ${{ runner.temp }}/gogts-master-extracted
           STATUS_ROOT: ${{ runner.temp }}/gogts-master-status
           QUEUE_OUT: ${{ runner.temp }}/gogts-offline-queue.json
         run: |
           set -euo pipefail
           python scripts/mainstream-checklist/build-gogts-offline-queue.py
           jq '.counts' "$QUEUE_OUT"
-
       - name: Strictly validate and persist archived GoGTS files
         shell: bash
         env:
@@ -113,7 +110,6 @@ jobs:
           node --import tsx scripts/mainstream-checklist/gogts-offline-archive-feed.ts
           test -s "$GOGTS_OFFLINE_OUTPUT"
           jq '{candidates,processed,statuses,imported,netNew,idempotent}' "$GOGTS_OFFLINE_OUTPUT"
-
       - name: Upload offline GoGTS Production receipts
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,7 +120,6 @@ jobs:
             ${{ runner.temp }}/gogts-offline-receipt.json
           if-no-files-found: warn
           retention-days: 90
-
       - name: Cleanup protected files
         if: always()
         run: rm -rf "$RUNNER_TEMP/gogts-offline-production" .env.local .env.production.local .vercel
