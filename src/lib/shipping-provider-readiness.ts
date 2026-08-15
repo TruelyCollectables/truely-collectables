@@ -1,3 +1,5 @@
+import { getLetterTrackShipStationBridgeStatus } from "./lettertrack-shipstation";
+import { getShipStationParcelBridgeStatus } from "./shipstation-parcel";
 import { getShippingProviderAdapterProfile } from "./shipping-provider-adapter";
 
 export type ShippingProviderReadinessStatus = "ready" | "warning" | "blocked";
@@ -29,8 +31,9 @@ export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] 
   const purchaseMode = shippingPurchaseMode();
   const standardEnvelopeProfile =
     getShippingProviderAdapterProfile("STANDARD_ENVELOPE");
-  const parcelProfile = getShippingProviderAdapterProfile("GROUND_ADVANTAGE");
   const coverageMissing = standardEnvelopeProfile.missingCoverageCredentialKeys;
+  const letterTrackShipStation = getLetterTrackShipStationBridgeStatus();
+  const shipStationParcel = getShipStationParcelBridgeStatus();
 
   return [
     {
@@ -39,13 +42,13 @@ export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] 
       status: purchaseMode === "live" ? "blocked" : "warning",
       detail:
         purchaseMode === "live"
-          ? "Live shipping purchase mode is enabled, but TCOS has not approved a live postage provider adapter yet."
-          : "TCOS is in dry-run shipping purchase mode. Adapter attempts simulate label, tracking, postage, and Coverage policy records without buying postage.",
+          ? "The generic live shipping purchase mode is enabled, but TCOS has not approved the generic parcel/coverage adapter yet."
+          : "TCOS generic shipping remains in dry-run mode. Dedicated ShipStation purchase lanes are separately gated and cannot be enabled by this switch.",
       action:
         purchaseMode === "live"
-          ? "Switch TCOS_SHIPPING_PURCHASE_MODE back to dry_run until a live provider adapter is approved."
-          : "Keep dry_run for testing. Move to live only after provider credentials, contracts, label voiding, and reconciliation are approved.",
-      missing: purchaseMode === "live" ? ["approved live shipping adapter"] : [],
+          ? "Switch TCOS_SHIPPING_PURCHASE_MODE back to dry_run until the generic live provider adapter is approved."
+          : "Keep the generic adapter in dry_run. Activate postage only through the dedicated guarded ShipStation bridges after provider setup.",
+      missing: purchaseMode === "live" ? ["approved generic live shipping adapter"] : [],
     },
     {
       key: "shipping_adapter_contract",
@@ -53,39 +56,79 @@ export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] 
       status: purchaseMode === "live" ? "blocked" : "warning",
       detail:
         purchaseMode === "live"
-          ? "TCOS has an auditable adapter contract, but live provider execution is intentionally blocked until a real adapter is implemented and approved."
-          : "TCOS currently exposes a dry-run adapter contract and manual external-purchase recording. No live postage or Coverage API is called from TCOS.",
+          ? "TCOS has an auditable generic adapter contract, but generic live provider execution remains intentionally blocked."
+          : "TCOS retains the dry-run generic adapter and manual external-purchase fallback while dedicated provider bridges can be approved independently.",
       action:
-        "Keep live purchase disabled until the chosen provider adapter supports quotes, buys, voids, Coverage purchase, webhook reconciliation, and audit packets end-to-end.",
-      missing: purchaseMode === "live" ? ["approved live adapter implementation"] : [],
+        "Keep generic live purchase disabled until its quote, buy, void, Coverage, webhook, reconciliation, and audit requirements are approved end-to-end.",
+      missing: purchaseMode === "live" ? ["approved generic live adapter implementation"] : [],
+    },
+    {
+      key: "lettertrack_shipstation_bridge",
+      label: "LetterTrack / ShipStation Direct Postage",
+      status: letterTrackShipStation.ready
+        ? "ready"
+        : letterTrackShipStation.enabled
+          ? "blocked"
+          : "warning",
+      detail: letterTrackShipStation.ready
+        ? "ShipStation direct USPS letter-postage purchase is enabled in TCOS. Each purchase requires explicit operator confirmation; the paid PDF is printed from TCOS and still requires LetterTrack IMb finalization."
+        : letterTrackShipStation.enabled
+          ? "The direct LetterTrack/ShipStation lane is enabled but missing provider configuration, so TCOS will block every real postage charge."
+          : "The direct LetterTrack/ShipStation lane is installed but disabled. No ShipStation letter-postage charge can occur until its dedicated production flag and provider configuration are present.",
+      action: letterTrackShipStation.ready
+        ? "Use Buy USPS Letter Postage on Standard Envelope orders, print the paid PDF in TCOS, then finalize it in LetterTrack and record the IMb before mailing."
+        : `Configure the ShipStation carrier/account and ship-from data, then explicitly enable TCOS_LETTERTRACK_SHIPSTATION_LIVE_ENABLED. Missing: ${
+            letterTrackShipStation.missing.join(", ") || "dedicated live enablement"
+          }.`,
+      missing: letterTrackShipStation.ready
+        ? []
+        : [
+            ...letterTrackShipStation.missing,
+            ...(letterTrackShipStation.enabled
+              ? []
+              : ["TCOS_LETTERTRACK_SHIPSTATION_LIVE_ENABLED"]),
+          ],
+    },
+    {
+      key: "shipstation_parcel_bridge",
+      label: "ShipStation Ground Advantage / Priority",
+      status: shipStationParcel.ready
+        ? "ready"
+        : shipStationParcel.enabled
+          ? "blocked"
+          : "warning",
+      detail: shipStationParcel.ready
+        ? "ShipStation direct USPS Ground Advantage and Priority Mail purchase is enabled. TCOS requires finished package measurements and explicit charge confirmation, then saves USPS tracking and the printable PDF."
+        : shipStationParcel.enabled
+          ? "The ShipStation parcel lane is enabled but missing provider configuration, so TCOS will block every real parcel-postage charge."
+          : "The ShipStation parcel lane is installed but disabled. No Ground Advantage or Priority Mail charge can occur until its dedicated production flag and provider configuration are present.",
+      action: shipStationParcel.ready
+        ? "Use Buy + Print on Ground Advantage or Priority orders after weighing and measuring the finished package."
+        : `Configure the ShipStation carrier/account and ship-from data, then explicitly enable TCOS_SHIPSTATION_PARCEL_LIVE_ENABLED. Missing: ${
+            shipStationParcel.missing.join(", ") || "dedicated live enablement"
+          }.`,
+      missing: shipStationParcel.ready
+        ? []
+        : [
+            ...shipStationParcel.missing,
+            ...(shipStationParcel.enabled
+              ? []
+              : ["TCOS_SHIPSTATION_PARCEL_LIVE_ENABLED"]),
+          ],
     },
     {
       key: "standard_envelope_provider",
-      label: "Standard Envelope Provider",
+      label: "Standard Envelope / LetterTrack IMb",
       status: missingStatus(standardEnvelopeProfile.missingCredentialKeys),
       detail:
         standardEnvelopeProfile.missingCredentialKeys.length === 0
-          ? `${standardEnvelopeProfile.provider} is configured for TCOS Standard Envelope / IMb shipping.`
-          : "TCOS can price and audit Standard Envelope orders, and can export a LetterTrack import CSV, but cannot treat the lane as operational until the LetterTrack account/import workflow or a future IMb API provider is approved.",
+          ? `${standardEnvelopeProfile.provider} is configured for TCOS Standard Envelope / IMb evidence handling.`
+          : "TCOS can price, audit, and protect Standard Envelope orders, but LetterTrack account/import workflow approval is still required to add the final IMb tracking barcode.",
       action:
         standardEnvelopeProfile.missingCredentialKeys.length === 0
-          ? "Use the LetterTrack export from the shipping cockpit, then record assigned IMb references back into TCOS."
+          ? "After paid letter postage is ready, finalize the PDF in LetterTrack and record the assigned IMb back into TCOS."
           : `Set ${standardEnvelopeProfile.missingCredentialKeys.join(", ")} in production secrets.`,
       missing: standardEnvelopeProfile.missingCredentialKeys,
-    },
-    {
-      key: "parcel_label_provider",
-      label: "Ground Advantage / Priority Label Provider",
-      status: missingStatus(parcelProfile.missingCredentialKeys),
-      detail:
-        parcelProfile.missingCredentialKeys.length === 0
-          ? `${parcelProfile.provider} is configured for USPS parcel label purchase.`
-          : "TCOS can require Ground Advantage/Priority and record tracking, but cannot buy parcel labels until a provider key is configured.",
-      action:
-        parcelProfile.missingCredentialKeys.length === 0
-          ? "Wire the parcel-label purchase adapter into the order shipping cockpit."
-          : `Set ${parcelProfile.missingCredentialKeys.join(", ")} in production secrets.`,
-      missing: parcelProfile.missingCredentialKeys,
     },
     {
       key: "shipping_coverage_provider",
@@ -121,9 +164,10 @@ export function shippingPurchaseBlockers(params: {
   const neededKeys = new Set<string>(["shipping_coverage_provider"]);
 
   if (method === "STANDARD_ENVELOPE") {
+    neededKeys.add("lettertrack_shipstation_bridge");
     neededKeys.add("standard_envelope_provider");
   } else {
-    neededKeys.add("parcel_label_provider");
+    neededKeys.add("shipstation_parcel_bridge");
   }
 
   const purchaseMode = readiness.find(

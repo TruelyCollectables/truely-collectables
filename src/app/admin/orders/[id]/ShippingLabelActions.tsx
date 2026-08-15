@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
+import LetterTrackPostagePurchase from "./LetterTrackPostagePurchase";
+import ShipStationParcelPurchase from "./ShipStationParcelPurchase";
 
 export default function ShippingLabelActions({
   orderId,
@@ -27,6 +29,8 @@ export default function ShippingLabelActions({
     initialAction === "recordVoid",
   );
   const standardEnvelopeSelected = shippingMethod === "STANDARD_ENVELOPE";
+  const parcelSelected =
+    shippingMethod === "GROUND_ADVANTAGE" || shippingMethod === "PRIORITY_MAIL";
   const [standardEnvelopeMachinableAttested, setStandardEnvelopeMachinableAttested] =
     useState(false);
   const shippingActionRunningRef = useRef(false);
@@ -54,17 +58,11 @@ export default function ShippingLabelActions({
   });
 
   function updateManualForm(field: keyof typeof manualForm, value: string) {
-    setManualForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setManualForm((current) => ({ ...current, [field]: value }));
   }
 
   function updateVoidForm(field: keyof typeof voidForm, value: string) {
-    setVoidForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setVoidForm((current) => ({ ...current, [field]: value }));
   }
 
   function trimRecord<T extends Record<string, string>>(record: T): T {
@@ -75,7 +73,6 @@ export default function ShippingLabelActions({
 
   function noticeTone(messageText: string): "success" | "error" | "info" {
     const normalized = messageText.toLowerCase();
-
     if (
       normalized.includes("could not") ||
       normalized.includes("failed") ||
@@ -85,7 +82,6 @@ export default function ShippingLabelActions({
     ) {
       return "error";
     }
-
     if (
       normalized.includes("preparing") ||
       normalized.includes("checking") ||
@@ -94,7 +90,6 @@ export default function ShippingLabelActions({
     ) {
       return "info";
     }
-
     return "success";
   }
 
@@ -126,9 +121,7 @@ export default function ShippingLabelActions({
 
   function showShippingActionBlocked(action: string) {
     const blockedReason = shippingActionBlockedReason(action);
-
     if (!blockedReason) return false;
-
     setMessage(blockedReason);
     return true;
   }
@@ -149,37 +142,25 @@ export default function ShippingLabelActions({
 
   async function prepareLabelRecord() {
     if (showShippingActionBlocked("preparing another label record")) return;
-
     shippingActionRunningRef.current = true;
     setPreparing(true);
     setMessage("Preparing label + Coverage record...");
-
     try {
-      const response = await fetch(
-        `/api/admin/orders/${orderId}/shipping-labels`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
+      const response = await fetch(`/api/admin/orders/${orderId}/shipping-labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
       const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
         setMessage(data.error || "Could not prepare label record.");
         return;
       }
-
       setMessage(
         data.reused
           ? "Existing active label record is already prepared."
           : "Label and coverage record prepared. Provider purchase still required.",
       );
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 700);
+      setTimeout(() => window.location.reload(), 700);
     } catch (error: any) {
       setMessage(error.message || "Could not prepare label record.");
     } finally {
@@ -190,56 +171,39 @@ export default function ShippingLabelActions({
 
   async function attemptProviderPurchase() {
     if (showShippingActionBlocked("attempting provider purchase")) return;
-
     if (activeDryRunLabel) {
       setMessage(
         "The active label is a dry-run simulation. Record a real manual label or void this record before trying provider/claim actions.",
       );
       return;
     }
-
     shippingActionRunningRef.current = true;
     setPurchasing(true);
     setMessage("Checking provider purchase readiness...");
-
     try {
-      const response = await fetch(
-        `/api/admin/orders/${orderId}/shipping-labels`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
+      const response = await fetch(`/api/admin/orders/${orderId}/shipping-labels`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+      });
       const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
         const blockerText = Array.isArray(data.blockers)
           ? data.blockers
               .map((item: { label?: string; missing?: string[] }) =>
-                `${item.label || "Provider"}: ${
-                  item.missing?.join(", ") || "missing credentials"
-                }`,
+                `${item.label || "Provider"}: ${item.missing?.join(", ") || "missing credentials"}`,
               )
               .join(" / ")
           : "";
         setMessage(
-          `${data.error || "Provider purchase blocked."}${
-            blockerText ? ` Missing: ${blockerText}` : ""
-          }`,
+          `${data.error || "Provider purchase blocked."}${blockerText ? ` Missing: ${blockerText}` : ""}`,
         );
         return;
       }
-
       setMessage(
         data.message ||
           "Provider credentials are ready; live purchase adapter still needs to be connected.",
       );
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 700);
+      setTimeout(() => window.location.reload(), 700);
     } catch (error: any) {
       setMessage(error.message || "Could not attempt provider purchase.");
     } finally {
@@ -250,44 +214,31 @@ export default function ShippingLabelActions({
 
   async function openCoverageClaimDraft() {
     if (showShippingActionBlocked("opening a Coverage claim draft")) return;
-
     if (activeDryRunLabel) {
       setMessage(
         "Dry-run labels do not have real external Coverage policies. Record a real policy before opening a claim.",
       );
       return;
     }
-
     shippingActionRunningRef.current = true;
     setOpeningClaim(true);
     setMessage("Opening Coverage claim draft...");
-
     try {
-      const response = await fetch(
-        `/api/admin/orders/${orderId}/shipping-claims`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
+      const response = await fetch(`/api/admin/orders/${orderId}/shipping-claims`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
       const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
         setMessage(data.error || "Could not open coverage claim draft.");
         return;
       }
-
       setMessage(
         data.reused
           ? "Existing open coverage claim draft found."
           : "Coverage claim draft opened. Provider submission still required.",
       );
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 700);
+      setTimeout(() => window.location.reload(), 700);
     } catch (error: any) {
       setMessage(error.message || "Could not open coverage claim draft.");
     } finally {
@@ -298,48 +249,33 @@ export default function ShippingLabelActions({
 
   async function recordManualPurchase() {
     if (showShippingActionBlocked("recording manual label purchase")) return;
-
     if (manualPurchaseMissing.length > 0) {
-      setMessage(
-        `Manual purchase needs: ${manualPurchaseMissing.join(", ")}.`,
-      );
+      setMessage(`Manual purchase needs: ${manualPurchaseMissing.join(", ")}.`);
       return;
     }
-
     shippingActionRunningRef.current = true;
     setRecording(true);
     setMessage("Recording manual label purchase...");
-
     try {
-      const response = await fetch(
-        `/api/admin/orders/${orderId}/shipping-labels`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "record_manual_purchase",
-            standardEnvelopeMachinableAttested,
-            ...trimRecord(manualForm),
-          }),
-        },
-      );
+      const response = await fetch(`/api/admin/orders/${orderId}/shipping-labels`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "record_manual_purchase",
+          standardEnvelopeMachinableAttested,
+          ...trimRecord(manualForm),
+        }),
+      });
       const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
         setMessage(data.error || "Could not record manual label purchase.");
         return;
       }
-
       setMessage(
         data.message ||
           "Manual shipping label and Coverage policy details were recorded.",
       );
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 700);
+      setTimeout(() => window.location.reload(), 700);
     } catch (error: any) {
       setMessage(error.message || "Could not record manual label purchase.");
     } finally {
@@ -350,45 +286,32 @@ export default function ShippingLabelActions({
 
   async function recordManualVoid() {
     if (showShippingActionBlocked("recording an external label void")) return;
-
     if (voidMissing.length > 0) {
       setMessage(`External void needs: ${voidMissing.join(", ")}.`);
       return;
     }
-
     shippingActionRunningRef.current = true;
     setVoiding(true);
     setMessage("Recording external label void...");
-
     try {
-      const response = await fetch(
-        `/api/admin/orders/${orderId}/shipping-labels`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "record_manual_void",
-            ...trimRecord(voidForm),
-          }),
-        },
-      );
+      const response = await fetch(`/api/admin/orders/${orderId}/shipping-labels`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "record_manual_void",
+          ...trimRecord(voidForm),
+        }),
+      });
       const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
         setMessage(data.error || "Could not record external label void.");
         return;
       }
-
       setMessage(
         data.message ||
           "External label void/cancel was recorded. You can prepare a replacement label now.",
       );
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 700);
+      setTimeout(() => window.location.reload(), 700);
     } catch (error: any) {
       setMessage(error.message || "Could not record external label void.");
     } finally {
@@ -414,6 +337,21 @@ export default function ShippingLabelActions({
         </ActionNotice>
       ) : null}
 
+      {standardEnvelopeSelected ? (
+        <LetterTrackPostagePurchase
+          orderId={orderId}
+          activeDryRunLabel={activeDryRunLabel}
+        />
+      ) : null}
+
+      {parcelSelected ? (
+        <ShipStationParcelPurchase
+          orderId={orderId}
+          shippingMethod={shippingMethod || "GROUND_ADVANTAGE"}
+          activeDryRunLabel={activeDryRunLabel}
+        />
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <button
           type="button"
@@ -422,12 +360,9 @@ export default function ShippingLabelActions({
           aria-busy={preparing}
           title={shippingLabelActionTitle({
             action: "preparing another label record",
-            ready:
-              "Prepare an internal shipping label and Coverage record for this order.",
+            ready: "Prepare an internal shipping label and Coverage record for this order.",
           })}
-          className={`rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm ${
-            busy ? "cursor-not-allowed opacity-50" : ""
-          }`}
+          className={`rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm ${busy ? "cursor-not-allowed opacity-50" : ""}`}
         >
           {preparing ? "Preparing label record..." : "Prepare Label + Coverage Record"}
         </button>
@@ -442,12 +377,9 @@ export default function ShippingLabelActions({
             blocked: activeDryRunLabel
               ? "Record a real manual label or void the dry-run label before provider purchase."
               : "",
-            ready:
-              "Check whether live provider credentials and label purchase setup are ready.",
+            ready: "Check whether live provider credentials and label purchase setup are ready.",
           })}
-          className={`rounded-2xl border border-neutral-950 bg-white px-4 py-3 text-sm font-black text-neutral-950 shadow-sm ${
-            providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""
-          }`}
+          className={`rounded-2xl border border-neutral-950 bg-white px-4 py-3 text-sm font-black text-neutral-950 shadow-sm ${providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""}`}
         >
           {purchasing ? "Checking provider readiness..." : "Attempt Provider Purchase"}
         </button>
@@ -462,12 +394,9 @@ export default function ShippingLabelActions({
           aria-disabled={busy}
           title={shippingLabelActionTitle({
             action: "opening the manual purchase form",
-            ready:
-              "Open the manual label and Coverage proof form for externally purchased shipping.",
+            ready: "Open the manual label and Coverage proof form for externally purchased shipping.",
           })}
-          className={`rounded-2xl border border-blue-700 bg-blue-50 px-4 py-3 text-sm font-black text-blue-950 shadow-sm ${
-            busy ? "cursor-not-allowed opacity-50" : ""
-          }`}
+          className={`rounded-2xl border border-blue-700 bg-blue-50 px-4 py-3 text-sm font-black text-blue-950 shadow-sm ${busy ? "cursor-not-allowed opacity-50" : ""}`}
         >
           {showManualForm ? "Hide Manual Record" : "Record Manual Purchase"}
         </button>
@@ -482,12 +411,9 @@ export default function ShippingLabelActions({
           aria-disabled={busy}
           title={shippingLabelActionTitle({
             action: "opening the external void form",
-            ready:
-              "Open the external void/cancel proof form for a label handled outside TCOS.",
+            ready: "Open the external void/cancel proof form for a label handled outside TCOS.",
           })}
-          className={`rounded-2xl border border-red-700 bg-red-50 px-4 py-3 text-sm font-black text-red-950 shadow-sm ${
-            busy ? "cursor-not-allowed opacity-50" : ""
-          }`}
+          className={`rounded-2xl border border-red-700 bg-red-50 px-4 py-3 text-sm font-black text-red-950 shadow-sm ${busy ? "cursor-not-allowed opacity-50" : ""}`}
         >
           {showVoidForm ? "Hide Void Record" : "Record External Void"}
         </button>
@@ -502,12 +428,9 @@ export default function ShippingLabelActions({
             blocked: activeDryRunLabel
               ? "Record a real Coverage policy before opening a claim."
               : "",
-            ready:
-              "Open or reuse a Coverage claim draft for this order's shipping label.",
+            ready: "Open or reuse a Coverage claim draft for this order's shipping label.",
           })}
-          className={`rounded-2xl border border-amber-700 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm ${
-            providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""
-          }`}
+          className={`rounded-2xl border border-amber-700 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm ${providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""}`}
         >
           {openingClaim ? "Opening Coverage claim..." : "Open Coverage Claim Draft"}
         </button>
@@ -518,9 +441,9 @@ export default function ShippingLabelActions({
           <div className="mb-3">
             <h3 className="font-black">Manual label + Coverage record</h3>
             <p className="mt-1 text-sm font-semibold leading-6 opacity-80">
-              Use this after buying the label or coverage outside TCOS. It
-              saves the IDs, tracking, policy, costs, and audit event without
-              charging or submitting anything.
+              Use this after buying the label or coverage outside TCOS. It saves
+              the IDs, tracking, policy, costs, and audit event without charging
+              or submitting anything.
             </p>
           </div>
 
@@ -529,86 +452,29 @@ export default function ShippingLabelActions({
               <input
                 type="checkbox"
                 checked={standardEnvelopeMachinableAttested}
-                onChange={(event) =>
-                  setStandardEnvelopeMachinableAttested(event.target.checked)
-                }
+                onChange={(event) => setStandardEnvelopeMachinableAttested(event.target.checked)}
                 className="mt-1 h-5 w-5 shrink-0"
               />
               <span>
-                I verified this card letter uses approved flexible, uniformly thick,
-                machinable packaging. It is not in a rigid mailer or top loader that
-                requires a nonmachinable surcharge or parcel service.
+                I verified this card letter uses approved flexible, uniformly
+                thick, machinable packaging. It is not in a rigid mailer or top
+                loader that requires a nonmachinable surcharge or parcel service.
               </span>
             </label>
           ) : null}
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <TextField
-              label="Label Provider"
-              value={manualForm.provider}
-              placeholder="USPS, Shippo, EasyPost, manual"
-              onChange={(value) => updateManualForm("provider", value)}
-            />
-            <TextField
-              label="Carrier"
-              value={manualForm.carrier}
-              placeholder="USPS"
-              onChange={(value) => updateManualForm("carrier", value)}
-            />
-            <TextField
-              label="Tracking / IMb"
-              value={manualForm.trackingNumber}
-              placeholder="Tracking number or intelligent mail barcode"
-              onChange={(value) => updateManualForm("trackingNumber", value)}
-            />
-            <TextField
-              label="Postage Amount"
-              value={manualForm.postageAmount}
-              placeholder={standardEnvelopeSelected ? "1.40" : "Carrier receipt amount"}
-              onChange={(value) => updateManualForm("postageAmount", value)}
-            />
-            <TextField
-              label="Provider Label ID"
-              value={manualForm.providerLabelId}
-              placeholder="External label id"
-              onChange={(value) => updateManualForm("providerLabelId", value)}
-            />
-            <TextField
-              label="Provider Shipment ID"
-              value={manualForm.providerShipmentId}
-              placeholder="External shipment id"
-              onChange={(value) => updateManualForm("providerShipmentId", value)}
-            />
-            <TextField
-              label="Label URL"
-              value={manualForm.labelUrl}
-              placeholder="Optional label URL"
-              onChange={(value) => updateManualForm("labelUrl", value)}
-            />
-            <TextField
-              label="Label PDF URL"
-              value={manualForm.labelPdfUrl}
-              placeholder="Optional PDF URL"
-              onChange={(value) => updateManualForm("labelPdfUrl", value)}
-            />
-            <TextField
-              label="Coverage Provider"
-              value={manualForm.coverageProvider}
-              placeholder="Coverage"
-              onChange={(value) => updateManualForm("coverageProvider", value)}
-            />
-            <TextField
-              label="Coverage Policy ID"
-              value={manualForm.coveragePolicyId}
-              placeholder="External policy id"
-              onChange={(value) => updateManualForm("coveragePolicyId", value)}
-            />
-            <TextField
-              label="Coverage Amount"
-              value={manualForm.coverageAmount}
-              placeholder="20.00"
-              onChange={(value) => updateManualForm("coverageAmount", value)}
-            />
+            <TextField label="Label Provider" value={manualForm.provider} placeholder="USPS, Shippo, EasyPost, manual" onChange={(value) => updateManualForm("provider", value)} />
+            <TextField label="Carrier" value={manualForm.carrier} placeholder="USPS" onChange={(value) => updateManualForm("carrier", value)} />
+            <TextField label="Tracking / IMb" value={manualForm.trackingNumber} placeholder="Tracking number or intelligent mail barcode" onChange={(value) => updateManualForm("trackingNumber", value)} />
+            <TextField label="Postage Amount" value={manualForm.postageAmount} placeholder={standardEnvelopeSelected ? "1.40" : "Carrier receipt amount"} onChange={(value) => updateManualForm("postageAmount", value)} />
+            <TextField label="Provider Label ID" value={manualForm.providerLabelId} placeholder="External label id" onChange={(value) => updateManualForm("providerLabelId", value)} />
+            <TextField label="Provider Shipment ID" value={manualForm.providerShipmentId} placeholder="External shipment id" onChange={(value) => updateManualForm("providerShipmentId", value)} />
+            <TextField label="Label URL" value={manualForm.labelUrl} placeholder="Optional label URL" onChange={(value) => updateManualForm("labelUrl", value)} />
+            <TextField label="Label PDF URL" value={manualForm.labelPdfUrl} placeholder="Optional PDF URL" onChange={(value) => updateManualForm("labelPdfUrl", value)} />
+            <TextField label="Coverage Provider" value={manualForm.coverageProvider} placeholder="Coverage" onChange={(value) => updateManualForm("coverageProvider", value)} />
+            <TextField label="Coverage Policy ID" value={manualForm.coveragePolicyId} placeholder="External policy id" onChange={(value) => updateManualForm("coveragePolicyId", value)} />
+            <TextField label="Coverage Amount" value={manualForm.coverageAmount} placeholder="20.00" onChange={(value) => updateManualForm("coverageAmount", value)} />
             <label className="block">
               <span className="text-sm font-black">Audit note</span>
               <textarea
@@ -637,18 +503,11 @@ export default function ShippingLabelActions({
               blocked: manualPurchaseMissing.length
                 ? `Required: ${manualPurchaseMissing.join(", ")}.`
                 : "",
-              ready:
-                "Save the external label, tracking, postage, and Coverage proof for this order.",
+              ready: "Save the external label, tracking, postage, and Coverage proof for this order.",
             })}
-            className={`mt-4 rounded-2xl bg-blue-800 px-4 py-3 text-sm font-black text-white shadow-sm ${
-              busy || manualPurchaseMissing.length > 0
-                ? "cursor-not-allowed opacity-50"
-                : ""
-            }`}
+            className={`mt-4 rounded-2xl bg-blue-800 px-4 py-3 text-sm font-black text-white shadow-sm ${busy || manualPurchaseMissing.length > 0 ? "cursor-not-allowed opacity-50" : ""}`}
           >
-            {recording
-              ? "Recording manual label + Coverage..."
-              : "Save Manual Label + Coverage"}
+            {recording ? "Recording manual label + Coverage..." : "Save Manual Label + Coverage"}
           </button>
         </div>
       ) : null}
@@ -665,38 +524,11 @@ export default function ShippingLabelActions({
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <TextField
-              label="Provider"
-              value={voidForm.provider}
-              placeholder="USPS, Shippo, EasyPost, Coverage"
-              onChange={(value) => updateVoidForm("provider", value)}
-            />
-            <TextField
-              label="Carrier"
-              value={voidForm.carrier}
-              placeholder="USPS"
-              onChange={(value) => updateVoidForm("carrier", value)}
-            />
-            <TextField
-              label="Tracking / IMb"
-              value={voidForm.trackingNumber}
-              placeholder="Tracking number or barcode being voided"
-              onChange={(value) => updateVoidForm("trackingNumber", value)}
-            />
-            <TextField
-              label="Void Reference"
-              value={voidForm.voidReference}
-              placeholder="Provider void confirmation / receipt"
-              onChange={(value) => updateVoidForm("voidReference", value)}
-            />
-            <TextField
-              label="Coverage Cancel Reference"
-              value={voidForm.coverageCancellationReference}
-              placeholder="Coverage cancellation id, if any"
-              onChange={(value) =>
-                updateVoidForm("coverageCancellationReference", value)
-              }
-            />
+            <TextField label="Provider" value={voidForm.provider} placeholder="USPS, Shippo, EasyPost, Coverage" onChange={(value) => updateVoidForm("provider", value)} />
+            <TextField label="Carrier" value={voidForm.carrier} placeholder="USPS" onChange={(value) => updateVoidForm("carrier", value)} />
+            <TextField label="Tracking / IMb" value={voidForm.trackingNumber} placeholder="Tracking number or barcode being voided" onChange={(value) => updateVoidForm("trackingNumber", value)} />
+            <TextField label="Void Reference" value={voidForm.voidReference} placeholder="Provider void confirmation / receipt" onChange={(value) => updateVoidForm("voidReference", value)} />
+            <TextField label="Coverage Cancel Reference" value={voidForm.coverageCancellationReference} placeholder="Coverage cancellation id, if any" onChange={(value) => updateVoidForm("coverageCancellationReference", value)} />
             <label className="block">
               <span className="text-sm font-black">Audit note</span>
               <textarea
@@ -710,9 +542,7 @@ export default function ShippingLabelActions({
           </div>
 
           {voidMissing.length > 0 ? (
-            <ActionNotice tone="info">
-              Required before saving: {voidMissing.join(", ")}.
-            </ActionNotice>
+            <ActionNotice tone="info">Required before saving: {voidMissing.join(", ")}.</ActionNotice>
           ) : null}
 
           <button
@@ -722,28 +552,17 @@ export default function ShippingLabelActions({
             aria-busy={voiding}
             title={shippingLabelActionTitle({
               action: "recording an external label void",
-              blocked: voidMissing.length
-                ? `Required: ${voidMissing.join(", ")}.`
-                : "",
-              ready:
-                "Save the external label void/cancel proof and close the TCOS label record.",
+              blocked: voidMissing.length ? `Required: ${voidMissing.join(", ")}.` : "",
+              ready: "Save the external label void/cancel proof and close the TCOS label record.",
             })}
-            className={`mt-4 rounded-2xl bg-red-800 px-4 py-3 text-sm font-black text-white shadow-sm ${
-              busy || voidMissing.length > 0
-                ? "cursor-not-allowed opacity-50"
-                : ""
-            }`}
+            className={`mt-4 rounded-2xl bg-red-800 px-4 py-3 text-sm font-black text-white shadow-sm ${busy || voidMissing.length > 0 ? "cursor-not-allowed opacity-50" : ""}`}
           >
             {voiding ? "Recording external label void..." : "Save External Void"}
           </button>
         </div>
       ) : null}
 
-      {message ? (
-        <ActionNotice tone={noticeTone(message)}>
-          {message}
-        </ActionNotice>
-      ) : null}
+      {message ? <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice> : null}
     </div>
   );
 }

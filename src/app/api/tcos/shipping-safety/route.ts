@@ -1,3 +1,5 @@
+import { getLetterTrackShipStationBridgeStatus } from "../../../../lib/lettertrack-shipstation";
+import { getShipStationParcelBridgeStatus } from "../../../../lib/shipstation-parcel";
 import { getShippingProviderAdapterProfile } from "../../../../lib/shipping-provider-adapter";
 
 export const dynamic = "force-dynamic";
@@ -14,15 +16,25 @@ export async function GET() {
   const profiles = methods.map((method) =>
     getShippingProviderAdapterProfile(method),
   );
+  const letterTrackShipStation = getLetterTrackShipStationBridgeStatus();
+  const shipStationParcel = getShipStationParcelBridgeStatus();
   const liveAdapterSupported = profiles.some(
     (profile) => profile.livePurchaseSupported,
   );
-  const livePostagePossible =
+  const genericLivePostagePossible =
     purchaseMode === "live" && liveShippingEnabled && liveAdapterSupported;
+  const letterTrackLivePostagePossible = letterTrackShipStation.ready;
+  const parcelLivePostagePossible = shipStationParcel.ready;
+  const livePostagePossible =
+    genericLivePostagePossible ||
+    letterTrackLivePostagePossible ||
+    parcelLivePostagePossible;
   const safeForControlledShippingTest =
     purchaseMode === "dry_run" &&
     liveShippingEnabled === false &&
     liveAdapterSupported === false &&
+    letterTrackLivePostagePossible === false &&
+    parcelLivePostagePossible === false &&
     livePostagePossible === false;
 
   return Response.json(
@@ -37,6 +49,34 @@ export async function GET() {
         adapterStatus: profiles[0].adapterStatus,
         livePurchaseSupported: profiles[0].livePurchaseSupported,
         manualPurchaseRequired: profiles[0].manualPurchaseRequired,
+      },
+      letterTrackShipStation: {
+        enabled: letterTrackShipStation.enabled,
+        ready: letterTrackShipStation.ready,
+        provider: letterTrackShipStation.provider,
+        requiresExplicitPurchaseConfirmation:
+          letterTrackShipStation.requiresExplicitPurchaseConfirmation,
+        letterTrackFinalizeRequired:
+          letterTrackShipStation.letterTrackFinalizeRequired,
+        apiKeyConfigured: letterTrackShipStation.apiKeyConfigured,
+        carrierConfigured: letterTrackShipStation.carrierConfigured,
+        warehouseConfigured: letterTrackShipStation.warehouseConfigured,
+        shipFromConfigured: letterTrackShipStation.shipFromConfigured,
+        serviceCode: letterTrackShipStation.serviceCode,
+        packageCode: letterTrackShipStation.packageCode,
+      },
+      shipStationParcel: {
+        enabled: shipStationParcel.enabled,
+        ready: shipStationParcel.ready,
+        provider: shipStationParcel.provider,
+        apiKeyConfigured: shipStationParcel.apiKeyConfigured,
+        carrierConfigured: shipStationParcel.carrierConfigured,
+        warehouseConfigured: shipStationParcel.warehouseConfigured,
+        shipFromConfigured: shipStationParcel.shipFromConfigured,
+        groundAdvantageServiceCode:
+          shipStationParcel.groundAdvantageServiceCode,
+        priorityMailServiceCode: shipStationParcel.priorityMailServiceCode,
+        packageCode: shipStationParcel.packageCode,
       },
       deploymentSha: process.env.TCOS_GIT_COMMIT_SHA || null,
     },
