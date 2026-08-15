@@ -89,7 +89,7 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ env.PUBLIC_WEB_AGGREGATE_RUN_ID }}
 
-      - name: Pin unresolved targets to direct structured files
+      - name: Pin remaining queue targets to strongest exact sources
         shell: bash
         run: |
           set -euo pipefail
@@ -101,19 +101,23 @@ jobs:
           {
             "schema": "tcos.checklist.mainstreamStructuredRetryTargets.v1",
             "targets": [
-              {"exactSetKey":"soccer|2026|panini|prizm-fifa-world-cup","sourceUrl":"https://gogts.net/wp-content/uploads/2026/06/2026-Panini-Prizm-FIFA-World-Cup-Soccer-Cards-Checklist.xls"},
-              {"exactSetKey":"baseball|2025|panini|select","sourceUrl":"https://gogts.net/wp-content/uploads/2026/01/2025-Panini-Select-Baseball-Cards-Checklist.xls"},
-              {"exactSetKey":"basketball|2025-26|panini|prizm","sourceUrl":"https://gogts.net/wp-content/uploads/2026/07/2025-26-Panini-Prizm-Basketball-Cards-Checklist.xls"},
-              {"exactSetKey":"football|2025|donruss|optic","sourceUrl":"https://gogts.net/wp-content/uploads/2026/01/2025-Donruss-Optic-NFL-Football-Cards-Checklist.xls"},
-              {"exactSetKey":"football|2025|panini|national-treasures","sourceUrl":"https://gogts.net/wp-content/uploads/2026/02/2025-Panini-National-Treasures-NFL-Football-Cards-Checklist.xls"},
-              {"exactSetKey":"football|2025|panini|prizm","sourceUrl":"https://gogts.net/wp-content/uploads/2025/12/2025-Panini-Prizm-NFL-Football-Cards-Checklist.xlsx"},
-              {"exactSetKey":"baseball|2019|panini|prizm","sourceUrl":"https://gogts.net/wp-content/uploads/2019/04/2019-Panini-Prizm-Baseball-Checklist.csv"},
-              {"exactSetKey":"football|2019|panini|luminance","sourceUrl":"https://gogts.net/wp-content/uploads/2019/04/2019-Panini-Luminance-Football-Checklist.csv"}
+              {"exactSetKey":"baseball|2026|topps|chrome","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2026_Topps_Chrome_Baseball_Checklist_Final_7.22.pdf?v=1785169183"},
+              {"exactSetKey":"baseball|2026|topps|finest","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/CheckList_26TFBB_VERSION3.pdf?v=1783523381"},
+              {"exactSetKey":"football|2025|topps|chrome","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Chrome_Football_Checklist_040826.pdf?v=1775678965"},
+              {"exactSetKey":"football|2025|topps|finest","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Finest_Checklist_041626.pdf?v=1776446779"},
+              {"exactSetKey":"football|2025|topps|resurgence","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025_Topps_Resurgence_Football_Checklist.pdf?v=1782407891"},
+              {"exactSetKey":"baseball|2024|panini|prizm","sourceUrl":"https://gogts.net/wp-content/uploads/2024/11/2024-Panini-Prizm-Baseball-Cards-Checklist.xls"},
+              {"exactSetKey":"tennis|2024|topps|chrome","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2024_Topps_Chrome_Tennis_Checklist.pdf?v=1735316763"},
+              {"exactSetKey":"football|2023|topps|composite","sourceUrl":"https://uk.topps.com/pages/2023-topps-composite-football"},
+              {"exactSetKey":"baseball|2022|leaf|trinity","sourceUrl":"https://gogts.net/wp-content/uploads/2022/12/2022-Leaf-Trinity-Baseball-Cards-Checklist.xls"},
+              {"exactSetKey":"baseball|2022|topps|chrome","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2022ToppsChromeBaseball.pdf"},
+              {"exactSetKey":"baseball|2021|topps|chrome","sourceUrl":"https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2021ToppsChromeBaseball.pdf"},
+              {"exactSetKey":"football|2016|panini|immaculate","sourceUrl":"https://gogts.net/wp-content/uploads/2016/11/2016PANINIIMMACULATEFB.pdf"}
             ]
           }
           JSON
-          jq -e '.targets|length==8 and ([.[].exactSetKey]|unique|length)==8 and ([.[].sourceUrl]|unique|length)==8' "$filter" >/dev/null
-          jq -e --slurpfile f "$filter" '([.targets[].exactSetKey] - [$f[0].targets[].exactSetKey])|length==12' "$queue" >/dev/null
+          jq -e '.targets|length==12 and ([.[].exactSetKey]|unique|length)==12 and ([.[].sourceUrl]|unique|length)==12' "$filter" >/dev/null
+          jq -e --slurpfile f "$filter" '([.targets[].exactSetKey] - [$f[0].targets[].exactSetKey])|length==8' "$queue" >/dev/null
           echo "PUBLIC_WEB_CANDIDATE_QUEUE=$queue" >> "$GITHUB_ENV"
           echo "STRUCTURED_RETRY_FILTER=$filter" >> "$GITHUB_ENV"
 
@@ -142,7 +146,7 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
 
-      - name: Validate direct spreadsheets through existing Registry parser
+      - name: Validate turbo tranche through existing Registry parser
         shell: bash
         run: |
           set -euo pipefail
@@ -152,10 +156,10 @@ jobs:
           export PUBLIC_WEB_PROMOTION_OUTPUT="$RUNNER_TEMP/structured-retry-validation/validation-receipt.json"
           export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$RUNNER_TEMP/structured-retry-validation/validated-targets.json"
           node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
-          jq -e '.schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2" and .mode=="validate" and .selectedCount==8 and .minimumCardRows>=25 and .registryWriter=="serialized"' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
+          jq -e '.schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2" and .mode=="validate" and .selectedCount==12 and .minimumCardRows>=25 and .registryWriter=="serialized"' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
           jq '{mode,statuses,normalizedTotals,validatedTargets,results:[.results[]|{exactSetKey,status,sourceUrl,counts,errors,message}]}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
 
-      - name: Apply only exact structured sources that passed validation
+      - name: Apply only exact sources that passed validation
         shell: bash
         run: |
           set -euo pipefail
