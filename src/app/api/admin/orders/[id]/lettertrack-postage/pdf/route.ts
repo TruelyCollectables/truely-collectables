@@ -1,5 +1,5 @@
-import { getActiveStoreId } from "../../../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../../../lib/supabase-server";
+import { getActiveStoreId } from "@/src/lib/stores";
+import { createSupabaseServerClient } from "@/src/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
