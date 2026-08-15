@@ -37,7 +37,7 @@ function links(html: string) {
 }
 async function fetchHtml(url: string) {
   const response = await fetch(url, {
-    headers: { Accept: "text/html,application/xhtml+xml", "Cache-Control": "no-cache", "User-Agent": "TCOS-Checklist-Discovery/1.0 (+private registry automation; contact sales@truelycollectables.com)" },
+    headers: { Accept: "text/html,application/xhtml+xml", "Cache-Control": "no-cache" },
     redirect: "follow",
     signal: AbortSignal.timeout(60_000),
   });
