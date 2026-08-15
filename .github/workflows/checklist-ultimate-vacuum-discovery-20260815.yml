@@ -1,0 +1,75 @@
+name: Checklist Ultimate Vacuum Discovery 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-ultimate-vacuum-discovery-20260815.yml'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs'
+      - 'ops/checklists/ultimate-vacuum-source-policy-20260815.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  discover:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify vacuum scripts
+        run: |
+          node --check scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs
+          node --check scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+
+      - name: Cast shard across checklist sources
+        shell: bash
+        env:
+          VACUUM_SHARD_INDEX: ${{ matrix.shard }}
+          VACUUM_SHARD_COUNT: '8'
+          VACUUM_MAX_PAGES: '450'
+          VACUUM_MAX_SITEMAPS_PER_HOST: '40'
+          VACUUM_REQUEST_TIMEOUT_MS: '12000'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/ultimate-vacuum-${{ matrix.shard }}"
+          mkdir -p "$root"
+          VACUUM_DISCOVERY_OUTPUT="$root/discovery.json" \
+          VACUUM_EVENTS_OUTPUT="$root/events.ndjson" \
+          node scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs
+          test -s "$root/discovery.json"
+          jq -e '.schema=="tcos.checklist.ultimateVacuumDiscovery.v1"' "$root/discovery.json" >/dev/null
+
+      - name: Rank live discoveries and negative-cache junk
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/ultimate-vacuum-${{ matrix.shard }}"
+          cp ops/checklists/ultimate-vacuum-source-state-20260815.json "$root/state.json"
+          VACUUM_STATE="$root/state.json" \
+          VACUUM_EVENTS="$root/events.ndjson" \
+          VACUUM_CANDIDATES="$root/discovery.json" \
+          VACUUM_OUTPUT="$root/ranked.json" \
+          node scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+          test -s "$root/ranked.json"
+          jq '{generatedAt,candidateCount,rankedCount,skippedCount,top:.ranked[:20]}' "$root/ranked.json"
+
+      - name: Upload shard discoveries
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-ultimate-vacuum-discovery-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/ultimate-vacuum-${{ matrix.shard }}
+          retention-days: 30
