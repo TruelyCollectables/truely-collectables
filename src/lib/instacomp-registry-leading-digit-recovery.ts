@@ -5,7 +5,7 @@ import {
   type RegistryMatch,
 } from "./instacomp-learning-server";
 
-type RecoveryCandidate = {
+type ResolvedCandidate = {
   cardNumber: string;
   match: RegistryMatch;
   releaseId: string;
@@ -13,11 +13,19 @@ type RecoveryCandidate = {
   setId: string;
 };
 
+type CandidateRowsResult = {
+  rows: any[];
+  candidateCount: number;
+  releaseIds: string[];
+  versionIds: string[];
+  setIds: string[];
+};
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    throw new Error("InstaComp Registry recovery requires Supabase service-role access.");
+    throw new Error("InstaComp Registry card-first resolver requires Supabase service-role access.");
   }
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -56,73 +64,85 @@ function groupByCard(rows: any[]) {
   return grouped;
 }
 
-/**
- * Recover one OCR-dropped leading digit without re-running the full Registry
- * scope resolver nine times. The query is deliberately card-number-first:
- * only the nine bounded candidate numbers are loaded, inactive versions are
- * removed, and the existing exact chooseRegistryMatch referee decides each
- * candidate. Recovery is accepted only when exactly one distinct Registry
- * identity survives all visible evidence.
- *
- * This fallback is intentionally exact-year only. The ordinary authoritative
- * resolver remains responsible for its existing adjacent-year recovery policy;
- * the OCR card-number fallback never broadens both year and card number at the
- * same time.
- */
-export async function resolveChecklistRegistryLeadingDigitRecovery(
-  ai: Record<string, any>,
-  observedCardNumber: string,
-): Promise<ChecklistRegistryLookupResult | null> {
-  const observed = normalizedCardNumber(observedCardNumber);
-  if (!/^\d{1,3}$/.test(observed)) return null;
+function lookupUnavailable(reason: string): ChecklistRegistryLookupResult {
+  return {
+    status: "lookup_unavailable",
+    match: null,
+    reasons: [reason],
+    candidateCount: 0,
+    coveredReleaseIds: [],
+    coveredVersionIds: [],
+    coveredSetIds: [],
+    sourceTier: "none",
+    externalLookupEligible: false,
+    externalLookupAttempted: false,
+  };
+}
 
-  const candidateNumbers = Array.from(
-    { length: 9 },
-    (_, index) => `${index + 1}${observed}`,
-  );
+async function loadActiveCandidateRows(
+  candidateNumbers: string[],
+): Promise<CandidateRowsResult> {
   const supabase = serviceClient();
+  const cardResult = await supabase
+    .from("checklist_cards")
+    .select(
+      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+    )
+    .in("normalized_card_number", candidateNumbers)
+    .limit(2500);
 
-  const [versionResult, cardResult] = await Promise.all([
-    supabase
-      .from("checklist_versions")
-      .select("id")
-      .eq("is_active", true)
-      .eq("status", "live")
-      .limit(5000),
-    supabase
-      .from("checklist_cards")
-      .select(
-        "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-      )
-      .in("normalized_card_number", candidateNumbers)
-      .limit(2500),
-  ]);
-
-  if (versionResult.error || cardResult.error) {
-    console.error(
-      "Checklist Registry leading-digit recovery scope lookup failed:",
-      versionResult.error || cardResult.error,
-    );
-    return null;
+  if (cardResult.error) {
+    throw new Error(`candidate_card_lookup_failed:${String(cardResult.error.code || "unknown")}`);
+  }
+  if ((cardResult.data || []).length >= 2500) {
+    throw new Error("candidate_card_scope_truncated");
   }
 
-  // A full page is treated as ambiguous/truncated rather than silently proving
-  // uniqueness from incomplete Registry data.
-  if ((versionResult.data || []).length >= 5000 || (cardResult.data || []).length >= 2500) {
-    console.error("Checklist Registry leading-digit recovery exceeded bounded scope.");
-    return null;
+  const rawCards = cardResult.data || [];
+  if (!rawCards.length) {
+    return {
+      rows: [],
+      candidateCount: 0,
+      releaseIds: [],
+      versionIds: [],
+      setIds: [],
+    };
+  }
+
+  // Validate only the versions referenced by the indexed card-number result.
+  // This deliberately avoids the old global `is_active/status` scan that grew
+  // into Production statement_timeout as the Registry expanded.
+  const referencedVersionIds = unique(rawCards.map((card: any) => card.version_id));
+  const versionResult = await supabase
+    .from("checklist_versions")
+    .select("id,is_active,status")
+    .in("id", referencedVersionIds)
+    .eq("is_active", true)
+    .eq("status", "live");
+
+  if (versionResult.error) {
+    throw new Error(`candidate_version_lookup_failed:${String(versionResult.error.code || "unknown")}`);
   }
 
   const activeVersionIds = new Set(
     (versionResult.data || []).map((row: any) => String(row.id)).filter(Boolean),
   );
-  const cards = (cardResult.data || []).filter((card: any) =>
+  const cards = rawCards.filter((card: any) =>
     activeVersionIds.has(String(card.version_id)),
   );
-  if (!cards.length) return null;
+  if (!cards.length) {
+    return {
+      rows: [],
+      candidateCount: 0,
+      releaseIds: [],
+      versionIds: [],
+      setIds: [],
+    };
+  }
 
   const cardIds = unique(cards.map((card: any) => card.id));
   const releaseIds = unique(cards.map((card: any) => card.release_id));
+  const versionIds = unique(cards.map((card: any) => card.version_id));
   const setIds = unique(cards.map((card: any) => card.set_id));
 
   const [releaseResult, setResult, playerResult, teamResult, identityResult] =
@@ -165,8 +185,7 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
     teamResult.error ||
     identityResult.error;
   if (detailError) {
-    console.error("Checklist Registry leading-digit recovery detail lookup failed:", detailError);
-    return null;
+    throw new Error(`candidate_detail_lookup_failed:${String(detailError.code || "unknown")}`);
   }
 
   if (
@@ -176,8 +195,7 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
     (teamResult.data || []).length >= 5000 ||
     (identityResult.data || []).length >= 5000
   ) {
-    console.error("Checklist Registry leading-digit recovery detail scope was truncated.");
-    return null;
+    throw new Error("candidate_detail_scope_truncated");
   }
 
   const releaseById = new Map(
@@ -190,7 +208,7 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
   const teamsByCard = groupByCard(teamResult.data || []);
   const identitiesByCard = groupByCard(identityResult.data || []);
 
-  const cardRows = cards.map((card: any) => ({
+  const rows = cards.map((card: any) => ({
     ...card,
     version: { id: card.version_id, is_active: true, status: "live" },
     set: setById.get(String(card.set_id)) || null,
@@ -200,53 +218,198 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
     identities: identitiesByCard.get(String(card.id)) || [],
   }));
 
-  const recovered = new Map<string, RecoveryCandidate>();
-  for (const cardNumber of candidateNumbers) {
-    const candidateRows = cardRows.filter(
-      (card: any) => normalizedCardNumber(card.card_number) === cardNumber,
-    );
-    if (!candidateRows.length) continue;
+  return {
+    rows,
+    candidateCount: rows.reduce(
+      (total: number, card: any) =>
+        total + (Array.isArray(card.identities) ? card.identities.length : 0),
+      0,
+    ),
+    releaseIds,
+    versionIds,
+    setIds,
+  };
+}
 
-    // Deliberately do not enable adjacent-year recovery here: a dropped card
-    // digit must not simultaneously relax year evidence.
-    const match = chooseRegistryMatch(
-      { ...ai, cardNumber },
-      candidateRows,
-      { allowAdjacentYearRecovery: false },
-    );
-    if (!match) continue;
+function matchedCandidate(
+  rows: any[],
+  match: RegistryMatch,
+  cardNumber: string,
+): ResolvedCandidate | null {
+  const matchedCard = rows.find((card: any) =>
+    normalizedCardNumber(card.card_number) === cardNumber &&
+    (card.identities || []).some(
+      (identity: any) => String(identity.id) === match.identityId,
+    ),
+  );
+  if (!matchedCard) return null;
+  return {
+    cardNumber,
+    match,
+    releaseId: String(matchedCard.release_id),
+    versionId: String(matchedCard.version_id),
+    setId: String(matchedCard.set_id),
+  };
+}
 
-    const matchedCard = candidateRows.find((card: any) =>
-      (card.identities || []).some(
-        (identity: any) => String(identity.id) === match.identityId,
-      ),
-    );
-    if (!matchedCard) continue;
-
-    recovered.set(match.identityId, {
-      cardNumber,
-      match,
-      releaseId: String(matchedCard.release_id),
-      versionId: String(matchedCard.version_id),
-      setId: String(matchedCard.set_id),
-    });
+/**
+ * Production-facing authoritative resolver for requests that already contain a
+ * visible card number. It starts from the Registry's indexed normalized card
+ * number and validates only the referenced versions/releases/sets by ID.
+ *
+ * This intentionally does NOT enumerate every live version or every release.
+ * Identity adjudication still belongs to chooseRegistryMatch and remains
+ * fail-closed: no unique exact identity means no lock.
+ */
+export async function resolveChecklistRegistryCardFirst(
+  ai: Record<string, any>,
+): Promise<ChecklistRegistryLookupResult> {
+  const cardNumber = normalizedCardNumber(ai.cardNumber);
+  if (!cardNumber) {
+    return {
+      status: "input_incomplete",
+      match: null,
+      reasons: ["missing_or_uncertain_visible_card_number_evidence"],
+      candidateCount: 0,
+      coveredReleaseIds: [],
+      coveredVersionIds: [],
+      coveredSetIds: [],
+      sourceTier: "none",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
   }
 
-  if (recovered.size !== 1) return null;
-  const [only] = recovered.values();
-  return {
-    status: "internal_exact_match",
-    match: only.match,
-    reasons: [
-      "one_internal_checklist_identity_matches_all_available_visible_evidence",
-      `unique_leading_digit_card_number_recovery:${observed}->${only.cardNumber}`,
-    ],
-    candidateCount: 1,
-    coveredReleaseIds: [only.releaseId],
-    coveredVersionIds: [only.versionId],
-    coveredSetIds: [only.setId],
-    sourceTier: "internal",
-    externalLookupEligible: false,
-    externalLookupAttempted: false,
-  };
+  try {
+    const scope = await loadActiveCandidateRows([cardNumber]);
+    if (!scope.rows.length) {
+      return {
+        status: "internal_set_present_no_exact_match",
+        match: null,
+        reasons: ["active_registry_contains_no_card_with_observed_number"],
+        candidateCount: 0,
+        coveredReleaseIds: [],
+        coveredVersionIds: [],
+        coveredSetIds: [],
+        sourceTier: "internal",
+        externalLookupEligible: false,
+        externalLookupAttempted: false,
+      };
+    }
+
+    let match = chooseRegistryMatch(ai, scope.rows, {
+      allowAdjacentYearRecovery: false,
+    });
+    let usedAdjacentYearRecovery = false;
+    if (!match) {
+      match = chooseRegistryMatch(ai, scope.rows, {
+        allowAdjacentYearRecovery: true,
+      });
+      usedAdjacentYearRecovery = Boolean(match);
+    }
+
+    if (!match) {
+      return {
+        status: "internal_set_present_no_exact_match",
+        match: null,
+        reasons: ["no_unique_registry_identity_matches_every_visible_fact"],
+        candidateCount: scope.candidateCount,
+        coveredReleaseIds: scope.releaseIds,
+        coveredVersionIds: scope.versionIds,
+        coveredSetIds: scope.setIds,
+        sourceTier: "internal",
+        externalLookupEligible: false,
+        externalLookupAttempted: false,
+      };
+    }
+
+    const resolved = matchedCandidate(scope.rows, match, cardNumber);
+    if (!resolved) return lookupUnavailable("matched_identity_missing_from_candidate_scope");
+
+    return {
+      status: "internal_exact_match",
+      match,
+      reasons: [
+        "one_internal_checklist_identity_matches_all_available_visible_evidence",
+        ...(usedAdjacentYearRecovery ? ["adjacent_year_registry_recovery"] : []),
+      ],
+      candidateCount: 1,
+      coveredReleaseIds: [resolved.releaseId],
+      coveredVersionIds: [resolved.versionId],
+      coveredSetIds: [resolved.setId],
+      sourceTier: "internal",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
+  } catch (error) {
+    console.error("Checklist Registry card-first lookup failed:", error);
+    return lookupUnavailable(
+      error instanceof Error ? error.message : "card_first_registry_lookup_failed",
+    );
+  }
+}
+
+/**
+ * Recover one OCR/VLM-dropped leading digit (for example 122 -> 22) without
+ * re-running a full Registry scope resolver nine times. The nine bounded card
+ * numbers are loaded in one indexed query. Recovery remains exact-year only so
+ * it can never relax both the year and card number simultaneously, and it is
+ * accepted only when exactly one distinct Registry identity survives all
+ * visible evidence.
+ */
+export async function resolveChecklistRegistryLeadingDigitRecovery(
+  ai: Record<string, any>,
+  observedCardNumber: string,
+): Promise<ChecklistRegistryLookupResult | null> {
+  const observed = normalizedCardNumber(observedCardNumber);
+  if (!/^\d{1,3}$/.test(observed)) return null;
+
+  const candidateNumbers = Array.from(
+    { length: 9 },
+    (_, index) => `${index + 1}${observed}`,
+  );
+
+  try {
+    const scope = await loadActiveCandidateRows(candidateNumbers);
+    if (!scope.rows.length) return null;
+
+    const recovered = new Map<string, ResolvedCandidate>();
+    for (const cardNumber of candidateNumbers) {
+      const candidateRows = scope.rows.filter(
+        (card: any) => normalizedCardNumber(card.card_number) === cardNumber,
+      );
+      if (!candidateRows.length) continue;
+
+      const match = chooseRegistryMatch(
+        { ...ai, cardNumber },
+        candidateRows,
+        { allowAdjacentYearRecovery: false },
+      );
+      if (!match) continue;
+
+      const candidate = matchedCandidate(candidateRows, match, cardNumber);
+      if (candidate) recovered.set(match.identityId, candidate);
+    }
+
+    if (recovered.size !== 1) return null;
+    const [only] = recovered.values();
+    return {
+      status: "internal_exact_match",
+      match: only.match,
+      reasons: [
+        "one_internal_checklist_identity_matches_all_available_visible_evidence",
+        `unique_leading_digit_card_number_recovery:${observed}->${only.cardNumber}`,
+      ],
+      candidateCount: 1,
+      coveredReleaseIds: [only.releaseId],
+      coveredVersionIds: [only.versionId],
+      coveredSetIds: [only.setId],
+      sourceTier: "internal",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
+  } catch (error) {
+    console.error("Checklist Registry leading-digit recovery failed:", error);
+    return null;
+  }
 }
