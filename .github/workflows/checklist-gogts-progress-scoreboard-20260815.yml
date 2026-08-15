@@ -1,6 +1,6 @@
 name: Checklist GoGTS Production Scoreboard 20260815
 
-# Read-only liveness probe; never takes the Production writer lock.
+# Read-only Management API scoreboard; never takes the Production writer lock.
 on:
   push:
     branches:
@@ -21,56 +21,66 @@ jobs:
     environment: Production
     timeout-minutes: 3
     steps:
-      - name: Resolve Production Supabase read credentials
+      - name: Resolve Production project
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/gogts-scoreboard"; mkdir -p "$root"
           curl --silent --show-error --fail --retry 2 --retry-all-errors --max-time 20 \
-            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/projects.json" \
-            "https://api.supabase.com/v1/projects"
-          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
-          test "${#candidates[@]}" -eq 1
-          project_ref="${candidates[0]}"
-          curl --silent --show-error --fail --retry 2 --retry-all-errors --max-time 20 \
-            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/api-keys.json" \
-            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
-          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
-          test -n "$service_key"; echo "::add-mask::$service_key"
-          echo "SB_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
-          echo "SB_KEY=$service_key" >> "$GITHUB_ENV"
-      - name: Probe rows immediately after last completed import
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t refs < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#refs[@]}" -eq 1
+          echo "PROJECT_REF=${refs[0]}" >> "$GITHUB_ENV"
+      - name: Read live GoGTS progress through Management SQL
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/gogts-scoreboard"
-          : > "$root/boundary.ndjson"
-          urls=(
-            'https://gogts.net/wp-content/uploads/2024/12/2024-Panini-Prizm-Draft-Picks-Collegiate-Football-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2024/12/2024-Panini-Prizm-NFL-Football-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2024/12/2024-Panini-Rookies-and-Stars-NFL-Football-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2024/09/2024-Score-NFL-Football-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2025/05/2024-Panini-Select-NFL-Football-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2025/01/2024-Panini-Spectra-NFL-Football-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Zenith-NFL-Football-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2024/08/2024-SAGE-Artistry-Football-Cards-Checklist-1.pdf'
-            'https://gogts.net/wp-content/uploads/2025/04/2024-Panini-Impeccable-LIV-Golf-Trading-Cards-Checklist.xls'
-            'https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-LIV-Golf-Trading-Cards-Checklist.xls'
-          )
-          idx=258
-          for source in "${urls[@]}"; do
-            out="$root/row-$idx.json"
-            curl --silent --show-error --fail --retry 1 --max-time 10 --get \
-              --header "apikey: $SB_KEY" --header "Authorization: Bearer $SB_KEY" \
-              --data-urlencode 'select=source_url,status,last_checked_at,imported_at,validation_counts,issue_summary' \
-              --data-urlencode "source_url=eq.$source" \
-              --data-urlencode 'limit=1' \
-              --output "$out" "$SB_URL/rest/v1/checklist_source_catalog"
-            jq -c --argjson idx "$idx" --arg source "$source" '{queueIndex:$idx,sourceUrl:$source,row:(.[0] // null)}' "$out" >> "$root/boundary.ndjson"
-            idx=$((idx+1))
-          done
-          jq -s --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{generatedAt:$now,writerStartedAt:"2026-08-15T21:02:45Z",boundary:.}' "$root/boundary.ndjson" > "$root/scoreboard.json"
-          cat "$root/scoreboard.json"
+          jq -n --arg q "
+            select jsonb_build_object(
+              'captured_at', clock_timestamp(),
+              'writer_started_at', '2026-08-15T22:10:47Z',
+              'gogts_imported_since_run', (
+                select count(*) from public.checklist_source_catalog
+                where status='imported'
+                  and source_url like 'https://gogts.net/%'
+                  and imported_at >= timestamptz '2026-08-15T22:10:47Z'
+              ),
+              'gogts_imported_total', (
+                select count(*) from public.checklist_source_catalog
+                where status='imported' and source_url like 'https://gogts.net/%'
+              ),
+              'latest', coalesce((
+                select jsonb_agg(x order by x.imported_at desc) from (
+                  select source_url, imported_at,
+                         metadata->>'masterArchiveExactSetKey' as exact_set_key
+                  from public.checklist_source_catalog
+                  where status='imported' and source_url like 'https://gogts.net/%'
+                  order by imported_at desc nulls last
+                  limit 10
+                ) x
+              ), '[]'::jsonb),
+              'active_db', coalesce((
+                select jsonb_agg(x order by x.query_start) from (
+                  select pid, state, wait_event_type, wait_event,
+                         clock_timestamp()-query_start as query_age,
+                         left(query,300) as query
+                  from pg_catalog.pg_stat_activity
+                  where datname=current_database() and pid<>pg_backend_pid() and state<>'idle'
+                ) x
+              ), '[]'::jsonb)
+            ) as scoreboard;
+          " '{query:$q}' > "$root/request.json"
+          curl --silent --show-error --fail --retry 1 --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data-binary @"$root/request.json" \
+            --output "$root/result.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query/read-only"
+          cat "$root/result.json"
+          jq '.[0].scoreboard' "$root/result.json" > "$root/scoreboard.json"
       - name: Upload scoreboard
         uses: actions/upload-artifact@v4
         with:
