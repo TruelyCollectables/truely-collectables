@@ -103,14 +103,27 @@ jobs:
           )
           unset INSTACOMP_AI_LORA_CANDIDATE_ENABLED INSTACOMP_AI_LORA_CANDIDATE_URL
 
-      - name: Prove canonical launcher loads protected Registry auth and runs v2 self-test
+      - name: Prove canonical launcher diagnostic mode three times
         run: |
           set -euo pipefail
           printf '%s\n' 'INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN=ci-registry-auth-fixture' > services/instacomp-ai/.env
           chmod 600 services/instacomp-ai/.env
+          for run in 1 2 3; do
+            bash services/instacomp-ai/scripts/run_frozen_five_promotion.sh --diagnostic-all --self-test \
+              | tee "/tmp/frozen-five-diagnostic-launcher-${run}.log"
+            grep -q 'PASS Registry client authentication configured' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
+            grep -q 'PASS InstaComp app import path:' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
+            grep -q 'PASS Frozen Five launcher mode: diagnostic' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
+            grep -q 'PASS full five continues after card failure' "/tmp/frozen-five-diagnostic-launcher-${run}.log"
+          done
+
+      - name: Prove canonical launcher loads protected Registry auth and runs v2 self-test
+        run: |
+          set -euo pipefail
           bash services/instacomp-ai/scripts/run_frozen_five_promotion.sh --self-test \
             | tee /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS Registry client authentication configured' /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS InstaComp app import path:' /tmp/frozen-five-v2-launcher.log
+          grep -q 'PASS Frozen Five launcher mode: promotion' /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS failed-case candidate and raw Registry diagnostics are retained' /tmp/frozen-five-v2-launcher.log
           rm -f services/instacomp-ai/.env
