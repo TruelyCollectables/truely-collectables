@@ -70,6 +70,40 @@ def _registry_variant_claim(registry: Any) -> str | None:
     return None
 
 
+def _registry_identity_matches_teacher(teacher: dict[str, Any], registry: Any) -> bool:
+    """Compare stable identity fields and canonical variant families.
+
+    Registry naming is authoritative but parallel labels are not guaranteed to use
+    the teacher's display spelling. For example, the same checklist family may be
+    called "Cracked Ice Prizm" by the teacher and "Prizms Ice" by the Registry.
+    Canonicalize both to the same `ice` family without weakening exact player/card
+    matching or allowing Silver/Base to cross that boundary.
+    """
+    locked = getattr(registry, "identity", None)
+    if locked is None:
+        return False
+    payload = (
+        locked.model_dump(mode="json")
+        if hasattr(locked, "model_dump")
+        else dict(locked)
+    )
+    if base.norm(payload.get("player")) != base.norm(teacher.get("player")):
+        return False
+    if (
+        base.norm(payload.get("card_number")).lstrip("#")
+        != base.norm(teacher.get("card_number")).lstrip("#")
+    ):
+        return False
+
+    teacher_marker = _teacher_variant_claim(teacher)
+    registry_marker = _registry_variant_claim(registry)
+    if teacher_marker is None:
+        return True
+    if teacher_marker == "base":
+        return registry_marker in {None, "base"}
+    return registry_marker == teacher_marker
+
+
 def _default_image_parallel_probe(item: dict[str, Any]) -> str | None:
     """Return only a positive deterministic image-surface parallel witness.
 
@@ -142,8 +176,10 @@ def _locked_expansion(item: dict[str, Any], registry: Any) -> dict[str, Any] | N
 
 
 def _install_contract_fix() -> None:
-    # Keep every v4 correction, then add only the independent image witness gate.
+    # Keep every v4 correction, then replace only its raw-string variant match
+    # with canonical family matching and add the independent image witness gate.
     v4._install_contract_fix()
+    v3._registry_identity_matches_teacher = _registry_identity_matches_teacher
     v3._locked_expansion = _locked_expansion
     v3.SCHEMA = "tcos.instacomp-ai.lora-frozen-25-promotion.v4"
 
@@ -167,7 +203,7 @@ def self_test() -> int:
     registry_id = "00000000-0000-0000-0006-000000000092"
     fingerprint = "9" * 64
 
-    def registry(parallel: str) -> ChecklistResult:
+    def registry(parallel: str | None) -> ChecklistResult:
         return ChecklistResult(
             outcome=ChecklistOutcome.EXACT_MATCH,
             identity_id=registry_id,
@@ -205,6 +241,19 @@ def self_test() -> int:
             "metadata_fingerprint": None,
         }
 
+    assert _canonical_variant("Cracked Ice Prizm") == "ice"
+    assert _canonical_variant("Prizms Ice") == "ice"
+    assert _canonical_variant("Silver Prizms") == "silver"
+    assert _registry_identity_matches_teacher(
+        item("Cracked Ice Prizm")["identity"], registry("Prizms Ice")
+    )
+    assert not _registry_identity_matches_teacher(
+        item("Silver")["identity"], registry("Prizms Ice")
+    )
+    assert _registry_identity_matches_teacher(
+        item("Base")["identity"], registry(None)
+    )
+
     try:
         _image_parallel_probe_override = lambda _item: "ice"
 
@@ -227,6 +276,8 @@ def self_test() -> int:
     print("PASS image witness rejects Silver teacher over Cracked Ice surface evidence")
     print("PASS image witness rejects explicit Base teacher over Cracked Ice surface evidence")
     print("PASS Cracked Ice teacher and Prizms Ice Registry canonicalize to one ice witness")
+    print("PASS Silver cannot canonicalize into the Ice family")
+    print("PASS Base teacher accepts only Base/unspecified Registry variant")
     print("PASS unknown image pattern remains fail-neutral and does not invent a variant")
     return 0
 
