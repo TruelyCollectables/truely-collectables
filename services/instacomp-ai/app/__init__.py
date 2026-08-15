@@ -15,6 +15,7 @@ from .models import LocalVisionEvidence, SideVisionEvidence
 from .pattern_memory import apply_trusted_pattern_style
 from .psa_policy import install_psa_lead_only_policy
 from .runtime_compat import install_sentinel_runtime_compat
+from .serial_evidence_guard import install_serial_evidence_guard
 
 _original_analyze_local_vision = _local_vision.analyze_local_vision
 
@@ -81,6 +82,7 @@ async def _analyze_local_vision_with_trusted_style_memory(front, back, settings)
 
 
 _local_vision.analyze_local_vision = _analyze_local_vision_with_trusted_style_memory
+install_serial_evidence_guard()
 install_psa_lead_only_policy()
 install_sentinel_runtime_compat()
 install_deterministic_checklist_recovery()
