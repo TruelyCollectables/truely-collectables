@@ -1,4 +1,3 @@
-import sharp from "sharp";
 import {
   CARD_SCAN_FRAME_SHARP_COLOR,
   cardScanFrameInsets,
@@ -21,6 +20,10 @@ const MINIMUM_ORIENTATION_CONFIDENCE = Number.isFinite(
   : 0.55;
 const MAX_ORIENTATION_INPUT_PIXELS = 40_000_000;
 
+type CloudflareFetchGlobal = typeof globalThis & {
+  __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
+};
+
 export type InstaCompRotation = 0 | 90 | 180 | 270;
 
 export type InstaCompOrientationDecision = {
@@ -36,6 +39,28 @@ export type InstaCompOrientationDecision = {
   backDesignationConfidence: number;
   reason: string;
 };
+
+function runningOnCloudflareWorker() {
+  return typeof (globalThis as CloudflareFetchGlobal)
+    .__TRUELY_CLOUDFLARE_NATIVE_FETCH__ === "function";
+}
+
+function cloudflarePassThroughOrientation(): InstaCompOrientationDecision {
+  return {
+    status: "completed",
+    model: null,
+    frontRotation: 0,
+    backRotation: 0,
+    frontConfidence: 1,
+    backConfidence: 1,
+    frontEvidenceText: [],
+    backEvidenceText: [],
+    backStandalonePrizm: null,
+    backDesignationConfidence: 0,
+    reason:
+      "Cloudflare Worker runtime preserves validated original image bytes and bypasses native Sharp preprocessing; downstream InstaComp visual identity still evaluates both sides.",
+  };
+}
 
 export function normalizeInstaCompRotation(value: unknown): InstaCompRotation {
   const number = Number(value);
@@ -272,6 +297,12 @@ export async function rotateInstaCompImageBytes(params: {
   rotation: InstaCompRotation;
   addScanFrame?: boolean;
 }) {
+  if (runningOnCloudflareWorker()) {
+    return new Uint8Array(params.bytes);
+  }
+
+  const sharpModule = await import("sharp");
+  const sharp = sharpModule.default;
   const normalized = await sharp(Buffer.from(params.bytes), {
     failOn: "warning",
     limitInputPixels: MAX_ORIENTATION_INPUT_PIXELS,
@@ -324,10 +355,14 @@ export async function normalizeInstaCompSideImages(params: {
   const back = params.backImage
     ? await readValidatedInstaCompImage(params.backImage, "Back image")
     : null;
-  const orientation = await detectInstaCompSideOrientations({
-    frontDataUrl: front.dataUrl,
-    backDataUrl: back?.dataUrl || null,
-  });
+
+  const orientation = runningOnCloudflareWorker()
+    ? cloudflarePassThroughOrientation()
+    : await detectInstaCompSideOrientations({
+        frontDataUrl: front.dataUrl,
+        backDataUrl: back?.dataUrl || null,
+      });
+
   const [frontBytes, backBytes] = await Promise.all([
     rotateInstaCompImageBytes({
       bytes: front.bytes,
