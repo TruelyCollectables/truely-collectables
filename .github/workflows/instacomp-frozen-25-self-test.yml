@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -37,11 +39,12 @@ jobs:
         run: |
           python -m py_compile \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py
 
       - name: Validate Mac launcher syntax
         run: bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
 
-      - name: Prove deterministic Frozen 25 contract
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py --self-test
+      - name: Prove Frozen Five seed compatibility and strict Frozen 25 expansion contract
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py --self-test
