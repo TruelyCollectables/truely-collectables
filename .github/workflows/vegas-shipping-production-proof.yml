@@ -1,0 +1,106 @@
+name: Vegas Shipping Production Proof
+
+on:
+  workflow_run:
+    workflows: ["Cloudflare Production Release"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vegas-shipping-production-proof
+  cancel-in-progress: true
+
+jobs:
+  prove-production-safety:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Prove dry-run shipping state and admin auth boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base = 'https://truelycollectables.com';
+
+          async function fetchWithRetry(url, init = {}) {
+            let lastFailure = 'No request attempted.';
+            for (let attempt = 1; attempt <= 6; attempt += 1) {
+              try {
+                const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}proof=${Date.now()}`, {
+                  ...init,
+                  redirect: 'manual',
+                  signal: AbortSignal.timeout(30_000),
+                });
+                return response;
+              } catch (error) {
+                lastFailure = `attempt=${attempt} error=${error instanceof Error ? error.message : String(error)}`;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 5_000));
+            }
+            throw new Error(`Production request failed: ${lastFailure}`);
+          }
+
+          const safetyResponse = await fetchWithRetry(`${base}/api/tcos/shipping-safety`, {
+            headers: { Accept: 'application/json' },
+          });
+          const safetyText = await safetyResponse.text();
+          let safety;
+          try {
+            safety = JSON.parse(safetyText);
+          } catch {
+            throw new Error(`Shipping safety endpoint returned non-JSON: status=${safetyResponse.status} body=${safetyText.slice(0, 300)}`);
+          }
+
+          const safetyValid =
+            safetyResponse.status === 200 &&
+            safetyResponse.headers.get('x-tcos-shipping-safety') === 'safe' &&
+            safetyResponse.headers.get('x-truely-origin') === 'cloudflare-worker' &&
+            safety?.ok === true &&
+            safety?.purchaseMode === 'dry_run' &&
+            safety?.liveShippingEnabled === false &&
+            safety?.liveAdapterSupported === false &&
+            safety?.livePostagePossible === false &&
+            safety?.standardEnvelope?.livePurchaseSupported === false &&
+            safety?.standardEnvelope?.manualPurchaseRequired === true;
+
+          if (!safetyValid) {
+            throw new Error(
+              `Shipping safety proof failed: status=${safetyResponse.status} origin=${safetyResponse.headers.get('x-truely-origin')} safety=${safetyResponse.headers.get('x-tcos-shipping-safety')} payload=${JSON.stringify(safety)}`,
+            );
+          }
+
+          for (const method of ['GET', 'POST']) {
+            const response = await fetchWithRetry(
+              `${base}/api/admin/shipping/lettertrack-export`,
+              method === 'POST'
+                ? {
+                    method,
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                    body: JSON.stringify({}),
+                  }
+                : { method, headers: { Accept: 'application/json' } },
+            );
+            if (response.status !== 401) {
+              const body = await response.text();
+              throw new Error(
+                `Unauthenticated ${method} LetterTrack request was not blocked: status=${response.status} body=${body.slice(0, 300)}`,
+              );
+            }
+          }
+
+          console.log('VEGAS SHIPPING PROOF PASSED');
+          console.log('- Cloudflare routed Worker confirmed.');
+          console.log('- Runtime purchase mode: dry_run.');
+          console.log('- Live shipping flag: false.');
+          console.log('- Live provider adapter supported: false.');
+          console.log('- Unauthenticated LetterTrack GET: 401.');
+          console.log('- Unauthenticated LetterTrack POST: 401.');
+          console.log('- No authenticated mutation or postage purchase was attempted.');
+          NODE
