@@ -24,9 +24,13 @@ function safeProviderPdfUrl(value: unknown) {
 
   try {
     const url = new URL(raw);
-    if (url.protocol !== "https:" || url.hostname !== "api.shipstation.com") {
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.hostname !== "api.shipstation.com"
+    ) {
       return null;
     }
+    url.protocol = "https:";
     return url.toString();
   } catch {
     return null;
@@ -91,9 +95,18 @@ export async function GET(
         "API-Key": apiKey,
         Accept: "application/pdf",
       },
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(30_000),
     });
+
+    if (response.status >= 300 && response.status < 400) {
+      return Response.json(
+        {
+          error: `ShipStation label download refused an unexpected redirect (HTTP ${response.status}).`,
+        },
+        { status: 502 },
+      );
+    }
 
     if (!response.ok) {
       return Response.json(
