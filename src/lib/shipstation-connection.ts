@@ -12,14 +12,27 @@ export type ShipStationServiceSummary = {
   international: boolean | null;
 };
 
+export type ShipStationWarehouseSummary = {
+  warehouseId: string;
+  name: string;
+  isDefault: boolean;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+};
+
 export type ShipStationConnectionTestResult = {
   ok: boolean;
   apiKeyConfigured: boolean;
   configuredCarrierId: string | null;
   configuredCarrierFound: boolean;
   recommendedCarrierId: string | null;
+  configuredWarehouseId: string | null;
+  configuredWarehouseFound: boolean;
+  recommendedWarehouseId: string | null;
   carriers: ShipStationCarrierSummary[];
   services: ShipStationServiceSummary[];
+  warehouses: ShipStationWarehouseSummary[];
   requiredServices: {
     letter: { code: string; available: boolean | null };
     groundAdvantage: { code: string; available: boolean | null };
@@ -39,6 +52,10 @@ function configuredCarrierId() {
   return clean(process.env.SHIPSTATION_CARRIER_ID) || null;
 }
 
+function configuredWarehouseId() {
+  return clean(process.env.SHIPSTATION_WAREHOUSE_ID) || null;
+}
+
 function preferredUspsCarrier(carriers: ShipStationCarrierSummary[]) {
   const matches = carriers.filter((carrier) => {
     const haystack = `${carrier.carrierCode} ${carrier.friendlyName} ${carrier.nickname || ""}`.toLowerCase();
@@ -47,6 +64,12 @@ function preferredUspsCarrier(carriers: ShipStationCarrierSummary[]) {
     );
   });
   return matches.length === 1 ? matches[0]!.carrierId : null;
+}
+
+function preferredWarehouse(warehouses: ShipStationWarehouseSummary[]) {
+  const defaults = warehouses.filter((warehouse) => warehouse.isDefault);
+  if (defaults.length === 1) return defaults[0]!.warehouseId;
+  return warehouses.length === 1 ? warehouses[0]!.warehouseId : null;
 }
 
 async function shipStationGet(path: string, apiKey: string) {
@@ -77,6 +100,7 @@ async function shipStationGet(path: string, apiKey: string) {
 export async function testShipStationConnection(): Promise<ShipStationConnectionTestResult> {
   const apiKey = clean(process.env.SHIPSTATION_API_KEY);
   const carrierId = configuredCarrierId();
+  const warehouseId = configuredWarehouseId();
   const letterCode = clean(process.env.SHIPSTATION_LETTER_SERVICE_CODE) || "usps_first_class_mail";
   const groundCode =
     clean(process.env.SHIPSTATION_GROUND_ADVANTAGE_SERVICE_CODE) ||
@@ -91,8 +115,12 @@ export async function testShipStationConnection(): Promise<ShipStationConnection
       configuredCarrierId: carrierId,
       configuredCarrierFound: false,
       recommendedCarrierId: null,
+      configuredWarehouseId: warehouseId,
+      configuredWarehouseFound: false,
+      recommendedWarehouseId: null,
       carriers: [],
       services: [],
+      warehouses: [],
       requiredServices: {
         letter: { code: letterCode, available: null },
         groundAdvantage: { code: groundCode, available: null },
@@ -104,10 +132,14 @@ export async function testShipStationConnection(): Promise<ShipStationConnection
     };
   }
 
-  const carrierPayload = await shipStationGet(
-    "/v2/carriers?page=1&page_size=50&include_extended_details=true",
-    apiKey,
-  );
+  const [carrierPayload, warehousePayload] = await Promise.all([
+    shipStationGet(
+      "/v2/carriers?page=1&page_size=50&include_extended_details=true",
+      apiKey,
+    ),
+    shipStationGet("/v2/warehouses", apiKey),
+  ]);
+
   const carriers: ShipStationCarrierSummary[] = Array.isArray(carrierPayload?.carriers)
     ? carrierPayload.carriers
         .map((row: Record<string, unknown>) => ({
@@ -119,10 +151,27 @@ export async function testShipStationConnection(): Promise<ShipStationConnection
         .filter((row: ShipStationCarrierSummary) => row.carrierId)
     : [];
 
+  const warehouses: ShipStationWarehouseSummary[] = Array.isArray(warehousePayload?.warehouses)
+    ? warehousePayload.warehouses
+        .map((row: Record<string, any>) => ({
+          warehouseId: clean(row.warehouse_id),
+          name: clean(row.name) || "Warehouse",
+          isDefault: row.is_default === true,
+          city: clean(row.origin_address?.city_locality) || null,
+          state: clean(row.origin_address?.state_province) || null,
+          postalCode: clean(row.origin_address?.postal_code) || null,
+        }))
+        .filter((row: ShipStationWarehouseSummary) => row.warehouseId)
+    : [];
+
   const configuredCarrierFound = Boolean(
     carrierId && carriers.some((carrier) => carrier.carrierId === carrierId),
   );
   const recommendedCarrierId = carrierId || preferredUspsCarrier(carriers);
+  const configuredWarehouseFound = Boolean(
+    warehouseId && warehouses.some((warehouse) => warehouse.warehouseId === warehouseId),
+  );
+  const recommendedWarehouseId = warehouseId || preferredWarehouse(warehouses);
   let services: ShipStationServiceSummary[] = [];
 
   if (recommendedCarrierId) {
@@ -155,15 +204,24 @@ export async function testShipStationConnection(): Promise<ShipStationConnection
   const allAvailable = Object.values(requiredServices).every(
     (service) => service.available === true,
   );
+  const shippingSetupReady =
+    carriers.length > 0 &&
+    Boolean(recommendedCarrierId) &&
+    allAvailable &&
+    Boolean(recommendedWarehouseId);
 
   return {
-    ok: carriers.length > 0 && Boolean(recommendedCarrierId) && allAvailable,
+    ok: shippingSetupReady,
     apiKeyConfigured: true,
     configuredCarrierId: carrierId,
     configuredCarrierFound,
     recommendedCarrierId,
+    configuredWarehouseId: warehouseId,
+    configuredWarehouseFound,
+    recommendedWarehouseId,
     carriers,
     services,
+    warehouses,
     requiredServices,
     postagePurchaseAttempted: false,
     message:
@@ -171,8 +229,12 @@ export async function testShipStationConnection(): Promise<ShipStationConnection
         ? "The API key authenticated, but ShipStation returned no connected carriers."
         : !recommendedCarrierId
           ? "The API key authenticated. Select/configure a USPS carrier ID from the connected carriers shown below."
-          : allAvailable
-            ? "ShipStation connection is authenticated and the selected USPS carrier exposes all TCOS shipping service codes. No postage was purchased."
-            : "ShipStation authenticated, but one or more TCOS USPS service codes are not exposed by the selected carrier. Review the service list before enabling live purchase.",
+          : !allAvailable
+            ? "ShipStation authenticated, but one or more TCOS USPS service codes are not exposed by the selected carrier. Review the service list before enabling live purchase."
+            : warehouses.length === 0
+              ? "Carrier and services are ready, but ShipStation returned no warehouse/ship-from location. Create a ShipStation warehouse before enabling live purchase."
+              : !recommendedWarehouseId
+                ? "Carrier and services are ready. Select/configure a ShipStation warehouse ID from the ship-from locations shown below."
+                : "ShipStation connection is authenticated, the selected USPS carrier exposes all TCOS service codes, and a ship-from warehouse is available. No postage was purchased.",
   };
 }

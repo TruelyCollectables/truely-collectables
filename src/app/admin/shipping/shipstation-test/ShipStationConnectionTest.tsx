@@ -8,6 +8,9 @@ type ConnectionResult = {
   configuredCarrierId?: string | null;
   configuredCarrierFound?: boolean;
   recommendedCarrierId?: string | null;
+  configuredWarehouseId?: string | null;
+  configuredWarehouseFound?: boolean;
+  recommendedWarehouseId?: string | null;
   carriers?: Array<{
     carrierId: string;
     carrierCode: string;
@@ -19,6 +22,14 @@ type ConnectionResult = {
     name: string;
     domestic: boolean | null;
     international: boolean | null;
+  }>;
+  warehouses?: Array<{
+    warehouseId: string;
+    name: string;
+    isDefault: boolean;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
   }>;
   requiredServices?: {
     letter: { code: string; available: boolean | null };
@@ -113,6 +124,15 @@ export default function ShipStationConnectionTest() {
             />
             <Status label="Recommended carrier" value={result.recommendedCarrierId || "None yet"} />
             <Status
+              label="Configured warehouse"
+              value={
+                result.configuredWarehouseId
+                  ? `${result.configuredWarehouseId}${result.configuredWarehouseFound ? " (found)" : " (not found)"}`
+                  : "Not configured"
+              }
+            />
+            <Status label="Recommended warehouse" value={result.recommendedWarehouseId || "None yet"} />
+            <Status
               label="Money moved"
               value={result.postagePurchaseAttempted === false ? "No" : "Unexpected"}
             />
@@ -138,6 +158,44 @@ export default function ShipStationConnectionTest() {
                   </span>
                 </div>
               ))}
+            </div>
+          ) : null}
+
+          {result.warehouses?.length ? (
+            <div className="mt-5">
+              <h3 className="text-sm font-black uppercase tracking-widest">
+                Ship-from warehouses
+              </h3>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {result.warehouses.map((warehouse) => {
+                  const location = [warehouse.city, warehouse.state, warehouse.postalCode]
+                    .filter(Boolean)
+                    .join(", ");
+                  return (
+                    <div
+                      key={warehouse.warehouseId}
+                      className="rounded-2xl border border-current/20 bg-white/70 p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-black">{warehouse.name}</p>
+                          <p className="mt-1 text-xs font-mono font-semibold">
+                            {warehouse.warehouseId}
+                          </p>
+                          {location ? (
+                            <p className="mt-1 text-xs font-semibold opacity-70">{location}</p>
+                          ) : null}
+                        </div>
+                        {warehouse.isDefault ? (
+                          <span className="rounded-full border border-current px-2 py-1 text-[10px] font-black uppercase">
+                            Default
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
 
