@@ -64,7 +64,7 @@ jobs:
           QUEUE: ${{ runner.temp }}/queue.json
           OUT: ${{ runner.temp }}/boundary-complexity.json
           INDEXES: '258,259,260,261,262,263,264'
-        run: node scripts/mainstream-checklist/gogts-boundary-complexity-diagnostic.mjs
+        run: node --import tsx scripts/mainstream-checklist/gogts-boundary-complexity-diagnostic.mjs
       - name: Upload diagnostic
         if: always()
         uses: actions/upload-artifact@v4
