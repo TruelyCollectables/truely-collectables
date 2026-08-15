@@ -24,13 +24,22 @@ const PUBLIC_PRODUCT_PAGE_SIZE = 1000;
 const PUBLIC_PRODUCT_MAX_PAGES = 20;
 const PUBLIC_PRODUCT_PAGE_CONCURRENCY = 5;
 const PUBLIC_CATALOG_CACHE_TTL_MS = 15_000;
+const PUBLIC_CATALOG_CACHE_TTL_SECONDS = Math.floor(
+  PUBLIC_CATALOG_CACHE_TTL_MS / 1000,
+);
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v1";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
 type PublicCatalogCacheEntry = {
   expiresAt: number;
   promise: Promise<UniversalInventoryItem[]>;
+};
+
+type WorkerCache = {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
 };
 
 // Cloudflare reuses Worker isolates across nearby requests. Keep a very short
@@ -40,6 +49,61 @@ type PublicCatalogCacheEntry = {
 // quickly, checkout still validates live inventory, and failed loads evict
 // themselves immediately.
 const publicCatalogCache = new Map<string, PublicCatalogCacheEntry>();
+
+function getWorkerDefaultCache(): WorkerCache | null {
+  try {
+    const cacheStorage = (globalThis as any).caches as
+      | { default?: WorkerCache }
+      | undefined;
+    return cacheStorage?.default || null;
+  } catch {
+    return null;
+  }
+}
+
+function publicCatalogEdgeCacheRequest(storeId: string) {
+  return new Request(
+    `https://truelycollectables.com/__internal-cache/public-catalog/${encodeURIComponent(storeId)}?version=${PUBLIC_CATALOG_EDGE_CACHE_VERSION}`,
+    { method: "GET" },
+  );
+}
+
+async function readPublicCatalogFromEdgeCache(storeId: string) {
+  const cache = getWorkerDefaultCache();
+  if (!cache) return null;
+
+  try {
+    const response = await cache.match(publicCatalogEdgeCacheRequest(storeId));
+    if (!response) return null;
+    const items = (await response.json()) as UniversalInventoryItem[];
+    return Array.isArray(items) ? items : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writePublicCatalogToEdgeCache(
+  storeId: string,
+  items: UniversalInventoryItem[],
+) {
+  const cache = getWorkerDefaultCache();
+  if (!cache) return;
+
+  try {
+    await cache.put(
+      publicCatalogEdgeCacheRequest(storeId),
+      new Response(JSON.stringify(items), {
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": `public, s-maxage=${PUBLIC_CATALOG_CACHE_TTL_SECONDS}`,
+        },
+      }),
+    );
+  } catch {
+    // Cache API is a performance optimization only. Never make storefront
+    // availability depend on an edge-cache write succeeding.
+  }
+}
 
 function getCachedPublicCatalog(
   storeId: string,
@@ -224,8 +288,13 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       this.publicCatalogPromise = getCachedPublicCatalog(
         this.publicStoreId,
         async () => {
+          const edgeCached = await readPublicCatalogFromEdgeCache(
+            this.publicStoreId,
+          );
+          if (edgeCached) return edgeCached;
+
           const products = await this.readPublicProducts();
-          return products
+          const catalog = products
             .map(mapPublicProductRow)
             .map(enforceStrictStorefrontFeatures)
             .filter(
@@ -236,6 +305,9 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
                 item.status === "active",
             )
             .filter(isPublicStorefrontItem);
+
+          await writePublicCatalogToEdgeCache(this.publicStoreId, catalog);
+          return catalog;
         },
       );
     }
