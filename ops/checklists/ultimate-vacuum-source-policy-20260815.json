@@ -1,0 +1,96 @@
+{
+  "schema": "tcos.checklist.ultimateVacuumSourcePolicy.v1",
+  "updatedAt": "2026-08-15T13:53:00Z",
+  "principles": {
+    "forumPagesAreLeadOnly": true,
+    "requireExactSetValidationBeforePersistence": true,
+    "negativeCacheDeadOrBunkUrls": true,
+    "preferPreviouslyProductiveHosts": true,
+    "perHostConcurrencyRequired": true,
+    "respectRobotsAndAccessControls": true,
+    "neverBypassLoginPaywallOrCaptcha": true
+  },
+  "defaults": {
+    "unknownHostScore": 40,
+    "deadUrlPenalty": 25,
+    "bunkContentPenalty": 20,
+    "noChecklistPenalty": 8,
+    "validatedChecklistReward": 20,
+    "netNewProductionReward": 35,
+    "idempotentProductionReward": 8,
+    "negativeCacheHours": 168,
+    "maxConcurrentPerHost": 3,
+    "maxRequestsPerSecondPerHost": 1
+  },
+  "sources": [
+    {
+      "id": "gogts",
+      "hosts": ["gogts.net"],
+      "mode": "harvest",
+      "seedScore": 85,
+      "assetTypes": ["xlsx", "xls", "csv", "pdf"],
+      "notes": "Existing productive structured-source lane; retain strict parser validation."
+    },
+    {
+      "id": "topps-official",
+      "hosts": ["topps.com", "www.topps.com", "www-next.topps.com"],
+      "mode": "authoritative-harvest",
+      "seedScore": 100,
+      "seedPaths": ["/pages/checklists"],
+      "assetTypes": ["pdf", "html"],
+      "notes": "Official checklist hub; highest discovery priority for Topps/Bowman products."
+    },
+    {
+      "id": "upper-deck-official",
+      "hosts": ["upperdeck.com", "www.upperdeck.com"],
+      "mode": "authoritative-harvest",
+      "seedScore": 100,
+      "seedPathPrefixes": ["/checklist-license/", "/checklist-brand/"],
+      "assetTypes": ["pdf", "html"],
+      "notes": "Official Upper Deck checklist archives by license and brand."
+    },
+    {
+      "id": "panini-official",
+      "hosts": ["paniniamerica.net", "www.paniniamerica.net"],
+      "mode": "authoritative-discovery",
+      "seedScore": 95,
+      "seedPaths": ["/checklist.html"],
+      "assetTypes": ["html", "api", "pdf"],
+      "notes": "Official checklist search. Do not bypass form/access controls; use exposed public endpoints only."
+    },
+    {
+      "id": "cardboard-checklist",
+      "hosts": ["cardboardchecklist.com", "www.cardboardchecklist.com"],
+      "mode": "harvest",
+      "seedScore": 90,
+      "assetTypes": ["html"],
+      "notes": "Large public checklist index; validate exact set and rows before Production."
+    },
+    {
+      "id": "cardboard-connection",
+      "hosts": ["cardboardconnection.com", "www.cardboardconnection.com"],
+      "mode": "harvest",
+      "seedScore": 82,
+      "seedPaths": ["/product-reviews"],
+      "assetTypes": ["html", "pdf"],
+      "notes": "Broad set-review/checklist archive."
+    },
+    {
+      "id": "blowout-forums",
+      "hosts": ["blowoutforums.com", "www.blowoutforums.com"],
+      "mode": "lead-only",
+      "seedScore": 65,
+      "assetTypes": ["html"],
+      "followOutboundChecklistLinks": true,
+      "notes": "Mine public threads for checklist URLs and source clues; never treat forum text alone as authoritative checklist data."
+    },
+    {
+      "id": "beckett-public",
+      "hosts": ["beckett.com", "www.beckett.com"],
+      "mode": "lead-only-public-pages",
+      "seedScore": 45,
+      "assetTypes": ["html"],
+      "notes": "Use only public pages. Skip login/subscription-gated results immediately."
+    }
+  ]
+}
