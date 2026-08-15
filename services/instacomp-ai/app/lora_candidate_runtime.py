@@ -29,6 +29,54 @@ def _candidate_core_usable(identity: CardIdentity) -> bool:
     )
 
 
+def _guard_model_pattern_parallel(
+    parsed: dict[str, Any],
+    local_vision: LocalVisionEvidence | None,
+) -> dict[str, Any]:
+    """Do not let LoRA invent a geometry-named parallel for Registry filtering.
+
+    The LoRA candidate is an evidence reader, not an identity authority. Named
+    surface-pattern parallels that we can independently measure (Cracked Ice and
+    Velocity) may reach the Registry only when the deterministic OpenCV witness
+    agrees at the same confidence threshold used by local identity hints.
+
+    This is intentionally narrow: it does not turn an unsupported candidate
+    guess into Base. It only removes the unsupported pattern claim so the central
+    Registry can resolve from the remaining player/card/release evidence or fail
+    closed if that evidence is ambiguous.
+    """
+    if local_vision is None:
+        return parsed
+
+    root = dict(parsed)
+    identity_source = root.get("identity")
+    if not isinstance(identity_source, dict):
+        return root
+    identity = dict(identity_source)
+    parallel = str(identity.get("parallel") or "").strip()
+    lowered = parallel.casefold()
+    if not parallel:
+        return root
+
+    pattern = local_vision.front.pattern
+    deterministic_label = str(pattern.label or "").strip().casefold()
+    deterministic_confidence = float(pattern.confidence or 0)
+
+    requires_label: str | None = None
+    if "cracked" in lowered and "ice" in lowered:
+        requires_label = "cracked_ice"
+    elif "velocity" in lowered:
+        requires_label = "velocity"
+
+    if requires_label and not (
+        deterministic_label == requires_label
+        and deterministic_confidence >= 0.70
+    ):
+        identity["parallel"] = None
+        root["identity"] = identity
+    return root
+
+
 def _candidate_response_to_suggestion(
     payload: dict[str, Any],
     *,
@@ -47,8 +95,11 @@ def _candidate_response_to_suggestion(
     # Training answers also contain checklist_identity_id/fingerprint fields.
     # Those are deliberately ignored here. Runtime identity authority comes
     # only from a fresh central Registry lookup performed by the main pipeline.
+    # Pattern-named parallel claims get an additional independent OpenCV gate so
+    # a LoRA hallucination cannot steer Registry lookup to the wrong parallel.
+    guarded = _guard_model_pattern_parallel(parsed, local_vision)
     normalized = normalize_identity_payload(
-        merge_local_vision_payload(parsed, local_vision)
+        merge_local_vision_payload(guarded, local_vision)
     )
     identity = CardIdentity.model_validate(normalized.get("identity") or {})
     if not _candidate_core_usable(identity):
@@ -74,6 +125,7 @@ def _candidate_response_to_suggestion(
             "validation_receipt": payload.get("validation_receipt"),
             "validation_eligible": True,
             "candidate_checklist_fields_ignored": True,
+            "pattern_parallel_requires_deterministic_support": True,
             "pipeline_slot": "local_model_fallback",
         },
     )
