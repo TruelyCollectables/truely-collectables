@@ -153,12 +153,18 @@ path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
 PY
 chmod 600 "$env_file"
 
-# Re-read settings from the same service-root context used by the LaunchAgent and
-# fail before launch if the written candidate configuration is not what runtime
-# will consume.
+# The Frozen Five launcher intentionally exports the protected .env so Registry
+# authentication is available to Python. That means this child process may have
+# inherited the *previous* disabled LoRA values even though the file above now
+# says enabled=true. Environment variables outrank pydantic's env-file values,
+# so explicitly remove only these two mutable activation keys while verifying
+# the newly written file. Registry/auth variables remain inherited unchanged.
 runtime_config="$(
   cd "$service_root"
-  "$service_python" - "$url" <<'PY'
+  env \
+    -u INSTACOMP_AI_LORA_CANDIDATE_ENABLED \
+    -u INSTACOMP_AI_LORA_CANDIDATE_URL \
+    "$service_python" - "$url" <<'PY'
 import json
 import sys
 from app.config import settings
