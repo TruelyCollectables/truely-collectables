@@ -67,7 +67,15 @@ jobs:
               -u INSTACOMP_AI_LORA_CANDIDATE_ENABLED \
               -u INSTACOMP_AI_LORA_CANDIDATE_URL \
               .venv/bin/python - <<'PY'
-          from app.config import settings
+          import importlib.util
+          from pathlib import Path
+
+          config_path = Path("app/config.py").resolve()
+          spec = importlib.util.spec_from_file_location("instacomp_config_regression", config_path)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          settings = module.settings
           assert settings.lora_candidate_enabled is True, settings.lora_candidate_enabled
           assert settings.lora_candidate_url == "http://127.0.0.1:8791", settings.lora_candidate_url
           print("PASS updated LoRA env file outranks stale launcher values")
