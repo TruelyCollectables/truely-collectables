@@ -1,3 +1,4 @@
+# Post-deploy certification trigger: 2026-08-15T05:50:00-06:00
 name: Cloudflare Live Route Matrix
 
 on:
