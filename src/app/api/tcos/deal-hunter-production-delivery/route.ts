@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  type BallsDeepSummary,
-  sendBallsDeepDealHunterEmail,
-} from "../../../../lib/deal-hunter-balls-deep-email";
+  type DealHunterProductionSummary,
+  sendDealHunterProductionEmail,
+} from "../../../../lib/deal-hunter-production-email";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +36,7 @@ function integer(value: unknown, maximum = 1_000_000) {
   return parsed;
 }
 
-function validateSummary(value: unknown): BallsDeepSummary | null {
+function validateSummary(value: unknown): DealHunterProductionSummary | null {
   if (!value || typeof value !== "object") return null;
   const body = value as Record<string, unknown>;
   if (body.overall !== "PASS") return null;
@@ -63,9 +63,7 @@ function validateSummary(value: unknown): BallsDeepSummary | null {
     testedAtMs > Date.now() + 5 * 60_000 ||
     !Array.isArray(body.results) ||
     body.results.length !== EXPECTED_LABELS.length
-  ) {
-    return null;
-  }
+  ) return null;
 
   const results = body.results.map((raw, index) => {
     if (!raw || typeof raw !== "object") return null;
@@ -76,112 +74,68 @@ function validateSummary(value: unknown): BallsDeepSummary | null {
     const rawCount = integer(entry.raw, 1_000_000);
     const deduped = integer(entry.deduped, 1_000_000);
     const status = integer(entry.status, 999);
-
     if (
       entry.label !== EXPECTED_LABELS[index] ||
       entry.passed !== true ||
       entry.origin !== "cloudflare-worker" ||
       status !== 200 ||
-      families === null ||
-      families <= 0 ||
-      successful !== families ||
-      failed !== 0 ||
-      rawCount === null ||
-      deduped === null
-    ) {
-      return null;
-    }
-
+      families === null || families <= 0 || successful !== families || failed !== 0 ||
+      rawCount === null || deduped === null
+    ) return null;
     return {
-      label: EXPECTED_LABELS[index],
-      passed: true,
-      status,
-      origin: "cloudflare-worker",
-      families,
-      successful,
-      failed,
-      raw: rawCount,
-      deduped,
+      label: EXPECTED_LABELS[index], passed: true, status,
+      origin: "cloudflare-worker", families, successful, failed,
+      raw: rawCount, deduped,
     };
   });
 
   if (results.some((entry) => entry === null)) return null;
-  const safeResults = results as BallsDeepSummary["results"];
+  const safeResults = results as DealHunterProductionSummary["results"];
   const summedFamilies = safeResults.reduce((sum, entry) => sum + entry.families, 0);
   const summedSuccessful = safeResults.reduce((sum, entry) => sum + entry.successful, 0);
   if (summedFamilies !== totalFamilies || summedSuccessful !== totalSuccessful) return null;
 
   return {
-    overall: "PASS",
-    passedCount,
-    failedCount: 0,
-    surfaceCount,
-    totalFamilies,
-    totalSuccessful,
-    totalFailedFamilies: 0,
-    results: safeResults,
-    testedAt,
+    overall: "PASS", passedCount, failedCount: 0, surfaceCount,
+    totalFamilies, totalSuccessful, totalFailedFamilies: 0,
+    results: safeResults, testedAt,
   };
 }
 
 export async function POST(request: NextRequest) {
   const configuredSecret = String(process.env.TCOS_CRON_SECRET || "").trim();
   if (!configuredSecret) {
-    return NextResponse.json(
-      { ok: false, error: "Production delivery authorization is not configured." },
-      { status: 503, headers: RESPONSE_HEADERS },
-    );
+    return NextResponse.json({ ok: false, error: "Production delivery authorization is not configured." }, { status: 503, headers: RESPONSE_HEADERS });
   }
 
   const authorization = request.headers.get("authorization") || "";
-  const suppliedSecret = authorization.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length).trim()
-    : "";
+  const suppliedSecret = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "";
   if (!suppliedSecret || !safeEqual(suppliedSecret, configuredSecret)) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorized." },
-      { status: 401, headers: RESPONSE_HEADERS },
-    );
+    return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401, headers: RESPONSE_HEADERS });
   }
 
   let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Invalid JSON payload." },
-      { status: 400, headers: RESPONSE_HEADERS },
-    );
+  try { payload = await request.json(); }
+  catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON payload." }, { status: 400, headers: RESPONSE_HEADERS });
   }
 
   const summary = validateSummary(payload);
   if (!summary) {
-    return NextResponse.json(
-      { ok: false, error: "BALLS DEEP production proof payload failed validation." },
-      { status: 400, headers: RESPONSE_HEADERS },
-    );
+    return NextResponse.json({ ok: false, error: "Deal Hunter production proof payload failed validation." }, { status: 400, headers: RESPONSE_HEADERS });
   }
 
   try {
-    const delivery = await sendBallsDeepDealHunterEmail(summary);
-    return NextResponse.json(
-      {
-        ok: true,
-        emailAccepted: delivery.accepted,
-        providerIdPresent: delivery.providerIdPresent,
-        recipientCount: delivery.recipientCount,
-        sentAt: delivery.sentAt,
-      },
-      { status: 200, headers: RESPONSE_HEADERS },
-    );
+    const delivery = await sendDealHunterProductionEmail(summary);
+    return NextResponse.json({
+      ok: true,
+      emailAccepted: delivery.accepted,
+      providerIdPresent: delivery.providerIdPresent,
+      recipientCount: delivery.recipientCount,
+      sentAt: delivery.sentAt,
+    }, { status: 200, headers: RESPONSE_HEADERS });
   } catch (error) {
-    console.error(
-      "BALLS DEEP production email delivery failed:",
-      error instanceof Error ? error.message : "unknown error",
-    );
-    return NextResponse.json(
-      { ok: false, error: "Production email delivery failed." },
-      { status: 502, headers: RESPONSE_HEADERS },
-    );
+    console.error("Deal Hunter production email delivery failed:", error instanceof Error ? error.message : "unknown error");
+    return NextResponse.json({ ok: false, error: "Production email delivery failed." }, { status: 502, headers: RESPONSE_HEADERS });
   }
 }

@@ -49,10 +49,18 @@ const extractJson = (text) => {
   }
 };
 
+const validIsoOrNull = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+};
+
 const normalizePublicResult = (entry, sourceFallback = "public_web") => ({
   source: entry.source || sourceFallback,
   url: normalizeUrl(entry.url),
-  discoveredAt: entry.discovered_at || entry.discoveredAt || new Date().toISOString(),
+  discoveredAt: validIsoOrNull(
+    entry.discovered_at || entry.discoveredAt || entry.published_at || entry.publishedAt,
+  ),
   sellerName: entry.seller_name || entry.sellerName || null,
   sellerAccountUrl: normalizeUrl(entry.seller_account_url || entry.sellerAccountUrl || ""),
   location: entry.location || null,
@@ -71,20 +79,28 @@ const normalizePublicResult = (entry, sourceFallback = "public_web") => ({
   certificationNumber: entry.certification_number || entry.certificationNumber || null,
   manualReviewRequired: Boolean(entry.manual_review_required ?? entry.manualReviewRequired),
   verificationNotes: entry.verification_notes || entry.verificationNotes || null,
-  rawPayload: entry,
+  rawPayload: entry.raw_payload || entry.rawPayload || entry,
 });
 
-const buildPublicSearchPrompt = ({ query, sources, filters, maxResults, exactIdentityOnly }) => `
-You are the public-web discovery stage for TCOS Market Intel. Search only publicly accessible pages. Do not bypass logins, private Facebook groups, protected X accounts, private profiles, robots restrictions, or access controls. Do not expose private addresses, phone numbers, or unrelated personal information.
+const resultTime = (entry) => {
+  const parsed = new Date(entry?.discoveredAt || 0).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const buildPublicSearchPrompt = ({ query, sources, filters, maxResults, exactIdentityOnly, freshnessDays }) => `
+You are the public-web discovery stage for TCOS Market Intel Deal Hunter. Search only publicly accessible pages. Do not bypass logins, private Facebook groups, protected X accounts, private profiles, robots restrictions, or access controls. Do not expose private addresses, phone numbers, or unrelated personal information.
 
 Search request:
 - Query: ${query}
-- Sources: ${(sources || []).join(", ") || "eBay, Mercari, Whatnot Marketplace, Sportslots, COMC, MySlabs, Fanatics Collect, CollX, public Facebook Marketplace/pages/groups, public X sale posts, Etsy"}
+- Sources requested: ${(sources || []).join(", ") || "all legitimate public sources"}
 - Filters: ${JSON.stringify(filters || {})}
 - Maximum results: ${maxResults}
+- Freshness target: prioritize direct listings first published, relisted, or materially updated within the last ${freshnessDays} days
 - Exact identity required: ${exactIdentityOnly ? "yes" : "no; uncertain listings must be marked manual_review_required"}
 
-Search correct spellings, misspellings, last names, initials, teams, card numbers, set/product names, parallels, serial tiers, wrong categories, omitted names, photo-only listings, seller inventories, lots, collections, auctions, relists, and recent posts. For Facebook and X, use public pages/posts only. A login-restricted or incomplete result may be returned only as manual_review_required=true.
+Search broadly and independently across legitimate public inventory, including eBay, Mercari, COMC, MySlabs, Fanatics Collect, Whatnot Marketplace, SportsLots, Goldin, dealer inventory, consignment/catalog pages, public collector forums, public Reddit sale posts, public X sale posts, public Facebook Marketplace/pages/groups that are indexable without login, and other reputable public collectible marketplaces you discover. Do not stop because one marketplace has results.
+
+Hunt for fresh inventory using correct spellings, misspellings, last names, initials, teams, card numbers, set/product names, parallels, serial tiers, wrong categories, omitted names, seller inventory, lots, collections, auctions, relists, and recent posts. Prefer newly posted inventory and recently reduced prices over old evergreen listings. Search source-specific pages instead of returning generic search/category pages.
 
 Return JSON only as an array of objects with these keys:
 source, url, discovered_at, seller_name, seller_account_url, location, title, description, asking_price, shipping, buyer_fees, tax, quantity, pickup_or_shipping, payment_method, negotiable, image_urls, identity, certification_number, manual_review_required, verification_notes.
@@ -93,9 +109,11 @@ Identity may contain: sport, player, year, manufacturer, product, set, subset, c
 
 Critical rules:
 - Return only direct public listing/post URLs, never homepages, search-result pages, seller profiles, sold pages represented as live inventory, or generic product pages.
+- When a public timestamp exists, put the real listing/post timestamp in discovered_at. Never invent a timestamp. Use null if the listing date cannot be verified.
+- Verify the listing still appears active/available at search time when the public page exposes availability.
 - Do not use a default or teaser price from a multi-variation listing as the exact card price. If selected-card price/image cannot be verified, mark manual_review_required=true and explain why.
 - Do not claim a reflective card is Silver, Holo, Ice, Refractor, Mojo, Sapphire, numbered color, or another parallel based on glare alone.
-- Do not invent missing prices, shipping, fees, identity, condition, or seller history.
+- Do not invent missing prices, shipping, fees, identity, condition, seller history, or availability.
 - Deduplicate obvious cross-posts when the same seller/photos/item appear on several sites.
 `;
 
@@ -109,8 +127,14 @@ export class OpenAiPublicSearchAdapter {
   }
 
   async search(request) {
-    if (!this.configured) return { source: this.name, configured: false, results: [], warnings: ["OPENAI_API_KEY is not configured"] };
+    if (!this.configured) {
+      return { source: this.name, configured: false, results: [], warnings: ["OPENAI_API_KEY is not configured"] };
+    }
     const maxResults = Math.max(1, Math.min(request.maxResults || config.searchMaxResults, config.searchMaxResults));
+    const freshnessDays = Math.max(
+      1,
+      Math.min(90, Number(request.filters?.freshnessDays ?? request.freshnessDays ?? config.searchFreshnessDays)),
+    );
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -121,7 +145,7 @@ export class OpenAiPublicSearchAdapter {
         model: config.searchModel,
         reasoning: { effort: "low" },
         tools: [{ type: "web_search" }],
-        input: buildPublicSearchPrompt({ ...request, maxResults }),
+        input: buildPublicSearchPrompt({ ...request, maxResults, freshnessDays }),
       }),
     });
     const payload = await response.json();
@@ -133,13 +157,18 @@ export class OpenAiPublicSearchAdapter {
     return {
       source: this.name,
       configured: true,
-      results: array.slice(0, maxResults).map((entry) => normalizePublicResult(entry, this.name)).filter((entry) => entry.url),
+      results: array
+        .slice(0, maxResults)
+        .map((entry) => normalizePublicResult(entry, this.name))
+        .filter((entry) => entry.url),
       warnings: array.length ? [] : ["Public web search returned no parseable direct listings"],
     };
   }
 
   async searchComps({ identity, maxResults = 20 }) {
-    if (!this.configured) return { configured: false, sales: [], warnings: ["OPENAI_API_KEY is not configured"] };
+    if (!this.configured) {
+      return { configured: false, sales: [], warnings: ["OPENAI_API_KEY is not configured"] };
+    }
     const prompt = `
 Search the public web for recent completed sales of this exact collectible card identity:
 ${JSON.stringify(identity)}
@@ -209,24 +238,17 @@ export class EbayBrowseAdapter {
           Accept: "application/json",
         },
         signal: controller.signal,
-        // Cloudflare Workers does not implement `redirect: "error"`. Manual
-        // mode preserves the same security boundary because no redirect is
-        // followed and every 3xx response is rejected before its body is used.
         redirect: "manual",
         cache: "no-store",
       });
       if (response.status >= 300 && response.status < 400) {
-        throw new Error(
-          `eBay Browse redirect refused (HTTP ${response.status}).`,
-        );
+        throw new Error(`eBay Browse redirect refused (HTTP ${response.status}).`);
       }
       const text = await response.text();
       return { response, text };
     } catch (error) {
       if (controller.signal.aborted || error?.name === "AbortError") {
-        throw new Error(
-          `eBay Browse request timed out after ${config.ebayBrowseTimeoutMs}ms.`,
-        );
+        throw new Error(`eBay Browse request timed out after ${config.ebayBrowseTimeoutMs}ms.`);
       }
       throw error;
     } finally {
@@ -240,32 +262,26 @@ export class EbayBrowseAdapter {
         source: this.name,
         configured: false,
         results: [],
-        warnings: [
-          "Native eBay Browse requires EBAY_CLIENT_ID and EBAY_CLIENT_SECRET.",
-        ],
+        warnings: ["Native eBay Browse requires EBAY_CLIENT_ID and EBAY_CLIENT_SECRET."],
       };
     }
 
-    const limit = Math.max(1, Math.min(request.maxResults || 20, 50));
-    const url = new URL(
-      `${ebayApplicationTokenService.apiBaseUrl()}/buy/browse/v1/item_summary/search`,
-    );
+    const requestedLimit = Math.max(1, Math.min(request.maxResults || config.searchMaxResults, 100));
+    const scanLimit = Math.min(200, Math.max(50, requestedLimit * 3));
+    const url = new URL(`${ebayApplicationTokenService.apiBaseUrl()}/buy/browse/v1/item_summary/search`);
     url.searchParams.set("q", request.query);
-    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("limit", String(scanLimit));
+    url.searchParams.set("sort", "newlyListed");
+    url.searchParams.set("fieldgroups", "EXTENDED");
     if (request.filters?.categoryIds?.length) {
       url.searchParams.set("category_ids", request.filters.categoryIds.join(","));
     }
 
     let accessToken = await ebayApplicationTokenService.getAccessToken();
     let exchange = await this.requestSearch(url, accessToken);
-    if (
-      exchange.response.status === 401 &&
-      ebayApplicationTokenService.status().mode === "client_credentials"
-    ) {
+    if (exchange.response.status === 401 && ebayApplicationTokenService.status().mode === "client_credentials") {
       ebayApplicationTokenService.invalidate(accessToken);
-      accessToken = await ebayApplicationTokenService.getAccessToken({
-        forceRefresh: true,
-      });
+      accessToken = await ebayApplicationTokenService.getAccessToken({ forceRefresh: true });
       exchange = await this.requestSearch(url, accessToken);
     }
 
@@ -274,32 +290,19 @@ export class EbayBrowseAdapter {
     try {
       payload = text ? JSON.parse(text) : {};
     } catch {
-      throw new Error(
-        `eBay Browse search returned unreadable JSON (HTTP ${response.status}).`,
-      );
+      throw new Error(`eBay Browse search returned unreadable JSON (HTTP ${response.status}).`);
     }
 
     if (!response.ok) {
-      const message =
-        payload?.errors?.[0]?.longMessage ||
-        payload?.errors?.[0]?.message ||
-        payload?.error_description ||
-        response.statusText ||
-        "unknown error";
+      const message = payload?.errors?.[0]?.longMessage || payload?.errors?.[0]?.message || payload?.error_description || response.statusText || "unknown error";
       if (response.status === 403) {
-        throw new Error(
-          `eBay Browse production access denied (HTTP 403): ${message}. The eBay keyset may require Buy API approval; TCOS will continue public-web eBay discovery without retrying this denied call.`,
-        );
+        throw new Error(`eBay Browse production access denied (HTTP 403): ${message}. The eBay keyset may require Buy API approval; TCOS will continue public-web eBay discovery without retrying this denied call.`);
       }
       if (response.status === 429) {
         const retryAfter = response.headers.get("retry-after");
-        throw new Error(
-          `eBay Browse rate limit reached (HTTP 429)${retryAfter ? `; retry after ${retryAfter} seconds` : ""}.`,
-        );
+        throw new Error(`eBay Browse rate limit reached (HTTP 429)${retryAfter ? `; retry after ${retryAfter} seconds` : ""}.`);
       }
-      throw new Error(
-        `eBay Browse search failed (HTTP ${response.status}): ${message}`,
-      );
+      throw new Error(`eBay Browse search failed (HTTP ${response.status}): ${message}`);
     }
 
     const results = (payload.itemSummaries || []).map((item) =>
@@ -307,29 +310,16 @@ export class EbayBrowseAdapter {
         {
           source: "eBay",
           url: item.itemWebUrl,
+          discovered_at: item.itemOriginDate || item.itemCreationDate || null,
           title: item.title,
           asking_price: item.price?.value,
           shipping: item.shippingOptions?.[0]?.shippingCost?.value ?? null,
           quantity: null,
           seller_name: item.seller?.username,
-          image_urls: [
-            item.image?.imageUrl,
-            ...(item.thumbnailImages || []).map((image) => image.imageUrl),
-          ].filter(Boolean),
-          pickup_or_shipping: item.itemLocation
-            ? "shipping_or_pickup_unknown"
-            : null,
-          location:
-            [
-              item.itemLocation?.city,
-              item.itemLocation?.stateOrProvince,
-              item.itemLocation?.country,
-            ]
-              .filter(Boolean)
-              .join(", ") || null,
-          manual_review_required: Boolean(
-            item.itemGroupType || item.buyingOptions?.includes("AUCTION"),
-          ),
+          image_urls: [item.image?.imageUrl, ...(item.thumbnailImages || []).map((image) => image.imageUrl)].filter(Boolean),
+          pickup_or_shipping: item.itemLocation ? "shipping_or_pickup_unknown" : null,
+          location: [item.itemLocation?.city, item.itemLocation?.stateOrProvince, item.itemLocation?.country].filter(Boolean).join(", ") || null,
+          manual_review_required: Boolean(item.itemGroupType || item.buyingOptions?.includes("AUCTION")),
           verification_notes: item.itemGroupType
             ? "Potential multi-variation item; selected-card price must be verified"
             : item.buyingOptions?.includes("AUCTION")
@@ -340,12 +330,19 @@ export class EbayBrowseAdapter {
         "eBay",
       ),
     );
+
     return {
       source: this.name,
       configured: true,
-      results,
+      results: results.slice(0, requestedLimit),
       warnings: [],
-      diagnostics: this.status(),
+      diagnostics: {
+        ...this.status(),
+        sort: "newlyListed",
+        requestedLimit,
+        scannedLimit: scanLimit,
+        scannedCount: results.length,
+      },
     };
   }
 }
@@ -360,9 +357,11 @@ export class XRecentSearchAdapter {
   }
 
   async search(request) {
-    if (!this.configured) return { source: this.name, configured: false, results: [], warnings: ["X_BEARER_TOKEN is not configured"] };
+    if (!this.configured) {
+      return { source: this.name, configured: false, results: [], warnings: ["X_BEARER_TOKEN is not configured"] };
+    }
     const maxResults = Math.max(10, Math.min(request.maxResults || 20, 100));
-    const saleTerms = '("FS" OR "FS/NFT" OR "for sale" OR "below comps" OR "take the lot" OR "priced to move")';
+    const saleTerms = '("FS" OR "FS/NFT" OR "for sale" OR "below comps" OR "take the lot" OR "priced to move" OR "price drop")';
     const query = `${request.query} ${saleTerms} -is:retweet has:links`;
     const url = new URL("https://api.x.com/2/tweets/search/recent");
     url.searchParams.set("query", query.slice(0, 512));
@@ -419,8 +418,12 @@ export class PublicSearchService {
       ebayBrowseDetails: this.ebay.status(),
       xRecentSearch: this.x.configured,
       manualPublicUrlIntake: true,
+      freshnessDays: config.searchFreshnessDays,
+      maxResults: config.searchMaxResults,
       privateFacebookGroups: false,
       notes: [
+        "eBay native discovery requests newly listed inventory and scans deeper than the displayed result count.",
+        "Public web discovery searches multiple legitimate marketplaces and direct public seller/listing pages.",
         "Private Facebook groups and login-restricted content are never accessed automatically.",
         "Public sources without native APIs are discovered through public web search or manual URL/screenshot intake.",
       ],
@@ -432,8 +435,8 @@ export class PublicSearchService {
     const jobs = [];
     const includesSource = (name) => !sourceNames.length || sourceNames.some((source) => source.includes(name));
 
-    if (includesSource("ebay") && this.ebay.configured) jobs.push(this.ebay.search(request));
-    if ((includesSource("x") || includesSource("twitter")) && this.x.configured) jobs.push(this.x.search(request));
+    if ((includesSource("marketplace") || includesSource("ebay")) && this.ebay.configured) jobs.push(this.ebay.search(request));
+    if ((includesSource("social") || includesSource("x") || includesSource("twitter")) && this.x.configured) jobs.push(this.x.search(request));
     if (this.openAi.configured) jobs.push(this.openAi.search(request));
 
     if (!jobs.length) {
@@ -450,7 +453,12 @@ export class PublicSearchService {
     const warnings = [];
     for (const outcome of settled) {
       if (outcome.status === "fulfilled") {
-        sourceReports.push({ source: outcome.value.source, configured: outcome.value.configured, count: outcome.value.results.length });
+        sourceReports.push({
+          source: outcome.value.source,
+          configured: outcome.value.configured,
+          count: outcome.value.results.length,
+          diagnostics: outcome.value.diagnostics || null,
+        });
         results.push(...outcome.value.results);
         warnings.push(...(outcome.value.warnings || []));
       } else {
@@ -464,10 +472,54 @@ export class PublicSearchService {
       const existing = byUrl.get(result.url);
       if (!existing || (existing.manualReviewRequired && !result.manualReviewRequired)) byUrl.set(result.url, result);
     }
+
+    const freshnessDays = Math.max(
+      1,
+      Math.min(90, Number(request.filters?.freshnessDays ?? request.freshnessDays ?? config.searchFreshnessDays)),
+    );
+    const cutoff = Date.now() - freshnessDays * 86_400_000;
+    const freshOrUndated = [...byUrl.values()].filter((result) => {
+      const timestamp = resultTime(result);
+      return timestamp === 0 || timestamp >= cutoff;
+    });
+    freshOrUndated.sort((a, b) => resultTime(b) - resultTime(a));
+
+    const maxResults = Math.max(1, Math.min(request.maxResults || config.searchMaxResults, config.searchMaxResults));
+    const perSourceCap = Math.max(1, Math.ceil(maxResults * 0.6));
+    const selected = [];
+    const deferred = [];
+    const sourceCounts = new Map();
+    for (const result of freshOrUndated) {
+      const sourceKey = normalizeText(result.source) || "unknown";
+      const count = sourceCounts.get(sourceKey) || 0;
+      if (count < perSourceCap) {
+        selected.push(result);
+        sourceCounts.set(sourceKey, count + 1);
+      } else {
+        deferred.push(result);
+      }
+      if (selected.length >= maxResults) break;
+    }
+    if (selected.length < maxResults) {
+      for (const result of deferred) {
+        selected.push(result);
+        if (selected.length >= maxResults) break;
+      }
+    }
+
     return {
-      results: [...byUrl.values()].slice(0, request.maxResults || config.searchMaxResults),
+      results: selected.slice(0, maxResults),
       sourceReports,
       warnings,
+      freshness: {
+        days: freshnessDays,
+        rawProviderResults: results.length,
+        uniqueUrls: byUrl.size,
+        withinWindowOrUndated: freshOrUndated.length,
+        returned: Math.min(selected.length, maxResults),
+        knownTimestampResults: freshOrUndated.filter((entry) => resultTime(entry) > 0).length,
+        undatedResults: freshOrUndated.filter((entry) => resultTime(entry) === 0).length,
+      },
     };
   }
 

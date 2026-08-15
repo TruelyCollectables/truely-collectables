@@ -23,58 +23,45 @@ const SCOPES = new Set([
 ]);
 
 function clampPerQuery(value) {
-  const parsed = Number(value || 20);
-  if (!Number.isFinite(parsed)) return 20;
-  return Math.min(Math.max(Math.floor(parsed), 5), 20);
+  const parsed = Number(value || 25);
+  if (!Number.isFinite(parsed)) return 25;
+  return Math.min(Math.max(Math.floor(parsed), 5), 50);
 }
 
 function responseHeaders() {
   return {
-    "Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
+    "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
     "X-Content-Type-Options": "nosniff",
     "X-Robots-Tag": "noindex, nofollow",
   };
 }
 
 function json(payload, status = 200) {
-  return Response.json(payload, {
-    status,
-    headers: responseHeaders(),
-  });
+  return Response.json(payload, { status, headers: responseHeaders() });
 }
 
 function deploymentInfo() {
   return {
     environment: process.env.TCOS_DEPLOYMENT_ENV || process.env.NODE_ENV || null,
-    commitSha:
-      String(process.env.TCOS_GIT_COMMIT_SHA || "").slice(0, 12) || null,
+    commitSha: String(process.env.TCOS_GIT_COMMIT_SHA || "").slice(0, 12) || null,
     region: process.env.CLOUDFLARE_REGION || null,
   };
 }
 
 function rawEbayItem(entry) {
-  return (
-    entry?.rawPayload?.raw_payload ||
-    entry?.rawPayload?.rawPayload ||
-    entry?.rawPayload ||
-    {}
-  );
+  return entry?.rawPayload?.raw_payload || entry?.rawPayload?.rawPayload || entry?.rawPayload || {};
 }
 
 function safeListing(entry, family, screening) {
   const raw = rawEbayItem(entry);
   const itemId = extractEbayItemId(raw) || extractEbayItemId({ url: entry.url });
-  const buyingOptions = Array.isArray(raw.buyingOptions)
-    ? raw.buyingOptions.map(String)
-    : [];
+  const buyingOptions = Array.isArray(raw.buyingOptions) ? raw.buyingOptions.map(String) : [];
   const imageUrls = Array.from(
-    new Set(
-      [
-        ...(entry.imageUrls || []),
-        raw.image?.imageUrl,
-        ...(raw.thumbnailImages || []).map((image) => image?.imageUrl),
-      ].filter(Boolean),
-    ),
+    new Set([
+      ...(entry.imageUrls || []),
+      raw.image?.imageUrl,
+      ...(raw.thumbnailImages || []).map((image) => image?.imageUrl),
+    ].filter(Boolean)),
   ).slice(0, 12);
 
   return {
@@ -95,13 +82,11 @@ function safeListing(entry, family, screening) {
     sellerName: entry.sellerName || raw.seller?.username || null,
     buyingOptions,
     condition: raw.condition || raw.conditionId || null,
-    itemCreationDate: raw.itemCreationDate || null,
+    itemCreationDate: raw.itemOriginDate || raw.itemCreationDate || entry.discoveredAt || null,
     itemEndDate: raw.itemEndDate || null,
     location: entry.location || null,
     imageUrls,
-    manualReviewRequired: Boolean(
-      entry.manualReviewRequired || screening.manualReviewRequired,
-    ),
+    manualReviewRequired: Boolean(entry.manualReviewRequired || screening.manualReviewRequired),
     preliminaryScopeStatus: screening.manualReviewRequired
       ? "IMAGE_OR_IDENTITY_REVIEW_REQUIRED"
       : "DISCOVERY_SCOPE_PASS",
@@ -113,33 +98,14 @@ function mergeListing(existing, incoming) {
   if (!existing) return incoming;
   return {
     ...existing,
-    queryFamilyIds: Array.from(
-      new Set([...existing.queryFamilyIds, ...incoming.queryFamilyIds]),
-    ),
+    queryFamilyIds: Array.from(new Set([...existing.queryFamilyIds, ...incoming.queryFamilyIds])),
     watchedPersons: Array.from(
-      new Set(
-        [
-          ...(existing.watchedPersons || [existing.watchedPerson]),
-          incoming.watchedPerson,
-        ].filter(Boolean),
-      ),
+      new Set([...(existing.watchedPersons || [existing.watchedPerson]), incoming.watchedPerson].filter(Boolean)),
     ),
-    lanes: Array.from(
-      new Set(
-        [...(existing.lanes || [existing.lane]), incoming.lane].filter(Boolean),
-      ),
-    ),
-    manualReviewRequired:
-      existing.manualReviewRequired || incoming.manualReviewRequired,
-    preliminaryRisks: Array.from(
-      new Set([
-        ...(existing.preliminaryRisks || []),
-        ...(incoming.preliminaryRisks || []),
-      ]),
-    ),
-    imageUrls: Array.from(
-      new Set([...(existing.imageUrls || []), ...(incoming.imageUrls || [])]),
-    ).slice(0, 12),
+    lanes: Array.from(new Set([...(existing.lanes || [existing.lane]), incoming.lane].filter(Boolean))),
+    manualReviewRequired: existing.manualReviewRequired || incoming.manualReviewRequired,
+    preliminaryRisks: Array.from(new Set([...(existing.preliminaryRisks || []), ...(incoming.preliminaryRisks || [])])),
+    imageUrls: Array.from(new Set([...(existing.imageUrls || []), ...(incoming.imageUrls || [])])).slice(0, 12),
   };
 }
 
@@ -159,15 +125,12 @@ export async function GET(request) {
   const perQuery = clampPerQuery(url.searchParams.get("perQuery"));
 
   if (!SCOPES.has(scope)) {
-    return json(
-      {
-        ok: false,
-        schema: "TCOS_NATIVE_EBAY_FEED_V1",
-        code: "UNSUPPORTED_SCOPE",
-        supportedScopes: [...SCOPES],
-      },
-      400,
-    );
+    return json({
+      ok: false,
+      schema: "TCOS_NATIVE_EBAY_FEED_V1",
+      code: "UNSUPPORTED_SCOPE",
+      supportedScopes: [...SCOPES],
+    }, 400);
   }
 
   const players = parseDealHunterPlayers(url.searchParams.get("players"));
@@ -176,17 +139,14 @@ export async function GET(request) {
   const deployment = deploymentInfo();
 
   if (!adapter.configured) {
-    return json(
-      {
-        ok: false,
-        schema: "TCOS_NATIVE_EBAY_FEED_V1",
-        code: "EBAY_BROWSE_NOT_CONFIGURED",
-        nativeEbayUsed: false,
-        scope,
-        deployment,
-      },
-      503,
-    );
+    return json({
+      ok: false,
+      schema: "TCOS_NATIVE_EBAY_FEED_V1",
+      code: "EBAY_BROWSE_NOT_CONFIGURED",
+      nativeEbayUsed: false,
+      scope,
+      deployment,
+    }, 503);
   }
 
   const outcomes = await Promise.allSettled(
@@ -202,10 +162,7 @@ export async function GET(request) {
       const rejectionCounts = {};
 
       for (const entry of result.results || []) {
-        const screening = screenDealHunterEbayTitle({
-          title: entry.title,
-          family,
-        });
+        const screening = screenDealHunterEbayTitle({ title: entry.title, family });
         if (!screening.accepted) {
           for (const reason of screening.rejectionReasons) {
             rejectionCounts[reason] = Number(rejectionCounts[reason] || 0) + 1;
@@ -225,10 +182,10 @@ export async function GET(request) {
           status: "COMPLETE",
           rawResultCount: result.results?.length || 0,
           acceptedResultCount: accepted.length,
-          rejectedResultCount:
-            (result.results?.length || 0) - accepted.length,
+          rejectedResultCount: (result.results?.length || 0) - accepted.length,
           rejectionCounts,
           warnings: result.warnings || [],
+          searchDiagnostics: result.diagnostics || null,
           durationMs: Date.now() - familyStartedAt,
         },
         accepted,
@@ -243,10 +200,7 @@ export async function GET(request) {
   outcomes.forEach((outcome, index) => {
     const family = families[index];
     if (outcome.status === "rejected") {
-      const message =
-        outcome.reason instanceof Error
-          ? outcome.reason.message
-          : String(outcome.reason);
+      const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
       const code = classifyError(outcome.reason);
       coverage.push({
         familyId: family.familyId,
@@ -262,11 +216,7 @@ export async function GET(request) {
         errorCode: code,
         error: message,
       });
-      errors.push({
-        familyId: family.familyId,
-        code,
-        error: message,
-      });
+      errors.push({ familyId: family.familyId, code, error: message });
       return;
     }
 
@@ -277,84 +227,53 @@ export async function GET(request) {
     }
   });
 
-  const successfulQueryCount = coverage.filter(
-    (entry) => entry.status === "COMPLETE",
-  ).length;
-  const wnbaFamilyCount = families.filter(
-    (family) => family.scope === "wnba",
-  ).length;
-  const michkovFamilyCount = families.filter(
-    (family) => family.scope === "matvei_michkov_young_guns",
-  ).length;
+  const successfulQueryCount = coverage.filter((entry) => entry.status === "COMPLETE").length;
+  const wnbaFamilyCount = families.filter((family) => family.scope === "wnba").length;
+  const michkovFamilyCount = families.filter((family) => family.scope === "matvei_michkov_young_guns").length;
   const requiredWnbaFamiliesExecuted =
     !["wnba", "all"].includes(scope) ||
     (wnbaFamilyCount === DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT &&
-      coverage.filter(
-        (entry) =>
-          entry.familyId.startsWith("wnba.") && entry.status === "COMPLETE",
-      ).length === DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
+      coverage.filter((entry) => entry.familyId.startsWith("wnba.") && entry.status === "COMPLETE").length === DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
   const requiredMichkovFamiliesExecuted =
     !["matvei_michkov_young_guns", "all"].includes(scope) ||
     (michkovFamilyCount === DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT &&
-      coverage.filter(
-        (entry) =>
-          entry.familyId.startsWith("matvei-michkov.") &&
-          entry.status === "COMPLETE",
-      ).length === DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT);
-  const complete =
-    errors.length === 0 &&
-    successfulQueryCount === families.length &&
-    requiredWnbaFamiliesExecuted &&
-    requiredMichkovFamiliesExecuted;
+      coverage.filter((entry) => entry.familyId.startsWith("matvei-michkov.") && entry.status === "COMPLETE").length === DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT);
+  const complete = errors.length === 0 && successfulQueryCount === families.length && requiredWnbaFamiliesExecuted && requiredMichkovFamiliesExecuted;
 
-  return json(
-    {
-      ok: complete,
-      schema: "TCOS_NATIVE_EBAY_FEED_V1",
-      generatedAt: new Date().toISOString(),
-      scope,
-      requestedPlayers: ["baseball_prospects", "signed_baseballs", "all"].includes(
-        scope,
-      )
-        ? players
-        : [],
-      deployment,
-      marketplace: "eBay",
-      searchEngine: "Production eBay Browse item_summary/search",
-      tokenMode: "client_credentials",
-      nativeEbayUsed: successfulQueryCount > 0,
-      queryFamilyCount: families.length,
-      successfulQueryCount,
-      failedQueryCount: errors.length,
-      requiredWnbaFamilyCount: ["wnba", "all"].includes(scope)
-        ? DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT
-        : 0,
-      requiredWnbaFamiliesExecuted,
-      requiredMichkovFamilyCount: ["matvei_michkov_young_guns", "all"].includes(
-        scope,
-      )
-        ? DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT
-        : 0,
-      requiredMichkovFamiliesExecuted,
-      perQuery,
-      rawResultCount: coverage.reduce(
-        (sum, entry) => sum + Number(entry.rawResultCount || 0),
-        0,
-      ),
-      deduplicatedResultCount: deduplicated.size,
-      results: [...deduplicated.values()],
-      sourceCoverage: coverage,
-      errors,
-      durationMs: Date.now() - startedAt,
-      boundaries: {
-        fixedScopesOnly: true,
-        arbitraryQueryAccepted: false,
-        publicListingsOnly: true,
-        credentialsExposed: false,
-        purchaseCapability: false,
-        ledgerMutationCapability: false,
-      },
+  return json({
+    ok: complete,
+    schema: "TCOS_NATIVE_EBAY_FEED_V1",
+    generatedAt: new Date().toISOString(),
+    scope,
+    requestedPlayers: ["baseball_prospects", "signed_baseballs", "all"].includes(scope) ? players : [],
+    deployment,
+    marketplace: "eBay",
+    searchEngine: "Production eBay Browse item_summary/search sorted newlyListed with deeper scan",
+    tokenMode: "client_credentials",
+    nativeEbayUsed: successfulQueryCount > 0,
+    queryFamilyCount: families.length,
+    successfulQueryCount,
+    failedQueryCount: errors.length,
+    requiredWnbaFamilyCount: ["wnba", "all"].includes(scope) ? DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT : 0,
+    requiredWnbaFamiliesExecuted,
+    requiredMichkovFamilyCount: ["matvei_michkov_young_guns", "all"].includes(scope) ? DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT : 0,
+    requiredMichkovFamiliesExecuted,
+    perQuery,
+    rawResultCount: coverage.reduce((sum, entry) => sum + Number(entry.rawResultCount || 0), 0),
+    deduplicatedResultCount: deduplicated.size,
+    results: [...deduplicated.values()].sort(
+      (a, b) => new Date(b.itemCreationDate || 0).getTime() - new Date(a.itemCreationDate || 0).getTime(),
+    ),
+    sourceCoverage: coverage,
+    errors,
+    durationMs: Date.now() - startedAt,
+    boundaries: {
+      fixedScopesOnly: true,
+      arbitraryQueryAccepted: false,
+      publicListingsOnly: true,
+      credentialsExposed: false,
+      purchaseCapability: false,
+      ledgerMutationCapability: false,
     },
-    complete ? 200 : 502,
-  );
+  }, complete ? 200 : 502);
 }
