@@ -29,6 +29,13 @@ SERIAL_DENOMINATOR_STAMP_LINE_RE = re.compile(
 SERIAL_EXACT_RE = re.compile(r"(?<!\d)(\d{1,5})\s*/\s*(\d{1,6})(?!\d)")
 SERIAL_OF_RE = re.compile(r"(?<!\d)(\d{1,5})\s+(?:OF|of)\s+(\d{1,6})(?!\d)")
 SERIAL_DENOMINATOR_RE = re.compile(r"(?:^|\s)/\s*(\d{1,6})(?!\d)")
+# Configuration-level print-run wording is not a physical copy stamp, but it is
+# still useful authoritative denominator evidence. Preserve that established
+# contract without treating an arbitrary embedded fraction as a serial number.
+PRINT_RUN_CUE_RE = re.compile(
+    r"\b(?:PRINT\s*[- ]?\s*RUN|NUMBERED\s+TO|LIMITED\s+TO)\b",
+    re.I,
+)
 
 
 def _channel(observation: OCRObservation) -> tuple[str, str]:
@@ -186,12 +193,16 @@ def parse_serial_evidence_hardened(
 
         # A denominator embedded inside the exact fraction above is the same OCR
         # claim, not a second witness. Only independent denominator-shaped text is
-        # tracked here, and it still requires cross-channel corroboration.
+        # tracked here. Explicit print-run wording is a trusted configuration-level
+        # denominator even from one OCR channel; otherwise corroboration is required.
         for match in SERIAL_DENOMINATOR_RE.finditer(text):
             if any(start <= match.start() < end for start, end in exact_spans):
                 continue
             denominator = int(match.group(1))
             if denominator < 1:
+                continue
+            if PRINT_RUN_CUE_RE.search(text):
+                clean_denominator[denominator].append(observation)
                 continue
             previous = noisy_denominator[denominator].get(channel)
             if previous is None or observation.confidence > previous.confidence:
