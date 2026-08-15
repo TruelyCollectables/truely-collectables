@@ -8,140 +8,134 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
   probe:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download encrypted production vault
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-vault-31773508121
-          path: /tmp/json-probe-vault
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
-      - name: Download recovery key
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-recovery-key-31773508121
-          path: /tmp/json-probe-key
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
       - name: Run real WNBA JSON image-URL probe
         shell: bash
         run: |
           set -euo pipefail
-          umask 077
+          [ -n "${TCOS_CRON_SECRET:-}" ] || { echo 'TCOS_CRON_SECRET missing.'; exit 2; }
           node <<'NODE'
           (async () => {
-            const fs = require('node:fs');
-            const path = require('node:path');
-            const { createDecipheriv, createHash } = require('node:crypto');
-            const filesBelow = (root) => fs.readdirSync(root, { recursive: true, withFileTypes: true })
-              .filter((e) => e.isFile()).map((e) => path.join(e.parentPath || e.path, e.name));
-            const vaultPath = filesBelow('/tmp/json-probe-vault').find((f) => f.endsWith('.tcosvault'));
-            const keyPath = filesBelow('/tmp/json-probe-key').find((f) => f.endsWith('.recovery-key.txt'));
-            if (!vaultPath || !keyPath) throw new Error('Recovery artifacts incomplete.');
-            const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
-            const keyText = fs.readFileSync(keyPath, 'utf8');
-            const match = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
-            if (!match) throw new Error('Recovery key invalid.');
-            const decipher = createDecipheriv('aes-256-gcm', Buffer.from(match[1], 'base64url'), Buffer.from(envelope.iv, 'base64'));
-            decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
-            const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]);
-            if (createHash('sha256').update(plaintext).digest('hex') !== envelope.plaintextSha256) throw new Error('Vault checksum failed.');
-            const payload = JSON.parse(plaintext.toString('utf8'));
-            const all = { ...(payload?.sources?.vercelProductionApplicationVariables || {}), ...(payload?.sources?.githubActionsReferencedSecrets || {}) };
-            const credential = String(all.INSTACOMP_AI_LOCAL_KEY || '').trim();
-            if (!credential) throw new Error('INSTACOMP_AI_LOCAL_KEY missing from recovery vault.');
-
             const endpoint = 'https://truelycollectables.com/api/instacomp/deal-hunter/portfolio-evaluate-json';
-            let ready = false;
-            for (let attempt = 1; attempt <= 20; attempt += 1) {
+            let trustedReady = false;
+            for (let attempt = 1; attempt <= 24; attempt += 1) {
               const response = await fetch(`${endpoint}?ready=${Date.now()}-${attempt}`, {
                 headers: { Accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(30_000),
               }).catch(() => null);
               const data = response ? await response.json().catch(() => null) : null;
               if (response?.status === 200 && data?.schema === 'tcos.portfolio-evaluate-json.status.v1' && data?.ready === true) {
-                ready = true;
-                console.log(`JSON PORTFOLIO route ready on attempt ${attempt}.`);
-                break;
+                const authProbe = await fetch(endpoint, {
+                  method: 'POST',
+                  headers: {
+                    'x-tcos-cron-secret': process.env.TCOS_CRON_SECRET,
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({}),
+                  redirect: 'manual',
+                  signal: AbortSignal.timeout(30_000),
+                }).catch(() => null);
+                if (authProbe && authProbe.status === 400) {
+                  trustedReady = true;
+                  console.log(`JSON PORTFOLIO trusted route ready on attempt ${attempt}.`);
+                  break;
+                }
+                console.log(`JSON PORTFOLIO route present but trusted auth not ready attempt ${attempt}/24 status=${authProbe?.status || 0}.`);
+              } else {
+                console.log(`JSON PORTFOLIO route not ready attempt ${attempt}/24 status=${response?.status || 0}.`);
               }
-              console.log(`JSON PORTFOLIO route not ready attempt ${attempt}/20 status=${response?.status || 0}.`);
               await new Promise((resolve) => setTimeout(resolve, 15_000));
             }
-            if (!ready) throw new Error('JSON portfolio evaluator route did not become ready.');
+            if (!trustedReady) throw new Error('Trusted JSON portfolio evaluator route did not become ready.');
 
-            const search = await fetch(`https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=wnba&perQuery=10&json_probe=${Date.now()}`, {
+            const search = await fetch(`https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=wnba&perQuery=20&json_probe=${Date.now()}`, {
               headers: { Accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(90_000),
             });
             const discovery = await search.json().catch(() => ({}));
             if (!search.ok || discovery?.ok !== true) throw new Error(`WNBA discovery failed HTTP ${search.status}.`);
-            const listing = (discovery.results || []).find((entry) =>
+            const candidates = (discovery.results || []).filter((entry) =>
               Array.isArray(entry.imageUrls) && entry.imageUrls.length >= 2 &&
               Number(entry.itemPrice) >= 1 &&
               !/\b(lot|bundle|psa|bgs|sgc|gem mint|bobblehead|funko|8x10)\b/i.test(String(entry.title || ''))
-            );
-            if (!listing) throw new Error('No suitable WNBA single-card listing with two images was found.');
-            console.log(`JSON PORTFOLIO PROBE listing=${String(listing.title || '').slice(0, 180)} price=${listing.itemPrice} images=${listing.imageUrls.length}`);
+            ).slice(0, 12);
+            if (!candidates.length) throw new Error('No suitable WNBA single-card listings with two images were found.');
 
-            const body = {
-              listing: {
-                runId: `json-probe-${Date.now()}`,
-                candidateKey: `json-probe:${listing.listingItemId || listing.listingUrl}`,
-                lane: listing.lane || 'wnba_probe',
-                watchedPerson: listing.watchedPerson || null,
-                marketplace: 'eBay',
-                listingItemId: listing.listingItemId || null,
-                listingUrl: listing.listingUrl,
-                title: listing.title,
-                sellerName: listing.sellerName || null,
-                itemPrice: listing.itemPrice,
-                inboundShipping: listing.inboundShipping,
-                buyerFees: listing.buyerFees,
-                tax: listing.tax,
-                conditionText: listing.condition || null,
-                manualReviewRequired: listing.manualReviewRequired === true,
-              },
-              frontImageUrl: listing.imageUrls[0],
-              backImageUrl: listing.imageUrls[1],
-            };
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'x-instacomp-ai-key': credential,
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(body),
-              redirect: 'manual',
-              signal: AbortSignal.timeout(300_000),
-            });
-            const data = await response.json().catch(() => null);
-            const safeError = String(data?.error || data?.note || '').slice(0, 1600);
-            console.log(`JSON PORTFOLIO PROBE result status=${response.status} ok=${data?.ok === true} stage=${data?.stage || 'none'} error=${safeError || 'none'}`);
-            console.log(`JSON PORTFOLIO PROBE registryMatched=${data?.scan?.checklistRegistry?.matched === true} identityIdPresent=${Boolean(data?.scan?.checklistRegistry?.identityId)} exactSold=${Number(data?.evaluation?.soldCount || data?.scan?.exactMarket?.pricingEligibleSoldCount || 0)} history=${data?.marketHistory?.status || 'none'} roi=${data?.evaluation?.roiPercent ?? 'none'} net=${data?.evaluation?.expectedNetProfit ?? 'none'}`);
-            if (!response.ok || data?.ok !== true) {
-              throw new Error(`JSON portfolio evaluator failed closed: HTTP ${response.status} stage=${data?.stage || 'unknown'} error=${safeError || 'none'}`);
+            const normalClosedStages = new Set([
+              'registry_exact_lock',
+              'exact_sold_evidence',
+              'economics',
+              'identity',
+              'scan',
+            ]);
+            let completed = null;
+            let deepest = null;
+            for (const [index, listing] of candidates.entries()) {
+              console.log(`JSON PORTFOLIO PROBE candidate ${index + 1}/${candidates.length} listing=${String(listing.title || '').slice(0, 180)} price=${listing.itemPrice} images=${listing.imageUrls.length}`);
+              const body = {
+                listing: {
+                  runId: `json-probe-${Date.now()}-${index}`,
+                  candidateKey: `json-probe:${listing.listingItemId || listing.listingUrl}`,
+                  lane: listing.lane || 'wnba_probe',
+                  watchedPerson: listing.watchedPerson || null,
+                  marketplace: 'eBay',
+                  listingItemId: listing.listingItemId || null,
+                  listingUrl: listing.listingUrl,
+                  title: listing.title,
+                  sellerName: listing.sellerName || null,
+                  itemPrice: listing.itemPrice,
+                  inboundShipping: listing.inboundShipping,
+                  buyerFees: listing.buyerFees,
+                  tax: listing.tax,
+                  conditionText: listing.condition || null,
+                  manualReviewRequired: listing.manualReviewRequired === true,
+                },
+                frontImageUrl: listing.imageUrls[0],
+                backImageUrl: listing.imageUrls[1],
+              };
+              const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                  'x-tcos-cron-secret': process.env.TCOS_CRON_SECRET,
+                  Accept: 'application/json',
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+                redirect: 'manual',
+                signal: AbortSignal.timeout(300_000),
+              });
+              const data = await response.json().catch(() => null);
+              const safeError = String(data?.error || data?.note || '').slice(0, 1200);
+              console.log(`JSON PORTFOLIO PROBE candidate=${index + 1} status=${response.status} ok=${data?.ok === true} stage=${data?.stage || 'none'} registry=${data?.scan?.checklistRegistry?.matched === true} exactSold=${Number(data?.evaluation?.soldCount || data?.scan?.exactMarket?.pricingEligibleSoldCount || 0)} roi=${data?.evaluation?.roiPercent ?? 'none'} error=${safeError || 'none'}`);
+              deepest = { response, data, listing };
+              if (response.ok && data?.ok === true && data?.scan && data?.portfolioEvaluator?.inboundFormat === 'json_image_urls') {
+                completed = deepest;
+                break;
+              }
+              if (response.status >= 500 || data?.stage === 'portfolio_json_core_import' || data?.stage === 'portfolio_json_core_exception') {
+                throw new Error(`Portfolio runtime failure: HTTP ${response.status} stage=${data?.stage || 'unknown'} error=${safeError || 'none'}`);
+              }
+              if (data?.stage && !normalClosedStages.has(data.stage) && !String(data.stage).startsWith('portfolio_json_')) {
+                console.log(`Portfolio candidate failed closed at application stage ${data.stage}; continuing to next candidate.`);
+              }
             }
-            if (data?.portfolioEvaluator?.inboundFormat !== 'json_image_urls') throw new Error('JSON portfolio evaluator success contract was not returned.');
+
+            if (!completed) {
+              const data = deepest?.data || {};
+              throw new Error(`No WNBA candidate completed a full evaluation. Deepest stage=${data?.stage || 'unknown'} error=${String(data?.error || data?.note || '').slice(0, 1000) || 'none'}`);
+            }
+            const { data, listing } = completed;
+            console.log(`JSON PORTFOLIO PROBE PASS listing=${String(listing.title || '').slice(0, 180)} registryMatched=${data?.scan?.checklistRegistry?.matched === true} identityIdPresent=${Boolean(data?.scan?.checklistRegistry?.identityId)} exactSold=${Number(data?.evaluation?.soldCount || data?.scan?.exactMarket?.pricingEligibleSoldCount || 0)} history=${data?.marketHistory?.status || 'none'} roi=${data?.evaluation?.roiPercent ?? 'none'} net=${data?.evaluation?.expectedNetProfit ?? 'none'}`);
             console.log('JSON PORTFOLIO PROBE PASS: real WNBA front/back InstaComp completed through production JSON path.');
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : String(error));
             process.exit(1);
           });
           NODE
-
-      - name: Shred recovered material
-        if: always()
-        run: |
-          find /tmp/json-probe-vault /tmp/json-probe-key -type f -exec shred -u {} + 2>/dev/null || true
