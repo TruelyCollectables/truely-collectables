@@ -10,6 +10,7 @@ on:
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - "services/instacomp-ai/requirements.txt"
       - ".github/workflows/instacomp-frozen-25-self-test.yml"
   push:
     branches: [main]
@@ -20,6 +21,7 @@ on:
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - "services/instacomp-ai/requirements.txt"
       - ".github/workflows/instacomp-frozen-25-self-test.yml"
   workflow_dispatch:
 
@@ -29,7 +31,7 @@ permissions:
 jobs:
   frozen-25-contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -37,8 +39,8 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install InstaComp runtime model dependencies
-        run: pip install 'pydantic>=2,<3' 'pydantic-settings>=2,<3' httpx
+      - name: Install exact InstaComp service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
 
       - name: Compile Frozen 25 promotion code
         run: |
