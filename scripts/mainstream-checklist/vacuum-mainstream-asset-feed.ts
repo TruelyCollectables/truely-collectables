@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { downloadAndParse } from "./source-tools.mjs";
 import {
   assertPlanComplexity,
@@ -13,6 +14,10 @@ import {
 
 const INPUT = resolve(process.cwd(), process.env.VACUUM_MAINSTREAM_INPUT || "tmp/conveyor-resolved.json");
 const OUTPUT = resolve(process.cwd(), process.env.VACUUM_MAINSTREAM_OUTPUT || "tmp/vacuum-mainstream-receipt.json");
+const PRESERVED_BACKLOG = resolve(
+  process.cwd(),
+  process.env.VACUUM_MAINSTREAM_PRESERVED_BACKLOG || "ops/checklists/preserved-resolved-assets-139-20260815.json.gz.b64",
+);
 const APPLY = process.env.VACUUM_MAINSTREAM_APPLY === "true";
 const MAX = Math.max(1, Number(process.env.VACUUM_MAINSTREAM_MAX || 1200));
 const MIN_ROWS = Math.max(25, Number(process.env.VACUUM_MAINSTREAM_MIN_ROWS || 25));
@@ -93,6 +98,32 @@ async function loadMasterState(db: ReturnType<typeof dbClient>) {
   return state;
 }
 
+function loadPreservedBacklog() {
+  if (!existsSync(PRESERVED_BACKLOG)) return [] as any[];
+  const encoded = readFileSync(PRESERVED_BACKLOG, "utf8").trim();
+  if (!encoded) return [] as any[];
+  const parsed = JSON.parse(gunzipSync(Buffer.from(encoded, "base64")).toString("utf8"));
+  const rows = Array.isArray(parsed) ? parsed : parsed.ranked || parsed.candidates || [];
+  return rows.map((row: any) => ({ ...row, preservedBacklog139: true }));
+}
+
+function loadQueue() {
+  const parsedInput = JSON.parse(readFileSync(INPUT, "utf8"));
+  const live = Array.isArray(parsedInput) ? parsedInput : parsedInput.ranked || parsedInput.candidates || [];
+  const preserved = loadPreservedBacklog();
+  const merged = [...preserved, ...live];
+  const seen = new Set<string>();
+  const unique: any[] = [];
+  for (const row of merged) {
+    const url = String(row?.url || "");
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(row);
+    if (unique.length >= MAX) break;
+  }
+  return { queue: unique, preservedCount: preserved.length, liveCount: live.length };
+}
+
 function resolveExactSet(candidate: any, master: Map<string, MasterState>) {
   const text = candidateText(candidate);
   const textSlug = slug(text);
@@ -154,8 +185,7 @@ async function withNeutralPacedFetch<T>(work: () => Promise<T>) {
 }
 
 async function main() {
-  const parsedInput = JSON.parse(readFileSync(INPUT, "utf8"));
-  const queue = (Array.isArray(parsedInput) ? parsedInput : parsedInput.ranked || parsedInput.candidates || []).slice(0, MAX);
+  const { queue, preservedCount, liveCount } = loadQueue();
   const db = dbClient();
   const master = await loadMasterState(db);
   const startedAt = new Date().toISOString();
@@ -168,12 +198,12 @@ async function main() {
       if (!/^https:\/\//i.test(sourceUrl)) throw new Error("missing https source URL");
       const matched = resolveExactSet(candidate, master);
       if (!matched.match) {
-        results.push({ sourceUrl, status: "quarantined", reason: matched.reason, topMatches: matched.top });
+        results.push({ sourceUrl, preservedBacklog139: Boolean(candidate?.preservedBacklog139), status: "quarantined", reason: matched.reason, topMatches: matched.top });
         continue;
       }
       const exactSetKey = matched.match;
       if (master.get(exactSetKey)?.imported) {
-        results.push({ sourceUrl, exactSetKey, status: "already_imported" });
+        results.push({ sourceUrl, exactSetKey, preservedBacklog139: Boolean(candidate?.preservedBacklog139), status: "already_imported" });
         continue;
       }
 
@@ -223,6 +253,7 @@ async function main() {
         metadata: {
           masterArchiveExactSetKey: exactSetKey,
           vacuumMainstreamAsset: true,
+          preservedBacklog139: Boolean(candidate?.preservedBacklog139),
           vacuumSourceId: candidate?.sourceId || null,
           vacuumParentUrl: candidate?.parentUrl || null,
           vacuumReputationScore: candidate?.reputationScore || null,
@@ -235,12 +266,12 @@ async function main() {
 
       if (errors.length || plan.validation.status !== "passed" || Number(counts.cards || 0) < MIN_ROWS) {
         await upsertCatalog(db, { ...common, status: "quarantined" });
-        results.push({ sourceUrl, exactSetKey, status: "quarantined", reason: "targeted_validation_failed", counts, errors: limitedIssues(errors) });
+        results.push({ sourceUrl, exactSetKey, preservedBacklog139: Boolean(candidate?.preservedBacklog139), status: "quarantined", reason: "targeted_validation_failed", counts, errors: limitedIssues(errors) });
         continue;
       }
       if (!APPLY) {
         await upsertCatalog(db, { ...common, status: "validated" });
-        results.push({ sourceUrl, exactSetKey, status: "validated", counts });
+        results.push({ sourceUrl, exactSetKey, preservedBacklog139: Boolean(candidate?.preservedBacklog139), status: "validated", counts });
         continue;
       }
 
@@ -248,30 +279,41 @@ async function main() {
       const netNew = persistence?.ok === true && persistence?.idempotent !== true;
       await upsertCatalog(db, { ...common, status: "imported", imported_at: checkedAt });
       master.set(exactSetKey, { imported: true, rows: (master.get(exactSetKey)?.rows || 0) + 1 });
-      results.push({ sourceUrl, exactSetKey, status: "imported", counts, persistence, netNew });
+      results.push({ sourceUrl, exactSetKey, preservedBacklog139: Boolean(candidate?.preservedBacklog139), status: "imported", counts, persistence, netNew });
     } catch (caught) {
-      results.push({ sourceUrl, status: "failed", message: (caught instanceof Error ? caught.message : String(caught)).slice(0, 700) });
+      results.push({ sourceUrl, preservedBacklog139: Boolean(candidate?.preservedBacklog139), status: "failed", message: (caught instanceof Error ? caught.message : String(caught)).slice(0, 700) });
     }
   }
 
   const statuses: Record<string, number> = {};
   for (const row of results) statuses[row.status] = (statuses[row.status] || 0) + 1;
+  const preservedResults = results.filter((row) => row.preservedBacklog139 === true);
   const receipt = {
-    schema: "tcos.checklist.vacuumMainstreamAssetFeedReceipt.v1",
+    schema: "tcos.checklist.vacuumMainstreamAssetFeedReceipt.v2",
     mode: APPLY ? "apply" : "validate",
     parserPath: "mainstream-reference-checklist-v1",
     startedAt,
     completedAt: new Date().toISOString(),
+    preservedBacklogCount: preservedCount,
+    liveCandidateCount: liveCount,
     candidates: queue.length,
     processed: results.length,
     statuses,
     imported: results.filter((row) => row.status === "imported").length,
     netNew: results.filter((row) => row.status === "imported" && row.netNew === true).length,
     idempotent: results.filter((row) => row.status === "imported" && row.persistence?.idempotent === true).length,
+    preserved139: {
+      processed: preservedResults.length,
+      imported: preservedResults.filter((row) => row.status === "imported").length,
+      netNew: preservedResults.filter((row) => row.status === "imported" && row.netNew === true).length,
+      alreadyImported: preservedResults.filter((row) => row.status === "already_imported").length,
+      quarantined: preservedResults.filter((row) => row.status === "quarantined").length,
+      failed: preservedResults.filter((row) => row.status === "failed").length,
+    },
     results,
   };
   writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-  console.log(JSON.stringify({ candidates: receipt.candidates, processed: receipt.processed, statuses, imported: receipt.imported, netNew: receipt.netNew, idempotent: receipt.idempotent }, null, 2));
+  console.log(JSON.stringify({ candidates: receipt.candidates, preservedBacklogCount: receipt.preservedBacklogCount, liveCandidateCount: receipt.liveCandidateCount, processed: receipt.processed, statuses, imported: receipt.imported, netNew: receipt.netNew, idempotent: receipt.idempotent, preserved139: receipt.preserved139 }, null, 2));
 }
 
 main().catch((error) => {
