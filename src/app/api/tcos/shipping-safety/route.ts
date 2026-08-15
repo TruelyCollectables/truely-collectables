@@ -1,3 +1,4 @@
+import { getLetterTrackShipStationBridgeStatus } from "../../../../lib/lettertrack-shipstation";
 import { getShippingProviderAdapterProfile } from "../../../../lib/shipping-provider-adapter";
 
 export const dynamic = "force-dynamic";
@@ -14,15 +15,20 @@ export async function GET() {
   const profiles = methods.map((method) =>
     getShippingProviderAdapterProfile(method),
   );
+  const letterTrackShipStation = getLetterTrackShipStationBridgeStatus();
   const liveAdapterSupported = profiles.some(
     (profile) => profile.livePurchaseSupported,
   );
-  const livePostagePossible =
+  const genericLivePostagePossible =
     purchaseMode === "live" && liveShippingEnabled && liveAdapterSupported;
+  const letterTrackLivePostagePossible = letterTrackShipStation.ready;
+  const livePostagePossible =
+    genericLivePostagePossible || letterTrackLivePostagePossible;
   const safeForControlledShippingTest =
     purchaseMode === "dry_run" &&
     liveShippingEnabled === false &&
     liveAdapterSupported === false &&
+    letterTrackLivePostagePossible === false &&
     livePostagePossible === false;
 
   return Response.json(
@@ -37,6 +43,21 @@ export async function GET() {
         adapterStatus: profiles[0].adapterStatus,
         livePurchaseSupported: profiles[0].livePurchaseSupported,
         manualPurchaseRequired: profiles[0].manualPurchaseRequired,
+      },
+      letterTrackShipStation: {
+        enabled: letterTrackShipStation.enabled,
+        ready: letterTrackShipStation.ready,
+        provider: letterTrackShipStation.provider,
+        requiresExplicitPurchaseConfirmation:
+          letterTrackShipStation.requiresExplicitPurchaseConfirmation,
+        letterTrackFinalizeRequired:
+          letterTrackShipStation.letterTrackFinalizeRequired,
+        apiKeyConfigured: letterTrackShipStation.apiKeyConfigured,
+        carrierConfigured: letterTrackShipStation.carrierConfigured,
+        warehouseConfigured: letterTrackShipStation.warehouseConfigured,
+        shipFromConfigured: letterTrackShipStation.shipFromConfigured,
+        serviceCode: letterTrackShipStation.serviceCode,
+        packageCode: letterTrackShipStation.packageCode,
       },
       deploymentSha: process.env.TCOS_GIT_COMMIT_SHA || null,
     },
