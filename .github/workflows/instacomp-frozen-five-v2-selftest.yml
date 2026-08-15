@@ -12,8 +12,11 @@ on:
       - "services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py"
       - "services/instacomp-ai/app/authoritative_registry_gateway.py"
       - "services/instacomp-ai/app/config.py"
+      - "services/instacomp-ai/app/local_vision.py"
       - "services/instacomp-ai/app/pattern_memory.py"
       - "services/instacomp-ai/app/__init__.py"
+      - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
+      - "services/instacomp-ai/requirements.txt"
   pull_request:
     branches: [main]
     paths:
@@ -25,8 +28,11 @@ on:
       - "services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py"
       - "services/instacomp-ai/app/authoritative_registry_gateway.py"
       - "services/instacomp-ai/app/config.py"
+      - "services/instacomp-ai/app/local_vision.py"
       - "services/instacomp-ai/app/pattern_memory.py"
       - "services/instacomp-ai/app/__init__.py"
+      - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
+      - "services/instacomp-ai/requirements.txt"
   workflow_dispatch:
 
 permissions:
@@ -35,13 +41,32 @@ permissions:
 jobs:
   frozen-five-v2-selftest:
     runs-on: macos-15
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Install exact InstaComp runtime dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -q -r services/instacomp-ai/requirements.txt
+          python - <<'PY'
+          import cv2, numpy, platform, sys
+          print(f"Python={sys.version.split()[0]} platform={platform.platform()}")
+          print(f"OpenCV={cv2.__version__} NumPy={numpy.__version__}")
+          PY
+
+      - name: Prove native OpenCV pattern stage three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            PYTHONPATH=services/instacomp-ai python -m pytest -q \
+              services/instacomp-ai/tests/test_opencv_pattern_native.py \
+              | tee "/tmp/opencv-pattern-native-${run}.log"
+          done
 
       - name: Compile exact promotion and diagnostic scripts
         run: |
