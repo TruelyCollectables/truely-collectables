@@ -188,6 +188,9 @@ const groovy = buildInstaCompRegistryLockProbe({
 });
 assert.equal(groovy.setName, "2025 Panini Prizm WNBA Groovy");
 
+// Preserve the historical marker consumed by older CI wrappers while emitting
+// the stronger current contract immediately after it.
+console.log("PASS Registry-lock request keeps product family");
 console.log(
   "PASS Registry-lock request preserves exact Prizm WNBA release scope, recovers Sonia #122 Base UUID/fingerprint, resolves Rickea Base, and strips only unsupported parallel titles",
 );
