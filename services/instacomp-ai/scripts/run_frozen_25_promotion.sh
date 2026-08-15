@@ -3,7 +3,7 @@ set -euo pipefail
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/promote_lora_candidate_frozen_25_v7.py"
+target="$service_root/scripts/promote_lora_candidate_frozen_25_v8.py"
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
@@ -58,5 +58,5 @@ if service_root not in origin.parents:
 print(f"PASS InstaComp app import path: {origin}")
 PY
 
-echo "PASS Frozen 25 launcher mode: promotion-v8-structured-sidecar-recovery"
+echo "PASS Frozen 25 launcher mode: promotion-v9-serial-evidence-guard"
 exec "$service_python" "$target" "$@"
