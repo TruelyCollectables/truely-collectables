@@ -7,12 +7,14 @@ on:
     paths:
       - '.github/workflows/checklist-gogts-offline-archive-feed-20260815.yml'
       - 'scripts/mainstream-checklist/gogts-offline-archive-feed.ts'
+      - 'scripts/mainstream-checklist/build-gogts-offline-queue.py'
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
 
+# Saved checklist ingestion owns the Production writer lane until exhausted.
 concurrency:
   group: checklist-mainstream-gogts-harvest-tranche2-20260815
   cancel-in-progress: true
@@ -47,6 +49,7 @@ jobs:
           sudo apt-get install -y -qq poppler-utils
           python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
           npm ci
+          python -m py_compile scripts/mainstream-checklist/build-gogts-offline-queue.py
           npx tsc --noEmit --pretty false --incremental false || true
 
       - name: Resolve Production Supabase
@@ -89,7 +92,7 @@ jobs:
           run-id: 31100986894
           github-token: ${{ github.token }}
 
-      - name: Build offline exact-set queue from archived files
+      - name: Build offline exact-set queue by preserved file hash
         shell: bash
         env:
           ARCHIVE_ROOT: ${{ runner.temp }}/gogts-master-archive
@@ -97,111 +100,8 @@ jobs:
           QUEUE_OUT: ${{ runner.temp }}/gogts-offline-queue.json
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import csv, json, os, pathlib, re
-
-          archive_root = pathlib.Path(os.environ['ARCHIVE_ROOT'])
-          status_root = pathlib.Path(os.environ['STATUS_ROOT'])
-          out = pathlib.Path(os.environ['QUEUE_OUT'])
-
-          source_csv = status_root / '.public-checklist-organized' / 'gogts' / 'source-items.csv'
-          source_manifest = status_root / '.public-checklist-source-archive' / 'gogts' / 'manifest.json'
-          organized_root = archive_root / '.public-checklist-organized' / 'gogts'
-
-          if not source_csv.is_file():
-              matches = list(status_root.rglob('source-items.csv'))
-              if len(matches) != 1:
-                  raise SystemExit(f'Expected one GoGTS source-items.csv, found {len(matches)}')
-              source_csv = matches[0]
-          if not source_manifest.is_file():
-              manifests = []
-              for p in status_root.rglob('manifest.json'):
-                  try:
-                      d = json.loads(p.read_text(encoding='utf-8'))
-                  except Exception:
-                      continue
-                  if d.get('schema') == 'tcos.publicChecklistSourceArchive.v1':
-                      manifests.append((p, d))
-              if len(manifests) != 1:
-                  raise SystemExit(f'Expected one GoGTS source archive manifest, found {len(manifests)}')
-              source_manifest = manifests[0][0]
-
-          if not organized_root.is_dir():
-              candidates = [p for p in archive_root.rglob('master-sets.csv') if 'gogts' in str(p).lower()]
-              if candidates:
-                  organized_root = candidates[0].parent
-              else:
-                  candidates = [p for p in archive_root.rglob('SORTED') if p.is_dir()]
-                  if len(candidates) == 1:
-                      organized_root = candidates[0].parent
-          if not organized_root.is_dir():
-              raise SystemExit('GoGTS organized file root not found in master archive payload')
-
-          manifest = json.loads(source_manifest.read_text(encoding='utf-8'))
-          by_article = {str(i.get('sourceUrl','')): i for i in manifest.get('items', [])}
-
-          pref = {'.xlsx': 0, '.csv': 1, '.xls': 2, '.pdf': 3}
-          queue = []
-          missing_dirs = 0
-          missing_files = 0
-          seen = set()
-
-          with source_csv.open(encoding='utf-8-sig', newline='') as f:
-              for row in csv.DictReader(f):
-                  key = str(row.get('exactSetKey') or '').strip().lower()
-                  if not key or key in seen or key.count('|') != 3:
-                      continue
-                  archive_path = str(row.get('archivePath') or '').strip()
-                  if not archive_path or archive_path.startswith('UNRESOLVED/'):
-                      continue
-                  item_dir = organized_root / archive_path
-                  if not item_dir.is_dir():
-                      missing_dirs += 1
-                      continue
-                  files = [p for p in item_dir.iterdir() if p.is_file() and p.suffix.lower() in pref]
-                  if not files:
-                      missing_files += 1
-                      continue
-                  files.sort(key=lambda p: (pref.get(p.suffix.lower(), 9), p.name.lower()))
-                  local = files[0]
-                  article = str(row.get('sourceUrl') or '')
-                  item = by_article.get(article) or {}
-                  file_meta = next((x for x in item.get('files', []) if x.get('name') == local.name and x.get('role') == 'source-download'), None)
-                  if not file_meta:
-                      same_ext = [x for x in item.get('files', []) if x.get('role') == 'source-download' and pathlib.Path(str(x.get('name',''))).suffix.lower() == local.suffix.lower()]
-                      file_meta = same_ext[0] if same_ext else None
-                  asset_url = str((file_meta or {}).get('sourceUrl') or article)
-                  if not asset_url.startswith('https://gogts.net/'):
-                      continue
-                  year_match = re.search(r'(?:19|20)\d{2}', str(row.get('season') or ''))
-                  year = int(year_match.group(0)) if year_match else 0
-                  queue.append({
-                      'exactSetKey': key,
-                      'localPath': str(local),
-                      'sourceUrl': asset_url,
-                      'articleUrl': article,
-                      'season': row.get('season'),
-                      'yearSort': year,
-                      'archivedBytes': local.stat().st_size,
-                  })
-                  seen.add(key)
-
-          queue.sort(key=lambda x: (-x['yearSort'], x['exactSetKey']))
-          payload = {
-              'schema': 'tcos.checklist.gogtsOfflineArchiveQueue.v1',
-              'sourceRunId': '31100986894',
-              'candidates': queue,
-              'counts': {
-                  'candidates': len(queue),
-                  'missingDirectories': missing_dirs,
-                  'missingStructuredFiles': missing_files,
-              },
-          }
-          out.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
-          print(json.dumps(payload['counts'], indent=2))
-          if len(queue) < 500:
-              raise SystemExit(f'Archive queue unexpectedly small: {len(queue)}')
-          PY
+          python scripts/mainstream-checklist/build-gogts-offline-queue.py
+          jq '.counts' "$QUEUE_OUT"
 
       - name: Strictly validate and persist archived GoGTS files
         shell: bash
