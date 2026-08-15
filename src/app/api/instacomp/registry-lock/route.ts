@@ -60,21 +60,25 @@ export async function POST(req: NextRequest) {
     // OCR/VLM readers occasionally drop one leading digit from a printed card
     // number (for example 122 -> 22). If the ordinary exact lookup fails, try
     // exactly one additional leading digit 1..9 through the SAME authoritative
-    // resolver. Accept recovery only when exactly one distinct Registry identity
-    // resolves across all player/release/set/parallel evidence. This is bounded,
-    // deterministic, and fails closed on ambiguity.
+    // resolver. Run the bounded candidates concurrently because each resolver
+    // lookup is independent and Registry growth must not multiply route latency
+    // nine-fold. Still accept recovery only when exactly one distinct Registry
+    // identity resolves across all player/release/set/parallel evidence.
     const observedCardNumber = String(probe.cardNumber || "").trim();
     if (
       resolution.status !== "internal_exact_match" &&
       /^\d{1,3}$/.test(observedCardNumber)
     ) {
+      const attempts = await Promise.all(
+        Array.from({ length: 9 }, (_, index) =>
+          resolveChecklistRegistry(
+            { ...probe, cardNumber: `${index + 1}${observedCardNumber}` },
+            { evidenceTrusted: false },
+          ),
+        ),
+      );
       const recovered = new Map<string, typeof resolution>();
-      for (let prefix = 1; prefix <= 9; prefix += 1) {
-        const candidateNumber = `${prefix}${observedCardNumber}`;
-        const attempt = await resolveChecklistRegistry(
-          { ...probe, cardNumber: candidateNumber },
-          { evidenceTrusted: false },
-        );
+      for (const attempt of attempts) {
         if (attempt.status === "internal_exact_match" && attempt.match) {
           recovered.set(attempt.match.identityId, attempt);
         }
