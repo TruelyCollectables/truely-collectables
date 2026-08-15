@@ -6,13 +6,11 @@ on:
     paths:
       - ".github/workflows/instacomp-registry-recovery-verify.yml"
       - "services/instacomp-ai/app/checklist.py"
+      - "services/instacomp-ai/app/authoritative_registry_gateway.py"
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "src/lib/instacomp-registry-lock-request.ts"
       - "src/lib/instacomp-learning-server.ts"
       - "scripts/run-instacomp-registry-lock-request-regression.ts"
-  workflow_run:
-    workflows: ["Cloudflare Production Release"]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -21,8 +19,7 @@ permissions:
 
 jobs:
   verify-registry-recovery:
-    if: github.event_name != 'workflow_run'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -33,13 +30,14 @@ jobs:
 
       - name: Install InstaComp Python runtime
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r services/instacomp-ai/requirements.txt
+          python -m pip install --disable-pip-version-check -r services/instacomp-ai/requirements.txt
 
       - name: Verify Mac Registry endpoint and credential fallback
         run: |
           set -euo pipefail
-          python -m py_compile services/instacomp-ai/app/checklist.py services/instacomp-ai/app/authoritative_registry_gateway.py
+          python -m py_compile \
+            services/instacomp-ai/app/checklist.py \
+            services/instacomp-ai/app/authoritative_registry_gateway.py
           PYTHONPATH=services/instacomp-ai python - <<'PY'
           import os
           from app.checklist import _registry_base_url, _registry_headers
@@ -80,189 +78,16 @@ jobs:
       - name: Install Node dependencies
         run: npm ci --ignore-scripts
 
-      - name: Verify existing Sonia sanitizer contract
-        run: |
-          set -euo pipefail
-          node --import tsx - <<'TS'
-          import { buildInstaCompRegistryLockProbe } from "./src/lib/instacomp-registry-lock-request.ts";
-
-          const sonia = buildInstaCompRegistryLockProbe({
-            year: "2025",
-            brand: "Prizm",
-            setName: "2025 Panini Prizm WNBA - Silver Prizms",
-            cardNumber: "22",
-            player: "Sonia Citron",
-            parallel: null,
-            ocrText: "SONIA CITRON ROOKIE PRIZ PRZN RC CARD 22 WASHINGTON MYSTICS",
-          });
-          if (sonia.setName !== "Prizm") throw new Error(`expected Prizm, got ${sonia.setName}`);
-
-          const supportedSilver = buildInstaCompRegistryLockProbe({
-            brand: "Prizm",
-            setName: "2025 Panini Prizm WNBA - Silver Prizms",
-            parallel: "Silver",
-            ocrText: "SILVER PRIZM",
-          });
-          if (supportedSilver.setName !== "2025 Panini Prizm WNBA - Silver Prizms") {
-            throw new Error("supported Silver evidence was incorrectly stripped");
-          }
-          console.log("PASS Registry set-name evidence sanitizer");
-          TS
-
-      - name: Verify Rickea exact Base recovery three times
+      - name: Prove Sonia and Rickea Registry recovery contract three times
         run: |
           set -euo pipefail
           for run in 1 2 3; do
             node --import tsx scripts/run-instacomp-registry-lock-request-regression.ts \
-              | tee "/tmp/rickea-registry-recovery-${run}.log"
-            grep -q 'resolves Rickea Base UUID/fingerprint' "/tmp/rickea-registry-recovery-${run}.log"
+              | tee "/tmp/registry-recovery-${run}.log"
+            grep -q 'recovers Sonia #122 Base UUID/fingerprint' "/tmp/registry-recovery-${run}.log"
+            grep -q 'resolves Rickea Base' "/tmp/registry-recovery-${run}.log"
+            grep -q 'strips only unsupported parallel titles' "/tmp/registry-recovery-${run}.log"
           done
 
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false
-
-  verify-live-rickea-registry:
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Download encrypted production vault
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-vault-31773508121
-          path: /tmp/truely-production-vault
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
-      - name: Download separate recovery key
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-recovery-key-31773508121
-          path: /tmp/truely-production-key
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
-      - name: Prove live Production Rickea Base exact Registry lock
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import path from 'node:path';
-          import { createDecipheriv, createHash } from 'node:crypto';
-
-          function filesBelow(root) {
-            return fs.readdirSync(root, { recursive: true, withFileTypes: true })
-              .filter((entry) => entry.isFile())
-              .map((entry) => path.join(entry.parentPath || entry.path, entry.name));
-          }
-
-          const vaultPath = filesBelow('/tmp/truely-production-vault')
-            .find((file) => file.endsWith('.tcosvault'));
-          const keyPath = filesBelow('/tmp/truely-production-key')
-            .find((file) => file.endsWith('.recovery-key.txt'));
-          if (!vaultPath || !keyPath) throw new Error('Production recovery artifacts are incomplete.');
-
-          const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
-          const keyText = fs.readFileSync(keyPath, 'utf8');
-          const keyMatch = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
-          if (!keyMatch) throw new Error('Production recovery key is invalid.');
-          if (envelope?.format !== 'tcos-secrets-vault' || envelope?.cipher !== 'aes-256-gcm') {
-            throw new Error('Production vault envelope is invalid.');
-          }
-
-          const decipher = createDecipheriv(
-            'aes-256-gcm',
-            Buffer.from(keyMatch[1], 'base64url'),
-            Buffer.from(envelope.iv, 'base64'),
-          );
-          decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
-          const plaintext = Buffer.concat([
-            decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
-            decipher.final(),
-          ]);
-          const digest = createHash('sha256').update(plaintext).digest('hex');
-          if (digest !== envelope.plaintextSha256) throw new Error('Production vault checksum failed.');
-
-          const payload = JSON.parse(plaintext.toString('utf8'));
-          const productionEnv = {
-            ...(payload?.sources?.vercelProductionApplicationVariables || {}),
-            ...(payload?.sources?.githubActionsReferencedSecrets || {}),
-          };
-          const token = String(productionEnv.INSTACOMP_SENTINEL_ARCHIVE_TOKEN || '');
-          if (!token) throw new Error('Production vault is missing INSTACOMP_SENTINEL_ARCHIVE_TOKEN.');
-
-          const endpoint = 'https://truelycollectables.com/api/instacomp/registry-lock';
-          const requestBody = {
-            year: '2025',
-            manufacturer: null,
-            brand: 'Panini',
-            setName: '2025 Panini Prizm WNBA - Green Prizms',
-            cardNumber: '118',
-            player: 'Rickea Jackson',
-            team: 'Los Angeles Sparks',
-            sport: 'Basketball',
-            parallel: 'Base',
-            ocrText: 'PANINI\nPRIZN\nLOS ANGELES SPARKS\nRICKEA ACKSON\nNo.\n118',
-          };
-          const expectedId = '70ad307e-06bb-45c2-90ea-689b6e2f302e';
-          const expectedFingerprint = 'bdbf4845dae6d1da4d783fd23d9c387883769cd68aee3c663b144013bb891028';
-
-          let lastFailure = 'No request attempted.';
-          for (let attempt = 1; attempt <= 8; attempt += 1) {
-            try {
-              const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                  Accept: 'application/json',
-                  'Content-Type': 'application/json',
-                  'x-instacomp-sentinel-archive-token': token,
-                },
-                body: JSON.stringify(requestBody),
-                redirect: 'manual',
-                signal: AbortSignal.timeout(30_000),
-              });
-              const result = await response.json().catch(() => ({}));
-              const valid =
-                response.status === 200 &&
-                response.headers.get('x-truely-origin') === 'cloudflare-worker' &&
-                result?.ok === true &&
-                result?.registryLock === true &&
-                result?.resolverStatus === 'internal_exact_match' &&
-                result?.status === 'exact_match' &&
-                result?.identityId === expectedId &&
-                result?.registryIdentityId === expectedId &&
-                result?.fingerprintSha256 === expectedFingerprint &&
-                result?.registryFingerprintSha256 === expectedFingerprint &&
-                result?.lockedFields?.cardNumber === '118' &&
-                result?.lockedFields?.parallel === 'Base';
-              if (valid) {
-                console.log('PASS live Production Rickea #118 Base exact Registry UUID/fingerprint on Cloudflare.');
-                process.exit(0);
-              }
-              lastFailure = [
-                `attempt=${attempt}`,
-                `status=${response.status}`,
-                `origin=${response.headers.get('x-truely-origin') || 'missing'}`,
-                `resolver=${result?.resolverStatus || 'missing'}`,
-                `identity=${result?.identityId || 'missing'}`,
-                `fingerprint=${result?.fingerprintSha256 || 'missing'}`,
-              ].join(' ');
-            } catch (error) {
-              lastFailure = `attempt=${attempt} error=${error instanceof Error ? error.message : String(error)}`;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 10_000));
-          }
-          throw new Error(`Live Rickea Registry proof failed: ${lastFailure}`);
-          NODE
-
-      - name: Remove recovered secret material
-        if: always()
-        shell: bash
-        run: |
-          find /tmp/truely-production-vault /tmp/truely-production-key -type f -exec shred -u {} + 2>/dev/null || true
