@@ -2,17 +2,16 @@ name: Apply InstaComp Primary Identity Failover
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - .github/workflows/apply-instacomp-independent-reader-runtime.yml
+      - ".github/workflows/apply-instacomp-independent-reader-runtime.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  apply-and-validate:
+  apply:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -20,141 +19,50 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ github.token }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Install exact dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Patch primary identity reader list
-        shell: bash
+      - name: Patch scanner
+        run: node scripts/patch-instacomp-primary-openai-failover.mjs
+
+      - name: Validate scanner
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('src/app/api/instacomp/scan/route.ts')
-          text = path.read_text()
-
-          old = '''        {
-          provider: "instacomp_internal",
-          family: "instacomp_internal",
-          configured: hasConfiguredInstaCompAiLocal(),
-          run: async () => {
-            const scan = await analyzeWithInstaCompAiLocal({
-              front: params.frontImage,
-              back: params.backImage || null,
-              printedEvidence: params.externalOcr,
-              timeoutMs: 150_000,
-            });
-            const ai = instaCompAiLocalScanToAi(scan);
-            if (!ai) {
-              throw new Error(
-                `InstaComp internal engine returned ${scan.status} without usable identity evidence.`,
-              );
-            }
-            return ai;
-          },
-        },
-      ]);
-'''
-
-          new = '''        {
-          provider: "instacomp_internal",
-          family: "instacomp_internal",
-          configured: hasConfiguredInstaCompAiLocal(),
-          run: async () => {
-            const scan = await analyzeWithInstaCompAiLocal({
-              front: params.frontImage,
-              back: params.backImage || null,
-              printedEvidence: params.externalOcr,
-              timeoutMs: 150_000,
-            });
-            const ai = instaCompAiLocalScanToAi(scan);
-            if (!ai) {
-              throw new Error(
-                `InstaComp internal engine returned ${scan.status} without usable identity evidence.`,
-              );
-            }
-            return ai;
-          },
-        },
-        {
-          provider: "openai_primary",
-          family: "openai",
-          configured: Boolean(OPENAI_API_KEY),
-          run: () =>
-            identifyCardWithOpenAI(
-              params.frontDataUrl,
-              params.backDataUrl,
-              params.detailImages,
-              params.externalOcr,
-              { readerFocus: "primary" },
-            ),
-        },
-      ]);
-'''
-
-          if 'provider: "openai_primary"' in text:
-              print('OpenAI primary fallback already present.')
-          else:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'Expected exactly one primary reader block; found {count}.')
-              path.write_text(text.replace(old, new, 1))
-              print('OpenAI primary fallback inserted.')
-          PY
-
-      - name: Validate identity hardening
-        shell: bash
-        run: |
-          set -euo pipefail
-          for script in \
-            scripts/run-instacomp-registry-consensus-bridge-regression.ts \
-            scripts/run-instacomp-live-shedeur-107-regression.ts \
-            scripts/run-instacomp-identity-firewall-regressions.ts \
-            scripts/run-instacomp-serial-color-gate-regressions.ts; do
-            if [ -f "$script" ]; then
-              npx tsx "$script"
-            fi
-          done
           npx eslint src/app/api/instacomp/scan/route.ts src/lib/instacomp-ai-provider-failover.ts
           npx tsc --noEmit
 
-      - name: Build application
+      - name: Build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
-          ADMIN_PASSWORD: build-only-placeholder-password
-          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
-          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
-          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
-          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
-          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
-          EBAY_CLIENT_ID: build-only-placeholder-client-id
-          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
-          EBAY_ENVIRONMENT: production
+          NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "build-only-placeholder-anon-key"
+          SUPABASE_SERVICE_ROLE_KEY: "build-only-placeholder-service-role-key"
+          ADMIN_PASSWORD: "build-only-placeholder-password"
+          ADMIN_SESSION_SECRET: "build-only-placeholder-admin-session-secret"
+          NEXT_PUBLIC_SITE_URL: "https://truelycollectables.com"
+          STRIPE_SECRET_KEY: "sk_test_build_only_placeholder"
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_build_only_placeholder"
+          STRIPE_WEBHOOK_SECRET: "whsec_build_only_placeholder"
+          EBAY_CLIENT_ID: "build-only-placeholder-client-id"
+          EBAY_CLIENT_SECRET: "build-only-placeholder-client-secret"
+          EBAY_ENVIRONMENT: "production"
           TCOS_LIVE_PAYMENTS_ENABLED: "false"
-          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_SHIPPING_PURCHASE_MODE: "dry_run"
           TCOS_LIVE_SHIPPING_ENABLED: "false"
         run: npm run build
 
-      - name: Commit validated route patch
-        shell: bash
+      - name: Commit patch
         run: |
-          set -euo pipefail
           if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
-            echo 'Validated route patch already committed.'
+            echo "Scanner already patched."
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/app/api/instacomp/scan/route.ts
-          git commit -m 'Add OpenAI primary fallback to InstaComp identity scan'
+          git commit -m "Add OpenAI primary fallback to InstaComp identity scan"
           git pull --rebase origin main
           git push origin HEAD:main
