@@ -19,69 +19,44 @@ jobs:
   scoreboard:
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Resolve Production Supabase read credentials
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/gogts-scoreboard"
-          mkdir -p "$root"
-          test -n "$GH_SUPABASE_ACCESS_TOKEN"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
-            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            --output "$root/projects.json" \
+          root="$RUNNER_TEMP/gogts-scoreboard"; mkdir -p "$root"
+          curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/projects.json" \
             "https://api.supabase.com/v1/projects"
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
-            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            --output "$root/api-keys.json" \
+          curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/api-keys.json" \
             "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
           service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
-          test -n "$service_key"
-          echo "::add-mask::$service_key"
+          test -n "$service_key"; echo "::add-mask::$service_key"
           echo "SB_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "SB_KEY=$service_key" >> "$GITHUB_ENV"
-      - name: Read current checklist catalog scoreboard
+      - name: Count GoGTS imports since accelerated writer started
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/gogts-scoreboard"
-          count_query() {
-            local name query headers body
-            name="$1"
-            query="$2"
-            headers="$root/$name.headers"
-            body="$root/$name.json"
-            curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
-              --dump-header "$headers" \
-              --header "apikey: $SB_KEY" \
-              --header "Authorization: Bearer $SB_KEY" \
-              --header "Prefer: count=exact" \
-              --output "$body" \
-              "$SB_URL/rest/v1/checklist_source_catalog?$query&limit=1"
-            tr -d '\r' < "$headers" | awk -F'/' 'tolower($1) ~ /^content-range:/ {print $2}' | tail -1
-          }
-          imported_rows="$(count_query imported 'select=source_url&status=eq.imported')"
-          offline_rows="$(count_query offline 'select=source_url&metadata-%3E%3EgogtsOfflineArchive=eq.true')"
-          offline_imported="$(count_query offline-imported 'select=source_url&status=eq.imported&metadata-%3E%3EgogtsOfflineArchive=eq.true')"
-          mainstream_imported="$(count_query mainstream-imported 'select=source_url&status=eq.imported&metadata-%3E%3EparserPath=eq.mainstream-reference-checklist-v1')"
+          headers="$root/count.headers"; body="$root/count.json"
+          query='select=source_url&status=eq.imported&source_url=like.https%3A%2F%2Fgogts.net%2F%2A&imported_at=gte.2026-08-15T21%3A02%3A45Z'
+          curl --silent --show-error --fail --retry 2 --retry-all-errors --max-time 20 \
+            --dump-header "$headers" --header "apikey: $SB_KEY" --header "Authorization: Bearer $SB_KEY" \
+            --header "Prefer: count=exact" --output "$body" \
+            "$SB_URL/rest/v1/checklist_source_catalog?$query&limit=1"
+          count="$(tr -d '\r' < "$headers" | awk -F'/' 'tolower($1) ~ /^content-range:/ {print $2}' | tail -1)"
           latest="$root/latest.json"
-          curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
-            --header "apikey: $SB_KEY" \
-            --header "Authorization: Bearer $SB_KEY" \
-            --output "$latest" \
-            "$SB_URL/rest/v1/checklist_source_catalog?select=metadata,imported_at,source_url&status=eq.imported&metadata-%3E%3EgogtsOfflineArchive=eq.true&order=imported_at.desc.nullslast&limit=10"
-          jq -n \
-            --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --argjson importedRows "${imported_rows:-0}" \
-            --argjson offlineGoGtsRows "${offline_rows:-0}" \
-            --argjson offlineGoGtsImportedRows "${offline_imported:-0}" \
-            --argjson mainstreamImportedRows "${mainstream_imported:-0}" \
-            --slurpfile latest "$latest" \
-            '{generatedAt:$now,importedRows:$importedRows,offlineGoGtsRows:$offlineGoGtsRows,offlineGoGtsImportedRows:$offlineGoGtsImportedRows,mainstreamImportedRows:$mainstreamImportedRows,latestOfflineImports:($latest[0]|map({exactSetKey:(.metadata.masterArchiveExactSetKey // .metadata.exactSetKey // ""),imported_at,source_url}))}' \
+          curl --silent --show-error --fail --retry 2 --retry-all-errors --max-time 20 \
+            --header "apikey: $SB_KEY" --header "Authorization: Bearer $SB_KEY" --output "$latest" \
+            "$SB_URL/rest/v1/checklist_source_catalog?select=source_url,imported_at,status&status=eq.imported&source_url=like.https%3A%2F%2Fgogts.net%2F%2A&imported_at=gte.2026-08-15T21%3A02%3A45Z&order=imported_at.desc.nullslast&limit=10"
+          jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson importedSinceStart "${count:-0}" --slurpfile latest "$latest" \
+            '{generatedAt:$now,writerStartedAt:"2026-08-15T21:02:45Z",gogtsImportedRowsSinceStart:$importedSinceStart,latest:$latest[0]}' \
             > "$root/scoreboard.json"
           cat "$root/scoreboard.json"
       - name: Upload scoreboard
