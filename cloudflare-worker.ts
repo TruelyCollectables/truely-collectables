@@ -6,28 +6,69 @@ import { default as handler } from "./.open-next/worker.js";
 /**
  * Cloudflare cutover scheduler.
  *
- * Cloudflare uses one every-minute Cron Trigger and dispatches the 16 routes
- * from here. This keeps the Worker trigger count low while preserving the UTC
- * timing in one production-owned scheduler.
+ * Cloudflare uses one every-minute Cron Trigger and dispatches the routes
+ * from here. Most legacy jobs remain UTC. Owner-facing Deal Hunter jobs use
+ * America/Denver so their requested local times stay correct across DST.
  */
-const cronJobs = [
+const DEAL_HUNTER_TIME_ZONE = "America/Denver";
+const DEAL_HUNTER_HOURS = "7,11,15,19,21";
+
+type CronJob = {
+  path: string;
+  schedule: string;
+  timeZone?: string;
+};
+
+const cronJobs: readonly CronJob[] = [
   { path: "/api/instacomp/checklist-sentinel/progress", schedule: "*/5 * * * *" },
-  { path: "/api/cron/profit-hunter?perQuery=20", schedule: "1 * * * *" },
+  {
+    path: "/api/cron/profit-hunter?perQuery=20",
+    schedule: `0 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
   { path: "/api/cron/kingmaker/morning-intelligence", schedule: "12 * * * *" },
-  { path: "/api/cron/market-intel/ebay/scan?maxTargets=10&resultsPerTarget=10&minimumConfidence=70", schedule: "5 */6 * * *" },
-  { path: "/api/cron/market-intel/ebay/discovery-scan?maxSubjects=5&resultsPerQuery=15", schedule: "8 */6 * * *" },
-  { path: "/api/cron/market-intel/ebay/growth-scan?maxTargets=25&resultsPerTarget=15&minimumConfidence=80", schedule: "10 */6 * * *" },
-  { path: "/api/cron/market-intel/alerts/sync", schedule: "15 */6 * * *" },
-  { path: "/api/cron/market-intel/alerts/growth-deliver?limit=10", schedule: "17 */6 * * *" },
-  { path: "/api/cron/market-intel/alerts/deliver?limit=10", schedule: "20 */6 * * *" },
-  { path: "/api/cron/market-intel/cleanup?staleAfterHours=26", schedule: "35 */6 * * *" },
+  {
+    path: "/api/cron/market-intel/ebay/scan?maxTargets=10&resultsPerTarget=10&minimumConfidence=70",
+    schedule: `2 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
+  {
+    path: "/api/cron/market-intel/ebay/discovery-scan?maxSubjects=5&resultsPerQuery=15",
+    schedule: `5 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
+  {
+    path: "/api/cron/market-intel/ebay/growth-scan?maxTargets=25&resultsPerTarget=15&minimumConfidence=80",
+    schedule: `8 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
+  {
+    path: "/api/cron/market-intel/alerts/sync",
+    schedule: `12 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
+  {
+    path: "/api/cron/market-intel/alerts/growth-deliver?limit=10",
+    schedule: `14 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
+  {
+    path: "/api/cron/market-intel/alerts/deliver?limit=10",
+    schedule: `17 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
+  {
+    path: "/api/cron/market-intel/cleanup?staleAfterHours=26",
+    schedule: `25 ${DEAL_HUNTER_HOURS} * * *`,
+    timeZone: DEAL_HUNTER_TIME_ZONE,
+  },
   { path: "/api/cron/ebay-order-sale-sync?lookbackDays=2", schedule: "*/5 * * * *" },
   { path: "/api/cron/ebay-store-fixed-price-sync", schedule: "2,17,32,47 * * * *" },
   { path: "/api/cron/seller-ebay-reconciliation", schedule: "7,22,37,52 * * * *" },
   { path: "/api/cron/sold-collectible-archive", schedule: "11 * * * *" },
   { path: "/api/cron/companion-back-image-sync", schedule: "23 9 * * *" },
   { path: "/api/cron/stripe-reconciliation", schedule: "0 18 * * *" },
-] as const;
+];
 
 type WorkerEnv = {
   CRON_SECRET: string;
@@ -198,19 +239,65 @@ function fieldMatches(value: number, field: string, sundayAlias = false): boolea
   });
 }
 
-function cronMatches(schedule: string, date: Date): boolean {
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+function cronDateParts(date: Date, timeZone?: string) {
+  if (!timeZone) {
+    return {
+      minute: date.getUTCMinutes(),
+      hour: date.getUTCHours(),
+      dayOfMonth: date.getUTCDate(),
+      month: date.getUTCMonth() + 1,
+      dayOfWeek: date.getUTCDay(),
+    };
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    minute: "2-digit",
+    hour: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    weekday: "short",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const dayOfWeek = WEEKDAY_INDEX[values.weekday];
+  if (dayOfWeek === undefined) {
+    throw new Error(`Unsupported weekday from timezone formatter: ${values.weekday}`);
+  }
+
+  return {
+    minute: Number(values.minute),
+    hour: Number(values.hour),
+    dayOfMonth: Number(values.day),
+    month: Number(values.month),
+    dayOfWeek,
+  };
+}
+
+function cronMatches(schedule: string, date: Date, timeZone?: string): boolean {
   const fields = schedule.trim().split(/\s+/);
   if (fields.length !== 5) {
     throw new Error(`Unsupported cron schedule: ${schedule}`);
   }
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
+  const clock = cronDateParts(date, timeZone);
   return (
-    fieldMatches(date.getUTCMinutes(), minute) &&
-    fieldMatches(date.getUTCHours(), hour) &&
-    fieldMatches(date.getUTCDate(), dayOfMonth) &&
-    fieldMatches(date.getUTCMonth() + 1, month) &&
-    fieldMatches(date.getUTCDay(), dayOfWeek, true)
+    fieldMatches(clock.minute, minute) &&
+    fieldMatches(clock.hour, hour) &&
+    fieldMatches(clock.dayOfMonth, dayOfMonth) &&
+    fieldMatches(clock.month, month) &&
+    fieldMatches(clock.dayOfWeek, dayOfWeek, true)
   );
 }
 
@@ -254,7 +341,9 @@ export default {
     _ctx: ExecutionContextLike,
   ) {
     const scheduledAt = new Date(controller.scheduledTime);
-    const dueJobs = cronJobs.filter((job) => cronMatches(job.schedule, scheduledAt));
+    const dueJobs = cronJobs.filter((job) =>
+      cronMatches(job.schedule, scheduledAt, job.timeZone),
+    );
 
     if (dueJobs.length === 0) return;
 
