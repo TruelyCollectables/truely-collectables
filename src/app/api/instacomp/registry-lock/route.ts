@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveChecklistRegistry } from "../../../../lib/instacomp-learning-server";
+import { resolveChecklistRegistryLeadingDigitRecovery } from "../../../../lib/instacomp-registry-leading-digit-recovery";
 import {
   buildInstaCompRegistryLockProbe,
   publicRegistryLockStatus,
@@ -58,41 +59,21 @@ export async function POST(req: NextRequest) {
     });
 
     // OCR/VLM readers occasionally drop one leading digit from a printed card
-    // number (for example 122 -> 22). If the ordinary exact lookup fails, try
-    // exactly one additional leading digit 1..9 through the SAME authoritative
-    // resolver. Run the bounded candidates concurrently because each resolver
-    // lookup is independent and Registry growth must not multiply route latency
-    // nine-fold. Still accept recovery only when exactly one distinct Registry
-    // identity resolves across all player/release/set/parallel evidence.
+    // number (for example 122 -> 22). If the ordinary exact lookup fails, use a
+    // bounded card-number-first recovery query for 1..9 + observed. It expands
+    // only those candidate cards, keeps active Registry versions, delegates the
+    // identity decision to chooseRegistryMatch, and fails closed unless exactly
+    // one distinct Registry identity survives all visible evidence.
     const observedCardNumber = String(probe.cardNumber || "").trim();
     if (
       resolution.status !== "internal_exact_match" &&
       /^\d{1,3}$/.test(observedCardNumber)
     ) {
-      const attempts = await Promise.all(
-        Array.from({ length: 9 }, (_, index) =>
-          resolveChecklistRegistry(
-            { ...probe, cardNumber: `${index + 1}${observedCardNumber}` },
-            { evidenceTrusted: false },
-          ),
-        ),
+      const recovered = await resolveChecklistRegistryLeadingDigitRecovery(
+        probe,
+        observedCardNumber,
       );
-      const recovered = new Map<string, typeof resolution>();
-      for (const attempt of attempts) {
-        if (attempt.status === "internal_exact_match" && attempt.match) {
-          recovered.set(attempt.match.identityId, attempt);
-        }
-      }
-      if (recovered.size === 1) {
-        const [only] = recovered.values();
-        resolution = {
-          ...only,
-          reasons: [
-            ...only.reasons,
-            `unique_leading_digit_card_number_recovery:${observedCardNumber}->${only.match?.cardNumber || ""}`,
-          ],
-        };
-      }
+      if (recovered) resolution = recovered;
     }
 
     const match = resolution.status === "internal_exact_match" ? resolution.match : null;
