@@ -14,6 +14,7 @@ import {
   matchesStorefrontFilters,
   normalizeStorefrontFeature,
   sortStorefrontItems,
+  sortStorefrontSections,
   type StorefrontSort,
 } from "./storefront-taxonomy";
 import { getActiveStoreId } from "./stores";
@@ -22,8 +23,58 @@ import { createSupabaseServerClient } from "./supabase-server";
 const PUBLIC_PRODUCT_PAGE_SIZE = 1000;
 const PUBLIC_PRODUCT_MAX_PAGES = 20;
 const PUBLIC_PRODUCT_PAGE_CONCURRENCY = 5;
+const PUBLIC_CATALOG_CACHE_TTL_MS = 15_000;
+const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
+
+type PublicCatalogCacheEntry = {
+  expiresAt: number;
+  promise: Promise<UniversalInventoryItem[]>;
+};
+
+// Cloudflare reuses Worker isolates across nearby requests. Keep a very short
+// best-effort cache of the already-classified public catalog so pagination,
+// filters, and section navigation do not repeatedly pay the same Supabase read
+// and classification cost. Correctness never depends on this cache: it expires
+// quickly, checkout still validates live inventory, and failed loads evict
+// themselves immediately.
+const publicCatalogCache = new Map<string, PublicCatalogCacheEntry>();
+
+function getCachedPublicCatalog(
+  storeId: string,
+  loader: () => Promise<UniversalInventoryItem[]>,
+) {
+  const now = Date.now();
+  const cached = publicCatalogCache.get(storeId);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  if (cached) publicCatalogCache.delete(storeId);
+
+  const promise = loader();
+  const entry: PublicCatalogCacheEntry = {
+    expiresAt: now + PUBLIC_CATALOG_CACHE_TTL_MS,
+    promise,
+  };
+  publicCatalogCache.set(storeId, entry);
+
+  void promise.catch(() => {
+    if (publicCatalogCache.get(storeId) === entry) {
+      publicCatalogCache.delete(storeId);
+    }
+  });
+
+  if (publicCatalogCache.size > PUBLIC_CATALOG_CACHE_MAX_STORES) {
+    for (const [key, value] of publicCatalogCache) {
+      if (value.expiresAt <= now || key !== storeId) {
+        publicCatalogCache.delete(key);
+        if (publicCatalogCache.size <= PUBLIC_CATALOG_CACHE_MAX_STORES) break;
+      }
+    }
+  }
+
+  return promise;
+}
 
 function validCardUuid(value: unknown) {
   const normalized = String(value || "").trim().toLowerCase();
@@ -96,6 +147,7 @@ function mapPublicProductRow(product: any): UniversalInventoryItem {
 
 class PublicStorefrontInventoryEngine extends InventoryEngine {
   private publicProductsPromise: Promise<any[]> | null = null;
+  private publicCatalogPromise: Promise<UniversalInventoryItem[]> | null = null;
 
   constructor(
     private readonly publicStoreId: string,
@@ -167,6 +219,30 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     );
   }
 
+  private readPublicCatalog() {
+    if (!this.publicCatalogPromise) {
+      this.publicCatalogPromise = getCachedPublicCatalog(
+        this.publicStoreId,
+        async () => {
+          const products = await this.readPublicProducts();
+          return products
+            .map(mapPublicProductRow)
+            .map(enforceStrictStorefrontFeatures)
+            .filter(
+              (item) =>
+                Boolean(item.imageUrl) &&
+                item.quantity > 0 &&
+                item.price > 0 &&
+                item.status === "active",
+            )
+            .filter(isPublicStorefrontItem);
+        },
+      );
+    }
+
+    return this.publicCatalogPromise;
+  }
+
   async listAvailable(
     params: {
       query?: string;
@@ -179,19 +255,9 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   ) {
     const requestedFeature = normalizeStorefrontFeature(params.feature);
     const section = params.section || params.sport;
-    const products = await this.readPublicProducts();
+    const catalog = await this.readPublicCatalog();
 
-    const items = products
-      .map(mapPublicProductRow)
-      .map(enforceStrictStorefrontFeatures)
-      .filter(
-        (item) =>
-          Boolean(item.imageUrl) &&
-          item.quantity > 0 &&
-          item.price > 0 &&
-          item.status === "active",
-      )
-      .filter(isPublicStorefrontItem)
+    const items = catalog
       .filter((item) =>
         matchesStorefrontFilters(item, {
           query: params.query,
@@ -203,6 +269,13 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       .filter((item) => !requestedFeature || item.features[requestedFeature]);
 
     return sortStorefrontItems(items, params.sort || "section");
+  }
+
+  async listAvailableSections(): Promise<string[]> {
+    const catalog = await this.readPublicCatalog();
+    return sortStorefrontSections(
+      catalog.map((item) => item.storefrontSection),
+    );
   }
 
   async listAvailableSports(): Promise<string[]> {
