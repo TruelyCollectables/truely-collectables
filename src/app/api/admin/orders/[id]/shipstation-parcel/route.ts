@@ -1,4 +1,5 @@
 import { getClientIdentity } from "@/src/lib/client-identity";
+import { PARCEL_INCLUDED_COVERAGE_LIMIT } from "@/src/lib/shipping";
 import {
   getShipStationParcelBridgeStatus,
   purchaseShipStationParcelPostage,
@@ -31,6 +32,9 @@ type ShippingLabelRow = {
   provider_label_id: string | null;
   provider_shipment_id: string | null;
   tracking_number: string | null;
+  coverage_status: string | null;
+  coverage_amount: number | string | null;
+  coverage_policy_id: string | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -42,8 +46,6 @@ type StoredParcelPurchase = {
   tracking_number?: unknown;
   postage_amount?: unknown;
   provider_pdf_url?: unknown;
-  service_code?: unknown;
-  package_code?: unknown;
 };
 
 function cleanText(value: unknown) {
@@ -80,7 +82,10 @@ function isCompletedPurchase(value: StoredParcelPurchase | null) {
 }
 
 function isLockedPurchase(value: StoredParcelPurchase | null) {
-  return value?.status === "purchase_in_progress" || value?.status === "purchase_unknown";
+  return (
+    value?.status === "purchase_in_progress" ||
+    value?.status === "purchase_unknown"
+  );
 }
 
 function proxyPdfUrl(orderId: number) {
@@ -88,8 +93,9 @@ function proxyPdfUrl(orderId: number) {
 }
 
 function parcelMethod(value: string | null): ShipStationParcelMethod | null {
-  if (value === "GROUND_ADVANTAGE" || value === "PRIORITY_MAIL") return value;
-  return null;
+  return value === "GROUND_ADVANTAGE" || value === "PRIORITY_MAIL"
+    ? value
+    : null;
 }
 
 async function loadOrder(params: {
@@ -112,7 +118,6 @@ async function loadOrder(params: {
       { status: 404, headers: { "Content-Type": "application/json" } },
     );
   }
-
   return data as OrderRow;
 }
 
@@ -124,7 +129,7 @@ async function loadActiveLabel(params: {
   const { data, error } = await params.supabase
     .from("order_shipping_labels")
     .select(
-      "id,order_id,label_status,resolved_shipping_method,provider_label_id,provider_shipment_id,tracking_number,metadata",
+      "id,order_id,label_status,resolved_shipping_method,provider_label_id,provider_shipment_id,tracking_number,coverage_status,coverage_amount,coverage_policy_id,metadata",
     )
     .eq("store_id", params.storeId)
     .eq("order_id", params.orderId)
@@ -145,7 +150,6 @@ function addressMissing(order: OrderRow) {
     state: cleanText(order.shipping_state),
     postalCode: cleanText(order.shipping_postal_code),
   };
-
   return Object.entries(required)
     .filter(([, value]) => !value)
     .map(([key]) => key);
@@ -253,7 +257,6 @@ export async function POST(
     if (isCompletedPurchase(previous)) {
       return reusedPurchaseResponse(orderId, previous!);
     }
-
     if (isLockedPurchase(previous)) {
       return Response.json(
         {
@@ -266,12 +269,13 @@ export async function POST(
       );
     }
 
-    const externalReferences = [
-      cleanText(label.provider_label_id),
-      cleanText(label.provider_shipment_id),
-      cleanText(label.tracking_number),
-    ].filter(Boolean);
-    if (externalReferences.length > 0) {
+    if (
+      [
+        cleanText(label.provider_label_id),
+        cleanText(label.provider_shipment_id),
+        cleanText(label.tracking_number),
+      ].some(Boolean)
+    ) {
       return Response.json(
         {
           error:
@@ -290,6 +294,29 @@ export async function POST(
         },
         { status: 422 },
       );
+    }
+
+    const orderValue = Number(order.subtotal || 0);
+    if (orderValue > PARCEL_INCLUDED_COVERAGE_LIMIT) {
+      const coverageAmount = Number(label.coverage_amount || 0);
+      const additionalCoverageReady =
+        label.coverage_status === "covered" &&
+        Boolean(cleanText(label.coverage_policy_id)) &&
+        Number.isFinite(coverageAmount) &&
+        coverageAmount >= orderValue;
+
+      if (!additionalCoverageReady) {
+        return Response.json(
+          {
+            error: `This $${orderValue.toFixed(2)} parcel exceeds the $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} included carrier-coverage limit. Record additional coverage for the full order value before buying postage.`,
+            coverageRequired: true,
+            orderValue,
+            includedCoverageLimit: PARCEL_INCLUDED_COVERAGE_LIMIT,
+            recordedCoverageAmount: coverageAmount,
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const claimId = `shipstation-parcel-${crypto.randomUUID()}`;
@@ -323,7 +350,6 @@ export async function POST(
       })
       .eq("id", label.id)
       .eq("store_id", storeId);
-
     claimQuery =
       label.label_status === null
         ? claimQuery.is("label_status", null)
@@ -331,7 +357,6 @@ export async function POST(
 
     const { data: claimedRows, error: claimError } = await claimQuery.select("id");
     if (claimError) throw claimError;
-
     if (!claimedRows?.length) {
       const refreshed = await loadActiveLabel({ supabase, storeId, orderId });
       const refreshedPurchase = refreshed ? storedPurchase(refreshed) : null;
@@ -374,7 +399,7 @@ export async function POST(
           metadata: {
             ...claimMetadata,
             shipstation_parcel_postage: {
-              ...((claimMetadata.shipstation_parcel_postage || {}) as Record<string, unknown>),
+              ...claimMetadata.shipstation_parcel_postage,
               status: "purchase_unknown",
               failed_at: failedAt,
               provider_error:
@@ -409,6 +434,8 @@ export async function POST(
     }
 
     const now = new Date().toISOString();
+    const providerService =
+      method === "PRIORITY_MAIL" ? "USPS Priority Mail" : "USPS Ground Advantage";
     const stored = {
       status: "purchased",
       claim_id: claimId,
@@ -425,9 +452,6 @@ export async function POST(
       purchased_at: now,
       purchased_by_identity: identity,
     };
-
-    const providerService =
-      method === "PRIORITY_MAIL" ? "USPS Priority Mail" : "USPS Ground Advantage";
 
     const { data: savedRows, error: updateError } = await supabase
       .from("order_shipping_labels")
