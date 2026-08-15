@@ -1,0 +1,9 @@
+{
+  "schema": "tcos.checklist.ultimateVacuumSourceState.v1",
+  "updatedAt": null,
+  "hosts": {},
+  "negativeCache": {},
+  "totals": {
+    "events": 0
+  }
+}
