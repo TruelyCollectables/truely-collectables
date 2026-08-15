@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
 import pytest
 
 from app.local_vision import _analyze_side, _decode_image, analyze_pattern
+from app.lora_candidate_runtime import _guard_model_pattern_parallel
 
 
 def _synthetic_cracked_surface() -> np.ndarray:
@@ -123,3 +125,33 @@ def test_exact_frozen_non_ice_fronts_never_emit_cracked_ice_hint(filename: str) 
     side, opencv_ok = _analyze_side(content, side="front", ocr=None)
     assert opencv_ok is True
     assert side.pattern.label != "cracked_ice", side.pattern
+
+
+@pytest.mark.parametrize(
+    ("filename", "should_keep_cracked_ice"),
+    [
+        ("02-0916fe9d-2837-4d91-add4-73e7216705cd-front.jpg", True),
+        ("04-f7d73af4-7299-4ed6-b663-39206f2576ee-front.jpg", True),
+        ("05-e9335a9d-3cc1-48d3-92db-7be7468714a9-front.jpg", False),
+    ],
+)
+def test_exact_physical_images_gate_lora_cracked_ice_claim(
+    filename: str,
+    should_keep_cracked_ice: bool,
+) -> None:
+    content = (_frozen_image_dir() / filename).read_bytes()
+    side, opencv_ok = _analyze_side(content, side="front", ocr=None)
+    assert opencv_ok is True
+    parsed = {
+        "identity": {
+            "parallel": "Cracked Ice Prizm",
+        }
+    }
+    guarded = _guard_model_pattern_parallel(
+        parsed,
+        SimpleNamespace(front=SimpleNamespace(pattern=side.pattern)),
+    )
+    if should_keep_cracked_ice:
+        assert guarded["identity"]["parallel"] == "Cracked Ice Prizm", side.pattern
+    else:
+        assert guarded["identity"]["parallel"] is None, side.pattern
