@@ -96,9 +96,12 @@ async function fetchImage(raw: unknown, label: "front" | "back") {
   throw new Error(`${label} image could not be fetched.`);
 }
 
-async function authorize(request: Request) {
-  const expected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
-  const provided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
+type TrustedAuth = {
+  ok: boolean;
+  internalInstaCompKey: string;
+};
+
+async function secretsMatch(provided: string, expected: string) {
   if (!expected || !provided || expected.length !== provided.length) return false;
   try {
     const { timingSafeEqual } = await import("node:crypto");
@@ -106,6 +109,21 @@ async function authorize(request: Request) {
   } catch {
     return expected === provided;
   }
+}
+
+async function authorize(request: Request): Promise<TrustedAuth> {
+  const instaCompExpected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const instaCompProvided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
+  if (await secretsMatch(instaCompProvided, instaCompExpected)) {
+    return { ok: true, internalInstaCompKey: instaCompExpected };
+  }
+
+  const cronExpected = String(process.env.TCOS_CRON_SECRET || "").trim();
+  const cronProvided = String(request.headers.get("x-tcos-cron-secret") || "").trim();
+  if (await secretsMatch(cronProvided, cronExpected) && instaCompExpected) {
+    return { ok: true, internalInstaCompKey: instaCompExpected };
+  }
+  return { ok: false, internalInstaCompKey: "" };
 }
 
 export async function GET() {
@@ -119,8 +137,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await authorize(request))) {
-    return json({ ok: false, stage: "portfolio_json_auth", error: "Invalid InstaComp AI credential." }, 401);
+  const auth = await authorize(request);
+  if (!auth.ok) {
+    return json({ ok: false, stage: "portfolio_json_auth", error: "Invalid trusted portfolio credential." }, 401);
   }
 
   let body: Record<string, any>;
@@ -185,7 +204,7 @@ export async function POST(request: NextRequest) {
   form.set("frontImage", front, front.name || "front.jpg");
   form.set("backImage", back, back.name || "back.jpg");
   const headers = new Headers({ Accept: "application/json" });
-  headers.set("x-instacomp-ai-key", String(request.headers.get("x-instacomp-ai-key") || ""));
+  headers.set("x-instacomp-ai-key", auth.internalInstaCompKey);
 
   let coreResponse: Response;
   try {
