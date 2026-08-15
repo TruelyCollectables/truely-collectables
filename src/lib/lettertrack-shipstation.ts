@@ -208,10 +208,14 @@ function safeShipStationDownloadUrl(value: unknown) {
     return null;
   }
 
-  if (url.protocol !== "https:" || url.hostname !== "api.shipstation.com") {
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.hostname !== "api.shipstation.com"
+  ) {
     return null;
   }
 
+  url.protocol = "https:";
   return url.toString();
 }
 
