@@ -80,12 +80,38 @@ function inferredSport(value: string) {
 
 type MasterState = { imported: boolean; rows: number };
 
+async function readCatalogPage(db: ReturnType<typeof dbClient>, start: number) {
+  let lastError: any = null;
+  const delays = [1_500, 3_000, 6_000, 10_000, 15_000];
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const { data, error } = await db
+      .from("checklist_source_catalog")
+      .select("status,metadata")
+      .range(start, start + 999);
+    if (!error) return data || [];
+    lastError = error;
+    if (attempt < 6) {
+      const waitMs = delays[Math.min(attempt - 1, delays.length - 1)];
+      console.warn(JSON.stringify({
+        event: "catalog_preload_retry",
+        start,
+        attempt,
+        waitMs,
+        message: String(error.message || error).slice(0, 500),
+      }));
+      await sleep(waitMs);
+    }
+  }
+  throw new Error(
+    `Could not read checklist source catalog page ${start}-${start + 999} after retries: ${lastError?.message || lastError}`,
+  );
+}
+
 async function loadMasterState(db: ReturnType<typeof dbClient>) {
   const state = new Map<string, MasterState>();
   for (let start = 0; start < 16000; start += 1000) {
-    const { data, error } = await db.from("checklist_source_catalog").select("status,metadata").range(start, start + 999);
-    if (error) throw new Error(`Could not read checklist source catalog: ${error.message}`);
-    for (const row of data || []) {
+    const data = await readCatalogPage(db, start);
+    for (const row of data) {
       const key = String((row as any)?.metadata?.masterArchiveExactSetKey || (row as any)?.metadata?.exactSetKey || "").toLowerCase();
       if (!key || key.split("|").length !== 4) continue;
       const current = state.get(key) || { imported: false, rows: 0 };
@@ -93,7 +119,7 @@ async function loadMasterState(db: ReturnType<typeof dbClient>) {
       current.rows += 1;
       state.set(key, current);
     }
-    if (!data || data.length < 1000) break;
+    if (data.length < 1000) break;
   }
   return state;
 }
