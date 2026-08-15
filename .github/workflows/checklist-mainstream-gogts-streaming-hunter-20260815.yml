@@ -1,0 +1,334 @@
+name: Checklist Mainstream GoGTS Streaming Hunter 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/workflows/checklist-mainstream-gogts-streaming-hunter-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: checklist-mainstream-gogts-harvest-tranche2-20260815
+  cancel-in-progress: false
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+  TARGET_NET_NEW: '75'
+  MAX_KEYS_PER_RUN: '450'
+  ATTEMPTED_LEDGER: 'ops/checklists/gogts-attempted-ledger-20260815.json'
+
+jobs:
+  streaming-hunter:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install proven parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/mainstream-checklist/gogts-structured-normalizer.mjs
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          jq -e '.schema=="tcos.checklist.gogtsAttemptedLedger.v1" and (.exactSetKeys|type)=="array"' "$ATTEMPTED_LEDGER" >/dev/null
+
+      - name: Patch GoGTS structured normalization into proven parser path
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'scripts/mainstream-checklist/source-tools.mjs';
+          let source = readFileSync(path, 'utf8');
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error('GoGTS normalizer import anchor not found');
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = '  const text = extractText(downloaded, filename);';
+          const normalizedParse = '  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));';
+          if (!source.includes(normalizedParse)) {
+            const n = source.split(parseAnchor).length - 1;
+            if (n !== 1) throw new Error(`Expected one parser handoff anchor, found ${n}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, 'utf8');
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gogts-streaming-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Pull current quarantined GoGTS exact targets from Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-streaming"
+          mkdir -p "$out/catalog-pages" "$out/receipts"
+          : > "$out/catalog.ndjson"
+          for start in 0 1000 2000 3000 4000 5000; do
+            end=$((start+999))
+            file="$out/catalog-pages/$start.json"
+            code="$(curl --silent --show-error --output "$file" --write-out '%{http_code}' --max-time 60 \
+              -H "apikey: $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Range: $start-$end" \
+              "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/checklist_source_catalog?select=id,status,sport,manufacturer,source_url,release_name,metadata&status=eq.quarantined&source_url=like.*gogts.net*&order=created_at.desc")"
+            case "$code" in 200|206) ;; *) echo "catalog fetch failed $code" >&2; exit 1;; esac
+            count="$(jq 'length' "$file")"
+            jq -c '.[]' "$file" >> "$out/catalog.ndjson"
+            [ "$count" -lt 1000 ] && break
+          done
+          jq -s 'unique_by(.metadata.masterArchiveExactSetKey) | map(select(.metadata.masterArchiveExactSetKey != null))' "$out/catalog.ndjson" > "$out/catalog.json"
+          cp "$ATTEMPTED_LEDGER" "$out/ledger.json"
+          echo "Production quarantined GoGTS exact keys: $(jq 'length' "$out/catalog.json")"
+          echo "Persistent handled-key ledger: $(jq '.count' "$out/ledger.json")"
+
+      - name: Stream exact set -> validate -> persist -> mark handled -> hunt next
+        shell: bash
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-streaming"
+          CATALOG="$out/catalog.json" LEDGER="$out/ledger.json" OUT="$out" TARGET="$TARGET_NET_NEW" MAX_KEYS="$MAX_KEYS_PER_RUN" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          import { join } from 'node:path';
+
+          const catalog = JSON.parse(readFileSync(process.env.CATALOG, 'utf8'));
+          const ledger = JSON.parse(readFileSync(process.env.LEDGER, 'utf8'));
+          const handled = new Set(ledger.exactSetKeys || []);
+          const out = process.env.OUT;
+          const targetNetNew = Number(process.env.TARGET || 75);
+          const maxKeys = Number(process.env.MAX_KEYS || 450);
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+          const clean = s => String(s || '').replaceAll('&amp;', '&');
+          const summary = {
+            schema: 'tcos.checklist.gogtsStreamingHunterSummary.v1',
+            runId: process.env.GITHUB_RUN_ID || null,
+            targetNetNew,
+            maxKeys,
+            startedAt: new Date().toISOString(),
+            keysExamined: 0,
+            keysWithSource: 0,
+            sourceAttempts: 0,
+            persisted: 0,
+            netNew: 0,
+            idempotent: 0,
+            failures: 0,
+            wins: [],
+            nonWins: []
+          };
+          mkdirSync(join(out, 'receipts'), { recursive: true });
+
+          function save() {
+            ledger.schema = 'tcos.checklist.gogtsAttemptedLedger.v1';
+            ledger.count = handled.size;
+            ledger.exactSetKeys = [...handled].sort();
+            ledger.updatedAt = new Date().toISOString();
+            ledger.lastStreamingRun = {
+              runId: summary.runId,
+              keysExamined: summary.keysExamined,
+              keysWithSource: summary.keysWithSource,
+              persisted: summary.persisted,
+              netNew: summary.netNew,
+              idempotent: summary.idempotent,
+              failures: summary.failures
+            };
+            writeFileSync(process.env.LEDGER, JSON.stringify(ledger, null, 2) + '\n');
+            summary.updatedAt = new Date().toISOString();
+            writeFileSync(join(out, 'streaming-summary.json'), JSON.stringify(summary, null, 2) + '\n');
+          }
+
+          async function fetchText(url) {
+            for (let a = 0; a < 3; a++) {
+              try {
+                const c = new AbortController();
+                const t = setTimeout(() => c.abort(), 15000);
+                const r = await fetch(url, { signal: c.signal, redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 TCOS Streaming Checklist Hunter/1.0' } });
+                clearTimeout(t);
+                if (r.ok) return await r.text();
+              } catch {}
+              await sleep(300 * (a + 1));
+            }
+            return '';
+          }
+
+          function sourceUrls(html, page) {
+            const links = new Set();
+            for (const m of html.matchAll(/(?:href|data-href)=["']([^"']+\.(?:xlsx?|csv|pdf)(?:\?[^"']*)?)["']/gi)) {
+              try { links.add(new URL(clean(m[1]), page).href); } catch {}
+            }
+            for (const m of html.matchAll(/https?:\\?\/\\?\/[^"'<>\s]+\.(?:xlsx?|csv|pdf)(?:\?[^"'<>\s]*)?/gi)) {
+              try { links.add(clean(m[0].replaceAll('\\/', '/'))); } catch {}
+            }
+            const all = [...links];
+            const rank = u => {
+              const checklist = /checklist/i.test(u) ? 0 : 10;
+              const ext = /\.xlsx?(?:\?|$)/i.test(u) ? 0 : /\.csv(?:\?|$)/i.test(u) ? 1 : 2;
+              return checklist + ext;
+            };
+            return all.sort((a,b) => rank(a) - rank(b)).slice(0, 3);
+          }
+
+          for (const row of catalog) {
+            if (summary.netNew >= targetNetNew || summary.keysExamined >= maxKeys) break;
+            const key = row.metadata?.masterArchiveExactSetKey;
+            if (!key || handled.has(key)) continue;
+
+            summary.keysExamined++;
+            const html = await fetchText(row.source_url);
+            const urls = html ? sourceUrls(html, row.source_url) : [];
+            let won = false;
+            let lastReason = html ? 'no structured checklist source found' : 'article fetch failed';
+
+            if (urls.length) {
+              summary.keysWithSource++;
+              const [sport, season, manufacturer] = key.split('|');
+              const year = Number((season.match(/\d{4}/) || [])[0] || 0);
+              for (let sourceIndex = 0; sourceIndex < urls.length; sourceIndex++) {
+                const sourceUrl = urls[sourceIndex];
+                summary.sourceAttempts++;
+                const slug = key.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+                const queue = join(out, `queue-${slug}.json`);
+                const filter = join(out, `filter-${slug}-${sourceIndex}.json`);
+                const receipt = join(out, 'receipts', `${slug}-${sourceIndex}-receipt.json`);
+                const validated = join(out, 'receipts', `${slug}-${sourceIndex}-validated.json`);
+                writeFileSync(queue, JSON.stringify({
+                  schema: 'tcos.checklist.mainstream2005plusCandidateValidationQueue.v1',
+                  count: 1,
+                  targets: [{ exactSetKey: key, year, sport, sourceArtifact: 'gogts-streaming-hunter-20260815', exactCandidateCount: 1, trustedAutoImportCandidateCount: 1, candidates: [] }]
+                }, null, 2));
+                writeFileSync(filter, JSON.stringify({ schema: 'tcos.checklist.gogtsStreamingTarget.v1', targets: [{ exactSetKey: key, sourceUrl }] }, null, 2));
+
+                console.log(`=== HUNT ${summary.keysExamined}/${maxKeys} | NET NEW ${summary.netNew}/${targetNetNew} | ${key} | source ${sourceIndex + 1}/${urls.length} ===`);
+                const child = spawnSync('node', ['--import', 'tsx', 'scripts/promote-mainstream-2005plus-public-web-candidates.mjs'], {
+                  stdio: 'inherit',
+                  timeout: 100000,
+                  env: {
+                    ...process.env,
+                    PUBLIC_WEB_CANDIDATE_QUEUE: queue,
+                    PUBLIC_WEB_TARGET_FILTER: filter,
+                    PUBLIC_WEB_PROMOTION_APPLY: 'true',
+                    PUBLIC_WEB_PROMOTION_OUTPUT: receipt,
+                    PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT: validated
+                  }
+                });
+                if (child.error?.code === 'ETIMEDOUT') lastReason = 'apply timeout';
+                try {
+                  const r = JSON.parse(readFileSync(receipt, 'utf8'));
+                  const result = (r.results || []).find(x => x.exactSetKey === key) || (r.results || [])[0];
+                  if (result?.status === 'imported' && result?.persistence?.ok === true) {
+                    const idem = result.persistence.idempotent === true;
+                    summary.persisted++;
+                    if (idem) summary.idempotent++; else summary.netNew++;
+                    summary.wins.push({ exactSetKey: key, sourceUrl, counts: result.counts || null, persistence: result.persistence, netNew: !idem });
+                    console.log(`>>> PRODUCTION ${idem ? 'IDEMPOTENT' : 'NET-NEW'} ${key} | SCORE ${summary.netNew}/${targetNetNew}`);
+                    won = true;
+                    break;
+                  }
+                  lastReason = result?.message || (result?.errors || []).join('; ') || `status=${result?.status || 'unknown'}`;
+                } catch (e) {
+                  lastReason = child.status === null ? 'no receipt / process timeout' : `no valid receipt / exit ${child.status}`;
+                }
+              }
+            }
+
+            handled.add(key);
+            if (!won) {
+              summary.failures++;
+              summary.nonWins.push({ exactSetKey: key, articleUrl: row.source_url, reason: lastReason });
+              console.log(`--- HANDLED WITHOUT WIN ${key}: ${lastReason}`);
+            }
+            save();
+          }
+
+          summary.completedAt = new Date().toISOString();
+          save();
+          console.log(JSON.stringify({
+            keysExamined: summary.keysExamined,
+            keysWithSource: summary.keysWithSource,
+            sourceAttempts: summary.sourceAttempts,
+            persisted: summary.persisted,
+            netNew: summary.netNew,
+            idempotent: summary.idempotent,
+            failures: summary.failures,
+            ledgerCount: handled.size
+          }));
+          NODE
+
+      - name: Persist handled-key ledger without retriggering hunter
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-streaming"
+          test -s "$out/ledger.json" || exit 0
+          git checkout -- scripts/mainstream-checklist/source-tools.mjs || true
+          cp "$out/ledger.json" "$ATTEMPTED_LEDGER"
+          git config user.name "TCOS Checklist Conveyor"
+          git config user.email "david@truelycollectables.com"
+          git add "$ATTEMPTED_LEDGER"
+          if git diff --cached --quiet; then
+            echo "Ledger unchanged"
+          else
+            git commit -m "checklists: persist streaming hunter ledger $GITHUB_RUN_ID"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          fi
+
+      - name: Upload streaming receipts and scoreboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-mainstream-gogts-streaming-hunter-${{ github.run_id }}
+          path: ${{ runner.temp }}/gogts-streaming
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/gogts-streaming-production" .env.local .env.production.local .vercel
