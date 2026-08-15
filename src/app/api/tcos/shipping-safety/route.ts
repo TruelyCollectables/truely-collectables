@@ -1,4 +1,5 @@
 import { getLetterTrackShipStationBridgeStatus } from "../../../../lib/lettertrack-shipstation";
+import { controlledTestStatus } from "../../../../lib/shipstation-controlled-test";
 import { getShipStationOrigin } from "../../../../lib/shipstation-origin";
 import { getShipStationParcelBridgeStatus } from "../../../../lib/shipstation-parcel";
 import { getShippingProviderAdapterProfile } from "../../../../lib/shipping-provider-adapter";
@@ -19,8 +20,11 @@ export async function GET() {
   );
   const letterTrackShipStation = getLetterTrackShipStationBridgeStatus();
   const shipStationParcel = getShipStationParcelBridgeStatus();
+  const controlledTest = controlledTestStatus();
   const shipStationOrigin = await getShipStationOrigin().catch(() => null);
   const shipFromConfigured = Boolean(shipStationOrigin);
+  const apiKeyConfigured = Boolean(String(process.env.SHIPSTATION_API_KEY || "").trim());
+  const carrierConfigured = Boolean(String(process.env.SHIPSTATION_CARRIER_ID || "").trim());
   const liveAdapterSupported = profiles.some(
     (profile) => profile.livePurchaseSupported,
   );
@@ -30,16 +34,23 @@ export async function GET() {
     letterTrackShipStation.ready && shipFromConfigured;
   const parcelLivePostagePossible =
     shipStationParcel.ready && shipFromConfigured;
+  const controlledTestPostagePossible =
+    controlledTest.purchaseEnabled &&
+    apiKeyConfigured &&
+    carrierConfigured &&
+    shipFromConfigured;
   const livePostagePossible =
     genericLivePostagePossible ||
     letterTrackLivePostagePossible ||
-    parcelLivePostagePossible;
+    parcelLivePostagePossible ||
+    controlledTestPostagePossible;
   const safeForControlledShippingTest =
     purchaseMode === "dry_run" &&
     liveShippingEnabled === false &&
     liveAdapterSupported === false &&
     letterTrackLivePostagePossible === false &&
     parcelLivePostagePossible === false &&
+    controlledTestPostagePossible === false &&
     livePostagePossible === false;
 
   return Response.json(
@@ -84,6 +95,17 @@ export async function GET() {
           shipStationParcel.groundAdvantageServiceCode,
         priorityMailServiceCode: shipStationParcel.priorityMailServiceCode,
         packageCode: shipStationParcel.packageCode,
+      },
+      controlledTestShipment: {
+        enabled: controlledTest.purchaseEnabled,
+        ready: controlledTestPostagePossible,
+        apiKeyConfigured,
+        carrierConfigured,
+        shipFromConfigured,
+        serviceCode: controlledTest.serviceCode,
+        packageCode: controlledTest.packageCode,
+        ounces: controlledTest.ounces,
+        maxPostage: controlledTest.maxPostage,
       },
       deploymentSha: process.env.TCOS_GIT_COMMIT_SHA || null,
     },
