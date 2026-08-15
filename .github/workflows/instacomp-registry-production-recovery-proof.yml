@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-registry-production-recovery-proof.yml"
+      - "services/instacomp-ai/app/checklist.py"
+      - "services/instacomp-ai/app/authoritative_registry_gateway.py"
       - "src/lib/instacomp-registry-lock-request.ts"
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "src/lib/instacomp-learning-server.ts"
@@ -13,6 +15,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-registry-production-recovery-proof.yml"
+      - "services/instacomp-ai/app/checklist.py"
+      - "services/instacomp-ai/app/authoritative_registry_gateway.py"
       - "src/lib/instacomp-registry-lock-request.ts"
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "src/lib/instacomp-learning-server.ts"
@@ -28,11 +32,12 @@ concurrency:
 
 env:
   SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  INSTACOMP_AI_REGISTRY_URL: https://truelycollectables.com
 
 jobs:
   prove-production-registry-data-recovery:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -41,8 +46,29 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Install locked application dependencies
         run: npm ci --ignore-scripts
+
+      - name: Install InstaComp Python runtime
+        run: python -m pip install --disable-pip-version-check -r services/instacomp-ai/requirements.txt
+
+      - name: Install Cloudflare credential tooling without changing the lockfile
+        run: npm install --no-save --package-lock=false wrangler@latest
+
+      - name: Clear any stale Production acceptance credential before proof
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"INSTACOMP_ACCEPTANCE_SERVICE_TOKEN":null}' \
+            | npx --no-install wrangler secret bulk --config wrangler.production-route.jsonc
+          echo 'PASS stale acceptance credential cleared before proof.'
 
       - name: Recover production Registry database credentials
         shell: bash
@@ -73,18 +99,158 @@ jobs:
           console.log('PASS production Registry credentials recovered from Supabase management API; values withheld.');
           NODE
 
-      - name: Prove all five Frozen Five Registry identities three times
+      - name: Prove all five Frozen Five Registry identities three times in production data
         run: |
           set -euo pipefail
           for run in 1 2 3; do
-            echo "=== production Registry proof ${run}/3 ==="
+            echo "=== production Registry data proof ${run}/3 ==="
             node --import tsx scripts/run-instacomp-registry-production-data-regression.ts \
               | tee "/tmp/production-registry-proof-${run}.log"
             grep -q 'PASS production Registry data resolves all five Frozen Five canonical identities exactly' "/tmp/production-registry-proof-${run}.log"
           done
 
+      - name: Install short-lived Production acceptance credential
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          printf 'INSTACOMP_AI_REGISTRY_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
+          printf 'INSTACOMP_ACCEPTANCE_SERVICE_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
+          printf '%s' "$token" | npx --no-install wrangler secret put INSTACOMP_ACCEPTANCE_SERVICE_TOKEN \
+            --config wrangler.production-route.jsonc
+          echo 'PASS short-lived acceptance credential installed without rotating permanent Mac Registry auth.'
+
+      - name: Require acceptance credential convergence before exact-card proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          consecutive=0
+          for attempt in $(seq 1 45); do
+            http_status="$(curl --silent --show-error --max-time 30 \
+              -o /tmp/registry-auth-canary.json \
+              -w '%{http_code}' \
+              -H 'content-type: application/json' \
+              -H "x-tcos-instacomp-service-token: $INSTACOMP_AI_REGISTRY_TOKEN" \
+              --data '{"cardNumber":"__INSTACOMP_AUTH_PROBE__"}' \
+              "${INSTACOMP_AI_REGISTRY_URL}/api/instacomp/registry-lock" || true)"
+            if HTTP_STATUS="$http_status" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          try:
+              payload = json.loads(Path('/tmp/registry-auth-canary.json').read_text('utf-8'))
+          except Exception:
+              raise SystemExit(1)
+          raise SystemExit(0 if os.environ.get('HTTP_STATUS') == '200' and payload.get('ok') is True else 1)
+          PY
+            then
+              consecutive=$((consecutive + 1))
+              echo "PASS acceptance convergence ${consecutive}/12"
+              if [ "$consecutive" -ge 12 ]; then
+                echo 'PASS acceptance credential stable across routed Production Worker.'
+                exit 0
+              fi
+            else
+              consecutive=0
+              echo "INFO acceptance credential not converged yet: attempt=$attempt status=$http_status"
+            fi
+            sleep 2
+          done
+          echo 'Production acceptance credential never reached 12 consecutive authenticated responses.' >&2
+          exit 1
+
+      - name: Hammer exact Frozen Five through live authoritative Python gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=services/instacomp-ai python - <<'PY'
+          import asyncio
+          from app.authoritative_registry_gateway import AuthoritativeRegistryChecklistGateway
+          from app.models import CardIdentity, ChecklistOutcome
+
+          CASES = [
+              ("sonia-122-base-from-real-bad-reader-payload", CardIdentity(year="2025", brand="Prizm", set_name="2025 Panini Prizm WNBA - Silver Prizms", card_number="22", player="Sonia Citron", team="Washington Mystics", sport="Basketball"), "SONIA CITRON ROOKIE PRIZ PRZN RC CARD 22 WASHINGTON MYSTICS", "2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f", "122", "Sonia Citron"),
+              ("malonga-116-ice", CardIdentity(year="2025", manufacturer="Panini", brand="Prizm", set_name="2025 Panini Prizm WNBA", card_number="116", player="Dominique Malonga", sport="Basketball", league="WNBA", parallel="Ice"), None, "bde0577b-72e8-4e59-8287-89aaf2f9e7e2", "116", "Dominique Malonga"),
+              ("sonia-13-groovy", CardIdentity(year="2025", manufacturer="Panini", brand="Prizm", set_name="2025 Panini Prizm WNBA Groovy", card_number="13", player="Sonia Citron", sport="Basketball", league="WNBA", parallel="Base"), "SONIA CITRON GROOVY 13 PANINI", "c58ffc4f-e1c7-4cd9-b6e2-599af5a29044", "13", "Sonia Citron"),
+              ("paige-5-ice", CardIdentity(year="2025", manufacturer="Panini", brand="Prizm", set_name="2025 Panini Prizm WNBA", card_number="5", player="Paige Bueckers", sport="Basketball", league="WNBA", parallel="Ice"), None, "575556fe-fdd4-4083-baee-c5071ed3161f", "5", "Paige Bueckers"),
+              ("rickea-118-base-from-actual-guarded-reader-payload", CardIdentity(year="2025", manufacturer="Panini", brand="Panini Prizm", set_name="2025 Panini Prizm WNBA - Green Prizms", card_number="118", player="Rickea Jackson", sport="Basketball"), "PANINI PRNINI PRIZN LOS SANGELES ANCELES RICKEA ACKSON LOS ANGELES SPARKS No. PRIZM 118 RICKEAJACKSON 2025 PANINI - WNBA PRIZM BASKETBALL WNBPA 2025", "70ad307e-06bb-45c2-90ea-689b6e2f302e", "118", "Rickea Jackson"),
+          ]
+
+          async def main():
+              gateway = AuthoritativeRegistryChecklistGateway(timeout_seconds=20.0, max_attempts=3, retry_backoff_seconds=0.5)
+              passed = 0
+              for round_number in range(1, 11):
+                  for key, identity, ocr, expected_id, expected_number, expected_player in CASES:
+                      result, diagnostics = await gateway.match_with_diagnostics(identity, ocr)
+                      assert diagnostics["registry_http_status"] == 200, (key, diagnostics)
+                      assert diagnostics["registry_status"] == "exact_match", (key, diagnostics)
+                      assert 1 <= diagnostics["registry_attempts"] <= 3, (key, diagnostics)
+                      assert result.outcome == ChecklistOutcome.EXACT_MATCH, (key, result, diagnostics)
+                      assert result.identity_id == expected_id, (key, result.identity_id)
+                      assert result.identity is not None
+                      assert result.identity.card_number == expected_number, (key, result.identity.card_number)
+                      assert result.identity.player == expected_player, (key, result.identity.player)
+                      passed += 1
+                      print(f"PASS live gateway round={round_number}/10 case={key} attempts={diagnostics['registry_attempts']} identity={result.identity_id} card={result.identity.card_number}")
+              assert passed == 50
+              print("PASS live Production authoritative Python gateway Frozen Five 50/50")
+
+          asyncio.run(main())
+          PY
+
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false
+
+      - name: Remove and prove removal of short-lived Production acceptance credential
+        if: always()
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"INSTACOMP_ACCEPTANCE_SERVICE_TOKEN":null}' \
+            | npx --no-install wrangler secret bulk --config wrangler.production-route.jsonc
+          echo 'PASS short-lived acceptance credential deletion submitted.'
+
+          if [ -z "${INSTACOMP_AI_REGISTRY_TOKEN:-}" ]; then
+            echo 'PASS no acceptance token was created in this run; deletion is complete.'
+            exit 0
+          fi
+
+          for attempt in $(seq 1 45); do
+            http_status="$(curl --silent --show-error --max-time 30 \
+              -o /tmp/registry-auth-deletion.json \
+              -w '%{http_code}' \
+              -H 'content-type: application/json' \
+              -H "x-tcos-instacomp-service-token: $INSTACOMP_AI_REGISTRY_TOKEN" \
+              --data '{"cardNumber":"__INSTACOMP_AUTH_PROBE__"}' \
+              "${INSTACOMP_AI_REGISTRY_URL}/api/instacomp/registry-lock" || true)"
+            if HTTP_STATUS="$http_status" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          try:
+              payload = json.loads(Path('/tmp/registry-auth-deletion.json').read_text('utf-8'))
+          except Exception:
+              raise SystemExit(1)
+          error = str(payload.get('error') or '')
+          rejected = os.environ.get('HTTP_STATUS') != '200' and 'Sign in as a seller or TCOS administrator' in error
+          raise SystemExit(0 if rejected else 1)
+          PY
+            then
+              echo 'PASS short-lived Production acceptance credential is rejected after deletion.'
+              exit 0
+            fi
+            echo "INFO waiting for acceptance credential deletion propagation: attempt=$attempt status=$http_status"
+            sleep 2
+          done
+          echo 'FAILED to prove short-lived Production acceptance credential removal.' >&2
+          exit 1
 
       - name: Remove recovered Registry secret material
         if: always()
