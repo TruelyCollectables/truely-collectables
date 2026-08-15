@@ -108,3 +108,18 @@ def test_exact_frozen_ice_fronts_have_cracked_ice_geometry(
     assert side.pattern.label == expected_label, side.pattern
     assert side.pattern.confidence >= 0.70, side.pattern
     assert side.pattern.scores.get("cracked_ice", 0) >= 0.70, side.pattern
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "01-ef0e06a3-a6de-4242-8c52-52b420185850-front.jpg",
+        "03-66f9ad9e-43fb-4b2b-b79c-ac99fa082de0-front.jpg",
+        "05-e9335a9d-3cc1-48d3-92db-7be7468714a9-front.jpg",
+    ],
+)
+def test_exact_frozen_non_ice_fronts_never_emit_cracked_ice_hint(filename: str) -> None:
+    content = (_frozen_image_dir() / filename).read_bytes()
+    side, opencv_ok = _analyze_side(content, side="front", ocr=None)
+    assert opencv_ok is True
+    assert side.pattern.label != "cracked_ice", side.pattern
