@@ -7,23 +7,64 @@ const original = {
   letterCode: process.env.SHIPSTATION_LETTER_SERVICE_CODE,
   groundCode: process.env.SHIPSTATION_GROUND_ADVANTAGE_SERVICE_CODE,
   priorityCode: process.env.SHIPSTATION_PRIORITY_MAIL_SERVICE_CODE,
+  letterPackage: process.env.SHIPSTATION_LETTER_PACKAGE_CODE,
+  parcelPackage: process.env.SHIPSTATION_PARCEL_PACKAGE_CODE,
   fetch: globalThis.fetch,
 };
 
 function restore() {
-  if (original.apiKey === undefined) delete process.env.SHIPSTATION_API_KEY;
-  else process.env.SHIPSTATION_API_KEY = original.apiKey;
-  if (original.carrierId === undefined) delete process.env.SHIPSTATION_CARRIER_ID;
-  else process.env.SHIPSTATION_CARRIER_ID = original.carrierId;
-  if (original.letterCode === undefined) delete process.env.SHIPSTATION_LETTER_SERVICE_CODE;
-  else process.env.SHIPSTATION_LETTER_SERVICE_CODE = original.letterCode;
-  if (original.groundCode === undefined)
-    delete process.env.SHIPSTATION_GROUND_ADVANTAGE_SERVICE_CODE;
-  else process.env.SHIPSTATION_GROUND_ADVANTAGE_SERVICE_CODE = original.groundCode;
-  if (original.priorityCode === undefined)
-    delete process.env.SHIPSTATION_PRIORITY_MAIL_SERVICE_CODE;
-  else process.env.SHIPSTATION_PRIORITY_MAIL_SERVICE_CODE = original.priorityCode;
+  const restoreKey = (key: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
+  restoreKey("SHIPSTATION_API_KEY", original.apiKey);
+  restoreKey("SHIPSTATION_CARRIER_ID", original.carrierId);
+  restoreKey("SHIPSTATION_LETTER_SERVICE_CODE", original.letterCode);
+  restoreKey("SHIPSTATION_GROUND_ADVANTAGE_SERVICE_CODE", original.groundCode);
+  restoreKey("SHIPSTATION_PRIORITY_MAIL_SERVICE_CODE", original.priorityCode);
+  restoreKey("SHIPSTATION_LETTER_PACKAGE_CODE", original.letterPackage);
+  restoreKey("SHIPSTATION_PARCEL_PACKAGE_CODE", original.parcelPackage);
   globalThis.fetch = original.fetch;
+}
+
+function servicesResponse() {
+  return new Response(
+    JSON.stringify({
+      services: [
+        {
+          service_code: "usps_first_class_mail",
+          name: "USPS First Class Mail",
+          domestic: true,
+          international: false,
+        },
+        {
+          service_code: "usps_ground_advantage",
+          name: "USPS Ground Advantage",
+          domestic: true,
+          international: false,
+        },
+        {
+          service_code: "usps_priority_mail",
+          name: "USPS Priority Mail",
+          domestic: true,
+          international: true,
+        },
+      ],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function packagesResponse() {
+  return new Response(
+    JSON.stringify({
+      packages: [
+        { package_code: "letter", name: "Letter" },
+        { package_code: "package", name: "Package" },
+      ],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
 }
 
 async function main() {
@@ -40,6 +81,7 @@ async function main() {
     const missingKey = await testShipStationConnection();
     assert.equal(missingKey.ok, false);
     assert.equal(missingKey.apiKeyConfigured, false);
+    assert.equal(missingKey.apiProduct, "ShipStation API (formerly ShipEngine)");
     assert.equal(missingKey.postagePurchaseAttempted, false);
     assert.equal(fetchCalls, 0);
 
@@ -52,10 +94,11 @@ async function main() {
       const method = String(init?.method || "GET").toUpperCase();
       requests.push({ url, method });
       assert.equal(method, "GET");
-      assert.notEqual(url, "https://api.shipstation.com/v2/labels");
+      assert.notEqual(url, "https://api.shipengine.com/v1/labels");
+      assert.notEqual(url, "https://api.shipengine.com/v1/rates");
       assert.equal(new Headers(init?.headers).get("API-Key"), "test-key");
 
-      if (url.includes("/v2/carriers?page=")) {
+      if (url === "https://api.shipengine.com/v1/carriers") {
         return new Response(
           JSON.stringify({
             carriers: [
@@ -77,32 +120,11 @@ async function main() {
         );
       }
 
-      if (url.endsWith("/v2/carriers/se-usps-test/services")) {
-        return new Response(
-          JSON.stringify({
-            services: [
-              {
-                service_code: "usps_first_class_mail",
-                name: "USPS First Class Mail",
-                domestic: true,
-                international: false,
-              },
-              {
-                service_code: "usps_ground_advantage",
-                name: "USPS Ground Advantage",
-                domestic: true,
-                international: false,
-              },
-              {
-                service_code: "usps_priority_mail",
-                name: "USPS Priority Mail",
-                domestic: true,
-                international: true,
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+      if (url.endsWith("/v1/carriers/se-usps-test/services")) {
+        return servicesResponse();
+      }
+      if (url.endsWith("/v1/carriers/se-usps-test/packages")) {
+        return packagesResponse();
       }
 
       return new Response(JSON.stringify({ message: "unexpected URL" }), {
@@ -114,17 +136,21 @@ async function main() {
     const ready = await testShipStationConnection();
     assert.equal(ready.ok, true);
     assert.equal(ready.apiKeyConfigured, true);
+    assert.equal(ready.apiProduct, "ShipStation API (formerly ShipEngine)");
     assert.equal(ready.configuredCarrierFound, true);
     assert.equal(ready.recommendedCarrierId, "se-usps-test");
     assert.equal(ready.requiredServices.letter.available, true);
     assert.equal(ready.requiredServices.groundAdvantage.available, true);
     assert.equal(ready.requiredServices.priorityMail.available, true);
+    assert.equal(ready.requiredPackages.letter.available, true);
+    assert.equal(ready.requiredPackages.parcel.available, true);
     assert.equal(ready.postagePurchaseAttempted, false);
     assert.equal(ready.carriers.length, 2);
     assert.equal("accountNumber" in ready.carriers[0]!, false);
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 3);
     assert.ok(requests.every((request) => request.method === "GET"));
-    assert.ok(requests.every((request) => !request.url.includes("/v2/labels")));
+    assert.ok(requests.every((request) => !request.url.includes("/v1/labels")));
+    assert.ok(requests.every((request) => !request.url.includes("/v1/rates")));
 
     delete process.env.SHIPSTATION_CARRIER_ID;
     const autoRequests: string[] = [];
@@ -132,7 +158,7 @@ async function main() {
       const url = String(input);
       autoRequests.push(url);
       assert.equal(String(init?.method || "GET").toUpperCase(), "GET");
-      if (url.includes("/v2/carriers?page=")) {
+      if (url === "https://api.shipengine.com/v1/carriers") {
         return new Response(
           JSON.stringify({
             carriers: [
@@ -146,17 +172,11 @@ async function main() {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/v2/carriers/se-only-usps/services")) {
-        return new Response(
-          JSON.stringify({
-            services: [
-              { service_code: "usps_first_class_mail", name: "Letter" },
-              { service_code: "usps_ground_advantage", name: "Ground Advantage" },
-              { service_code: "usps_priority_mail", name: "Priority Mail" },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+      if (url.endsWith("/v1/carriers/se-only-usps/services")) {
+        return servicesResponse();
+      }
+      if (url.endsWith("/v1/carriers/se-only-usps/packages")) {
+        return packagesResponse();
       }
       return new Response("{}", { status: 404 });
     }) as typeof fetch;
@@ -166,15 +186,18 @@ async function main() {
     assert.equal(autoSelected.configuredCarrierId, null);
     assert.equal(autoSelected.recommendedCarrierId, "se-only-usps");
     assert.equal(autoSelected.postagePurchaseAttempted, false);
-    assert.ok(autoRequests.every((url) => !url.includes("/v2/labels")));
+    assert.ok(autoRequests.every((url) => !url.includes("/v1/labels")));
+    assert.ok(autoRequests.every((url) => !url.includes("/v1/rates")));
 
-    console.log("ShipStation connection diagnostic simulations passed.");
+    console.log("Standalone ShipStation API connection diagnostic simulations passed.");
     console.log("- missing API key performs zero network calls");
-    console.log("- configured carrier and service discovery passed");
+    console.log("- /v1 carrier, service, and package discovery passed");
+    console.log("- First-Class, Ground Advantage, and Priority service checks passed");
+    console.log("- letter and package code checks passed");
     console.log("- single USPS carrier recommendation passed");
     console.log("- account numbers/secrets are not returned");
     console.log("- every simulated provider request was GET-only");
-    console.log("- no /v2/labels request and no postage purchase was attempted");
+    console.log("- no /v1/labels or /v1/rates request and no postage purchase was attempted");
   } finally {
     restore();
   }
