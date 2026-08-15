@@ -53,18 +53,18 @@ def _pattern_parallel_supported(
     parallel: str,
     local_vision: LocalVisionEvidence | None,
 ) -> bool:
-    """Require discriminative geometry before a pattern name can filter Registry.
+    """Require discriminative surface evidence before filtering Registry by pattern.
 
-    The Frozen Five Mac receipt exposed an important distinction: Rickea Base can
-    score as ``cracked_ice`` from dense polygon/edge texture even though it lacks
-    the directional facet geometry present on the real Ice examples. A label or
-    confidence score by itself is therefore not an independent witness.
+    The failed Mac receipt exposed a false Cracked Ice label on Rickea Base with
+    359 polygon candidates against the detector's capped 300 long-line segments.
+    Verified Frozen Five Ice examples remain below that over-segmentation boundary
+    while still carrying irregular, high-entropy multi-angle surface geometry.
 
-    For Cracked Ice we require the mixed geometry actually observed on the real
-    Ice cards: diagonal structure plus irregular polygons plus high multi-angle
-    entropy, together with either a direct deterministic label or reinforced
-    trusted style memory. Velocity remains directional and likewise needs an
-    independently measured directional witness.
+    A Cracked Ice claim therefore needs either a direct deterministic label or a
+    reinforced trusted-style hint *and* must pass the independent geometry sanity
+    checks. Velocity remains a directional pattern and still requires diagonal
+    geometry. These rules only authorize use of a parallel as Registry evidence;
+    failure removes the parallel rather than asserting Base.
     """
     lowered = str(parallel or "").strip().casefold()
     if not lowered:
@@ -87,36 +87,40 @@ def _pattern_parallel_supported(
     except (TypeError, ValueError):
         confidence = 0.0
     geometry = [str(value or "").strip().casefold() for value in pattern.geometry]
+    line_count = int(pattern.line_count or 0)
+    polygon_count = int(pattern.polygon_count or 0)
 
     has_directional_diagonal = any(
         "directional diagonal line geometry" in value for value in geometry
     )
     has_irregular_polygons = (
-        int(pattern.polygon_count or 0) >= 12
+        polygon_count >= 12
         or any("irregular polygon" in value for value in geometry)
     )
     has_multi_angle_geometry = (
         float(pattern.angle_entropy or 0) >= 0.72
         or any("non-directional multi-angle edge geometry" in value for value in geometry)
     )
+    # Hough lines are capped at 300. A polygon count materially beyond the
+    # available line structure is the exact over-segmentation signature in the
+    # failed Rickea Mac receipt. For small samples, keep a floor equal to the
+    # detector's polygon scoring saturation point instead of dividing by noise.
+    not_oversegmented = polygon_count <= max(line_count, 48)
     direct_support = label == required_label and confidence >= 0.70
+    memory_support = _trusted_style_memory_support(local_vision, required_label)
 
     if required_label == "cracked_ice":
-        if not (
-            has_directional_diagonal
-            and has_irregular_polygons
+        return bool(
+            has_irregular_polygons
             and has_multi_angle_geometry
-        ):
-            return False
-        if direct_support:
-            return True
-        return _trusted_style_memory_support(local_vision, required_label)
+            and not_oversegmented
+            and (direct_support or memory_support)
+        )
 
-    if not has_directional_diagonal:
-        return False
-    if direct_support:
-        return True
-    return _trusted_style_memory_support(local_vision, required_label)
+    return bool(
+        has_directional_diagonal
+        and (direct_support or memory_support)
+    )
 
 
 def _guard_model_pattern_parallel(
@@ -160,17 +164,14 @@ def _candidate_response_to_suggestion(
     if not isinstance(parsed, dict):
         raise ValueError("LoRA candidate did not return a structured JSON object")
 
-    # Training answers also contain checklist_identity_id/fingerprint fields.
-    # Those are deliberately ignored here. Runtime identity authority comes
-    # only from a fresh central Registry lookup performed by the main pipeline.
-    #
-    # IMPORTANT: merge first, then normalize, then guard the exact final identity
-    # that will be sent to Registry. The previous guard ran before normalization,
-    # so a flat sidecar payload could bypass it and local deterministic hints could
-    # re-inject a bad parallel after the guard had already run.
-    normalized = normalize_identity_payload(
-        merge_local_vision_payload(parsed, local_vision)
-    )
+    # Normalize before merging so a flat MLX sidecar response is promoted into
+    # the canonical nested identity shape instead of losing player/card/release
+    # fields inside merge_local_vision_payload. Then guard *after* the local merge
+    # so a bad deterministic parallel hint cannot re-inject what the model guard
+    # removed. The guarded object is exactly what proceeds to Registry.
+    normalized_input = normalize_identity_payload(parsed)
+    merged = merge_local_vision_payload(normalized_input, local_vision)
+    normalized = normalize_identity_payload(merged)
     normalized = _guard_model_pattern_parallel(normalized, local_vision)
     normalized = normalize_identity_payload(normalized)
 
