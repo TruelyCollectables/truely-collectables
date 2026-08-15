@@ -19,7 +19,7 @@ jobs:
   scoreboard:
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: Resolve Production project
         shell: bash
@@ -40,13 +40,6 @@ jobs:
           jq -n --arg q "
             select jsonb_build_object(
               'captured_at', clock_timestamp(),
-              'writer_started_at', '2026-08-15T22:10:47Z',
-              'gogts_imported_since_run', (
-                select count(*) from public.checklist_source_catalog
-                where status='imported'
-                  and source_url like 'https://gogts.net/%'
-                  and imported_at >= timestamptz '2026-08-15T22:10:47Z'
-              ),
               'gogts_imported_total', (
                 select count(*) from public.checklist_source_catalog
                 where status='imported' and source_url like 'https://gogts.net/%'
@@ -79,11 +72,46 @@ jobs:
             --data-binary @"$root/request.json" \
             --output "$root/result.json" \
             "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query/read-only"
-          cat "$root/result.json"
           jq '.[0].scoreboard' "$root/result.json" > "$root/scoreboard.json"
-      - name: Upload scoreboard
+          cat "$root/scoreboard.json"
+      - name: Export compact exact-set snapshot through Management SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gogts-scoreboard"
+          jq -n --arg q "
+            with exact_rows as (
+              select lower(coalesce(metadata->>'masterArchiveExactSetKey', metadata->>'exactSetKey')) as exact_set_key,
+                     bool_or(status='imported') as imported
+              from public.checklist_source_catalog
+              where coalesce(metadata->>'masterArchiveExactSetKey', metadata->>'exactSetKey') is not null
+              group by 1
+            )
+            select jsonb_build_object(
+              'schema','tcos.checklist.masterExactSetSnapshot.v1',
+              'generatedAt',clock_timestamp(),
+              'count',(select count(*) from exact_rows where exact_set_key like '%|%|%|%'),
+              'sets',coalesce((
+                select jsonb_agg(jsonb_build_object('exactSetKey',exact_set_key,'imported',imported) order by exact_set_key)
+                from exact_rows
+                where exact_set_key like '%|%|%|%'
+              ),'[]'::jsonb)
+            ) as snapshot;
+          " '{query:$q}' > "$root/snapshot-request.json"
+          curl --silent --show-error --fail --retry 2 --retry-all-errors --max-time 60 \
+            --request POST \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data-binary @"$root/snapshot-request.json" \
+            --output "$root/snapshot-result.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query/read-only"
+          jq '.[0].snapshot' "$root/snapshot-result.json" > "$root/master-exact-set-snapshot.json"
+          jq '{schema,generatedAt,count,imported:(.sets|map(select(.imported==true))|length)}' "$root/master-exact-set-snapshot.json"
+      - name: Upload scoreboard and exact-set snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: checklist-gogts-production-scoreboard-${{ github.run_id }}
-          path: ${{ runner.temp }}/gogts-scoreboard/scoreboard.json
-          retention-days: 7
+          name: checklist-production-snapshot-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/gogts-scoreboard/scoreboard.json
+            ${{ runner.temp }}/gogts-scoreboard/master-exact-set-snapshot.json
+          retention-days: 30
