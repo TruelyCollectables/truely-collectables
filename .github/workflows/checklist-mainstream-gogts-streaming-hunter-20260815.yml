@@ -125,7 +125,47 @@ jobs:
           jq -s 'unique_by(.metadata.masterArchiveExactSetKey) | map(select(.metadata.masterArchiveExactSetKey != null))' "$out/catalog.ndjson" > "$out/catalog.json"
           cp "$ATTEMPTED_LEDGER" "$out/ledger.json"
           echo "Production quarantined GoGTS exact keys: $(jq 'length' "$out/catalog.json")"
-          echo "Persistent handled-key ledger: $(jq '.count' "$out/ledger.json")"
+          echo "Persistent handled-key ledger before transport recovery: $(jq '.count' "$out/ledger.json")"
+
+      - name: Download failed transport run for retry recovery
+        uses: actions/download-artifact@v4
+        with:
+          name: checklist-mainstream-gogts-streaming-hunter-31890447372
+          path: ${{ runner.temp }}/gogts-transport-retry
+          repository: ${{ github.repository }}
+          run-id: 31890447372
+          github-token: ${{ github.token }}
+
+      - name: Reopen transport failures and probe public article transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-streaming"
+          failed="$RUNNER_TEMP/gogts-transport-retry/streaming-summary.json"
+          test -s "$failed"
+          jq '[.nonWins[]? | select(.reason == "article fetch failed") | .exactSetKey] | unique' "$failed" > "$out/retry-transport.json"
+          echo "Retryable transport failures reopened: $(jq 'length' "$out/retry-transport.json")"
+
+          rest="$out/wp-rest-canary.json"
+          rest_code="$(curl --silent --show-error --location --output "$rest" --write-out '%{http_code}' --max-time 25 \
+            'https://gogts.net/wp-json/wp/v2/posts?slug=2024-panini-flawless-baseball-cards-checklist&_fields=content,link')"
+          if [ "$rest_code" = "200" ] && jq -e 'type=="array" and length>0 and ((.[0].content.rendered // "") | contains("Checklist"))' "$rest" >/dev/null 2>&1; then
+            echo 'GOGTS_ARTICLE_MODE=wp-rest' >> "$GITHUB_ENV"
+            echo 'GoGTS article transport: public WordPress REST API'
+            exit 0
+          fi
+
+          direct="$out/direct-canary.html"
+          direct_code="$(curl --silent --show-error --location --output "$direct" --write-out '%{http_code}' --max-time 25 \
+            'https://gogts.net/2024-panini-flawless-baseball-cards-checklist/')"
+          if [ "$direct_code" = "200" ] && grep -qi 'Checklist' "$direct"; then
+            echo 'GOGTS_ARTICLE_MODE=direct' >> "$GITHUB_ENV"
+            echo 'GoGTS article transport: direct public page'
+            exit 0
+          fi
+
+          echo "No usable public GoGTS article transport from this runner (REST=$rest_code direct=$direct_code)." >&2
+          exit 1
 
       - name: Stream exact set -> validate -> persist -> mark handled -> hunt next
         shell: bash
@@ -134,7 +174,7 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/gogts-streaming"
-          CATALOG="$out/catalog.json" LEDGER="$out/ledger.json" OUT="$out" TARGET="$TARGET_NET_NEW" MAX_KEYS="$MAX_KEYS_PER_RUN" node --input-type=module <<'NODE'
+          CATALOG="$out/catalog.json" LEDGER="$out/ledger.json" RETRY_KEYS="$out/retry-transport.json" OUT="$out" TARGET="$TARGET_NET_NEW" MAX_KEYS="$MAX_KEYS_PER_RUN" node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
           import { spawnSync } from 'node:child_process';
           import { join } from 'node:path';
@@ -142,9 +182,12 @@ jobs:
           const catalog = JSON.parse(readFileSync(process.env.CATALOG, 'utf8'));
           const ledger = JSON.parse(readFileSync(process.env.LEDGER, 'utf8'));
           const handled = new Set(ledger.exactSetKeys || []);
+          const retryTransport = new Set(JSON.parse(readFileSync(process.env.RETRY_KEYS, 'utf8')));
+          for (const key of retryTransport) handled.delete(key);
           const out = process.env.OUT;
           const targetNetNew = Number(process.env.TARGET || 500);
           const maxKeys = Number(process.env.MAX_KEYS || 1100);
+          const articleMode = process.env.GOGTS_ARTICLE_MODE || 'direct';
           const sleep = ms => new Promise(r => setTimeout(r, ms));
           const clean = s => String(s || '').replaceAll('&amp;', '&');
           const summary = {
@@ -152,6 +195,8 @@ jobs:
             runId: process.env.GITHUB_RUN_ID || null,
             targetNetNew,
             maxKeys,
+            articleMode,
+            reopenedTransportFailures: retryTransport.size,
             startedAt: new Date().toISOString(),
             keysExamined: 0,
             keysWithSource: 0,
@@ -160,6 +205,7 @@ jobs:
             netNew: 0,
             idempotent: 0,
             failures: 0,
+            retryableTransportFailures: 0,
             wins: [],
             nonWins: []
           };
@@ -177,7 +223,8 @@ jobs:
               persisted: summary.persisted,
               netNew: summary.netNew,
               idempotent: summary.idempotent,
-              failures: summary.failures
+              failures: summary.failures,
+              retryableTransportFailures: summary.retryableTransportFailures
             };
             writeFileSync(process.env.LEDGER, JSON.stringify(ledger, null, 2) + '\n');
             summary.updatedAt = new Date().toISOString();
@@ -193,7 +240,7 @@ jobs:
                 const r = await fetch(url, {
                   signal: c.signal,
                   redirect: 'follow',
-                  headers: { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8' }
+                  headers: { accept: 'text/html,application/json,application/xhtml+xml;q=0.9,*/*;q=0.8' }
                 });
                 clearTimeout(t);
                 if (r.ok) return await r.text();
@@ -202,6 +249,25 @@ jobs:
               await sleep(1000 * (a + 1));
             }
             return '';
+          }
+
+          async function fetchArticle(page) {
+            if (articleMode === 'wp-rest') {
+              try {
+                const parsed = new URL(page);
+                const slug = parsed.pathname.split('/').filter(Boolean).pop() || '';
+                if (!slug) return { html: '', baseUrl: page };
+                const api = `https://gogts.net/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&_fields=content,link`;
+                const body = await fetchText(api);
+                if (!body) return { html: '', baseUrl: page };
+                const rows = JSON.parse(body);
+                const post = Array.isArray(rows) ? rows[0] : null;
+                return { html: String(post?.content?.rendered || ''), baseUrl: String(post?.link || page) };
+              } catch {
+                return { html: '', baseUrl: page };
+              }
+            }
+            return { html: await fetchText(page), baseUrl: page };
           }
 
           function sourceUrls(html, page) {
@@ -221,20 +287,31 @@ jobs:
             return all.sort((a,b) => rank(a) - rank(b)).slice(0, 3);
           }
 
+          save();
           for (const row of catalog) {
             if (summary.netNew >= targetNetNew || summary.keysExamined >= maxKeys) break;
             const key = row.metadata?.masterArchiveExactSetKey;
             if (!key || handled.has(key)) continue;
 
             summary.keysExamined++;
-            const html = await fetchText(row.source_url);
-            const urls = html ? sourceUrls(html, row.source_url) : [];
+            const article = await fetchArticle(row.source_url);
+            const html = article.html;
+            if (!html) {
+              summary.failures++;
+              summary.retryableTransportFailures++;
+              summary.nonWins.push({ exactSetKey: key, articleUrl: row.source_url, reason: 'article fetch failed', retryable: true });
+              console.log(`--- RETRYABLE TRANSPORT FAILURE ${key}`);
+              save();
+              continue;
+            }
+
+            const urls = sourceUrls(html, article.baseUrl);
             let won = false;
-            let lastReason = html ? 'no structured checklist source found' : 'article fetch failed';
+            let lastReason = 'no structured checklist source found';
 
             if (urls.length) {
               summary.keysWithSource++;
-              const [sport, season, manufacturer] = key.split('|');
+              const [sport, season] = key.split('|');
               const year = Number((season.match(/\d{4}/) || [])[0] || 0);
               for (let sourceIndex = 0; sourceIndex < urls.length; sourceIndex++) {
                 const sourceUrl = urls[sourceIndex];
@@ -285,9 +362,10 @@ jobs:
             }
 
             handled.add(key);
+            retryTransport.delete(key);
             if (!won) {
               summary.failures++;
-              summary.nonWins.push({ exactSetKey: key, articleUrl: row.source_url, reason: lastReason });
+              summary.nonWins.push({ exactSetKey: key, articleUrl: row.source_url, reason: lastReason, retryable: false });
               console.log(`--- HANDLED WITHOUT WIN ${key}: ${lastReason}`);
             }
             save();
@@ -296,6 +374,8 @@ jobs:
           summary.completedAt = new Date().toISOString();
           save();
           console.log(JSON.stringify({
+            articleMode: summary.articleMode,
+            reopenedTransportFailures: summary.reopenedTransportFailures,
             keysExamined: summary.keysExamined,
             keysWithSource: summary.keysWithSource,
             sourceAttempts: summary.sourceAttempts,
@@ -303,6 +383,7 @@ jobs:
             netNew: summary.netNew,
             idempotent: summary.idempotent,
             failures: summary.failures,
+            retryableTransportFailures: summary.retryableTransportFailures,
             ledgerCount: handled.size
           }));
           NODE
