@@ -1,0 +1,93 @@
+name: Checklist Conveyor Refeed 139 Mainstream 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-conveyor-refeed-139-mainstream-20260815.yml'
+      - 'scripts/mainstream-checklist/vacuum-mainstream-asset-feed.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-mainstream-gogts-harvest-tranche2-20260815
+  cancel-in-progress: false
+
+jobs:
+  refeed-139:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install mainstream parser dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/refeed-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+      - name: Download preserved 139-asset queue
+        uses: actions/download-artifact@v4
+        with:
+          name: checklist-conveyor-ready-queue-31901677861
+          path: ${{ runner.temp }}/ready
+          repository: ${{ github.repository }}
+          run-id: 31901677861
+          github-token: ${{ github.token }}
+      - name: Mainstream parse, strict validate, and persist
+        shell: bash
+        env:
+          VACUUM_MAINSTREAM_INPUT: ${{ runner.temp }}/ready/conveyor-resolved.json
+          VACUUM_MAINSTREAM_OUTPUT: ${{ runner.temp }}/refeed-139-receipt.json
+          VACUUM_MAINSTREAM_APPLY: 'true'
+          VACUUM_MAINSTREAM_MAX: '139'
+          VACUUM_MAINSTREAM_MIN_ROWS: '25'
+          VACUUM_MAINSTREAM_RPS_CAP: '0.4'
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/mainstream-checklist/vacuum-mainstream-asset-feed.ts
+          test -s "$VACUUM_MAINSTREAM_OUTPUT"
+          jq '{candidates,processed,statuses,imported,netNew,idempotent}' "$VACUUM_MAINSTREAM_OUTPUT"
+      - name: Upload strict Production receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-conveyor-refeed-139-${{ github.run_id }}
+          path: ${{ runner.temp }}/refeed-139-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/refeed-production" .env.local .env.production.local .vercel
