@@ -1,5 +1,6 @@
 name: Checklist GoGTS Production Scoreboard 20260815
 
+# Read-only scoreboard; never takes the Production writer lock.
 on:
   push:
     branches:
