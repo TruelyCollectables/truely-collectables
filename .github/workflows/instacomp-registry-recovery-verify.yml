@@ -11,11 +11,15 @@ on:
       - "src/lib/instacomp-registry-lock-request.ts"
       - "src/lib/instacomp-learning-server.ts"
       - "scripts/run-instacomp-registry-lock-request-regression.ts"
+      - "scripts/run-instacomp-registry-production-data-regression.ts"
   workflow_dispatch:
 
 permissions:
   actions: read
   contents: read
+
+env:
+  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
 
 jobs:
   verify-registry-recovery:
@@ -78,7 +82,7 @@ jobs:
       - name: Install Node dependencies
         run: npm ci --ignore-scripts
 
-      - name: Prove Sonia and Rickea Registry recovery contract three times
+      - name: Prove Sonia and Rickea request sanitizer contract three times
         run: |
           set -euo pipefail
           for run in 1 2 3; do
@@ -89,5 +93,48 @@ jobs:
             grep -q 'strips only unsupported parallel titles' "/tmp/registry-recovery-${run}.log"
           done
 
+      - name: Recover production Registry database credentials
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo 'SUPABASE_ACCESS_TOKEN is unavailable.'; exit 2; }
+          curl -sS --fail-with-body --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys?reveal=true" \
+            -o /tmp/instacomp-registry-api-keys.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const keys = JSON.parse(fs.readFileSync('/tmp/instacomp-registry-api-keys.json', 'utf8'));
+          if (!Array.isArray(keys) || !keys.length) throw new Error('Supabase returned no API keys.');
+          const normalized = keys.map((row) => ({
+            discriminator: String(row?.name || row?.type || '').trim().toLowerCase(),
+            value: String(row?.api_key || '').trim(),
+          }));
+          const serverKey = normalized.find((row) => ['service_role', 'secret'].includes(row.discriminator) && row.value);
+          if (!serverKey) throw new Error('Supabase server API key was not resolved.');
+          const ref = String(process.env.SUPABASE_PROJECT_REF || '').trim();
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEXT_PUBLIC_SUPABASE_URL=https://${ref}.supabase.co\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY=${serverKey.value}\n`);
+          console.log('PASS production Registry database credentials recovered; values withheld.');
+          NODE
+
+      - name: Prove all five canonical identities against real production Registry three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            node --import tsx scripts/run-instacomp-registry-production-data-regression.ts \
+              | tee "/tmp/production-registry-five-${run}.log"
+            grep -q 'PASS production Registry data resolves all five Frozen Five canonical identities exactly' "/tmp/production-registry-five-${run}.log"
+          done
+
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false
+
+      - name: Remove recovered Registry secret material
+        if: always()
+        shell: bash
+        run: shred -u /tmp/instacomp-registry-api-keys.json 2>/dev/null || true
