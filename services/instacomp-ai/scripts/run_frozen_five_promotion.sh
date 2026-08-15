@@ -23,6 +23,11 @@ fi
   exit 2
 }
 
+# Frozen Five must use the same exact dependency pins that passed the immutable
+# physical-image macOS gate. Repair an old .venv before any app import or LoRA
+# activation so the owner's Mac is never used to discover dependency drift.
+bash "$service_root/scripts/ensure-runtime-dependencies.sh" "$service_python"
+
 cd "$service_root"
 
 # The normal launchd service exports this protected file before starting Python
