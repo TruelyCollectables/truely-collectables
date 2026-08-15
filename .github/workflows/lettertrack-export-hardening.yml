@@ -7,19 +7,23 @@ on:
       - "src/lib/lettertrack-shipstation.ts"
       - "src/lib/shipstation-parcel.ts"
       - "src/lib/shipstation-connection.ts"
+      - "src/lib/shipstation-controlled-test.ts"
       - "src/app/api/admin/shipping/lettertrack-export/route.ts"
       - "src/app/api/admin/shipping/shipstation-connection-test/**"
+      - "src/app/api/admin/shipping/controlled-test-shipment/**"
       - "src/app/api/admin/orders/*/lettertrack-postage/**"
       - "src/app/api/admin/orders/*/shipstation-parcel/**"
       - "src/app/admin/orders/*/LetterTrackPostagePurchase.tsx"
       - "src/app/admin/orders/*/ShipStationParcelPurchase.tsx"
       - "src/app/admin/orders/*/ShippingLabelActions.tsx"
       - "src/app/admin/shipping/shipstation-test/**"
+      - "src/app/admin/shipping/test-shipment/**"
       - "src/app/api/tcos/shipping-safety/route.ts"
       - "scripts/run-lettertrack-export-hardening-simulations.ts"
       - "scripts/run-lettertrack-shipstation-bridge-simulations.ts"
       - "scripts/run-shipstation-parcel-bridge-simulations.ts"
       - "scripts/run-shipstation-connection-simulations.ts"
+      - "scripts/run-shipstation-controlled-test-simulations.ts"
       - ".github/workflows/lettertrack-export-hardening.yml"
   workflow_dispatch:
 
@@ -48,5 +52,7 @@ jobs:
         run: node --import tsx scripts/run-shipstation-parcel-bridge-simulations.ts
       - name: Run ShipStation connection diagnostic simulations
         run: node --import tsx scripts/run-shipstation-connection-simulations.ts
+      - name: Run controlled ShipStation test shipment simulations
+        run: node --import tsx scripts/run-shipstation-controlled-test-simulations.ts
       - name: TypeScript
         run: npx tsc --noEmit
