@@ -1,6 +1,6 @@
 {
   "schema": "tcos.checklist.ultimateVacuumSourcePolicy.v1",
-  "updatedAt": "2026-08-15T13:53:00Z",
+  "updatedAt": "2026-08-15T14:22:00Z",
   "principles": {
     "forumPagesAreLeadOnly": true,
     "requireExactSetValidationBeforePersistence": true,
@@ -28,8 +28,19 @@
       "hosts": ["gogts.net"],
       "mode": "harvest",
       "seedScore": 85,
+      "singleShardOnly": true,
+      "skipSitemaps": true,
+      "maxConcurrentPerHost": 1,
+      "maxRequestsPerSecondPerHost": 0.2,
+      "seedPaths": [
+        "/trading-card-checklists/baseball-card-checklists/",
+        "/trading-card-checklists/football-card-checklists/",
+        "/trading-card-checklists/basketball-card-checklists/",
+        "/trading-card-checklists/hockey-card-checklists/",
+        "/trading-card-checklists/soccer-card-checklists/"
+      ],
       "assetTypes": ["xlsx", "xls", "csv", "pdf"],
-      "notes": "Existing productive structured-source lane; retain strict parser validation."
+      "notes": "Polite archive-first lane. One shard only, no sitemap spray, one request about every five seconds, strict parser validation."
     },
     {
       "id": "topps-official",
