@@ -29,6 +29,8 @@ export const metadata: Metadata = {
   alternates: { canonical: "/shop" },
 };
 
+const SHOP_PAGE_SIZE = 48;
+
 const FEATURE_LINKS = [
   { key: "autograph", label: "Autographs" },
   { key: "memorabilia", label: "Memorabilia Cards" },
@@ -38,14 +40,18 @@ const FEATURE_LINKS = [
 ] as const;
 
 function shopHref(params: {
+  q?: string;
   section?: string;
   feature?: string;
   sort?: string;
+  page?: number;
 }) {
   const search = new URLSearchParams();
+  if (params.q) search.set("q", params.q);
   if (params.section) search.set("section", params.section);
   if (params.feature) search.set("feature", params.feature);
   if (params.sort && params.sort !== "section") search.set("sort", params.sort);
+  if (params.page && params.page > 1) search.set("page", String(params.page));
   const query = search.toString();
   return query ? `/shop?${query}` : "/shop";
 }
@@ -172,6 +178,7 @@ export default async function Shop({
     section?: string;
     feature?: string;
     sort?: StorefrontSort;
+    page?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -179,6 +186,7 @@ export default async function Shop({
   const section = (params?.section || params?.sport || "").trim();
   const feature = (params?.feature || "").trim();
   const sort: StorefrontSort = params?.sort || "section";
+  const requestedPage = Number.parseInt(params?.page || "1", 10);
 
   let products: UniversalInventoryItem[] = [];
   let soldProducts: UniversalInventoryItem[] = [];
@@ -219,6 +227,18 @@ export default async function Shop({
     );
   }
 
+  const totalProducts = products.length;
+  const totalPages = Math.max(1, Math.ceil(totalProducts / SHOP_PAGE_SIZE));
+  const currentPage = Math.min(
+    Math.max(Number.isFinite(requestedPage) ? requestedPage : 1, 1),
+    totalPages,
+  );
+  const pageStart = (currentPage - 1) * SHOP_PAGE_SIZE;
+  const visibleProducts = products.slice(pageStart, pageStart + SHOP_PAGE_SIZE);
+  const pageEnd = Math.min(pageStart + visibleProducts.length, totalProducts);
+  const pageHref = (page: number) =>
+    shopHref({ q, section, feature, sort, page });
+
   const activeFilters = Boolean(q || section || feature || sort !== "section");
   const sectionOptions = sortStorefrontSections([
     ...SPORT_SECTIONS,
@@ -246,7 +266,7 @@ export default async function Shop({
         </div>
         <div className="flex flex-wrap gap-2 text-sm font-bold">
           <p className="rounded bg-white px-4 py-2 text-neutral-700">
-            {products.length.toLocaleString()} active
+            {totalProducts.toLocaleString()} active
           </p>
           {soldProducts.length ? (
             <p className="rounded bg-red-100 px-4 py-2 text-red-800">
@@ -398,12 +418,21 @@ export default async function Shop({
         </div>
       ) : null}
 
-      {products.length === 0 ? (
+      {totalProducts === 0 ? (
         <p className="text-gray-600">No active cards or collectibles found.</p>
-      ) : null}
+      ) : (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-neutral-600">
+          <p>
+            Showing {pageStart + 1}–{pageEnd} of {totalProducts.toLocaleString()}
+          </p>
+          <p>
+            Page {currentPage.toLocaleString()} of {totalPages.toLocaleString()}
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {products.map((product) => {
+        {visibleProducts.map((product) => {
           const storefrontImage =
             preferHighResolutionListingImage(product.imageUrl) ||
             "/placeholder.png";
@@ -463,6 +492,41 @@ export default async function Shop({
           );
         })}
       </div>
+
+      {totalPages > 1 ? (
+        <nav
+          className="mt-8 flex flex-wrap items-center justify-center gap-3"
+          aria-label="Shop pagination"
+        >
+          {currentPage > 1 ? (
+            <Link
+              href={pageHref(currentPage - 1)}
+              className="min-h-11 rounded border-2 border-neutral-950 bg-white px-5 py-2.5 font-black hover:bg-yellow-300"
+            >
+              Previous
+            </Link>
+          ) : (
+            <span className="min-h-11 rounded border-2 border-neutral-300 bg-neutral-100 px-5 py-2.5 font-black text-neutral-400">
+              Previous
+            </span>
+          )}
+          <span className="px-2 text-sm font-black">
+            Page {currentPage.toLocaleString()} of {totalPages.toLocaleString()}
+          </span>
+          {currentPage < totalPages ? (
+            <Link
+              href={pageHref(currentPage + 1)}
+              className="min-h-11 rounded border-2 border-neutral-950 bg-white px-5 py-2.5 font-black hover:bg-yellow-300"
+            >
+              Next
+            </Link>
+          ) : (
+            <span className="min-h-11 rounded border-2 border-neutral-300 bg-neutral-100 px-5 py-2.5 font-black text-neutral-400">
+              Next
+            </span>
+          )}
+        </nav>
+      ) : null}
 
       {soldProducts.length ? (
         <section className="mt-12 border-t-4 border-red-700 pt-8">
