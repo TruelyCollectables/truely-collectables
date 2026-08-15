@@ -1,0 +1,56 @@
+name: InstaComp Registry transport retry self-test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-registry-retry-selftest.yml"
+      - "services/instacomp-ai/app/authoritative_registry_gateway.py"
+      - "services/instacomp-ai/tests/test_authoritative_registry_gateway_retry.py"
+      - "services/instacomp-ai/requirements.txt"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-registry-retry-selftest.yml"
+      - "services/instacomp-ai/app/authoritative_registry_gateway.py"
+      - "services/instacomp-ai/tests/test_authoritative_registry_gateway_retry.py"
+      - "services/instacomp-ai/requirements.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  registry-retry-selftest:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned InstaComp runtime
+        run: |
+          set -euo pipefail
+          python -m venv services/instacomp-ai/.venv
+          bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+            services/instacomp-ai/.venv/bin/python
+
+      - name: Prove timeout retry and exhausted fail-closed behavior three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            PYTHONPATH=services/instacomp-ai \
+              services/instacomp-ai/.venv/bin/python -m pytest -q \
+              services/instacomp-ai/tests/test_authoritative_registry_gateway_retry.py \
+              | tee "/tmp/registry-retry-${run}.log"
+            grep -q '2 passed' "/tmp/registry-retry-${run}.log"
+          done
+
+      - name: Compile Registry gateway
+        run: |
+          set -euo pipefail
+          services/instacomp-ai/.venv/bin/python -m py_compile \
+            services/instacomp-ai/app/authoritative_registry_gateway.py

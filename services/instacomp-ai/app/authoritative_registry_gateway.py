@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -12,8 +13,16 @@ from .models import CardIdentity, ChecklistOutcome, ChecklistResult
 class AuthoritativeRegistryChecklistGateway:
     """Post-AI exact Registry lock using the same resolver as Production scan."""
 
-    def __init__(self, timeout_seconds: float = 20.0) -> None:
+    def __init__(
+        self,
+        timeout_seconds: float = 20.0,
+        *,
+        max_attempts: int = 3,
+        retry_backoff_seconds: float = 0.5,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
+        self.max_attempts = max(1, int(max_attempts))
+        self.retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
 
     async def match(
         self,
@@ -28,7 +37,13 @@ class AuthoritativeRegistryChecklistGateway:
         identity: CardIdentity,
         ocr_text: str | None = None,
     ) -> tuple[ChecklistResult, dict[str, Any]]:
-        """Resolve once and return the exact Registry exchange for promotion diagnostics."""
+        """Resolve with bounded transport retries and preserve the exact exchange.
+
+        Registry lock is a read-only/idempotent identity lookup. A transient read
+        timeout or connection reset must not turn one otherwise-valid card into a
+        failed promotion. Only transport failures are retried; Registry responses
+        themselves remain authoritative and fail closed exactly as before.
+        """
         base_url = _registry_base_url()
         diagnostics: dict[str, Any] = {
             "registry_url": (
@@ -44,6 +59,9 @@ class AuthoritativeRegistryChecklistGateway:
             "registry_identity_id": None,
             "registry_fingerprint_sha256": None,
             "registry_transport_error": None,
+            "registry_transport_errors": [],
+            "registry_attempts": 0,
+            "registry_max_attempts": self.max_attempts,
         }
 
         if not base_url:
@@ -79,20 +97,47 @@ class AuthoritativeRegistryChecklistGateway:
         }
         diagnostics["registry_request"] = payload
 
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.post(
-                    f"{base_url}/api/instacomp/registry-lock",
-                    headers=_registry_headers(),
-                    json=payload,
+        response: httpx.Response | None = None
+        for attempt in range(1, self.max_attempts + 1):
+            diagnostics["registry_attempts"] = attempt
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    response = await client.post(
+                        f"{base_url}/api/instacomp/registry-lock",
+                        headers=_registry_headers(),
+                        json=payload,
+                    )
+                diagnostics["registry_transport_error"] = None
+                break
+            except httpx.TransportError as error:
+                transport_error = f"{type(error).__name__}: {error}"
+                diagnostics["registry_transport_error"] = transport_error
+                diagnostics["registry_transport_errors"].append(transport_error)
+                if attempt >= self.max_attempts:
+                    result = ChecklistResult(
+                        outcome=ChecklistOutcome.NOT_CONFIGURED,
+                        reasons=[
+                            "Checklist Registry request failed after "
+                            f"{attempt} attempts: {error}"
+                        ],
+                    )
+                    return result, diagnostics
+                if self.retry_backoff_seconds:
+                    await asyncio.sleep(self.retry_backoff_seconds * attempt)
+            except httpx.HTTPError as error:
+                diagnostics["registry_transport_error"] = (
+                    f"{type(error).__name__}: {error}"
                 )
-        except httpx.HTTPError as error:
-            diagnostics["registry_transport_error"] = (
-                f"{type(error).__name__}: {error}"
-            )
+                result = ChecklistResult(
+                    outcome=ChecklistOutcome.NOT_CONFIGURED,
+                    reasons=[f"Checklist Registry request failed: {error}"],
+                )
+                return result, diagnostics
+
+        if response is None:
             result = ChecklistResult(
                 outcome=ChecklistOutcome.NOT_CONFIGURED,
-                reasons=[f"Checklist Registry request failed: {error}"],
+                reasons=["Checklist Registry request produced no response."],
             )
             return result, diagnostics
 
