@@ -1,12 +1,12 @@
 name: Checklist GoGTS Boundary Complexity Diagnostic 20260815
 
-# Offline-only diagnostic: no Production credentials, reads or writes.
 on:
   push:
     branches:
       - ops/checklist-ultimate-vacuum-20260815
     paths:
       - '.github/workflows/checklist-gogts-boundary-complexity-diagnostic-20260815.yml'
+      - 'scripts/mainstream-checklist/gogts-boundary-complexity-diagnostic.mjs'
   workflow_dispatch:
 
 permissions:
@@ -43,7 +43,6 @@ jobs:
           github-token: ${{ github.token }}
       - name: Extract archive
         run: |
-          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/extracted"
           tar -xzf "$RUNNER_TEMP/archive/sports-card-checklist-master-archive.tar.gz" -C "$RUNNER_TEMP/extracted"
       - name: Download preserved status index
@@ -59,73 +58,18 @@ jobs:
           ARCHIVE_ROOT: ${{ runner.temp }}/extracted
           STATUS_ROOT: ${{ runner.temp }}/status
           QUEUE_OUT: ${{ runner.temp }}/queue.json
-        run: |
-          set -euo pipefail
-          python scripts/mainstream-checklist/build-gogts-offline-queue.py
-      - name: Measure boundary workbook and plan complexity without Production
+        run: python scripts/mainstream-checklist/build-gogts-offline-queue.py
+      - name: Measure boundary parse and plan complexity
         env:
           QUEUE: ${{ runner.temp }}/queue.json
           OUT: ${{ runner.temp }}/boundary-complexity.json
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/diagnose.mjs" <<'NODE'
-          import { execFile } from 'node:child_process';
-          import { createHash } from 'node:crypto';
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import { promisify } from 'node:util';
-          import { downloadAndParse } from './scripts/mainstream-checklist/source-tools.mjs';
-          import { normalizeGoGtsStructuredText } from './scripts/mainstream-checklist/gogts-structured-normalizer.mjs';
-          import { buildPlan, assertPlanComplexity } from './scripts/mainstream-checklist/registry-tools.mjs';
-          const execFileAsync=promisify(execFile);
-          const q=JSON.parse(readFileSync(process.env.QUEUE,'utf8')).candidates;
-          const indexes=[258,259,260,261,262,263,264];
-          const results=[];
-          async function extract(path){
-            const {stdout}=await execFileAsync('python3',['-c',String.raw`
-          import sys, xlrd
-          path=sys.argv[1]
-          wb=xlrd.open_workbook(path)
-          rows=[]
-          for ws in wb.sheets():
-              rows.append('## '+ws.name)
-              for r in range(ws.nrows):
-                  vals=[str(ws.cell_value(r,c)).strip() for c in range(ws.ncols) if str(ws.cell_value(r,c)).strip()]
-                  if vals: rows.append(' | '.join(vals))
-          print('\\n'.join(rows))
-          `,path],{encoding:'utf8',maxBuffer:128*1024*1024,timeout:180000});
-            return stdout.trim();
-          }
-          for(const index of indexes){
-            const c=q[index];
-            const started=Date.now();
-            try{
-              const raw=readFileSync(c.localPath);
-              const extracted=await extract(c.localPath);
-              const normalized=normalizeGoGtsStructuredText(extracted);
-              const offline=`https://offline.invalid/${createHash('sha256').update(raw).digest('hex')}.txt`;
-              const native=globalThis.fetch;
-              globalThis.fetch=async(input,init)=>{
-                const u=typeof input==='string'?input:String(input?.url||input);
-                if(u===offline) return new Response(Buffer.from(normalized),{status:200,headers:{'content-type':'text/plain'}});
-                return native(input,init);
-              };
-              const [sport,season,manufacturer,product]=c.exactSetKey.split('|');
-              const entry={id:`diag-${index}`,sourceName:'diag',sourceUrl:offline,fallbackUrls:[],authority:'approved_reference_dataset',redistributionAllowed:false,disposition:'registry_candidate',minimumCardRows:25,release:{exactSetKey:c.exactSetKey,sport,season,releaseYear:(season.match(/(?:19|20)\d{2}/)||[''])[0],manufacturer,brand:null,product,league:null,canonicalName:`${season} ${manufacturer} ${product}`}};
-              let downloaded;
-              try{downloaded=await downloadAndParse(entry);} finally {globalThis.fetch=native;}
-              const source={...downloaded.source,bytes:new Uint8Array(raw),finalUrl:c.sourceUrl,selectedUrl:c.sourceUrl,mimeType:'application/vnd.ms-excel',filename:c.localPath.split('/').pop()};
-              const plan=buildPlan(entry,downloaded.parsed,source,new Date().toISOString());
-              const complexity=assertPlanComplexity(plan);
-              results.push({index,exactSetKey:c.exactSetKey,archivedBytes:c.archivedBytes,extractedChars:extracted.length,normalizedChars:normalized.length,counts:plan.validation.counts,issues:plan.validation.issues.length,planBytes:complexity.serializedBytes,elapsedMs:Date.now()-started});
-            }catch(e){results.push({index,exactSetKey:c?.exactSetKey,archivedBytes:c?.archivedBytes,error:String(e?.stack||e),elapsedMs:Date.now()-started});}
-          }
-          writeFileSync(process.env.OUT,JSON.stringify({generatedAt:new Date().toISOString(),results},null,2)+'\n');
-          console.log(JSON.stringify({results},null,2));
-          NODE
-          node "$RUNNER_TEMP/diagnose.mjs"
+          INDEXES: '258,259,260,261,262,263,264'
+        run: node scripts/mainstream-checklist/gogts-boundary-complexity-diagnostic.mjs
       - name: Upload diagnostic
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checklist-gogts-boundary-complexity-${{ github.run_id }}
           path: ${{ runner.temp }}/boundary-complexity.json
+          if-no-files-found: warn
           retention-days: 14
