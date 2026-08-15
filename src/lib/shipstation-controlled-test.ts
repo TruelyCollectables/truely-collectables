@@ -372,22 +372,31 @@ export async function purchaseControlledOneOunceLetter(
   const existing = await findExistingLabel(externalShipmentId);
   if (existing) return existing;
 
-  const response = await providerRequest("/v1/labels", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      shipment: {
-        ...shipment,
-        external_shipment_id: externalShipmentId,
-      },
-      label_format: "pdf",
-      label_layout: "4x6",
-      label_download_type: "url",
-      display_scheme: "label",
-    }),
-  });
-  const payload = (await response.json().catch(() => ({}))) as Record<string, any>;
+  let response: Response;
+  try {
+    response = await providerRequest("/v1/labels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shipment: {
+          ...shipment,
+          external_shipment_id: externalShipmentId,
+        },
+        label_format: "pdf",
+        label_layout: "4x6",
+        label_download_type: "url",
+        display_scheme: "label",
+      }),
+    });
+  } catch (error: any) {
+    const reconciled = await findExistingLabel(externalShipmentId).catch(() => null);
+    if (reconciled) return reconciled;
+    throw new Error(
+      `ShipStation controlled test purchase outcome is uncertain after a provider/network failure. Retry the identical test shipment without changing the destination; TCOS will reconcile the same external shipment ID before submitting another purchase. ${clean(error?.message)}`.trim(),
+    );
+  }
 
+  const payload = (await response.json().catch(() => ({}))) as Record<string, any>;
   if (!response.ok) {
     const reconciled = await findExistingLabel(externalShipmentId).catch(() => null);
     if (reconciled) return reconciled;
