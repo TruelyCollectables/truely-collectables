@@ -9,8 +9,11 @@ on:
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - "services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py"
       - "services/instacomp-ai/app/authoritative_registry_gateway.py"
       - "services/instacomp-ai/app/config.py"
+      - "services/instacomp-ai/app/pattern_memory.py"
+      - "services/instacomp-ai/app/__init__.py"
   pull_request:
     branches: [main]
     paths:
@@ -19,8 +22,11 @@ on:
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - "services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py"
       - "services/instacomp-ai/app/authoritative_registry_gateway.py"
       - "services/instacomp-ai/app/config.py"
+      - "services/instacomp-ai/app/pattern_memory.py"
+      - "services/instacomp-ai/app/__init__.py"
   workflow_dispatch:
 
 permissions:
@@ -37,15 +43,27 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Compile exact promotion scripts
+      - name: Compile exact promotion and diagnostic scripts
         run: |
           set -euo pipefail
           python -m py_compile \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py \
+            services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py \
             services/instacomp-ai/app/authoritative_registry_gateway.py
           bash -n services/instacomp-ai/scripts/run_frozen_five_promotion.sh
           bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
+
+      - name: Prove full diagnostic never stops at the first failed card three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            python services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py --self-test \
+              | tee "/tmp/frozen-five-full-diagnostic-selftest-${run}.log"
+            grep -q 'PASS full five continues after card failure' "/tmp/frozen-five-full-diagnostic-selftest-${run}.log"
+            grep -q 'PASS per-card exceptions do not hide later diagnostics' "/tmp/frozen-five-full-diagnostic-selftest-${run}.log"
+            grep -q 'PASS teacher truth is retained in diagnostic records' "/tmp/frozen-five-full-diagnostic-selftest-${run}.log"
+          done
 
       - name: Prove stale exported LoRA flag cannot override updated env file
         run: |
