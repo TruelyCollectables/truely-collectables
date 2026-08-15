@@ -1,6 +1,14 @@
 name: InstaComp Frozen Five v2 macOS self-test
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-frozen-five-v2-selftest.yml"
+      - "services/instacomp-ai/scripts/run_frozen_five_promotion.sh"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - "services/instacomp-ai/app/authoritative_registry_gateway.py"
   pull_request:
     branches: [main]
     paths:
@@ -34,11 +42,15 @@ jobs:
             services/instacomp-ai/app/authoritative_registry_gateway.py
           bash -n services/instacomp-ai/scripts/run_frozen_five_promotion.sh
 
-      - name: Prove canonical launcher resolves app and runs v2 self-test
+      - name: Prove canonical launcher loads protected Registry auth and runs v2 self-test
         run: |
           set -euo pipefail
           python -m venv services/instacomp-ai/.venv
+          printf '%s\n' 'INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN=ci-registry-auth-fixture' > services/instacomp-ai/.env
+          chmod 600 services/instacomp-ai/.env
           bash services/instacomp-ai/scripts/run_frozen_five_promotion.sh --self-test \
             | tee /tmp/frozen-five-v2-launcher.log
+          grep -q 'PASS Registry client authentication configured' /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS InstaComp app import path:' /tmp/frozen-five-v2-launcher.log
           grep -q 'PASS failed-case candidate and raw Registry diagnostics are retained' /tmp/frozen-five-v2-launcher.log
+          rm -f services/instacomp-ai/.env
