@@ -9,12 +9,16 @@ on:
       - "services/instacomp-ai/app/config.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/runtime_identity.py"
+      - "services/instacomp-ai/app/serial_evidence_guard.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
+      - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/disable-lora-candidate-macos.sh"
       - "services/instacomp-ai/tests/test_lora_runtime_candidate.py"
       - "services/instacomp-ai/tests/test_runtime_identity.py"
+      - "services/instacomp-ai/tests/test_serial_evidence_guard.py"
       - "services/instacomp-ai/requirements-lora-runtime.txt"
   workflow_dispatch:
 
@@ -47,22 +51,25 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r services/instacomp-ai/requirements-training.txt
 
-      - name: Compile candidate runtime and lint shell launchers
+      - name: Compile candidate runtime, serial guard, and lint shell launchers
         run: |
           set -euo pipefail
           python -m compileall -q \
             services/instacomp-ai/app \
             services/instacomp-ai/scripts/run_lora_candidate_server.py \
-            services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py
+            services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py
+          bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
           bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           bash -n services/instacomp-ai/scripts/disable-lora-candidate-macos.sh
 
-      - name: Prove candidate safety contracts
+      - name: Prove candidate safety and serial evidence contracts
         run: |
           set -euo pipefail
           PYTHONPATH=services/instacomp-ai python -m pytest -q \
             services/instacomp-ai/tests/test_lora_runtime_candidate.py \
-            services/instacomp-ai/tests/test_runtime_identity.py
+            services/instacomp-ai/tests/test_runtime_identity.py \
+            services/instacomp-ai/tests/test_serial_evidence_guard.py
 
       - name: Run complete InstaComp service suite
         run: |
@@ -146,7 +153,16 @@ jobs:
           grep -q 'legacy.CandidateHandler = CandidateHandlerV2' services/instacomp-ai/scripts/run_lora_candidate_server.py
           grep -q 'strict_retry_prompt' services/instacomp-ai/scripts/run_lora_candidate_server.py
 
+          # A noisy OCR fraction may remain in raw evidence, but it cannot become
+          # Registry serial identity unless it is a clean stamp or independently
+          # corroborated. The actual v9 runner must own the Frozen 25 launch path.
+          grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
+          grep -q '_unique_corroborated_exact' services/instacomp-ai/app/serial_evidence_guard.py
+          grep -q 'return SerialEvidence(stamp_present=False)' services/instacomp-ai/app/serial_evidence_guard.py
+          grep -q 'promotion-v9-serial-evidence-guard' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v9.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+
           grep -q 'install_lora_candidate_runtime()' services/instacomp-ai/app/__init__.py
           grep -q 'rollback_on_exit' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           grep -q 'cd "$service_root"' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
-          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, structured-recovery bounded, transactional, and rollbackable"
+          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, serial-guarded, structured-recovery bounded, transactional, and rollbackable"

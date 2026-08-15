@@ -39,3 +39,41 @@ jobs:
       - run: npm ci
       - name: Typecheck Next.js bridge
         run: npx tsc --noEmit
+
+  native-serial-registry-contract:
+    name: native-macos-serial-registry
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install InstaComp service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+
+      - name: Prove serial evidence cannot poison Registry identity on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            services/instacomp-ai/tests/test_serial_evidence_guard.py \
+            services/instacomp-ai/tests/test_authoritative_registry_gateway_retry.py \
+            services/instacomp-ai/tests/test_deterministic_checklist_recovery.py
+
+      - name: Prove Registry authority and v9 fail-closed source contract
+        run: |
+          set -euo pipefail
+          grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
+          grep -q 'promotion-v9-serial-evidence-guard' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v9.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'class AuthoritativeRegistryChecklistGateway' services/instacomp-ai/app/authoritative_registry_gateway.py
+          grep -q '/api/instacomp/registry-lock' services/instacomp-ai/app/authoritative_registry_gateway.py
+          grep -q 'ChecklistOutcome.EXACT_MATCH' services/instacomp-ai/app/authoritative_registry_gateway.py
+          grep -q 'return SerialEvidence(stamp_present=False)' services/instacomp-ai/app/serial_evidence_guard.py
+          echo "PASS native macOS serial evidence remains Registry-authoritative and fail-closed"
