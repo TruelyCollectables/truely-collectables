@@ -16,9 +16,13 @@ on:
       - "services/instacomp-ai/app/config.py"
       - "services/instacomp-ai/app/local_vision.py"
       - "services/instacomp-ai/app/pattern_memory.py"
+      - "services/instacomp-ai/app/training.py"
       - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
+      - "services/instacomp-ai/tests/test_local_learning_stack.py"
       - "services/instacomp-ai/requirements.txt"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "scripts/run-instacomp-registry-lock-request-regression.ts"
   pull_request:
     branches: [main]
     paths:
@@ -34,9 +38,13 @@ on:
       - "services/instacomp-ai/app/config.py"
       - "services/instacomp-ai/app/local_vision.py"
       - "services/instacomp-ai/app/pattern_memory.py"
+      - "services/instacomp-ai/app/training.py"
       - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
+      - "services/instacomp-ai/tests/test_local_learning_stack.py"
       - "services/instacomp-ai/requirements.txt"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "scripts/run-instacomp-registry-lock-request-regression.ts"
   workflow_dispatch:
 
 permissions:
@@ -46,7 +54,7 @@ permissions:
 jobs:
   frozen-five-v2-selftest:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -69,8 +77,6 @@ jobs:
           print("PASS exact native runtime pins installed")
           PY
 
-          # Reproduce the class of drift allowed by the old launcher: the venv
-          # exists, but a native dependency no longer matches requirements.txt.
           services/instacomp-ai/.venv/bin/python -m pip install \
             --disable-pip-version-check --no-deps 'numpy==2.3.5' >/dev/null
           services/instacomp-ai/.venv/bin/python - <<'PY'
@@ -130,6 +136,34 @@ jobs:
               | tee "/tmp/opencv-pattern-native-${run}.log"
           done
 
+      - name: Prove exact Registry truth cannot poison the next training export three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            PYTHONPATH=services/instacomp-ai \
+              services/instacomp-ai/.venv/bin/python -m pytest -q \
+              services/instacomp-ai/tests/test_local_learning_stack.py \
+              | tee "/tmp/local-learning-registry-truth-${run}.log"
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install TypeScript regression dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Prove Rickea Registry request keeps Prizm while dropping unsupported Green three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            node --import tsx scripts/run-instacomp-registry-lock-request-regression.ts \
+              | tee "/tmp/rickea-registry-lock-request-${run}.log"
+            grep -q 'PASS Registry-lock request keeps product family' "/tmp/rickea-registry-lock-request-${run}.log"
+          done
+          npx tsc --noEmit
+
       - name: Compile exact promotion and runtime scripts
         run: |
           set -euo pipefail
@@ -138,7 +172,8 @@ jobs:
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py \
             services/instacomp-ai/scripts/diagnose_lora_frozen_five_all.py \
             services/instacomp-ai/app/authoritative_registry_gateway.py \
-            services/instacomp-ai/app/local_vision.py
+            services/instacomp-ai/app/local_vision.py \
+            services/instacomp-ai/app/training.py
           bash -n services/instacomp-ai/scripts/ensure-runtime-dependencies.sh
           bash -n services/instacomp-ai/scripts/run-local.sh
           bash -n services/instacomp-ai/scripts/run_frozen_five_promotion.sh
