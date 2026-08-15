@@ -5,6 +5,8 @@ service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python_bin="${1:-$service_root/.venv/bin/python}"
 requirements="$service_root/requirements.txt"
 marker="$service_root/.venv/.instacomp-requirements.sha256"
+canonical_opencv_distribution="opencv-python-headless"
+canonical_opencv_requirement="opencv-python-headless==4.12.0.88"
 
 [[ -x "$python_bin" ]] || {
   echo "InstaComp runtime Python is missing: $python_bin" >&2
@@ -33,6 +35,25 @@ path = Path(sys.argv[1])
 print(hashlib.sha256(path.read_bytes()).hexdigest())
 PY
 )"
+
+installed_opencv_conflicts() {
+  "$python_bin" - <<'PY'
+from __future__ import annotations
+
+import importlib.metadata as metadata
+
+for distribution in (
+    "opencv-python",
+    "opencv-contrib-python",
+    "opencv-contrib-python-headless",
+):
+    try:
+        version = metadata.version(distribution)
+    except metadata.PackageNotFoundError:
+        continue
+    print(f"{distribution}=={version}")
+PY
+}
 
 verify_runtime() {
   "$python_bin" - "$requirements" <<'PY'
@@ -63,8 +84,24 @@ for raw in requirements.read_text(encoding="utf-8").splitlines():
     if installed != expected:
         mismatched.append(f"{distribution}={installed} expected={expected}")
 
-if missing or mismatched:
-    details = [*(f"missing:{value}" for value in missing), *mismatched]
+conflicting_opencv: list[str] = []
+for distribution in (
+    "opencv-python",
+    "opencv-contrib-python",
+    "opencv-contrib-python-headless",
+):
+    try:
+        version = metadata.version(distribution)
+    except metadata.PackageNotFoundError:
+        continue
+    conflicting_opencv.append(f"{distribution}={version}")
+
+if missing or mismatched or conflicting_opencv:
+    details = [
+        *(f"missing:{value}" for value in missing),
+        *mismatched,
+        *(f"conflicting-opencv:{value}" for value in conflicting_opencv),
+    ]
     print("; ".join(details), file=sys.stderr)
     raise SystemExit(1)
 
@@ -92,11 +129,36 @@ fi
 
 if [[ "$needs_sync" == "1" ]]; then
   echo "Synchronizing InstaComp runtime dependencies to pinned requirements..."
+
+  conflicts="$(installed_opencv_conflicts)"
+  if [[ -n "$conflicts" ]]; then
+    echo "Removing conflicting OpenCV distributions before restoring the canonical headless runtime..."
+    while IFS= read -r conflict; do
+      [[ -n "$conflict" ]] || continue
+      distribution="${conflict%%==*}"
+      echo "Removing $conflict"
+      "$python_bin" -m pip uninstall -y "$distribution"
+    done <<< "$conflicts"
+  fi
+
   "$python_bin" -m pip install --disable-pip-version-check -r "$requirements"
+
+  # OpenCV distributions share the same cv2 package namespace. If a stale
+  # opencv-python/opencv-contrib wheel was ever installed alongside the pinned
+  # headless wheel, uninstalling it can remove or leave behind cv2 files even
+  # while opencv-python-headless metadata still reports the correct version.
+  # Always restore the canonical wheel after any synchronization so the actual
+  # importable cv2 package matches the distribution metadata.
+  "$python_bin" -m pip install \
+    --disable-pip-version-check \
+    --force-reinstall \
+    --no-deps \
+    "$canonical_opencv_requirement"
 fi
 
 if ! verify_runtime; then
   echo "InstaComp runtime dependency verification failed after synchronization." >&2
+  echo "Canonical OpenCV distribution must be $canonical_opencv_distribution with no competing cv2 provider installed." >&2
   exit 3
 fi
 
