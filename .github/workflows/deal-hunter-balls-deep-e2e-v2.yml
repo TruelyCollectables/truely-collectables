@@ -17,7 +17,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
@@ -31,91 +30,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download encrypted production vault
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-vault-31773508121
-          path: /tmp/balls-deep-production-vault
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
-      - name: Download separate recovery key
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-recovery-key-31773508121
-          path: /tmp/balls-deep-production-key
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
-      - name: Recover production Market Intel delivery configuration without logging values
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const { createDecipheriv, createHash } = require('node:crypto');
-
-          function filesBelow(root) {
-            return fs.readdirSync(root, { recursive: true, withFileTypes: true })
-              .filter((entry) => entry.isFile())
-              .map((entry) => path.join(entry.parentPath || entry.path, entry.name));
-          }
-
-          const vaultPath = filesBelow('/tmp/balls-deep-production-vault')
-            .find((file) => file.endsWith('.tcosvault'));
-          const keyPath = filesBelow('/tmp/balls-deep-production-key')
-            .find((file) => file.endsWith('.recovery-key.txt'));
-          if (!vaultPath || !keyPath) throw new Error('Production recovery artifacts are incomplete.');
-
-          const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
-          const keyText = fs.readFileSync(keyPath, 'utf8');
-          const keyMatch = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
-          if (!keyMatch) throw new Error('Production recovery key is invalid.');
-          if (envelope?.format !== 'tcos-secrets-vault' || envelope?.cipher !== 'aes-256-gcm') {
-            throw new Error('Production vault envelope is invalid.');
-          }
-
-          const decipher = createDecipheriv(
-            'aes-256-gcm',
-            Buffer.from(keyMatch[1], 'base64url'),
-            Buffer.from(envelope.iv, 'base64'),
-          );
-          decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
-          const plaintext = Buffer.concat([
-            decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
-            decipher.final(),
-          ]);
-          const digest = createHash('sha256').update(plaintext).digest('hex');
-          if (digest !== envelope.plaintextSha256) throw new Error('Production vault checksum failed.');
-
-          const payload = JSON.parse(plaintext.toString('utf8'));
-          const all = {
-            ...(payload?.sources?.vercelProductionApplicationVariables || {}),
-            ...(payload?.sources?.githubActionsReferencedSecrets || {}),
-          };
-          const deliveryEnv = {};
-          for (const name of [
-            'RESEND_API_KEY',
-            'MARKET_INTEL_FROM_EMAIL',
-            'MARKET_INTEL_ALERT_EMAIL',
-            'MARKET_INTEL_EMAIL_ENABLED',
-          ]) {
-            if (Object.prototype.hasOwnProperty.call(all, name)) deliveryEnv[name] = all[name];
-          }
-          fs.writeFileSync('/tmp/balls-deep-delivery-env.json', JSON.stringify(deliveryEnv), { mode: 0o600 });
-          console.log(`BALLS DEEP production delivery config recovered: ${Object.keys(deliveryEnv).length} fields; values withheld.`);
-          NODE
-
-      - name: Run every live Deal Hunter scope and send BALLS DEEP result email
+      - name: Run every live Deal Hunter scope and send BALLS DEEP result email when delivery secrets are available
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MARKET_INTEL_FROM_EMAIL: ${{ secrets.MARKET_INTEL_FROM_EMAIL }}
+          MARKET_INTEL_ALERT_EMAIL: ${{ secrets.MARKET_INTEL_ALERT_EMAIL }}
+          MARKET_INTEL_EMAIL_ENABLED: ${{ secrets.MARKET_INTEL_EMAIL_ENABLED }}
         run: node scripts/balls-deep-deal-hunter-e2e.mjs
 
-      - name: Remove recovered secret material
+      - name: Remove BALLS DEEP result material
         if: always()
         shell: bash
-        run: |
-          find /tmp/balls-deep-production-vault /tmp/balls-deep-production-key -type f -exec shred -u {} + 2>/dev/null || true
-          shred -u /tmp/balls-deep-delivery-env.json /tmp/balls-deep-result.json 2>/dev/null || true
+        run: shred -u /tmp/balls-deep-result.json 2>/dev/null || true
