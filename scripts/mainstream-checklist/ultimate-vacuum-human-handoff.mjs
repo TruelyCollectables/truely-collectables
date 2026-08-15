@@ -28,7 +28,7 @@ const humanAction = {
   captcha: {
     lane: 'human-captcha',
     priority: 100,
-    action: 'Open this public page in your normal browser and complete the CAPTCHA yourself. If it reveals a checklist file or final public checklist URL, download the file or copy that public URL and provide it back to the checklist pipeline. Do not share cookies, session tokens, passwords, or CAPTCHA-solving credentials.'
+    action: 'Open a representative public page from this host in your normal browser and complete the CAPTCHA yourself. If the page reveals a direct public checklist file URL, copy that URL; otherwise download the checklist file and provide the file to the checklist pipeline. Do not share cookies, session tokens, passwords, authentication headers, or CAPTCHA-solving credentials.'
   },
   login_wall: {
     lane: 'authorized-manual-download',
@@ -54,10 +54,11 @@ for (const event of readEvents(eventsPath)) {
   if (!rule) continue;
   const url = canonical(event.url);
   if (!url) continue;
+  const host = event.host || (() => { try { return new URL(url).hostname; } catch { return ''; } })();
   const current = byUrl.get(url);
   const item = {
     url,
-    host: event.host || (() => { try { return new URL(url).hostname; } catch { return ''; } })(),
+    host,
     outcome,
     lane: rule.lane,
     priority: rule.priority,
@@ -76,21 +77,42 @@ const actionable = all.filter((x) => x.lane === 'human-captcha' || x.lane === 'a
 const skip = all.filter((x) => x.lane === 'skip-no-bypass');
 const counts = Object.fromEntries([...new Set(all.map((x) => x.lane))].sort().map((lane) => [lane, all.filter((x) => x.lane === lane).length]));
 
+const hostGroups = new Map();
+for (const item of actionable) {
+  const key = `${item.lane}|${item.host}`;
+  const group = hostGroups.get(key) || {
+    lane: item.lane,
+    host: item.host,
+    blockedUrlCount: 0,
+    priority: item.priority,
+    action: item.action,
+    representativeUrls: []
+  };
+  group.blockedUrlCount++;
+  if (group.representativeUrls.length < 5) group.representativeUrls.push(item.url);
+  hostGroups.set(key, group);
+}
+
+const domainTasks = [...hostGroups.values()].sort((a, b) => b.priority - a.priority || b.blockedUrlCount - a.blockedUrlCount || a.host.localeCompare(b.host));
+
 const doc = {
   schema: 'tcos.checklist.ultimateVacuumHumanHandoff.v1',
   generatedAt: new Date().toISOString(),
   totalBlockedUrls: all.length,
-  actionableCount: actionable.length,
+  actionableUrlCount: actionable.length,
+  humanTaskCount: domainTasks.length,
   skipCount: skip.length,
   counts,
   instructions: {
-    safestReturnPath: 'For CAPTCHA: return the final public URL or downloaded checklist file. For an authorized login/paywall: return only the downloaded checklist file. Never send passwords, cookies, session tokens, auth headers, or CAPTCHA-solving tokens.',
+    important: 'Completing a CAPTCHA in your browser unlocks only your browser session; it does not transfer access to GitHub Actions. The useful handoff is the final direct public checklist URL or the downloaded checklist file.',
+    safestReturnPath: 'For CAPTCHA: return a final public checklist URL or downloaded checklist file. For an authorized login/paywall: return only the downloaded checklist file. Never send passwords, cookies, session tokens, auth headers, or CAPTCHA-solving tokens.',
     validation: 'Every returned file or URL still goes through exact-set validation before Production persistence.'
   },
-  actionable,
+  domainTasks,
+  actionableUrls: actionable,
   skip
 };
 
 mkdirSync(dirname(outputPath), { recursive: true });
 writeFileSync(outputPath, JSON.stringify(doc, null, 2) + '\n');
-console.log(JSON.stringify({ totalBlockedUrls: all.length, actionableCount: actionable.length, skipCount: skip.length, counts }));
+console.log(JSON.stringify({ totalBlockedUrls: all.length, actionableUrlCount: actionable.length, humanTaskCount: domainTasks.length, skipCount: skip.length, counts, topDomainTasks: domainTasks.slice(0, 10) }));
