@@ -38,7 +38,8 @@ def _trusted_style_memory_support(
         score = float(pattern.scores.get("trusted_style_memory", 0) or 0)
     except (TypeError, ValueError):
         score = 0.0
-    hint = str(local_vision.identity_hints.parallel or "").strip().casefold()
+    hints = getattr(local_vision, "identity_hints", None)
+    hint = str(getattr(hints, "parallel", None) or "").strip().casefold()
     if score < 0.90:
         return False
     if required_label == "cracked_ice":
@@ -99,16 +100,23 @@ def _pattern_parallel_supported(
         or any("non-directional multi-angle edge geometry" in value for value in geometry)
     )
     direct_support = label == required_label and confidence >= 0.70
-    memory_support = _trusted_style_memory_support(local_vision, required_label)
 
     if required_label == "cracked_ice":
-        return bool(
+        if not (
             has_directional_diagonal
             and has_irregular_polygons
             and has_multi_angle_geometry
-            and (direct_support or memory_support)
-        )
-    return bool(has_directional_diagonal and (direct_support or memory_support))
+        ):
+            return False
+        if direct_support:
+            return True
+        return _trusted_style_memory_support(local_vision, required_label)
+
+    if not has_directional_diagonal:
+        return False
+    if direct_support:
+        return True
+    return _trusted_style_memory_support(local_vision, required_label)
 
 
 def _guard_model_pattern_parallel(
