@@ -1,0 +1,268 @@
+name: Checklist Conveyor Discovery Queue 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-conveyor-discovery-queue-20260815.yml'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-continuous-prepatch.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-exact-feed.ts'
+      - 'ops/checklists/ultimate-vacuum-source-policy-20260815.json'
+      - 'ops/checklists/ultimate-vacuum-seen-urls-20260815.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  discover:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify neutral discovery scripts
+        run: |
+          set -euo pipefail
+          node --check scripts/mainstream-checklist/ultimate-vacuum-continuous-prepatch.mjs
+          node scripts/mainstream-checklist/ultimate-vacuum-continuous-prepatch.mjs
+          node --check scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs
+          node --check scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+          node --check scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs
+          node --check scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs
+      - name: Crawl one source-owned shard
+        shell: bash
+        env:
+          VACUUM_SHARD_INDEX: ${{ matrix.shard }}
+          VACUUM_SHARD_COUNT: '8'
+          VACUUM_MAX_PAGES: '5000'
+          VACUUM_MAX_SITEMAPS_PER_HOST: '40'
+          VACUUM_REQUEST_TIMEOUT_MS: '12000'
+          VACUUM_SEEN_URLS: ops/checklists/ultimate-vacuum-seen-urls-20260815.json
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/conveyor-${{ matrix.shard }}"
+          mkdir -p "$root"
+          VACUUM_DISCOVERY_OUTPUT="$root/discovery.json" \
+          VACUUM_EVENTS_OUTPUT="$root/events.ndjson" \
+          node scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs
+          VACUUM_STATE="$root/state.json" \
+          VACUUM_EVENTS="$root/events.ndjson" \
+          VACUUM_CANDIDATES="$root/discovery.json" \
+          VACUUM_OUTPUT="$root/ranked.json" \
+          bash -c 'cp ops/checklists/ultimate-vacuum-source-state-20260815.json "$VACUUM_STATE" && node scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs'
+          test -s "$root/ranked.json"
+      - name: Upload discovery shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-conveyor-discovery-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/conveyor-${{ matrix.shard }}
+          retention-days: 30
+
+  queue-assets:
+    needs: discover
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download current discovery shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checklist-conveyor-discovery-${{ github.run_id }}-shard-*
+          path: ${{ runner.temp }}/current-shards
+      - name: Recover first-pass discovery reservoir
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checklist-ultimate-vacuum-discovery-31888595840-shard-*
+          path: ${{ runner.temp }}/old-shards
+          repository: ${{ github.repository }}
+          run-id: 31888595840
+          github-token: ${{ github.token }}
+      - name: Build missing-set candidate queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndjson="$RUNNER_TEMP/conveyor-ranked.ndjson"
+          out="$RUNNER_TEMP/conveyor-ranked.json"
+          : > "$ndjson"
+          find "$RUNNER_TEMP/current-shards" "$RUNNER_TEMP/old-shards" -type f -name ranked.json -print0 | sort -z | xargs -0 -r -n1 jq -c '.ranked[]?' >> "$ndjson"
+          jq -s 'sort_by(-(.reputationScore // 0)) | unique_by(.url) | {schema:"tcos.checklist.conveyorQueue.v1",generatedAt:(now|todateiso8601),rankedCount:length,ranked:.}' "$ndjson" > "$out"
+          jq '{rankedCount,top:.ranked[:15]}' "$out"
+      - name: Resolve checklist pages into structured assets
+        shell: bash
+        env:
+          VACUUM_RESOLVER_INPUT: ${{ runner.temp }}/conveyor-ranked.json
+          VACUUM_RESOLVER_OUTPUT: ${{ runner.temp }}/conveyor-resolved.json
+          VACUUM_RESOLVER_MAX_PAGES: '1200'
+          VACUUM_RESOLVER_MAX_PAGES_PER_HOST: '400'
+          VACUUM_RESOLVER_MAX_ASSETS: '1200'
+          VACUUM_RESOLVER_MAX_DEPTH: '2'
+          VACUUM_RESOLVER_WORKERS: '2'
+          VACUUM_RESOLVER_RPS_CAP: '0.4'
+        run: |
+          set -euo pipefail
+          node scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs
+          jq '{inputCount,eligibleSeedCount,pagesFetched,assetCount,failureCount,hostPages}' "$RUNNER_TEMP/conveyor-resolved.json"
+      - name: Upload ready-to-validate queue
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-conveyor-ready-queue-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/conveyor-ranked.json
+            ${{ runner.temp }}/conveyor-resolved.json
+          retention-days: 90
+
+  persist-learning:
+    needs: discover
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download current discovery shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checklist-conveyor-discovery-${{ github.run_id }}-shard-*
+          path: ${{ runner.temp }}/current-shards
+      - name: Merge seen URLs and learning
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          ranked_ndjson="$RUNNER_TEMP/ranked.ndjson"
+          events="$RUNNER_TEMP/events.ndjson"
+          : > "$ranked_ndjson"
+          : > "$events"
+          find "$RUNNER_TEMP/current-shards" -type f -name ranked.json -print0 | sort -z | xargs -0 -r -n1 jq -c '.ranked[]?' >> "$ranked_ndjson"
+          find "$RUNNER_TEMP/current-shards" -type f -name events.ndjson -print0 | sort -z | xargs -0 -r cat >> "$events"
+          jq -s 'sort_by(-(.reputationScore // 0)) | unique_by(.url) | {ranked:.}' "$ranked_ndjson" > "$RUNNER_TEMP/ranked.json"
+          seen="ops/checklists/ultimate-vacuum-seen-urls-20260815.json"
+          jq -r '.urls[]?' "$seen" | sort -u > "$RUNNER_TEMP/old.txt"
+          jq -r '.ranked[]?.url' "$RUNNER_TEMP/ranked.json" | sort -u > "$RUNNER_TEMP/pass.txt"
+          cat "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/pass.txt" | sed '/^$/d' | sort -u > "$RUNNER_TEMP/union.txt"
+          new_seen="$(comm -13 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/union.txt" | wc -l | tr -d ' ')"
+          urls_json="$(jq -R -s 'split("\n") | map(select(length > 0))' "$RUNNER_TEMP/union.txt")"
+          jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson urls "$urls_json" '{schema:"tcos.checklist.ultimateVacuumSeenUrls.v1",updatedAt:$now,count:($urls|length),urls:$urls}' > "$seen"
+          cp ops/checklists/ultimate-vacuum-source-state-20260815.json "$RUNNER_TEMP/state.json"
+          printf '{"candidates":[]}\n' > "$RUNNER_TEMP/empty.json"
+          VACUUM_STATE="$RUNNER_TEMP/state.json" VACUUM_EVENTS="$events" VACUUM_CANDIDATES="$RUNNER_TEMP/empty.json" VACUUM_OUTPUT="$RUNNER_TEMP/learning.json" node scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+          cp "$RUNNER_TEMP/state.json" ops/checklists/ultimate-vacuum-source-state-20260815.json
+          echo "new_seen=$new_seen" >> "$GITHUB_OUTPUT"
+          echo "New URLs this pass: $new_seen"
+      - name: Persist learning with moving-branch retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Checklist Discovery Conveyor"
+          git config user.email "david@truelycollectables.com"
+          git add ops/checklists/ultimate-vacuum-source-state-20260815.json ops/checklists/ultimate-vacuum-seen-urls-20260815.json
+          if git diff --cached --quiet; then
+            echo "No learning changes to persist"
+            exit 0
+          fi
+          git commit -m "checklists: persist conveyor learning $GITHUB_RUN_ID"
+          for attempt in 1 2 3 4; do
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0
+            git rebase --abort || true
+            sleep $((attempt * 3))
+          done
+          echo "Could not persist conveyor learning after moving-branch retries" >&2
+          exit 1
+      - name: Trigger next discovery pass when this pass learned something new
+        if: steps.merge.outputs.new_seen != '0'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/checklist-conveyor-discovery-queue-20260815.yml/dispatches" \
+            --data "{\"ref\":\"${GITHUB_REF_NAME}\"}"
+
+  production-consumer:
+    needs: queue-assets
+    if: always()
+    concurrency:
+      group: checklist-mainstream-gogts-harvest-tranche2-20260815
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install registry dependencies
+        run: npm ci
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/conveyor-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+      - name: Download prepared queue
+        uses: actions/download-artifact@v4
+        with:
+          name: checklist-conveyor-ready-queue-${{ github.run_id }}
+          path: ${{ runner.temp }}/ready
+      - name: Strict exact-set validate and persist queued assets
+        shell: bash
+        env:
+          VACUUM_FEED_INPUT: ${{ runner.temp }}/ready/conveyor-resolved.json
+          VACUUM_FEED_OUTPUT: ${{ runner.temp }}/conveyor-feed-receipt.json
+          VACUUM_FEED_APPLY: 'true'
+          VACUUM_FEED_MAX_CANDIDATES: '1200'
+          VACUUM_FEED_MINIMUM_CARD_ROWS: '25'
+        run: |
+          set -euo pipefail
+          npx tsx scripts/mainstream-checklist/ultimate-vacuum-exact-feed.ts
+          jq '{candidateInputCount,eligibleCandidateCount,selectedCount,statuses,netNew}' "$RUNNER_TEMP/conveyor-feed-receipt.json"
+      - name: Upload Production receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-conveyor-production-${{ github.run_id }}
+          path: ${{ runner.temp }}/conveyor-feed-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
