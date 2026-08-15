@@ -1,13 +1,9 @@
 import fs from 'node:fs';
 
-const delivery = {
-  RESEND_API_KEY: String(process.env.RESEND_API_KEY || '').trim(),
-  MARKET_INTEL_FROM_EMAIL: String(process.env.MARKET_INTEL_FROM_EMAIL || '').trim(),
-  MARKET_INTEL_ALERT_EMAIL: String(process.env.MARKET_INTEL_ALERT_EMAIL || '').trim(),
-  MARKET_INTEL_EMAIL_ENABLED: String(process.env.MARKET_INTEL_EMAIL_ENABLED || '').trim(),
-};
+const cronSecret = String(process.env.TCOS_CRON_SECRET || '').trim();
 const base = 'https://truelycollectables.com';
 const native = '/api/tcos/deal-hunter-native-ebay?perQuery=5&scope=';
+const deliveryEndpoint = `${base}/api/tcos/deal-hunter-balls-deep-delivery`;
 const targets = [
   { label: 'WNBA', url: `${base}${native}wnba` },
   { label: 'IVAN DEMIDOV', url: `${base}${native}ivan_demidov` },
@@ -29,7 +25,7 @@ async function runTarget(target) {
       const response = await fetch(url, {
         headers: {
           Accept: 'application/json',
-          'User-Agent': 'truely-collectables-balls-deep-e2e/2.1',
+          'User-Agent': 'truely-collectables-balls-deep-e2e/3.0',
         },
         redirect: 'manual',
         signal: AbortSignal.timeout(90_000),
@@ -94,6 +90,63 @@ async function runTarget(target) {
   return last;
 }
 
+async function sendProductionEmailProof(summary) {
+  if (!cronSecret) {
+    throw new Error('BALLS DEEP cannot prove email delivery because TCOS_CRON_SECRET is unavailable to this Actions job.');
+  }
+
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    const response = await fetch(deliveryEndpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${cronSecret}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'truely-collectables-balls-deep-e2e/3.0',
+      },
+      body: JSON.stringify(summary),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(45_000),
+    });
+
+    if ((response.status === 404 || response.status === 405) && attempt < 30) {
+      console.log(
+        `BALLS DEEP production email endpoint is not on the routed Worker yet (HTTP ${response.status}); waiting for the current Cloudflare release before retrying.`,
+      );
+      await sleep(15_000);
+      continue;
+    }
+
+    const payload = await response.json().catch(() => null);
+    const origin = response.headers.get('x-truely-origin');
+    const accepted =
+      response.status === 200 &&
+      origin === 'cloudflare-worker' &&
+      payload?.ok === true &&
+      payload?.emailAccepted === true &&
+      payload?.providerIdPresent === true &&
+      Number(payload?.recipientCount || 0) > 0;
+
+    if (!accepted) {
+      throw new Error(
+        `BALLS DEEP production email proof failed: HTTP ${response.status}, origin=${origin || 'missing'}, accepted=${payload?.emailAccepted === true}, providerIdPresent=${payload?.providerIdPresent === true}.`,
+      );
+    }
+
+    console.log(
+      `BALLS DEEP visible email accepted by the live Cloudflare Worker; provider id present=true; recipients=${payload.recipientCount}.`,
+    );
+    return {
+      emailAccepted: true,
+      emailProviderIdPresent: true,
+      emailRecipientCount: Number(payload.recipientCount),
+      emailSentAt: String(payload.sentAt || ''),
+    };
+  }
+
+  throw new Error('BALLS DEEP production email endpoint did not become available during the certification window.');
+}
+
 const results = [];
 for (const target of targets) {
   results.push(await runTarget(target));
@@ -104,113 +157,32 @@ const failedCount = results.length - passedCount;
 const totalFamilies = results.reduce((sum, entry) => sum + Number(entry?.families || 0), 0);
 const totalSuccessful = results.reduce((sum, entry) => sum + Number(entry?.successful || 0), 0);
 const totalFailedFamilies = results.reduce((sum, entry) => sum + Number(entry?.failed || 0), 0);
-const sentAt = new Date().toISOString();
+const testedAt = new Date().toISOString();
 const overall = failedCount === 0 ? 'PASS' : 'FAIL';
 
-const rows = results.map((entry) => {
-  const status = entry?.passed ? 'PASS' : 'FAIL';
-  const codes = entry?.errorCodes?.length ? ` | ${entry.errorCodes.join(',')}` : '';
-  return `${status} — ${entry.label}: query families ${entry.successful}/${entry.families}, failed ${entry.failed}, raw ${entry.raw}, deduped ${entry.deduped}, HTTP ${entry.status}${codes}`;
-});
-
-const subject = `BALLS DEEP — Deal Hunter LIVE E2E — ${overall} ${passedCount}/${results.length}`;
-const text = [
-  'BALLS DEEP',
-  'TCOS Deal Hunter — LIVE PRODUCTION END-TO-END TEST',
-  '',
-  `Overall: ${overall}`,
-  `Live surfaces passed: ${passedCount}/${results.length}`,
-  `Query families completed: ${totalSuccessful}/${totalFamilies}`,
-  `Failed query families: ${totalFailedFamilies}`,
-  `Sent at: ${sentAt}`,
-  '',
-  ...rows,
-  '',
-  'This test queried the live truelycollectables.com Cloudflare production routes.',
-  'No marketplace purchase, listing mutation, or Deal Hunter ledger mutation was performed.',
-].join('\n');
-
-const escapeHtml = (value) => String(value)
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;')
-  .replaceAll("'", '&#039;');
-
-const htmlRows = results
-  .map(
-    (entry) => `<tr><td style="padding:8px;border-bottom:1px solid #ddd;font-weight:800;">${entry?.passed ? 'PASS' : 'FAIL'}</td><td style="padding:8px;border-bottom:1px solid #ddd;">${escapeHtml(entry.label)}</td><td style="padding:8px;border-bottom:1px solid #ddd;">${entry.successful}/${entry.families}</td><td style="padding:8px;border-bottom:1px solid #ddd;">${entry.raw}</td><td style="padding:8px;border-bottom:1px solid #ddd;">${entry.deduped}</td><td style="padding:8px;border-bottom:1px solid #ddd;">${entry.status}</td></tr>`,
-  )
-  .join('');
-
-const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;background:#f4f1ea;color:#111;margin:0;padding:24px;"><div style="max-width:900px;margin:auto;background:#fff;border-radius:14px;padding:24px;"><div style="background:#111;color:#fff;border-radius:12px;padding:22px;"><div style="font-size:14px;font-weight:900;letter-spacing:.14em;">BALLS DEEP</div><h1 style="margin:8px 0 0;">Deal Hunter LIVE E2E — ${overall}</h1><p>${passedCount}/${results.length} live surfaces passed · ${totalSuccessful}/${totalFamilies} query families complete · ${totalFailedFamilies} failed families</p></div><table style="width:100%;border-collapse:collapse;margin-top:20px;"><thead><tr><th style="text-align:left;padding:8px;">Result</th><th style="text-align:left;padding:8px;">Scope</th><th style="text-align:left;padding:8px;">Families</th><th style="text-align:left;padding:8px;">Raw</th><th style="text-align:left;padding:8px;">Deduped</th><th style="text-align:left;padding:8px;">HTTP</th></tr></thead><tbody>${htmlRows}</tbody></table><p style="font-size:13px;line-height:1.6;margin-top:20px;">This came from the live truelycollectables.com Cloudflare production routes. No marketplace or ledger mutations were performed.</p><p style="font-size:12px;color:#666;">${escapeHtml(sentAt)}</p></div></body></html>`;
-
-const apiKey = delivery.RESEND_API_KEY;
-const from = delivery.MARKET_INTEL_FROM_EMAIL;
-const recipients = Array.from(
-  new Set(
-    delivery.MARKET_INTEL_ALERT_EMAIL
-      .split(/[;,\n]/)
-      .map((entry) => entry.trim())
-      .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry)),
-  ),
-);
-const enabled = delivery.MARKET_INTEL_EMAIL_ENABLED.toLowerCase() !== 'false';
-const emailConfigured = Boolean(apiKey && from && recipients.length > 0);
-let emailAccepted = false;
-let emailProviderIdPresent = false;
-let emailSkipped = false;
-
-if (enabled && emailConfigured) {
-  const emailResponse = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'truely-collectables-balls-deep-e2e/2.1',
-    },
-    body: JSON.stringify({ from, to: recipients, subject, text, html }),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(30_000),
-  });
-  const emailPayload = await emailResponse.json().catch(() => null);
-  if (!emailResponse.ok || !emailPayload?.id) {
-    throw new Error(`BALLS DEEP production email submission failed with HTTP ${emailResponse.status}.`);
-  }
-  emailAccepted = true;
-  emailProviderIdPresent = Boolean(emailPayload.id);
-  console.log(
-    `BALLS DEEP visible email accepted by configured Resend credentials; provider id present=${emailProviderIdPresent}; recipients=${recipients.length}.`,
-  );
-} else {
-  emailSkipped = true;
-  const reason = !enabled
-    ? 'delivery is explicitly disabled'
-    : 'complete Resend delivery credentials are not exposed to this Actions job';
-  console.log(`BALLS DEEP email proof SKIPPED: ${reason}. Live Cloudflare route certification continues independently.`);
-}
-
-fs.writeFileSync(
-  '/tmp/balls-deep-result.json',
-  JSON.stringify({
-    overall,
-    passedCount,
-    failedCount,
-    surfaceCount: results.length,
-    totalFamilies,
-    totalSuccessful,
-    totalFailedFamilies,
-    results,
-    emailAccepted,
-    emailProviderIdPresent,
-    emailSkipped,
-    sentAt,
-  }),
-  { mode: 0o600 },
-);
+const baseResult = {
+  overall,
+  passedCount,
+  failedCount,
+  surfaceCount: results.length,
+  totalFamilies,
+  totalSuccessful,
+  totalFailedFamilies,
+  results,
+  testedAt,
+};
 
 if (failedCount > 0) {
+  fs.writeFileSync('/tmp/balls-deep-result.json', JSON.stringify(baseResult), { mode: 0o600 });
   throw new Error(
     `BALLS DEEP live Deal Hunter E2E failed: ${failedCount}/${results.length} surfaces failed.`,
   );
 }
+
+const emailProof = await sendProductionEmailProof(baseResult);
+const finalResult = { ...baseResult, ...emailProof };
+fs.writeFileSync('/tmp/balls-deep-result.json', JSON.stringify(finalResult), { mode: 0o600 });
+
+console.log(
+  `BALLS DEEP FINAL PASS: ${passedCount}/${results.length} live surfaces, ${totalSuccessful}/${totalFamilies} query families, 0 failed families, production email accepted=true.`,
+);

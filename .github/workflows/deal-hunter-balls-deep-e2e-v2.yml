@@ -10,6 +10,9 @@ on:
       - "scripts/run-wrangler-deploy-redacted.mjs"
       - "src/app/api/tcos/deal-hunter-native-ebay/**"
       - "src/app/api/tcos/deal-hunter-michkov-opc-platinum/**"
+      - "src/app/api/tcos/deal-hunter-balls-deep-delivery/**"
+      - "src/lib/deal-hunter-balls-deep-email.ts"
+      - "src/lib/market-intel-delivery.ts"
       - "cloudflare-native-fetch.ts"
       - "cloudflare-worker.ts"
       - "wrangler.jsonc"
@@ -30,12 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run every live Deal Hunter scope and send BALLS DEEP result email when delivery secrets are available
+      - name: Run every live Deal Hunter scope and require production Worker email proof
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MARKET_INTEL_FROM_EMAIL: ${{ secrets.MARKET_INTEL_FROM_EMAIL }}
-          MARKET_INTEL_ALERT_EMAIL: ${{ secrets.MARKET_INTEL_ALERT_EMAIL }}
-          MARKET_INTEL_EMAIL_ENABLED: ${{ secrets.MARKET_INTEL_EMAIL_ENABLED }}
+          TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
         run: node scripts/balls-deep-deal-hunter-e2e.mjs
 
       - name: Remove BALLS DEEP result material
