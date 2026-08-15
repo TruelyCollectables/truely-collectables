@@ -1,0 +1,205 @@
+name: Checklist GoGTS Offline Archive Feed 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-gogts-offline-archive-feed-20260815.yml'
+      - 'scripts/mainstream-checklist/gogts-offline-archive-feed.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-mainstream-gogts-harvest-tranche2-20260815
+  cancel-in-progress: false
+
+jobs:
+  offline-gogts-feed:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 360
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      GOGTS_OFFLINE_APPLY: 'true'
+      GOGTS_OFFLINE_MAX: '2200'
+      GOGTS_OFFLINE_MIN_ROWS: '25'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install proven checklist parser dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          npx tsc --noEmit --pretty false --incremental false || true
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gogts-offline-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Download preserved GoGTS master archive
+        uses: actions/download-artifact@v4
+        with:
+          name: sports-card-checklist-master-archive-31100986894
+          path: ${{ runner.temp }}/gogts-master-archive
+          repository: ${{ github.repository }}
+          run-id: 31100986894
+          github-token: ${{ github.token }}
+
+      - name: Build offline exact-set queue from archived files
+        shell: bash
+        env:
+          ARCHIVE_ROOT: ${{ runner.temp }}/gogts-master-archive
+          QUEUE_OUT: ${{ runner.temp }}/gogts-offline-queue.json
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, json, os, pathlib, re, sys
+
+          root = pathlib.Path(os.environ['ARCHIVE_ROOT'])
+          out = pathlib.Path(os.environ['QUEUE_OUT'])
+          csvs = list(root.rglob('source-items.csv'))
+          csvs = [p for p in csvs if 'gogts' in str(p).lower()]
+          if not csvs:
+              raise SystemExit('GoGTS source-items.csv not found in preserved archive')
+          source_csv = csvs[0]
+          organized_root = source_csv.parent
+
+          manifests = []
+          for p in root.rglob('manifest.json'):
+              if 'gogts' not in str(p).lower():
+                  continue
+              try:
+                  d = json.loads(p.read_text(encoding='utf-8'))
+              except Exception:
+                  continue
+              if d.get('schema') == 'tcos.publicChecklistSourceArchive.v1':
+                  manifests.append(d)
+          if not manifests:
+              raise SystemExit('GoGTS source archive manifest not found')
+          manifest = manifests[0]
+          by_article = {str(i.get('sourceUrl','')): i for i in manifest.get('items', [])}
+
+          pref = {'.xlsx': 0, '.csv': 1, '.xls': 2, '.pdf': 3}
+          queue = []
+          missing_dirs = 0
+          missing_files = 0
+          seen = set()
+
+          with source_csv.open(encoding='utf-8-sig', newline='') as f:
+              for row in csv.DictReader(f):
+                  key = str(row.get('exactSetKey') or '').strip().lower()
+                  if not key or key in seen or key.count('|') != 3:
+                      continue
+                  archive_path = str(row.get('archivePath') or '').strip()
+                  if not archive_path or archive_path.startswith('UNRESOLVED/'):
+                      continue
+                  item_dir = organized_root / archive_path
+                  if not item_dir.is_dir():
+                      missing_dirs += 1
+                      continue
+                  files = [p for p in item_dir.iterdir() if p.is_file() and p.suffix.lower() in pref]
+                  if not files:
+                      missing_files += 1
+                      continue
+                  files.sort(key=lambda p: (pref.get(p.suffix.lower(), 9), p.name.lower()))
+                  local = files[0]
+                  article = str(row.get('sourceUrl') or '')
+                  item = by_article.get(article) or {}
+                  file_meta = next((x for x in item.get('files', []) if x.get('name') == local.name and x.get('role') == 'source-download'), None)
+                  if not file_meta:
+                      # Organized copies can preserve the same extension/name with a path prefix. Fall back to extension match.
+                      same_ext = [x for x in item.get('files', []) if x.get('role') == 'source-download' and pathlib.Path(str(x.get('name',''))).suffix.lower() == local.suffix.lower()]
+                      file_meta = same_ext[0] if same_ext else None
+                  asset_url = str((file_meta or {}).get('sourceUrl') or article)
+                  if not asset_url.startswith('https://gogts.net/'):
+                      continue
+                  year_match = re.search(r'(?:19|20)\d{2}', str(row.get('season') or ''))
+                  year = int(year_match.group(0)) if year_match else 0
+                  queue.append({
+                      'exactSetKey': key,
+                      'localPath': str(local),
+                      'sourceUrl': asset_url,
+                      'articleUrl': article,
+                      'season': row.get('season'),
+                      'yearSort': year,
+                      'archivedBytes': local.stat().st_size,
+                  })
+                  seen.add(key)
+
+          queue.sort(key=lambda x: (-x['yearSort'], x['exactSetKey']))
+          payload = {
+              'schema': 'tcos.checklist.gogtsOfflineArchiveQueue.v1',
+              'sourceRunId': '31100986894',
+              'candidates': queue,
+              'counts': {
+                  'candidates': len(queue),
+                  'missingDirectories': missing_dirs,
+                  'missingStructuredFiles': missing_files,
+              },
+          }
+          out.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(payload['counts'], indent=2))
+          if len(queue) < 500:
+              raise SystemExit(f'Archive queue unexpectedly small: {len(queue)}')
+          PY
+
+      - name: Strictly validate and persist archived GoGTS files
+        shell: bash
+        env:
+          GOGTS_OFFLINE_INPUT: ${{ runner.temp }}/gogts-offline-queue.json
+          GOGTS_OFFLINE_OUTPUT: ${{ runner.temp }}/gogts-offline-receipt.json
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/mainstream-checklist/gogts-offline-archive-feed.ts
+          test -s "$GOGTS_OFFLINE_OUTPUT"
+          jq '{candidates,processed,statuses,imported,netNew,idempotent}' "$GOGTS_OFFLINE_OUTPUT"
+
+      - name: Upload offline GoGTS Production receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-gogts-offline-archive-feed-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/gogts-offline-queue.json
+            ${{ runner.temp }}/gogts-offline-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/gogts-offline-production" .env.local .env.production.local .vercel
