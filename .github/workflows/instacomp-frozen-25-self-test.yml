@@ -7,6 +7,8 @@ on:
       - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/lora_candidate_runtime_v2.py"
+      - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
+      - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py"
@@ -25,6 +27,8 @@ on:
       - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/lora_candidate_runtime_v2.py"
+      - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
+      - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py"
@@ -56,10 +60,12 @@ jobs:
       - name: Install exact InstaComp service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
 
-      - name: Compile Frozen 25 promotion code and bounded candidate transport
+      - name: Compile Frozen 25 promotion code and candidate runtime
         run: |
           python -m py_compile \
             services/instacomp-ai/app/lora_candidate_runtime_v2.py \
+            services/instacomp-ai/scripts/run_lora_candidate_server.py \
+            services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py \
@@ -69,6 +75,9 @@ jobs:
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v7.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py
+
+      - name: Prove sidecar structured response recovery and fail-closed diagnostics
+        run: python services/instacomp-ai/scripts/run_lora_candidate_server.py --self-test
 
       - name: Validate Mac launcher syntax
         run: bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
