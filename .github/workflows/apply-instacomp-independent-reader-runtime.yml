@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: apply-instacomp-primary-identity-failover
+  cancel-in-progress: true
+
 jobs:
   apply:
     runs-on: ubuntu-24.04
@@ -54,15 +58,23 @@ jobs:
           TCOS_LIVE_SHIPPING_ENABLED: "false"
         run: npm run build
 
-      - name: Commit patch
+      - name: Commit and push validated scanner patch
+        shell: bash
         run: |
+          set -euo pipefail
           if git diff --quiet -- src/app/api/instacomp/scan/route.ts; then
-            echo "Scanner already patched."
+            echo "Scanner already patched on current main."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/app/api/instacomp/scan/route.ts
           git commit -m "Add OpenAI primary fallback to InstaComp identity scan"
-          git pull --rebase origin main
+
+          # The build can update generated tracked files. They were intentionally
+          # excluded from the scanner commit; discard only those post-build
+          # working-tree changes so Git can safely rebase the validated commit.
+          git reset --hard HEAD
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
