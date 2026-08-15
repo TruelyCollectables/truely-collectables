@@ -1,5 +1,6 @@
 name: Checklist GoGTS Boundary Complexity Diagnostic 20260815
 
+# Offline-only diagnostic: no Production credentials, reads or writes.
 on:
   push:
     branches:
