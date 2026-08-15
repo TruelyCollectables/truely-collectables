@@ -22,17 +22,22 @@ concurrency:
 jobs:
   prove-live-production-registry-gateway:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       INSTACOMP_AI_REGISTRY_BASE_URL: https://truelycollectables.com
-      INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN: ${{ secrets.INSTACOMP_SENTINEL_ARCHIVE_TOKEN || secrets.INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN || secrets.TCOS_INSTACOMP_SENTINEL_ARCHIVE_TOKEN }}
-      INSTACOMP_AI_SERVICE_TOKEN: ${{ secrets.TCOS_INSTACOMP_SERVICE_TOKEN || secrets.INSTACOMP_AI_SERVICE_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
 
       - name: Install pinned InstaComp runtime
         run: |
@@ -41,15 +46,52 @@ jobs:
           bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
             services/instacomp-ai/.venv/bin/python
 
-      - name: Prove Production credential is available without revealing it
+      - name: Install locked Cloudflare tooling
+        run: npm ci --ignore-scripts
+
+      - name: Guard exact Worker and temporary acceptance binding
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN:-}" ] && [ -z "${INSTACOMP_AI_SERVICE_TOKEN:-}" ]; then
-            echo 'No compatible Production Registry credential is present in GitHub Actions secrets.'
-            exit 2
-          fi
-          echo 'PASS compatible Production Registry credential is present; value withheld.'
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { echo 'CLOUDFLARE_ACCOUNT_ID is unavailable.'; exit 2; }
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo 'CLOUDFLARE_API_TOKEN is unavailable.'; exit 2; }
+          npx wrangler secret list --name truely-collectables --format json > /tmp/instacomp-worker-secrets-before.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const rows = JSON.parse(fs.readFileSync('/tmp/instacomp-worker-secrets-before.json', 'utf8'));
+          if (!Array.isArray(rows)) throw new Error('Cloudflare Worker secret listing was not an array.');
+          if (rows.some((row) => row?.name === 'INSTACOMP_ACCEPTANCE_SERVICE_TOKEN')) {
+            throw new Error('Refusing to overwrite an existing INSTACOMP_ACCEPTANCE_SERVICE_TOKEN binding.');
+          }
+          console.log('PASS exact Worker resolved and temporary acceptance binding is absent.');
+          NODE
+
+      - name: Install one-time Production acceptance credential
+        id: acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACCEPTANCE_TOKEN=$(python - <<'PY'
+          import secrets
+          print(secrets.token_urlsafe(48))
+          PY
+          )
+          [ "${#ACCEPTANCE_TOKEN}" -ge 32 ] || { echo 'Generated acceptance token is unexpectedly short.'; exit 3; }
+          echo "::add-mask::$ACCEPTANCE_TOKEN"
+          printf 'INSTACOMP_AI_SERVICE_TOKEN=%s\n' "$ACCEPTANCE_TOKEN" >> "$GITHUB_ENV"
+          printf '%s' "$ACCEPTANCE_TOKEN" \
+            | npx wrangler secret put INSTACOMP_ACCEPTANCE_SERVICE_TOKEN --name truely-collectables
+          touch /tmp/instacomp-acceptance-secret-created
+          sleep 5
+          npx wrangler secret list --name truely-collectables --format json > /tmp/instacomp-worker-secrets-active.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const rows = JSON.parse(fs.readFileSync('/tmp/instacomp-worker-secrets-active.json', 'utf8'));
+          if (!rows.some((row) => row?.name === 'INSTACOMP_ACCEPTANCE_SERVICE_TOKEN')) {
+            throw new Error('Temporary acceptance binding did not become active on Production Worker.');
+          }
+          console.log('PASS one-time Production acceptance credential is active; value withheld.');
+          NODE
 
       - name: Hit real Production Registry through exact Python gateway 15 times
         shell: bash
@@ -66,3 +108,29 @@ jobs:
           services/instacomp-ai/.venv/bin/python -m py_compile \
             services/instacomp-ai/scripts/probe_frozen_five_registry_live.py \
             services/instacomp-ai/app/authoritative_registry_gateway.py
+
+      - name: Remove one-time Production acceptance credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/instacomp-acceptance-secret-created ]; then
+            printf 'y\n' \
+              | npx wrangler secret delete INSTACOMP_ACCEPTANCE_SERVICE_TOKEN --name truely-collectables
+            sleep 3
+            npx wrangler secret list --name truely-collectables --format json > /tmp/instacomp-worker-secrets-after.json
+            node <<'NODE'
+            const fs = require('node:fs');
+            const rows = JSON.parse(fs.readFileSync('/tmp/instacomp-worker-secrets-after.json', 'utf8'));
+            if (rows.some((row) => row?.name === 'INSTACOMP_ACCEPTANCE_SERVICE_TOKEN')) {
+              throw new Error('Temporary acceptance binding still exists after cleanup.');
+            }
+            console.log('PASS one-time Production acceptance credential removed.');
+            NODE
+          else
+            echo 'No temporary acceptance credential was created; nothing to remove.'
+          fi
+          rm -f \
+            /tmp/instacomp-worker-secrets-before.json \
+            /tmp/instacomp-worker-secrets-active.json \
+            /tmp/instacomp-worker-secrets-after.json
