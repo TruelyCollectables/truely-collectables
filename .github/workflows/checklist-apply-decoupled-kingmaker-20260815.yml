@@ -1,0 +1,71 @@
+name: Checklist Apply Decoupled Kingmaker 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-apply-decoupled-kingmaker-20260815.yml'
+      - 'supabase/migrations/20260815220000_decouple_kingmaker_rematch_from_checklist_import.sql'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kingmaker-decouple"; mkdir -p "$root"
+          curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t refs < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#refs[@]}" -eq 1
+          echo "PROJECT_REF=${refs[0]}" >> "$GITHUB_ENV"
+      - name: Apply decoupled activation trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kingmaker-decouple"
+          jq -Rs '{query:.}' supabase/migrations/20260815220000_decouple_kingmaker_rematch_from_checklist_import.sql > "$root/apply.json"
+          curl --silent --show-error --fail --retry 1 --max-time 60 \
+            --request POST \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data-binary @"$root/apply.json" \
+            --output "$root/apply-result.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
+          cat "$root/apply-result.json"
+      - name: Verify Production trigger is decoupled
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kingmaker-decouple"
+          jq -n --arg q "select pg_get_functiondef(p.oid) as definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tcos_trigger_kingmaker_beckett_rematch' limit 1" '{query:$q}' > "$root/verify.json"
+          curl --silent --show-error --fail --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data-binary @"$root/verify.json" \
+            --output "$root/verify-result.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query/read-only"
+          jq -e '.[0].definition | contains("tcos_drain_kingmaker_price_rematch_batch") and (contains("tcos_rematch_kingmaker_price_entries_for_release_batch") | not)' "$root/verify-result.json"
+          cat "$root/verify-result.json"
+      - name: Upload apply receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-kingmaker-decouple-${{ github.run_id }}
+          path: ${{ runner.temp }}/kingmaker-decouple
+          retention-days: 30
