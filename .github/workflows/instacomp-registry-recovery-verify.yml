@@ -8,6 +8,8 @@ on:
       - "services/instacomp-ai/app/checklist.py"
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/lib/instacomp-learning-server.ts"
+      - "scripts/run-instacomp-registry-lock-request-regression.ts"
   workflow_dispatch:
 
 permissions:
@@ -73,7 +75,7 @@ jobs:
       - name: Install Node dependencies
         run: npm ci --ignore-scripts
 
-      - name: Verify Registry probe sanitizes unsupported Silver hallucination
+      - name: Verify existing Sonia sanitizer contract
         run: |
           set -euo pipefail
           node --import tsx - <<'TS'
@@ -101,6 +103,15 @@ jobs:
           }
           console.log("PASS Registry set-name evidence sanitizer");
           TS
+
+      - name: Verify Rickea exact Base recovery three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            node --import tsx scripts/run-instacomp-registry-lock-request-regression.ts \
+              | tee "/tmp/rickea-registry-recovery-${run}.log"
+            grep -q 'resolves Rickea Base UUID/fingerprint' "/tmp/rickea-registry-recovery-${run}.log"
+          done
 
       - name: TypeScript check
         run: npx tsc --noEmit --pretty false
