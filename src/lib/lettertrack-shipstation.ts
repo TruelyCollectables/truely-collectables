@@ -35,6 +35,18 @@ export type LetterTrackShipStationPurchaseResult = {
   rawProviderPayload: Record<string, unknown>;
 };
 
+export type LetterTrackShipStationQuoteResult = {
+  rateId: string | null;
+  shipmentId: string | null;
+  carrierId: string;
+  serviceCode: string;
+  packageCode: string;
+  postageAmount: number;
+  deliveryDays: number | null;
+  estimatedDeliveryDate: string | null;
+  warningMessages: string[];
+};
+
 export type LetterTrackShipStationBridgeStatus = {
   enabled: boolean;
   ready: boolean;
@@ -197,6 +209,130 @@ export function buildLetterTrackShipStationLabelRequest(
   };
 }
 
+function providerErrorMessage(payload: Record<string, any>, status: number) {
+  return (
+    payload?.errors?.[0]?.message ||
+    payload?.message ||
+    payload?.error ||
+    `HTTP ${status}`
+  );
+}
+
+function amount(value: any) {
+  const parsed = Number(value?.amount ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function quoteLetterTrackShipStationPostage(
+  request: LetterTrackShipStationPurchaseRequest,
+): Promise<LetterTrackShipStationQuoteResult> {
+  const status = getLetterTrackShipStationBridgeStatus();
+  if (!status.apiKeyConfigured || !status.carrierConfigured) {
+    throw new Error(
+      `ShipStation API quote is missing: ${status.missing.join(", ")}.`,
+    );
+  }
+  const shipFrom = await getShipStationOrigin();
+  if (!shipFrom) {
+    throw new Error(
+      "TruelyCollectables does not have a saved ShipStation ship-from address. Save it in Admin → Shipping → ShipStation Test first.",
+    );
+  }
+
+  const labelPayload = buildLetterTrackShipStationLabelRequest(request, shipFrom);
+  const response = await fetch(`${SHIPSTATION_API_BASE}/v1/rates`, {
+    method: "POST",
+    headers: {
+      "API-Key": process.env.SHIPSTATION_API_KEY!.trim(),
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      rate_options: {
+        carrier_ids: [process.env.SHIPSTATION_CARRIER_ID!.trim()],
+        service_codes: [status.serviceCode],
+        package_types: [status.packageCode],
+      },
+      shipment: labelPayload.shipment,
+    }),
+    redirect: "manual",
+    signal: AbortSignal.timeout(45_000),
+  });
+
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(
+      `ShipStation API rate quote refused an unexpected redirect (HTTP ${response.status}).`,
+    );
+  }
+  const payload = (await response.json().catch(() => ({}))) as Record<string, any>;
+  if (!response.ok) {
+    throw new Error(
+      `ShipStation API rate quote failed: ${providerErrorMessage(payload, response.status)}`,
+    );
+  }
+
+  const rates = Array.isArray(payload?.rates)
+    ? payload.rates
+    : Array.isArray(payload?.rate_response?.rates)
+      ? payload.rate_response.rates
+      : [];
+  const matching = rates.filter((rate: any) => {
+    const service = String(rate?.service_code || "").trim();
+    const packageCode = String(rate?.package_type || rate?.package_code || "").trim();
+    return (
+      service === status.serviceCode &&
+      (!packageCode || packageCode === status.packageCode)
+    );
+  });
+  const priced = matching
+    .map((rate: any) => ({
+      rate,
+      total:
+        amount(rate?.shipping_amount) +
+        amount(rate?.insurance_amount) +
+        amount(rate?.confirmation_amount) +
+        amount(rate?.other_amount) +
+        amount(rate?.tax_amount),
+    }))
+    .filter((entry: any) => Number.isFinite(entry.total) && entry.total >= 0)
+    .sort((a: any, b: any) => a.total - b.total);
+
+  if (!priced.length) {
+    const invalid = Array.isArray(payload?.invalid_rates)
+      ? payload.invalid_rates
+          .flatMap((rate: any) => rate?.error_messages || rate?.warning_messages || [])
+          .filter(Boolean)
+      : [];
+    throw new Error(
+      `ShipStation API returned no usable ${status.serviceCode}/${status.packageCode} rate.${invalid.length ? ` ${invalid.join("; ")}` : ""}`,
+    );
+  }
+
+  const selected = priced[0]!.rate;
+  const total = Number(priced[0]!.total.toFixed(2));
+  return {
+    rateId: String(selected?.rate_id || "").trim() || null,
+    shipmentId:
+      String(payload?.shipment_id || payload?.rate_response?.shipment_id || "").trim() ||
+      null,
+    carrierId:
+      String(selected?.carrier_id || process.env.SHIPSTATION_CARRIER_ID || "").trim(),
+    serviceCode: String(selected?.service_code || status.serviceCode).trim(),
+    packageCode: String(
+      selected?.package_type || selected?.package_code || status.packageCode,
+    ).trim(),
+    postageAmount: total,
+    deliveryDays: Number.isFinite(Number(selected?.delivery_days))
+      ? Number(selected.delivery_days)
+      : null,
+    estimatedDeliveryDate:
+      String(selected?.estimated_delivery_date || "").trim() || null,
+    warningMessages: Array.isArray(selected?.warning_messages)
+      ? selected.warning_messages.map((value: unknown) => String(value)).filter(Boolean)
+      : [],
+  };
+}
+
 export function safeShipStationDownloadUrl(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -257,11 +393,9 @@ export async function purchaseLetterTrackShipStationPostage(
   }
   const providerPayload = (await response.json().catch(() => ({}))) as Record<string, any>;
   if (!response.ok) {
-    const providerMessage =
-      providerPayload?.errors?.[0]?.message ||
-      providerPayload?.message ||
-      `HTTP ${response.status}`;
-    throw new Error(`ShipStation API postage purchase failed: ${providerMessage}`);
+    throw new Error(
+      `ShipStation API postage purchase failed: ${providerErrorMessage(providerPayload, response.status)}`,
+    );
   }
 
   const labelPdfUrl = safeShipStationDownloadUrl(
