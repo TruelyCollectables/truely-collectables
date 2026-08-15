@@ -11,7 +11,6 @@ const shardCount = Math.max(1, Number(process.env.VACUUM_SHARD_COUNT || 1));
 const maxPages = Math.max(1, Number(process.env.VACUUM_MAX_PAGES || 250));
 const maxSitemapsPerHost = Math.max(1, Number(process.env.VACUUM_MAX_SITEMAPS_PER_HOST || 25));
 const requestTimeoutMs = Math.max(1000, Number(process.env.VACUUM_REQUEST_TIMEOUT_MS || 12000));
-const userAgent = 'TCOS Ultimate Vacuum Checklist Discovery/1.0';
 const policy = JSON.parse(readFileSync(policyPath, 'utf8'));
 
 const candidateMap = new Map();
@@ -51,7 +50,11 @@ async function fetchText(url, source) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
-    const r = await fetch(url, { redirect: 'follow', signal: controller.signal, headers: { 'user-agent': userAgent, accept: 'text/html,application/xml,text/xml,text/plain;q=0.9,*/*;q=0.5' } });
+    const r = await fetch(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: { accept: 'text/html,application/xml,text/xml,text/plain;q=0.9,*/*;q=0.5' }
+    });
     clearTimeout(timer);
     const text = await r.text().catch(() => '');
     if (r.status === 404 || r.status === 410) { stats.dead++; addEvent(url, 'dead_url', `HTTP ${r.status}`); return { ok: false, status: r.status, text }; }
@@ -87,37 +90,49 @@ function usefulPageLink(url, host) {
     return /checklist|check-list|product-review|set-review|archive|cards|trading|sport|baseball|basketball|football|hockey|soccer|ufc|wwe/i.test(u.pathname + u.search);
   } catch { return false; }
 }
+function isActualChallengePage(text, contentType = '') {
+  const head = String(text || '').slice(0, 120000).toLowerCase();
+  if (!/text\/html/i.test(contentType || 'text/html')) return false;
+  return (
+    /<title>[^<]*(just a moment|attention required|verify you are human|security check)[^<]*<\/title>/i.test(head) ||
+    /cf-chl-|challenge-platform|turnstile-wrapper|g-recaptcha[^\w-]|hcaptcha-container/i.test(head)
+  );
+}
 
 for (const source of policy.sources || []) {
   if (source.mode === 'lead-only-public-pages' && source.id === 'beckett-public') continue;
+  if (source.singleShardOnly === true && shardIndex !== 0) continue;
   for (const configuredHost of source.hosts || []) {
     const host = String(configuredHost).toLowerCase();
     if (host.startsWith('www.') && (source.hosts || []).includes(host.slice(4))) continue;
     stats.hosts++;
     const schemeHost = `https://${host}`;
-    const sitemapSeeds = new Set([`${schemeHost}/sitemap.xml`, `${schemeHost}/sitemap_index.xml`]);
-    const robots = await fetchText(`${schemeHost}/robots.txt`, source);
-    if (robots.ok) {
-      for (const m of robots.text.matchAll(/^\s*Sitemap:\s*(\S+)/gim)) sitemapSeeds.add(cleanText(m[1]));
-    }
-    const sitemapQueue = [...sitemapSeeds];
-    const seenSitemaps = new Set();
     const discoveredUrls = new Set();
-    while (sitemapQueue.length && seenSitemaps.size < maxSitemapsPerHost) {
-      const sm = sitemapQueue.shift();
-      if (!sm || seenSitemaps.has(sm)) continue;
-      seenSitemaps.add(sm);
-      const fetched = await fetchText(sm, source);
-      if (!fetched.ok) continue;
-      for (const loc of xmlLocs(fetched.text)) {
-        if (/\.xml(?:\.gz)?(?:\?|$)/i.test(loc)) {
-          if (sitemapQueue.length + seenSitemaps.size < maxSitemapsPerHost * 3) sitemapQueue.push(loc);
-        } else if (looksLikeChecklistPage(loc)) {
-          discoveredUrls.add(loc);
+
+    if (source.skipSitemaps !== true) {
+      const sitemapSeeds = new Set([`${schemeHost}/sitemap.xml`, `${schemeHost}/sitemap_index.xml`]);
+      const robots = await fetchText(`${schemeHost}/robots.txt`, source);
+      if (robots.ok) {
+        for (const m of robots.text.matchAll(/^\s*Sitemap:\s*(\S+)/gim)) sitemapSeeds.add(cleanText(m[1]));
+      }
+      const sitemapQueue = [...sitemapSeeds];
+      const seenSitemaps = new Set();
+      while (sitemapQueue.length && seenSitemaps.size < maxSitemapsPerHost) {
+        const sm = sitemapQueue.shift();
+        if (!sm || seenSitemaps.has(sm)) continue;
+        seenSitemaps.add(sm);
+        const fetched = await fetchText(sm, source);
+        if (!fetched.ok) continue;
+        for (const loc of xmlLocs(fetched.text)) {
+          if (/\.xml(?:\.gz)?(?:\?|$)/i.test(loc)) {
+            if (sitemapQueue.length + seenSitemaps.size < maxSitemapsPerHost * 3) sitemapQueue.push(loc);
+          } else if (looksLikeChecklistPage(loc)) {
+            discoveredUrls.add(loc);
+          }
         }
       }
+      stats.sitemapUrls += discoveredUrls.size;
     }
-    stats.sitemapUrls += discoveredUrls.size;
 
     for (const p of source.seedPaths || []) discoveredUrls.add(new URL(p, schemeHost).href);
     for (const p of source.seedPathPrefixes || []) discoveredUrls.add(new URL(p, schemeHost).href);
@@ -128,7 +143,7 @@ for (const source of policy.sources || []) {
       discoveredUrls.add(`${schemeHost}/index.php`);
     }
 
-    const queue = [...discoveredUrls].filter(url => shardFor(url) === shardIndex);
+    const queue = [...discoveredUrls].filter(url => source.singleShardOnly === true || shardFor(url) === shardIndex);
     const seen = new Set();
     while (queue.length && stats.pagesAttempted < maxPages) {
       const url = queue.shift();
@@ -139,8 +154,8 @@ for (const source of policy.sources || []) {
       const fetched = await fetchText(url, source);
       if (!fetched.ok) continue;
       stats.pagesOk++;
+      if (isActualChallengePage(fetched.text, fetched.contentType)) { stats.blocked++; addEvent(url, 'captcha', 'challenge page'); continue; }
       const textLower = fetched.text.toLowerCase();
-      if (/captcha|verify you are human|cloudflare challenge/.test(textLower)) { stats.blocked++; addEvent(url, 'captcha', 'challenge page'); continue; }
       if (/please login|log in to continue|subscribe to access|sign in to continue/.test(textLower) && source.mode !== 'authoritative-harvest') { stats.blocked++; addEvent(url, 'login_wall', 'access wall'); continue; }
       const links = htmlLinks(fetched.text, url);
       let found = false;
@@ -154,7 +169,7 @@ for (const source of policy.sources || []) {
           stats.assetsFound++;
           found = true;
         } else if (usefulPageLink(link, host) && seen.size + queue.length < maxPages * 3) {
-          if (shardFor(link) === shardIndex) queue.push(link);
+          if (source.singleShardOnly === true || shardFor(link) === shardIndex) queue.push(link);
         }
       }
       if (looksLikeChecklistPage(url, fetched.text)) {
