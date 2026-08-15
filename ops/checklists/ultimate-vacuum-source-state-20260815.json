@@ -1,9 +1,9 @@
 {
   "schema": "tcos.checklist.ultimateVacuumSourceState.v1",
-  "updatedAt": "2026-08-15T16:21:44.404Z",
+  "updatedAt": "2026-08-15T16:30:18.105Z",
   "hosts": {
     "gogts.net": {
-      "attempts": 10,
+      "attempts": 15,
       "sourcesFound": 0,
       "validated": 0,
       "netNew": 0,
@@ -11,14 +11,14 @@
       "deadUrl": 0,
       "bunkContent": 0,
       "noChecklist": 0,
-      "accessBlocked": 10,
+      "accessBlocked": 15,
       "rateLimited": 0,
       "timeouts": 0,
       "lastOutcome": "robots_blocked",
-      "lastSeenAt": "2026-08-15T15:46:44.837Z"
+      "lastSeenAt": "2026-08-15T16:26:05.405Z"
     },
     "topps.com": {
-      "attempts": 8,
+      "attempts": 12,
       "sourcesFound": 0,
       "validated": 0,
       "netNew": 0,
@@ -26,14 +26,14 @@
       "deadUrl": 0,
       "bunkContent": 0,
       "noChecklist": 0,
-      "accessBlocked": 8,
+      "accessBlocked": 12,
       "rateLimited": 0,
       "timeouts": 0,
       "lastOutcome": "robots_blocked",
-      "lastSeenAt": "2026-08-15T15:46:24.878Z"
+      "lastSeenAt": "2026-08-15T16:25:59.469Z"
     },
     "www-next.topps.com": {
-      "attempts": 8,
+      "attempts": 12,
       "sourcesFound": 0,
       "validated": 0,
       "netNew": 0,
@@ -41,29 +41,29 @@
       "deadUrl": 0,
       "bunkContent": 0,
       "noChecklist": 0,
-      "accessBlocked": 8,
+      "accessBlocked": 12,
       "rateLimited": 0,
       "timeouts": 0,
       "lastOutcome": "robots_blocked",
-      "lastSeenAt": "2026-08-15T15:46:34.805Z"
+      "lastSeenAt": "2026-08-15T16:26:09.249Z"
     },
     "upperdeck.com": {
-      "attempts": 1100,
+      "attempts": 1104,
       "sourcesFound": 1088,
       "validated": 1088,
       "netNew": 0,
       "idempotent": 0,
-      "deadUrl": 2,
-      "bunkContent": 3,
+      "deadUrl": 4,
+      "bunkContent": 5,
       "noChecklist": 6,
       "accessBlocked": 0,
       "rateLimited": 0,
       "timeouts": 1,
-      "lastOutcome": "validated",
-      "lastSeenAt": "2026-08-15T16:21:29.037Z"
+      "lastOutcome": "bunk_content",
+      "lastSeenAt": "2026-08-15T16:26:57.477Z"
     },
     "paniniamerica.net": {
-      "attempts": 4,
+      "attempts": 6,
       "sourcesFound": 0,
       "validated": 0,
       "netNew": 0,
@@ -71,14 +71,14 @@
       "deadUrl": 0,
       "bunkContent": 0,
       "noChecklist": 0,
-      "accessBlocked": 4,
+      "accessBlocked": 6,
       "rateLimited": 0,
       "timeouts": 0,
       "lastOutcome": "robots_blocked",
-      "lastSeenAt": "2026-08-15T15:46:47.536Z"
+      "lastSeenAt": "2026-08-15T16:26:03.298Z"
     },
     "nft.paniniamerica.net": {
-      "attempts": 2,
+      "attempts": 3,
       "sourcesFound": 0,
       "validated": 0,
       "netNew": 0,
@@ -86,59 +86,59 @@
       "deadUrl": 0,
       "bunkContent": 0,
       "noChecklist": 0,
-      "accessBlocked": 2,
+      "accessBlocked": 3,
       "rateLimited": 0,
       "timeouts": 0,
       "lastOutcome": "robots_blocked",
-      "lastSeenAt": "2026-08-15T15:46:44.878Z"
+      "lastSeenAt": "2026-08-15T16:26:00.632Z"
     },
     "cardboardchecklist.com": {
-      "attempts": 726,
-      "sourcesFound": 724,
-      "validated": 724,
+      "attempts": 728,
+      "sourcesFound": 725,
+      "validated": 725,
       "netNew": 0,
       "idempotent": 0,
-      "deadUrl": 2,
+      "deadUrl": 3,
       "bunkContent": 0,
       "noChecklist": 0,
       "accessBlocked": 0,
       "rateLimited": 0,
       "timeouts": 0,
       "lastOutcome": "validated",
-      "lastSeenAt": "2026-08-15T16:06:06.762Z"
+      "lastSeenAt": "2026-08-15T16:25:59.582Z"
     },
     "cardboardconnection.com": {
-      "attempts": 84,
-      "sourcesFound": 61,
-      "validated": 61,
+      "attempts": 126,
+      "sourcesFound": 92,
+      "validated": 92,
       "netNew": 0,
       "idempotent": 0,
-      "deadUrl": 2,
-      "bunkContent": 21,
+      "deadUrl": 3,
+      "bunkContent": 31,
       "noChecklist": 0,
       "accessBlocked": 0,
       "rateLimited": 0,
       "timeouts": 0,
-      "lastOutcome": "bunk_content",
-      "lastSeenAt": "2026-08-15T15:51:33.880Z"
+      "lastOutcome": "validated",
+      "lastSeenAt": "2026-08-15T16:29:57.821Z"
     },
     "www.cardboardconnection.com": {
-      "attempts": 80,
-      "sourcesFound": 46,
-      "validated": 46,
+      "attempts": 103,
+      "sourcesFound": 58,
+      "validated": 58,
       "netNew": 0,
       "idempotent": 0,
       "deadUrl": 0,
-      "bunkContent": 34,
+      "bunkContent": 45,
       "noChecklist": 0,
       "accessBlocked": 0,
       "rateLimited": 0,
       "timeouts": 0,
-      "lastOutcome": "bunk_content",
-      "lastSeenAt": "2026-08-15T15:49:06.664Z"
+      "lastOutcome": "validated",
+      "lastSeenAt": "2026-08-15T16:27:33.044Z"
     },
     "blowoutforums.com": {
-      "attempts": 8,
+      "attempts": 12,
       "sourcesFound": 0,
       "validated": 0,
       "netNew": 0,
@@ -146,11 +146,11 @@
       "deadUrl": 0,
       "bunkContent": 0,
       "noChecklist": 0,
-      "accessBlocked": 8,
+      "accessBlocked": 12,
       "rateLimited": 0,
       "timeouts": 0,
       "lastOutcome": "robots_blocked",
-      "lastSeenAt": "2026-08-15T15:46:35.470Z"
+      "lastSeenAt": "2026-08-15T16:26:10.761Z"
     }
   },
   "negativeCache": {
@@ -158,240 +158,240 @@
       "outcome": "robots_blocked",
       "host": "gogts.net",
       "firstSeenAt": "2026-08-15T14:32:54.992Z",
-      "lastSeenAt": "2026-08-15T15:46:32.766Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:53.425Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://gogts.net/trading-card-checklists/football-card-checklists/": {
       "outcome": "robots_blocked",
       "host": "gogts.net",
       "firstSeenAt": "2026-08-15T14:32:57.884Z",
-      "lastSeenAt": "2026-08-15T15:46:35.845Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:56.165Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://gogts.net/trading-card-checklists/basketball-card-checklists/": {
       "outcome": "robots_blocked",
       "host": "gogts.net",
       "firstSeenAt": "2026-08-15T14:33:01.172Z",
-      "lastSeenAt": "2026-08-15T15:46:38.935Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:59.417Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://gogts.net/trading-card-checklists/hockey-card-checklists/": {
       "outcome": "robots_blocked",
       "host": "gogts.net",
       "firstSeenAt": "2026-08-15T14:33:04.648Z",
-      "lastSeenAt": "2026-08-15T15:46:41.812Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:02.394Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://gogts.net/trading-card-checklists/soccer-card-checklists/": {
       "outcome": "robots_blocked",
       "host": "gogts.net",
       "firstSeenAt": "2026-08-15T14:33:07.836Z",
-      "lastSeenAt": "2026-08-15T15:46:44.837Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:05.405Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://topps.com/robots.txt": {
       "outcome": "robots_blocked",
       "host": "topps.com",
       "firstSeenAt": "2026-08-15T14:33:24.463Z",
-      "lastSeenAt": "2026-08-15T15:46:15.619Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:50.155Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://topps.com/sitemap.xml": {
       "outcome": "robots_blocked",
       "host": "topps.com",
       "firstSeenAt": "2026-08-15T14:33:27.521Z",
-      "lastSeenAt": "2026-08-15T15:46:18.269Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:52.967Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://topps.com/sitemap_index.xml": {
       "outcome": "robots_blocked",
       "host": "topps.com",
       "firstSeenAt": "2026-08-15T14:33:30.978Z",
-      "lastSeenAt": "2026-08-15T15:46:21.391Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:56.078Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://topps.com/pages/checklists": {
       "outcome": "robots_blocked",
       "host": "topps.com",
       "firstSeenAt": "2026-08-15T14:33:33.913Z",
-      "lastSeenAt": "2026-08-15T15:46:24.878Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:59.469Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://www-next.topps.com/robots.txt": {
       "outcome": "robots_blocked",
       "host": "www-next.topps.com",
       "firstSeenAt": "2026-08-15T14:33:33.974Z",
-      "lastSeenAt": "2026-08-15T15:46:24.922Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:59.528Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://www-next.topps.com/sitemap.xml": {
       "outcome": "robots_blocked",
       "host": "www-next.topps.com",
       "firstSeenAt": "2026-08-15T14:33:36.955Z",
-      "lastSeenAt": "2026-08-15T15:46:28.021Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:02.681Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://www-next.topps.com/sitemap_index.xml": {
       "outcome": "robots_blocked",
       "host": "www-next.topps.com",
       "firstSeenAt": "2026-08-15T14:33:40.303Z",
-      "lastSeenAt": "2026-08-15T15:46:31.321Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:05.965Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://www-next.topps.com/pages/checklists": {
       "outcome": "robots_blocked",
       "host": "www-next.topps.com",
       "firstSeenAt": "2026-08-15T14:33:43.395Z",
-      "lastSeenAt": "2026-08-15T15:46:34.805Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:09.249Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://upperdeck.com/checklist/2024-marvel-masterpieces-nahuel-grego-checklist/": {
       "outcome": "bunk_content",
       "host": "upperdeck.com",
       "firstSeenAt": "2026-08-15T14:38:08.093Z",
-      "lastSeenAt": "2026-08-15T15:51:27.544Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:52.031Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://upperdeck.com/checklist/2023-24-engrained-checklist/": {
       "outcome": "bunk_content",
       "host": "upperdeck.com",
       "firstSeenAt": "2026-08-15T14:40:29.674Z",
-      "lastSeenAt": "2026-08-15T14:40:29.674Z",
-      "expiresAt": "2026-08-22T14:57:42.397Z",
+      "lastSeenAt": "2026-08-15T16:26:57.477Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://paniniamerica.net/sitemap_index.xml": {
       "outcome": "robots_blocked",
       "host": "paniniamerica.net",
       "firstSeenAt": "2026-08-15T14:32:58.774Z",
-      "lastSeenAt": "2026-08-15T15:46:44.657Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:00.254Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://nft.paniniamerica.net/resources/checklist.html": {
       "outcome": "robots_blocked",
       "host": "nft.paniniamerica.net",
       "firstSeenAt": "2026-08-15T14:32:59.163Z",
-      "lastSeenAt": "2026-08-15T15:46:44.878Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:00.632Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://paniniamerica.net/checklist.html": {
       "outcome": "robots_blocked",
       "host": "paniniamerica.net",
       "firstSeenAt": "2026-08-15T14:33:01.984Z",
-      "lastSeenAt": "2026-08-15T15:46:47.536Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:03.298Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://cardboardchecklist.com/sitemap_index.xml": {
       "outcome": "dead_url",
       "host": "cardboardchecklist.com",
       "firstSeenAt": "2026-08-15T14:32:09.966Z",
-      "lastSeenAt": "2026-08-15T15:46:52.200Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:56.508Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 404"
     },
     "https://cardboardconnection.com/sitemap.xml": {
       "outcome": "dead_url",
       "host": "cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:33:20.524Z",
-      "lastSeenAt": "2026-08-15T15:46:13.130Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:54.220Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 404"
     },
     "https://www.cardboardconnection.com/post-sitemap2.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:33:33.795Z",
-      "lastSeenAt": "2026-08-15T15:46:26.110Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:06.985Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/post-sitemap3.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:33:37.633Z",
-      "lastSeenAt": "2026-08-15T15:46:36.603Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:17.477Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "fetch failed"
     },
     "https://www.cardboardconnection.com/post-sitemap4.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:33:41.786Z",
-      "lastSeenAt": "2026-08-15T15:46:47.098Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
-      "detail": "fetch failed"
+      "lastSeenAt": "2026-08-15T16:26:21.482Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/post-sitemap5.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:33:45.672Z",
-      "lastSeenAt": "2026-08-15T15:46:51.155Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:24.965Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/post-sitemap6.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:33:56.164Z",
-      "lastSeenAt": "2026-08-15T15:46:54.703Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:28.208Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/post-sitemap7.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:33:59.859Z",
-      "lastSeenAt": "2026-08-15T15:46:58.793Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:31.489Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/post-sitemap8.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:34:03.591Z",
-      "lastSeenAt": "2026-08-15T15:47:02.735Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:34.822Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/post-sitemap9.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:34:07.066Z",
-      "lastSeenAt": "2026-08-15T15:47:13.229Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
-      "detail": "fetch failed"
+      "lastSeenAt": "2026-08-15T16:26:38.361Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/post-sitemap10.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:34:10.371Z",
-      "lastSeenAt": "2026-08-15T15:47:16.843Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:41.414Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/profiles-sitemap.xml": {
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:34:16.310Z",
-      "lastSeenAt": "2026-08-15T15:47:23.520Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:47.977Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 500"
     },
     "https://www.cardboardconnection.com/2011-topps-allen-ginter-non-baseball-autographs-checklist": {
@@ -438,8 +438,8 @@
       "outcome": "bunk_content",
       "host": "www.cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:35:43.221Z",
-      "lastSeenAt": "2026-08-15T14:35:43.221Z",
-      "expiresAt": "2026-08-22T14:57:42.397Z",
+      "lastSeenAt": "2026-08-15T16:27:31.269Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "fetch failed"
     },
     "https://www.cardboardconnection.com/steve-young-football-cards-rookie-cards-checklist-and-buying-guide": {
@@ -478,8 +478,8 @@
       "outcome": "bunk_content",
       "host": "cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:36:31.114Z",
-      "lastSeenAt": "2026-08-15T15:49:26.626Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:27:55.106Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "fetch failed"
     },
     "https://cardboardconnection.com/page/25": {
@@ -494,8 +494,8 @@
       "outcome": "bunk_content",
       "host": "cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:37:40.940Z",
-      "lastSeenAt": "2026-08-15T14:37:40.940Z",
-      "expiresAt": "2026-08-22T14:57:42.397Z",
+      "lastSeenAt": "2026-08-15T16:29:14.484Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "fetch failed"
     },
     "https://cardboardconnection.com/page/30": {
@@ -510,8 +510,8 @@
       "outcome": "bunk_content",
       "host": "cardboardconnection.com",
       "firstSeenAt": "2026-08-15T14:38:01.186Z",
-      "lastSeenAt": "2026-08-15T14:38:01.186Z",
-      "expiresAt": "2026-08-22T14:57:42.397Z",
+      "lastSeenAt": "2026-08-15T16:29:34.458Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "fetch failed"
     },
     "https://cardboardconnection.com/page/35": {
@@ -534,48 +534,48 @@
       "outcome": "robots_blocked",
       "host": "blowoutforums.com",
       "firstSeenAt": "2026-08-15T14:33:12.572Z",
-      "lastSeenAt": "2026-08-15T15:46:17.216Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:51.640Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://blowoutforums.com/sitemap.xml": {
       "outcome": "robots_blocked",
       "host": "blowoutforums.com",
       "firstSeenAt": "2026-08-15T14:33:19.227Z",
-      "lastSeenAt": "2026-08-15T15:46:22.908Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:25:57.854Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://blowoutforums.com/sitemap_index.xml": {
       "outcome": "robots_blocked",
       "host": "blowoutforums.com",
       "firstSeenAt": "2026-08-15T14:33:25.375Z",
-      "lastSeenAt": "2026-08-15T15:46:29.513Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:03.958Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://blowoutforums.com/index.php": {
       "outcome": "robots_blocked",
       "host": "blowoutforums.com",
       "firstSeenAt": "2026-08-15T14:33:31.499Z",
-      "lastSeenAt": "2026-08-15T15:46:35.470Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:10.761Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 403"
     },
     "https://upperdeck.com/checklist-license/": {
       "outcome": "dead_url",
       "host": "upperdeck.com",
       "firstSeenAt": "2026-08-15T16:15:20.708Z",
-      "lastSeenAt": "2026-08-15T16:15:20.708Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:53.181Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 404"
     },
     "https://upperdeck.com/checklist-brand/": {
       "outcome": "dead_url",
       "host": "upperdeck.com",
       "firstSeenAt": "2026-08-15T16:15:24.089Z",
-      "lastSeenAt": "2026-08-15T16:15:24.089Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:26:55.971Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "HTTP 404"
     },
     "https://upperdeck.com/trading-cards/sports/": {
@@ -726,8 +726,8 @@
       "outcome": "bunk_content",
       "host": "cardboardconnection.com",
       "firstSeenAt": "2026-08-15T15:50:52.981Z",
-      "lastSeenAt": "2026-08-15T15:50:52.981Z",
-      "expiresAt": "2026-08-22T16:21:44.404Z",
+      "lastSeenAt": "2026-08-15T16:29:17.479Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
       "detail": "fetch failed"
     },
     "https://cardboardconnection.com/page/37": {
@@ -745,10 +745,58 @@
       "lastSeenAt": "2026-08-15T15:51:33.880Z",
       "expiresAt": "2026-08-22T16:21:44.404Z",
       "detail": "fetch failed"
+    },
+    "https://cardboardconnection.com/page/5": {
+      "outcome": "bunk_content",
+      "host": "cardboardconnection.com",
+      "firstSeenAt": "2026-08-15T16:27:58.102Z",
+      "lastSeenAt": "2026-08-15T16:27:58.102Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "fetch failed"
+    },
+    "https://cardboardconnection.com/page/10": {
+      "outcome": "bunk_content",
+      "host": "cardboardconnection.com",
+      "firstSeenAt": "2026-08-15T16:28:18.055Z",
+      "lastSeenAt": "2026-08-15T16:28:18.055Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "fetch failed"
+    },
+    "https://cardboardconnection.com/page/11": {
+      "outcome": "bunk_content",
+      "host": "cardboardconnection.com",
+      "firstSeenAt": "2026-08-15T16:28:20.552Z",
+      "lastSeenAt": "2026-08-15T16:28:20.552Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "fetch failed"
+    },
+    "https://cardboardconnection.com/page/29": {
+      "outcome": "bunk_content",
+      "host": "cardboardconnection.com",
+      "firstSeenAt": "2026-08-15T16:29:28.463Z",
+      "lastSeenAt": "2026-08-15T16:29:28.463Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "fetch failed"
+    },
+    "https://cardboardconnection.com/page/33": {
+      "outcome": "bunk_content",
+      "host": "cardboardconnection.com",
+      "firstSeenAt": "2026-08-15T16:29:41.950Z",
+      "lastSeenAt": "2026-08-15T16:29:41.950Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "fetch failed"
+    },
+    "https://cardboardconnection.com/page/34": {
+      "outcome": "bunk_content",
+      "host": "cardboardconnection.com",
+      "firstSeenAt": "2026-08-15T16:29:44.947Z",
+      "lastSeenAt": "2026-08-15T16:29:44.947Z",
+      "expiresAt": "2026-08-22T16:30:18.105Z",
+      "detail": "fetch failed"
     }
   },
   "totals": {
-    "events": 2030
+    "events": 2121
   },
   "hostScores": {
     "beckett.com": 45,
@@ -757,14 +805,14 @@
     "cardboardconnection.com": 150,
     "gogts.net": 0,
     "nft.paniniamerica.net": 0,
-    "paniniamerica.net": 35,
-    "topps.com": 15.15,
+    "paniniamerica.net": 21.52,
+    "topps.com": 0,
     "upperdeck.com": 150,
-    "www-next.topps.com": 15.15,
+    "www-next.topps.com": 0,
     "www.beckett.com": 45,
     "www.blowoutforums.com": 65,
     "www.cardboardchecklist.com": 90,
-    "www.cardboardconnection.com": 108.83,
+    "www.cardboardconnection.com": 107.62,
     "www.paniniamerica.net": 95,
     "www.topps.com": 100,
     "www.upperdeck.com": 100
