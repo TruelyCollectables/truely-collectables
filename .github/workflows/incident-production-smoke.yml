@@ -6,63 +6,268 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: incident-production-smoke
+  cancel-in-progress: true
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 12
     steps:
-      - name: Check production from GitHub network
+      - name: Run non-destructive production certification
         shell: bash
         run: |
-          set -uo pipefail
-          echo "DNS resolution:"
-          getent ahosts truelycollectables.com || true
+          set -euo pipefail
 
+          base="https://truelycollectables.com"
           failed=0
-          for url in \
-            "https://truelycollectables.com/" \
-            "https://truelycollectables.com/shop"; do
-            echo "===== $url ====="
-            rm -f /tmp/headers /tmp/body
-            if curl \
-              --location \
-              --silent \
-              --show-error \
-              --connect-timeout 5 \
-              --max-time 20 \
-              --dump-header /tmp/headers \
-              --output /tmp/body \
-              --write-out 'HTTP=%{http_code} CONNECT=%{time_connect}s TTFB=%{time_starttransfer}s TOTAL=%{time_total}s IP=%{remote_ip}\n' \
-              "$url"; then
-              cat /tmp/headers || true
-              echo "BODY_BYTES=$(wc -c </tmp/body 2>/dev/null || echo 0)"
-              code="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' /tmp/headers 2>/dev/null || true)"
-              case "$code" in
-                2*|3*) ;;
-                *) failed=1 ;;
-              esac
+          LAST_BODY=""
+          LAST_HEADERS=""
+          LAST_TTFB=""
+          LAST_TOTAL=""
 
-              if [ "$url" = "https://truelycollectables.com/shop" ]; then
-                active_text="$(grep -oE '[0-9][0-9,]* active' /tmp/body | head -n 1 || true)"
-                product_links="$(grep -oE 'href="/product/[0-9]+"' /tmp/body | sort -u | wc -l | tr -d ' ')"
-                echo "ACTIVE_COUNT_TEXT=${active_text:-NOT_RENDERED}"
-                echo "UNIQUE_PRODUCT_LINKS=${product_links:-0}"
-                if grep -q 'No active cards or collectibles found' /tmp/body; then
-                  echo "CATALOG_EMPTY=yes"
-                  failed=1
-                else
-                  echo "CATALOG_EMPTY=no"
-                fi
-                if [ "${product_links:-0}" -eq 0 ]; then
-                  echo "CATALOG_PROOF=failed"
-                  failed=1
-                else
-                  echo "CATALOG_PROOF=passed"
-                fi
-              fi
-            else
-              failed=1
+          fail() {
+            echo "::error::$*"
+            failed=1
+          }
+
+          warn() {
+            echo "::warning::$*"
+          }
+
+          worker_headers() {
+            local label="$1" headers="$2"
+            grep -qiE '^x-truely-origin:[[:space:]]*cloudflare-worker' "$headers" || fail "$label missing x-truely-origin: cloudflare-worker"
+            grep -qiE '^server:[[:space:]]*cloudflare' "$headers" || fail "$label missing server: cloudflare"
+            if grep -qiE '^x-vercel-|^server:[[:space:]]*vercel' "$headers"; then
+              fail "$label exposed a Vercel response header"
             fi
+          }
+
+          security_headers() {
+            local label="$1" headers="$2"
+            grep -qiE '^x-content-type-options:[[:space:]]*nosniff' "$headers" || fail "$label missing nosniff"
+            grep -qiE '^x-frame-options:[[:space:]]*DENY' "$headers" || fail "$label missing frame protection"
+            grep -qiE '^strict-transport-security:' "$headers" || fail "$label missing HSTS"
+          }
+
+          probe_get() {
+            local label="$1" url="$2" max_seconds="${3:-90}"
+            local slug headers body metrics code ttfb total bytes
+            slug="$(printf '%s' "$label" | tr ' /' '__' | tr -cd '[:alnum:]_-')"
+            headers="/tmp/${slug}.headers"
+            body="/tmp/${slug}.body"
+            rm -f "$headers" "$body"
+
+            echo
+            echo "===== GET $label :: $url ====="
+            if ! metrics="$(curl --location --silent --show-error \
+              --connect-timeout 15 --max-time "$max_seconds" \
+              --dump-header "$headers" --output "$body" \
+              --write-out '%{http_code}|%{time_starttransfer}|%{time_total}' \
+              "$url")"; then
+              fail "$label request failed"
+              return 1
+            fi
+
+            IFS='|' read -r code ttfb total <<< "$metrics"
+            bytes="$(wc -c < "$body" | tr -d ' ')"
+            echo "HTTP=$code TTFB=${ttfb}s TOTAL=${total}s BODY_BYTES=$bytes"
+            if [ "$code" != "200" ]; then
+              fail "$label expected HTTP 200, got $code"
+            fi
+            worker_headers "$label" "$headers"
+
+            LAST_BODY="$body"
+            LAST_HEADERS="$headers"
+            LAST_TTFB="$ttfb"
+            LAST_TOTAL="$total"
+          }
+
+          probe_post_expect() {
+            local label="$1" url="$2" data="$3" expected="$4"
+            local slug headers body metrics code
+            slug="$(printf '%s' "$label" | tr ' /' '__' | tr -cd '[:alnum:]_-')"
+            headers="/tmp/${slug}.headers"
+            body="/tmp/${slug}.body"
+            rm -f "$headers" "$body"
+
+            echo
+            echo "===== POST $label :: $url ====="
+            if ! metrics="$(curl --silent --show-error \
+              --connect-timeout 15 --max-time 90 \
+              --request POST --header 'content-type: application/json' \
+              --data "$data" --dump-header "$headers" --output "$body" \
+              --write-out '%{http_code}|%{time_starttransfer}|%{time_total}' \
+              "$url")"; then
+              fail "$label request failed"
+              return 1
+            fi
+            IFS='|' read -r code _ <<< "$metrics"
+            echo "HTTP=$code BODY_BYTES=$(wc -c < "$body" | tr -d ' ')"
+            if [ "$code" != "$expected" ]; then
+              echo "Response body:"
+              head -c 800 "$body" || true
+              echo
+              fail "$label expected HTTP $expected, got $code"
+            fi
+            worker_headers "$label" "$headers"
+            LAST_BODY="$body"
+            LAST_HEADERS="$headers"
+          }
+
+          echo "DNS resolution:"
+          getent ahosts truelycollectables.com || fail "DNS resolution failed"
+
+          probe_get "home" "$base/"
+          security_headers "home" "$LAST_HEADERS"
+
+          for path in cart contact shipping returns privacy terms robots.txt; do
+            probe_get "$path" "$base/$path"
           done
 
-          exit "$failed"
+          probe_get "shop" "$base/shop" 120
+          shop_body="$LAST_BODY"
+          shop_headers="$LAST_HEADERS"
+          shop_bytes="$(wc -c < "$shop_body" | tr -d ' ')"
+          active_text="$(python - "$shop_body" <<'PY'
+          import re, sys
+          text = open(sys.argv[1], 'r', encoding='utf-8', errors='ignore').read()
+          m = re.search(r'([0-9][0-9,]*) active', text)
+          print(m.group(0) if m else '')
+          PY
+          )"
+          product_path="$(python - "$shop_body" <<'PY'
+          import re, sys
+          text = open(sys.argv[1], 'r', encoding='utf-8', errors='ignore').read()
+          hits = []
+          for item in re.findall(r'/product/[0-9]+', text):
+              if item not in hits:
+                  hits.append(item)
+          print(hits[0] if hits else '')
+          PY
+          )"
+          unique_products="$(python - "$shop_body" <<'PY'
+          import re, sys
+          text = open(sys.argv[1], 'r', encoding='utf-8', errors='ignore').read()
+          print(len(set(re.findall(r'/product/[0-9]+', text))))
+          PY
+          )"
+
+          echo "ACTIVE_COUNT_TEXT=${active_text:-NOT_FOUND}"
+          echo "UNIQUE_PRODUCT_LINKS=$unique_products"
+          echo "FIRST_PRODUCT=${product_path:-NOT_FOUND}"
+          echo "SHOP_BODY_BYTES=$shop_bytes"
+
+          [ -n "$active_text" ] || fail "shop did not render an active inventory count"
+          [ "$unique_products" -gt 0 ] || fail "shop did not render any product links"
+          [ -n "$product_path" ] || fail "shop did not expose a product route"
+          grep -q 'No active cards or collectibles found' "$shop_body" && fail "shop rendered an empty catalog"
+          grep -q 'Showing ' "$shop_body" || fail "shop pagination summary is not live"
+          grep -q 'Page 1 of ' "$shop_body" || fail "shop page-one pagination marker is not live"
+          if [ "$shop_bytes" -gt 5000000 ]; then
+            fail "shop HTML is still oversized at $shop_bytes bytes"
+          fi
+
+          probe_get "shop-page-2" "$base/shop?page=2" 120
+          grep -q 'Page 2 of ' "$LAST_BODY" || fail "shop page two did not render pagination state"
+
+          if [ -n "$product_path" ]; then
+            probe_get "product" "$base$product_path" 120
+            grep -qi 'add to cart' "$LAST_BODY" || fail "product page did not expose Add To Cart"
+          fi
+
+          echo
+          echo "===== WWW canonical redirect ====="
+          www_headers=/tmp/www.headers
+          www_body=/tmp/www.body
+          www_metrics="$(curl --silent --show-error --connect-timeout 15 --max-time 45 \
+            --dump-header "$www_headers" --output "$www_body" \
+            --write-out '%{http_code}' https://www.truelycollectables.com/)" || {
+              fail "www request failed"
+              www_metrics="000"
+            }
+          echo "HTTP=$www_metrics"
+          case "$www_metrics" in
+            301|302|303|307|308) ;;
+            *) fail "www expected canonical redirect, got HTTP $www_metrics" ;;
+          esac
+          grep -qiE '^location:[[:space:]]*https://truelycollectables\.com/?' "$www_headers" || fail "www did not redirect to canonical apex"
+          worker_headers "www redirect" "$www_headers"
+
+          echo
+          echo "===== Admin authentication boundary ====="
+          admin_headers=/tmp/admin.headers
+          admin_body=/tmp/admin.body
+          admin_code="$(curl --silent --show-error --connect-timeout 15 --max-time 45 \
+            --dump-header "$admin_headers" --output "$admin_body" \
+            --write-out '%{http_code}' "$base/admin")" || {
+              fail "admin boundary request failed"
+              admin_code="000"
+            }
+          echo "HTTP=$admin_code"
+          case "$admin_code" in
+            303|307|308) ;;
+            *) fail "unauthenticated /admin expected redirect, got HTTP $admin_code" ;;
+          esac
+          grep -qi '/admin/login' "$admin_headers" || fail "unauthenticated /admin did not redirect to login"
+          worker_headers "admin boundary" "$admin_headers"
+
+          echo
+          echo "===== Protected API authentication boundary ====="
+          orders_headers=/tmp/orders.headers
+          orders_body=/tmp/orders.body
+          orders_code="$(curl --silent --show-error --connect-timeout 15 --max-time 45 \
+            --dump-header "$orders_headers" --output "$orders_body" \
+            --write-out '%{http_code}' "$base/api/orders")" || {
+              fail "orders auth-boundary request failed"
+              orders_code="000"
+            }
+          echo "HTTP=$orders_code"
+          [ "$orders_code" = "401" ] || fail "unauthenticated /api/orders expected 401, got $orders_code"
+          grep -qi 'Unauthorized' "$orders_body" || fail "orders boundary did not return Unauthorized"
+          worker_headers "orders auth boundary" "$orders_headers"
+
+          # These deliberately-invalid requests exercise live Stripe/Supabase runtime
+          # readiness without creating a checkout session, reserving inventory, or charging anyone.
+          probe_post_expect "checkout-invalid" "$base/api/checkout" '{}' 400
+          probe_post_expect "stripe-webhook-invalid" "$base/api/stripe/webhook" '{}' 400
+
+          probe_get "deal-hunter" "$base/api/tcos/deal-hunter-native-ebay?perQuery=1&scope=ivan_demidov&smoke=$(date +%s)" 120
+          node - "$LAST_BODY" <<'NODE' || failed=1
+          const fs = require('node:fs');
+          const body = fs.readFileSync(process.argv[2], 'utf8');
+          let payload;
+          try { payload = JSON.parse(body); }
+          catch { console.error('::error::Deal Hunter did not return JSON'); process.exit(1); }
+          const valid = payload?.ok === true
+            && payload?.schema === 'TCOS_NATIVE_EBAY_FEED_V1'
+            && payload?.queryFamilyCount === 3
+            && payload?.successfulQueryCount === 3
+            && payload?.failedQueryCount === 0
+            && payload?.nativeEbayUsed === true;
+          console.log(`DEAL_HUNTER schema=${payload?.schema} families=${payload?.queryFamilyCount} successful=${payload?.successfulQueryCount} failed=${payload?.failedQueryCount} native=${payload?.nativeEbayUsed}`);
+          if (!valid) process.exit(1);
+          NODE
+
+          echo
+          echo "===== Warm shop latency consistency ====="
+          for attempt in 1 2 3; do
+            probe_get "shop-warm-$attempt" "$base/shop?smoke_warm=$attempt" 120
+            ttfb="$LAST_TTFB"
+            total="$LAST_TOTAL"
+            echo "SHOP_WARM_ATTEMPT=$attempt TTFB=$ttfb TOTAL=$total"
+            awk -v n="$ttfb" 'BEGIN { exit !(n > 12) }' && fail "shop warm TTFB exceeded 12s on attempt $attempt: ${ttfb}s" || true
+            awk -v n="$ttfb" 'BEGIN { exit !(n > 3) }' && warn "shop warm TTFB exceeded 3s on attempt $attempt: ${ttfb}s" || true
+          done
+
+          echo
+          if [ "$failed" -ne 0 ]; then
+            echo "PRODUCTION_CERTIFICATION=FAILED"
+            exit 1
+          fi
+          echo "PRODUCTION_CERTIFICATION=PASSED"
