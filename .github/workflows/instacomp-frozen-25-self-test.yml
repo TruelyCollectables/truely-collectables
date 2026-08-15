@@ -1,0 +1,47 @@
+name: InstaComp Frozen 25 Self Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
+      - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - ".github/workflows/instacomp-frozen-25-self-test.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
+      - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - ".github/workflows/instacomp-frozen-25-self-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frozen-25-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Compile Frozen 25 promotion code
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py
+
+      - name: Validate Mac launcher syntax
+        run: bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+
+      - name: Prove deterministic Frozen 25 contract
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py --self-test
