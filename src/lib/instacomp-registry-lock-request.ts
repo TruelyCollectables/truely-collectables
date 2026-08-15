@@ -41,6 +41,28 @@ function normalized(value: unknown) {
     .trim();
 }
 
+function trustedProductLineFallback(
+  rawSetName: string,
+  visibleBrand: string | null,
+) {
+  const setName = normalized(rawSetName);
+
+  // Do not throw away a stronger visible product-family clue just because the
+  // VLM placed an unsupported parallel name at the end of its display title.
+  // This is deliberately narrow and maps only the product-line-only evidence
+  // the central Registry resolver already treats specially. In particular,
+  // `brand=Panini` plus `... Panini Prizm WNBA - Green Prizms` must retain
+  // `Panini Prizm`, not collapse all the way to the manufacturer `Panini`.
+  if (
+    /\bpanini\s+priz(?:m|ms|sm|sms)\b/.test(setName) ||
+    /\bpriz(?:m|ms|sm|sms)\s+(?:wnba|nba)\b/.test(setName)
+  ) {
+    return "Panini Prizm";
+  }
+
+  return visibleBrand;
+}
+
 function registrySetName(body: Record<string, unknown>, visibleBrand: string | null) {
   const rawSetName = text(body.setName ?? body.set_name ?? body.subset, 180);
   if (!rawSetName) return visibleBrand;
@@ -52,7 +74,7 @@ function registrySetName(body: Record<string, unknown>, visibleBrand: string | n
 
   // A local VLM may turn generic foil appearance into a display title such as
   // "2025 Panini Prizm WNBA - Silver Prizms" even when neither OCR nor its own
-  // parallel field supports Silver. In that case, preserve only the visible
+  // parallel field supports Silver. In that case, preserve only the strongest
   // product-line clue and let the central Registry referee decide Base vs a
   // real parallel. Never collapse a logical insert/subset such as Groovy.
   const unsupportedParallelHint = PARALLEL_HINTS.find(
@@ -60,7 +82,7 @@ function registrySetName(body: Record<string, unknown>, visibleBrand: string | n
   );
   const setContainsBrand = Boolean(brand && setName.includes(brand));
   if (unsupportedParallelHint && setContainsBrand && visibleBrand) {
-    return visibleBrand;
+    return trustedProductLineFallback(rawSetName, visibleBrand);
   }
 
   return rawSetName;
