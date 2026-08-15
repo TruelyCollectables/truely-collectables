@@ -46,6 +46,10 @@ function normalizedCardNumber(value: unknown) {
   return normalizedText(value).replace(/[\s-]/g, "");
 }
 
+function yearStart(value: unknown) {
+  return String(value ?? "").match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
+}
+
 function unique(values: unknown[]) {
   return Array.from(
     new Set(values.map((value) => String(value || "")).filter(Boolean)),
@@ -80,14 +84,80 @@ function lookupUnavailable(reason: string): ChecklistRegistryLookupResult {
 }
 
 async function loadActiveCandidateRows(
+  ai: Record<string, any>,
   candidateNumbers: string[],
 ): Promise<CandidateRowsResult> {
   const supabase = serviceClient();
+  const targetYear = yearStart(ai.year);
+  if (!targetYear) {
+    return {
+      rows: [],
+      candidateCount: 0,
+      releaseIds: [],
+      versionIds: [],
+      setIds: [],
+    };
+  }
+
+  const yearNumber = Number(targetYear);
+  const yearCandidates = [yearNumber - 1, yearNumber, yearNumber + 1].map(String);
+
+  // Start from a bounded three-year release scope, then hit the long-standing
+  // composite card index (release_id, normalized_card_number). This does not
+  // depend on the newer standalone card-number migration having reached every
+  // Production database, and it never enumerates every release or live version.
+  const [releaseYearResult, seasonResult] = await Promise.all([
+    supabase
+      .from("checklist_releases")
+      .select(
+        "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
+      )
+      .in("release_year", yearCandidates)
+      .limit(2000),
+    supabase
+      .from("checklist_releases")
+      .select(
+        "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
+      )
+      .in("season", yearCandidates)
+      .limit(2000),
+  ]);
+
+  if (releaseYearResult.error || seasonResult.error) {
+    const error = releaseYearResult.error || seasonResult.error;
+    throw new Error(`candidate_release_lookup_failed:${String(error?.code || "unknown")}`);
+  }
+  if (
+    (releaseYearResult.data || []).length >= 2000 ||
+    (seasonResult.data || []).length >= 2000
+  ) {
+    throw new Error("candidate_release_scope_truncated");
+  }
+
+  const releaseById = new Map<string, any>();
+  for (const release of [
+    ...(releaseYearResult.data || []),
+    ...(seasonResult.data || []),
+  ]) {
+    releaseById.set(String(release.id), release);
+  }
+  const releaseIds = [...releaseById.keys()];
+  if (!releaseIds.length) {
+    return {
+      rows: [],
+      candidateCount: 0,
+      releaseIds: [],
+      versionIds: [],
+      setIds: [],
+    };
+  }
+
   const cardResult = await supabase
     .from("checklist_cards")
     .select(
       "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
     )
+    .in("release_id", releaseIds)
     .in("normalized_card_number", candidateNumbers)
     .limit(2500);
 
@@ -103,15 +173,14 @@ async function loadActiveCandidateRows(
     return {
       rows: [],
       candidateCount: 0,
-      releaseIds: [],
+      releaseIds,
       versionIds: [],
       setIds: [],
     };
   }
 
-  // Validate only the versions referenced by the indexed card-number result.
-  // This deliberately avoids the old global `is_active/status` scan that grew
-  // into Production statement_timeout as the Registry expanded.
+  // Validate only versions referenced by candidate cards. The old global
+  // `is_active/status` pre-scan is never executed on this Production path.
   const referencedVersionIds = unique(rawCards.map((card: any) => card.version_id));
   const versionResult = await supabase
     .from("checklist_versions")
@@ -134,62 +203,49 @@ async function loadActiveCandidateRows(
     return {
       rows: [],
       candidateCount: 0,
-      releaseIds: [],
+      releaseIds,
       versionIds: [],
       setIds: [],
     };
   }
 
   const cardIds = unique(cards.map((card: any) => card.id));
-  const releaseIds = unique(cards.map((card: any) => card.release_id));
+  const activeReleaseIds = unique(cards.map((card: any) => card.release_id));
   const versionIds = unique(cards.map((card: any) => card.version_id));
   const setIds = unique(cards.map((card: any) => card.set_id));
 
-  const [releaseResult, setResult, playerResult, teamResult, identityResult] =
-    await Promise.all([
-      supabase
-        .from("checklist_releases")
-        .select(
-          "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
-        )
-        .in("id", releaseIds)
-        .limit(2500),
-      supabase
-        .from("checklist_sets")
-        .select("id,name,normalized_name,release_id,version_id")
-        .in("id", setIds)
-        .limit(2500),
-      supabase
-        .from("checklist_card_players")
-        .select("card_id,display_order,player:checklist_players(canonical_name)")
-        .in("card_id", cardIds)
-        .limit(5000),
-      supabase
-        .from("checklist_card_teams")
-        .select("card_id,display_order,team:checklist_teams(canonical_name)")
-        .in("card_id", cardIds)
-        .limit(5000),
-      supabase
-        .from("checklist_card_identities")
-        .select(
-          "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
-        )
-        .in("card_id", cardIds)
-        .limit(5000),
-    ]);
+  const [setResult, playerResult, teamResult, identityResult] = await Promise.all([
+    supabase
+      .from("checklist_sets")
+      .select("id,name,normalized_name,release_id,version_id")
+      .in("id", setIds)
+      .limit(2500),
+    supabase
+      .from("checklist_card_players")
+      .select("card_id,display_order,player:checklist_players(canonical_name)")
+      .in("card_id", cardIds)
+      .limit(5000),
+    supabase
+      .from("checklist_card_teams")
+      .select("card_id,display_order,team:checklist_teams(canonical_name)")
+      .in("card_id", cardIds)
+      .limit(5000),
+    supabase
+      .from("checklist_card_identities")
+      .select(
+        "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
+      )
+      .in("card_id", cardIds)
+      .limit(5000),
+  ]);
 
   const detailError =
-    releaseResult.error ||
-    setResult.error ||
-    playerResult.error ||
-    teamResult.error ||
-    identityResult.error;
+    setResult.error || playerResult.error || teamResult.error || identityResult.error;
   if (detailError) {
     throw new Error(`candidate_detail_lookup_failed:${String(detailError.code || "unknown")}`);
   }
 
   if (
-    (releaseResult.data || []).length >= 2500 ||
     (setResult.data || []).length >= 2500 ||
     (playerResult.data || []).length >= 5000 ||
     (teamResult.data || []).length >= 5000 ||
@@ -198,9 +254,6 @@ async function loadActiveCandidateRows(
     throw new Error("candidate_detail_scope_truncated");
   }
 
-  const releaseById = new Map(
-    (releaseResult.data || []).map((row: any) => [String(row.id), row]),
-  );
   const setById = new Map(
     (setResult.data || []).map((row: any) => [String(row.id), row]),
   );
@@ -225,7 +278,7 @@ async function loadActiveCandidateRows(
         total + (Array.isArray(card.identities) ? card.identities.length : 0),
       0,
     ),
-    releaseIds,
+    releaseIds: activeReleaseIds,
     versionIds,
     setIds,
   };
@@ -254,12 +307,10 @@ function matchedCandidate(
 
 /**
  * Production-facing authoritative resolver for requests that already contain a
- * visible card number. It starts from the Registry's indexed normalized card
- * number and validates only the referenced versions/releases/sets by ID.
- *
- * This intentionally does NOT enumerate every live version or every release.
- * Identity adjudication still belongs to chooseRegistryMatch and remains
- * fail-closed: no unique exact identity means no lock.
+ * visible card number. It bounds releases to visible year +/-1, looks up the
+ * exact normalized card number through the release/card composite index, and
+ * validates only referenced live versions. The exact chooseRegistryMatch
+ * referee is unchanged and remains fail-closed on ambiguity.
  */
 export async function resolveChecklistRegistryCardFirst(
   ai: Record<string, any>,
@@ -281,14 +332,14 @@ export async function resolveChecklistRegistryCardFirst(
   }
 
   try {
-    const scope = await loadActiveCandidateRows([cardNumber]);
+    const scope = await loadActiveCandidateRows(ai, [cardNumber]);
     if (!scope.rows.length) {
       return {
         status: "internal_set_present_no_exact_match",
         match: null,
-        reasons: ["active_registry_contains_no_card_with_observed_number"],
+        reasons: ["active_registry_contains_no_card_with_observed_number_in_bounded_year_scope"],
         candidateCount: 0,
-        coveredReleaseIds: [],
+        coveredReleaseIds: scope.releaseIds,
         coveredVersionIds: [],
         coveredSetIds: [],
         sourceTier: "internal",
@@ -370,7 +421,7 @@ export async function resolveChecklistRegistryLeadingDigitRecovery(
   );
 
   try {
-    const scope = await loadActiveCandidateRows(candidateNumbers);
+    const scope = await loadActiveCandidateRows(ai, candidateNumbers);
     if (!scope.rows.length) return null;
 
     const recovered = new Map<string, ResolvedCandidate>();
