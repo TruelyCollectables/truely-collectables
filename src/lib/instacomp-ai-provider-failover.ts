@@ -61,17 +61,15 @@ function isInternalCandidate(candidate: InstaCompAiProviderCandidate<unknown>) {
   );
 }
 
-function internalEngineError(params: {
-  code: string;
-  message: string;
-  attempts: InstaCompAiProviderAttempt[];
-}) {
-  const error = new Error(params.message) as InstaCompAiFailoverError;
-  error.code = params.code;
-  error.attempts = params.attempts;
-  return error;
-}
-
+/**
+ * Run the preferred InstaComp identity reader first, then fail over across
+ * independent configured reader families. The internal/Mac reader remains the
+ * first choice, but an unavailable or inconclusive internal result must not
+ * prevent a configured external vision reader from producing evidence.
+ *
+ * Trust is still enforced downstream by the Registry exact-lock and evidence
+ * guards. This function chooses a reader; it does not make an identity trusted.
+ */
 export async function runInstaCompPrimaryAiFailover<T>(
   candidates: InstaCompAiProviderCandidate<T>[],
   options: { maximumAttempts?: number } = {},
@@ -102,15 +100,6 @@ export async function runInstaCompPrimaryAiFailover<T>(
           ? "internal_engine_not_configured"
           : "not_configured",
       });
-
-      if (internalCandidate) {
-        throw internalEngineError({
-          code: "INSTACOMP_INTERNAL_ENGINE_NOT_CONFIGURED",
-          message:
-            "InstaComp AI is not configured for Production. Configure INSTACOMP_AI_LOCAL_URL with the secure Mac service URL.",
-          attempts,
-        });
-      }
       continue;
     }
 
@@ -154,23 +143,9 @@ export async function runInstaCompPrimaryAiFailover<T>(
         status: "error",
         message: sanitized,
       });
-
-      if (internalCandidate) {
-        const unavailable = [
-          "internal_engine_unreachable",
-          "timeout",
-          "cancelled",
-        ].includes(sanitized);
-        throw internalEngineError({
-          code: unavailable
-            ? "INSTACOMP_INTERNAL_ENGINE_OFFLINE"
-            : "INSTACOMP_INTERNAL_ENGINE_SCAN_FAILED",
-          message: unavailable
-            ? "InstaComp AI could not be reached. Check the Mac service and its secure tunnel, then retry."
-            : "InstaComp AI did not return usable identity evidence. No external identity provider was called. Review the Mac service logs and retry.",
-          attempts,
-        });
-      }
+      // Deliberately continue. The Mac/internal engine is preferred, not a
+      // single point of failure. Independent readers remain subject to the
+      // same downstream Registry and exact-card evidence gates.
     }
   }
 
@@ -181,10 +156,19 @@ export async function runInstaCompPrimaryAiFailover<T>(
         `${attempt.provider}:${attempt.message || "provider_error"}`,
     )
     .join(", ");
+  const configuredAttemptCount = attempts.filter(
+    (attempt) => attempt.status === "completed" || attempt.status === "error",
+  ).length;
+  const internalAttempt = attempts.find(
+    (attempt) =>
+      attempt.family === INTERNAL_FAMILY || attempt.provider === INTERNAL_PROVIDER,
+  );
   const error = new Error(
     summary
       ? `No configured InstaComp AI identity reader completed successfully. Reader failures: ${summary}.`
-      : "No configured InstaComp AI identity reader completed successfully.",
+      : configuredAttemptCount === 0 && internalAttempt?.status === "not_configured"
+        ? "No InstaComp AI identity reader is configured. Configure the secure Mac reader and/or an approved external vision reader."
+        : "No configured InstaComp AI identity reader completed successfully.",
   ) as InstaCompAiFailoverError;
   error.code = "INSTACOMP_AI_READERS_UNAVAILABLE";
   error.attempts = attempts;
