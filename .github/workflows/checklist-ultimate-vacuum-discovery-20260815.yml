@@ -8,11 +8,12 @@ on:
       - '.github/workflows/checklist-ultimate-vacuum-discovery-20260815.yml'
       - 'scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs'
       - 'scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs'
       - 'ops/checklists/ultimate-vacuum-source-policy-20260815.json'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 # Ultimate Vacuum: discovery only. Production persistence remains behind the strict checklist validator.
@@ -35,6 +36,7 @@ jobs:
         run: |
           node --check scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs
           node --check scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+          node --check scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs
 
       - name: Cast shard across checklist sources
         shell: bash
@@ -73,4 +75,72 @@ jobs:
         with:
           name: checklist-ultimate-vacuum-discovery-${{ github.run_id }}-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/ultimate-vacuum-${{ matrix.shard }}
+          retention-days: 30
+
+  aggregate-learning:
+    needs: discover
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download all successful shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checklist-ultimate-vacuum-discovery-${{ github.run_id }}-shard-*
+          path: ${{ runner.temp }}/vacuum-shards
+
+      - name: Merge outcomes, persist learning, and build human handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/vacuum-shards"
+          all="$RUNNER_TEMP/ultimate-vacuum-all-events.ndjson"
+          : > "$all"
+          find "$root" -type f -name events.ndjson -print0 | sort -z | xargs -0 -r cat >> "$all"
+
+          cp ops/checklists/ultimate-vacuum-source-state-20260815.json "$RUNNER_TEMP/merged-vacuum-state.json"
+          printf '{"candidates":[]}\n' > "$RUNNER_TEMP/empty-vacuum-candidates.json"
+          VACUUM_STATE="$RUNNER_TEMP/merged-vacuum-state.json" \
+          VACUUM_EVENTS="$all" \
+          VACUUM_CANDIDATES="$RUNNER_TEMP/empty-vacuum-candidates.json" \
+          VACUUM_OUTPUT="$RUNNER_TEMP/merged-vacuum-ranked.json" \
+          node scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+
+          VACUUM_EVENTS="$all" \
+          VACUUM_HUMAN_HANDOFF_OUTPUT="ops/checklists/ultimate-vacuum-human-handoff-20260815.json" \
+          node scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs
+
+          cp "$RUNNER_TEMP/merged-vacuum-state.json" ops/checklists/ultimate-vacuum-source-state-20260815.json
+          jq '{generatedAt,totalBlockedUrls,actionableCount,skipCount,counts}' ops/checklists/ultimate-vacuum-human-handoff-20260815.json
+
+      - name: Persist source learning and handoff queue without retriggering vacuum
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "TCOS Ultimate Vacuum"
+          git config user.email "david@truelycollectables.com"
+          git add ops/checklists/ultimate-vacuum-source-state-20260815.json ops/checklists/ultimate-vacuum-human-handoff-20260815.json
+          if git diff --cached --quiet; then
+            echo "Vacuum learning unchanged"
+          else
+            git commit -m "checklists: persist vacuum learning $GITHUB_RUN_ID"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          fi
+
+      - name: Upload merged learning and human handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-ultimate-vacuum-learning-${{ github.run_id }}
+          path: |
+            ops/checklists/ultimate-vacuum-source-state-20260815.json
+            ops/checklists/ultimate-vacuum-human-handoff-20260815.json
+            ${{ runner.temp }}/ultimate-vacuum-all-events.ndjson
           retention-days: 30
