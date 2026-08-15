@@ -1,0 +1,66 @@
+name: Checklist Ultimate Vacuum Router Test 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-ultimate-vacuum-router-test-20260815.yml'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs'
+      - 'ops/checklists/ultimate-vacuum-source-policy-20260815.json'
+      - 'ops/checklists/ultimate-vacuum-source-state-20260815.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-router:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify router syntax
+        run: node --check scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+
+      - name: Prove negative cache and reputation routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/vacuum-router-test"
+          mkdir -p "$root"
+          cp ops/checklists/ultimate-vacuum-source-state-20260815.json "$root/state.json"
+          cat > "$root/events.ndjson" <<'JSONL'
+          {"url":"https://gogts.net/good-checklist.xlsx","outcome":"net_new","sourceFound":true}
+          {"url":"https://gogts.net/good-checklist-2.xlsx","outcome":"validated","sourceFound":true}
+          {"url":"https://dead.example/bunk-checklist.pdf","outcome":"dead_url"}
+          {"url":"https://www.blowoutforums.com/showthread.php?t=123","outcome":"no_checklist"}
+          JSONL
+          cat > "$root/candidates.json" <<'JSON'
+          {
+            "candidates": [
+              {"exactSetKey":"baseball|2020|topps|alpha","url":"https://gogts.net/next-checklist.xlsx"},
+              {"exactSetKey":"baseball|2020|topps|dead","url":"https://dead.example/bunk-checklist.pdf"},
+              {"exactSetKey":"baseball|2020|topps|forum","url":"https://www.blowoutforums.com/showthread.php?t=999"},
+              {"exactSetKey":"baseball|2020|topps|official","url":"https://www.topps.com/pages/checklists"}
+            ]
+          }
+          JSON
+          VACUUM_STATE="$root/state.json" \
+          VACUUM_EVENTS="$root/events.ndjson" \
+          VACUUM_CANDIDATES="$root/candidates.json" \
+          VACUUM_OUTPUT="$root/ranked.json" \
+          node scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
+
+          jq -e '.skipped[] | select(.url=="https://dead.example/bunk-checklist.pdf" and (.skipReason|startswith("negative_cache:dead_url")))' "$root/ranked.json" >/dev/null
+          jq -e '.ranked[] | select(.url=="https://www.blowoutforums.com/showthread.php?t=999" and .sourceMode=="lead-only")' "$root/ranked.json" >/dev/null
+          jq -e '.ranked[] | select(.url=="https://www.topps.com/pages/checklists" and .sourceMode=="authoritative-harvest")' "$root/ranked.json" >/dev/null
+          gogts_score="$(jq -r '.ranked[] | select(.host=="gogts.net") | .reputationScore' "$root/ranked.json")"
+          forum_score="$(jq -r '.ranked[] | select(.host=="www.blowoutforums.com") | .reputationScore' "$root/ranked.json")"
+          awk -v a="$gogts_score" -v b="$forum_score" 'BEGIN { exit !(a>b) }'
+          jq '{ranked:[.ranked[]|{exactSetKey,host,sourceMode,reputationScore}],skipped:[.skipped[]|{exactSetKey,url,skipReason}]}' "$root/ranked.json"
