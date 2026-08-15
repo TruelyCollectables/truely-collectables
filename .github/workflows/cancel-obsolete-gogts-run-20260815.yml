@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Cancel and verify obsolete pre-fix conveyor run is dead
+      - name: Force-cancel obsolete pre-fix conveyor run
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -25,28 +25,23 @@ jobs:
           set -euo pipefail
           run_id="31909622572"
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          status="$(curl --silent --show-error --fail \
+            -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$api" | jq -r '.status')"
+          echo "before=$status"
+          if [ "$status" != "completed" ]; then
+            code="$(curl --silent --show-error --output "$RUNNER_TEMP/force-response.txt" --write-out '%{http_code}' \
+              -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$api/force-cancel")"
+            echo "force_cancel_http=$code"
+            case "$code" in 202|409) ;; *) cat "$RUNNER_TEMP/force-response.txt" >&2; exit 1 ;; esac
+          fi
           for attempt in 1 2 3 4 5 6; do
-            status="$(curl --silent --show-error --fail \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$api" | jq -r '.status')"
-            echo "attempt=$attempt status=$status"
-            if [ "$status" = "completed" ]; then exit 0; fi
-            code="$(curl --silent --show-error --output "$RUNNER_TEMP/cancel-response.txt" --write-out '%{http_code}' \
-              -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$api/cancel")"
-            echo "cancel_http=$code"
-            case "$code" in 202|409) ;; *) cat "$RUNNER_TEMP/cancel-response.txt" >&2; exit 1 ;; esac
-            sleep 10
+            sleep 5
+            final="$(curl --silent --show-error --fail \
+              -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$api" | jq -r '.status + ":" + (.conclusion // "")')"
+            echo "poll=$attempt final=$final"
+            [ "${final%%:*}" = "completed" ] && exit 0
           done
-          final="$(curl --silent --show-error --fail \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$api" | jq -r '.status + ":" + (.conclusion // "")')"
-          echo "final=$final"
-          test "${final%%:*}" = "completed"
+          exit 1
