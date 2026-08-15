@@ -46,7 +46,7 @@ jobs:
           node --import tsx scripts/run-instacomp-teacher-runtime-status-simulations.ts
           node --import tsx scripts/run-instacomp-groq-runtime-status-simulations.ts
 
-      - name: Verify fail-closed Mac teacher credential sync
+      - name: Verify Cloudflare teacher credential preservation contract
         run: |
           bash -n services/instacomp-ai/scripts/update-live-from-main.sh
           node scripts/run-instacomp-mac-teacher-env-sync-simulations.mjs
