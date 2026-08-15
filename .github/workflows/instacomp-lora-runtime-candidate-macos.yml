@@ -9,12 +9,16 @@ on:
       - "services/instacomp-ai/app/config.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/runtime_identity.py"
+      - "services/instacomp-ai/app/serial_evidence_guard.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v8.py"
+      - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/disable-lora-candidate-macos.sh"
       - "services/instacomp-ai/tests/test_lora_runtime_candidate.py"
       - "services/instacomp-ai/tests/test_runtime_identity.py"
+      - "services/instacomp-ai/tests/test_serial_evidence_guard.py"
       - "services/instacomp-ai/requirements-lora-runtime.txt"
   workflow_dispatch:
 
@@ -53,16 +57,19 @@ jobs:
           python -m compileall -q \
             services/instacomp-ai/app \
             services/instacomp-ai/scripts/run_lora_candidate_server.py \
-            services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py
+            services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v8.py
+          bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
           bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           bash -n services/instacomp-ai/scripts/disable-lora-candidate-macos.sh
 
-      - name: Prove candidate safety contracts
+      - name: Prove candidate safety and serial evidence contracts
         run: |
           set -euo pipefail
           PYTHONPATH=services/instacomp-ai python -m pytest -q \
             services/instacomp-ai/tests/test_lora_runtime_candidate.py \
-            services/instacomp-ai/tests/test_runtime_identity.py
+            services/instacomp-ai/tests/test_runtime_identity.py \
+            services/instacomp-ai/tests/test_serial_evidence_guard.py
 
       - name: Run complete InstaComp service suite
         run: |
@@ -146,7 +153,13 @@ jobs:
           grep -q 'legacy.CandidateHandler = CandidateHandlerV2' services/instacomp-ai/scripts/run_lora_candidate_server.py
           grep -q 'strict_retry_prompt' services/instacomp-ai/scripts/run_lora_candidate_server.py
 
+          # Serial OCR can constrain Registry only through the package-installed
+          # hardened evidence parser. The A'ja regression must stay guarded.
+          grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
+          grep -q 'len(channels) < 2' services/instacomp-ai/app/serial_evidence_guard.py
+          grep -q 'promotion-v9-serial-evidence-guard' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+
           grep -q 'install_lora_candidate_runtime()' services/instacomp-ai/app/__init__.py
           grep -q 'rollback_on_exit' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           grep -q 'cd "$service_root"' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
-          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, structured-recovery bounded, transactional, and rollbackable"
+          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, serial-guarded, structured-recovery bounded, transactional, and rollbackable"
