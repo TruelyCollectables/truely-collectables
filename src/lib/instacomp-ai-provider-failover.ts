@@ -62,6 +62,28 @@ function isInternalCandidate(candidate: InstaCompAiProviderCandidate<unknown>) {
 }
 
 /**
+ * External fallback readers return the public InstaComp AI shape, while the
+ * preferred internal reader also carries fresh front/back OCR receipt arrays.
+ * Downstream Registry lookup treats those arrays only as untrusted search
+ * coordinates, but it must be able to iterate them regardless of which reader
+ * won failover. Normalize the optional receipt fields at the failover boundary
+ * so an otherwise valid external reader cannot crash the scan pipeline.
+ */
+function normalizeCompletedReaderValue<T>(value: T): T {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  return {
+    ...record,
+    frontVisibleText: Array.isArray(record.frontVisibleText)
+      ? record.frontVisibleText
+      : [],
+    backVisibleText: Array.isArray(record.backVisibleText)
+      ? record.backVisibleText
+      : [],
+  } as T;
+}
+
+/**
  * Run the preferred InstaComp identity reader first, then fail over across
  * independent configured reader families. The internal/Mac reader remains the
  * first choice, but an unavailable or inconclusive internal result must not
@@ -127,7 +149,7 @@ export async function runInstaCompPrimaryAiFailover<T>(
     paidAttempts += 1;
 
     try {
-      const value = await candidate.run();
+      const value = normalizeCompletedReaderValue(await candidate.run());
       attempts.push({
         provider: candidate.provider,
         family,
