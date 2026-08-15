@@ -4050,6 +4050,30 @@ async function identifyCardWithConfiguredProviderFailover(params: {
               { readerFocus: "primary" },
             ),
         },
+        {
+          provider: "gemini_primary",
+          family: "gemini",
+          configured: Boolean(GEMINI_API_KEY),
+          run: () =>
+            identifyCardWithGemini(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+            ),
+        },
+        {
+          provider: "groq_primary",
+          family: "groq",
+          configured: Boolean(GROQ_API_KEY),
+          run: () =>
+            identifyCardWithGroq(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+            ),
+        },
       ]);
     }
 
