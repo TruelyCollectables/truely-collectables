@@ -39,18 +39,37 @@ jobs:
           test -n "$service_key"; echo "::add-mask::$service_key"
           echo "SB_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "SB_KEY=$service_key" >> "$GITHUB_ENV"
-      - name: Fetch latest GoGTS imports since writer start
+      - name: Probe rows immediately after last completed import
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/gogts-scoreboard"
-          latest="$root/latest.json"
-          curl --silent --show-error --fail --retry 1 --max-time 15 \
-            --header "apikey: $SB_KEY" --header "Authorization: Bearer $SB_KEY" --output "$latest" \
-            "$SB_URL/rest/v1/checklist_source_catalog?select=source_url,imported_at,status&status=eq.imported&source_url=like.https%3A%2F%2Fgogts.net%2F%2A&imported_at=gte.2026-08-15T21%3A02%3A45Z&order=imported_at.desc.nullslast&limit=20"
-          jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --slurpfile latest "$latest" \
-            '{generatedAt:$now,writerStartedAt:"2026-08-15T21:02:45Z",recentRows:($latest[0]|length),latest:$latest[0]}' \
-            > "$root/scoreboard.json"
+          : > "$root/boundary.ndjson"
+          urls=(
+            'https://gogts.net/wp-content/uploads/2024/12/2024-Panini-Prizm-Draft-Picks-Collegiate-Football-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2024/12/2024-Panini-Prizm-NFL-Football-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2024/12/2024-Panini-Rookies-and-Stars-NFL-Football-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2024/09/2024-Score-NFL-Football-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2025/05/2024-Panini-Select-NFL-Football-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2025/01/2024-Panini-Spectra-NFL-Football-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Zenith-NFL-Football-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2024/08/2024-SAGE-Artistry-Football-Cards-Checklist-1.pdf'
+            'https://gogts.net/wp-content/uploads/2025/04/2024-Panini-Impeccable-LIV-Golf-Trading-Cards-Checklist.xls'
+            'https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-LIV-Golf-Trading-Cards-Checklist.xls'
+          )
+          idx=258
+          for source in "${urls[@]}"; do
+            out="$root/row-$idx.json"
+            curl --silent --show-error --fail --retry 1 --max-time 10 --get \
+              --header "apikey: $SB_KEY" --header "Authorization: Bearer $SB_KEY" \
+              --data-urlencode 'select=source_url,status,last_checked_at,imported_at,validation_counts,issue_summary' \
+              --data-urlencode "source_url=eq.$source" \
+              --data-urlencode 'limit=1' \
+              --output "$out" "$SB_URL/rest/v1/checklist_source_catalog"
+            jq -c --argjson idx "$idx" --arg source "$source" '{queueIndex:$idx,sourceUrl:$source,row:(.[0] // null)}' "$out" >> "$root/boundary.ndjson"
+            idx=$((idx+1))
+          done
+          jq -s --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{generatedAt:$now,writerStartedAt:"2026-08-15T21:02:45Z",boundary:.}' "$root/boundary.ndjson" > "$root/scoreboard.json"
           cat "$root/scoreboard.json"
       - name: Upload scoreboard
         uses: actions/upload-artifact@v4
