@@ -7,8 +7,19 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const externalShipmentId = String(url.searchParams.get("externalShipmentId") || "").trim();
     const label = await getControlledTestLabel(externalShipmentId);
+    const apiKey = String(process.env.SHIPSTATION_API_KEY || "").trim();
+    if (!apiKey) {
+      return Response.json(
+        { error: "ShipStation API credentials are unavailable." },
+        { status: 503 },
+      );
+    }
 
     const response = await fetch(label.labelPdfUrl, {
+      headers: {
+        "API-Key": apiKey,
+        Accept: "application/pdf",
+      },
       redirect: "manual",
       signal: AbortSignal.timeout(30_000),
     });
@@ -25,13 +36,21 @@ export async function GET(request: Request) {
       );
     }
 
-    const bytes = await response.arrayBuffer();
-    return new Response(bytes, {
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/pdf")) {
+      return Response.json(
+        { error: "ShipStation did not return a PDF test label." },
+        { status: 502 },
+      );
+    }
+
+    return new Response(response.body, {
       status: 200,
       headers: {
-        "Content-Type": response.headers.get("content-type") || "application/pdf",
+        "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="tcos-controlled-1oz-test-${label.labelId}.pdf"`,
         "Cache-Control": "private, no-store, max-age=0",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error: any) {
