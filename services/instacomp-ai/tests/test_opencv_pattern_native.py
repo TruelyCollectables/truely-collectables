@@ -9,7 +9,11 @@ import numpy as np
 import pytest
 
 from app.local_vision import _analyze_side, _decode_image, analyze_pattern
-from app.lora_candidate_runtime import _guard_model_pattern_parallel
+from app.lora_candidate_runtime import (
+    _candidate_response_to_suggestion,
+    _guard_model_pattern_parallel,
+)
+from app.models import CardIdentity, LocalVisionEvidence, PatternEvidence, SideVisionEvidence
 
 
 def _synthetic_cracked_surface() -> np.ndarray:
@@ -46,6 +50,34 @@ def _frozen_image_dir() -> Path:
     return path
 
 
+def _rickea_failed_mac_receipt_vision() -> LocalVisionEvidence:
+    """Reproduce the exact discriminating geometry from the failed Mac receipt."""
+    return LocalVisionEvidence(
+        front=SideVisionEvidence(
+            side="front",
+            width=800,
+            height=1200,
+            pattern=PatternEvidence(
+                label="cracked_ice",
+                confidence=0.82,
+                scores={"cracked_ice": 0.82},
+                geometry=[
+                    "detected 300 long line segments",
+                    "detected 359 irregular polygon candidates",
+                    "non-directional multi-angle edge geometry",
+                ],
+                line_count=300,
+                polygon_count=359,
+                edge_density=0.18,
+                angle_entropy=0.86,
+            ),
+        ),
+        # This reproduces the second hole too: merge_local_vision_payload used to
+        # put the bad deterministic hint back after the earlier model-only guard.
+        identity_hints=CardIdentity(parallel="Cracked Ice Prizm"),
+    )
+
+
 def test_native_analyze_pattern_returns_measurements() -> None:
     pattern = analyze_pattern(_synthetic_cracked_surface())
     assert set(pattern.scores) == {"velocity", "cracked_ice", "checkerboard", "sparkle"}
@@ -67,6 +99,40 @@ def test_real_side_pipeline_does_not_hide_native_pattern_typeerror() -> None:
     assert side.pattern.scores, side.pattern
     assert side.pattern.edge_density > 0
     assert side.pattern.line_count > 0
+
+
+def test_failed_mac_rickea_geometry_cannot_authorize_ice() -> None:
+    parsed = {"identity": {"parallel": "Cracked Ice Prizm"}}
+    guarded = _guard_model_pattern_parallel(parsed, _rickea_failed_mac_receipt_vision())
+    assert guarded["identity"]["parallel"] is None
+
+
+def test_flat_rickea_sidecar_and_reinjected_hint_are_both_blocked() -> None:
+    payload = {
+        "ok": True,
+        "validation_eligible": True,
+        "model": "mlx-community/Qwen3-VL-2B-Instruct-4bit",
+        "adapter_name": "fixture-adapter",
+        "parsed": {
+            "sport": "Basketball",
+            "year": "2025",
+            "manufacturer": "Panini",
+            "brand": "Panini Prizm",
+            "set_name": "2025 Panini Prizm WNBA - Green Prizms",
+            "player": "Rickea Jackson",
+            "card_number": "118",
+            "parallel": "Cracked Ice Prizm",
+            "evidence": {"visible_text": ["RICKEA JACKSON", "118", "PRIZM"]},
+        },
+    }
+    suggestion = _candidate_response_to_suggestion(
+        payload,
+        local_vision=_rickea_failed_mac_receipt_vision(),
+    )
+    assert suggestion.identity.player == "Rickea Jackson"
+    assert suggestion.identity.card_number == "118"
+    assert suggestion.identity.parallel is None
+    assert suggestion.raw["pattern_parallel_guard_stage"] == "post_normalization_post_local_merge"
 
 
 @pytest.mark.parametrize(
