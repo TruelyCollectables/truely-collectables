@@ -95,6 +95,8 @@ function mapPublicProductRow(product: any): UniversalInventoryItem {
 }
 
 class PublicStorefrontInventoryEngine extends InventoryEngine {
+  private publicProductsPromise: Promise<any[]> | null = null;
+
   constructor(
     private readonly publicStoreId: string,
     repository: InventoryRepository,
@@ -120,7 +122,14 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     return data || [];
   }
 
-  private async readPublicProducts() {
+  private readPublicProducts() {
+    if (!this.publicProductsPromise) {
+      this.publicProductsPromise = this.readPublicProductsUncached();
+    }
+    return this.publicProductsPromise;
+  }
+
+  private async readPublicProductsUncached() {
     const rows: any[] = [];
     const firstBatch = await this.readPublicProductPage(0);
     rows.push(...firstBatch);
