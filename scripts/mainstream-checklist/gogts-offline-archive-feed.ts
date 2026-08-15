@@ -24,8 +24,6 @@ const PARSE_WORKERS = Math.max(1, Math.min(8, Number(process.env.GOGTS_OFFLINE_P
 const PREP_BATCH_SIZE = Math.max(PARSE_WORKERS, Number(process.env.GOGTS_OFFLINE_PREP_BATCH_SIZE || 36));
 const TEMP_ROOT = resolve(process.cwd(), ".checklist-discovery/gogts-offline-parser");
 
-const sleep = (ms: number) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
-
 function yearOf(value: unknown) {
   const m = String(value || "").match(/(?:19|20)\d{2}/);
   return m ? m[0] : "";
@@ -99,49 +97,6 @@ async function parallelMap<T, R>(values: T[], concurrency: number, worker: (valu
   });
   await Promise.all(runners);
   return output;
-}
-
-async function readCatalogPage(db: ReturnType<typeof dbClient>, start: number) {
-  let lastError: any = null;
-  const delays = [1_500, 3_000, 6_000, 10_000, 15_000];
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
-    const { data, error } = await db
-      .from("checklist_source_catalog")
-      .select("status,metadata")
-      .range(start, start + 999);
-    if (!error) return data || [];
-    lastError = error;
-    if (attempt < 6) {
-      const waitMs = delays[Math.min(attempt - 1, delays.length - 1)];
-      console.warn(JSON.stringify({
-        event: "catalog_preload_retry",
-        start,
-        attempt,
-        waitMs,
-        message: String(error.message || error).slice(0, 500),
-      }));
-      await sleep(waitMs);
-    }
-  }
-  throw new Error(
-    `Could not read checklist source catalog page ${start}-${start + 999} after retries: ${lastError?.message || lastError}`,
-  );
-}
-
-async function loadMasterState(db: ReturnType<typeof dbClient>) {
-  const state = new Map<string, { imported: boolean }>();
-  for (let start = 0; start < 12000; start += 1000) {
-    const data = await readCatalogPage(db, start);
-    for (const row of data) {
-      const key = String((row as any)?.metadata?.masterArchiveExactSetKey || (row as any)?.metadata?.exactSetKey || "").toLowerCase();
-      if (!key || key.split("|").length !== 4) continue;
-      const current = state.get(key) || { imported: false };
-      current.imported ||= (row as any).status === "imported";
-      state.set(key, current);
-    }
-    if (data.length < 1000) break;
-  }
-  return state;
 }
 
 type PreparedCandidate = {
@@ -295,7 +250,18 @@ async function main() {
   const parsedInput = JSON.parse(readFileSync(INPUT, "utf8"));
   const queue = (Array.isArray(parsedInput) ? parsedInput : parsedInput.candidates || []).slice(0, MAX);
   const db = dbClient();
-  const master = await loadMasterState(db);
+  // Every offline queue row already carries the exact-set key derived from the
+  // preserved GoGTS archive/status pair. Do not preload the whole Production
+  // catalog before work can start. The Registry transaction is idempotent, so
+  // prior imports are safely recognized during persistence; this map only
+  // suppresses duplicate exact sets later in this same run.
+  const master = new Map<string, { imported: boolean }>();
+  for (const candidate of queue) {
+    const exactSetKey = String(candidate?.exactSetKey || "").toLowerCase();
+    if (exactSetKey && exactSetKey.split("|").length === 4 && !master.has(exactSetKey)) {
+      master.set(exactSetKey, { imported: false });
+    }
+  }
   const startedAt = new Date().toISOString();
   const results: any[] = [];
   saveCheckpoint(results, queue.length, startedAt, false);
