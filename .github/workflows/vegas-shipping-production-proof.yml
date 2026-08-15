@@ -68,7 +68,11 @@ jobs:
             safety?.liveAdapterSupported === false &&
             safety?.livePostagePossible === false &&
             safety?.standardEnvelope?.livePurchaseSupported === false &&
-            safety?.standardEnvelope?.manualPurchaseRequired === true;
+            safety?.standardEnvelope?.manualPurchaseRequired === true &&
+            safety?.letterTrackShipStation?.enabled === false &&
+            safety?.letterTrackShipStation?.ready === false &&
+            safety?.shipStationParcel?.enabled === false &&
+            safety?.shipStationParcel?.ready === false;
 
           if (!safetyValid) {
             throw new Error(
@@ -90,17 +94,57 @@ jobs:
             if (response.status !== 401) {
               const body = await response.text();
               throw new Error(
-                `Unauthenticated ${method} LetterTrack request was not blocked: status=${response.status} body=${body.slice(0, 300)}`,
+                `Unauthenticated ${method} LetterTrack export request was not blocked: status=${response.status} body=${body.slice(0, 300)}`,
+              );
+            }
+          }
+
+          const guardedRequests = [
+            {
+              label: 'ShipStation connection test GET',
+              url: `${base}/api/admin/shipping/shipstation-connection-test`,
+              init: { method: 'GET', headers: { Accept: 'application/json' } },
+            },
+            {
+              label: 'LetterTrack ShipStation postage POST',
+              url: `${base}/api/admin/orders/1/lettertrack-postage`,
+              init: {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ confirmPurchase: true, machinableAttested: true, ounces: 1 }),
+              },
+            },
+            {
+              label: 'ShipStation parcel postage POST',
+              url: `${base}/api/admin/orders/1/shipstation-parcel`,
+              init: {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ confirmPurchase: true, ounces: 4, lengthIn: 8, widthIn: 6, heightIn: 1 }),
+              },
+            },
+          ];
+
+          for (const guarded of guardedRequests) {
+            const response = await fetchWithRetry(guarded.url, guarded.init);
+            if (response.status !== 401) {
+              const body = await response.text();
+              throw new Error(
+                `Unauthenticated ${guarded.label} was not blocked: status=${response.status} body=${body.slice(0, 300)}`,
               );
             }
           }
 
           console.log('VEGAS SHIPPING PROOF PASSED');
           console.log('- Cloudflare routed Worker confirmed.');
-          console.log('- Runtime purchase mode: dry_run.');
-          console.log('- Live shipping flag: false.');
-          console.log('- Live provider adapter supported: false.');
-          console.log('- Unauthenticated LetterTrack GET: 401.');
-          console.log('- Unauthenticated LetterTrack POST: 401.');
+          console.log('- Runtime generic purchase mode: dry_run.');
+          console.log('- Generic live shipping flag: false.');
+          console.log('- Generic live provider adapter supported: false.');
+          console.log('- LetterTrack/ShipStation live lane: disabled + not ready.');
+          console.log('- ShipStation parcel live lane: disabled + not ready.');
+          console.log('- Unauthenticated LetterTrack export GET/POST: 401.');
+          console.log('- Unauthenticated ShipStation connection test GET: 401.');
+          console.log('- Unauthenticated LetterTrack postage POST: 401.');
+          console.log('- Unauthenticated ShipStation parcel postage POST: 401.');
           console.log('- No authenticated mutation or postage purchase was attempted.');
           NODE
