@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import LetterTrackPostagePurchase from "./LetterTrackPostagePurchase";
+import ShipStationParcelPurchase from "./ShipStationParcelPurchase";
 
 export default function ShippingLabelActions({
   orderId,
@@ -28,6 +29,8 @@ export default function ShippingLabelActions({
     initialAction === "recordVoid",
   );
   const standardEnvelopeSelected = shippingMethod === "STANDARD_ENVELOPE";
+  const parcelSelected =
+    shippingMethod === "GROUND_ADVANTAGE" || shippingMethod === "PRIORITY_MAIL";
   const [standardEnvelopeMachinableAttested, setStandardEnvelopeMachinableAttested] =
     useState(false);
   const shippingActionRunningRef = useRef(false);
@@ -337,6 +340,14 @@ export default function ShippingLabelActions({
       {standardEnvelopeSelected ? (
         <LetterTrackPostagePurchase
           orderId={orderId}
+          activeDryRunLabel={activeDryRunLabel}
+        />
+      ) : null}
+
+      {parcelSelected ? (
+        <ShipStationParcelPurchase
+          orderId={orderId}
+          shippingMethod={shippingMethod || "GROUND_ADVANTAGE"}
           activeDryRunLabel={activeDryRunLabel}
         />
       ) : null}
