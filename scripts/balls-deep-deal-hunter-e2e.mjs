@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 
-const delivery = JSON.parse(fs.readFileSync('/tmp/balls-deep-delivery-env.json', 'utf8'));
+const delivery = {
+  RESEND_API_KEY: String(process.env.RESEND_API_KEY || '').trim(),
+  MARKET_INTEL_FROM_EMAIL: String(process.env.MARKET_INTEL_FROM_EMAIL || '').trim(),
+  MARKET_INTEL_ALERT_EMAIL: String(process.env.MARKET_INTEL_ALERT_EMAIL || '').trim(),
+  MARKET_INTEL_EMAIL_ENABLED: String(process.env.MARKET_INTEL_EMAIL_ENABLED || '').trim(),
+};
 const base = 'https://truelycollectables.com';
 const native = '/api/tcos/deal-hunter-native-ebay?perQuery=5&scope=';
 const targets = [
@@ -24,7 +29,7 @@ async function runTarget(target) {
       const response = await fetch(url, {
         headers: {
           Accept: 'application/json',
-          'User-Agent': 'truely-collectables-balls-deep-e2e/2.0',
+          'User-Agent': 'truely-collectables-balls-deep-e2e/2.1',
         },
         redirect: 'manual',
         signal: AbortSignal.timeout(90_000),
@@ -121,7 +126,7 @@ const text = [
   '',
   ...rows,
   '',
-  'This test queried the live truelycollectables.com Cloudflare production routes and then used the production Market Intel Resend delivery configuration for this message.',
+  'This test queried the live truelycollectables.com Cloudflare production routes.',
   'No marketplace purchase, listing mutation, or Deal Hunter ledger mutation was performed.',
 ].join('\n');
 
@@ -138,47 +143,52 @@ const htmlRows = results
   )
   .join('');
 
-const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;background:#f4f1ea;color:#111;margin:0;padding:24px;"><div style="max-width:900px;margin:auto;background:#fff;border-radius:14px;padding:24px;"><div style="background:#111;color:#fff;border-radius:12px;padding:22px;"><div style="font-size:14px;font-weight:900;letter-spacing:.14em;">BALLS DEEP</div><h1 style="margin:8px 0 0;">Deal Hunter LIVE E2E — ${overall}</h1><p>${passedCount}/${results.length} live surfaces passed · ${totalSuccessful}/${totalFamilies} query families complete · ${totalFailedFamilies} failed families</p></div><table style="width:100%;border-collapse:collapse;margin-top:20px;"><thead><tr><th style="text-align:left;padding:8px;">Result</th><th style="text-align:left;padding:8px;">Scope</th><th style="text-align:left;padding:8px;">Families</th><th style="text-align:left;padding:8px;">Raw</th><th style="text-align:left;padding:8px;">Deduped</th><th style="text-align:left;padding:8px;">HTTP</th></tr></thead><tbody>${htmlRows}</tbody></table><p style="font-size:13px;line-height:1.6;margin-top:20px;">This came from the live truelycollectables.com Cloudflare production routes and the production Market Intel Resend delivery configuration. No marketplace or ledger mutations were performed.</p><p style="font-size:12px;color:#666;">${escapeHtml(sentAt)}</p></div></body></html>`;
+const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;background:#f4f1ea;color:#111;margin:0;padding:24px;"><div style="max-width:900px;margin:auto;background:#fff;border-radius:14px;padding:24px;"><div style="background:#111;color:#fff;border-radius:12px;padding:22px;"><div style="font-size:14px;font-weight:900;letter-spacing:.14em;">BALLS DEEP</div><h1 style="margin:8px 0 0;">Deal Hunter LIVE E2E — ${overall}</h1><p>${passedCount}/${results.length} live surfaces passed · ${totalSuccessful}/${totalFamilies} query families complete · ${totalFailedFamilies} failed families</p></div><table style="width:100%;border-collapse:collapse;margin-top:20px;"><thead><tr><th style="text-align:left;padding:8px;">Result</th><th style="text-align:left;padding:8px;">Scope</th><th style="text-align:left;padding:8px;">Families</th><th style="text-align:left;padding:8px;">Raw</th><th style="text-align:left;padding:8px;">Deduped</th><th style="text-align:left;padding:8px;">HTTP</th></tr></thead><tbody>${htmlRows}</tbody></table><p style="font-size:13px;line-height:1.6;margin-top:20px;">This came from the live truelycollectables.com Cloudflare production routes. No marketplace or ledger mutations were performed.</p><p style="font-size:12px;color:#666;">${escapeHtml(sentAt)}</p></div></body></html>`;
 
-const apiKey = String(delivery.RESEND_API_KEY || '').trim();
-const from = String(delivery.MARKET_INTEL_FROM_EMAIL || '').trim();
+const apiKey = delivery.RESEND_API_KEY;
+const from = delivery.MARKET_INTEL_FROM_EMAIL;
 const recipients = Array.from(
   new Set(
-    String(delivery.MARKET_INTEL_ALERT_EMAIL || '')
+    delivery.MARKET_INTEL_ALERT_EMAIL
       .split(/[;,\n]/)
       .map((entry) => entry.trim())
       .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry)),
   ),
 );
-const enabled =
-  String(delivery.MARKET_INTEL_EMAIL_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+const enabled = delivery.MARKET_INTEL_EMAIL_ENABLED.toLowerCase() !== 'false';
+const emailConfigured = Boolean(apiKey && from && recipients.length > 0);
+let emailAccepted = false;
+let emailProviderIdPresent = false;
+let emailSkipped = false;
 
-if (!enabled) {
-  throw new Error('Production Market Intel email delivery is disabled; BALLS DEEP email not sent.');
+if (enabled && emailConfigured) {
+  const emailResponse = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'truely-collectables-balls-deep-e2e/2.1',
+    },
+    body: JSON.stringify({ from, to: recipients, subject, text, html }),
+    redirect: 'manual',
+    signal: AbortSignal.timeout(30_000),
+  });
+  const emailPayload = await emailResponse.json().catch(() => null);
+  if (!emailResponse.ok || !emailPayload?.id) {
+    throw new Error(`BALLS DEEP production email submission failed with HTTP ${emailResponse.status}.`);
+  }
+  emailAccepted = true;
+  emailProviderIdPresent = Boolean(emailPayload.id);
+  console.log(
+    `BALLS DEEP visible email accepted by configured Resend credentials; provider id present=${emailProviderIdPresent}; recipients=${recipients.length}.`,
+  );
+} else {
+  emailSkipped = true;
+  const reason = !enabled
+    ? 'delivery is explicitly disabled'
+    : 'complete Resend delivery credentials are not exposed to this Actions job';
+  console.log(`BALLS DEEP email proof SKIPPED: ${reason}. Live Cloudflare route certification continues independently.`);
 }
-if (!apiKey || !from || recipients.length === 0) {
-  throw new Error('Production Market Intel delivery configuration is incomplete; BALLS DEEP email not sent.');
-}
-
-const emailResponse = await fetch('https://api.resend.com/emails', {
-  method: 'POST',
-  headers: {
-    Authorization: `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
-    'User-Agent': 'truely-collectables-balls-deep-e2e/2.0',
-  },
-  body: JSON.stringify({ from, to: recipients, subject, text, html }),
-  redirect: 'manual',
-  signal: AbortSignal.timeout(30_000),
-});
-const emailPayload = await emailResponse.json().catch(() => null);
-if (!emailResponse.ok || !emailPayload?.id) {
-  throw new Error(`BALLS DEEP production email submission failed with HTTP ${emailResponse.status}.`);
-}
-
-console.log(
-  `BALLS DEEP visible email accepted by production Resend configuration; provider id present=${Boolean(emailPayload.id)}; recipients=${recipients.length}.`,
-);
 
 fs.writeFileSync(
   '/tmp/balls-deep-result.json',
@@ -191,8 +201,9 @@ fs.writeFileSync(
     totalSuccessful,
     totalFailedFamilies,
     results,
-    emailAccepted: true,
-    emailProviderIdPresent: Boolean(emailPayload.id),
+    emailAccepted,
+    emailProviderIdPresent,
+    emailSkipped,
     sentAt,
   }),
   { mode: 0o600 },
@@ -200,6 +211,6 @@ fs.writeFileSync(
 
 if (failedCount > 0) {
   throw new Error(
-    `BALLS DEEP live Deal Hunter E2E failed: ${failedCount}/${results.length} surfaces failed. Results email was still sent.`,
+    `BALLS DEEP live Deal Hunter E2E failed: ${failedCount}/${results.length} surfaces failed.`,
   );
 }
