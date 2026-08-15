@@ -12,6 +12,8 @@ on:
       - "package-lock.json"
       - "next.config.*"
       - "open-next.config.ts"
+      - "cloudflare-worker.ts"
+      - "cloudflare-native-fetch.ts"
       - "wrangler.jsonc"
       - "wrangler.production-route.jsonc"
   workflow_dispatch:
