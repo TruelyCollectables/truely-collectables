@@ -1,4 +1,8 @@
-import type { ShipStationOriginAddress } from "./shipstation-origin";
+import {
+  getShipStationOrigin,
+  normalizeShipStationOrigin,
+  type ShipStationOriginAddress,
+} from "./shipstation-origin";
 
 export type LetterTrackShipStationAddress = {
   name: string;
@@ -15,7 +19,6 @@ export type LetterTrackShipStationPurchaseRequest = {
   orderId: number;
   ounces: number;
   shipTo: LetterTrackShipStationAddress;
-  shipFrom: ShipStationOriginAddress;
   shipDate?: string;
 };
 
@@ -64,14 +67,17 @@ function normalizedCountry(value: string | null | undefined) {
   return normalized || "US";
 }
 
-function envShipFromConfigured() {
-  return [
-    "TCOS_SHIP_FROM_NAME",
-    "TCOS_SHIP_FROM_ADDRESS_LINE1",
-    "TCOS_SHIP_FROM_CITY",
-    "TCOS_SHIP_FROM_STATE",
-    "TCOS_SHIP_FROM_POSTAL_CODE",
-  ].every((key) => configured(process.env[key]));
+function envShipFrom() {
+  return normalizeShipStationOrigin({
+    name: process.env.TCOS_SHIP_FROM_NAME,
+    company: process.env.TCOS_SHIP_FROM_COMPANY || "Truely Collectables",
+    addressLine1: process.env.TCOS_SHIP_FROM_ADDRESS_LINE1,
+    addressLine2: process.env.TCOS_SHIP_FROM_ADDRESS_LINE2,
+    city: process.env.TCOS_SHIP_FROM_CITY,
+    state: process.env.TCOS_SHIP_FROM_STATE,
+    postalCode: process.env.TCOS_SHIP_FROM_POSTAL_CODE,
+    countryCode: process.env.TCOS_SHIP_FROM_COUNTRY || "US",
+  });
 }
 
 export function getLetterTrackShipStationBridgeStatus(): LetterTrackShipStationBridgeStatus {
@@ -97,7 +103,7 @@ export function getLetterTrackShipStationBridgeStatus(): LetterTrackShipStationB
     apiKeyConfigured,
     carrierConfigured,
     warehouseConfigured: false,
-    shipFromConfigured: envShipFromConfigured(),
+    shipFromConfigured: Boolean(envShipFrom()),
     serviceCode,
     packageCode,
     missing,
@@ -129,19 +135,24 @@ function providerAddress(
 
 export function buildLetterTrackShipStationLabelRequest(
   request: LetterTrackShipStationPurchaseRequest,
+  shipFromOverride?: ShipStationOriginAddress | null,
 ) {
   const status = getLetterTrackShipStationBridgeStatus();
   const ounces = Number(request.ounces);
+  const shipFrom = shipFromOverride || envShipFrom();
 
   if (!Number.isFinite(ounces) || ounces <= 0 || ounces > 3.5) {
     throw new Error(
       "Standard Envelope letter postage requires a weight greater than 0 and no more than 3.5 ounces.",
     );
   }
+  if (!shipFrom) {
+    throw new Error("The TruelyCollectables ShipStation ship-from address is not configured.");
+  }
   if (normalizedCountry(request.shipTo.countryCode) !== "US") {
     throw new Error("LetterTrack Standard Envelope bridge is US-only.");
   }
-  if (normalizedCountry(request.shipFrom.countryCode) !== "US") {
+  if (normalizedCountry(shipFrom.countryCode) !== "US") {
     throw new Error("TCOS ShipStation ship-from address must be in the US.");
   }
 
@@ -152,19 +163,8 @@ export function buildLetterTrackShipStationLabelRequest(
     request.shipTo.state,
     request.shipTo.postalCode,
   ].map((value) => String(value || "").trim());
-  const requiredFrom = [
-    request.shipFrom.name,
-    request.shipFrom.addressLine1,
-    request.shipFrom.city,
-    request.shipFrom.state,
-    request.shipFrom.postalCode,
-  ].map((value) => String(value || "").trim());
-
   if (requiredTo.some((value) => !value)) {
     throw new Error("The recipient shipping address is incomplete.");
-  }
-  if (requiredFrom.some((value) => !value)) {
-    throw new Error("The TruelyCollectables ship-from address is incomplete.");
   }
 
   return {
@@ -175,7 +175,7 @@ export function buildLetterTrackShipStationLabelRequest(
       ship_date: safeDate(request.shipDate),
       external_order_id: `TCOS-${request.orderId}`,
       ship_to: providerAddress(request.shipTo, "yes"),
-      ship_from: providerAddress(request.shipFrom, "no"),
+      ship_from: providerAddress(shipFrom, "no"),
       packages: [
         {
           package_code: status.packageCode,
@@ -200,21 +200,18 @@ export function buildLetterTrackShipStationLabelRequest(
 export function safeShipStationDownloadUrl(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return null;
-
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     return null;
   }
-
   if (
     !["http:", "https:"].includes(url.protocol) ||
     !SHIPSTATION_DOWNLOAD_HOSTS.has(url.hostname.toLowerCase())
   ) {
     return null;
   }
-
   url.protocol = "https:";
   return url.toString();
 }
@@ -223,7 +220,6 @@ export async function purchaseLetterTrackShipStationPostage(
   request: LetterTrackShipStationPurchaseRequest,
 ): Promise<LetterTrackShipStationPurchaseResult> {
   const status = getLetterTrackShipStationBridgeStatus();
-
   if (!status.enabled) {
     throw new Error(
       "LetterTrack/ShipStation API live postage bridge is disabled. Set TCOS_LETTERTRACK_SHIPSTATION_LIVE_ENABLED=true only after provider setup and test approval.",
@@ -235,6 +231,13 @@ export async function purchaseLetterTrackShipStationPostage(
     );
   }
 
+  const shipFrom = await getShipStationOrigin();
+  if (!shipFrom) {
+    throw new Error(
+      "TruelyCollectables does not have a saved ShipStation ship-from address. Save it in Admin → Shipping → ShipStation Test before purchasing postage.",
+    );
+  }
+
   const response = await fetch(`${SHIPSTATION_API_BASE}/v1/labels`, {
     method: "POST",
     headers: {
@@ -242,7 +245,7 @@ export async function purchaseLetterTrackShipStationPostage(
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify(buildLetterTrackShipStationLabelRequest(request)),
+    body: JSON.stringify(buildLetterTrackShipStationLabelRequest(request, shipFrom)),
     redirect: "manual",
     signal: AbortSignal.timeout(45_000),
   });
@@ -252,7 +255,6 @@ export async function purchaseLetterTrackShipStationPostage(
       `ShipStation API postage purchase refused an unexpected redirect (HTTP ${response.status}).`,
     );
   }
-
   const providerPayload = (await response.json().catch(() => ({}))) as Record<string, any>;
   if (!response.ok) {
     const providerMessage =
