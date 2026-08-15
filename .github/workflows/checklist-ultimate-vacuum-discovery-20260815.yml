@@ -10,6 +10,7 @@ on:
       - 'scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs'
       - 'scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs'
       - 'scripts/mainstream-checklist/ultimate-vacuum-continuous-prepatch.mjs'
+      - 'scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs'
       - 'scripts/mainstream-checklist/ultimate-vacuum-exact-feed.ts'
       - 'ops/checklists/ultimate-vacuum-source-policy-20260815.json'
       - 'ops/checklists/ultimate-vacuum-seen-urls-20260815.json'
@@ -43,6 +44,7 @@ jobs:
           node --check scripts/mainstream-checklist/ultimate-vacuum-discovery.mjs
           node --check scripts/mainstream-checklist/ultimate-vacuum-source-router.mjs
           node --check scripts/mainstream-checklist/ultimate-vacuum-human-handoff.mjs
+          node --check scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs
 
       - name: Cast shard across checklist sources
         shell: bash
@@ -202,6 +204,7 @@ jobs:
         run: |
           npm ci
           npx tsc --noEmit --pretty false --incremental false || true
+          node --check scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs
 
       - name: Resolve Production Supabase
         shell: bash
@@ -231,6 +234,15 @@ jobs:
           pattern: checklist-ultimate-vacuum-discovery-${{ github.run_id }}-shard-*
           path: ${{ runner.temp }}/vacuum-feed-shards
 
+      - name: Recover first-pass 1047-candidate reservoir
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checklist-ultimate-vacuum-discovery-31888595840-shard-*
+          path: ${{ runner.temp }}/vacuum-reservoir-shards
+          repository: ${{ github.repository }}
+          run-id: 31888595840
+          github-token: ${{ github.token }}
+
       - name: Build deduped exact-feed candidate queue
         shell: bash
         run: |
@@ -238,17 +250,33 @@ jobs:
           ndjson="$RUNNER_TEMP/vacuum-feed-ranked.ndjson"
           out="$RUNNER_TEMP/vacuum-feed-ranked.json"
           : > "$ndjson"
-          find "$RUNNER_TEMP/vacuum-feed-shards" -type f -name ranked.json -print0 | sort -z | xargs -0 -r -n1 jq -c '.ranked[]?' >> "$ndjson"
+          find "$RUNNER_TEMP/vacuum-feed-shards" "$RUNNER_TEMP/vacuum-reservoir-shards" -type f -name ranked.json -print0 | sort -z | xargs -0 -r -n1 jq -c '.ranked[]?' >> "$ndjson"
           jq -s 'sort_by(-(.reputationScore // 0)) | unique_by(.url) | {schema:"tcos.checklist.ultimateVacuumCombinedRanked.v1",generatedAt:(now|todateiso8601),rankedCount:length,ranked:.}' "$ndjson" > "$out"
           jq '{rankedCount,top:.ranked[:20]}' "$out"
+
+      - name: Resolve public checklist pages into structured assets
+        shell: bash
+        env:
+          VACUUM_RESOLVER_INPUT: ${{ runner.temp }}/vacuum-feed-ranked.json
+          VACUUM_RESOLVER_OUTPUT: ${{ runner.temp }}/vacuum-feed-resolved.json
+          VACUUM_RESOLVER_MAX_PAGES: '600'
+          VACUUM_RESOLVER_MAX_PAGES_PER_HOST: '300'
+          VACUUM_RESOLVER_MAX_ASSETS: '600'
+          VACUUM_RESOLVER_MAX_DEPTH: '2'
+          VACUUM_RESOLVER_WORKERS: '2'
+          VACUUM_RESOLVER_RPS_CAP: '0.4'
+        run: |
+          set -euo pipefail
+          node scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs
+          jq '{inputCount,eligibleSeedCount,pagesFetched,assetCount,failureCount,hostPages}' "$RUNNER_TEMP/vacuum-feed-resolved.json"
 
       - name: Exact-set resolve, validate, and serialize Production persistence
         shell: bash
         env:
-          VACUUM_FEED_INPUT: ${{ runner.temp }}/vacuum-feed-ranked.json
+          VACUUM_FEED_INPUT: ${{ runner.temp }}/vacuum-feed-resolved.json
           VACUUM_FEED_OUTPUT: ${{ runner.temp }}/vacuum-feed-receipt.json
           VACUUM_FEED_APPLY: 'true'
-          VACUUM_FEED_MAX_CANDIDATES: '200'
+          VACUUM_FEED_MAX_CANDIDATES: '600'
           VACUUM_FEED_MINIMUM_CARD_ROWS: '25'
         run: |
           set -euo pipefail
@@ -260,6 +288,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: checklist-ultimate-vacuum-exact-feed-${{ github.run_id }}
-          path: ${{ runner.temp }}/vacuum-feed-receipt.json
+          path: |
+            ${{ runner.temp }}/vacuum-feed-ranked.json
+            ${{ runner.temp }}/vacuum-feed-resolved.json
+            ${{ runner.temp }}/vacuum-feed-receipt.json
           if-no-files-found: warn
           retention-days: 90
