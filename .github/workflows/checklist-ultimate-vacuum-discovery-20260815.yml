@@ -15,6 +15,7 @@ permissions:
   contents: read
   actions: read
 
+# Ultimate Vacuum: discovery only. Production persistence remains behind the strict checklist validator.
 jobs:
   discover:
     strategy:
