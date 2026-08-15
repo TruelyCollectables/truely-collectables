@@ -5,6 +5,14 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-registry-production-recovery-proof.yml"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-registry-production-recovery-proof.yml"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: instacomp-registry-production-recovery-proof
+  group: instacomp-registry-production-recovery-proof-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -42,6 +50,8 @@ jobs:
 
       - name: Prove live Sonia 22-to-122 Registry recovery
         shell: bash
+        env:
+          PROOF_EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           umask 077
@@ -94,11 +104,18 @@ jobs:
             const endpoint = 'https://truelycollectables.com/api/instacomp/registry-lock';
             const expectedIdentity = '2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f';
             const expectedFingerprint = '4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59';
+            const preDeployProof = process.env.PROOF_EVENT_NAME === 'pull_request';
             const body = {
               year: '2025',
               manufacturer: null,
               brand: 'Prizm',
-              setName: '2025 Panini Prizm WNBA - Silver Prizms',
+              // PR proves the hypothesis against the currently deployed resolver:
+              // retaining release scope is sufficient for the existing bounded
+              // 22->122 recovery. Main/push proves the new sanitizer transforms
+              // the original bad Silver title correctly after Cloudflare deploy.
+              setName: preDeployProof
+                ? '2025 Panini Prizm WNBA'
+                : '2025 Panini Prizm WNBA - Silver Prizms',
               subset: null,
               cardNumber: '22',
               player: 'Sonia Citron',
@@ -121,7 +138,9 @@ jobs:
                   headers: {
                     accept: 'application/json',
                     'content-type': 'application/json',
-                    'x-instacomp-client': 'github-production-recovery-proof',
+                    'x-instacomp-client': preDeployProof
+                      ? 'github-predeploy-release-scope-proof'
+                      : 'github-production-recovery-proof',
                     'x-instacomp-sentinel-archive-token': sentinelToken,
                   },
                   body: JSON.stringify(body),
@@ -141,14 +160,18 @@ jobs:
                   reasons.some((reason) => reason === 'unique_leading_digit_card_number_recovery:22->122');
 
                 if (valid) {
-                  console.log('PASS live Registry recovery: Sonia #22 evidence resolved uniquely and authoritatively to Sonia #122.');
+                  console.log(
+                    preDeployProof
+                      ? 'PASS live pre-deploy proof: release-scoped Sonia #22 resolves uniquely to canonical #122.'
+                      : 'PASS live deployed proof: original Silver-title Sonia #22 evidence resolves uniquely to canonical #122.',
+                  );
                   return;
                 }
                 last = `attempt=${attempt} status=${response.status} registryStatus=${data?.status || null} resolverStatus=${data?.resolverStatus || null} candidateCount=${data?.candidateCount ?? null} identity=${data?.registryIdentityId || null} card=${lockedCardNumber || null} reasons=${JSON.stringify(reasons)}`;
               } catch (error) {
                 last = `attempt=${attempt} error=${error instanceof Error ? error.message : String(error)}`;
               }
-              console.log(`Waiting for Cloudflare Registry release: ${last}`);
+              console.log(`Waiting for Registry proof: ${last}`);
               await new Promise((resolve) => setTimeout(resolve, 20_000));
             }
             throw new Error(`Live Registry recovery proof failed: ${last}`);
