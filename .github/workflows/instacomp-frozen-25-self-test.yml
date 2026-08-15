@@ -6,18 +6,24 @@ on:
     paths:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v4.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - "services/instacomp-ai/requirements.txt"
       - ".github/workflows/instacomp-frozen-25-self-test.yml"
   push:
     branches: [main]
     paths:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v4.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
+      - "services/instacomp-ai/requirements.txt"
       - ".github/workflows/instacomp-frozen-25-self-test.yml"
   workflow_dispatch:
 
@@ -27,7 +33,7 @@ permissions:
 jobs:
   frozen-25-contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -35,16 +41,23 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install exact InstaComp service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+
       - name: Compile Frozen 25 promotion code
         run: |
           python -m py_compile \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v4.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py
 
       - name: Validate Mac launcher syntax
         run: bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
 
-      - name: Prove Frozen Five seed compatibility and strict Frozen 25 expansion contract
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v2.py --self-test
+      - name: Prove real-dataset live Registry expansion contract
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v4.py --self-test
