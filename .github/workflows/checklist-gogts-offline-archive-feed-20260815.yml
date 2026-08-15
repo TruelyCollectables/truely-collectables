@@ -71,7 +71,7 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
 
-      - name: Download preserved GoGTS master archive
+      - name: Download preserved GoGTS master archive payload
         uses: actions/download-artifact@v4
         with:
           name: sports-card-checklist-master-archive-31100986894
@@ -80,37 +80,64 @@ jobs:
           run-id: 31100986894
           github-token: ${{ github.token }}
 
+      - name: Download preserved GoGTS status index
+        uses: actions/download-artifact@v4
+        with:
+          name: public-checklist-status-gogts-31100986894
+          path: ${{ runner.temp }}/gogts-master-status
+          repository: ${{ github.repository }}
+          run-id: 31100986894
+          github-token: ${{ github.token }}
+
       - name: Build offline exact-set queue from archived files
         shell: bash
         env:
           ARCHIVE_ROOT: ${{ runner.temp }}/gogts-master-archive
+          STATUS_ROOT: ${{ runner.temp }}/gogts-master-status
           QUEUE_OUT: ${{ runner.temp }}/gogts-offline-queue.json
         run: |
           set -euo pipefail
           python - <<'PY'
           import csv, json, os, pathlib, re
 
-          root = pathlib.Path(os.environ['ARCHIVE_ROOT'])
+          archive_root = pathlib.Path(os.environ['ARCHIVE_ROOT'])
+          status_root = pathlib.Path(os.environ['STATUS_ROOT'])
           out = pathlib.Path(os.environ['QUEUE_OUT'])
-          csvs = [p for p in root.rglob('source-items.csv') if 'gogts' in str(p).lower()]
-          if not csvs:
-              raise SystemExit('GoGTS source-items.csv not found in preserved archive')
-          source_csv = csvs[0]
-          organized_root = source_csv.parent
 
-          manifests = []
-          for p in root.rglob('manifest.json'):
-              if 'gogts' not in str(p).lower():
-                  continue
-              try:
-                  d = json.loads(p.read_text(encoding='utf-8'))
-              except Exception:
-                  continue
-              if d.get('schema') == 'tcos.publicChecklistSourceArchive.v1':
-                  manifests.append(d)
-          if not manifests:
-              raise SystemExit('GoGTS source archive manifest not found')
-          manifest = manifests[0]
+          source_csv = status_root / '.public-checklist-organized' / 'gogts' / 'source-items.csv'
+          source_manifest = status_root / '.public-checklist-source-archive' / 'gogts' / 'manifest.json'
+          organized_root = archive_root / '.public-checklist-organized' / 'gogts'
+
+          if not source_csv.is_file():
+              matches = list(status_root.rglob('source-items.csv'))
+              if len(matches) != 1:
+                  raise SystemExit(f'Expected one GoGTS source-items.csv, found {len(matches)}')
+              source_csv = matches[0]
+          if not source_manifest.is_file():
+              manifests = []
+              for p in status_root.rglob('manifest.json'):
+                  try:
+                      d = json.loads(p.read_text(encoding='utf-8'))
+                  except Exception:
+                      continue
+                  if d.get('schema') == 'tcos.publicChecklistSourceArchive.v1':
+                      manifests.append((p, d))
+              if len(manifests) != 1:
+                  raise SystemExit(f'Expected one GoGTS source archive manifest, found {len(manifests)}')
+              source_manifest = manifests[0][0]
+
+          if not organized_root.is_dir():
+              candidates = [p for p in archive_root.rglob('master-sets.csv') if 'gogts' in str(p).lower()]
+              if candidates:
+                  organized_root = candidates[0].parent
+              else:
+                  candidates = [p for p in archive_root.rglob('SORTED') if p.is_dir()]
+                  if len(candidates) == 1:
+                      organized_root = candidates[0].parent
+          if not organized_root.is_dir():
+              raise SystemExit('GoGTS organized file root not found in master archive payload')
+
+          manifest = json.loads(source_manifest.read_text(encoding='utf-8'))
           by_article = {str(i.get('sourceUrl','')): i for i in manifest.get('items', [])}
 
           pref = {'.xlsx': 0, '.csv': 1, '.xls': 2, '.pdf': 3}
