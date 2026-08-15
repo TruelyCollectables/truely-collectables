@@ -1,11 +1,11 @@
-import { getClientIdentity } from "../../../../../../../lib/client-identity";
+import { getClientIdentity } from "@/src/lib/client-identity";
 import {
   getLetterTrackShipStationBridgeStatus,
   purchaseLetterTrackShipStationPostage,
-} from "../../../../../../../lib/lettertrack-shipstation";
-import { isDryRunShippingLabel } from "../../../../../../../lib/shipping-dry-run";
-import { getActiveStoreId } from "../../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
+} from "@/src/lib/lettertrack-shipstation";
+import { isDryRunShippingLabel } from "@/src/lib/shipping-dry-run";
+import { getActiveStoreId } from "@/src/lib/stores";
+import { createSupabaseServerClient } from "@/src/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
