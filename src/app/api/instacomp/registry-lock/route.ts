@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveChecklistRegistry } from "../../../../lib/instacomp-learning-server";
-import { resolveChecklistRegistryLeadingDigitRecovery } from "../../../../lib/instacomp-registry-leading-digit-recovery";
+import {
+  resolveChecklistRegistryCardFirst,
+  resolveChecklistRegistryLeadingDigitRecovery,
+} from "../../../../lib/instacomp-registry-leading-digit-recovery";
 import {
   buildInstaCompRegistryLockProbe,
   publicRegistryLockStatus,
@@ -54,16 +56,19 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const probe = buildInstaCompRegistryLockProbe(body);
-    let resolution = await resolveChecklistRegistry(probe, {
-      evidenceTrusted: false,
-    });
+
+    // Production Registry identity resolution starts from the indexed normalized
+    // card number and validates only those referenced live versions/releases.
+    // This keeps the exact chooseRegistryMatch referee while eliminating the
+    // global active-version/release scans that began timing out as Registry data
+    // grew.
+    let resolution = await resolveChecklistRegistryCardFirst(probe);
 
     // OCR/VLM readers occasionally drop one leading digit from a printed card
-    // number (for example 122 -> 22). If the ordinary exact lookup fails, use a
-    // bounded card-number-first recovery query for 1..9 + observed. It expands
-    // only those candidate cards, keeps active Registry versions, delegates the
-    // identity decision to chooseRegistryMatch, and fails closed unless exactly
-    // one distinct Registry identity survives all visible evidence.
+    // number (for example 122 -> 22). If the exact card-first lookup fails, try
+    // 1..9 + observed in one bounded indexed query. Recovery is accepted only
+    // when one unique identity survives, and adjacent-year relaxation is disabled
+    // for this fallback so two pieces of evidence are never relaxed together.
     const observedCardNumber = String(probe.cardNumber || "").trim();
     if (
       resolution.status !== "internal_exact_match" &&
@@ -100,7 +105,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       registryLock: true,
-      resolver: "resolveChecklistRegistry",
+      resolver: "resolveChecklistRegistryCardFirst",
       resolverStatus: resolution.status,
       status: publicRegistryLockStatus(resolution.status),
       reasons: resolution.reasons,
