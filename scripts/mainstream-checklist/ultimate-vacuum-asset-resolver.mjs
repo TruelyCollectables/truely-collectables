@@ -1,8 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const INPUT = resolve(process.cwd(), process.env.VACUUM_RESOLVER_INPUT || 'tmp/ultimate-vacuum-ranked.json');
 const OUTPUT = resolve(process.cwd(), process.env.VACUUM_RESOLVER_OUTPUT || 'tmp/ultimate-vacuum-resolved-assets.json');
+const LEDGER_IN = process.env.VACUUM_RESOLVER_LEDGER ? resolve(process.cwd(), process.env.VACUUM_RESOLVER_LEDGER) : null;
+const LEDGER_OUT = process.env.VACUUM_RESOLVER_LEDGER_OUT ? resolve(process.cwd(), process.env.VACUUM_RESOLVER_LEDGER_OUT) : null;
 const MAX_PAGES = Math.max(1, Number(process.env.VACUUM_RESOLVER_MAX_PAGES || 500));
 const MAX_PAGES_PER_HOST = Math.max(1, Number(process.env.VACUUM_RESOLVER_MAX_PAGES_PER_HOST || 250));
 const MAX_ASSETS = Math.max(1, Number(process.env.VACUUM_RESOLVER_MAX_ASSETS || 500));
@@ -19,19 +21,28 @@ function siteKey(host) {
 }
 
 function isStructuredAsset(url) {
-  try {
-    return /\.(?:xlsx?|csv|pdf)$/i.test(new URL(url).pathname);
-  } catch {
-    return false;
-  }
+  try { return /\.(?:xlsx?|csv|pdf)$/i.test(new URL(url).pathname); }
+  catch { return false; }
 }
 
 function cleanHref(value) {
-  return String(value || '')
-    .replaceAll('&amp;', '&')
-    .replaceAll('&#038;', '&')
-    .replaceAll('&#38;', '&')
-    .replaceAll('\\/', '/');
+  return String(value || '').replaceAll('&amp;', '&').replaceAll('&#038;', '&').replaceAll('&#38;', '&').replaceAll('\\/', '/');
+}
+
+function canonicalUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    parsed.hash = '';
+    return parsed.toString();
+  } catch { return String(value || ''); }
+}
+
+function loadLedger() {
+  if (!LEDGER_IN || !existsSync(LEDGER_IN)) return new Set();
+  try {
+    const parsed = JSON.parse(readFileSync(LEDGER_IN, 'utf8'));
+    return new Set((Array.isArray(parsed) ? parsed : parsed.urls || []).map(canonicalUrl).filter(Boolean));
+  } catch { return new Set(); }
 }
 
 function reserveHostSlot(host, rps) {
@@ -57,14 +68,10 @@ async function fetchPublic(url, rps) {
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
       const response = await fetch(url, {
-        redirect: 'follow',
-        signal: controller.signal,
+        redirect: 'follow', signal: controller.signal,
         headers: { accept: 'text/html,application/xhtml+xml,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*;q=0.5' },
       });
-      if (response.status === 429) {
-        pushHostBack(host, 60);
-        continue;
-      }
+      if (response.status === 429) { pushHostBack(host, 60); continue; }
       if (!response.ok) return { ok: false, status: response.status, url: response.url || url };
       const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
       if (isStructuredAsset(response.url || url) || /application\/(?:pdf|vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet)|text\/csv/i.test(contentType)) {
@@ -75,9 +82,7 @@ async function fetchPublic(url, rps) {
     } catch (error) {
       if (attempt === 2) return { ok: false, status: 'fetch_error', message: error instanceof Error ? error.message : String(error), url };
       pushHostBack(host, 5 * (attempt + 1));
-    } finally {
-      clearTimeout(timer);
-    }
+    } finally { clearTimeout(timer); }
   }
   return { ok: false, status: 'exhausted', url };
 }
@@ -85,11 +90,7 @@ async function fetchPublic(url, rps) {
 function extractLinks(html, baseUrl) {
   const links = new Set();
   const text = String(html || '');
-  const patterns = [
-    /(?:href|data-href|data-url)=["']([^"']+)["']/gi,
-    /https?:\\?\/\\?\/[^"'<>\s]+/gi,
-  ];
-  for (const pattern of patterns) {
+  for (const pattern of [/(?:href|data-href|data-url)=["']([^"']+)["']/gi, /https?:\\?\/\\?\/[^"'<>\s]+/gi]) {
     for (const match of text.matchAll(pattern)) {
       const raw = cleanHref(match[1] || match[0]);
       try {
@@ -105,30 +106,23 @@ function extractLinks(html, baseUrl) {
 
 function usefulChildPage(url, parentUrl) {
   try {
-    const child = new URL(url);
-    const parent = new URL(parentUrl);
+    const child = new URL(url); const parent = new URL(parentUrl);
     if (siteKey(child.hostname) !== siteKey(parent.hostname)) return false;
     const path = child.pathname.toLowerCase();
     if (isStructuredAsset(url)) return false;
     if (/\.(?:jpg|jpeg|png|gif|webp|svg|zip|mp4|mp3|css|js)$/i.test(path)) return false;
     if (/\/(?:tag|author|feed)(?:\/|$)/i.test(path)) return false;
     return /checklist|trading-card|cards|product|checklist-brand|\/page\/\d+/i.test(path);
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 function candidateEligible(candidate) {
-  const mode = String(candidate?.sourceMode || '');
-  const score = Number(candidate?.reputationScore || 0);
-  if (mode.startsWith('lead-only')) return false;
-  if (score < 75) return false;
+  const mode = String(candidate?.sourceMode || ''); const score = Number(candidate?.reputationScore || 0);
+  if (mode.startsWith('lead-only') || score < 75) return false;
   try {
     const host = new URL(String(candidate?.url || '')).hostname.toLowerCase();
     if (['beckett.com', 'www.beckett.com'].includes(host)) return false;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
   return true;
 }
 
@@ -136,19 +130,19 @@ async function main() {
   const input = JSON.parse(readFileSync(INPUT, 'utf8'));
   const ranked = Array.isArray(input) ? input : (input.ranked || input.candidates || []);
   const seeds = ranked.filter(candidateEligible).sort((a, b) => Number(b.reputationScore || 0) - Number(a.reputationScore || 0));
-  const pageQueue = [];
-  const queuedPages = new Set();
-  const seenPages = new Set();
-  const hostPages = new Map();
-  const assets = new Map();
-  const failures = [];
+  const handledPages = loadLedger();
+  const previousLedgerCount = handledPages.size;
+  const newlyHandledPages = new Set();
+  const pageQueue = []; const queuedPages = new Set(); const seenThisRun = new Set();
+  const hostPages = new Map(); const assets = new Map(); const failures = [];
   let pagesFetched = 0;
 
   function addAsset(url, parentUrl, seed) {
-    if (!isStructuredAsset(url) || assets.has(url) || assets.size >= MAX_ASSETS) return;
-    assets.set(url, {
-      url,
-      host: new URL(url).hostname.toLowerCase(),
+    const canonical = canonicalUrl(url);
+    if (!isStructuredAsset(canonical) || assets.has(canonical) || assets.size >= MAX_ASSETS) return;
+    assets.set(canonical, {
+      url: canonical,
+      host: new URL(canonical).hostname.toLowerCase(),
       sourceId: seed.sourceId || null,
       kind: 'asset',
       parentUrl: parentUrl || seed.parentUrl || null,
@@ -160,40 +154,35 @@ async function main() {
   }
 
   function enqueuePage(url, seed, depth) {
-    if (depth > MAX_DEPTH || queuedPages.has(url) || seenPages.has(url)) return;
-    queuedPages.add(url);
-    pageQueue.push({ url, seed, depth });
+    const canonical = canonicalUrl(url);
+    if (depth > MAX_DEPTH || handledPages.has(canonical) || queuedPages.has(canonical) || seenThisRun.has(canonical)) return;
+    queuedPages.add(canonical); pageQueue.push({ url: canonical, seed, depth });
   }
 
   for (const seed of seeds) {
-    const url = String(seed.url || '');
-    if (!url) continue;
-    if (isStructuredAsset(url)) addAsset(url, seed.parentUrl || null, seed);
-    else enqueuePage(url, seed, 0);
+    const url = String(seed.url || ''); if (!url) continue;
+    if (isStructuredAsset(url)) addAsset(url, seed.parentUrl || null, seed); else enqueuePage(url, seed, 0);
   }
 
   async function worker(workerId) {
     while (pageQueue.length && pagesFetched < MAX_PAGES && assets.size < MAX_ASSETS) {
-      const item = pageQueue.shift();
-      if (!item) return;
+      const item = pageQueue.shift(); if (!item) return;
       queuedPages.delete(item.url);
-      if (seenPages.has(item.url)) continue;
+      if (handledPages.has(item.url) || seenThisRun.has(item.url)) continue;
       const host = new URL(item.url).hostname.toLowerCase();
       const used = hostPages.get(host) || 0;
       if (used >= MAX_PAGES_PER_HOST) continue;
-      hostPages.set(host, used + 1);
-      seenPages.add(item.url);
-      pagesFetched++;
+      hostPages.set(host, used + 1); seenThisRun.add(item.url); pagesFetched++;
       const rps = Math.min(RPS_CAP, Math.max(0.05, Number(item.seed.maxRequestsPerSecondPerHost || RPS_CAP)));
       const fetched = await fetchPublic(item.url, rps);
       if (!fetched.ok) {
         failures.push({ url: item.url, workerId, status: fetched.status || 'failed', message: fetched.message || null });
         continue;
       }
-      if (fetched.assetUrl) {
-        addAsset(fetched.assetUrl, item.url, item.seed);
-        continue;
-      }
+      // Only a genuine successful public fetch becomes durable resolver progress.
+      // Transport failures, 403s, 429s and timeouts remain retryable.
+      handledPages.add(item.url); newlyHandledPages.add(item.url);
+      if (fetched.assetUrl) { addAsset(fetched.assetUrl, item.url, item.seed); continue; }
       for (const link of extractLinks(fetched.text, fetched.url || item.url)) {
         if (isStructuredAsset(link)) addAsset(link, fetched.url || item.url, item.seed);
         else if (item.depth < MAX_DEPTH && usefulChildPage(link, fetched.url || item.url)) enqueuePage(link, item.seed, item.depth + 1);
@@ -202,26 +191,24 @@ async function main() {
   }
 
   await Promise.all(Array.from({ length: WORKERS }, (_, index) => worker(index + 1)));
-
   const candidates = [...assets.values()].sort((a, b) => Number(b.reputationScore || 0) - Number(a.reputationScore || 0) || a.url.localeCompare(b.url));
+  const continuationNeeded = pageQueue.length > 0 || assets.size >= MAX_ASSETS || pagesFetched >= MAX_PAGES;
   const output = {
-    schema: 'tcos.checklist.ultimateVacuumResolvedAssets.v1',
-    generatedAt: new Date().toISOString(),
-    inputCount: ranked.length,
-    eligibleSeedCount: seeds.length,
-    pagesFetched,
+    schema: 'tcos.checklist.ultimateVacuumResolvedAssets.v2', generatedAt: new Date().toISOString(),
+    inputCount: ranked.length, eligibleSeedCount: seeds.length, previousLedgerCount,
+    pagesFetched, newlyHandledPageCount: newlyHandledPages.size, ledgerCount: handledPages.size,
+    remainingQueuedPages: pageQueue.length, continuationNeeded,
     hostPages: Object.fromEntries([...hostPages.entries()].sort()),
-    assetCount: candidates.length,
-    failureCount: failures.length,
-    failures: failures.slice(0, 200),
-    ranked: candidates,
+    assetCount: candidates.length, failureCount: failures.length, failures: failures.slice(0, 200), ranked: candidates,
   };
   mkdirSync(dirname(OUTPUT), { recursive: true });
   writeFileSync(OUTPUT, JSON.stringify(output, null, 2) + '\n', 'utf8');
-  console.log(JSON.stringify({ inputCount: output.inputCount, eligibleSeedCount: output.eligibleSeedCount, pagesFetched: output.pagesFetched, assetCount: output.assetCount, failureCount: output.failureCount }));
+  if (LEDGER_OUT) {
+    mkdirSync(dirname(LEDGER_OUT), { recursive: true });
+    const urls = [...handledPages].sort();
+    writeFileSync(LEDGER_OUT, JSON.stringify({ schema: 'tcos.checklist.ultimateVacuumResolvedPages.v1', updatedAt: new Date().toISOString(), count: urls.length, urls }, null, 2) + '\n', 'utf8');
+  }
+  console.log(JSON.stringify({ inputCount: output.inputCount, eligibleSeedCount: output.eligibleSeedCount, pagesFetched: output.pagesFetched, newlyHandledPageCount: output.newlyHandledPageCount, ledgerCount: output.ledgerCount, remainingQueuedPages: output.remainingQueuedPages, continuationNeeded: output.continuationNeeded, assetCount: output.assetCount, failureCount: output.failureCount }));
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exitCode = 1;
-});
+main().catch((error) => { console.error(error instanceof Error ? error.stack || error.message : error); process.exitCode = 1; });
