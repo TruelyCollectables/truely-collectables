@@ -58,5 +58,5 @@ if service_root not in origin.parents:
 print(f"PASS InstaComp app import path: {origin}")
 PY
 
-echo "PASS Frozen 25 launcher mode: promotion-v7-bounded-expansion-candidate-transport"
+echo "PASS Frozen 25 launcher mode: promotion-v8-structured-sidecar-recovery"
 exec "$service_python" "$target" "$@"

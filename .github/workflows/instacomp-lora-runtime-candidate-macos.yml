@@ -10,6 +10,7 @@ on:
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/runtime_identity.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
+      - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/disable-lora-candidate-macos.sh"
       - "services/instacomp-ai/tests/test_lora_runtime_candidate.py"
@@ -51,7 +52,8 @@ jobs:
           set -euo pipefail
           python -m compileall -q \
             services/instacomp-ai/app \
-            services/instacomp-ai/scripts/run_lora_candidate_server.py
+            services/instacomp-ai/scripts/run_lora_candidate_server.py \
+            services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py
           bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           bash -n services/instacomp-ai/scripts/disable-lora-candidate-macos.sh
 
@@ -128,10 +130,23 @@ jobs:
           set -euo pipefail
           grep -q 'lora_candidate_enabled: bool = False' services/instacomp-ai/app/config.py
           grep -q 'candidate_checklist_fields_ignored' services/instacomp-ai/app/lora_candidate_runtime.py
-          grep -q 'eligible_for_runtime_candidate' services/instacomp-ai/scripts/run_lora_candidate_server.py
-          grep -q 'automatic_promotion.*False' services/instacomp-ai/scripts/run_lora_candidate_server.py
-          grep -q 'HTTPServer(("127.0.0.1"' services/instacomp-ai/scripts/run_lora_candidate_server.py
+
+          # The preserved certified server owns adapter eligibility, no-auto-promotion,
+          # and the localhost-only bind. Verify those contracts where they now live.
+          grep -q 'eligible_for_runtime_candidate' services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py
+          grep -q 'automatic_promotion.*False' services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py
+          grep -q 'HTTPServer(("127.0.0.1"' services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py
+
+          # The v2 entrypoint must load and install the structured-response recovery
+          # engine/handler over that preserved server rather than bypassing it.
+          grep -q 'run_lora_candidate_server_legacy.py' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'class CandidateEngineV2' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'class CandidateHandlerV2' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'legacy.CandidateEngine = CandidateEngineV2' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'legacy.CandidateHandler = CandidateHandlerV2' services/instacomp-ai/scripts/run_lora_candidate_server.py
+          grep -q 'strict_retry_prompt' services/instacomp-ai/scripts/run_lora_candidate_server.py
+
           grep -q 'install_lora_candidate_runtime()' services/instacomp-ai/app/__init__.py
           grep -q 'rollback_on_exit' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           grep -q 'cd "$service_root"' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
-          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, transactional, and rollbackable"
+          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, structured-recovery bounded, transactional, and rollbackable"
