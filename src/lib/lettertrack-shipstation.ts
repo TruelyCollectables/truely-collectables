@@ -45,6 +45,10 @@ export type LetterTrackShipStationBridgeStatus = {
 };
 
 const SHIPSTATION_API_BASE = "https://api.shipstation.com";
+const SHIPSTATION_DOWNLOAD_HOSTS = new Set([
+  "api.shipstation.com",
+  "api.shipengine.com",
+]);
 
 function configured(value: string | undefined) {
   return Boolean(value && value.trim());
@@ -197,7 +201,7 @@ export function buildLetterTrackShipStationLabelRequest(
   };
 }
 
-function safeShipStationDownloadUrl(value: unknown) {
+export function safeShipStationDownloadUrl(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return null;
 
@@ -210,7 +214,7 @@ function safeShipStationDownloadUrl(value: unknown) {
 
   if (
     !["http:", "https:"].includes(url.protocol) ||
-    url.hostname !== "api.shipstation.com"
+    !SHIPSTATION_DOWNLOAD_HOSTS.has(url.hostname.toLowerCase())
   ) {
     return null;
   }
