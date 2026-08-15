@@ -6,17 +6,21 @@ on:
     paths:
       - ".github/workflows/instacomp-frozen-five-v2-selftest.yml"
       - "services/instacomp-ai/scripts/run_frozen_five_promotion.sh"
+      - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
       - "services/instacomp-ai/app/authoritative_registry_gateway.py"
+      - "services/instacomp-ai/app/config.py"
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-frozen-five-v2-selftest.yml"
       - "services/instacomp-ai/scripts/run_frozen_five_promotion.sh"
+      - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
       - "services/instacomp-ai/app/authoritative_registry_gateway.py"
+      - "services/instacomp-ai/app/config.py"
   workflow_dispatch:
 
 permissions:
@@ -41,11 +45,39 @@ jobs:
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py \
             services/instacomp-ai/app/authoritative_registry_gateway.py
           bash -n services/instacomp-ai/scripts/run_frozen_five_promotion.sh
+          bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
+
+      - name: Prove stale exported LoRA flag cannot override updated env file
+        run: |
+          set -euo pipefail
+          python -m venv services/instacomp-ai/.venv
+          services/instacomp-ai/.venv/bin/python -m pip install --disable-pip-version-check \
+            'pydantic==2.11.7' 'pydantic-settings==2.10.1' >/dev/null
+          cat > services/instacomp-ai/.env <<'ENV'
+          INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN=ci-registry-auth-fixture
+          INSTACOMP_AI_LORA_CANDIDATE_ENABLED=true
+          INSTACOMP_AI_LORA_CANDIDATE_URL=http://127.0.0.1:8791
+          ENV
+          chmod 600 services/instacomp-ai/.env
+          export INSTACOMP_AI_LORA_CANDIDATE_ENABLED=false
+          export INSTACOMP_AI_LORA_CANDIDATE_URL=http://127.0.0.1:9999
+          (
+            cd services/instacomp-ai
+            env \
+              -u INSTACOMP_AI_LORA_CANDIDATE_ENABLED \
+              -u INSTACOMP_AI_LORA_CANDIDATE_URL \
+              .venv/bin/python - <<'PY'
+          from app.config import settings
+          assert settings.lora_candidate_enabled is True, settings.lora_candidate_enabled
+          assert settings.lora_candidate_url == "http://127.0.0.1:8791", settings.lora_candidate_url
+          print("PASS updated LoRA env file outranks stale launcher values")
+          PY
+          )
+          unset INSTACOMP_AI_LORA_CANDIDATE_ENABLED INSTACOMP_AI_LORA_CANDIDATE_URL
 
       - name: Prove canonical launcher loads protected Registry auth and runs v2 self-test
         run: |
           set -euo pipefail
-          python -m venv services/instacomp-ai/.venv
           printf '%s\n' 'INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN=ci-registry-auth-fixture' > services/instacomp-ai/.env
           chmod 600 services/instacomp-ai/.env
           bash services/instacomp-ai/scripts/run_frozen_five_promotion.sh --self-test \
