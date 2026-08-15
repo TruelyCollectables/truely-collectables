@@ -9,6 +9,7 @@ on:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v4.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v5.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v6.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -22,6 +23,7 @@ on:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v4.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v5.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v6.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -54,13 +56,14 @@ jobs:
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v3.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v4.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v5.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v6.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py
 
       - name: Validate Mac launcher syntax
         run: bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
 
-      - name: Prove image-witness plus live Registry expansion contract
+      - name: Prove fresh runtime reload plus image-witness Registry contract
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v5.py --self-test
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v6.py --self-test
