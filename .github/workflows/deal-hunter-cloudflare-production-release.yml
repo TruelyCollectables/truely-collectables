@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: deal-hunter-cloudflare-production-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
