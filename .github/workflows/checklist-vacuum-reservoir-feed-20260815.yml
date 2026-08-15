@@ -1,0 +1,164 @@
+name: Checklist Vacuum Reservoir Feed 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-ultimate-vacuum-20260815
+    paths:
+      - '.github/workflows/checklist-vacuum-reservoir-feed-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-mainstream-gogts-harvest-tranche2-20260815
+  cancel-in-progress: false
+
+jobs:
+  reservoir-feed:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install registry dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+          node --check scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs
+          npx tsc --noEmit --pretty false --incremental false || true
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/reservoir-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Download first-pass 1047-candidate reservoir
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checklist-ultimate-vacuum-discovery-31888595840-shard-*
+          path: ${{ runner.temp }}/reservoir-shards
+          repository: ${{ github.repository }}
+          run-id: 31888595840
+          github-token: ${{ github.token }}
+
+      - name: Build and split reservoir by productive source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndjson="$RUNNER_TEMP/reservoir-ranked.ndjson"
+          all="$RUNNER_TEMP/reservoir-ranked.json"
+          : > "$ndjson"
+          find "$RUNNER_TEMP/reservoir-shards" -type f -name ranked.json -print0 | sort -z | xargs -0 -r -n1 jq -c '.ranked[]?' >> "$ndjson"
+          jq -s 'sort_by(-(.reputationScore // 0)) | unique_by(.url) | {schema:"tcos.checklist.ultimateVacuumCombinedRanked.v1",generatedAt:(now|todateiso8601),rankedCount:length,ranked:.}' "$ndjson" > "$all"
+          jq '{schema,generatedAt,rankedCount:(.ranked|map(select(.host=="upperdeck.com" or .host=="www.upperdeck.com"))|length),ranked:(.ranked|map(select(.host=="upperdeck.com" or .host=="www.upperdeck.com")))}' "$all" > "$RUNNER_TEMP/reservoir-upperdeck.json"
+          jq '{schema,generatedAt,rankedCount:(.ranked|map(select(.host=="cardboardchecklist.com" or .host=="www.cardboardchecklist.com"))|length),ranked:(.ranked|map(select(.host=="cardboardchecklist.com" or .host=="www.cardboardchecklist.com")))}' "$all" > "$RUNNER_TEMP/reservoir-cardboardchecklist.json"
+          jq '{schema,generatedAt,rankedCount:(.ranked|map(select(.host=="cardboardconnection.com" or .host=="www.cardboardconnection.com"))|length),ranked:(.ranked|map(select(.host=="cardboardconnection.com" or .host=="www.cardboardconnection.com")))}' "$all" > "$RUNNER_TEMP/reservoir-cardboardconnection.json"
+          jq -n \
+            --argjson total "$(jq '.rankedCount' "$all")" \
+            --argjson ud "$(jq '.rankedCount' "$RUNNER_TEMP/reservoir-upperdeck.json")" \
+            --argjson cc "$(jq '.rankedCount' "$RUNNER_TEMP/reservoir-cardboardchecklist.json")" \
+            --argjson conn "$(jq '.rankedCount' "$RUNNER_TEMP/reservoir-cardboardconnection.json")" \
+            '{reservoir:$total,upperDeck:$ud,cardboardChecklist:$cc,cardboardConnection:$conn}'
+
+      - name: Resolve three productive source reservoirs in parallel
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_resolver() {
+            local input="$1"
+            local output="$2"
+            local max_pages="$3"
+            VACUUM_RESOLVER_INPUT="$input" \
+            VACUUM_RESOLVER_OUTPUT="$output" \
+            VACUUM_RESOLVER_MAX_PAGES="$max_pages" \
+            VACUUM_RESOLVER_MAX_PAGES_PER_HOST="$max_pages" \
+            VACUUM_RESOLVER_MAX_ASSETS='1000' \
+            VACUUM_RESOLVER_MAX_DEPTH='2' \
+            VACUUM_RESOLVER_WORKERS='2' \
+            VACUUM_RESOLVER_RPS_CAP='0.4' \
+            node scripts/mainstream-checklist/ultimate-vacuum-asset-resolver.mjs
+          }
+          run_resolver "$RUNNER_TEMP/reservoir-upperdeck.json" "$RUNNER_TEMP/resolved-upperdeck.json" 800 > "$RUNNER_TEMP/resolved-upperdeck.log" 2>&1 & p1=$!
+          run_resolver "$RUNNER_TEMP/reservoir-cardboardchecklist.json" "$RUNNER_TEMP/resolved-cardboardchecklist.json" 400 > "$RUNNER_TEMP/resolved-cardboardchecklist.log" 2>&1 & p2=$!
+          run_resolver "$RUNNER_TEMP/reservoir-cardboardconnection.json" "$RUNNER_TEMP/resolved-cardboardconnection.json" 250 > "$RUNNER_TEMP/resolved-cardboardconnection.log" 2>&1 & p3=$!
+          rc=0
+          wait "$p1" || rc=1
+          wait "$p2" || rc=1
+          wait "$p3" || rc=1
+          cat "$RUNNER_TEMP"/resolved-*.log
+          for f in "$RUNNER_TEMP"/resolved-*.json; do
+            jq '{inputCount,eligibleSeedCount,pagesFetched,assetCount,failureCount,hostPages}' "$f"
+          done
+          exit "$rc"
+
+      - name: Merge structured assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -s '[.[].ranked[]?] | sort_by(-(.reputationScore // 0)) | unique_by(.url) | {schema:"tcos.checklist.ultimateVacuumResolvedAssets.v1",generatedAt:(now|todateiso8601),rankedCount:length,ranked:.}' \
+            "$RUNNER_TEMP/resolved-upperdeck.json" \
+            "$RUNNER_TEMP/resolved-cardboardchecklist.json" \
+            "$RUNNER_TEMP/resolved-cardboardconnection.json" \
+            > "$RUNNER_TEMP/resolved-all.json"
+          jq '{rankedCount,top:.ranked[:20]}' "$RUNNER_TEMP/resolved-all.json"
+
+      - name: Strict exact-set validate and persist Production
+        shell: bash
+        env:
+          VACUUM_FEED_INPUT: ${{ runner.temp }}/resolved-all.json
+          VACUUM_FEED_OUTPUT: ${{ runner.temp }}/reservoir-feed-receipt.json
+          VACUUM_FEED_APPLY: 'true'
+          VACUUM_FEED_MAX_CANDIDATES: '1000'
+          VACUUM_FEED_MINIMUM_CARD_ROWS: '25'
+        run: |
+          set -euo pipefail
+          npx tsx scripts/mainstream-checklist/ultimate-vacuum-exact-feed.ts
+          jq '{mode,masterExactSetCount,candidateInputCount,eligibleCandidateCount,selectedCount,statuses,netNew}' "$RUNNER_TEMP/reservoir-feed-receipt.json"
+
+      - name: Upload reservoir resolver and Production receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-vacuum-reservoir-feed-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/reservoir-ranked.json
+            ${{ runner.temp }}/resolved-upperdeck.json
+            ${{ runner.temp }}/resolved-cardboardchecklist.json
+            ${{ runner.temp }}/resolved-cardboardconnection.json
+            ${{ runner.temp }}/resolved-all.json
+            ${{ runner.temp }}/reservoir-feed-receipt.json
+            ${{ runner.temp }}/resolved-*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/reservoir-production" .env.local .env.production.local .vercel
