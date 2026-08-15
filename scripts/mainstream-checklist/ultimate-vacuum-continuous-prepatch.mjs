@@ -26,4 +26,4 @@ if (!source.includes('stats.skippedSeen = Number(stats.skippedSeen || 0) + 1;'))
 }
 
 writeFileSync(path, source, 'utf8');
-console.log(JSON.stringify({ patched: true, seenUrls: seenUrls.size }));
+console.log(JSON.stringify({ patched: true }));
