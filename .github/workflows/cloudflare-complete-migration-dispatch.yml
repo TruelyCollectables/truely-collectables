@@ -15,7 +15,7 @@ jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch hardened Cloudflare completion workflow
+      - name: Dispatch current Cloudflare production release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run cloudflare-complete-migration-v2.yml --repo "$GITHUB_REPOSITORY" --ref main
+        run: gh workflow run deal-hunter-cloudflare-production-release.yml --repo "$GITHUB_REPOSITORY" --ref main
