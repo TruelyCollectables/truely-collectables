@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import cv2
 import numpy as np
+import pytest
 
-from app.local_vision import _analyze_side, analyze_pattern
+from app.local_vision import _analyze_side, _decode_image, analyze_pattern
 
 
 def _synthetic_cracked_surface() -> np.ndarray:
@@ -31,6 +35,15 @@ def _jpeg(image: np.ndarray) -> bytes:
     return encoded.tobytes()
 
 
+def _frozen_image_dir() -> Path:
+    raw = os.environ.get("INSTACOMP_FROZEN_IMAGE_DIR")
+    if not raw:
+        pytest.skip("immutable Frozen Five image artifact not mounted")
+    path = Path(raw)
+    assert path.is_dir(), path
+    return path
+
+
 def test_native_analyze_pattern_returns_measurements() -> None:
     pattern = analyze_pattern(_synthetic_cracked_surface())
     assert set(pattern.scores) == {"velocity", "cracked_ice", "checkerboard", "sparkle"}
@@ -52,3 +65,46 @@ def test_real_side_pipeline_does_not_hide_native_pattern_typeerror() -> None:
     assert side.pattern.scores, side.pattern
     assert side.pattern.edge_density > 0
     assert side.pattern.line_count > 0
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "01-ef0e06a3-a6de-4242-8c52-52b420185850-front.jpg",
+        "01-ef0e06a3-a6de-4242-8c52-52b420185850-back.jpg",
+        "02-0916fe9d-2837-4d91-add4-73e7216705cd-front.jpg",
+        "02-0916fe9d-2837-4d91-add4-73e7216705cd-back.jpg",
+        "03-66f9ad9e-43fb-4b2b-b79c-ac99fa082de0-front.jpg",
+        "03-66f9ad9e-43fb-4b2b-b79c-ac99fa082de0-back.jpg",
+        "04-f7d73af4-7299-4ed6-b663-39206f2576ee-front.jpg",
+        "04-f7d73af4-7299-4ed6-b663-39206f2576ee-back.jpg",
+        "05-e9335a9d-3cc1-48d3-92db-7be7468714a9-front.jpg",
+        "05-e9335a9d-3cc1-48d3-92db-7be7468714a9-back.jpg",
+    ],
+)
+def test_exact_frozen_physical_images_run_pattern_stage_without_exception(filename: str) -> None:
+    content = (_frozen_image_dir() / filename).read_bytes()
+    pattern = analyze_pattern(_decode_image(content))
+    assert set(pattern.scores) == {"velocity", "cracked_ice", "checkerboard", "sparkle"}
+    assert pattern.edge_density > 0
+    assert pattern.line_count > 0
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_label"),
+    [
+        ("02-0916fe9d-2837-4d91-add4-73e7216705cd-front.jpg", "cracked_ice"),
+        ("04-f7d73af4-7299-4ed6-b663-39206f2576ee-front.jpg", "cracked_ice"),
+    ],
+)
+def test_exact_frozen_ice_fronts_have_cracked_ice_geometry(
+    filename: str,
+    expected_label: str,
+) -> None:
+    content = (_frozen_image_dir() / filename).read_bytes()
+    side, opencv_ok = _analyze_side(content, side="front", ocr=None)
+    assert opencv_ok is True
+    assert not any("opencv_pattern_failed" in error for error in side.errors), side.errors
+    assert side.pattern.label == expected_label, side.pattern
+    assert side.pattern.confidence >= 0.70, side.pattern
+    assert side.pattern.scores.get("cracked_ice", 0) >= 0.70, side.pattern
