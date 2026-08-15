@@ -5,7 +5,15 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deal-hunter-balls-deep-e2e-v2.yml"
+      - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
       - "scripts/balls-deep-deal-hunter-e2e.mjs"
+      - "scripts/run-wrangler-deploy-redacted.mjs"
+      - "src/app/api/tcos/deal-hunter-native-ebay/**"
+      - "src/app/api/tcos/deal-hunter-michkov-opc-platinum/**"
+      - "cloudflare-native-fetch.ts"
+      - "cloudflare-worker.ts"
+      - "wrangler.jsonc"
+      - "wrangler.production-route.jsonc"
   workflow_dispatch:
 
 permissions:

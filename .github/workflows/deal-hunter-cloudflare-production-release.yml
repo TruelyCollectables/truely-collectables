@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
+      - "scripts/run-wrangler-deploy-redacted.mjs"
       - "src/**"
       - "public/**"
       - "package.json"
@@ -42,6 +43,9 @@ jobs:
 
       - name: Install Cloudflare deployment tooling without changing the lockfile
         run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest
+
+      - name: Verify Wrangler output containment guard
+        run: node scripts/run-wrangler-deploy-redacted.mjs --self-test
 
       - name: Recover production build environment from Supabase management API
         shell: bash
@@ -128,17 +132,17 @@ jobs:
           console.log('Cloudflare target split validated: scheduler + routed production Worker.');
           NODE
 
-      - name: Deploy current main to scheduler Worker
+      - name: Deploy current main to scheduler Worker without exposing remote vars
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx --no-install wrangler deploy --config wrangler.jsonc --keep-vars
+        run: node scripts/run-wrangler-deploy-redacted.mjs --config wrangler.jsonc --label "scheduler Worker"
 
-      - name: Deploy current main to routed production Worker
+      - name: Deploy current main to routed production Worker without exposing remote vars
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx --no-install wrangler deploy --config wrangler.production-route.jsonc --keep-vars
+        run: node scripts/run-wrangler-deploy-redacted.mjs --config wrangler.production-route.jsonc --label "routed production Worker"
 
       - name: Verify routed Deal Hunter execution
         shell: bash
