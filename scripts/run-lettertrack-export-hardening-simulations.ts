@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import {
   buildLetterTrackExport,
   getLetterTrackExportBatchMetadata,
@@ -102,7 +102,7 @@ const batchLabel = label({
 });
 assert.deepEqual(getLetterTrackExportBatchMetadata(batchLabel), batch);
 
-const routeSource = await readFile(
+const routeSource = readFileSync(
   new URL("../src/app/api/admin/shipping/lettertrack-export/route.ts", import.meta.url),
   "utf8",
 );
