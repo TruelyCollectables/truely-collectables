@@ -8,7 +8,6 @@ const ENV_KEYS = [
   "TCOS_LETTERTRACK_SHIPSTATION_LIVE_ENABLED",
   "SHIPSTATION_API_KEY",
   "SHIPSTATION_CARRIER_ID",
-  "SHIPSTATION_WAREHOUSE_ID",
   "SHIPSTATION_LETTER_SERVICE_CODE",
   "SHIPSTATION_LETTER_PACKAGE_CODE",
   "TCOS_SHIP_FROM_NAME",
@@ -43,6 +42,7 @@ try {
   const disabled = getLetterTrackShipStationBridgeStatus();
   assert.equal(disabled.enabled, false);
   assert.equal(disabled.ready, false);
+  assert.equal(disabled.apiProduct, "ShipStation API (formerly ShipEngine)");
   assert.ok(disabled.missing.includes("SHIPSTATION_API_KEY"));
   assert.ok(disabled.missing.includes("SHIPSTATION_CARRIER_ID"));
   assert.equal(disabled.serviceCode, "usps_first_class_mail");
@@ -51,7 +51,12 @@ try {
   process.env.TCOS_LETTERTRACK_SHIPSTATION_LIVE_ENABLED = "true";
   process.env.SHIPSTATION_API_KEY = "test-api-key";
   process.env.SHIPSTATION_CARRIER_ID = "se-test-carrier";
-  process.env.SHIPSTATION_WAREHOUSE_ID = "se-test-warehouse";
+  process.env.TCOS_SHIP_FROM_NAME = "Truely Collectables";
+  process.env.TCOS_SHIP_FROM_ADDRESS_LINE1 = "456 Seller Ave";
+  process.env.TCOS_SHIP_FROM_CITY = "Denver";
+  process.env.TCOS_SHIP_FROM_STATE = "CO";
+  process.env.TCOS_SHIP_FROM_POSTAL_CODE = "80202";
+  process.env.TCOS_SHIP_FROM_COUNTRY = "US";
 
   const ready = getLetterTrackShipStationBridgeStatus();
   assert.equal(ready.enabled, true);
@@ -77,9 +82,12 @@ try {
 
   assert.equal(request.shipment.carrier_id, "se-test-carrier");
   assert.equal(request.shipment.service_code, "usps_first_class_mail");
+  assert.equal(request.shipment.validate_address, "validate_and_clean");
   assert.equal(request.shipment.ship_date, "2026-08-15");
   assert.equal(request.shipment.external_order_id, "TCOS-1234");
-  assert.equal(request.shipment.warehouse_id, "se-test-warehouse");
+  assert.equal("warehouse_id" in request.shipment, false);
+  assert.equal(request.shipment.ship_from?.name, "Truely Collectables");
+  assert.equal(request.shipment.ship_from?.postal_code, "80202");
   assert.equal(request.shipment.ship_to.city_locality, "Las Vegas");
   assert.equal(request.shipment.ship_to.state_province, "NV");
   assert.equal(request.shipment.packages[0]?.package_code, "letter");
@@ -88,7 +96,6 @@ try {
   assert.equal(request.label_format, "pdf");
   assert.equal(request.label_layout, "4x6");
   assert.equal(request.label_download_type, "url");
-  assert.equal(request.validate_address, "validate_and_clean");
 
   assert.throws(
     () =>
@@ -124,37 +131,13 @@ try {
     /US-only/i,
   );
 
-  delete process.env.SHIPSTATION_WAREHOUSE_ID;
-  process.env.TCOS_SHIP_FROM_NAME = "Truely Collectables";
-  process.env.TCOS_SHIP_FROM_ADDRESS_LINE1 = "456 Seller Ave";
-  process.env.TCOS_SHIP_FROM_CITY = "Denver";
-  process.env.TCOS_SHIP_FROM_STATE = "CO";
-  process.env.TCOS_SHIP_FROM_POSTAL_CODE = "80202";
-  process.env.TCOS_SHIP_FROM_COUNTRY = "US";
-
-  const explicitShipFrom = buildLetterTrackShipStationLabelRequest({
-    orderId: 3,
-    ounces: 1,
-    shipTo: {
-      name: "Buyer",
-      addressLine1: "789 Buyer Rd",
-      city: "Aurora",
-      state: "CO",
-      postalCode: "80012",
-      countryCode: "US",
-    },
-  });
-
-  assert.equal("warehouse_id" in explicitShipFrom.shipment, false);
-  assert.equal(explicitShipFrom.shipment.ship_from?.name, "Truely Collectables");
-  assert.equal(explicitShipFrom.shipment.ship_from?.postal_code, "80202");
-
-  console.log("LetterTrack ShipStation bridge simulations passed.");
+  console.log("LetterTrack ShipStation API bridge simulations passed.");
   console.log("- disabled/missing-provider gate passed");
   console.log("- explicit live enablement gate passed");
+  console.log("- standalone /v1 label payload shape passed");
+  console.log("- direct TCOS ship-from payload passed");
   console.log("- USPS First-Class Letter 4x6 PDF payload passed");
   console.log("- 3.5 oz and US-only guards passed");
-  console.log("- warehouse and explicit ship-from modes passed");
   console.log("- no provider request or postage purchase was attempted");
 } finally {
   restoreBridgeEnv();
