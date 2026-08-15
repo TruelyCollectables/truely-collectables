@@ -16,12 +16,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
   group: deal-hunter-cloudflare-production-release
   cancel-in-progress: false
+
+env:
+  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
 
 jobs:
   deploy:
@@ -41,99 +43,56 @@ jobs:
       - name: Install Cloudflare deployment tooling without changing the lockfile
         run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest
 
-      - name: Download encrypted production vault
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-vault-31773508121
-          path: /tmp/truely-production-vault
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
-      - name: Download separate recovery key
-        uses: actions/download-artifact@v4
-        with:
-          name: truely-production-secrets-recovery-key-31773508121
-          path: /tmp/truely-production-key
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 31773508121
-
-      - name: Recover production build environment without logging values
+      - name: Recover production build environment from Supabase management API
         shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
         run: |
           set -euo pipefail
           umask 077
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo 'SUPABASE_ACCESS_TOKEN is unavailable.'; exit 2; }
+          [ -n "${SUPABASE_PROJECT_REF:-}" ] || { echo 'SUPABASE_PROJECT_REF is unavailable.'; exit 2; }
+
+          curl -sS --fail-with-body --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys?reveal=true" \
+            -o /tmp/supabase-api-keys.json
+
           node <<'NODE'
           const fs = require('node:fs');
-          const path = require('node:path');
-          const { createDecipheriv, createHash } = require('node:crypto');
+          const keys = JSON.parse(fs.readFileSync('/tmp/supabase-api-keys.json', 'utf8'));
+          if (!Array.isArray(keys) || !keys.length) throw new Error('Supabase returned no API keys.');
+          const normalized = keys.map((row) => ({
+            ...row,
+            discriminator: String(row?.name || row?.type || '').trim().toLowerCase(),
+            value: String(row?.api_key || '').trim(),
+          }));
+          const publicKey = normalized.find((row) => ['anon', 'publishable'].includes(row.discriminator) && row.value);
+          const serverKey = normalized.find((row) => ['service_role', 'secret'].includes(row.discriminator) && row.value);
+          if (!publicKey) throw new Error('Supabase public API key was not resolved.');
+          if (!serverKey) throw new Error('Supabase server API key was not resolved.');
 
-          function filesBelow(root) {
-            return fs.readdirSync(root, { recursive: true, withFileTypes: true })
-              .filter((entry) => entry.isFile())
-              .map((entry) => path.join(entry.parentPath || entry.path, entry.name));
-          }
-
-          const vaultPath = filesBelow('/tmp/truely-production-vault')
-            .find((file) => file.endsWith('.tcosvault'));
-          const keyPath = filesBelow('/tmp/truely-production-key')
-            .find((file) => file.endsWith('.recovery-key.txt'));
-          if (!vaultPath || !keyPath) throw new Error('Production recovery artifacts are incomplete.');
-
-          const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
-          const keyText = fs.readFileSync(keyPath, 'utf8');
-          const keyMatch = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
-          if (!keyMatch) throw new Error('Production recovery key is invalid.');
-          if (envelope?.format !== 'tcos-secrets-vault' || envelope?.cipher !== 'aes-256-gcm') {
-            throw new Error('Production vault envelope is invalid.');
-          }
-
-          const decipher = createDecipheriv(
-            'aes-256-gcm',
-            Buffer.from(keyMatch[1], 'base64url'),
-            Buffer.from(envelope.iv, 'base64'),
-          );
-          decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
-          const plaintext = Buffer.concat([
-            decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
-            decipher.final(),
-          ]);
-          const digest = createHash('sha256').update(plaintext).digest('hex');
-          if (digest !== envelope.plaintextSha256) throw new Error('Production vault checksum failed.');
-
-          const payload = JSON.parse(plaintext.toString('utf8'));
+          const ref = String(process.env.SUPABASE_PROJECT_REF || '').trim();
           const buildEnv = {
-            ...(payload?.sources?.vercelProductionApplicationVariables || {}),
-            ...(payload?.sources?.githubActionsReferencedSecrets || {}),
+            NEXT_PUBLIC_SUPABASE_URL: `https://${ref}.supabase.co`,
+            SUPABASE_URL: `https://${ref}.supabase.co`,
+            NEXT_PUBLIC_SUPABASE_ANON_KEY: publicKey.value,
+            SUPABASE_SERVICE_ROLE_KEY: serverKey.value,
+            OPENAI_API_KEY: String(process.env.OPENAI_API_KEY || '').trim(),
+            TCOS_CRON_SECRET: String(process.env.TCOS_CRON_SECRET || '').trim(),
             NEXT_PUBLIC_SITE_URL: 'https://truelycollectables.com',
             SITE_URL: 'https://truelycollectables.com',
             TCOS_DEPLOYMENT_ENV: 'production',
             TCOS_GIT_COMMIT_SHA: process.env.GITHUB_SHA,
             TCOS_GIT_COMMIT_REF: 'main',
           };
-          for (const name of [
-            'CLOUDFLARE_ACCOUNT_ID',
-            'CLOUDFLARE_API_TOKEN',
-            'SUPABASE_ACCESS_TOKEN',
-            'VERCEL_ORG_ID',
-            'VERCEL_PROJECT_ID',
-            'VERCEL_TOKEN',
-          ]) {
-            delete buildEnv[name];
-          }
-          const required = [
-            'NEXT_PUBLIC_SUPABASE_URL',
-            'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-            'SUPABASE_SERVICE_ROLE_KEY',
-            'EBAY_CLIENT_ID',
-            'EBAY_CLIENT_SECRET',
-          ];
-          const missing = required.filter((name) => !String(buildEnv[name] || ''));
-          if (missing.length) throw new Error(`Production build environment is missing ${missing.join(', ')}.`);
           fs.writeFileSync('/tmp/deal-hunter-production-env.json', JSON.stringify(buildEnv), { mode: 0o600 });
-          console.log(`Production build environment recovered: ${Object.keys(buildEnv).length} variables; values withheld.`);
+          console.log(`Production build environment recovered directly from Supabase: ${Object.keys(buildEnv).length} fields; values withheld.`);
           NODE
+          shred -u /tmp/supabase-api-keys.json
 
       - name: Build current main for Cloudflare Workers
         shell: bash
@@ -162,18 +121,10 @@ jobs:
           const fs = require('node:fs');
           const scheduler = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
           const routed = JSON.parse(fs.readFileSync('wrangler.production-route.jsonc', 'utf8'));
-          if (scheduler.name !== 'truely-collectables') {
-            throw new Error(`Unexpected scheduler Worker: ${scheduler.name}`);
-          }
-          if (routed.name !== 'truely-collectables-preview') {
-            throw new Error(`Unexpected routed production Worker: ${routed.name}`);
-          }
-          if (!scheduler.triggers?.crons?.length) {
-            throw new Error('Scheduler Worker must retain its cron trigger.');
-          }
-          if (routed.triggers?.crons?.length) {
-            throw new Error('Routed production Worker must not have cron triggers.');
-          }
+          if (scheduler.name !== 'truely-collectables') throw new Error(`Unexpected scheduler Worker: ${scheduler.name}`);
+          if (routed.name !== 'truely-collectables-preview') throw new Error(`Unexpected routed production Worker: ${routed.name}`);
+          if (!scheduler.triggers?.crons?.length) throw new Error('Scheduler Worker must retain its cron trigger.');
+          if (routed.triggers?.crons?.length) throw new Error('Routed production Worker must not have cron triggers.');
           console.log('Cloudflare target split validated: scheduler + routed production Worker.');
           NODE
 
@@ -230,5 +181,4 @@ jobs:
         if: always()
         shell: bash
         run: |
-          find /tmp/truely-production-vault /tmp/truely-production-key -type f -exec shred -u {} + 2>/dev/null || true
-          shred -u /tmp/deal-hunter-production-env.json 2>/dev/null || true
+          shred -u /tmp/supabase-api-keys.json /tmp/deal-hunter-production-env.json 2>/dev/null || true
