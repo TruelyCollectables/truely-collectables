@@ -3,14 +3,23 @@ set -euo pipefail
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
+mode="promotion"
 target="$service_root/scripts/promote_lora_candidate_frozen_five_v2.py"
+
+# Diagnostics use the exact same protected environment, service Python and app
+# import path as promotion. This prevents another split-brain launcher path.
+if [[ "${1:-}" == "--diagnostic-all" ]]; then
+  mode="diagnostic"
+  target="$service_root/scripts/diagnose_lora_frozen_five_all.py"
+  shift
+fi
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
   exit 2
 }
 [[ -f "$target" ]] || {
-  echo "Frozen-five v2 promotion runner is missing: $target" >&2
+  echo "Frozen-five ${mode} runner is missing: $target" >&2
   exit 2
 }
 
@@ -44,7 +53,7 @@ if [[ -n "${INSTACOMP_AI_REGISTRY_TOKEN:-}" || -n "${INSTACOMP_AI_SENTINEL_ARCHI
 elif [[ "$self_test" == "1" ]]; then
   echo "INFO Registry client authentication not configured for isolated self-test"
 else
-  echo "Refusing Frozen Five promotion: Registry authentication is missing after loading $service_root/.env." >&2
+  echo "Refusing Frozen Five ${mode}: Registry authentication is missing after loading $service_root/.env." >&2
   echo "Candidate runtime was not activated." >&2
   exit 2
 fi
@@ -63,4 +72,5 @@ if service_root not in origin.parents:
 print(f"PASS InstaComp app import path: {origin}")
 PY
 
+echo "PASS Frozen Five launcher mode: $mode"
 exec "$service_python" "$target" "$@"
