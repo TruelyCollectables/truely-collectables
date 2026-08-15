@@ -1,5 +1,9 @@
 import { safeShipStationDownloadUrl } from "./lettertrack-shipstation";
-import type { ShipStationOriginAddress } from "./shipstation-origin";
+import {
+  getShipStationOrigin,
+  normalizeShipStationOrigin,
+  type ShipStationOriginAddress,
+} from "./shipstation-origin";
 
 export type ShipStationParcelMethod = "GROUND_ADVANTAGE" | "PRIORITY_MAIL";
 
@@ -22,7 +26,6 @@ export type ShipStationParcelPurchaseRequest = {
   widthIn: number;
   heightIn: number;
   shipTo: ShipStationParcelAddress;
-  shipFrom: ShipStationOriginAddress;
   shipDate?: string;
 };
 
@@ -66,14 +69,17 @@ function normalizedCountry(value: string | null | undefined) {
   return normalized || "US";
 }
 
-function envShipFromConfigured() {
-  return [
-    "TCOS_SHIP_FROM_NAME",
-    "TCOS_SHIP_FROM_ADDRESS_LINE1",
-    "TCOS_SHIP_FROM_CITY",
-    "TCOS_SHIP_FROM_STATE",
-    "TCOS_SHIP_FROM_POSTAL_CODE",
-  ].every((key) => configured(process.env[key]));
+function envShipFrom() {
+  return normalizeShipStationOrigin({
+    name: process.env.TCOS_SHIP_FROM_NAME,
+    company: process.env.TCOS_SHIP_FROM_COMPANY || "Truely Collectables",
+    addressLine1: process.env.TCOS_SHIP_FROM_ADDRESS_LINE1,
+    addressLine2: process.env.TCOS_SHIP_FROM_ADDRESS_LINE2,
+    city: process.env.TCOS_SHIP_FROM_CITY,
+    state: process.env.TCOS_SHIP_FROM_STATE,
+    postalCode: process.env.TCOS_SHIP_FROM_POSTAL_CODE,
+    countryCode: process.env.TCOS_SHIP_FROM_COUNTRY || "US",
+  });
 }
 
 export function getShipStationParcelBridgeStatus(): ShipStationParcelBridgeStatus {
@@ -99,7 +105,7 @@ export function getShipStationParcelBridgeStatus(): ShipStationParcelBridgeStatu
     apiKeyConfigured,
     carrierConfigured,
     warehouseConfigured: false,
-    shipFromConfigured: envShipFromConfigured(),
+    shipFromConfigured: Boolean(envShipFrom()),
     groundAdvantageServiceCode,
     priorityMailServiceCode,
     packageCode,
@@ -138,18 +144,23 @@ function finitePositive(value: number, name: string) {
 
 export function buildShipStationParcelLabelRequest(
   request: ShipStationParcelPurchaseRequest,
+  shipFromOverride?: ShipStationOriginAddress | null,
 ) {
   const status = getShipStationParcelBridgeStatus();
   const ounces = Number(request.ounces);
   const lengthIn = Number(request.lengthIn);
   const widthIn = Number(request.widthIn);
   const heightIn = Number(request.heightIn);
+  const shipFrom = shipFromOverride || envShipFrom();
 
   finitePositive(ounces, "Package weight");
   finitePositive(lengthIn, "Package length");
   finitePositive(widthIn, "Package width");
   finitePositive(heightIn, "Package height");
 
+  if (!shipFrom) {
+    throw new Error("The TruelyCollectables ShipStation ship-from address is not configured.");
+  }
   if (ounces > 1120) {
     throw new Error("USPS parcel weight cannot exceed 70 pounds.");
   }
@@ -161,7 +172,7 @@ export function buildShipStationParcelLabelRequest(
   if (normalizedCountry(request.shipTo.countryCode) !== "US") {
     throw new Error("TCOS ShipStation parcel purchasing is currently US-only.");
   }
-  if (normalizedCountry(request.shipFrom.countryCode) !== "US") {
+  if (normalizedCountry(shipFrom.countryCode) !== "US") {
     throw new Error("TCOS ShipStation ship-from address must be in the US.");
   }
 
@@ -172,19 +183,8 @@ export function buildShipStationParcelLabelRequest(
     request.shipTo.state,
     request.shipTo.postalCode,
   ].map((value) => String(value || "").trim());
-  const requiredFrom = [
-    request.shipFrom.name,
-    request.shipFrom.addressLine1,
-    request.shipFrom.city,
-    request.shipFrom.state,
-    request.shipFrom.postalCode,
-  ].map((value) => String(value || "").trim());
-
   if (requiredTo.some((value) => !value)) {
     throw new Error("The recipient shipping address is incomplete.");
-  }
-  if (requiredFrom.some((value) => !value)) {
-    throw new Error("The TruelyCollectables ship-from address is incomplete.");
   }
 
   const serviceCode =
@@ -200,7 +200,7 @@ export function buildShipStationParcelLabelRequest(
       ship_date: safeDate(request.shipDate),
       external_order_id: `TCOS-${request.orderId}`,
       ship_to: providerAddress(request.shipTo, "yes"),
-      ship_from: providerAddress(request.shipFrom, "no"),
+      ship_from: providerAddress(shipFrom, "no"),
       confirmation: "none",
       packages: [
         {
@@ -236,7 +236,6 @@ export async function purchaseShipStationParcelPostage(
   request: ShipStationParcelPurchaseRequest,
 ): Promise<ShipStationParcelPurchaseResult> {
   const status = getShipStationParcelBridgeStatus();
-
   if (!status.enabled) {
     throw new Error(
       "ShipStation API parcel purchasing is disabled. Set TCOS_SHIPSTATION_PARCEL_LIVE_ENABLED=true only after provider setup and test approval.",
@@ -246,6 +245,13 @@ export async function purchaseShipStationParcelPostage(
     throw new Error(`ShipStation API parcel bridge is missing: ${status.missing.join(", ")}.`);
   }
 
+  const shipFrom = await getShipStationOrigin();
+  if (!shipFrom) {
+    throw new Error(
+      "TruelyCollectables does not have a saved ShipStation ship-from address. Save it in Admin → Shipping → ShipStation Test before purchasing postage.",
+    );
+  }
+
   const response = await fetch(`${SHIPSTATION_API_BASE}/v1/labels`, {
     method: "POST",
     headers: {
@@ -253,7 +259,7 @@ export async function purchaseShipStationParcelPostage(
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify(buildShipStationParcelLabelRequest(request)),
+    body: JSON.stringify(buildShipStationParcelLabelRequest(request, shipFrom)),
     redirect: "manual",
     signal: AbortSignal.timeout(45_000),
   });
@@ -263,7 +269,6 @@ export async function purchaseShipStationParcelPostage(
       `ShipStation API parcel purchase refused an unexpected redirect (HTTP ${response.status}).`,
     );
   }
-
   const providerPayload = (await response.json().catch(() => ({}))) as Record<string, any>;
   if (!response.ok) {
     const providerMessage =
