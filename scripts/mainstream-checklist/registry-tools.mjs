@@ -10,6 +10,7 @@ import { normalized, sha256, slug } from "./source-tools.mjs";
 export const ARCHIVE_BUCKET = "tcos-checklist-universal-archive";
 const ARCHIVE_PREFIX = "backlog/mainstream-2000-plus";
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
+const MAX_PLAN_IDENTITIES = 250_000;
 
 export function dbClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -106,6 +107,20 @@ export function buildPlan(entry, parsed, source, retrievedAt) {
       };
     })
     .filter(Boolean);
+
+  // Fail before constructing a potentially enormous identity array. This is the
+  // same 250k safety limit enforced by assertPlanComplexity; it only moves the
+  // rejection ahead of the expensive card × parallel expansion.
+  let projectedIdentities = cards.length;
+  for (const parallel of parallelRows) {
+    if (!parallel.appliesToAllCards) continue;
+    projectedIdentities += (cardBySet.get(parallel.setSourceKey) || []).length;
+    if (projectedIdentities > MAX_PLAN_IDENTITIES) {
+      throw new Error(
+        `Checklist import complexity limit exceeded: identities ${projectedIdentities}/${MAX_PLAN_IDENTITIES}.`,
+      );
+    }
+  }
 
   const identities = [];
   for (const card of cards) {
@@ -214,7 +229,7 @@ export function assertPlanComplexity(plan) {
   if (counts.sets > 10_000) violations.push(`sets ${counts.sets}/10000`);
   if (counts.cards > 100_000) violations.push(`cards ${counts.cards}/100000`);
   if (counts.parallels > 50_000) violations.push(`parallels ${counts.parallels}/50000`);
-  if (counts.identities > 250_000) violations.push(`identities ${counts.identities}/250000`);
+  if (counts.identities > MAX_PLAN_IDENTITIES) violations.push(`identities ${counts.identities}/${MAX_PLAN_IDENTITIES}`);
   if (plan.validation.issues.length > 20_000) violations.push("too many validation issues");
   if (serializedBytes > 64 * 1024 * 1024) violations.push("plan exceeds 64 MiB");
   if (violations.length) {
