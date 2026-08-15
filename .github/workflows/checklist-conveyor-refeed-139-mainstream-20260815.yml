@@ -1,5 +1,6 @@
 name: Checklist Conveyor Refeed 139 Mainstream 20260815
 
+# Preserved structured assets wait behind the priority GoGTS writer.
 on:
   push:
     branches:
