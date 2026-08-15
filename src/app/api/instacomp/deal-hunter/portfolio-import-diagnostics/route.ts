@@ -11,10 +11,18 @@ function json(payload: unknown, status = 200) {
   });
 }
 
+function matchesSecret(provided: string, expected: string) {
+  return Boolean(expected && provided && expected.length === provided.length && expected === provided);
+}
+
 function authorize(request: Request) {
-  const expected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
-  const provided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
-  return Boolean(expected && provided && expected === provided);
+  const instaCompExpected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const instaCompProvided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
+  if (matchesSecret(instaCompProvided, instaCompExpected)) return true;
+
+  const cronExpected = String(process.env.TCOS_CRON_SECRET || "").trim();
+  const cronProvided = String(request.headers.get("x-tcos-cron-secret") || "").trim();
+  return matchesSecret(cronProvided, cronExpected);
 }
 
 async function run(label: string, loader: () => Promise<unknown>) {
@@ -32,7 +40,7 @@ async function run(label: string, loader: () => Promise<unknown>) {
 
 export async function GET(request: NextRequest) {
   if (!authorize(request)) {
-    return json({ ok: false, error: "Invalid InstaComp AI credential." }, 401);
+    return json({ ok: false, error: "Invalid trusted diagnostic credential." }, 401);
   }
 
   const checks: Array<[string, () => Promise<unknown>]> = [
