@@ -116,10 +116,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$MASTER_CHECKLIST_EXTRACTED_ROOT"
-          while IFS= read -r path; do
-            [ -n "$path" ] || continue
-            unzip -q -o /tmp/master-checklist-archive.zip "$path" -d "$MASTER_CHECKLIST_EXTRACTED_ROOT"
-          done < "$INSTACOMP_TARGET_CORPUS_ROOT/extract-files.txt"
+          mapfile -t target_paths < "$INSTACOMP_TARGET_CORPUS_ROOT/extract-files.txt"
+          unzip -q -o /tmp/master-checklist-archive.zip "${target_paths[@]}" -d "$MASTER_CHECKLIST_EXTRACTED_ROOT"
           rm -f /tmp/master-checklist-archive.zip
 
       - name: Validate or apply six guarded batches
