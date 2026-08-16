@@ -10,7 +10,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 env:
   PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
@@ -25,6 +25,75 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Drain overlapping checklist workflow runs
+        shell: bash
+        env:
+          GH_ACTIONS_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-drain"
+          mkdir -p "$root"
+          repo="$GITHUB_REPOSITORY"
+          self="$GITHUB_RUN_ID"
+
+          list_conflicts() {
+            : > "$root/conflicts.txt"
+            for state in in_progress queued; do
+              curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_ACTIONS_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$repo/actions/runs?status=$state&per_page=100" \
+                -o "$root/$state.json"
+              jq -r --arg self "$self" '
+                .workflow_runs[]
+                | select((.id | tostring) != $self)
+                | select((.path // "") | startswith(".github/workflows/checklist-"))
+                | [.id, .name, .path, .status] | @tsv
+              ' "$root/$state.json" >> "$root/conflicts.txt"
+            done
+            sort -u "$root/conflicts.txt" -o "$root/conflicts.txt"
+          }
+
+          list_conflicts
+          if [ -s "$root/conflicts.txt" ]; then
+            echo "Cancelling overlapping checklist runs before the priority WNBA Production load:"
+            cat "$root/conflicts.txt"
+            while IFS=$'\t' read -r run_id run_name run_path run_status; do
+              [ -n "$run_id" ] || continue
+              echo "Cancel $run_id :: $run_name :: $run_status"
+              code="$(curl --silent --show-error --output "$root/cancel-$run_id.json" --write-out '%{http_code}' \
+                -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_ACTIONS_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel")"
+              case "$code" in
+                202|409) ;;
+                *) echo "Unexpected cancel response $code for run $run_id"; cat "$root/cancel-$run_id.json"; exit 1 ;;
+              esac
+            done < "$root/conflicts.txt"
+          else
+            echo "No overlapping checklist workflow runs found."
+          fi
+
+          for round in 1 2 3 4 5 6 7 8 9; do
+            sleep 10
+            list_conflicts
+            remaining="$(wc -l < "$root/conflicts.txt" | tr -d ' ')"
+            echo "Checklist drain round $round: $remaining conflicting run(s) remain"
+            if [ "$remaining" -eq 0 ]; then
+              break
+            fi
+            if [ "$round" -eq 9 ]; then
+              echo "Checklist writers failed to drain. Refusing to overload Production Supabase."
+              cat "$root/conflicts.txt"
+              exit 1
+            fi
+          done
+
+          echo "Checklist writer lane is clear."
 
       - uses: actions/setup-node@v4
         with:
@@ -163,4 +232,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/wnba-production" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-drain" .env.local .env.production.local .vercel
