@@ -38,17 +38,43 @@ type ScanResponse = {
   catalogEvidence?: { catalogConfirmed?: boolean } | null;
 };
 
+type OrientationRotation = 0 | 90 | 180 | 270;
+type OrientationResponse = {
+  ok: boolean;
+  orientation?: {
+    status: "completed" | "not_configured" | "error";
+    frontRotation: OrientationRotation;
+    backRotation: OrientationRotation;
+    frontConfidence: number;
+    backConfidence: number;
+    reason: string;
+  };
+  reviewReasons?: string[];
+  error?: string;
+};
+
 type PairingMethod = "filename" | "upload_order" | "front_only" | "manual_swap";
-type RowStatus = "queued" | "scanning" | "ready" | "creating" | "created" | "error";
+type RowStatus =
+  | "queued"
+  | "scanning"
+  | "ready"
+  | "creating"
+  | "created"
+  | "created_needs_channel_repair"
+  | "error";
 
 type ListingRow = {
   id: string;
+  clientRequestId: string;
   front: File;
   back: File | null;
   frontPreview: string;
   backPreview: string | null;
   pairingMethod: PairingMethod;
   pairingConfirmed: boolean;
+  orientationChecked: boolean;
+  orientationReviewReasons: string[];
+  orientationSummary: string | null;
   status: RowStatus;
   passA: ScanResponse | null;
   passB: ScanResponse | null;
@@ -82,9 +108,19 @@ type ImagePair = {
 const MAX_ROWS = 100;
 const SCAN_CONCURRENCY = 4;
 const CREATE_CONCURRENCY = 3;
+const PRICE_DISAGREEMENT_RATIO = 0.2;
 
 function cleanBase(name: string) {
   return name.replace(/\.[^.]+$/, "").trim();
+}
+
+function newClientRequestId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
 }
 
 function classify(file: File, index: number): ImageCandidate {
@@ -206,6 +242,25 @@ function scanPrice(scan: ScanResponse) {
   );
 }
 
+function pricingReviewReasons(a: ScanResponse, b: ScanResponse) {
+  const left = scanPrice(a);
+  const right = scanPrice(b);
+  const reasons: string[] = [];
+
+  if (!left || !right) {
+    reasons.push("Both pricing councils must produce a usable exact-card price before auto-listing.");
+    return reasons;
+  }
+
+  const ratio = Math.abs(left - right) / Math.max(0.01, Math.min(left, right));
+  if (ratio > PRICE_DISAGREEMENT_RATIO) {
+    reasons.push(
+      `Pricing councils differ by ${Math.round(ratio * 100)}% (${money(left)} vs ${money(right)}); review the price.`,
+    );
+  }
+  return reasons;
+}
+
 function combinedPrice(a: ScanResponse, b: ScanResponse) {
   const left = scanPrice(a);
   const right = scanPrice(b);
@@ -259,6 +314,42 @@ async function scanPass(row: ListingRow, label: string) {
   return data as ScanResponse;
 }
 
+async function rotateImageFile(file: File, rotation: OrientationRotation) {
+  if (rotation === 0) return file;
+
+  const bitmap = await createImageBitmap(file);
+  const swapDimensions = rotation === 90 || rotation === 270;
+  const canvas = document.createElement("canvas");
+  canvas.width = swapDimensions ? bitmap.height : bitmap.width;
+  canvas.height = swapDimensions ? bitmap.width : bitmap.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    throw new Error("The browser could not prepare card image orientation.");
+  }
+
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.rotate((rotation * Math.PI) / 180);
+  context.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+  bitmap.close();
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (value) =>
+        value
+          ? resolve(value)
+          : reject(new Error("The browser could not encode the upright card image.")),
+      file.type || "image/jpeg",
+      0.95,
+    );
+  });
+
+  return new File([blob], file.name, {
+    type: blob.type || file.type,
+    lastModified: Date.now(),
+  });
+}
+
 function money(value: number | string | null | undefined) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return "—";
@@ -280,10 +371,11 @@ export default function CardListingWorkbench() {
   const counts = useMemo(
     () => ({
       total: rows.length,
-      needsPairReview: rows.filter(
-        (row) => row.back && !row.pairingConfirmed,
+      needsPairReview: rows.filter((row) => row.back && !row.pairingConfirmed).length,
+      ready: rows.filter(
+        (row) =>
+          row.status === "ready" || row.status === "created_needs_channel_repair",
       ).length,
-      ready: rows.filter((row) => row.status === "ready").length,
       created: rows.filter((row) => row.status === "created").length,
       ebayPrepared: rows.filter((row) => row.prepareForEbay).length,
     }),
@@ -294,6 +386,17 @@ export default function CardListingWorkbench() {
     setRows((current) =>
       current.map((row) => (row.id === id ? { ...row, ...patch } : row)),
     );
+  }
+
+  function replacePreview(oldUrl: string | null, file: File | null) {
+    if (oldUrl) {
+      URL.revokeObjectURL(oldUrl);
+      previewUrls.current.delete(oldUrl);
+    }
+    if (!file) return null;
+    const next = URL.createObjectURL(file);
+    previewUrls.current.add(next);
+    return next;
   }
 
   function addFiles(fileList: FileList | File[]) {
@@ -320,12 +423,16 @@ export default function CardListingWorkbench() {
       if (backPreview) previewUrls.current.add(backPreview);
       return {
         id: `${now}-${index}-${pair.front.name}-${pair.front.size}`,
+        clientRequestId: newClientRequestId(),
         front: pair.front,
         back: pair.back,
         frontPreview,
         backPreview,
         pairingMethod: pair.method,
         pairingConfirmed: pair.method === "filename",
+        orientationChecked: false,
+        orientationReviewReasons: [],
+        orientationSummary: null,
         status: "queued",
         passA: null,
         passB: null,
@@ -335,7 +442,7 @@ export default function CardListingWorkbench() {
         ebayPrice: "",
         quantity: "1",
         listOnSite: true,
-        prepareForEbay: false,
+        prepareForEbay: true,
         ebayDescriptionOverride: "",
         manualApproval: false,
         error: null,
@@ -346,12 +453,12 @@ export default function CardListingWorkbench() {
     setRows((current) => [...current, ...next]);
     setGlobalError(null);
     setNotice(
-      `Added ${next.length} card${next.length === 1 ? "" : "s"}. Filename-matched front/back pairs are confirmed automatically; upload-order pairs must be visually confirmed before InstaComp runs.${skippedBackOnly ? ` Skipped ${skippedBackOnly} back-only image${skippedBackOnly === 1 ? "" : "s"}.` : ""}`,
+      `Added ${next.length} card${next.length === 1 ? "" : "s"}. Both TruelyCollectables and eBay are ON by default. Filename-matched pairs are confirmed automatically; upload-order pairs must be visually confirmed before orientation and InstaComp.${skippedBackOnly ? ` Skipped ${skippedBackOnly} back-only image${skippedBackOnly === 1 ? "" : "s"}.` : ""}`,
     );
   }
 
   function swapSides(row: ListingRow) {
-    if (!row.back || !row.backPreview) return;
+    if (!row.back || !row.backPreview || row.legacyProductId) return;
     patchRow(row.id, {
       front: row.back,
       back: row.front,
@@ -359,6 +466,9 @@ export default function CardListingWorkbench() {
       backPreview: row.frontPreview,
       pairingMethod: "manual_swap",
       pairingConfirmed: true,
+      orientationChecked: false,
+      orientationReviewReasons: [],
+      orientationSummary: null,
       status: "queued",
       passA: null,
       passB: null,
@@ -378,7 +488,76 @@ export default function CardListingWorkbench() {
     });
   }
 
+  async function normalizeRowOrientation(row: ListingRow): Promise<ListingRow> {
+    if (row.orientationChecked) return row;
+
+    const formData = new FormData();
+    formData.append("frontImage", row.front);
+    if (row.back) formData.append("backImage", row.back);
+    const response = await fetch("/api/instacomp/orient", {
+      method: "POST",
+      body: formData,
+    });
+    const data = (await response.json().catch(() => ({}))) as OrientationResponse;
+    if (!response.ok || !data.ok || !data.orientation) {
+      throw new Error(data.error || "Automatic card orientation failed.");
+    }
+
+    const orientation = data.orientation;
+    let front = row.front;
+    let back = row.back;
+    let frontPreview = row.frontPreview;
+    let backPreview = row.backPreview;
+
+    if (orientation.status === "completed") {
+      const nextFront = await rotateImageFile(row.front, orientation.frontRotation);
+      if (nextFront !== row.front) {
+        front = nextFront;
+        frontPreview = replacePreview(row.frontPreview, nextFront) || row.frontPreview;
+      }
+
+      if (row.back) {
+        const nextBack = await rotateImageFile(row.back, orientation.backRotation);
+        if (nextBack !== row.back) {
+          back = nextBack;
+          backPreview = replacePreview(row.backPreview, nextBack);
+        }
+      }
+    }
+
+    const orientationSummary =
+      orientation.status === "completed"
+        ? `Text orientation: front ${orientation.frontRotation}° (${Math.round(
+            orientation.frontConfidence * 100,
+          )}%)${row.back ? ` · back ${orientation.backRotation}° (${Math.round(orientation.backConfidence * 100)}%)` : ""}`
+        : `Text orientation needs review: ${orientation.reason}`;
+    const orientationReviewReasons = data.reviewReasons || [];
+
+    patchRow(row.id, {
+      front,
+      back,
+      frontPreview,
+      backPreview,
+      orientationChecked: true,
+      orientationReviewReasons,
+      orientationSummary,
+    });
+
+    return {
+      ...row,
+      front,
+      back,
+      frontPreview,
+      backPreview,
+      orientationChecked: true,
+      orientationReviewReasons,
+      orientationSummary,
+      status: "scanning",
+    };
+  }
+
   async function scanOne(row: ListingRow) {
+    if (row.legacyProductId) return;
     if (!row.back) {
       patchRow(row.id, { status: "error", error: "Add a back image before InstaComp." });
       return;
@@ -399,14 +578,18 @@ export default function CardListingWorkbench() {
       reviewReasons: [],
       manualApproval: false,
     });
+
     try {
+      const scanRow = await normalizeRowOrientation(row);
       const [passA, passB] = await Promise.all([
-        scanPass(row, "Listing council A"),
-        scanPass(row, "Listing council B"),
+        scanPass(scanRow, "Listing council A"),
+        scanPass(scanRow, "Listing council B"),
       ]);
       const disagreements = criticalDisagreements(passA, passB);
       const reasons = [
+        ...scanRow.orientationReviewReasons,
         ...disagreements,
+        ...pricingReviewReasons(passA, passB),
         ...(passA.consensus?.trustedForIdentity === false
           ? ["Council A did not trust the exact-card identity."]
           : []),
@@ -419,7 +602,20 @@ export default function CardListingWorkbench() {
         ...(passB.review?.trustedForPricing === false
           ? ["Council B did not trust the pricing match."]
           : []),
+        ...(passA.catalogEvidence?.catalogConfirmed === false
+          ? ["Council A could not confirm the exact checklist/catalog match."]
+          : []),
+        ...(passB.catalogEvidence?.catalogConfirmed === false
+          ? ["Council B could not confirm the exact checklist/catalog match."]
+          : []),
+        ...(Number(passA.ai.confidence || 0) < 0.7
+          ? ["Council A exact-card confidence is below 70%."]
+          : []),
+        ...(Number(passB.ai.confidence || 0) < 0.7
+          ? ["Council B exact-card confidence is below 70%."]
+          : []),
       ];
+      const uniqueReasons = Array.from(new Set(reasons));
       const preferred = preferredScan(passA, passB);
       const suggested = combinedPrice(passA, passB);
       const sitePrice = suggested ? suggested.toFixed(2) : "";
@@ -427,8 +623,8 @@ export default function CardListingWorkbench() {
         status: "ready",
         passA,
         passB,
-        reviewReasons: reasons,
-        title: titleFor(preferred, row.front.name),
+        reviewReasons: uniqueReasons,
+        title: titleFor(preferred, scanRow.front.name),
         sitePrice,
         ebayPrice: suggested ? recommendedEbayPrice(suggested).toFixed(2) : "",
         error: null,
@@ -445,6 +641,7 @@ export default function CardListingWorkbench() {
     if (scanning || creating) return;
     const targets = rows.filter(
       (row) =>
+        !row.legacyProductId &&
         row.back &&
         row.pairingConfirmed &&
         (row.status === "queued" || row.status === "error"),
@@ -455,7 +652,9 @@ export default function CardListingWorkbench() {
     }
     setScanning(true);
     setGlobalError(null);
-    setNotice(`Running two independent InstaComp councils on ${targets.length} confirmed card${targets.length === 1 ? "" : "s"}.`);
+    setNotice(
+      `Orienting and running two independent InstaComp councils on ${targets.length} confirmed card${targets.length === 1 ? "" : "s"}.`,
+    );
     let cursor = 0;
     async function worker() {
       while (cursor < targets.length) {
@@ -467,17 +666,98 @@ export default function CardListingWorkbench() {
       Array.from({ length: Math.min(SCAN_CONCURRENCY, targets.length) }, () => worker()),
     );
     setScanning(false);
-    setNotice("InstaComp finished. Review any amber disagreement rows before creating inventory.");
+    setNotice(
+      "Orientation + InstaComp finished. Clean rows are ready; amber rows are blocked until you review them.",
+    );
+  }
+
+  function buildQuickListFormData(row: ListingRow, sitePrice: number, quantity: number) {
+    if (!row.passA || !row.passB) {
+      throw new Error("Two InstaComp passes are required before inventory creation.");
+    }
+    const preferred = preferredScan(row.passA, row.passB);
+    const formData = new FormData();
+    formData.append("clientRequestId", row.clientRequestId);
+    formData.append("frontImage", row.front);
+    if (row.back) formData.append("backImage", row.back);
+    formData.append("title", row.title.trim());
+    formData.append("player", preferred.ai.player || "");
+    formData.append("sport", preferred.ai.sport || "Sports Cards");
+    formData.append("condition", preferred.ai.conditionGuess || "Near Mint or Better");
+    formData.append(
+      "serialNumber",
+      normalizeInstaCompListingSerial(preferred.ai.serialNumber) || "",
+    );
+    formData.append("price", sitePrice.toFixed(2));
+    formData.append("quantity", String(quantity));
+    formData.append("scanId", preferred.scanId || "");
+    formData.append(
+      "scanMetadata",
+      JSON.stringify({
+        schema: "truely.cardListingWorkbench.v2",
+        clientRequestId: row.clientRequestId,
+        pairingMethod: row.pairingMethod,
+        pairingConfirmed: row.pairingConfirmed,
+        orientationChecked: row.orientationChecked,
+        orientationSummary: row.orientationSummary,
+        orientationReviewReasons: row.orientationReviewReasons,
+        reviewReasons: row.reviewReasons,
+        manualApproval: row.manualApproval,
+        passA: {
+          scanId: row.passA.scanId,
+          ai: row.passA.ai,
+          stats: row.passA.stats,
+          soldStats: row.passA.soldStats,
+          review: row.passA.review,
+          consensus: row.passA.consensus,
+          catalogEvidence: row.passA.catalogEvidence,
+        },
+        passB: {
+          scanId: row.passB.scanId,
+          ai: row.passB.ai,
+          stats: row.passB.stats,
+          soldStats: row.passB.soldStats,
+          review: row.passB.review,
+          consensus: row.passB.consensus,
+          catalogEvidence: row.passB.catalogEvidence,
+        },
+      }),
+    );
+    return formData;
+  }
+
+  async function createOrRecoverDraft(row: ListingRow, sitePrice: number, quantity: number) {
+    let lastError = "Could not create inventory draft.";
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch("/api/admin/quick-list", {
+        method: "POST",
+        body: buildQuickListFormData(row, sitePrice, quantity),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data?.success) return data;
+      lastError = data?.error || lastError;
+      if (attempt === 0 && response.status >= 500) continue;
+      break;
+    }
+    throw new Error(lastError);
   }
 
   async function createOne(row: ListingRow) {
-    if (!row.passA || !row.passB || row.status !== "ready") return false;
+    if (
+      !row.passA ||
+      !row.passB ||
+      (row.status !== "ready" && row.status !== "created_needs_channel_repair")
+    ) {
+      return false;
+    }
     if (row.reviewReasons.length > 0 && !row.manualApproval) {
       patchRow(row.id, {
-        error: "This row has identity/pricing disagreements. Review it and approve the row before creating inventory.",
+        error:
+          "This row has identity, orientation, or pricing concerns. Review it and approve the row before creating inventory.",
       });
       return false;
     }
+
     const sitePrice = Number(row.sitePrice);
     const ebayPrice = Number(row.ebayPrice);
     const quantity = Number(row.quantity);
@@ -487,64 +767,38 @@ export default function CardListingWorkbench() {
     }
     if (row.prepareForEbay && row.listOnSite && !(ebayPrice > sitePrice)) {
       patchRow(row.id, {
-        error: "For a card prepared for both channels, the eBay price must be higher than the TruelyCollectables price.",
+        error:
+          "For a card prepared for both channels, the eBay price must be higher than the TruelyCollectables price.",
       });
       return false;
     }
 
-    const preferred = preferredScan(row.passA, row.passB);
+    let legacyProductId = row.legacyProductId;
+    let editUrl = row.editUrl;
     patchRow(row.id, { status: "creating", error: null });
+
     try {
-      const formData = new FormData();
-      formData.append("frontImage", row.front);
-      if (row.back) formData.append("backImage", row.back);
-      formData.append("title", row.title.trim());
-      formData.append("player", preferred.ai.player || "");
-      formData.append("sport", preferred.ai.sport || "Sports Cards");
-      formData.append("condition", preferred.ai.conditionGuess || "Near Mint or Better");
-      formData.append(
-        "serialNumber",
-        normalizeInstaCompListingSerial(preferred.ai.serialNumber) || "",
-      );
-      formData.append("price", sitePrice.toFixed(2));
-      formData.append("quantity", String(quantity));
-      formData.append("scanId", preferred.scanId || "");
-      formData.append(
-        "scanMetadata",
-        JSON.stringify({
-          schema: "truely.cardListingWorkbench.v1",
-          pairingMethod: row.pairingMethod,
-          pairingConfirmed: row.pairingConfirmed,
-          reviewReasons: row.reviewReasons,
-          manualApproval: row.manualApproval,
-          passA: {
-            scanId: row.passA.scanId,
-            ai: row.passA.ai,
-            stats: row.passA.stats,
-            soldStats: row.passA.soldStats,
-            review: row.passA.review,
-            consensus: row.passA.consensus,
-          },
-          passB: {
-            scanId: row.passB.scanId,
-            ai: row.passB.ai,
-            stats: row.passB.stats,
-            soldStats: row.passB.soldStats,
-            review: row.passB.review,
-            consensus: row.passB.consensus,
-          },
-        }),
-      );
-      const response = await fetch("/api/admin/quick-list", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || "Could not create inventory draft.");
+      if (!legacyProductId) {
+        const data = await createOrRecoverDraft(row, sitePrice, quantity);
+        const returnedProductId = Number(data?.draft?.legacyProductId);
+        if (!Number.isInteger(returnedProductId) || returnedProductId <= 0) {
+          throw new Error("Quick List returned an invalid product ID.");
+        }
+        legacyProductId = returnedProductId;
+        editUrl = String(
+          data?.draft?.editUrl || `/admin/products/${returnedProductId}`,
+        );
+
+        // Persist the product ID immediately. Every failure after this point is a
+        // channel repair, never permission to call Quick List and create again.
+        patchRow(row.id, {
+          legacyProductId,
+          editUrl,
+          status: "creating",
+          error: null,
+        });
       }
 
-      const legacyProductId = Number(data.draft.legacyProductId);
       const saveResponse = await fetch("/api/admin/ebay/inventory-listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -562,7 +816,7 @@ export default function CardListingWorkbench() {
       const saveData = await saveResponse.json().catch(() => ({}));
       if (!saveResponse.ok || !saveData?.ok) {
         throw new Error(
-          saveData?.error || "Inventory was created but channel settings could not be saved.",
+          saveData?.error || "Inventory exists but channel settings could not be saved.",
         );
       }
 
@@ -578,7 +832,7 @@ export default function CardListingWorkbench() {
         const siteData = await siteResponse.json().catch(() => ({}));
         if (!siteResponse.ok || !siteData?.ok) {
           throw new Error(
-            siteData?.error || "Inventory was created but could not be made live on the site.",
+            siteData?.error || "Inventory exists but could not be made live on the site.",
           );
         }
       }
@@ -586,15 +840,25 @@ export default function CardListingWorkbench() {
       patchRow(row.id, {
         status: "created",
         legacyProductId,
-        editUrl: String(data.draft.editUrl || `/admin/products/${legacyProductId}`),
+        editUrl: editUrl || `/admin/products/${legacyProductId}`,
         error: null,
       });
       return true;
     } catch (error) {
-      patchRow(row.id, {
-        status: row.legacyProductId ? "created" : "ready",
-        error: error instanceof Error ? error.message : "Inventory creation failed.",
-      });
+      const message = error instanceof Error ? error.message : "Inventory creation failed.";
+      if (legacyProductId) {
+        patchRow(row.id, {
+          status: "created_needs_channel_repair",
+          legacyProductId,
+          editUrl: editUrl || `/admin/products/${legacyProductId}`,
+          error: `Inventory #${legacyProductId} already exists. Retry repairs this same card only; it will not create a duplicate. ${message}`,
+        });
+      } else {
+        patchRow(row.id, {
+          status: "ready",
+          error: message,
+        });
+      }
       return false;
     }
   }
@@ -603,30 +867,32 @@ export default function CardListingWorkbench() {
     if (creating || scanning) return;
     const targets = rows.filter(
       (row) =>
-        row.status === "ready" &&
+        (row.status === "ready" || row.status === "created_needs_channel_repair") &&
         row.passA &&
         row.passB &&
         (row.reviewReasons.length === 0 || row.manualApproval),
     );
     if (!targets.length) {
-      setGlobalError("No reviewed, priced rows are ready to create.");
+      setGlobalError("No reviewed, priced rows are ready to create or repair.");
       return;
     }
     setCreating(true);
     setGlobalError(null);
     let cursor = 0;
-    let createdCount = 0;
+    let completedCount = 0;
     async function worker() {
       while (cursor < targets.length) {
         const row = targets[cursor++];
-        if (await createOne(row)) createdCount += 1;
+        if (await createOne(row)) completedCount += 1;
       }
     }
     await Promise.all(
       Array.from({ length: Math.min(CREATE_CONCURRENCY, targets.length) }, () => worker()),
     );
     setCreating(false);
-    setNotice(`${createdCount}/${targets.length} reviewed card${targets.length === 1 ? "" : "s"} created. eBay-prepared cards are waiting in the channel manager; nothing was sent live to eBay automatically.`);
+    setNotice(
+      `${completedCount}/${targets.length} reviewed card${targets.length === 1 ? "" : "s"} created/repaired. eBay-prepared cards are waiting in the channel manager; nothing was sent live to eBay automatically.`,
+    );
   }
 
   function removeRow(row: ListingRow) {
@@ -650,7 +916,7 @@ export default function CardListingWorkbench() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Metric label="Cards" value={counts.total} />
         <Metric label="Pair review" value={counts.needsPairReview} tone="amber" />
-        <Metric label="InstaComp ready" value={counts.ready} tone="violet" />
+        <Metric label="Ready / repair" value={counts.ready} tone="violet" />
         <Metric label="Inventory created" value={counts.created} tone="green" />
         <Metric label="eBay prepared" value={counts.ebayPrepared} tone="blue" />
       </section>
@@ -672,7 +938,7 @@ export default function CardListingWorkbench() {
         >
           <p className="text-2xl font-black">Drop multiple front + back card images</p>
           <p className="mx-auto mt-2 max-w-4xl text-sm font-semibold leading-6 text-neutral-600">
-            Safest filenames are card-001-front.jpg and card-001-back.jpg. Unnamed files are shown as an upload-order pair but are blocked from InstaComp until you visually confirm them. If front/back are reversed, use Swap Front ↔ Back and the corrected files are what InstaComp receives.
+            Safest filenames are card-001-front.jpg and card-001-back.jpg. Unnamed files are blocked until you confirm front/back. Before InstaComp, the text-orientation referee checks 0°/90°/180°/270° and the browser permanently rotates the files upright. Both TruelyCollectables and eBay are selected by default; eBay still requires a separate live-publish confirmation.
           </p>
           <label className="mt-5 inline-flex cursor-pointer rounded-xl bg-neutral-950 px-6 py-3 text-sm font-black text-white hover:bg-neutral-800">
             Choose card images
@@ -696,7 +962,7 @@ export default function CardListingWorkbench() {
             onClick={() => void scanConfirmedRows()}
             className="rounded-xl bg-violet-700 px-5 py-3 text-sm font-black text-white disabled:opacity-40"
           >
-            {scanning ? "InstaComp running…" : "InstaComp confirmed cards"}
+            {scanning ? "Orientation + InstaComp running…" : "Orient + InstaComp confirmed cards"}
           </button>
           <button
             type="button"
@@ -704,7 +970,7 @@ export default function CardListingWorkbench() {
             onClick={() => void createReadyRows()}
             className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white disabled:opacity-40"
           >
-            {creating ? "Creating inventory…" : "Create reviewed listings"}
+            {creating ? "Creating / repairing inventory…" : "Create reviewed listings"}
           </button>
           <a
             href="/admin/ebay/publish"
@@ -731,10 +997,13 @@ export default function CardListingWorkbench() {
             row.passA && row.passB ? combinedPrice(row.passA, row.passB) : null;
           const needsReview = row.reviewReasons.length > 0;
           const busy = row.status === "scanning" || row.status === "creating";
+          const locked = Boolean(row.legacyProductId);
           const sitePrice = Number(row.sitePrice);
           const ebayPrice = Number(row.ebayPrice);
           const directAdvantage =
             row.prepareForEbay && row.listOnSite && sitePrice > 0 && ebayPrice > sitePrice;
+          const canCreate =
+            row.status === "ready" || row.status === "created_needs_channel_repair";
 
           return (
             <article
@@ -742,7 +1011,7 @@ export default function CardListingWorkbench() {
               className={`rounded-3xl border bg-white p-5 shadow-sm ${
                 !row.pairingConfirmed && row.back
                   ? "border-amber-300"
-                  : needsReview
+                  : needsReview || row.status === "created_needs_channel_repair"
                     ? "border-amber-300"
                     : row.status === "created"
                       ? "border-emerald-300"
@@ -764,11 +1033,16 @@ export default function CardListingWorkbench() {
                   <p className="mt-2 text-center text-xs font-bold text-neutral-500">
                     Row {index + 1} · {row.pairingMethod.replaceAll("_", " ")}
                   </p>
+                  {row.orientationSummary ? (
+                    <p className="mt-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-center text-[11px] font-bold text-neutral-700">
+                      {row.orientationSummary}
+                    </p>
+                  ) : null}
                   {row.back ? (
                     <div className="mt-3 grid gap-2">
                       <button
                         type="button"
-                        disabled={busy || row.status === "created"}
+                        disabled={busy || locked}
                         onClick={() => swapSides(row)}
                         className="rounded-xl border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-black text-violet-950 disabled:opacity-40"
                       >
@@ -777,9 +1051,9 @@ export default function CardListingWorkbench() {
                       {!row.pairingConfirmed ? (
                         <button
                           type="button"
-                          disabled={busy}
+                          disabled={busy || locked}
                           onClick={() => confirmPair(row)}
-                          className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-neutral-950"
+                          className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-neutral-950 disabled:opacity-40"
                         >
                           Confirm this front/back pair
                         </button>
@@ -810,7 +1084,7 @@ export default function CardListingWorkbench() {
                     Listing title
                     <input
                       value={row.title}
-                      disabled={!row.passA || row.status === "created"}
+                      disabled={!row.passA || locked}
                       onChange={(event) => patchRow(row.id, { title: event.target.value })}
                       placeholder="InstaComp title appears after both passes"
                       className="mt-1 w-full rounded-xl border border-neutral-300 px-4 py-3 text-base font-black normal-case tracking-normal disabled:bg-neutral-100"
@@ -838,11 +1112,12 @@ export default function CardListingWorkbench() {
                         <input
                           type="checkbox"
                           checked={row.manualApproval}
+                          disabled={locked}
                           onChange={(event) =>
                             patchRow(row.id, { manualApproval: event.target.checked })
                           }
                         />
-                        I checked the physical card and images and approve this row despite the disagreement.
+                        I checked the physical card, image orientation, identity, and price and approve this row despite the warning.
                       </label>
                     </div>
                   ) : null}
@@ -852,18 +1127,18 @@ export default function CardListingWorkbench() {
                       Optional eBay-only description
                     </summary>
                     <p className="mt-2 text-xs font-semibold text-neutral-600">
-                      Leave blank and eBay will use the same description saved on TruelyCollectables. Add text only when this card needs different eBay wording.
+                      Leave blank and eBay will use the TruelyCollectables description. Add text only when this card needs different eBay wording.
                     </p>
                     <textarea
                       rows={6}
                       value={row.ebayDescriptionOverride}
-                      disabled={row.status === "created"}
+                      disabled={locked}
                       onChange={(event) =>
                         patchRow(row.id, {
                           ebayDescriptionOverride: event.target.value,
                         })
                       }
-                      className="mt-3 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold"
+                      className="mt-3 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold disabled:bg-neutral-100"
                     />
                   </details>
 
@@ -873,7 +1148,7 @@ export default function CardListingWorkbench() {
                     </p>
                   ) : null}
 
-                  {row.status === "created" && row.legacyProductId ? (
+                  {row.legacyProductId ? (
                     <div className="mt-4 flex flex-wrap gap-2">
                       <a
                         href={row.editUrl || `/admin/products/${row.legacyProductId}`}
@@ -901,16 +1176,16 @@ export default function CardListingWorkbench() {
                     <input
                       type="checkbox"
                       checked={row.listOnSite}
-                      disabled={row.status === "created"}
+                      disabled={locked}
                       onChange={(event) => patchRow(row.id, { listOnSite: event.target.checked })}
                     />
-                    List on TruelyCollectables after inventory creation
+                    List on TruelyCollectables
                   </label>
                   <label className="mt-2 flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs font-black text-violet-950">
                     <input
                       type="checkbox"
                       checked={row.prepareForEbay}
-                      disabled={row.status === "created"}
+                      disabled={locked}
                       onChange={(event) => {
                         const checked = event.target.checked;
                         const currentSite = Number(row.sitePrice);
@@ -923,7 +1198,7 @@ export default function CardListingWorkbench() {
                         });
                       }}
                     />
-                    Prepare for eBay too
+                    Prepare for eBay too — live publish still requires confirmation
                   </label>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
@@ -934,7 +1209,7 @@ export default function CardListingWorkbench() {
                         min="0.01"
                         step="0.01"
                         value={row.sitePrice}
-                        disabled={!row.passA || row.status === "created"}
+                        disabled={!row.passA || locked}
                         onChange={(event) => {
                           const value = event.target.value;
                           const parsed = Number(value);
@@ -946,7 +1221,7 @@ export default function CardListingWorkbench() {
                                 : row.ebayPrice,
                           });
                         }}
-                        className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-lg font-black"
+                        className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-lg font-black disabled:bg-neutral-100"
                       />
                     </label>
                     <label className="text-xs font-black text-neutral-600">
@@ -956,7 +1231,7 @@ export default function CardListingWorkbench() {
                         min="0.01"
                         step="0.01"
                         value={row.ebayPrice}
-                        disabled={!row.prepareForEbay || row.status === "created"}
+                        disabled={!row.prepareForEbay || locked}
                         onChange={(event) => patchRow(row.id, { ebayPrice: event.target.value })}
                         className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-lg font-black disabled:bg-neutral-100"
                       />
@@ -983,36 +1258,33 @@ export default function CardListingWorkbench() {
                       min="1"
                       step="1"
                       value={row.quantity}
-                      disabled={row.status === "created"}
+                      disabled={locked}
                       onChange={(event) => patchRow(row.id, { quantity: event.target.value })}
-                      className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 font-black"
+                      className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 font-black disabled:bg-neutral-100"
                     />
                   </label>
 
                   <button
                     type="button"
-                    disabled={
-                      busy ||
-                      row.status === "created" ||
-                      !row.back ||
-                      !row.pairingConfirmed
-                    }
+                    disabled={busy || locked || !row.back || !row.pairingConfirmed}
                     onClick={() => void scanOne(row)}
                     className="mt-4 w-full rounded-xl border border-violet-300 bg-violet-50 px-4 py-3 text-sm font-black text-violet-950 disabled:opacity-40"
                   >
-                    {row.status === "scanning" ? "InstaComp running…" : "Run InstaComp again"}
+                    {row.status === "scanning"
+                      ? "Orientation + InstaComp running…"
+                      : "Run orientation + InstaComp again"}
                   </button>
                   <button
                     type="button"
-                    disabled={
-                      busy ||
-                      row.status !== "ready" ||
-                      (needsReview && !row.manualApproval)
-                    }
+                    disabled={busy || !canCreate || (needsReview && !row.manualApproval)}
                     onClick={() => void createOne(row)}
                     className="mt-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black text-white disabled:opacity-40"
                   >
-                    {row.status === "creating" ? "Creating…" : "Create this listing"}
+                    {row.status === "creating"
+                      ? "Creating / repairing…"
+                      : row.status === "created_needs_channel_repair"
+                        ? "Repair this listing — no duplicate"
+                        : "Create this listing"}
                   </button>
                   <button
                     type="button"
@@ -1071,11 +1343,12 @@ function Metric({
 
 function StatusBadge({ status }: { status: RowStatus }) {
   const label: Record<RowStatus, string> = {
-    queued: "Waiting for InstaComp",
-    scanning: "Two passes scanning",
+    queued: "Waiting for orientation + InstaComp",
+    scanning: "Orienting + two passes scanning",
     ready: "Review ready",
-    creating: "Creating inventory",
+    creating: "Creating / repairing inventory",
     created: "Created",
+    created_needs_channel_repair: "Created · channel repair needed",
     error: "Needs attention",
   };
   return (
