@@ -6,7 +6,6 @@ import asyncio
 import json
 import platform
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,9 +15,12 @@ import promote_lora_candidate_frozen_25_v10 as v10
 import promote_lora_candidate_frozen_five as base
 
 SCHEMA = "tcos.instacomp-ai.lora-staged-promotion.v11"
+MANIFEST_SCHEMA = "tcos.instacomp-ai.lora-staged-fixtures.v1"
 ALLOWED_STAGE_TARGETS = (10, 15, 25)
 DEFAULT_STAGE_TARGET = 10
 REGISTRY_ATTEMPT_BUDGETS = {10: 100, 15: 250, 25: 750}
+PRIOR_STAGE = {10: 5, 15: 10, 25: 15}
+STAGE_MANIFEST = base.RECEIPTS / "staged-promotion-fixtures-latest.json"
 _ORIGINAL_EXPANSION_CANDIDATE = v3._expansion_candidate
 _V10_BUILD = v10.build_frozen_25_live_v10
 
@@ -32,7 +34,6 @@ def _configure_stage(target: int) -> None:
         raise RuntimeError(
             f"Unsupported promotion stage {target}; allowed={ALLOWED_STAGE_TARGETS}"
         )
-    # v3 and the inherited v1 round gate both read module-level TARGET.
     v3.TARGET = target
     v3.legacy.TARGET = target
     v3.legacy.RECEIPT_PREFIX = f"frozen-{target}-promotion"
@@ -94,6 +95,109 @@ async def build_staged_live(
     return fixtures
 
 
+def _fixture_signature(item: dict[str, Any]) -> dict[str, str]:
+    case = item.get("case") or ()
+    if len(case) < 6:
+        raise RuntimeError("Promotion fixture is missing authoritative Registry case fields")
+    return {
+        "row_id": str(item.get("row_id") or ""),
+        "player": str(case[1] or ""),
+        "card_number": str(case[2] or ""),
+        "registry_identity_id": str(case[4] or ""),
+        "registry_fingerprint_sha256": str(case[5] or ""),
+    }
+
+
+def _manifest_fixture_signatures(manifest: dict[str, Any]) -> list[dict[str, str]]:
+    fixtures = manifest.get("fixtures")
+    if not isinstance(fixtures, list):
+        return []
+    output: list[dict[str, str]] = []
+    for item in fixtures:
+        if not isinstance(item, dict):
+            return []
+        output.append(
+            {
+                "row_id": str(item.get("row_id") or ""),
+                "player": str(item.get("player") or ""),
+                "card_number": str(item.get("card_number") or ""),
+                "registry_identity_id": str(item.get("registry_identity_id") or ""),
+                "registry_fingerprint_sha256": str(
+                    item.get("registry_fingerprint_sha256") or ""
+                ),
+            }
+        )
+    return output
+
+
+def _require_prior_stage_manifest(
+    fixtures: list[dict[str, Any]],
+    *,
+    target: int,
+    adapter_sha: str,
+    dataset_sha: str | None,
+    manifest_path: Path = STAGE_MANIFEST,
+) -> None:
+    prior = PRIOR_STAGE[target]
+    if prior == 5:
+        return
+    if not manifest_path.is_file():
+        raise RuntimeError(
+            f"{_stage_label(target)} requires a successful Frozen {prior} fixture manifest first: "
+            f"{manifest_path}"
+        )
+    manifest = base.read_json(manifest_path)
+    if manifest.get("schema_version") != MANIFEST_SCHEMA or manifest.get("complete") is not True:
+        raise RuntimeError(f"Prior staged fixture manifest is not complete: {manifest_path}")
+    if int(manifest.get("stage_target") or 0) != prior:
+        raise RuntimeError(
+            f"{_stage_label(target)} requires Frozen {prior} immediately before it; "
+            f"manifest stage={manifest.get('stage_target')!r}"
+        )
+    if base.norm(manifest.get("adapter_weights_sha256")) != base.norm(adapter_sha):
+        raise RuntimeError("Prior staged fixture manifest adapter hash does not match current adapter")
+    if base.norm(manifest.get("dataset_sha256")) != base.norm(dataset_sha):
+        raise RuntimeError("Prior staged fixture manifest dataset hash does not match current dataset")
+
+    previous = _manifest_fixture_signatures(manifest)
+    current = [_fixture_signature(item) for item in fixtures[:prior]]
+    if len(previous) != prior or current != previous:
+        raise RuntimeError(
+            f"{_stage_label(target)} did not preserve the exact successful Frozen {prior} fixture prefix; "
+            "refusing to swap previously certified cards"
+        )
+    print(
+        f"PASS {_stage_label(target)} carries forward exact Frozen {prior} UUID/fingerprint fixture prefix",
+        flush=True,
+    )
+
+
+def _write_stage_manifest(
+    fixtures: list[dict[str, Any]],
+    *,
+    target: int,
+    adapter_sha: str,
+    dataset_sha: str | None,
+    manifest_path: Path = STAGE_MANIFEST,
+) -> Path:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "schema_version": MANIFEST_SCHEMA,
+        "created_at": base.now(),
+        "complete": True,
+        "stage_target": target,
+        "adapter_weights_sha256": adapter_sha,
+        "dataset_sha256": dataset_sha,
+        "registry_attempt_budget": REGISTRY_ATTEMPT_BUDGETS[target],
+        "registry_remains_identity_authority": True,
+        "fixtures": [_fixture_signature(item) for item in fixtures],
+    }
+    tmp = manifest_path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+    tmp.replace(manifest_path)
+    return manifest_path
+
+
 def _rounds_gate(rounds: list[dict[str, Any]], target: int) -> None:
     if len(rounds) != len(v3.ROUNDS):
         raise RuntimeError(f"Exactly two {_stage_label(target)} Production rounds are required")
@@ -129,6 +233,8 @@ def _install_stage_contract(target: int) -> None:
 
 
 def _self_test_stage_contract() -> None:
+    import tempfile
+
     original_target = v3.TARGET
     original_legacy_target = v3.legacy.TARGET
     original_prefix = v3.legacy.RECEIPT_PREFIX
@@ -161,10 +267,53 @@ def _self_test_stage_contract() -> None:
                 target,
             )
 
-        # Prove the stages are nested by construction: each larger stage uses a
-        # strict superset candidate-attempt prefix rather than a different pool.
         assert REGISTRY_ATTEMPT_BUDGETS[10] < REGISTRY_ATTEMPT_BUDGETS[15]
         assert REGISTRY_ATTEMPT_BUDGETS[15] < REGISTRY_ATTEMPT_BUDGETS[25]
+
+        fixtures = [
+            {
+                "row_id": f"row-{index:02d}",
+                "case": (
+                    f"case-{index:02d}",
+                    f"Player {index:02d}",
+                    str(index),
+                    None,
+                    f"00000000-0000-0000-0011-{index:012d}",
+                    f"{index + 1:064x}",
+                ),
+            }
+            for index in range(15)
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "fixtures.json"
+            _write_stage_manifest(
+                fixtures[:10],
+                target=10,
+                adapter_sha="a" * 64,
+                dataset_sha="b" * 64,
+                manifest_path=manifest_path,
+            )
+            _require_prior_stage_manifest(
+                fixtures,
+                target=15,
+                adapter_sha="a" * 64,
+                dataset_sha="b" * 64,
+                manifest_path=manifest_path,
+            )
+            swapped = list(fixtures)
+            swapped[9] = dict(swapped[9])
+            swapped[9]["row_id"] = "different-row"
+            try:
+                _require_prior_stage_manifest(
+                    swapped,
+                    target=15,
+                    adapter_sha="a" * 64,
+                    dataset_sha="b" * 64,
+                    manifest_path=manifest_path,
+                )
+                raise AssertionError("prior-stage fixture swap was accepted")
+            except RuntimeError:
+                pass
     finally:
         v3.TARGET = original_target
         v3.legacy.TARGET = original_legacy_target
@@ -173,6 +322,7 @@ def _self_test_stage_contract() -> None:
     print("PASS v11 defaults to Frozen 10 before Frozen 15 and Frozen 25")
     print("PASS v11 Registry attempt budgets are hard-capped well below 7,429")
     print("PASS v11 larger stages use deterministic superset shortlist prefixes")
+    print("PASS v11 exact prior-stage UUID/fingerprint fixtures cannot be swapped")
     print("PASS v11 requires exact two-round target/target candidate evidence at every stage")
 
 
@@ -210,7 +360,14 @@ def main() -> int:
         raise SystemExit("Explicit adapter does not match complete_and_validated receipt")
 
     sha = base.file_sha(adapter / "adapters.safetensors")
+    dataset_sha = str(receipt.get("dataset_sha256") or "") or None
     fixtures = asyncio.run(build_staged_live(dataset, require_images=True))
+    _require_prior_stage_manifest(
+        fixtures,
+        target=target,
+        adapter_sha=sha,
+        dataset_sha=dataset_sha,
+    )
     print(
         f"{_stage_label(target).upper()} FIXTURES: "
         + ", ".join(
@@ -251,7 +408,7 @@ def main() -> int:
             "adapter": str(adapter),
             "adapter_weights_sha256": sha,
             "dataset": str(dataset),
-            "dataset_sha256": receipt.get("dataset_sha256"),
+            "dataset_sha256": dataset_sha,
             "rounds": rounds,
             "error_type": type(error).__name__,
             "error": str(error)[:2000],
@@ -268,6 +425,12 @@ def main() -> int:
             raise
         return 2
 
+    manifest = _write_stage_manifest(
+        fixtures,
+        target=target,
+        adapter_sha=sha,
+        dataset_sha=dataset_sha,
+    )
     data = {
         "schema_version": SCHEMA,
         "created_at": base.now(),
@@ -276,11 +439,12 @@ def main() -> int:
         "promotion_stage_target": target,
         "next_stage_target": 15 if target == 10 else (25 if target == 15 else None),
         "registry_attempt_budget": REGISTRY_ATTEMPT_BUDGETS[target],
+        "fixture_manifest": str(manifest),
         "adapter": str(adapter),
         "adapter_weights_sha256": sha,
         "validation_receipt": receipt.get("validation_receipt"),
         "dataset": str(dataset),
-        "dataset_sha256": receipt.get("dataset_sha256"),
+        "dataset_sha256": dataset_sha,
         "activation_receipt": activation.get("_path") if activation else None,
         "registry_resolver": "bounded_staged_v10_evidence_aligned_registry_preflight_then_round_relock",
         "rounds": rounds,
