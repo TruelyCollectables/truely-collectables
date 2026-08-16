@@ -16,7 +16,7 @@ env:
 jobs:
   backup:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - name: Checkout isolated recovery branch
         uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run portable Supabase recovery snapshot
+      - name: Run accelerated portable Supabase recovery snapshot
         shell: bash
         run: bash .github/scripts/run-supabase-portable-backup.sh
 
