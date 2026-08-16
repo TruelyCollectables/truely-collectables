@@ -8,10 +8,12 @@ on:
         required: true
         default: "40"
   schedule:
+    # Daily catch-up budget: 40 Topps product candidates + 60 Upper Deck sources = 100 checks/day.
     - cron: "43 12 * * *"
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: automatic-topps-baseball-checklist-discovery
@@ -23,8 +25,7 @@ jobs:
     environment: Production
     timeout-minutes: 45
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
       TOPPS_BASEBALL_MAX_PRODUCTS: ${{ inputs.max_products || '40' }}
       TOPPS_BASEBALL_DISCOVERY_OUTPUT: .checklist-discovery/topps-baseball-receipt.json
     steps:
