@@ -132,9 +132,15 @@ jobs:
           mkdir -p .checklist-discovery/instacomp-target
           for batch in 0 1 2 3 4 5; do
             echo "=== InstaComp target batch $batch / apply=$MASTER_CHECKLIST_APPLY ==="
-            MASTER_CHECKLIST_BATCH_INDEX="$batch" \
-            MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target/batch-${batch}.json" \
-              node --import tsx scripts/ingest-master-checklist-archive.mjs
+            if [ "$MASTER_CHECKLIST_APPLY" = "true" ]; then
+              MASTER_CHECKLIST_BATCH_INDEX="$batch" \
+              MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target/batch-${batch}.json" \
+                node --import tsx scripts/ingest-master-checklist-archive.mjs
+            else
+              MASTER_CHECKLIST_BATCH_INDEX="$batch" \
+              MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target/batch-${batch}.json" \
+                node --import tsx scripts/instacomp-target-checklists/validate-target-batch.mjs
+            fi
           done
 
       - name: Enforce validation/import receipts
