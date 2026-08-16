@@ -1,0 +1,84 @@
+name: Checklist Registry Production Schema Probe 20260816
+
+on:
+  push:
+    branches:
+      - ops/checklist-public-web-registry-promotion-20260814
+    paths:
+      - ".github/workflows/checklist-registry-schema-probe-20260816.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Resolve Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          root="$RUNNER_TEMP/checklist-registry-probe"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          echo "PROJECT_REF=${candidates[0]}" >> "$GITHUB_ENV"
+      - name: Read Registry function and constraint definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-registry-probe"
+          sql=$(cat <<'SQL'
+          with funcs as (
+            select n.nspname as schema_name,
+                   p.proname as function_name,
+                   pg_get_function_identity_arguments(p.oid) as arguments,
+                   pg_get_functiondef(p.oid) as definition
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and (p.proname = 'tcos_apply_checklist_import_plan' or p.proname like 'tcos%checklist%')
+          ), constraints as (
+            select n.nspname as schema_name,
+                   c.relname as table_name,
+                   con.conname as constraint_name,
+                   con.contype as constraint_type,
+                   pg_get_constraintdef(con.oid) as definition
+            from pg_constraint con
+            join pg_class c on c.oid = con.conrelid
+            join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public' and c.relname like 'checklist_%'
+          )
+          select jsonb_build_object(
+            'functions', coalesce((select jsonb_agg(to_jsonb(funcs) order by function_name) from funcs), '[]'::jsonb),
+            'constraints', coalesce((select jsonb_agg(to_jsonb(constraints) order by table_name, constraint_name) from constraints), '[]'::jsonb)
+          ) as registry_schema;
+          SQL
+          )
+          jq -n --arg query "$sql" '{query:$query}' > "$root/query.json"
+          curl --silent --show-error --fail --retry 2 --retry-all-errors --retry-delay 2 --max-time 60 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @"$root/query.json" \
+            -o "$root/schema.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
+          jq . "$root/schema.json"
+      - name: Upload schema probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-registry-schema-probe-${{ github.run_id }}
+          path: /home/runner/work/_temp/checklist-registry-probe/schema.json
+          if-no-files-found: warn
+          retention-days: 7
