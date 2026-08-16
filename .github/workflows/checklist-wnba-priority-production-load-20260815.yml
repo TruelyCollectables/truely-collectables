@@ -77,20 +77,20 @@ jobs:
           import { join } from 'node:path';
           const out = process.env.OUT;
           const desired = [
-            { exactSetKey: 'basketball|2024|panini|origins-wnba', year: 2024, name: '2024 Panini Origins WNBA', url: 'https://gogts.net/2024-panini-origins-wnba-basketball-cards-checklist/' },
-            { exactSetKey: 'basketball|2024|panini|select-wnba', year: 2024, name: '2024 Panini Select WNBA', url: 'https://gogts.net/2024-panini-select-wnba-basketball-cards-checklist/' },
-            { exactSetKey: 'basketball|2024|panini|prizm-wnba', year: 2024, name: '2024 Panini Prizm WNBA', url: 'https://gogts.net/2024-panini-prizm-wnba-basketball-cards-checklist/' },
-            { exactSetKey: 'basketball|2025|panini|donruss-wnba', year: 2025, name: '2025 Donruss WNBA', url: 'https://gogts.net/2025-donruss-wnba-basketball-cards-checklist/' },
-            { exactSetKey: 'basketball|2025|panini|prizm-wnba', year: 2025, name: '2025 Panini Prizm WNBA', url: 'https://gogts.net/2025-panini-prizm-wnba-basketball-cards-checklist/' },
-            { exactSetKey: 'basketball|2025|panini|select-wnba', year: 2025, name: '2025 Panini Select WNBA', url: 'https://gogts.net/2025-panini-select-wnba-basketball-cards-checklist/' },
-            { exactSetKey: 'basketball|2025|panini|impeccable-wnba', year: 2025, name: '2025 Panini Impeccable WNBA', url: 'https://gogts.net/2025-panini-impeccable-wnba-basketball-cards-checklist/' },
-            { exactSetKey: 'basketball|2025|panini|one-and-one-wnba', year: 2025, name: '2025 Panini One and One WNBA', url: 'https://gogts.net/2025-panini-one-and-one-wnba-basketball-cards-checklist/' }
+            { exactSetKey: 'basketball|2024|panini|origins-wnba', year: 2024, name: '2024 Panini Origins WNBA', url: 'https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf' },
+            { exactSetKey: 'basketball|2024|panini|select-wnba', year: 2024, name: '2024 Panini Select WNBA', url: 'https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf' },
+            { exactSetKey: 'basketball|2024|panini|prizm-wnba', year: 2024, name: '2024 Panini Prizm WNBA', url: 'https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf' },
+            { exactSetKey: 'basketball|2025|panini|donruss-wnba', year: 2025, name: '2025 Donruss WNBA', url: 'https://gogts.net/wp-content/uploads/2025/09/2025-Donruss-WNBA-Basketball-Cards-Checklist.pdf' },
+            { exactSetKey: 'basketball|2025|panini|prizm-wnba', year: 2025, name: '2025 Panini Prizm WNBA', url: 'https://gogts.net/wp-content/uploads/2026/03/2025-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf' },
+            { exactSetKey: 'basketball|2025|panini|select-wnba', year: 2025, name: '2025 Panini Select WNBA', url: 'https://gogts.net/wp-content/uploads/2026/04/2025-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf' },
+            { exactSetKey: 'basketball|2025|panini|impeccable-wnba', year: 2025, name: '2025 Panini Impeccable WNBA', url: 'https://gogts.net/wp-content/uploads/2025/12/2025-Panini-Impeccable-WNBA-Basketball-Cards-Checklist.pdf' },
+            { exactSetKey: 'basketball|2025|panini|one-and-one-wnba', year: 2025, name: '2025 Panini One and One WNBA', url: 'https://gogts.net/wp-content/uploads/2026/03/2025-Panini-One-and-One-WNBA-Basketball-Cards-Checklist.pdf' }
           ];
           const targets = desired.map(d => ({
             exactSetKey: d.exactSetKey,
             year: d.year,
             sport: 'basketball',
-            sourceArtifact: 'priority-wnba-production-load-20260815',
+            sourceArtifact: 'priority-wnba-production-load-20260815-direct-pdf',
             exactCandidateCount: 1,
             trustedAutoImportCandidateCount: 1,
             candidates: [],
@@ -118,14 +118,27 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/wnba-load"
-          PUBLIC_WEB_CANDIDATE_QUEUE="$out/queue.json" \
-          PUBLIC_WEB_TARGET_FILTER="$out/filter.json" \
-          PUBLIC_WEB_PROMOTION_APPLY=true \
-          PUBLIC_WEB_PROMOTION_OUTPUT="$out/receipt.json" \
-          PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$out/validated.json" \
-          PUBLIC_WEB_MINING_RUN_ID="$GITHUB_RUN_ID" \
-          PUBLIC_WEB_AGGREGATE_RUN_ID="$GITHUB_RUN_ID" \
-          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          imported=false
+          for attempt in 1 2 3 4 5; do
+            echo "Production Registry importer attempt $attempt/5"
+            if PUBLIC_WEB_CANDIDATE_QUEUE="$out/queue.json" \
+              PUBLIC_WEB_TARGET_FILTER="$out/filter.json" \
+              PUBLIC_WEB_PROMOTION_APPLY=true \
+              PUBLIC_WEB_PROMOTION_OUTPUT="$out/receipt.json" \
+              PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$out/validated.json" \
+              PUBLIC_WEB_MINING_RUN_ID="$GITHUB_RUN_ID" \
+              PUBLIC_WEB_AGGREGATE_RUN_ID="$GITHUB_RUN_ID" \
+              node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs; then
+              imported=true
+              break
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              delay=$((attempt * 10))
+              echo "Importer startup failed; retrying after ${delay}s"
+              sleep "$delay"
+            fi
+          done
+          test "$imported" = true
 
       - name: Require verified Production persistence for every WNBA target
         shell: bash
