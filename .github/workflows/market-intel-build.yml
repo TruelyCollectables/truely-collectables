@@ -1,4 +1,4 @@
-name: Supabase Storage Disaster Recovery Snapshot
+name: Supabase Independent Disaster Recovery Snapshot
 
 on:
   push:
@@ -22,24 +22,24 @@ jobs:
         run: |
           set -Eeuo pipefail
           [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo 'Missing SUPABASE_ACCESS_TOKEN'; exit 2; }
-          echo 'Supabase management credential is available; values will not be printed.'
+          echo 'Supabase management credential is available; secret values will not be printed.'
 
-      - name: Install isolated Storage client
+      - name: Install isolated Supabase client
         shell: bash
         run: |
           set -Eeuo pipefail
-          mkdir -p /tmp/tc-storage-tool
-          cd /tmp/tc-storage-tool
+          mkdir -p /tmp/tc-supabase-tool
+          cd /tmp/tc-supabase-tool
           npm init -y >/dev/null 2>&1
           npm install --silent --no-audit --no-fund @supabase/supabase-js@2
 
-      - name: Download every Supabase Storage object
+      - name: Export exposed application data, auth users, and every Storage object
         shell: bash
         run: |
           set -Eeuo pipefail
           umask 077
-          mkdir -p /tmp/tc-storage-backup/objects /tmp/tc-storage-backup/metadata
-          cd /tmp/tc-storage-tool
+          mkdir -p /tmp/tc-supabase-independent/{data,auth,storage/objects,metadata}
+          cd /tmp/tc-supabase-tool
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import path from 'node:path';
@@ -49,156 +49,259 @@ jobs:
           const ref = process.env.SUPABASE_PROJECT_REF;
           const mgmt = process.env.SUPABASE_ACCESS_TOKEN;
           const apiUrl = `https://${ref}.supabase.co`;
-          const root = '/tmp/tc-storage-backup';
-          const objRoot = path.join(root, 'objects');
-          const metaRoot = path.join(root, 'metadata');
+          const root = '/tmp/tc-supabase-independent';
+          const dataDir = path.join(root, 'data');
+          const authDir = path.join(root, 'auth');
+          const storageDir = path.join(root, 'storage');
+          const objectDir = path.join(storageDir, 'objects');
+          const metaDir = path.join(root, 'metadata');
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const safe = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '_');
 
-          const keyResp = await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`, {
+          async function fetchRetry(url, options = {}, attempts = 18) {
+            let last;
+            for (let i = 0; i < attempts; i++) {
+              try {
+                const res = await fetch(url, options);
+                const text = await res.text();
+                let body;
+                try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+                last = { ok: res.ok, status: res.status, body, headers: Object.fromEntries(res.headers.entries()) };
+                if (res.ok || ![429,500,502,503,504,520,522,524,544].includes(res.status)) return last;
+              } catch (e) {
+                last = { ok: false, status: 0, body: { error: e.message }, headers: {} };
+              }
+              await sleep(Math.min(30000, 1000 * 2 ** Math.min(i, 5)));
+            }
+            return last;
+          }
+
+          async function retrySdk(label, fn, attempts = 18) {
+            let last;
+            for (let i = 0; i < attempts; i++) {
+              try {
+                const result = await fn();
+                if (!result?.error) return result;
+                last = result;
+                const status = Number(result.error?.status || result.error?.statusCode || 0);
+                if (![429,500,502,503,504,520,522,524,544].includes(status)) return result;
+              } catch (e) {
+                last = { data: null, error: e };
+              }
+              if (i === 0) console.log(`${label}: provider busy; retrying with backoff.`);
+              await sleep(Math.min(30000, 1000 * 2 ** Math.min(i, 5)));
+            }
+            return last || { data: null, error: new Error(`${label}: retry attempts exhausted`) };
+          }
+
+          const keyResp = await fetchRetry(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`, {
             headers: { Authorization: `Bearer ${mgmt}`, 'Content-Type': 'application/json' },
           });
-          if (!keyResp.ok) throw new Error(`Management API key retrieval failed: HTTP ${keyResp.status}`);
-          const keys = await keyResp.json();
-          if (!Array.isArray(keys)) throw new Error('Management API key response was not an array.');
-          const candidate = keys.find(k => String(k?.type || '').toLowerCase() === 'secret' && k?.api_key)
-            || keys.find(k => String(k?.name || '').toLowerCase() === 'service_role' && k?.api_key)
+          if (!keyResp.ok || !Array.isArray(keyResp.body)) throw new Error(`Management API key retrieval failed: HTTP ${keyResp.status}`);
+          const keys = keyResp.body;
+          const legacyService = keys.find(k => String(k?.name || '').toLowerCase() === 'service_role' && k?.api_key);
+          const modernSecret = keys.find(k => String(k?.type || '').toLowerCase() === 'secret' && k?.api_key)
             || keys.find(k => String(k?.api_key || '').startsWith('sb_secret_'));
-          if (!candidate?.api_key) throw new Error('No server-side Supabase secret/service_role key could be resolved.');
-          const secretKey = String(candidate.api_key);
-          console.log('Resolved a server-side Supabase API key; value is intentionally not printed.');
+          const serverKey = String((legacyService || modernSecret)?.api_key || '');
+          if (!serverKey) throw new Error('No server-side Supabase API key could be resolved.');
+          console.log('Resolved server-side Supabase access; value is intentionally not printed.');
 
-          const supabase = createClient(apiUrl, secretKey, {
+          const supabase = createClient(apiUrl, serverKey, {
             auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
           });
-          const { data: buckets, error: bucketError } = await supabase.storage.listBuckets({ limit: 1000, offset: 0 });
-          if (bucketError) throw bucketError;
+
           const manifest = {
+            schema: 'truelycollectables.supabase-independent-backup.v1',
             createdAt: new Date().toISOString(),
             projectRef: ref,
-            bucketCount: buckets?.length || 0,
-            objectCount: 0,
-            totalBytes: 0,
+            exposedTablesDiscovered: 0,
+            tablesExported: 0,
+            rowsExported: 0,
+            authUsersExported: 0,
+            storageBuckets: 0,
+            storageObjects: 0,
+            storageBytes: 0,
+            tableErrors: [],
+            authErrors: [],
+            storageErrors: [],
+            tables: [],
             buckets: [],
             objects: [],
-            errors: [],
           };
+
+          // Discover all tables/functions exposed through the project's PostgREST schema.
+          const openApi = await fetchRetry(`${apiUrl}/rest/v1/`, {
+            headers: { apikey: serverKey, Accept: 'application/openapi+json' },
+          });
+          if (!openApi.ok || !openApi.body || typeof openApi.body !== 'object') {
+            throw new Error(`PostgREST OpenAPI discovery failed: HTTP ${openApi.status}`);
+          }
+          fs.writeFileSync(path.join(metaDir, 'postgrest-openapi.json'), JSON.stringify(openApi.body, null, 2) + '\n', { mode: 0o600 });
+          const tables = [...new Set(Object.keys(openApi.body.paths || {})
+            .filter(p => /^\/[A-Za-z_][A-Za-z0-9_]*$/.test(p) && !p.startsWith('/rpc/'))
+            .map(p => p.slice(1)))]
+            .sort();
+          manifest.exposedTablesDiscovered = tables.length;
+          fs.writeFileSync(path.join(metaDir, 'exposed-tables.txt'), tables.join('\n') + '\n', { mode: 0o600 });
+
+          for (const table of tables) {
+            const outPath = path.join(dataDir, `${safe(table)}.jsonl`);
+            const out = fs.createWriteStream(outPath, { mode: 0o600 });
+            let offset = 0;
+            let rowsWritten = 0;
+            let failed = false;
+            const pageSize = 1000;
+            for (;;) {
+              const result = await retrySdk(`table ${table} offset ${offset}`, () =>
+                supabase.from(table).select('*').range(offset, offset + pageSize - 1)
+              );
+              if (result?.error) {
+                manifest.tableErrors.push({ table, offset, error: result.error.message || String(result.error), status: result.error.status || result.error.statusCode || null });
+                failed = true;
+                break;
+              }
+              const rows = Array.isArray(result.data) ? result.data : [];
+              for (const row of rows) out.write(JSON.stringify(row) + '\n');
+              rowsWritten += rows.length;
+              manifest.rowsExported += rows.length;
+              if (rows.length < pageSize) break;
+              offset += rows.length;
+              if (offset > 5000000) {
+                manifest.tableErrors.push({ table, offset, error: 'Safety cap exceeded at 5,000,000 rows' });
+                failed = true;
+                break;
+              }
+            }
+            await new Promise(resolve => out.end(resolve));
+            manifest.tables.push({ table, rows: rowsWritten, file: `data/${safe(table)}.jsonl`, complete: !failed });
+            if (!failed) manifest.tablesExported++;
+          }
+
+          // Export Auth user metadata with the admin API. Password material is not exposed by this API.
+          let page = 1;
+          const authOut = fs.createWriteStream(path.join(authDir, 'users.jsonl'), { mode: 0o600 });
+          for (;;) {
+            const result = await retrySdk(`auth users page ${page}`, () => supabase.auth.admin.listUsers({ page, perPage: 1000 }));
+            if (result?.error) {
+              manifest.authErrors.push({ page, error: result.error.message || String(result.error), status: result.error.status || null });
+              break;
+            }
+            const users = result?.data?.users || [];
+            for (const user of users) authOut.write(JSON.stringify(user) + '\n');
+            manifest.authUsersExported += users.length;
+            if (users.length < 1000) break;
+            page++;
+          }
+          await new Promise(resolve => authOut.end(resolve));
 
           function cleanSegment(s) {
             const v = String(s || '').replace(/[\\/\0]/g, '_');
             return v || '_';
           }
           function destination(bucket, objectPath) {
-            const bucketDir = path.join(objRoot, cleanSegment(bucket));
+            const bucketDir = path.join(objectDir, cleanSegment(bucket));
             const parts = String(objectPath).split('/').map(cleanSegment);
             let target = path.join(bucketDir, ...parts);
             const resolvedBucket = path.resolve(bucketDir) + path.sep;
             if (!path.resolve(target).startsWith(resolvedBucket)) {
-              const ext = path.extname(objectPath).slice(0, 20);
-              target = path.join(bucketDir, '_hashed', crypto.createHash('sha256').update(objectPath).digest('hex') + ext);
+              target = path.join(bucketDir, '_hashed', crypto.createHash('sha256').update(objectPath).digest('hex') + path.extname(objectPath).slice(0, 20));
             }
             return target;
           }
 
-          async function listFolder(bucket, prefix = '') {
-            let offset = 0;
-            const limit = 1000;
-            for (;;) {
-              const { data, error } = await supabase.storage.from(bucket).list(prefix, {
-                limit,
-                offset,
-                sortBy: { column: 'name', order: 'asc' },
-              });
-              if (error) throw new Error(`List failed for ${bucket}/${prefix}: ${error.message}`);
-              const entries = data || [];
-              for (const item of entries) {
-                const objectPath = prefix ? `${prefix}/${item.name}` : item.name;
-                if (item.id === null || item.id === undefined) {
-                  await listFolder(bucket, objectPath);
-                  continue;
+          const bucketsResult = await retrySdk('list storage buckets', () => supabase.storage.listBuckets({ limit: 1000, offset: 0 }));
+          if (bucketsResult?.error) {
+            manifest.storageErrors.push({ operation: 'listBuckets', error: bucketsResult.error.message || String(bucketsResult.error), status: bucketsResult.error.status || bucketsResult.error.statusCode || null });
+          } else {
+            const buckets = bucketsResult.data || [];
+            manifest.storageBuckets = buckets.length;
+            async function listFolder(bucket, prefix = '') {
+              let offset = 0;
+              const limit = 1000;
+              for (;;) {
+                const listed = await retrySdk(`storage list ${bucket}/${prefix} offset ${offset}`, () =>
+                  supabase.storage.from(bucket).list(prefix, { limit, offset, sortBy: { column: 'name', order: 'asc' } })
+                );
+                if (listed?.error) {
+                  manifest.storageErrors.push({ bucket, prefix, operation: 'list', error: listed.error.message || String(listed.error), status: listed.error.status || listed.error.statusCode || null });
+                  return;
                 }
-                try {
-                  const { data: blob, error: downloadError } = await supabase.storage.from(bucket).download(objectPath);
-                  if (downloadError) throw downloadError;
-                  const bytes = Buffer.from(await blob.arrayBuffer());
+                const entries = listed.data || [];
+                for (const item of entries) {
+                  const objectPath = prefix ? `${prefix}/${item.name}` : item.name;
+                  if (item.id === null || item.id === undefined) {
+                    await listFolder(bucket, objectPath);
+                    continue;
+                  }
+                  const downloaded = await retrySdk(`storage download ${bucket}/${objectPath}`, () => supabase.storage.from(bucket).download(objectPath));
+                  if (downloaded?.error || !downloaded?.data) {
+                    manifest.storageErrors.push({ bucket, path: objectPath, operation: 'download', error: downloaded?.error?.message || 'No data', status: downloaded?.error?.status || downloaded?.error?.statusCode || null });
+                    continue;
+                  }
+                  const bytes = Buffer.from(await downloaded.data.arrayBuffer());
                   const target = destination(bucket, objectPath);
                   fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
                   fs.writeFileSync(target, bytes, { mode: 0o600 });
                   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-                  manifest.objectCount++;
-                  manifest.totalBytes += bytes.length;
-                  manifest.objects.push({
-                    bucket,
-                    path: objectPath,
-                    bytes: bytes.length,
-                    sha256,
-                    localPath: path.relative(root, target),
-                    metadata: item.metadata || null,
-                    createdAt: item.created_at || null,
-                    updatedAt: item.updated_at || null,
-                  });
-                } catch (e) {
-                  manifest.errors.push({ bucket, path: objectPath, error: e?.message || String(e) });
+                  manifest.storageObjects++;
+                  manifest.storageBytes += bytes.length;
+                  manifest.objects.push({ bucket, path: objectPath, bytes: bytes.length, sha256, localPath: path.relative(root, target), metadata: item.metadata || null, createdAt: item.created_at || null, updatedAt: item.updated_at || null });
                 }
+                if (entries.length < limit) break;
+                offset += entries.length;
               }
-              if (entries.length < limit) break;
-              offset += entries.length;
+            }
+            for (const bucket of buckets) {
+              manifest.buckets.push({ id: bucket.id, name: bucket.name, public: bucket.public, fileSizeLimit: bucket.file_size_limit ?? null, allowedMimeTypes: bucket.allowed_mime_types ?? null, createdAt: bucket.created_at ?? null, updatedAt: bucket.updated_at ?? null });
+              await listFolder(bucket.id, '');
             }
           }
 
-          for (const bucket of buckets || []) {
-            manifest.buckets.push({
-              id: bucket.id,
-              name: bucket.name,
-              public: bucket.public,
-              fileSizeLimit: bucket.file_size_limit ?? null,
-              allowedMimeTypes: bucket.allowed_mime_types ?? null,
-              createdAt: bucket.created_at ?? null,
-              updatedAt: bucket.updated_at ?? null,
-            });
-            await listFolder(bucket.id, '');
-          }
-
-          fs.writeFileSync(path.join(metaRoot, 'storage-manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
-          fs.writeFileSync(path.join(metaRoot, 'summary.txt'), [
-            `bucketCount=${manifest.bucketCount}`,
-            `objectCount=${manifest.objectCount}`,
-            `totalBytes=${manifest.totalBytes}`,
-            `downloadErrors=${manifest.errors.length}`,
+          fs.writeFileSync(path.join(metaDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
+          fs.writeFileSync(path.join(metaDir, 'summary.txt'), [
+            `createdAt=${manifest.createdAt}`,
+            `exposedTablesDiscovered=${manifest.exposedTablesDiscovered}`,
+            `tablesExported=${manifest.tablesExported}`,
+            `rowsExported=${manifest.rowsExported}`,
+            `tableErrors=${manifest.tableErrors.length}`,
+            `authUsersExported=${manifest.authUsersExported}`,
+            `authErrors=${manifest.authErrors.length}`,
+            `storageBuckets=${manifest.storageBuckets}`,
+            `storageObjects=${manifest.storageObjects}`,
+            `storageBytes=${manifest.storageBytes}`,
+            `storageErrors=${manifest.storageErrors.length}`,
           ].join('\n') + '\n', { mode: 0o600 });
-          console.log(`Storage snapshot complete: buckets=${manifest.bucketCount}, objects=${manifest.objectCount}, bytes=${manifest.totalBytes}, errors=${manifest.errors.length}`);
-          if (manifest.errors.length) process.exitCode = 3;
+          console.log(`Independent Supabase snapshot complete: tables=${manifest.tablesExported}/${manifest.exposedTablesDiscovered}, rows=${manifest.rowsExported}, authUsers=${manifest.authUsersExported}, buckets=${manifest.storageBuckets}, objects=${manifest.storageObjects}, tableErrors=${manifest.tableErrors.length}, storageErrors=${manifest.storageErrors.length}`);
           NODE
 
-      - name: Encrypt Storage snapshot and create separate recovery key
-        if: success()
+      - name: Encrypt independent Supabase recovery snapshot
         shell: bash
         run: |
           set -Eeuo pipefail
           umask 077
-          tar -C /tmp -czf /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz tc-storage-backup
-          openssl rand -base64 48 > /tmp/TruelyCollectables-supabase-storage-2026-08-15.recovery-key.txt
+          tar -C /tmp -czf /tmp/TruelyCollectables-supabase-independent-2026-08-15.tar.gz tc-supabase-independent
+          openssl rand -base64 48 > /tmp/TruelyCollectables-supabase-independent-2026-08-15.recovery-key.txt
           openssl enc -aes-256-cbc -salt -pbkdf2 -iter 310000 -md sha256 \
-            -in /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz \
-            -out /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz.enc \
-            -pass file:/tmp/TruelyCollectables-supabase-storage-2026-08-15.recovery-key.txt
-          sha256sum /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz.enc > /tmp/TruelyCollectables-supabase-storage-2026-08-15.sha256
-          rm -f /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz
+            -in /tmp/TruelyCollectables-supabase-independent-2026-08-15.tar.gz \
+            -out /tmp/TruelyCollectables-supabase-independent-2026-08-15.tar.gz.enc \
+            -pass file:/tmp/TruelyCollectables-supabase-independent-2026-08-15.recovery-key.txt
+          sha256sum /tmp/TruelyCollectables-supabase-independent-2026-08-15.tar.gz.enc > /tmp/TruelyCollectables-supabase-independent-2026-08-15.sha256
+          rm -f /tmp/TruelyCollectables-supabase-independent-2026-08-15.tar.gz
 
-      - name: Upload encrypted Storage backup
-        if: success()
+      - name: Upload encrypted independent Supabase backup
         uses: actions/upload-artifact@v4
         with:
-          name: TruelyCollectables-supabase-storage-encrypted-2026-08-15
+          name: TruelyCollectables-supabase-independent-encrypted-2026-08-15
           path: |
-            /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz.enc
-            /tmp/TruelyCollectables-supabase-storage-2026-08-15.sha256
+            /tmp/TruelyCollectables-supabase-independent-2026-08-15.tar.gz.enc
+            /tmp/TruelyCollectables-supabase-independent-2026-08-15.sha256
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload Storage recovery key separately
-        if: success()
+      - name: Upload independent Supabase recovery key separately
         uses: actions/upload-artifact@v4
         with:
-          name: TruelyCollectables-supabase-storage-recovery-key-2026-08-15
-          path: /tmp/TruelyCollectables-supabase-storage-2026-08-15.recovery-key.txt
+          name: TruelyCollectables-supabase-independent-recovery-key-2026-08-15
+          path: /tmp/TruelyCollectables-supabase-independent-2026-08-15.recovery-key.txt
           if-no-files-found: error
           retention-days: 1
