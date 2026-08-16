@@ -9,6 +9,7 @@ from PIL import Image, ImageOps
 from .models import LocalVisionEvidence, OCRObservation
 
 _PRIZM_WORD_RE = re.compile(r"\bPRIZM\b", re.I)
+_MINIMUM_PRIZM_PARALLEL = "Silver Prizm"
 _PROMPT_OLD_RULE = (
     "- The word PRIZM on the back is useful positive evidence, but its absence is not proof of Base. "
     "Never force Base solely because OCR missed PRIZM."
@@ -16,12 +17,18 @@ _PROMPT_OLD_RULE = (
 _PROMPT_NEW_RULE = (
     "- For Panini Prizm cards, the bold black word PRIZM on the BACK is authoritative for parallel status. "
     "If that back mark is absent, classify the card as regular Base even when the front looks metallic, silver, colored, or patterned. "
-    "Never promote trusted style memory or a model parallel guess over a missing back PRIZM mark."
+    "If that back mark is present, classify the card as at least Silver Prizm; only upgrade to a color or patterned Prizm when the front evidence supports that stronger parallel. "
+    "Never promote trusted style memory or a model parallel guess over the physical back-mark rule."
 )
 
 
 def _normalized_word(value: object) -> str:
     return re.sub(r"[^A-Z]", "", str(value or "").upper())
+
+
+def _parallel_is_base_or_empty(value: object) -> bool:
+    text = re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+    return text in {"", "base", "base set", "base card", "regular", "standard", "none", "n a", "na"}
 
 
 def _standalone_prizm_observations(evidence: LocalVisionEvidence) -> list[OCRObservation]:
@@ -33,8 +40,6 @@ def _standalone_prizm_observations(evidence: LocalVisionEvidence) -> list[OCRObs
         if observation.side == "back"
         and _normalized_word(observation.text) == "PRIZM"
         and float(observation.confidence or 0) >= 0.72
-        # The actual parallel marker is a prominent standalone word, not tiny
-        # legal/copyright copy that merely happens to mention the product name.
         and float(observation.box.width or 0) >= 0.055
         and float(observation.box.height or 0) >= 0.015
     ]
@@ -46,8 +51,6 @@ def _dark_ink_ratio(back_bytes: bytes, observation: OCRObservation) -> float:
             image = ImageOps.exif_transpose(opened).convert("L")
             width, height = image.size
             box = observation.box
-            # Apple Vision uses normalized lower-left coordinates. PIL crops use
-            # top-left pixel coordinates, so flip Y while preserving the OCR box.
             left = max(0, min(width - 1, int(box.x * width)))
             right = max(left + 1, min(width, int((box.x + box.width) * width)))
             top = max(0, min(height - 1, int((1.0 - box.y - box.height) * height)))
@@ -58,9 +61,6 @@ def _dark_ink_ratio(back_bytes: bytes, observation: OCRObservation) -> float:
         return 0.0
 
     total = max(1, sum(histogram))
-    # Black printed letters occupy a meaningful fraction of the standalone OCR
-    # box. The threshold is deliberately modest because anti-aliasing and JPEG
-    # compression soften letter edges while still leaving a clear black mark.
     dark = sum(histogram[:106])
     very_dark = sum(histogram[:66])
     return max(dark / total, (very_dark / total) * 1.15)
@@ -75,8 +75,6 @@ def bold_black_prizm_back_mark(
     if not observations:
         return False
     if back_bytes is None:
-        # Stored evidence no longer has pixels attached. A strong standalone OCR
-        # box is the durable receipt; live scans additionally verify dark ink.
         return True
     return any(_dark_ink_ratio(back_bytes, value) >= 0.055 for value in observations)
 
@@ -107,24 +105,45 @@ def apply_prizm_back_mark_rule(
     *,
     back_bytes: bytes | None,
 ) -> LocalVisionEvidence:
-    """Force Panini Prizm cards to Base unless the authoritative back mark exists."""
+    """Apply the physical Panini Prizm hierarchy before learned styling.
+
+    No bold black PRIZM on the back means regular Base. A present back PRIZM
+    mark means at least Silver Prizm. Existing stronger non-Base evidence such as
+    Green, Ice, or Velocity is preserved for the later deterministic pattern and
+    color gates to validate.
+    """
     if not local_evidence_is_prizm_family(evidence):
         return evidence
 
     mark_present = bold_black_prizm_back_mark(evidence, back_bytes)
     back = evidence.back
+
     if mark_present:
+        current_parallel = evidence.identity_hints.parallel
+        resolved_parallel = (
+            _MINIMUM_PRIZM_PARALLEL
+            if _parallel_is_base_or_empty(current_parallel)
+            else current_parallel
+        )
+        identity_hints = evidence.identity_hints.model_copy(
+            update={"parallel": resolved_parallel}
+        )
         if back is None:
-            return evidence
+            return evidence.model_copy(update={"identity_hints": identity_hints})
         pattern = back.pattern.model_copy(
             update={
                 "geometry": [
                     *back.pattern.geometry,
-                    "authoritative bold black PRIZM back mark present",
+                    "authoritative bold black PRIZM back mark present; minimum parallel Silver Prizm",
                 ]
             }
         )
-        return evidence.model_copy(update={"back": back.model_copy(update={"pattern": pattern})})
+        return evidence.model_copy(
+            update={
+                "identity_hints": identity_hints,
+                "back": back.model_copy(update={"pattern": pattern}),
+            }
+        )
 
     identity_hints = evidence.identity_hints.model_copy(update={"parallel": "Base"})
     if back is None:
@@ -146,7 +165,7 @@ def apply_prizm_back_mark_rule(
 
 
 def install_prizm_back_mark_guard() -> None:
-    """Install the back-mark rule before style memory and model/Registry merging."""
+    """Install the physical Prizm hierarchy before style memory and model merging."""
     from . import local_vision as local_vision_module
     from . import ollama as ollama_module
 
@@ -176,11 +195,21 @@ def install_prizm_back_mark_guard() -> None:
             identity = dict(root.get("identity") or {})
             if not _identity_is_prizm_family(identity):
                 return root
-            # If the live deterministic rule already forced Base, preserve it.
-            # Otherwise use the durable standalone-back OCR receipt to catch the
-            # case where the model recognized the Prizm family but front OCR did not.
-            if str(local_vision.identity_hints.parallel or "").strip().casefold() == "base" or not bold_black_prizm_back_mark(local_vision):
+
+            mark_present = bold_black_prizm_back_mark(local_vision)
+            if not mark_present:
                 identity["parallel"] = "Base"
+                root["identity"] = identity
+                return root
+
+            model_parallel = identity.get("parallel")
+            local_parallel = local_vision.identity_hints.parallel
+            if _parallel_is_base_or_empty(model_parallel):
+                identity["parallel"] = (
+                    local_parallel
+                    if not _parallel_is_base_or_empty(local_parallel)
+                    else _MINIMUM_PRIZM_PARALLEL
+                )
                 root["identity"] = identity
             return root
 
