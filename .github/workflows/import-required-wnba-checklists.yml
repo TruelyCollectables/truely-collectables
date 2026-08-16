@@ -51,7 +51,10 @@ jobs:
           echo "Production import route did not become available."
           exit 1
       - name: Import all eight required WNBA checklists
-        run: npx tsx scripts/import-required-wnba-checklists.ts
+        shell: bash
+        run: |
+          cp scripts/import-required-wnba-checklists.ts scripts/import-required-wnba-checklists.mts
+          npx tsx scripts/import-required-wnba-checklists.mts
       - name: Upload import receipt
         if: always()
         uses: actions/upload-artifact@v4
