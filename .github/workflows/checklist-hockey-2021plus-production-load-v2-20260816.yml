@@ -80,15 +80,20 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install and certify set-aware Upper Deck importer
+      - name: Install and certify set-aware Upper Deck bulk importer
         shell: bash
         run: |
           set -euo pipefail
           npm ci
+          node --check scripts/patch-hockey-2021plus-priority-importer.mjs
           node scripts/patch-hockey-2021plus-priority-importer.mjs
+          node --check scripts/patch-hockey-bulk-writer.mjs
+          node scripts/patch-hockey-bulk-writer.mjs
           grep -F 'plan.adapterVersion = "1.1.0";' scripts/import-hockey-2021plus-priority.mjs
           node --check scripts/import-hockey-2021plus-priority.mjs
+          node --check scripts/mainstream-checklist/bulk-registry-tools.mjs
           bash -n scripts/repair-mainstream-checklist-schema.sh
+          bash -n scripts/install-checklist-bulk-writer.sh
 
       - name: Resolve Production Supabase
         shell: bash
@@ -112,11 +117,12 @@ jobs:
           echo "RESOLVED_SUPABASE_PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
 
-      - name: Repair and optimize Production Registry writer
+      - name: Repair and install Production Registry writers
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/repair-mainstream-checklist-schema.sh
+          bash scripts/install-checklist-bulk-writer.sh
 
       - name: Import and verify hockey 2021 plus priority releases
         shell: bash
@@ -138,7 +144,7 @@ jobs:
           test "$(jq -r '.expected' "$receipt")" -eq 3
           test "$(jq -r '.verified' "$receipt")" -eq 3
           test "$(jq -r '.failed' "$receipt")" -eq 0
-          jq -r '.results[] | [.exactSetKey,.status,(.verification.cards // 0),(.verification.versionId // ""),(.message // "")] | @tsv' "$receipt"
+          jq -r '.results[] | [.exactSetKey,.status,(.verification.cards // 0),(.verification.versionId // ""),(.persistence.bulk // false),(.message // "")] | @tsv' "$receipt"
 
       - name: Upload hockey Production receipt
         if: always()
@@ -151,4 +157,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/hockey-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/hockey-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" "$RUNNER_TEMP/checklist-bulk-writer-install" .env.local .env.production.local .vercel
