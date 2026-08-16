@@ -17,7 +17,7 @@ const EXACT_KEYS=new Set([
 if(!ROOT||!existsSync(ROOT))throw new Error(`Verified harvest root is missing: ${ROOT}`);
 const summaryPath=resolve(ROOT,"output/summary.json"),sourcesDir=resolve(ROOT,"output/sources");
 const safeSlug=(value)=>String(value||"").replace(/[^A-Za-z0-9._-]+/g,"_").replace(/^_+|_+$/g,"")||"target";
-const displayToken=(value)=>String(value||"").split("-").filter(Boolean).map((part)=>({nhl:"NHL",wnba:"WNBA"}[part.toLowerCase()]||`${part.slice(0,1).toUpperCase()}${part.slice(1)}`).join(" ");
+const displayToken=(value)=>String(value||"").split("-").filter(Boolean).map((part)=>({nhl:"NHL",wnba:"WNBA"}[part.toLowerCase()]||`${part.slice(0,1).toUpperCase()}${part.slice(1)}`)).join(" ");
 function buildEntry(row,sourceUrl){const [sport,season,manufacturerKey,productKey]=row.exactSetKey.split("|");const manufacturer=displayToken(manufacturerKey),product=displayToken(productKey);return{id:`grouped-workbook-${safeSlug(row.exactSetKey)}`,sourceName:new URL(sourceUrl).hostname,sourceUrl,authority:"official_manufacturer",redistributionAllowed:false,minimumCardRows:MINIMUM_CARD_ROWS,release:{exactSetKey:row.exactSetKey,canonicalName:`${season} ${manufacturer} ${product} ${displayToken(sport)}`,manufacturer,brand:null,product,releaseYear:Number(season.slice(0,4)),season,sport,league:null}};}
 
 const PYTHON=String.raw`
