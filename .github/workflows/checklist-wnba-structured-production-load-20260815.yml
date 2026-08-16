@@ -1,0 +1,179 @@
+name: Checklist WNBA Structured Production Load 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/workflows/checklist-wnba-structured-production-load-20260815.yml'
+      - 'scripts/patch-wnba-panini-conflict-resolution.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+  CHECKLIST_SKIP_ARCHIVE_BUCKET_PREFLIGHT: 'true'
+
+jobs:
+  wnba-structured-production-load:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 110
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Isolate this checklist writer
+        shell: bash
+        env:
+          GH_ACTIONS_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-isolation"
+          mkdir -p "$root"
+          repo="$GITHUB_REPOSITORY"
+          self="$GITHUB_RUN_ID"
+
+          list_conflicts() {
+            : > "$root/conflicts.txt"
+            for state in in_progress queued; do
+              curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_ACTIONS_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$repo/actions/runs?status=$state&per_page=100" \
+                -o "$root/$state.json"
+              jq -r --arg self "$self" '
+                .workflow_runs[]
+                | select((.id | tostring) != $self)
+                | select((.path // "") | startswith(".github/workflows/checklist-"))
+                | [.id, .name, .status] | @tsv
+              ' "$root/$state.json" >> "$root/conflicts.txt"
+            done
+            sort -u "$root/conflicts.txt" -o "$root/conflicts.txt"
+          }
+
+          stop_runs() {
+            local endpoint="$1"
+            while IFS=$'\t' read -r run_id run_name run_status; do
+              [ -n "$run_id" ] || continue
+              echo "$endpoint $run_id :: $run_name :: $run_status"
+              code="$(curl --silent --show-error --output "$root/$endpoint-$run_id.json" --write-out '%{http_code}' \
+                -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_ACTIONS_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$repo/actions/runs/$run_id/$endpoint")"
+              case "$code" in
+                202|409) ;;
+                *) echo "Unexpected $endpoint response $code for $run_id"; cat "$root/$endpoint-$run_id.json"; exit 1 ;;
+              esac
+            done < "$root/conflicts.txt"
+          }
+
+          list_conflicts
+          if [ -s "$root/conflicts.txt" ]; then
+            echo "Cancelling other checklist writers:"
+            cat "$root/conflicts.txt"
+            stop_runs cancel
+          fi
+          sleep 12
+          list_conflicts
+          if [ -s "$root/conflicts.txt" ]; then
+            echo "Force-cancelling checklist writers that did not stop:"
+            cat "$root/conflicts.txt"
+            stop_runs force-cancel
+          fi
+
+          for round in 1 2 3 4 5 6; do
+            sleep 8
+            list_conflicts
+            remaining="$(wc -l < "$root/conflicts.txt" | tr -d ' ')"
+            echo "Isolation round $round: $remaining competing checklist run(s)"
+            [ "$remaining" -eq 0 ] && break
+            if [ "$round" -eq 6 ]; then
+              cat "$root/conflicts.txt"
+              exit 1
+            fi
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and certify structured Panini parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          npm ci
+          node --check scripts/patch-wnba-panini-conflict-resolution.mjs
+          node scripts/patch-wnba-panini-conflict-resolution.mjs
+          node --check scripts/import-wnba-panini-pdfs.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/wnba-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Import all eight WNBA PDFs into Production Registry
+        shell: bash
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/wnba-load"
+          mkdir -p "$out"
+          WNBA_IMPORT_OUTPUT="$out/receipt.json" \
+            node --import tsx scripts/import-wnba-panini-pdfs.mjs
+
+      - name: Require 8 of 8 verified persisted
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/wnba-load/receipt.json"
+          jq . "$receipt"
+          expected="$(jq -r '.expected' "$receipt")"
+          imported="$(jq -r '.imported' "$receipt")"
+          failed="$(jq -r '.failed' "$receipt")"
+          echo "WNBA verified persisted: $imported / $expected; failed=$failed"
+          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.sets // 0),(.persistence.ok // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
+          test "$expected" -eq 8
+          test "$imported" -eq 8
+          test "$failed" -eq 0
+
+      - name: Upload WNBA Production receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-wnba-structured-production-load-${{ github.run_id }}
+          path: ${{ runner.temp }}/wnba-load
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" .env.local .env.production.local .vercel
