@@ -5,7 +5,7 @@ const ROOT = resolve(process.env.EXHAUSTIVE_CHECKLIST_ROOT || ".checklist-discov
 const OUT = resolve(ROOT, "targets.json");
 const CENSUS = resolve(ROOT, "census.json");
 const BASE = "https://gogts.net";
-const UA = "TCOS-Exhaustive-Checklist-Census/1.0 (+private Registry automation; contact sales@truelycollectables.com)";
+const UA = "TCOS-Exhaustive-Checklist-Census/1.1 (+private Registry automation; contact sales@truelycollectables.com)";
 
 function decode(value) {
   const named = { amp: "&", apos: "'", quot: '"', nbsp: " ", ndash: "-", mdash: "-", rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"' };
@@ -90,7 +90,8 @@ function manufacturerFor(title) {
   if (/\bTopps\b/i.test(title)) return "topps";
   if (/\bIn The Game\b/i.test(title)) return "in-the-game";
   if (/\bPresident'?s Choice\b/i.test(title)) return "presidents-choice";
-  if (/\b(?:O-Pee-Chee|SPx|SP Authentic|SP Game[- ]Used|Trilogy|Artifacts|Allure|Black Diamond|Credentials|Clear Cut|Extended Series|Series (?:One|Two|1|2)|MVP|Ice|Premier|Ultimate Collection|Engrained|Parkhurst|Metal Universe|PWHL|AHL|CHL)\b/i.test(title)) return "upper-deck";
+  if (/\b(?:Donruss|Prizm|Select|Origins|Impeccable|One\s*(?:&|and)\s*One)\b/i.test(title) && /\bWNBA\b/i.test(title)) return "panini";
+  if (/\b(?:O-Pee-Chee|SPx|SP Authentic|SP Game[- ]Used|Trilogy|Artifacts|Allure|Black Diamond|Credentials|Clear Cut|Extended Series|Series (?:One|Two|1|2)|MVP|Ice|Premier|Ultimate Collection|Engrained|Parkhurst|Metal Universe|Skybox|Flair|Stature|Synergy|The Cup|PWHL|AHL|CHL|National Hockey Card Day)\b/i.test(title)) return "upper-deck";
   return "other";
 }
 function productFor(title, token, manufacturer, isWnba) {
@@ -105,8 +106,9 @@ function productFor(title, token, manufacturer, isWnba) {
   const hasNhl = /\bNHL\b/i.test(value) || /\bNHL\b/i.test(title);
   value = value.replace(/\bNHL\b/gi, " ");
   let product = slug(value) || "checklist";
+  if (/national.*card.*day/i.test(title)) product = "national-hockey-card-day";
   if (isWnba && !product.endsWith("wnba")) product += "-wnba";
-  else if (hasNhl && !product.endsWith("nhl")) product += "-nhl";
+  else if (hasNhl && !product.endsWith("nhl") && product !== "national-hockey-card-day") product += "-nhl";
   return product;
 }
 function attachmentCandidates(html, baseUrl) {
@@ -118,7 +120,8 @@ function attachmentCandidates(html, baseUrl) {
       if (!/\.(?:pdf|xlsx|xls|csv)(?:$|[?#])/i.test(url) && !/\b(?:pdf|excel|xlsx|xls|spreadsheet|checklist)\b/i.test(label)) continue;
       let score = 0;
       if (/\.pdf(?:$|[?#])/i.test(url)) score += 50;
-      if (/\.xlsx?(?:$|[?#])/i.test(url)) score += 40;
+      if (/\.xlsx?(?:$|[?#])/i.test(url)) score += 45;
+      if (/\.xls(?:$|[?#])/i.test(url)) score += 42;
       if (/checklist/i.test(label)) score += 25;
       if (/complete|full/i.test(label)) score += 10;
       rows.push({ url, label, score });
@@ -135,16 +138,31 @@ async function mapLimit(values, limit, worker) {
 
 mkdirSync(ROOT, { recursive: true });
 const all = await sitemapUrls();
-for (const term of ["Hockey Cards Checklist", "NHL Hockey Cards Checklist", "PWHL Cards Checklist", "WNBA Basketball Cards Checklist", "WNBA Cards Checklist"]) {
+const searchTerms = new Set([
+  "Hockey Cards Checklist", "NHL Hockey Cards Checklist", "PWHL Cards Checklist", "AHL Hockey Cards Checklist", "CHL Hockey Cards Checklist",
+  "Leaf Hockey Cards Checklist", "WNBA Basketball Cards Checklist", "WNBA Cards Checklist",
+]);
+for (const season of ["2021-22", "2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]) {
+  searchTerms.add(`${season} Hockey Cards Checklist`);
+  searchTerms.add(`${season} NHL Hockey Checklist`);
+  searchTerms.add(`${season} Upper Deck Hockey`);
+  searchTerms.add(`${season} Leaf Hockey`);
+}
+for (const year of [2024, 2025, 2026]) {
+  searchTerms.add(`${year} WNBA Basketball Cards Checklist`);
+  searchTerms.add(`${year} WNBA Checklist`);
+}
+for (const term of searchTerms) {
   for (const url of await wpSearch(term)) all.add(url);
 }
 const likely = [...all].filter((url) => /checklist/i.test(url) && /(?:hockey|nhl|pwhl|ahl|chl|wnba)/i.test(url));
 console.log(`Candidate checklist pages: ${likely.length}`);
-const inspected = (await mapLimit(likely, 10, async (pageUrl) => {
+const inspected = (await mapLimit(likely, 12, async (pageUrl) => {
   try {
     const page = await fetchText(pageUrl);
     const title = titleFromHtml(page.text);
     if (!requested(title)) return null;
+    if (/\bSeries (?:One|1)\b.*\bYoung Guns\b/i.test(title) && !/\bSeries (?:One|1)\b.*\bHockey Cards Checklist\b/i.test(title)) return null;
     const token = releaseToken(title);
     const isWnba = /\bwnba\b/i.test(title);
     const sport = isWnba ? "basketball" : "hockey";
@@ -152,7 +170,7 @@ const inspected = (await mapLimit(likely, 10, async (pageUrl) => {
     const product = productFor(title, token, manufacturer, isWnba);
     const links = attachmentCandidates(page.text, page.finalUrl);
     const sourceUrl = links[0]?.url || page.finalUrl;
-    const fallbackUrls = [page.finalUrl, ...links.slice(1, 5).map((row) => row.url)].filter((url, i, values) => url !== sourceUrl && values.indexOf(url) === i);
+    const fallbackUrls = [page.finalUrl, ...links.slice(1, 8).map((row) => row.url)].filter((url, i, values) => url !== sourceUrl && values.indexOf(url) === i);
     const startYear = Number(token.slice(0, 4));
     return {
       exactSetKey: `${sport}|${token}|${manufacturer}|${product}`,
@@ -183,7 +201,7 @@ const wnba = targets.filter((row) => row.exactSetKey.startsWith("basketball|"));
 const seasonCounts = {};
 for (const row of targets) seasonCounts[row.exactSetKey.split("|")[1]] = (seasonCounts[row.exactSetKey.split("|")[1]] || 0) + 1;
 const census = {
-  schema: "tcos.checklist.exhaustiveCensus.v1",
+  schema: "tcos.checklist.exhaustiveCensus.v2",
   generatedAt: new Date().toISOString(),
   scope: { hockey: "2021-22 and newer, including calendar-year hockey products", wnba: "2024 and newer" },
   discoveredSiteUrls: all.size,
