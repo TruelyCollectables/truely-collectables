@@ -1,0 +1,354 @@
+name: Checklist Priority WNBA Hockey Production 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/workflows/checklist-priority-wnba-hockey-production-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+
+jobs:
+  priority-production-load:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install checklist parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/mainstream-checklist/gogts-structured-normalizer.mjs
+
+      - name: Patch GoGTS structured normalization into parser path
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'scripts/mainstream-checklist/source-tools.mjs';
+          let source = readFileSync(path, 'utf8');
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error('GoGTS normalizer import anchor not found');
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = '  const text = extractText(downloaded, filename);';
+          const normalizedParse = '  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));';
+          if (!source.includes(normalizedParse)) {
+            const n = source.split(parseAnchor).length - 1;
+            if (n !== 1) throw new Error(`Expected one parser handoff anchor, found ${n}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, 'utf8');
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/priority-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Pull Production checklist catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-checklists"
+          mkdir -p "$out/catalog-pages" "$out/receipts"
+          : > "$out/catalog.ndjson"
+          for start in 0 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000 11000; do
+            end=$((start+999))
+            file="$out/catalog-pages/$start.json"
+            code="$(curl --silent --show-error --output "$file" --write-out '%{http_code}' --max-time 60 \
+              -H "apikey: $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Range: $start-$end" \
+              "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/checklist_source_catalog?select=id,status,sport,manufacturer,source_url,release_name,metadata,validation_counts&order=created_at.desc")"
+            case "$code" in 200|206) ;; *) echo "catalog fetch failed $code" >&2; exit 1;; esac
+            count="$(jq 'length' "$file")"
+            jq -c '.[]' "$file" >> "$out/catalog.ndjson"
+            [ "$count" -lt 1000 ] && break
+          done
+          jq -s '.' "$out/catalog.ndjson" > "$out/catalog.json"
+          echo "Catalog rows: $(jq 'length' "$out/catalog.json")"
+
+      - name: Load WNBA 2024-2025 then hockey 2021-22+ with idempotent Production verification
+        shell: bash
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-checklists"
+          CATALOG="$out/catalog.json" OUT="$out" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          import { join } from 'node:path';
+
+          const catalog = JSON.parse(readFileSync(process.env.CATALOG, 'utf8'));
+          const out = process.env.OUT;
+          mkdirSync(join(out, 'receipts'), { recursive: true });
+          const clean = s => String(s || '').replaceAll('&amp;', '&');
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+          const staticWnba = [
+            ['basketball|2024|panini|origins', 'https://gogts.net/2024-panini-origins-wnba-basketball-cards-checklist/'],
+            ['basketball|2024|panini|prizm', 'https://gogts.net/2024-panini-prizm-wnba-basketball-cards-checklist/'],
+            ['basketball|2024|panini|select', 'https://gogts.net/2024-panini-select-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|donruss', 'https://gogts.net/2025-donruss-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|impeccable', 'https://gogts.net/2025-panini-impeccable-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|one-and-one', 'https://gogts.net/2025-panini-one-and-one-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|prizm', 'https://gogts.net/2025-panini-prizm-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|select', 'https://gogts.net/2025-panini-select-wnba-basketball-cards-checklist/'],
+          ].map(([exactSetKey, source_url]) => ({ exactSetKey, source_url, group: 'wnba', staticPriority: true }));
+
+          function keyFor(row) {
+            return String(row?.metadata?.masterArchiveExactSetKey || row?.metadata?.exactSetKey || '').toLowerCase();
+          }
+          function yearForKey(key) {
+            return Number(((String(key).split('|')[1] || '').match(/\d{4}/) || [])[0] || 0);
+          }
+          function isWnba(row, key) {
+            const season = String(key.split('|')[1] || '');
+            if (!/^(2024|2025)(?:$|[-|])/.test(season)) return false;
+            return /wnba/i.test(JSON.stringify(row));
+          }
+          function isHockey(row, key) {
+            const parts = key.split('|');
+            if (parts.length !== 4 || yearForKey(key) < 2021) return false;
+            const text = `${parts[0]} ${row?.sport || ''} ${row?.release_name || ''} ${row?.source_url || ''}`;
+            return /hockey|nhl/i.test(text);
+          }
+
+          const byKey = new Map();
+          for (const row of catalog) {
+            const key = keyFor(row);
+            if (!key || key.split('|').length !== 4) continue;
+            let group = null;
+            if (isWnba(row, key)) group = 'wnba';
+            else if (isHockey(row, key)) group = 'hockey';
+            if (!group) continue;
+            const value = { ...row, exactSetKey: key, group };
+            const prior = byKey.get(key);
+            const score = v => (v?.status === 'imported' ? 100 : 0) + (/\.(xlsx?|csv|pdf)(?:\?|$)/i.test(v?.source_url || '') ? 25 : 0) + (/gogts\.net/i.test(v?.source_url || '') ? 10 : 0);
+            if (!prior || score(value) > score(prior)) byKey.set(key, value);
+          }
+          for (const row of staticWnba) {
+            const prior = byKey.get(row.exactSetKey);
+            byKey.set(row.exactSetKey, prior ? { ...prior, group: 'wnba', prioritySourceUrl: row.source_url } : row);
+          }
+          const targets = [...byKey.values()].sort((a,b) => {
+            if (a.group !== b.group) return a.group === 'wnba' ? -1 : 1;
+            return a.exactSetKey.localeCompare(b.exactSetKey);
+          });
+
+          const summary = {
+            schema: 'tcos.checklist.priorityWnbaHockeyProduction.v1',
+            runId: process.env.GITHUB_RUN_ID || null,
+            startedAt: new Date().toISOString(),
+            targetCount: targets.length,
+            wnbaTargets: targets.filter(x => x.group === 'wnba').length,
+            hockeyTargets: targets.filter(x => x.group === 'hockey').length,
+            verified: 0,
+            verifiedWnba: 0,
+            verifiedHockey: 0,
+            cards: 0,
+            netNew: 0,
+            alreadyPresent: 0,
+            failed: 0,
+            results: []
+          };
+          writeFileSync(join(out, 'targets.json'), JSON.stringify(targets, null, 2));
+
+          async function fetchText(url) {
+            for (let a = 0; a < 4; a++) {
+              try {
+                if (a) await sleep(1200 * a);
+                const c = new AbortController();
+                const t = setTimeout(() => c.abort(), 20000);
+                const r = await fetch(url, { signal: c.signal, redirect: 'follow', headers: { accept: 'text/html,application/json,*/*;q=0.8' } });
+                clearTimeout(t);
+                if (r.ok) return await r.text();
+                if (r.status === 429) await sleep(30000);
+              } catch {}
+            }
+            return '';
+          }
+
+          async function candidateUrls(row) {
+            const page = row.prioritySourceUrl || row.source_url;
+            if (!page) return [];
+            if (/\.(?:xlsx?|csv|pdf)(?:\?|$)/i.test(page)) return [page];
+            let html = '';
+            try {
+              const u = new URL(page);
+              if (/gogts\.net$/i.test(u.hostname)) {
+                const slug = u.pathname.split('/').filter(Boolean).pop();
+                const body = await fetchText(`https://gogts.net/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&_fields=content,link`);
+                const rows = body ? JSON.parse(body) : [];
+                html = String(rows?.[0]?.content?.rendered || '');
+              }
+            } catch {}
+            if (!html) html = await fetchText(page);
+            const links = new Set();
+            for (const m of html.matchAll(/(?:href|data-href)=["']([^"']+\.(?:xlsx?|csv|pdf)(?:\?[^"']*)?)["']/gi)) {
+              try { links.add(new URL(clean(m[1]), page).href); } catch {}
+            }
+            for (const m of html.matchAll(/https?:\\?\/\\?\/[^"'<>\s]+\.(?:xlsx?|csv|pdf)(?:\?[^"'<>\s]*)?/gi)) {
+              try { links.add(clean(m[0].replaceAll('\\/', '/'))); } catch {}
+            }
+            const all = [...links].sort((a,b) => {
+              const rank = u => /\.xlsx?(?:\?|$)/i.test(u) ? 0 : /\.csv(?:\?|$)/i.test(u) ? 1 : 2;
+              return rank(a) - rank(b);
+            });
+            if (!all.length) all.push(page);
+            return all.slice(0, 4);
+          }
+
+          function runPromotion(target, sourceUrl, suffix) {
+            const slug = target.exactSetKey.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+            const queue = join(out, `queue-${slug}-${suffix}.json`);
+            const filter = join(out, `filter-${slug}-${suffix}.json`);
+            const receipt = join(out, 'receipts', `${slug}-${suffix}.json`);
+            const validated = join(out, 'receipts', `${slug}-${suffix}-validated.json`);
+            const season = target.exactSetKey.split('|')[1] || '';
+            const year = Number((season.match(/\d{4}/) || [])[0] || 0);
+            writeFileSync(queue, JSON.stringify({
+              schema: 'tcos.checklist.mainstream2005plusCandidateValidationQueue.v1',
+              count: 1,
+              targets: [{ exactSetKey: target.exactSetKey, year, sport: target.exactSetKey.split('|')[0], sourceArtifact: 'priority-wnba-hockey-production-20260815', exactCandidateCount: 1, trustedAutoImportCandidateCount: 1, candidates: [] }]
+            }, null, 2));
+            writeFileSync(filter, JSON.stringify({ schema: 'tcos.checklist.priorityTarget.v1', targets: [{ exactSetKey: target.exactSetKey, sourceUrl }] }, null, 2));
+            const child = spawnSync('node', ['--import', 'tsx', 'scripts/promote-mainstream-2005plus-public-web-candidates.mjs'], {
+              encoding: 'utf8',
+              timeout: 150000,
+              env: {
+                ...process.env,
+                PUBLIC_WEB_CANDIDATE_QUEUE: queue,
+                PUBLIC_WEB_TARGET_FILTER: filter,
+                PUBLIC_WEB_PROMOTION_APPLY: 'true',
+                PUBLIC_WEB_PROMOTION_OUTPUT: receipt,
+                PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT: validated
+              }
+            });
+            if (child.stdout) process.stdout.write(child.stdout.slice(-12000));
+            if (child.stderr) process.stderr.write(child.stderr.slice(-8000));
+            try {
+              const r = JSON.parse(readFileSync(receipt, 'utf8'));
+              const result = (r.results || []).find(x => String(x.exactSetKey).toLowerCase() === target.exactSetKey) || (r.results || [])[0];
+              return { childStatus: child.status, result };
+            } catch (e) {
+              return { childStatus: child.status, result: null, error: e.message };
+            }
+          }
+
+          for (let i = 0; i < targets.length; i++) {
+            const target = targets[i];
+            const urls = await candidateUrls(target);
+            let success = null;
+            let reason = 'no usable source';
+            console.log(`=== PRIORITY ${i+1}/${targets.length} ${target.group.toUpperCase()} ${target.exactSetKey} ===`);
+            for (let u = 0; u < urls.length; u++) {
+              const sourceUrl = urls[u];
+              const first = runPromotion(target, sourceUrl, `apply-${u}`);
+              const p1 = first.result?.persistence;
+              if (first.result?.status !== 'imported' || p1?.ok !== true) {
+                reason = first.result?.message || (first.result?.errors || []).join('; ') || `first apply status=${first.result?.status || first.childStatus}`;
+                continue;
+              }
+              const verify = runPromotion(target, sourceUrl, `verify-${u}`);
+              const p2 = verify.result?.persistence;
+              if (verify.result?.status === 'imported' && p2?.ok === true && p2?.idempotent === true) {
+                success = { sourceUrl, first: first.result, verify: verify.result };
+                break;
+              }
+              reason = verify.result?.message || (verify.result?.errors || []).join('; ') || `verification was not idempotent status=${verify.result?.status || verify.childStatus}`;
+            }
+
+            if (success) {
+              const wasAlready = success.first.persistence?.idempotent === true;
+              const cards = Number(success.first.counts?.cards || success.verify.counts?.cards || 0);
+              summary.verified++;
+              summary.cards += cards;
+              if (target.group === 'wnba') summary.verifiedWnba++; else summary.verifiedHockey++;
+              if (wasAlready) summary.alreadyPresent++; else summary.netNew++;
+              summary.results.push({ exactSetKey: target.exactSetKey, group: target.group, status: 'verified-production', sourceUrl: success.sourceUrl, cards, firstPersistence: success.first.persistence, verificationPersistence: success.verify.persistence });
+              console.log(`>>> VERIFIED PRODUCTION ${wasAlready ? 'ALREADY-PRESENT' : 'NET-NEW'} ${target.exactSetKey} cards=${cards}`);
+            } else {
+              summary.failed++;
+              summary.results.push({ exactSetKey: target.exactSetKey, group: target.group, status: 'failed', reason, candidateUrls: urls });
+              console.error(`--- FAILED ${target.exactSetKey}: ${reason}`);
+            }
+            writeFileSync(join(out, 'priority-summary.json'), JSON.stringify(summary, null, 2));
+          }
+
+          summary.completedAt = new Date().toISOString();
+          writeFileSync(join(out, 'priority-summary.json'), JSON.stringify(summary, null, 2));
+          console.log('FINAL_PRIORITY_SUMMARY ' + JSON.stringify({
+            targetCount: summary.targetCount,
+            wnbaTargets: summary.wnbaTargets,
+            hockeyTargets: summary.hockeyTargets,
+            verified: summary.verified,
+            verifiedWnba: summary.verifiedWnba,
+            verifiedHockey: summary.verifiedHockey,
+            cards: summary.cards,
+            netNew: summary.netNew,
+            alreadyPresent: summary.alreadyPresent,
+            failed: summary.failed
+          }));
+          if (summary.failed > 0) process.exitCode = 2;
+          NODE
+
+      - name: Upload Production verification receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-priority-wnba-hockey-production-${{ github.run_id }}
+          path: ${{ runner.temp }}/priority-checklists
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup secrets
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/priority-production" .env.local .env.production.local .vercel
