@@ -7,6 +7,7 @@ on:
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-checklist-rate-limit-policy.ts"
       - "src/app/api/instacomp/checklist-lookup/route.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
   push:
@@ -15,6 +16,7 @@ on:
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-checklist-rate-limit-policy.ts"
       - "src/app/api/instacomp/checklist-lookup/route.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
 
