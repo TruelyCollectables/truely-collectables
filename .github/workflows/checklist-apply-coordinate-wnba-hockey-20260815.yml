@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/checklist-apply-coordinate-wnba-hockey-20260815.yml'
-      - 'supabase/migrations/20260816042000_tcos_checklist_staged_import.sql'
       - 'scripts/mainstream-checklist/staged-registry-writer.mjs'
       - 'scripts/apply-exhaustive-staged-plans.mjs'
   workflow_dispatch:
@@ -61,44 +60,8 @@ jobs:
           service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
           test -n "$service_key"
           echo "::add-mask::$service_key"
-          echo "PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
-
-      - name: Deploy chunk-safe Registry RPCs
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/staged-production"
-          sql_file="supabase/migrations/20260816042000_tcos_checklist_staged_import.sql"
-          function_sql="$root/staged-rpcs.sql"
-          test -s "$sql_file"
-          sed -n '/^create or replace function/,$p' "$sql_file" > "$function_sql"
-          test -s "$function_sql"
-          jq -Rs '{query:.}' < "$function_sql" > "$root/migration.json"
-          curl --silent --show-error --fail --max-time 75 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-binary @"$root/migration.json" \
-            -o "$root/migration-result.json" \
-            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
-          jq . "$root/migration-result.json"
-
-      - name: Prove staged RPCs are live
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/staged-production"
-          sql="select proname, pg_get_function_identity_arguments(p.oid) args from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and proname in ('tcos_begin_checklist_import_plan','tcos_append_checklist_import_chunk','tcos_finalize_checklist_import_plan') order by proname;"
-          jq -n --arg query "$sql" '{query:$query}' > "$root/proof-query.json"
-          curl --silent --show-error --fail --max-time 60 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-binary @"$root/proof-query.json" \
-            -o "$root/proof.json" \
-            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
-          jq . "$root/proof.json"
-          test "$(jq 'length' "$root/proof.json")" -ge 3
 
       - name: Download validated exhaustive harvest
         uses: actions/download-artifact@v4
@@ -115,7 +78,7 @@ jobs:
           test -s "$COORDINATE_HARVEST_ROOT/output/summary.json"
           jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities}' "$COORDINATE_HARVEST_ROOT/output/summary.json"
 
-      - name: Apply every clean plan through staged Registry writer
+      - name: Apply every clean plan through proven staged Registry RPCs
         shell: bash
         run: |
           set -o pipefail
