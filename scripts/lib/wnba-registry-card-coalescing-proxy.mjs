@@ -4,6 +4,9 @@ const PORT = Number(process.env.WNBA_CARD_PROXY_PORT || 4317);
 const UPSTREAM = process.env.WNBA_REGISTRY_UPSTREAM_URL ||
   "https://truelycollectables.com/api/internal/checklist-registry/wnba-import";
 const MAX_REQUEST_BYTES = 96 * 1024 * 1024;
+const ALREADY_IMPORTED_WITH_ORIGINAL_KEYS = new Set([
+  "2024-panini-origins-wnba",
+]);
 
 function clean(value) {
   return String(value ?? "")
@@ -37,7 +40,7 @@ function canonicalCardKey(card) {
 
 function coalescePlan(payload) {
   if (!payload || payload.operation !== "import_required_wnba_checklist" || !payload.plan) {
-    return { payload, before: null, after: null };
+    return { payload, before: null, after: null, skipped: false };
   }
 
   const plan = payload.plan;
@@ -46,6 +49,11 @@ function coalescePlan(payload) {
   }
 
   const before = plan.cards.length;
+  const releaseSlug = clean(plan.release?.releaseSlug);
+  if (ALREADY_IMPORTED_WITH_ORIGINAL_KEYS.has(releaseSlug)) {
+    return { payload, before, after: before, skipped: true };
+  }
+
   const merged = new Map();
   const sourceKeyRemap = new Map();
 
@@ -93,7 +101,7 @@ function coalescePlan(payload) {
   }
   plan.validation.counts.cards = plan.cards.length;
 
-  return { payload, before, after: plan.cards.length };
+  return { payload, before, after: plan.cards.length, skipped: false };
 }
 
 async function readRequest(request) {
@@ -125,10 +133,10 @@ const server = http.createServer(async (request, response) => {
     if (!authorization) throw new Error("OIDC authorization header is missing.");
     const raw = await readRequest(request);
     const incoming = JSON.parse(raw);
-    const { payload, before, after } = coalescePlan(incoming);
+    const { payload, before, after, skipped } = coalescePlan(incoming);
     const release = clean(payload?.plan?.release?.releaseSlug) || "unknown-release";
     console.log(
-      `[wnba-card-coalescer] ${release}: ${before ?? "?"} source cards -> ${after ?? "?"} Registry cards; ${payload?.plan?.identities?.length ?? "?"} identities preserved`,
+      `[wnba-card-coalescer] ${release}: ${before ?? "?"} source cards -> ${after ?? "?"} Registry cards; ${payload?.plan?.identities?.length ?? "?"} identities preserved${skipped ? "; existing import left unchanged" : ""}`,
     );
 
     const upstream = await fetch(UPSTREAM, {
