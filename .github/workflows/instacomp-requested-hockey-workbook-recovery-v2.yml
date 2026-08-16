@@ -1,0 +1,122 @@
+name: InstaComp Requested Hockey Workbook Recovery V2
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-requested-hockey-workbook-recovery-v2.yml'
+      - 'scripts/instacomp-target-checklists/run-parameterized-workbook-recovery.mjs'
+      - 'scripts/instacomp-target-checklists/resolve-production-supabase.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-requested-hockey-wave-production
+  cancel-in-progress: false
+
+jobs:
+  recover-requested-workbooks:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/requested-hockey-workbook-v2
+      CHECKLIST_REGISTRY_SET_CHUNK: '100'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_RPC_ATTEMPTS: '5'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
+      WORKBOOK_TARGET_ATTEMPTS: '4'
+      WORKBOOK_TARGET_RETRY_DELAY_MS: '15000'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install workbook readers
+        run: python3 -m pip install --disable-pip-version-check openpyxl xlrd
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+      - name: Download immutable 122-catalog harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/requested-hockey-workbook-v2
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+      - name: Prove immutable source bundle
+        run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+      - name: Recover seven requested workbook holdouts in waves of four
+        shell: bash
+        run: |
+          set -uo pipefail
+          root="$VERIFIED_HARVEST_ROOT/workbook-recovery-v2"
+          mkdir -p "$root"
+          keys=(
+            'hockey|2021-22|upper-deck|black-diamond-nhl'
+            'hockey|2021-22|upper-deck|o-pee-chee-nhl'
+            'hockey|2021-22|upper-deck|sp-game-used-nhl'
+            'hockey|2023|leaf|ultimate'
+            'hockey|2024|leaf|metal-legends'
+            'hockey|2025|upper-deck|national-hockey-card-day'
+            'hockey|2026|upper-deck|national-hockey-card-day'
+          )
+          overall=0
+          receipts=()
+          for ((offset=0; offset<${#keys[@]}; offset+=4)); do
+            wave=$((offset/4+1))
+            echo "=== REQUESTED WORKBOOK WAVE $wave ==="
+            pids=()
+            wave_logs=()
+            for ((j=offset; j<offset+4 && j<${#keys[@]}; j++)); do
+              key="${keys[$j]}"
+              receipt="$root/receipt-$j.json"
+              log="$root/target-$j.log"
+              receipts+=("$receipt")
+              wave_logs+=("$log")
+              payload="$(jq -cn --arg k "$key" '[$k]')"
+              (
+                export RECOVERY_EXACT_KEYS_JSON="$payload"
+                export WORKBOOK_RECOVERY_RECEIPT="$receipt"
+                node --import tsx scripts/instacomp-target-checklists/run-parameterized-workbook-recovery.mjs
+              ) >"$log" 2>&1 &
+              pids+=("$!")
+            done
+            for pid in "${pids[@]}"; do
+              if ! wait "$pid"; then overall=1; fi
+            done
+            for log in "${wave_logs[@]}"; do cat "$log"; done
+            if (( offset+4 < ${#keys[@]} )); then
+              echo 'Five-minute workbook wave gap.'
+              sleep 300
+            fi
+          done
+          existing=()
+          for receipt in "${receipts[@]}"; do
+            [[ -s "$receipt" ]] && existing+=("$receipt")
+          done
+          if (( ${#existing[@]} )); then
+            jq -s '{schema:"tcos.requestedHockeyWorkbookRecoveryCombined.v2",targetCount:7,receiptCount:length,persistedCount:(map(.persistedCount // 0)|add // 0),unresolvedCount:(map(.unresolvedCount // 0)|add // 0),persistedCards:(map(.persistedCards // 0)|add // 0),persistedIdentities:(map(.persistedIdentities // 0)|add // 0),receipts:.}' "${existing[@]}" > "$root/combined.json"
+          else
+            printf '%s\n' '{"schema":"tcos.requestedHockeyWorkbookRecoveryCombined.v2","targetCount":7,"receiptCount":0,"persistedCount":0,"unresolvedCount":7}' > "$root/combined.json"
+            overall=1
+          fi
+          jq '{targetCount,receiptCount,persistedCount,unresolvedCount,persistedCards,persistedIdentities}' "$root/combined.json"
+          exit "$overall"
+      - name: Upload requested workbook recovery receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-requested-hockey-workbook-v2-${{ github.run_id }}
+          path: /home/runner/work/_temp/requested-hockey-workbook-v2/workbook-recovery-v2
+          if-no-files-found: warn
+          retention-days: 90
