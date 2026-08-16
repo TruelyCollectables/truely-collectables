@@ -1,0 +1,104 @@
+name: InstaComp Exact Missing Queue Wave 1
+
+on:
+  push:
+    branches: [ops/instacomp-exact-missing-queue-20260816]
+    paths:
+      - '.github/workflows/instacomp-exact-missing-queue-wave1.yml'
+      - 'scripts/instacomp-exact-missing-queue.mjs'
+      - 'data/instacomp/exact-missing-queue-wave1.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-exact-missing-queue-wave1
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 120
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      EXACT_QUEUE_MANIFEST: data/instacomp/exact-missing-queue-wave1.json
+      EXACT_QUEUE_RECEIPT: exact-missing-queue-wave1-receipt.json
+      EXACT_QUEUE_MAX_TARGETS: '12'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_SET_CHUNK: '75'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install checklist parser helpers
+        run: python3 -m pip install --user --disable-pip-version-check openpyxl xlrd
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/instacomp-exact-queue"
+          mkdir -p "$root"
+          projects="$root/projects.json"
+          for n in 1 2 3 4 5; do
+            if curl --silent --show-error --fail --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$projects" "https://api.supabase.com/v1/projects"; then break; fi
+            test "$n" -lt 5 || exit 1
+            sleep $((n*3))
+          done
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$projects")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          keys="$root/api-keys.json"
+          for n in 1 2 3 4 5; do
+            if curl --silent --show-error --fail --max-time 45 --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$keys" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"; then break; fi
+            test "$n" -lt 5 || exit 1
+            sleep $((n*3))
+          done
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Prove exact queue manifest only
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.schema == "tcos.instacomp.exactMissingChecklistQueue.wave1.v1" and (.targets | length) == 12 and ([.targets[].exactSetKey] | unique | length) == 12' "$EXACT_QUEUE_MANIFEST" >/dev/null
+          if jq -e '[.targets[].sources[].url | select(test("(^|\\.)beckett\\.com"; "i"))] | length > 0' "$EXACT_QUEUE_MANIFEST" >/dev/null; then
+            echo 'Beckett URL found in automatic exact queue manifest.' >&2
+            exit 1
+          fi
+
+      - name: Census Production and apply exact missing wave
+        run: node --import tsx scripts/instacomp-exact-missing-queue.mjs
+
+      - name: Show receipt summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$EXACT_QUEUE_RECEIPT" ]; then
+            jq '{manifestTargets,attemptedMissing,persistedCount,alreadyLiveCount,quarantinedCount,failedCount,persistedCards,persistedIdentities}' "$EXACT_QUEUE_RECEIPT"
+          fi
+
+      - name: Upload exact queue receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-exact-missing-queue-wave1-${{ github.run_id }}
+          path: exact-missing-queue-wave1-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
