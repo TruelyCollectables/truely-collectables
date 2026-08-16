@@ -162,9 +162,9 @@ jobs:
           grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
           grep -q '_unique_corroborated_exact' services/instacomp-ai/app/serial_evidence_guard.py
           grep -q 'return SerialEvidence(stamp_present=False)' services/instacomp-ai/app/serial_evidence_guard.py
-          grep -q 'promotion-v11-staged-bounded-registry-preflight' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promotion-v11-frozen-10-15-25' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
           grep -q 'promote_lora_candidate_frozen_25_v11.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
-          grep -q 'DEFAULT_STAGE_TARGET=10' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'DEFAULT_STAGE_TARGET = 10' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
           grep -q 'import promote_lora_candidate_frozen_25_v10 as v10' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
           grep -q 'import promote_lora_candidate_frozen_25_v9 as v9' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
           grep -q 'v9._install_contract_fix()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
