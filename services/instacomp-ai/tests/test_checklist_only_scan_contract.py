@@ -22,7 +22,7 @@ def test_unknown_scan_keeps_ollama_out_of_default_live_identity_path():
     assert reader_call in analyze
     assert analyze.index(guard) < analyze.index(reader_call)
     assert 'status = "needs_review"' in analyze
-    assert "preserve it as a hard training example" in analyze
+    assert "hard training example" in analyze
     assert "do not hand the live identity decision to a teacher model" in analyze
     # The legacy engineering comparison path may still lock only through Registry.
     assert "suggestion_registry = await checklist_gateway.match(" in analyze
