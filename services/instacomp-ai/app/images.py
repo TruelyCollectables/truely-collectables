@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,12 +17,22 @@ NORMALIZED_MAX_EDGE = 1600
 
 @dataclass(frozen=True)
 class ValidatedImage:
+    # Normalized archive used by the existing scan/memory pipeline.
     content: bytes
     sha256: str
     media_type: str
     width: int
     height: int
     extension: str
+    # Untouched user-owned source upload. This is never used as an identity
+    # authority, but it preserves every original pixel/byte for future mining.
+    source_content: bytes
+    source_sha256: str
+    source_media_type: str
+    source_width: int
+    source_height: int
+    source_extension: str
+    # Tiny similarity/reference derivative used for perceptual matching.
     reference_content: bytes
     reference_sha256: str
     perceptual_hash: str
@@ -56,6 +67,7 @@ def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedIma
     if len(content) > max_bytes:
         raise ValueError(f"Image exceeds {max_bytes} bytes")
 
+    source_sha256 = hashlib.sha256(content).hexdigest()
     try:
         with Image.open(io.BytesIO(content)) as source:
             source.verify()
@@ -63,6 +75,14 @@ def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedIma
             image_format = (source.format or "").upper()
             if image_format not in ALLOWED_FORMATS:
                 raise ValueError("Only JPEG, PNG, and WebP images are accepted")
+            source_extension = ALLOWED_FORMATS[image_format]
+            source_media_type = {
+                "jpg": "image/jpeg",
+                "png": "image/png",
+                "webp": "image/webp",
+            }[source_extension]
+            source_width = int(source.width)
+            source_height = int(source.height)
 
             # EXIF orientation is useful but non-essential. Some marketplace/card
             # images contain malformed EXIF/TIFF metadata that Pillow can reject
@@ -116,6 +136,12 @@ def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedIma
                 width=normalized_image.width,
                 height=normalized_image.height,
                 extension="jpg",
+                source_content=content,
+                source_sha256=source_sha256,
+                source_media_type=source_media_type,
+                source_width=source_width,
+                source_height=source_height,
+                source_extension=source_extension,
                 reference_content=reference,
                 reference_sha256=hashlib.sha256(reference).hexdigest(),
                 perceptual_hash=_perceptual_dhash(reference_image),
@@ -143,6 +169,42 @@ def persisted_image_path(root: Path, sha256: str, side: str) -> Path:
     )
 
 
+def persisted_source_path(
+    root: Path,
+    normalized_sha256: str,
+    side: str,
+    source_extension: str,
+) -> Path:
+    normalized_sha = normalized_sha256.strip().lower()
+    extension = source_extension.strip().lower()
+    if not SHA256_PATTERN.fullmatch(normalized_sha):
+        raise ValueError("Invalid archived image hash")
+    if side not in {"front", "back"}:
+        raise ValueError("Source image side must be front or back")
+    if extension not in set(ALLOWED_FORMATS.values()):
+        raise ValueError("Invalid source image extension")
+    return (
+        root
+        / normalized_sha[:2]
+        / normalized_sha[2:4]
+        / f"{normalized_sha}-{side}-source.{extension}"
+    )
+
+
+def persisted_image_manifest_path(root: Path, sha256: str, side: str) -> Path:
+    normalized_sha = sha256.strip().lower()
+    if not SHA256_PATTERN.fullmatch(normalized_sha):
+        raise ValueError("Invalid archived image hash")
+    if side not in {"front", "back"}:
+        raise ValueError("Image side must be front or back")
+    return (
+        root
+        / normalized_sha[:2]
+        / normalized_sha[2:4]
+        / f"{normalized_sha}-{side}-manifest.json"
+    )
+
+
 def persisted_reference_path(root: Path, sha256: str, side: str) -> Path:
     normalized_sha = sha256.strip().lower()
     if not SHA256_PATTERN.fullmatch(normalized_sha):
@@ -163,7 +225,54 @@ def persist_image(image: ValidatedImage, root: Path, side: str) -> Path:
     if not target.exists():
         target.write_bytes(image.content)
 
+    # Preserve the exact submitted file byte-for-byte. The normalized SHA remains
+    # the lookup key so every existing scan record can deterministically locate
+    # its source without a database migration.
+    source_target = persisted_source_path(
+        root,
+        image.sha256,
+        side,
+        image.source_extension,
+    )
+    if not source_target.exists():
+        source_target.write_bytes(image.source_content)
+
     reference_target = persisted_reference_path(root, image.sha256, side)
     if not reference_target.exists():
         reference_target.write_bytes(image.reference_content)
+
+    manifest_target = persisted_image_manifest_path(root, image.sha256, side)
+    manifest = {
+        "schema_version": "tcos.instacomp-ai.image-provenance.v1",
+        "side": side,
+        "normalized": {
+            "sha256": image.sha256,
+            "media_type": image.media_type,
+            "width": image.width,
+            "height": image.height,
+            "bytes": len(image.content),
+            "path": str(target),
+        },
+        "source": {
+            "sha256": image.source_sha256,
+            "media_type": image.source_media_type,
+            "width": image.source_width,
+            "height": image.source_height,
+            "bytes": len(image.source_content),
+            "extension": image.source_extension,
+            "path": str(source_target),
+            "byte_for_byte_preserved": True,
+        },
+        "reference": {
+            "sha256": image.reference_sha256,
+            "media_type": "image/webp",
+            "max_edge": REFERENCE_MAX_EDGE,
+            "bytes": len(image.reference_content),
+            "path": str(reference_target),
+            "perceptual_hash": image.perceptual_hash,
+        },
+    }
+    encoded_manifest = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+    if not manifest_target.exists() or manifest_target.read_bytes() != encoded_manifest:
+        manifest_target.write_bytes(encoded_manifest)
     return target
