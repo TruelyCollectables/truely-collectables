@@ -19,7 +19,7 @@ jobs:
   hockey-2021plus-production-load:
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 90
+    timeout-minutes: 110
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -65,14 +65,14 @@ jobs:
           }
           list_conflicts
           [ ! -s "$root/conflicts.txt" ] || stop_runs cancel
-          sleep 12
+          sleep 8
           list_conflicts
           [ ! -s "$root/conflicts.txt" ] || stop_runs force-cancel
-          for round in 1 2 3 4 5 6; do
-            sleep 8
+          for round in 1 2 3 4; do
+            sleep 5
             list_conflicts
             [ ! -s "$root/conflicts.txt" ] && break
-            [ "$round" -lt 6 ] || { cat "$root/conflicts.txt"; exit 1; }
+            [ "$round" -lt 4 ] || { cat "$root/conflicts.txt"; exit 1; }
           done
 
       - uses: actions/setup-node@v4
@@ -80,20 +80,18 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install and certify set-aware Upper Deck bulk importer
+      - name: Install and certify set-aware Upper Deck resumable importer
         shell: bash
         run: |
           set -euo pipefail
           npm ci
           node --check scripts/patch-hockey-2021plus-priority-importer.mjs
           node scripts/patch-hockey-2021plus-priority-importer.mjs
-          node --check scripts/patch-hockey-bulk-writer.mjs
-          node scripts/patch-hockey-bulk-writer.mjs
-          grep -F 'plan.adapterVersion = "1.1.0";' scripts/import-hockey-2021plus-priority.mjs
+          grep -F 'plan.adapterVersion = "1.2.0";' scripts/import-hockey-2021plus-priority.mjs
+          grep -F 'persistChunkedPlan' scripts/import-hockey-2021plus-priority.mjs
           node --check scripts/import-hockey-2021plus-priority.mjs
-          node --check scripts/mainstream-checklist/bulk-registry-tools.mjs
-          bash -n scripts/repair-mainstream-checklist-schema.sh
-          bash -n scripts/install-checklist-bulk-writer.sh
+          node --check scripts/mainstream-checklist/chunked-registry-tools.mjs
+          bash -n scripts/install-checklist-chunked-writer.sh
 
       - name: Resolve Production Supabase
         shell: bash
@@ -117,14 +115,13 @@ jobs:
           echo "RESOLVED_SUPABASE_PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
 
-      - name: Repair and install Production Registry writers
+      - name: Install Production resumable Registry writer
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/repair-mainstream-checklist-schema.sh
-          bash scripts/install-checklist-bulk-writer.sh
+          bash scripts/install-checklist-chunked-writer.sh
 
-      - name: Import and verify hockey 2021 plus priority releases
+      - name: Import and verify hockey 2021 plus targets
         shell: bash
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
@@ -144,7 +141,7 @@ jobs:
           test "$(jq -r '.expected' "$receipt")" -eq 3
           test "$(jq -r '.verified' "$receipt")" -eq 3
           test "$(jq -r '.failed' "$receipt")" -eq 0
-          jq -r '.results[] | [.exactSetKey,.status,(.verification.cards // 0),(.verification.versionId // ""),(.persistence.bulk // false),(.message // "")] | @tsv' "$receipt"
+          jq -r '.results[] | [.exactSetKey,.status,(.verification.cards // 0),(.verification.versionId // ""),(.persistence.chunked // false),(.message // "")] | @tsv' "$receipt"
 
       - name: Upload hockey Production receipt
         if: always()
@@ -157,4 +154,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/hockey-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" "$RUNNER_TEMP/checklist-bulk-writer-install" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/hockey-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/checklist-chunked-writer-install" .env.local .env.production.local .vercel
