@@ -1,5 +1,3 @@
-import { CHECKLIST_SOURCE_BUCKET } from "../../src/lib/checklist-registry/storage.ts";
-
 const DEFAULT_CARD_CHUNK = Math.max(25, Number(process.env.CHECKLIST_REGISTRY_CARD_CHUNK || 100));
 const DEFAULT_PARALLEL_CHUNK = Math.max(25, Number(process.env.CHECKLIST_REGISTRY_PARALLEL_CHUNK || 150));
 const DEFAULT_IDENTITY_CHUNK = Math.max(25, Number(process.env.CHECKLIST_REGISTRY_IDENTITY_CHUNK || 200));
@@ -41,8 +39,11 @@ async function rpcWithRetry(db, name, args, label) {
 }
 
 async function uploadRegistrySource(db, plan, bytes) {
-  const storage = plan.source.storage;
-  const uploaded = await db.storage.from(CHECKLIST_SOURCE_BUCKET).upload(storage.objectPath, bytes, {
+  const storage = plan?.source?.storage;
+  if (!storage?.bucket || !storage?.objectPath) {
+    throw new Error("Validated Registry source storage metadata is incomplete.");
+  }
+  const uploaded = await db.storage.from(storage.bucket).upload(storage.objectPath, bytes, {
     contentType: storage.mimeType,
     cacheControl: "0",
     upsert: false,
