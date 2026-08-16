@@ -111,43 +111,80 @@ archive_token="$(read_env_value INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN)"
 [[ "$registry_token" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Registry token is missing or invalid." >&2; exit 2; }
 [[ "$archive_token" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Archive token is missing or invalid." >&2; exit 2; }
 
-health_file="$receipt_dir/$timestamp-local-health.json"
-curl -fsS --max-time 30 "http://127.0.0.1:${port}/health" > "$health_file"
-HEALTH_FILE="$health_file" "$python_bin" - <<'PY'
+retry_json_probe() {
+  local label="$1"
+  local output_file="$2"
+  local attempts="$3"
+  local require_reachable="$4"
+  shift 4
+
+  local error_file="${output_file}.curl-error"
+  local attempt
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    : > "$error_file"
+    if curl -fsS --max-time 30 "$@" > "$output_file" 2> "$error_file" && \
+      PROBE_FILE="$output_file" REQUIRE_REACHABLE="$require_reachable" "$python_bin" - <<'PY'
 import json, os
-payload = json.load(open(os.environ["HEALTH_FILE"], encoding="utf-8"))
-assert payload.get("ok") is True, "Local InstaComp health is not ready"
+payload = json.load(open(os.environ["PROBE_FILE"], encoding="utf-8"))
+ok = payload.get("ok") is True
+if os.environ.get("REQUIRE_REACHABLE") == "true":
+    ok = ok and payload.get("reachable") is True
+raise SystemExit(0 if ok else 1)
 PY
+    then
+      rm -f "$error_file"
+      return 0
+    fi
+
+    if (( attempt < attempts )); then
+      sleep 3
+      continue
+    fi
+
+    echo "$label failed after $attempts attempts." >&2
+    if [[ -s "$error_file" ]]; then
+      cat "$error_file" >&2
+    fi
+    rm -f "$error_file"
+    return 1
+  done
+}
+
+health_file="$receipt_dir/$timestamp-local-health.json"
+retry_json_probe \
+  "Local InstaComp health" \
+  "$health_file" \
+  20 \
+  false \
+  "http://127.0.0.1:${port}/health"
 
 readiness_file="$receipt_dir/$timestamp-cloudflare-readiness.json"
-for attempt in $(seq 1 30); do
-  if curl -fsS --max-time 30 "$site_url/api/instacomp/internal-readiness?ts=$(date +%s)" > "$readiness_file" 2>/dev/null && \
-    READINESS_FILE="$readiness_file" "$python_bin" - <<'PY'
-import json, os
-payload = json.load(open(os.environ["READINESS_FILE"], encoding="utf-8"))
-raise SystemExit(0 if payload.get("ok") is True and payload.get("reachable") is True else 1)
-PY
-  then
-    break
-  fi
-  [[ "$attempt" -lt 30 ]] || {
-    echo "Cloudflare Production cannot authenticate to the preserved Mac runtime." >&2
-    exit 2
-  }
-  sleep 3
-done
+retry_json_probe \
+  "Cloudflare Production readiness" \
+  "$readiness_file" \
+  30 \
+  true \
+  "$site_url/api/instacomp/internal-readiness?ts=$(date +%s)"
 
 registry_probe="$receipt_dir/$timestamp-production-registry.json"
-curl -fsS --max-time 30 \
+retry_json_probe \
+  "Cloudflare Registry credential probe" \
+  "$registry_probe" \
+  20 \
+  false \
   -H 'content-type: application/json' \
   -H "x-tcos-instacomp-service-token: $registry_token" \
   --data '{"cardNumber":"__INSTACOMP_AUTH_PROBE__"}' \
-  "$site_url/api/instacomp/checklist-lookup" > "$registry_probe"
+  "$site_url/api/instacomp/checklist-lookup"
 
 sentinel_probe="$receipt_dir/$timestamp-production-sentinel.json"
-curl -fsS --max-time 30 \
+retry_json_probe \
+  "Cloudflare Sentinel credential probe" \
+  "$sentinel_probe" \
+  20 \
+  false \
   -H "x-instacomp-sentinel-archive-token: $archive_token" \
-  "$site_url/api/instacomp/checklist-sentinel?view=status&ts=$(date +%s)" > "$sentinel_probe"
+  "$site_url/api/instacomp/checklist-sentinel?view=status&ts=$(date +%s)"
 
 RECEIPT_PATH="$receipt_dir/$timestamp.json" BEFORE="$before" UPDATED="$updated" \
 HEALTH_FILE="$health_file" READINESS_FILE="$readiness_file" \
