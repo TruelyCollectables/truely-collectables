@@ -1,0 +1,149 @@
+name: InstaComp Target Checklist Production Apply
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-target-production-apply
+  cancel-in-progress: false
+
+jobs:
+  apply-target-checklists:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MASTER_CHECKLIST_CATALOG_ROOT: .master-checklist-catalog
+      INSTACOMP_TARGET_CORPUS_ROOT: .instacomp-target-checklist-corpus
+      MASTER_CHECKLIST_CORPUS_ROOT: .instacomp-target-checklist-corpus
+      MASTER_CHECKLIST_EXTRACTED_ROOT: .master-checklist-extracted
+      MASTER_CHECKLIST_WORKERS: "2"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: Load immutable catalog and focused corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$MASTER_CHECKLIST_CATALOG_ROOT"
+          curl --fail --location --retry 4 --retry-delay 5 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/8972199339/zip" \
+            -o /tmp/master-checklist-catalog.zip
+          unzip -q /tmp/master-checklist-catalog.zip -d "$MASTER_CHECKLIST_CATALOG_ROOT"
+          rm -f /tmp/master-checklist-catalog.zip
+          node scripts/instacomp-target-checklists/prepare-target-corpus.mjs
+          node <<'NODE'
+          const fs = require('fs');
+          const summary = JSON.parse(fs.readFileSync('.instacomp-target-checklist-corpus/summary.json','utf8'));
+          const expected = {'hockey:2021-22':48,'hockey:2022-23':47,'hockey:2023-24':48,'hockey:2024-25':55,'hockey:2025-26':68,'wnba:2024':5,'wnba:2025':7};
+          if (summary.counts.sets !== 278 || summary.counts.gaps !== 0 || summary.batchCount !== 6) throw new Error(`Unsafe target scope: ${JSON.stringify(summary.counts)}`);
+          for (const [k,v] of Object.entries(expected)) if (summary.byBucket?.[k]?.total !== v) throw new Error(`${k}: ${summary.byBucket?.[k]?.total ?? 0}/${v}`);
+          NODE
+
+      - name: Load exact archived source files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 4 --retry-delay 10 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/8972198573/zip" \
+            -o /tmp/master-checklist-archive.zip
+          mkdir -p "$MASTER_CHECKLIST_EXTRACTED_ROOT" /tmp/master-checklist-artifact
+          unzip -q -o /tmp/master-checklist-archive.zip -d /tmp/master-checklist-artifact
+          master_tar=/tmp/master-checklist-artifact/sports-card-checklist-master-archive.tar.gz
+          test -f "$master_tar"
+          mapfile -t target_paths < "$INSTACOMP_TARGET_CORPUS_ROOT/extract-files.txt"
+          test "${#target_paths[@]}" -eq 777
+          tar -xzf "$master_tar" -C "$MASTER_CHECKLIST_EXTRACTED_ROOT" -- "${target_paths[@]}"
+          rm -rf /tmp/master-checklist-archive.zip /tmp/master-checklist-artifact
+
+      - name: Prevalidate all 278 before first Production write
+        run: |
+          set -euo pipefail
+          mkdir -p .checklist-discovery/instacomp-target-prevalidate
+          for batch in 0 1 2 3 4 5; do
+            MASTER_CHECKLIST_BATCH_INDEX="$batch" \
+            MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target-prevalidate/batch-${batch}.json" \
+              node --import tsx scripts/instacomp-target-checklists/validate-target-batch.mjs
+          done
+          node <<'NODE'
+          const fs=require('fs'), path=require('path');
+          const dir='.checklist-discovery/instacomp-target-prevalidate';
+          const files=fs.readdirSync(dir).filter(x=>/^batch-\d+\.json$/.test(x)).sort();
+          let selected=0, validated=0; const failures=[];
+          for (const name of files) {
+            const r=JSON.parse(fs.readFileSync(path.join(dir,name),'utf8'));
+            selected += Number(r.batch?.selected||0);
+            validated += Number(r.statuses?.validated||0);
+            for (const x of r.results||[]) if (x.status !== 'validated') failures.push({batch:name,key:x.exactSetKey,status:x.status});
+          }
+          if (files.length!==6 || selected!==278 || validated!==278 || failures.length) throw new Error(`Prevalidation blocked: files=${files.length} selected=${selected} validated=${validated} failures=${failures.length}`);
+          console.log(JSON.stringify({selected,validated,productionWrites:false}));
+          NODE
+
+      - name: Apply six guarded batches to Production Registry
+        env:
+          MASTER_CHECKLIST_APPLY: "true"
+        run: |
+          set -euo pipefail
+          test -n "$NEXT_PUBLIC_SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          mkdir -p .checklist-discovery/instacomp-target-apply
+          for batch in 0 1 2 3 4 5; do
+            MASTER_CHECKLIST_BATCH_INDEX="$batch" \
+            MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target-apply/batch-${batch}.json" \
+              node --import tsx scripts/ingest-master-checklist-archive.mjs
+          done
+
+      - name: Enforce Production apply receipts
+        run: |
+          node <<'NODE'
+          const fs=require('fs'), path=require('path');
+          const dir='.checklist-discovery/instacomp-target-apply';
+          const files=fs.readdirSync(dir).filter(x=>/^batch-\d+\.json$/.test(x)).sort();
+          let selected=0, accepted=0; const bad=[]; const statuses={};
+          for (const name of files) {
+            const r=JSON.parse(fs.readFileSync(path.join(dir,name),'utf8'));
+            selected += Number(r.batch?.selected||0);
+            for (const [k,v] of Object.entries(r.statuses||{})) statuses[k]=(statuses[k]||0)+Number(v||0);
+            for (const x of r.results||[]) {
+              if (['imported','already_live'].includes(x.status)) accepted++; else bad.push({batch:name,key:x.exactSetKey,status:x.status,failures:x.failures});
+            }
+          }
+          if (files.length!==6 || selected!==278 || accepted!==278 || bad.length) {
+            fs.writeFileSync('.checklist-discovery/instacomp-target-apply/failures.json',JSON.stringify(bad,null,2));
+            throw new Error(`Apply receipt gate failed: files=${files.length} selected=${selected} accepted=${accepted} bad=${bad.length}`);
+          }
+          console.log(JSON.stringify({selected,accepted,statuses}));
+          NODE
+
+      - name: Upload prevalidation and apply receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-target-production-apply-${{ github.run_id }}
+          path: |
+            .instacomp-target-checklist-corpus/summary.json
+            .instacomp-target-checklist-corpus/manifest.json
+            .checklist-discovery/instacomp-target-prevalidate/*.json
+            .checklist-discovery/instacomp-target-apply/*.json
+          if-no-files-found: warn
+          retention-days: 30
