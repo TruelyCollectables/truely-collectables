@@ -1,4 +1,4 @@
-name: InstaComp Frozen 25 Self Test
+name: InstaComp Staged Frozen Promotion Self Test
 
 on:
   pull_request:
@@ -23,6 +23,8 @@ on:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v6.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v7.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -50,6 +52,8 @@ on:
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v6.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v7.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py"
@@ -61,7 +65,7 @@ permissions:
   contents: read
 
 jobs:
-  frozen-25-contract:
+  staged-frozen-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -74,7 +78,7 @@ jobs:
       - name: Install exact InstaComp service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
 
-      - name: Compile Frozen 25 promotion code and candidate runtime
+      - name: Compile staged promotion code and candidate runtime
         run: |
           python -m py_compile \
             services/instacomp-ai/app/candidate_identity_guard.py \
@@ -93,6 +97,8 @@ jobs:
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v6.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v7.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py
 
@@ -109,13 +115,43 @@ jobs:
       - name: Prove sidecar structured response recovery and fail-closed diagnostics
         run: python services/instacomp-ai/scripts/run_lora_candidate_server.py --self-test
 
-      - name: Validate Mac launcher syntax and actual v9 target
+      - name: Validate launcher defaults to Frozen 10 staged target
         run: |
           bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
-          grep -q 'promotion-v9-serial-evidence-guard' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v9.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promotion-v11-frozen-10-15-25' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v11.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'DEFAULT_STAGE_TARGET = 10' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
+          grep -q 'REGISTRY_ATTEMPT_BUDGETS = {10: 100, 15: 250, 25: 750}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
 
-      - name: Prove serial guard plus every prior Frozen 25 gate
+      - name: Prove staged bounded preflight plus every prior gate
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py --self-test
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py --self-test
+
+  staged-frozen-v11-macos-contract:
+    runs-on: macos-14
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install exact InstaComp service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+
+      - name: Compile v11 on macOS
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py \
+            services/instacomp-ai/app/candidate_identity_guard.py \
+            services/instacomp-ai/app/card_number_evidence_guard.py \
+            services/instacomp-ai/app/serial_evidence_guard.py
+          bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+
+      - name: Prove v11 staged ladder and every prior gate on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py --self-test
