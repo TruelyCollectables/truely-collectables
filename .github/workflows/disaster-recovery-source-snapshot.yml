@@ -1,0 +1,69 @@
+name: Disaster Recovery Source Snapshot
+
+on:
+  push:
+    branches:
+      - backup/disaster-recovery-2026-08-15
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout complete repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build exact source and Git recovery artifacts
+        shell: bash
+        env:
+          BASE_SHA: 7659fe3da536f8ce48f0b14b2a17b2ec09831a07
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p disaster-recovery-source
+
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git archive \
+            --format=tar.gz \
+            --prefix=truely-collectables-${BASE_SHA}/ \
+            --output="disaster-recovery-source/TruelyCollectables-source-${BASE_SHA}.tar.gz" \
+            "${BASE_SHA}"
+
+          git bundle create \
+            "disaster-recovery-source/TruelyCollectables-all-refs.bundle" \
+            --all
+
+          git show --no-patch --format=fuller "${BASE_SHA}" \
+            > disaster-recovery-source/PINNED_MAIN_COMMIT.txt
+          git branch -a -vv \
+            > disaster-recovery-source/BRANCHES.txt
+          git tag -n \
+            > disaster-recovery-source/TAGS.txt
+          git remote -v \
+            > disaster-recovery-source/REMOTES.txt
+          git log --all --decorate --oneline -100 \
+            > disaster-recovery-source/RECENT_COMMITS.txt
+          git ls-tree -r --full-tree "${BASE_SHA}" \
+            > disaster-recovery-source/PINNED_MAIN_TREE.txt
+
+          (
+            cd disaster-recovery-source
+            sha256sum * > SHA256SUMS.txt
+          )
+
+          git bundle verify disaster-recovery-source/TruelyCollectables-all-refs.bundle
+          tar -tzf "disaster-recovery-source/TruelyCollectables-source-${BASE_SHA}.tar.gz" >/dev/null
+
+      - name: Upload source disaster-recovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TruelyCollectables-source-disaster-recovery-2026-08-15
+          path: disaster-recovery-source/
+          if-no-files-found: error
+          retention-days: 30
