@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { persistPlanManagement, preflightReleaseManagement } from "./management-staged-registry-writer.mjs";
+import { managementQuery, persistPlanManagement, preflightReleaseManagement } from "./management-staged-registry-writer.mjs";
 
 const ROOT = resolve(process.env.VERIFIED_HARVEST_ROOT || "");
 const OUTPUT = resolve(process.env.REQUESTED_HOCKEY_RECEIPT || `${ROOT}/requested-hockey-management-receipt.json`);
@@ -30,7 +30,7 @@ if (!requestedReady.length) throw new Error("No validated requested Hockey catal
 
 const sourceFiles = readdirSync(sourcesDir);
 const receipt = {
-  schema: "tcos.requestedHockeyManagementApply.v1",
+  schema: "tcos.requestedHockeyManagementApply.v2",
   sourceHarvestRunId: Number(process.env.VERIFIED_SOURCE_RUN_ID || 0) || null,
   transport: "supabase_management_database_query",
   requestedHockeyReadyCount: requestedReady.length,
@@ -62,17 +62,15 @@ async function persistWithRetry(plan, bytes, exactSetKey) {
         const state = await preflightReleaseManagement(plan.release.releaseSlug);
         if (state.complete) return { recoveredByPreflight: true, ...state };
       } catch (checkError) {
-        console.warn(`${exactSetKey} management recovery preflight failed: ${checkError instanceof Error ? checkError.message : String(checkError)}`);
+        console.warn(`${exactSetKey} recovery preflight failed: ${checkError instanceof Error ? checkError.message : String(checkError)}`);
       }
     }
   }
   throw last || new Error(`Unknown persistence failure for ${exactSetKey}`);
 }
 
-const missing = [];
-console.log(`Management-preflighting ${requestedReady.length} validated Hockey catalogs.`);
-for (let index = 0; index < requestedReady.length; index += 1) {
-  const target = requestedReady[index];
+const prepared = [];
+for (const target of requestedReady) {
   const exactSetKey = target.exactSetKey;
   const row = { exactSetKey, sourceCounts: target.counts || null };
   receipt.results.push(row);
@@ -85,27 +83,53 @@ for (let index = 0; index < requestedReady.length; index += 1) {
     if (!releaseSlug.endsWith("-hockey")) throw new Error(`Refusing non-Hockey release ${releaseSlug || exactSetKey}`);
     row.releaseSlug = releaseSlug;
     row.counts = plan.validation.counts;
-    const state = await preflightReleaseManagement(releaseSlug);
-    row.preflight = state;
-    if (state.complete) {
-      row.preflightStatus = "already_live";
-      row.status = "already_live";
-      console.log(`[${index + 1}/${requestedReady.length}] LIVE ${releaseSlug}`);
-    } else {
-      row.preflightStatus = "missing";
-      missing.push({ target, plan, row });
-      console.log(`[${index + 1}/${requestedReady.length}] MISSING ${releaseSlug}`);
-    }
+    prepared.push({ target, plan, row });
   } catch (error) {
     row.preflightStatus = "failed";
     row.status = "failed";
     row.error = error instanceof Error ? error.message : String(error);
-    console.error(`[${index + 1}/${requestedReady.length}] BLOCKED ${exactSetKey}: ${row.error}`);
   }
-  save();
 }
+save();
 
-console.log(`Management preflight complete: live=${receipt.alreadyLiveCount}, missing=${missing.length}, failed=${receipt.failedCount}.`);
+const slugList = prepared.map(({ plan }) => `'${plan.release.releaseSlug.replace(/'/g, "''")}'`).join(",");
+const batchSql = `
+select r.slug,
+       v.id as "versionId",
+       v.status,
+       v.normalized_card_count as cards,
+       v.normalized_identity_count as identities
+from public.checklist_releases r
+join lateral (
+  select id,status,normalized_card_count,normalized_identity_count,version_number
+  from public.checklist_versions
+  where release_id=r.id
+    and is_active=true
+    and status in ('live','revised')
+    and coalesce(normalized_card_count,0)>0
+    and coalesce(normalized_identity_count,0)>0
+  order by version_number desc
+  limit 1
+) v on true
+where r.slug in (${slugList});`;
+console.log(`Batch-preflighting ${prepared.length} validated Hockey catalogs in one management SQL query.`);
+const liveRows = await managementQuery(batchSql, "batch Hockey management preflight");
+const liveBySlug = new Map((Array.isArray(liveRows) ? liveRows : []).map((row) => [String(row.slug), row]));
+const missing = [];
+for (const item of prepared) {
+  const live = liveBySlug.get(item.plan.release.releaseSlug);
+  if (live) {
+    item.row.preflightStatus = "already_live";
+    item.row.status = "already_live";
+    item.row.preflight = { complete: true, ...live };
+  } else {
+    item.row.preflightStatus = "missing";
+    missing.push(item);
+  }
+}
+save();
+console.log(`Batch preflight complete: live=${receipt.alreadyLiveCount}, missing=${missing.length}, failed=${receipt.failedCount}.`);
+
 const waves = chunks(missing, WAVE_SIZE);
 for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
   const wave = waves[waveIndex];
@@ -119,12 +143,6 @@ for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
       const bytes = readFileSync(resolve(sourcesDir, sourceName));
       const expectedSize = Number(plan?.source?.storage?.sizeBytes || 0);
       if (expectedSize && bytes.byteLength !== expectedSize) throw new Error(`Source byte mismatch ${bytes.byteLength} != ${expectedSize}`);
-      const finalGuard = await preflightReleaseManagement(plan.release.releaseSlug);
-      if (finalGuard.complete) {
-        row.status = "already_live";
-        row.finalGuard = finalGuard;
-        return;
-      }
       row.transaction = await persistWithRetry(plan, bytes, exactSetKey);
       row.status = "persisted";
       console.log(`PERSISTED ${plan.release.releaseSlug} ${JSON.stringify(plan.validation.counts)}`);
@@ -137,6 +155,7 @@ for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
     }
   }));
   save();
+  console.log(`Wave ${waveIndex + 1} complete. persisted=${wave.filter(({ row }) => row.status === "persisted").length} failed=${wave.filter(({ row }) => row.status === "failed").length}`);
   if (waveIndex < waves.length - 1 && WAVE_DELAY_MS) await sleep(WAVE_DELAY_MS);
 }
 
