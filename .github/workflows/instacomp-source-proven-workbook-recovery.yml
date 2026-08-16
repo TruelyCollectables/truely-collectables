@@ -82,7 +82,7 @@ jobs:
           jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
 
       - name: Recover and persist two grouped workbook releases
-        run: node --experimental-strip-types scripts/instacomp-target-checklists/recover-source-proven-workbook-groups.mjs
+        run: node --import tsx scripts/instacomp-target-checklists/recover-source-proven-workbook-groups.mjs
 
       - name: Enforce complete grouped-workbook receipt
         if: always()
