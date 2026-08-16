@@ -6,7 +6,7 @@ const TRUSTED_WORKFLOW_REFS = new Set([
   `${TRUSTED_REPOSITORY}/.github/workflows/automatic-checklist-discovery.yml@${TRUSTED_REF}`,
   `${TRUSTED_REPOSITORY}/.github/workflows/automatic-topps-baseball-checklist-discovery.yml@${TRUSTED_REF}`,
 ]);
-const TRUSTED_EVENTS = new Set(["schedule", "workflow_dispatch"]);
+const TRUSTED_EVENTS = new Set(["schedule", "workflow_dispatch", "push"]);
 
 type GithubOidcHeader = {
   alg?: string;
