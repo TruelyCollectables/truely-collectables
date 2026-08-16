@@ -1,0 +1,66 @@
+name: Checklist Management SQL Probe 20260815
+
+on:
+  push:
+    branches:
+      - agent/checklist-expansion-wnba-hockey-20260815
+    paths:
+      - '.github/workflows/checklist-management-sql-probe-20260815.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 10
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/management-sql-probe"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          echo "PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
+          echo "Resolved Production project."
+
+      - name: Prove direct Management SQL and inspect Registry RPC
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/management-sql-probe"
+          jq -n --arg q "select current_database() as database_name, now() as database_time, p.oid::regprocedure::text as signature, pg_get_functiondef(p.oid) as definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tcos_apply_checklist_import_plan';" '{query:$q,read_only:true}' > "$root/query.json"
+          code="$(curl --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 60 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            -o "$root/result.json" -w '%{http_code}' \
+            --data-binary @"$root/query.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query")"
+          echo "Management SQL HTTP $code"
+          cat "$root/result.json" | jq .
+          test "$code" = "201"
+          jq -e 'type == "array" and length > 0' "$root/result.json" >/dev/null
+          jq -e '.[0].signature | contains("tcos_apply_checklist_import_plan")' "$root/result.json" >/dev/null
+
+      - name: Upload SQL probe receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-management-sql-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/management-sql-probe
+          if-no-files-found: error
+          retention-days: 30
