@@ -1,0 +1,213 @@
+name: Read Live Registry Scope 20260816
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/read-live-registry-scope-20260816.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  read-live-registry-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download encrypted production vault
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-vault-31773508121
+          path: /tmp/truely-production-vault
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Download separate recovery key
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-recovery-key-31773508121
+          path: /tmp/truely-production-key
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Query exact live Checklist Registry inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { createDecipheriv, createHash } = require('node:crypto');
+
+          function filesBelow(root) {
+            return fs.readdirSync(root, { recursive: true, withFileTypes: true })
+              .filter((entry) => entry.isFile())
+              .map((entry) => path.join(entry.parentPath || entry.path, entry.name));
+          }
+
+          const vaultPath = filesBelow('/tmp/truely-production-vault').find((file) => file.endsWith('.tcosvault'));
+          const keyPath = filesBelow('/tmp/truely-production-key').find((file) => file.endsWith('.recovery-key.txt'));
+          if (!vaultPath || !keyPath) throw new Error('Production recovery artifacts are incomplete.');
+
+          const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+          const keyText = fs.readFileSync(keyPath, 'utf8');
+          const keyMatch = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
+          if (!keyMatch) throw new Error('Production recovery key is invalid.');
+          if (envelope?.format !== 'tcos-secrets-vault' || envelope?.cipher !== 'aes-256-gcm') {
+            throw new Error('Production vault envelope is invalid.');
+          }
+
+          const decipher = createDecipheriv(
+            'aes-256-gcm',
+            Buffer.from(keyMatch[1], 'base64url'),
+            Buffer.from(envelope.iv, 'base64'),
+          );
+          decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
+          const plaintext = Buffer.concat([
+            decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
+            decipher.final(),
+          ]);
+          const digest = createHash('sha256').update(plaintext).digest('hex');
+          if (digest !== envelope.plaintextSha256) throw new Error('Production vault checksum failed.');
+
+          const payload = JSON.parse(plaintext.toString('utf8'));
+          const env = {
+            ...(payload?.sources?.vercelProductionApplicationVariables || {}),
+            ...(payload?.sources?.githubActionsReferencedSecrets || {}),
+          };
+          const supabaseUrl = String(env.NEXT_PUBLIC_SUPABASE_URL || '');
+          const serviceKey = String(
+            env.SUPABASE_SERVICE_ROLE_KEY ||
+            env.SUPABASE_SECRET_KEY ||
+            Object.entries(env).find(([key, value]) => /^SUPABASE_SECRET_.*_KEY$/.test(key) && value)?.[1] ||
+            ''
+          );
+          if (!supabaseUrl || !serviceKey) throw new Error('Production vault is missing Supabase read credentials.');
+          console.log(`::add-mask::${supabaseUrl}`);
+          console.log(`::add-mask::${serviceKey}`);
+
+          async function rest(table, query) {
+            const response = await fetch(`${supabaseUrl}/rest/v1/${table}?${query}`, {
+              headers: {
+                apikey: serviceKey,
+                Authorization: `Bearer ${serviceKey}`,
+                Accept: 'application/json',
+                'Accept-Profile': 'public',
+              },
+              signal: AbortSignal.timeout(30000),
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`${table} read failed HTTP ${response.status}: ${text.slice(0, 500)}`);
+            return text ? JSON.parse(text) : [];
+          }
+
+          function seasonStart(value) {
+            const match = String(value || '').match(/(20\d{2})/);
+            return match ? Number(match[1]) : null;
+          }
+
+          (async () => {
+            const [sports, leagues, manufacturers, releases, versions] = await Promise.all([
+              rest('checklist_sports', 'select=id,name,slug&order=slug.asc'),
+              rest('checklist_leagues', 'select=id,sport_id,name,slug&order=slug.asc'),
+              rest('checklist_manufacturers', 'select=id,name,slug&order=slug.asc'),
+              rest('checklist_releases', 'select=id,manufacturer_id,sport_id,league_id,product_name,slug,release_year,season,checklist_status,import_status,metadata&order=slug.asc'),
+              rest('checklist_versions', 'select=id,release_id,status,normalized_card_count,normalized_identity_count,is_active,activated_at&is_active=eq.true'),
+            ]);
+
+            const sportById = new Map(sports.map((row) => [row.id, row]));
+            const leagueById = new Map(leagues.map((row) => [row.id, row]));
+            const manufacturerById = new Map(manufacturers.map((row) => [row.id, row]));
+            const versionByReleaseId = new Map(versions.map((row) => [row.release_id, row]));
+
+            const normalized = releases.map((release) => {
+              const sport = sportById.get(release.sport_id) || {};
+              const league = leagueById.get(release.league_id) || {};
+              const manufacturer = manufacturerById.get(release.manufacturer_id) || {};
+              const version = versionByReleaseId.get(release.id) || null;
+              return {
+                slug: release.slug,
+                productName: release.product_name,
+                manufacturer: manufacturer.name || manufacturer.slug || null,
+                sport: sport.name || sport.slug || null,
+                sportSlug: sport.slug || null,
+                league: league.name || league.slug || null,
+                leagueSlug: league.slug || null,
+                releaseYear: release.release_year,
+                season: release.season,
+                checklistStatus: release.checklist_status,
+                importStatus: release.import_status,
+                activeVersion: Boolean(version),
+                versionStatus: version?.status || null,
+                cards: Number(version?.normalized_card_count || 0),
+                identities: Number(version?.normalized_identity_count || 0),
+                activatedAt: version?.activated_at || null,
+                ready: Boolean(version && ['live','revised'].includes(version.status) && Number(version.normalized_card_count) > 0 && Number(version.normalized_identity_count) > 0),
+              };
+            });
+
+            const hockey = normalized.filter((row) => {
+              const isHockey = row.sportSlug === 'hockey' || String(row.sport || '').toLowerCase() === 'hockey';
+              const start = seasonStart(row.season) ?? seasonStart(row.releaseYear) ?? seasonStart(row.slug);
+              return isHockey && start !== null && start >= 2021;
+            });
+
+            const wnba = normalized.filter((row) => {
+              const text = `${row.productName || ''} ${row.slug || ''} ${row.league || ''} ${row.leagueSlug || ''}`.toLowerCase();
+              const isWnba = text.includes('wnba');
+              const year = seasonStart(row.releaseYear) ?? seasonStart(row.season) ?? seasonStart(row.slug);
+              return isWnba && (year === 2024 || year === 2025);
+            });
+
+            const receipt = {
+              schema: 'tcos.checklist.liveScopeInventory.v1',
+              checkedAt: new Date().toISOString(),
+              source: 'production-supabase-checklist-registry-read-only',
+              filters: {
+                hockey: 'sport=hockey and season/release year >= 2021',
+                wnba: 'WNBA release and year 2024 or 2025',
+              },
+              totals: {
+                allReleaseRows: normalized.length,
+                allActiveVersions: versions.length,
+                hockeyRows: hockey.length,
+                hockeyReady: hockey.filter((row) => row.ready).length,
+                wnbaRows: wnba.length,
+                wnbaReady: wnba.filter((row) => row.ready).length,
+              },
+              hockey,
+              wnba,
+              safety: {
+                readOnlyRestQueries: true,
+                productionDatabaseWrites: false,
+                migrationsApplied: false,
+                deploymentPerformed: false,
+                secretsLogged: false,
+              },
+            };
+            fs.writeFileSync('evidence/registry-scope-inventory.json', `${JSON.stringify(receipt, null, 2)}\n`);
+            console.log(JSON.stringify(receipt, null, 2));
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.stack || error.message : String(error));
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload sanitized inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-registry-scope-inventory-20260816
+          path: evidence/registry-scope-inventory.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Destroy recovered secret material
+        if: always()
+        shell: bash
+        run: |
+          find /tmp/truely-production-vault /tmp/truely-production-key -type f -exec shred -u {} + 2>/dev/null || true
