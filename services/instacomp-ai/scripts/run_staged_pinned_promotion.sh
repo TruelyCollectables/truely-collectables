@@ -3,7 +3,7 @@ set -euo pipefail
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/promote_lora_candidate_frozen_25_v13.py"
+target="$service_root/scripts/promote_lora_candidate_frozen_25_v14.py"
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
@@ -58,7 +58,7 @@ if service_root not in origin.parents:
 print(f"PASS InstaComp app import path: {origin}")
 PY
 
-echo "PASS pinned staged promotion launcher mode: promotion-v13-pinned-throttle-backoff"
-echo "INFO Frozen 10 uses five previously Registry-accepted expansion rows; no discovery crawl"
-echo "INFO Registry throttling retries the exact same request after the server retry window; no card mismatch is recorded"
+echo "PASS pinned staged promotion launcher mode: promotion-v14-pinned-backfill"
+echo "INFO Frozen 10 keeps the original five pinned priorities and automatically tries later pinned replacements after a safety reject"
+echo "INFO Registry service-token traffic is unthrottled; v13 backoff remains only as fail-safe handling for infrastructure 429/throttle responses"
 exec "$service_python" "$target" "$@"
