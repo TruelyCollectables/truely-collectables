@@ -13,6 +13,8 @@ on:
       - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py"
       - "services/instacomp-ai/scripts/run_frozen_25_promotion.sh"
       - "services/instacomp-ai/scripts/enable-lora-candidate-macos.sh"
       - "services/instacomp-ai/scripts/disable-lora-candidate-macos.sh"
@@ -51,14 +53,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r services/instacomp-ai/requirements-training.txt
 
-      - name: Compile candidate runtime, serial guard, and lint shell launchers
+      - name: Compile candidate runtime, serial guard, and staged promotion runners
         run: |
           set -euo pipefail
           python -m compileall -q \
             services/instacomp-ai/app \
             services/instacomp-ai/scripts/run_lora_candidate_server.py \
             services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
           bash -n services/instacomp-ai/scripts/run_frozen_25_promotion.sh
           bash -n services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           bash -n services/instacomp-ai/scripts/disable-lora-candidate-macos.sh
@@ -132,7 +136,7 @@ jobs:
           grep -q '"promotion_candidate": true' /tmp/instacomp-lora-activation-preflight.log
           grep -q 'PASS LoRA candidate activation preflight: no runtime state changed.' /tmp/instacomp-lora-activation-preflight.log
 
-      - name: Fail closed source contract
+      - name: Fail closed staged source contract
         run: |
           set -euo pipefail
           grep -q 'lora_candidate_enabled: bool = False' services/instacomp-ai/app/config.py
@@ -153,16 +157,19 @@ jobs:
           grep -q 'legacy.CandidateHandler = CandidateHandlerV2' services/instacomp-ai/scripts/run_lora_candidate_server.py
           grep -q 'strict_retry_prompt' services/instacomp-ai/scripts/run_lora_candidate_server.py
 
-          # A noisy OCR fraction may remain in raw evidence, but it cannot become
-          # Registry serial identity unless it is a clean stamp or independently
-          # corroborated. The actual v9 runner must own the Frozen 25 launch path.
+          # Serial evidence remains fail-closed. The current launcher is staged v11,
+          # which must inherit v10 evidence-aligned Registry discovery and v9 safety.
           grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
           grep -q '_unique_corroborated_exact' services/instacomp-ai/app/serial_evidence_guard.py
           grep -q 'return SerialEvidence(stamp_present=False)' services/instacomp-ai/app/serial_evidence_guard.py
-          grep -q 'promotion-v9-serial-evidence-guard' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v9.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promotion-v11-staged-bounded-registry-preflight' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v11.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'DEFAULT_STAGE_TARGET=10' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'import promote_lora_candidate_frozen_25_v10 as v10' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
+          grep -q 'import promote_lora_candidate_frozen_25_v9 as v9' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
+          grep -q 'v9._install_contract_fix()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
 
           grep -q 'install_lora_candidate_runtime()' services/instacomp-ai/app/__init__.py
           grep -q 'rollback_on_exit' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
           grep -q 'cd "$service_root"' services/instacomp-ai/scripts/enable-lora-candidate-macos.sh
-          echo "PASS candidate remains opt-in, localhost-only, validation-gated, evidence-only, serial-guarded, structured-recovery bounded, transactional, and rollbackable"
+          echo "PASS candidate remains opt-in, localhost-only, validation-gated, staged, bounded, Registry-authoritative, serial-guarded, structured-recovery bounded, transactional, and rollbackable"
