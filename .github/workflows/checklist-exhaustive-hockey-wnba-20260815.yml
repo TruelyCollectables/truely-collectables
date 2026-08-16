@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - "scripts/discover-exhaustive-hockey-wnba.mjs"
+      - "scripts/harvest-gogts-coordinate-direct.mjs"
       - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
   push:
     branches:
       - ops/checklist-public-web-registry-promotion-20260814
     paths:
       - "scripts/discover-exhaustive-hockey-wnba.mjs"
+      - "scripts/harvest-gogts-coordinate-direct.mjs"
       - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
   workflow_dispatch:
 
