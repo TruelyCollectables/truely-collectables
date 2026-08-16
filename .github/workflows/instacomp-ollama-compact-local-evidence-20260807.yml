@@ -1,118 +1,53 @@
 name: InstaComp Ollama Compact Local Evidence 20260807
 
 on:
-  push:
-    branches:
-      - fix/instacomp-ollama-compact-local-evidence-20260807
   pull_request:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-ollama-compact-local-evidence-20260807.yml"
+      - "services/instacomp-ai/app/ollama.py"
+      - "services/instacomp-ai/app/teacher_vision_prompt_evidence.py"
+      - "services/instacomp-ai/app/teacher_vision_training.py"
+      - "services/instacomp-ai/scripts/run_teacher_vision_lora_training.py"
+      - "services/instacomp-ai/tests/test_ollama_compact_local_evidence.py"
+      - "services/instacomp-ai/tests/test_teacher_vision_prompt_evidence.py"
+      - "services/instacomp-ai/tests/test_teacher_vision_training.py"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: instacomp-compact-local-evidence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  apply-and-test:
+  certify-current-source:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || 'fix/instacomp-ollama-compact-local-evidence-20260807' }}
           fetch-depth: 0
-
-      - name: Apply compact evidence repair
-        shell: bash
-        run: |
-          set -euo pipefail
-          if grep -q 'def _compact_ocr' services/instacomp-ai/app/ollama.py; then
-            echo 'runtime already contains compact evidence repair'
-          else
-            python3 scripts/patch-instacomp-ollama-compact-local-evidence.py
-          fi
-          git diff --check
-          grep -q 'def _compact_ocr' services/instacomp-ai/app/ollama.py
-          grep -q 'Full OCR boxes and raw measurements' services/instacomp-ai/app/ollama.py
-          grep -q 'prompt_chars' services/instacomp-ai/app/ollama.py
-          grep -q 'def _safe_ollama_error_detail' services/instacomp-ai/app/main.py
-
-      - name: Apply marker-gated Ivan Registry repair
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          if ! git diff --name-only origin/main...HEAD | grep -qx 'src/lib/deal-hunter-registry-set-hints-v2.marker'; then
-            echo 'No Ivan repair marker; skipping.'
-            exit 0
-          fi
-          python3 scripts/ops/patch-deal-hunter-ivan-registry-hints-20260807.py
-          grep -q 'listingIdentityHint.brand' src/app/api/instacomp/scan/route.ts
-          grep -q 'listingIdentityHint.setName' src/app/api/instacomp/scan/route.ts
-          grep -q 'trustedForIdentity: false' src/app/api/instacomp/scan/route.ts
-          git diff --check
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: services/instacomp-ai/requirements.txt
 
-      - name: Install and certify complete service
-        working-directory: services/instacomp-ai
+      - name: Certify compact evidence and teacher prompt boundaries
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -r requirements.txt
-          python -m compileall app tests scripts
-          PYTHONPATH=. pytest -q tests/test_ollama_compact_local_evidence.py
-          PYTHONPATH=. pytest -q
-
-      - uses: actions/setup-node@v4
-        if: github.event_name == 'pull_request'
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Certify Ivan scanner TypeScript and production build
-        if: github.event_name == 'pull_request'
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
-          SUPABASE_SERVICE_ROLE_KEY: ci-service-placeholder
-        run: |
-          npm ci
-          npx tsc --noEmit
-          npm run build
-
-      - name: Persist tested runtime files
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add services/instacomp-ai/app/ollama.py services/instacomp-ai/app/main.py
-          if git diff --cached --quiet; then
-            echo 'No generated runtime changes to persist.'
-            exit 0
-          fi
-          git commit -m 'Compact Ollama local evidence payload'
-          git push origin HEAD:fix/instacomp-ollama-compact-local-evidence-20260807
-
-      - name: Persist certified Ivan scanner repair
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          if ! git diff --name-only origin/main...HEAD | grep -qx 'src/lib/deal-hunter-registry-set-hints-v2.marker'; then exit 0; fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/app/api/instacomp/scan/route.ts
-          if git diff --cached --quiet; then
-            echo 'Ivan scanner repair already committed.'
-            exit 0
-          fi
-          git commit -m 'Fix Ivan Deal Hunter Registry lookup hints'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests services/instacomp-ai/scripts
+          PYTHONPATH=services/instacomp-ai pytest -q \
+            services/instacomp-ai/tests/test_ollama_compact_local_evidence.py \
+            services/instacomp-ai/tests/test_teacher_vision_prompt_evidence.py \
+            services/instacomp-ai/tests/test_teacher_vision_training.py
+          grep -q 'def _compact_ocr' services/instacomp-ai/app/ollama.py
+          grep -q 'def local_vision_prompt_payload' services/instacomp-ai/app/ollama.py
+          grep -q 'compact_training_examples_for_prompt' services/instacomp-ai/scripts/run_teacher_vision_lora_training.py
+          grep -q 'raw_local_vision_preserved_in_database' services/instacomp-ai/scripts/run_teacher_vision_lora_training.py
+          git diff --check

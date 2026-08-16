@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5vl:7b"
     ollama_timeout_seconds: float = 120.0
 
+    # Legacy live Ollama reader is OFF by default. Local large models are tutors
+    # for supervised training, not scan-time identity fallbacks. This can only be
+    # re-enabled deliberately for an engineering comparison run.
+    ollama_runtime_reader_enabled: bool = False
+
     # Offline teacher lane. These local Ollama models are advisory tutors only:
     # they may describe visible evidence and explain student misses, but they can
     # never create/replace Registry truth, card UUIDs, fingerprints, pricing, or

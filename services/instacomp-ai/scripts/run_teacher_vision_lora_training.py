@@ -13,6 +13,7 @@ if str(SERVICE_ROOT) not in sys.path:
 
 from app.config import settings
 from app.storage import MemoryStore
+from app.teacher_vision_prompt_evidence import compact_training_examples_for_prompt
 from app.teacher_vision_training import build_teacher_augmented_dataset
 from app.training import training_readiness
 from run_lora_training import (
@@ -77,13 +78,20 @@ def main() -> int:
             "Use --allow-small-dataset only for a disposable engineering smoke test."
         )
 
+    # Preserve the raw TrainingExample/LocalVisionEvidence in SQLite. The teacher
+    # pipeline receives a prompt-only copy whose OCR/CV evidence is bounded by the
+    # same compact serializer used by the established local vision reader. This
+    # keeps the useful text/color/pattern/serial evidence while dropping context-
+    # wasting coordinate arrays from every repeated teacher/student prompt.
+    prompt_examples = compact_training_examples_for_prompt(examples)
+
     image_store = settings.resolve_local_path(settings.image_store_path)
     teacher_root = settings.resolve_local_path("./data/training/teacher-vision")
     teacher_root.mkdir(parents=True, exist_ok=True)
     export_root = settings.resolve_local_path(settings.training_export_path)
 
     mining, manifest = build_teacher_augmented_dataset(
-        examples,
+        prompt_examples,
         settings=settings,
         image_store_path=image_store,
         destination_root=export_root,
@@ -141,6 +149,8 @@ def main() -> int:
         "teacher_identity_authority": False,
         "teacher_pricing_authority": False,
         "teacher_auto_promotion": False,
+        "raw_local_vision_preserved_in_database": True,
+        "teacher_prompt_uses_compact_local_vision": True,
         "original_archived_images_mutated": False,
         "ai_learning_image_max_edge": settings.teacher_vision_image_max_edge,
         "teacher_mining": mining,
@@ -184,6 +194,8 @@ def main() -> int:
                 "adapter_path": str(adapter_bundle),
                 "adapter_weights": str(adapter_path),
                 "teachers_used_at_runtime": False,
+                "raw_local_vision_preserved_in_database": True,
+                "teacher_prompt_uses_compact_local_vision": True,
             },
             indent=2,
         )
