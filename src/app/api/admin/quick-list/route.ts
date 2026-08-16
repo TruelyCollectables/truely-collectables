@@ -48,6 +48,23 @@ function cleanMetadata(value: FormDataEntryValue | null) {
   }
 }
 
+function clientRequestId(formData: FormData) {
+  const supplied = textValue(formData, "clientRequestId", 80);
+  if (!supplied) return randomUUID();
+  if (!/^[a-zA-Z0-9_-]{12,80}$/.test(supplied)) {
+    throw new InstaCompJobServerError(
+      "Quick List request ID is invalid.",
+      400,
+      "QUICK_LIST_REQUEST_ID_INVALID",
+    );
+  }
+  return supplied;
+}
+
+function quickListSku(requestId: string) {
+  return `QL-${requestId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 36).toUpperCase()}`;
+}
+
 function validateImage(value: FormDataEntryValue | null, label: string) {
   if (!(value instanceof File) || value.size <= 0) {
     if (label === "Front") {
@@ -98,7 +115,7 @@ async function uploadDraftImage(params: {
     .upload(path, params.file, {
       contentType: params.file.type,
       cacheControl: "3600",
-      upsert: false,
+      upsert: true,
     });
 
   if (uploadError) {
@@ -136,6 +153,7 @@ async function uploadDraftImage(params: {
 
 export async function POST(request: Request) {
   const uploadedPaths: string[] = [];
+  let cleanupUploadedPaths = true;
 
   try {
     const actor = await requireInstaCompJobActor(request);
@@ -149,7 +167,11 @@ export async function POST(request: Request) {
     }
 
     const supabase = requireInstaCompJobSupabase();
+    const repository = new InventoryRepository(actor.storeId, supabase);
+    const engine = new InventoryEngine(actor.storeId, repository, supabase);
     const formData = await request.formData();
+    const requestId = clientRequestId(formData);
+    const sku = quickListSku(requestId);
     const frontImage = validateImage(formData.get("frontImage"), "Front")!;
     const backImage = validateImage(formData.get("backImage"), "Back");
     const title = textValue(formData, "title", 240);
@@ -188,7 +210,50 @@ export async function POST(request: Request) {
       );
     }
 
-    const draftKey = randomUUID();
+    const { data: existingProduct, error: existingProductError } = await supabase
+      .from("products")
+      .select("id,sku,title,price,quantity,image_url")
+      .eq("store_id", actor.storeId)
+      .eq("sku", sku)
+      .maybeSingle();
+
+    if (existingProductError) throw existingProductError;
+
+    if (existingProduct) {
+      const existingInventory = await repository.getByLegacyProductId(
+        Number(existingProduct.id),
+      );
+      if (!existingInventory) {
+        throw new InstaCompJobServerError(
+          "The idempotent Quick List product exists but its inventory bridge is missing.",
+          409,
+          "QUICK_LIST_IDEMPOTENT_BRIDGE_MISSING",
+        );
+      }
+      const existingImages = await repository.getImages(existingInventory.id);
+      return NextResponse.json({
+        success: true,
+        reused: true,
+        draft: {
+          inventoryItemId: existingInventory.id,
+          legacyProductId: Number(existingProduct.id),
+          sku,
+          title: existingProduct.title,
+          price: Number(existingProduct.price || price),
+          quantity: Number(existingProduct.quantity || quantity),
+          serialNumber,
+          status: existingInventory.status || "draft",
+          editUrl: `/admin/products/${existingProduct.id}`,
+          frontImageUrl: existingProduct.image_url || null,
+          backImageUrl:
+            existingImages
+              .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+              .find((image) => !image.is_primary)?.image_url || null,
+        },
+      });
+    }
+
+    const draftKey = requestId;
     const [front, back] = await Promise.all([
       uploadDraftImage({
         supabase,
@@ -210,9 +275,6 @@ export async function POST(request: Request) {
     uploadedPaths.push(front.path);
     if (back?.path) uploadedPaths.push(back.path);
 
-    const repository = new InventoryRepository(actor.storeId, supabase);
-    const engine = new InventoryEngine(actor.storeId, repository, supabase);
-    const sku = `QL-${Date.now()}-${draftKey.slice(0, 8).toUpperCase()}`;
     const descriptionParts = [
       title,
       player ? `Player/subject: ${player}.` : null,
@@ -255,8 +317,9 @@ export async function POST(request: Request) {
     const metadata = {
       ...(currentInventory?.metadata || {}),
       quick_list: {
-        schema: "truely.quickListDraft.v1",
+        schema: "truely.quickListDraft.v2",
         created_at: now,
+        client_request_id: requestId,
         scan_id: scanId,
         normalized_serial_number: serialNumber,
         front_storage_path: front.path,
@@ -303,8 +366,10 @@ export async function POST(request: Request) {
       });
     }
 
+    cleanupUploadedPaths = false;
     return NextResponse.json({
       success: true,
+      reused: false,
       draft: {
         inventoryItemId: draft.inventoryItemId,
         legacyProductId: draft.legacyProductId,
@@ -320,7 +385,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: any) {
-    if (uploadedPaths.length > 0) {
+    if (cleanupUploadedPaths && uploadedPaths.length > 0) {
       try {
         const supabase = requireInstaCompJobSupabase();
         await supabase.storage
