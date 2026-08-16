@@ -1,5 +1,6 @@
 name: Checklist GoGTS Offline Archive Feed 20260815
 
+# Clean priority launch: job-level writer lock only; obsolete reruns retired.
 on:
   push:
     branches:
