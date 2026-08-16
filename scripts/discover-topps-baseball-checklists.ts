@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createClient } from "@supabase/supabase-js";
+import { postChecklistRegistryAction } from "./lib/checklist-registry-action-client";
 
 const INDEX_URL = "https://www.topps.com/pages/checklists";
 const MAX_PRODUCTS = Math.max(1, Number(process.env.TOPPS_BASEBALL_MAX_PRODUCTS || 40));
@@ -11,15 +11,14 @@ const OUTPUT = resolve(
     ".checklist-discovery/topps-baseball-receipt.json",
 );
 
-function client() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Topps baseball discovery requires Supabase service-role access.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
 function clean(value: string) {
-  return value.replace(/<[^>]+>/g, " ").replace(/&amp;/gi, "&").replace(/&reg;/gi, "®").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&reg;/gi, "®")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 function sha256(value: string | Uint8Array) {
   return createHash("sha256").update(value).digest("hex");
@@ -45,7 +44,9 @@ async function fetchResponse(url: string) {
 async function fetchHtml(url: string) {
   const response = await fetchResponse(url);
   const type = response.headers.get("content-type") || "";
-  if (!type.toLowerCase().includes("text/html")) throw new Error(`Unexpected HTML content type ${type || "unknown"}`);
+  if (!type.toLowerCase().includes("text/html")) {
+    throw new Error(`Unexpected HTML content type ${type || "unknown"}`);
+  }
   const html = await response.text();
   if (html.length < 1_000) throw new Error(`Incomplete HTML (${html.length} bytes)`);
   return html;
@@ -64,7 +65,8 @@ function anchors(html: string, base: string) {
 }
 function isBaseballTitle(value: string) {
   const title = clean(value);
-  return /\b(baseball|bowman|mlb)\b/i.test(title) && !/basketball|football|soccer|uefa|star wars|disney|pixar/i.test(title);
+  return /\b(baseball|bowman|mlb)\b/i.test(title) &&
+    !/basketball|football|soccer|uefa|star wars|disney|pixar/i.test(title);
 }
 function inferYear(value: string) {
   return value.match(/\b(20\d{2})\b/)?.[1] || null;
@@ -100,19 +102,13 @@ function mimeType(url: string, header: string) {
   if (/\.csv(?:$|\?)/i.test(url)) return "text/csv";
   return "application/octet-stream";
 }
-async function upsert(db: ReturnType<typeof client>, values: Record<string, unknown>) {
-  const { error } = await db.from("checklist_source_catalog").upsert(values, { onConflict: "source_url" });
-  if (error) throw new Error(`Could not update checklist source catalog: ${error.message}`);
-}
 
 async function main() {
-  const db = client();
   const startedAt = new Date().toISOString();
   const pages = productPages(await fetchHtml(INDEX_URL));
   const results: Array<Record<string, unknown>> = [];
 
   for (const page of pages) {
-    const checkedAt = new Date().toISOString();
     try {
       const html = await fetchHtml(page.url);
       const assets = checklistAssets(html, page.url);
@@ -121,6 +117,7 @@ async function main() {
         continue;
       }
       for (const asset of assets) {
+        const checkedAt = new Date().toISOString();
         const response = await fetchResponse(asset.url);
         const bytes = new Uint8Array(await response.arrayBuffer());
         const sourceSha256 = sha256(bytes);
@@ -134,24 +131,23 @@ async function main() {
               severity: "error",
               message: `Official Topps baseball checklist discovered as ${type}; retain privately and add a deterministic adapter before import.`,
             }];
-        await upsert(db, {
-          manufacturer: "Topps",
-          sport: "Baseball",
-          source_url: asset.url,
-          source_sha256: sourceSha256,
-          release_name: page.title,
+        const metadata = {
+          productPageUrl: page.url,
+          assetLabel: asset.label,
+          releaseYear: inferYear(page.title),
+          mimeType: type,
+          sizeBytes: bytes.byteLength,
+          provider: "topps_official_checklist_index",
+        };
+        await postChecklistRegistryAction({
+          operation: "topps_catalog_upsert",
+          sourceUrl: asset.url,
+          sourceSha256,
+          releaseName: page.title,
           status,
-          last_seen_at: checkedAt,
-          last_checked_at: checkedAt,
-          issue_summary: issueSummary,
-          metadata: {
-            productPageUrl: page.url,
-            assetLabel: asset.label,
-            releaseYear: inferYear(page.title),
-            mimeType: type,
-            sizeBytes: bytes.byteLength,
-            provider: "topps_official_checklist_index",
-          },
+          checkedAt,
+          issueSummary,
+          metadata,
         });
         results.push({
           productPage: page.url,
