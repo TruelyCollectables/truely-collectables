@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
@@ -28,23 +29,26 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile pinned promotion runner
+      - name: Compile pinned promotion runners
         run: |
           python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-      - name: Prove pinned and throttle fail-fast contract
+      - name: Reproduce and prevent throttle swallow regression
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py --self-test
-      - name: Prove source limits are explicit
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py --self-test
+      - name: Prove pinned limits and throttle backoff source contract
         run: |
           grep -q 'PINNED_EXPANSION_BUDGETS = {10: 5, 15: 10, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
-          grep -q 'PREFLIGHT_REGISTRY_CALL_CEILINGS' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
-          grep -q 'Too many attempts' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
-          grep -q 'promotion-v12-pinned-throttle-fail-fast' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'MAX_THROTTLE_WINDOWS_PER_REQUEST = 6' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py
+          grep -q 'class RegistryThrottleAbort(BaseException)' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py
+          grep -q 'await sleep_fn(delay)' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py
+          grep -q 'promotion-v13-pinned-throttle-backoff' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v13.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
 
   pinned-contract-macos:
     runs-on: macos-15
@@ -56,10 +60,12 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and prove v12 on macOS
+      - name: Compile and prove v13 on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
-          python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
+          python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py --self-test
+          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py --self-test
