@@ -31,10 +31,22 @@ jobs:
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
           read -r -d '' sql <<'SQL' || true
-          select id, release_id, status, is_active, normalized_card_count, normalized_identity_count, created_at
-          from public.checklist_versions
-          order by created_at desc
-          limit 25;
+          select
+            r.slug,
+            v.id as version_id,
+            v.status,
+            v.is_active,
+            v.normalized_card_count,
+            v.normalized_identity_count,
+            v.created_at,
+            (select count(*) from public.checklist_sets s where s.version_id = v.id) as staged_sets,
+            (select count(*) from public.checklist_cards c where c.version_id = v.id) as staged_cards,
+            (select count(*) from public.checklist_parallels p where p.version_id = v.id) as staged_parallels,
+            (select count(*) from public.checklist_card_identities i where i.version_id = v.id) as staged_identities
+          from public.checklist_versions v
+          join public.checklist_releases r on r.id = v.release_id
+          where v.created_at >= '2026-08-16T23:17:00Z'::timestamptz
+          order by v.created_at desc;
           SQL
           jq -cn --arg query "$sql" '{query:$query,read_only:true}' > evidence/query.json
           code="$(curl --silent --show-error --max-time 45 \
@@ -46,7 +58,7 @@ jobs:
           echo "HTTP $code"
           cat evidence/progress.json
           echo
-          test "$code" = '200'
+          [[ "$code" = '200' || "$code" = '201' ]]
           jq . evidence/progress.json
       - name: Upload progress audit
         if: always()
