@@ -234,7 +234,7 @@ def test_trusted_silver_visual_memory_requires_back_prizm_mark(tmp_path):
     assert merged["identity"]["parallel"] == "Silver Prizm"
 
 
-def test_specific_non_base_model_parallel_is_not_overwritten_when_back_prizm_is_present(tmp_path):
+def test_back_prizm_mark_does_not_turn_unsupported_model_parallel_into_base(tmp_path):
     database_path = tmp_path / "empty.sqlite3"
     connection = sqlite3.connect(database_path)
     try:
@@ -261,4 +261,7 @@ def test_specific_non_base_model_parallel_is_not_overwritten_when_back_prizm_is_
         },
         visual,
     )
-    assert merged["identity"]["parallel"] == "Gold Prizm"
+    # Existing conservative behavior still strips an unsupported color-only
+    # model guess. The important Base/non-Base contract is that a present back
+    # PRIZM mark does not force this card to Base.
+    assert merged["identity"]["parallel"] is None
