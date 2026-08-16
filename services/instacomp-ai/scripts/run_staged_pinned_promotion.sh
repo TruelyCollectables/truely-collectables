@@ -4,6 +4,7 @@ set -euo pipefail
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
 target="$service_root/scripts/promote_lora_candidate_frozen_25_v14.py"
+visual_memory_repair="$service_root/scripts/repair_trusted_visual_memory.py"
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
@@ -11,6 +12,10 @@ target="$service_root/scripts/promote_lora_candidate_frozen_25_v14.py"
 }
 [[ -f "$target" ]] || {
   echo "Pinned staged promotion runner is missing: $target" >&2
+  exit 2
+}
+[[ -f "$visual_memory_repair" ]] || {
+  echo "Trusted visual-memory repair is missing: $visual_memory_repair" >&2
   exit 2
 }
 
@@ -58,7 +63,16 @@ if service_root not in origin.parents:
 print(f"PASS InstaComp app import path: {origin}")
 PY
 
+if [[ "$self_test" == "0" ]]; then
+  echo "INFO Hydrating missing visual-pattern evidence for the reviewed supervised training set before promotion"
+  "$service_python" "$visual_memory_repair" \
+    --source-contains supervised_203_operator_confirmed \
+    --max-repairs 250 \
+    --workers 6
+fi
+
 echo "PASS pinned staged promotion launcher mode: promotion-v14-pinned-backfill"
 echo "INFO Frozen 10 keeps the original five pinned priorities and automatically tries later pinned replacements after a safety reject"
 echo "INFO Registry service-token traffic is unthrottled; v13 backoff remains only as fail-safe handling for infrastructure 429/throttle responses"
+echo "INFO Trusted supervised visual memory is hydrated from archived images before live candidate rounds; identity and Registry truth are unchanged"
 exec "$service_python" "$target" "$@"
