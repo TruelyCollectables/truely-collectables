@@ -11,6 +11,7 @@ type Expected = {
   identityId: string;
   fingerprint: string;
   cardNumber: string;
+  expectedProbeBrand?: string;
 };
 
 async function resolveWithBoundedLeadingDigitRecovery(body: Record<string, unknown>) {
@@ -39,24 +40,29 @@ async function resolveWithBoundedLeadingDigitRecovery(body: Record<string, unkno
 
 const cases: Expected[] = [
   {
-    key: "sonia-122-base-from-real-bad-reader-payload",
+    key: "sonia-122-base-from-v14-round1-exact-payload",
     body: {
       year: "2025",
-      manufacturer: null,
-      brand: "Prizm",
-      setName: "2025 Panini Prizm WNBA - Silver Prizms",
+      manufacturer: "Panini",
+      brand: "Panini Prizm WNBA",
+      setName: "Base",
       cardNumber: "22",
       player: "Sonia Citron",
       team: "Washington Mystics",
       sport: "Basketball",
       league: null,
+      serialNumber: null,
+      isAuto: null,
+      isRelic: null,
       parallel: null,
       variation: null,
-      ocrText: "SONIA CITRON ROOKIE PRIZ PRZN RC CARD 22 WASHINGTON MYSTICS",
+      ocrText:
+        "NI+G SONIA CITRON * SONIA CITRON CNINL ROOKIE PRIZ PRZN RC CARD Wilson Wilxon SACDOSO Suingte 22 WASHINGTON MYSTICS MUSICS Cousics",
     },
     identityId: "2a7d4ddd-e9f7-4ce2-904c-b1a17b33ae4f",
     fingerprint: "4366f96b6cf8b136e5ae4da70c35539d56e1793de0a42bcccbf970a892791e59",
     cardNumber: "122",
+    expectedProbeBrand: "Panini Prizm WNBA",
   },
   {
     key: "malonga-116-ice",
@@ -135,6 +141,13 @@ const cases: Expected[] = [
 async function main() {
   for (const testCase of cases) {
     const { probe, resolution } = await resolveWithBoundedLeadingDigitRecovery(testCase.body);
+    if (testCase.expectedProbeBrand) {
+      assert.equal(
+        probe.brand,
+        testCase.expectedProbeBrand,
+        `${testCase.key}: Registry probe discarded the more specific visible brand`,
+      );
+    }
     assert.equal(
       resolution.status,
       "internal_exact_match",
