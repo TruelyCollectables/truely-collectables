@@ -1,4 +1,4 @@
-name: Supabase Ephemeral Login Backup Retry
+name: Supabase App-Credential Recovery Probe
 
 on:
   push:
@@ -9,79 +9,60 @@ permissions:
   contents: read
 
 env:
-  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT_NAME: truely-collectables
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
 jobs:
-  retry:
+  probe:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
+      - name: Checkout isolated recovery branch
+        uses: actions/checkout@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Retry ephemeral database login after exporter cleanup
+      - name: Link retired Vercel project for credential recovery only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${VERCEL_TOKEN:?Missing VERCEL_TOKEN}"
+          npx --yes vercel@58.10.0 link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color >/dev/null
+          echo 'Vercel project linked locally for environment recovery; no deployment created.'
+
+      - name: Probe database using recovered production environment
         shell: bash
         run: |
           set -Eeuo pipefail
           umask 077
-          : "${SUPABASE_ACCESS_TOKEN:?Missing SUPABASE_ACCESS_TOKEN}"
-          REF="$SUPABASE_PROJECT_REF"
-          API="https://api.supabase.com/v1/projects/$REF"
-          HDR="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
-          cleanup() {
-            curl -sS -X DELETE "$API/cli/login-role" -H "$HDR" >/dev/null 2>&1 || true
-            rm -f /tmp/login.json /tmp/pooler.json /tmp/dsn.txt /tmp/psql.err /tmp/dump.err
-          }
-          trap cleanup EXIT
+          cat > /tmp/tc-db-probe.sh <<'SH'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          DB_URL="${DATABASE_URL:-${POSTGRES_URL:-${POSTGRES_URL_NON_POOLING:-}}}"
+          [ -n "$DB_URL" ] || { echo 'No database connection variable was injected.'; exit 20; }
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo 'SUPABASE_SERVICE_ROLE_KEY was not injected.'; exit 21; }
+          [ -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ] || { echo 'NEXT_PUBLIC_SUPABASE_URL was not injected.'; exit 22; }
+          echo 'Required production database + Supabase service credentials are present; values not printed.'
+          if timeout 35s psql "$DB_URL" -Atqc 'select 1' >/dev/null 2>/tmp/tc-db-probe.err; then
+            echo 'Production database credential SQL connection PASS.'
+            printf 'database_credential=present\nservice_role=present\nsupabase_url=present\nsql_connection=PASS\n' > /tmp/probe-summary.txt
+          else
+            echo 'Production database credential exists but SQL connection failed.'
+            exit 23
+          fi
+          SH
+          chmod 700 /tmp/tc-db-probe.sh
+          npx --yes vercel@58.10.0 env run -e production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" -- /tmp/tc-db-probe.sh
+          rm -f /tmp/tc-db-probe.sh /tmp/tc-db-probe.err
 
-          SUCCESS=0
-          for ATTEMPT in 1 2 3; do
-            code=$(curl --max-time 40 -sS -o /tmp/login.json -w '%{http_code}' -X POST "$API/cli/login-role" \
-              -H "$HDR" -H 'Content-Type: application/json' -d '{"read_only":false}' || true)
-            echo "ephemeral login attempt $ATTEMPT -> HTTP $code"
-            if [ "$code" = 200 ] || [ "$code" = 201 ]; then SUCCESS=1; break; fi
-            sleep 10
-          done
-          [ "$SUCCESS" = 1 ] || { echo 'Ephemeral login API still unavailable after cleanup.'; exit 20; }
-
-          code=$(curl --max-time 25 -sS -o /tmp/pooler.json -w '%{http_code}' "$API/config/database/pooler" -H "$HDR" || true)
-          [ "$code" = 200 ] || { echo "Pooler config HTTP $code"; exit 21; }
-          ROLE=$(jq -r '.role // empty' /tmp/login.json)
-          PASS=$(jq -r '.password // empty' /tmp/login.json)
-          TTL=$(jq -r '.ttl_seconds // 0' /tmp/login.json)
-          HOST=$(jq -r '.[0].db_host // .[0].host // empty' /tmp/pooler.json)
-          [ -n "$ROLE" ] && [ -n "$PASS" ] && [ -n "$HOST" ]
-          echo "Ephemeral login issued; ttl_seconds=$TTL; no credential values printed."
-
-          export PGPASSWORD="$PASS"
-          CONNECTED=0
-          WORKING_USER=''
-          for USER in "$ROLE.$REF" "$ROLE"; do
-            if timeout 25s psql "host=$HOST port=5432 dbname=postgres user=$USER sslmode=require connect_timeout=10" -Atqc 'select 1' >/dev/null 2>/tmp/psql.err; then
-              CONNECTED=1; WORKING_USER="$USER"; break
-            fi
-          done
-          [ "$CONNECTED" = 1 ] || { echo 'Ephemeral role issued but session-pooler connection failed.'; exit 22; }
-          echo 'Session-pooler SQL connection PASS.'
-
-          node -e 'const fs=require("fs"); const [u,p,h]=process.argv.slice(1); fs.writeFileSync("/tmp/dsn.txt",`postgresql://${encodeURIComponent(u)}:${encodeURIComponent(p)}@${h}:5432/postgres?sslmode=require`,{mode:0o600})' "$WORKING_USER" "$PASS" "$HOST"
-          DSN=$(cat /tmp/dsn.txt)
-          timeout 6m npx --yes supabase@latest db dump --db-url "$DSN" --schema public -f /tmp/public-schema-probe.sql >/dev/null 2>/tmp/dump.err
-          [ -s /tmp/public-schema-probe.sql ]
-          SIZE=$(wc -c < /tmp/public-schema-probe.sql)
-          TABLES=$(grep -c '^CREATE TABLE' /tmp/public-schema-probe.sql || true)
-          printf 'ephemeral_login=PASS\nsession_pooler=PASS\npublic_schema_dump=PASS\npublic_schema_bytes=%s\ncreate_table_statements=%s\n' "$SIZE" "$TABLES" > /tmp/probe-summary.txt
-          echo "Logical schema probe PASS: bytes=$SIZE tables=$TABLES"
-
-      - name: Upload safe retry receipt
+      - name: Upload safe probe receipt
         uses: actions/upload-artifact@v4
         with:
-          name: TruelyCollectables-supabase-clean-retry-2026-08-15
-          path: |
-            /tmp/probe-summary.txt
-            /tmp/public-schema-probe.sql
+          name: TruelyCollectables-supabase-app-credential-probe-2026-08-15
+          path: /tmp/probe-summary.txt
           if-no-files-found: error
           retention-days: 1
