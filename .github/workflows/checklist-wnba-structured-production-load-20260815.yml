@@ -7,9 +7,13 @@ on:
     paths:
       - '.github/workflows/checklist-wnba-structured-production-load-20260815.yml'
       - 'scripts/patch-wnba-panini-conflict-resolution.mjs'
+      - 'scripts/patch-wnba-bulk-writer.mjs'
+      - 'scripts/mainstream-checklist/bulk-registry-tools.mjs'
+      - 'scripts/install-checklist-bulk-writer.sh'
       - 'scripts/repair-mainstream-checklist-schema.sh'
       - 'supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql'
       - 'supabase/migrations/20260807124500_checklist_registry_writer_timeout.sql'
+      - 'supabase/migrations/20260816120500_checklist_registry_bulk_writer.sql'
   workflow_dispatch:
 
 permissions:
@@ -110,7 +114,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install and certify structured Panini parser
+      - name: Install and certify structured Panini bulk loader
         shell: bash
         run: |
           set -euo pipefail
@@ -119,8 +123,12 @@ jobs:
           npm ci
           node --check scripts/patch-wnba-panini-conflict-resolution.mjs
           node scripts/patch-wnba-panini-conflict-resolution.mjs
+          node --check scripts/patch-wnba-bulk-writer.mjs
+          node scripts/patch-wnba-bulk-writer.mjs
           node --check scripts/import-wnba-panini-pdfs.mjs
+          node --check scripts/mainstream-checklist/bulk-registry-tools.mjs
           bash -n scripts/repair-mainstream-checklist-schema.sh
+          bash -n scripts/install-checklist-bulk-writer.sh
 
       - name: Resolve Production Supabase
         shell: bash
@@ -144,11 +152,12 @@ jobs:
           echo "RESOLVED_SUPABASE_PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
 
-      - name: Repair and optimize Production Registry writer
+      - name: Repair and install Production Registry writers
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/repair-mainstream-checklist-schema.sh
+          bash scripts/install-checklist-bulk-writer.sh
 
       - name: Import all eight WNBA PDFs into Production Registry
         shell: bash
@@ -171,7 +180,7 @@ jobs:
           imported="$(jq -r '.imported' "$receipt")"
           failed="$(jq -r '.failed' "$receipt")"
           echo "WNBA verified persisted: $imported / $expected; failed=$failed"
-          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.sets // 0),(.persistence.ok // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
+          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.sets // 0),(.persistence.ok // false),(.persistence.bulk // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
           test "$expected" -eq 8
           test "$imported" -eq 8
           test "$failed" -eq 0
@@ -187,4 +196,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" "$RUNNER_TEMP/checklist-bulk-writer-install" .env.local .env.production.local .vercel
