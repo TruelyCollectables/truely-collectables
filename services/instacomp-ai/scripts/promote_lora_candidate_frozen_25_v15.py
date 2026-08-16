@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 import sys
-from typing import Any
+from typing import Any, Callable
 
 import promote_lora_candidate_frozen_25_v5 as v5
 import promote_lora_candidate_frozen_25_v9 as v9
@@ -11,39 +12,87 @@ import promote_lora_candidate_frozen_25_v12 as v12
 import promote_lora_candidate_frozen_25_v14 as v14
 
 SCHEMA = "tcos.instacomp-ai.lora-staged-pinned-promotion.v15"
+_INHERITED_IMAGE_WITNESS_CONFLICT = v9._image_witness_conflict_hardened
+PrizmBackMarkProbe = Callable[[dict[str, Any]], bool | None]
+_prizm_back_mark_probe_override: PrizmBackMarkProbe | None = None
 
 
-def _strict_non_base_image_witness_conflict(
+def _fixture_is_prizm(item: dict[str, Any], registry: Any) -> bool:
+    identity = item.get("identity") or {}
+    locked = getattr(registry, "identity", None)
+    if hasattr(locked, "model_dump"):
+        registry_identity = locked.model_dump(mode="json")
+    elif isinstance(locked, dict):
+        registry_identity = locked
+    else:
+        registry_identity = {}
+    context = " ".join(
+        str(payload.get(key) or "")
+        for payload in (identity, registry_identity)
+        for key in ("brand", "set_name", "subset", "parallel", "variation")
+    )
+    return bool(re.search(r"\bprizm\b", context, re.I))
+
+
+def _default_prizm_back_mark_probe(item: dict[str, Any]) -> bool | None:
+    from app.config import settings
+    from app.local_vision import analyze_local_vision_sync
+    from app.prizm_back_mark_guard import bold_black_prizm_back_mark
+
+    paths = item.get("images") or []
+    if len(paths) < 2:
+        return None
+    try:
+        front = paths[0].read_bytes()
+        back = paths[1].read_bytes()
+        vision = analyze_local_vision_sync(front, back, settings)
+        return bold_black_prizm_back_mark(vision, back)
+    except Exception:
+        return None
+
+
+def _prizm_back_mark_probe(item: dict[str, Any]) -> bool | None:
+    probe = _prizm_back_mark_probe_override or _default_prizm_back_mark_probe
+    try:
+        return probe(item)
+    except Exception:
+        return None
+
+
+def _authoritative_prizm_back_mark_conflict(
     item: dict[str, Any],
     registry: Any,
 ) -> tuple[bool, str | None, str | None, str | None]:
-    """Require physical image support for every non-Base expansion variant.
+    """Use the printed back PRIZM mark as the Base/non-Base authority.
 
-    v9 correctly made Ice/Velocity fail closed when the deterministic image
-    witness was absent, but deliberately left ordinary color/foil parallels
-    such as Silver fail-neutral.  That allowed the DeWanna Bonner #32 Silver
-    teacher/Registry lock into Frozen 15 even though the production candidate
-    saw the same images as Base.  The round then resolved the legitimate Base
-    Registry UUID and failed only after candidate activation.
+    The production failure was not a Registry error. DeWanna Bonner #32 was
+    admitted as Silver even though the runtime later resolved the physical card
+    as Base. For Panini Prizm, the owner-supplied physical rule is decisive:
+    without the prominent bold black PRIZM word on the back, the card is Base.
 
-    Promotion fixtures are certification witnesses, not inventory truth.  A
-    non-Base fixture therefore qualifies only when local vision positively
-    supports the same canonical variant family as both teacher and Registry.
-    Unknown evidence is still fail-neutral for Base/unspecified fixtures.
+    The back mark decides only Base versus Prizm parallel. Once that mark is
+    present, v9's inherited deterministic surface gate still distinguishes
+    pattern-sensitive families such as Velocity and Cracked Ice and still rejects
+    contradictory physical evidence. Ordinary Silver no longer needs a made-up
+    front-surface Silver detector; it needs the actual back PRIZM mark.
     """
-    image_marker = v5._image_parallel_probe(item)
     teacher_marker = v5._teacher_variant_claim(item["identity"])
     registry_marker = v5._registry_variant_claim(registry)
 
-    if teacher_marker not in {None, "base"} and image_marker is None:
-        return True, None, teacher_marker, registry_marker
+    if _fixture_is_prizm(item, registry):
+        back_mark = _prizm_back_mark_probe(item)
+        if back_mark is not True:
+            if teacher_marker not in {None, "base"} or registry_marker not in {None, "base"}:
+                return True, "base" if back_mark is False else None, teacher_marker, registry_marker
+            # Explicit/unspecified Base is consistent with an absent back mark.
+            return False, None, teacher_marker, registry_marker
 
-    if not image_marker:
-        return False, None, teacher_marker, registry_marker
+        # A present PRIZM mark proves this is not regular Base. Do not admit an
+        # explicit Base teacher or Registry lock over that physical evidence.
+        if teacher_marker == "base" or registry_marker == "base":
+            return True, "prizm_back_mark", teacher_marker, registry_marker
 
-    teacher_conflict = teacher_marker is not None and teacher_marker != image_marker
-    registry_conflict = registry_marker is None or registry_marker != image_marker
-    return teacher_conflict or registry_conflict, image_marker, teacher_marker, registry_marker
+    return _INHERITED_IMAGE_WITNESS_CONFLICT(item, registry)
 
 
 def _install_contract() -> None:
@@ -51,19 +100,21 @@ def _install_contract() -> None:
     # serial, candidate-shape, and pattern-sensitive safety gate first.
     v14._install_contract()
 
-    # v12 installs v11 -> v10 -> v9 again after argument parsing.  Patch both
-    # the v9 source hook and the currently-installed v5 hook so that re-install
-    # cannot restore the old Silver fail-neutral behavior.
-    v9._image_witness_conflict_hardened = _strict_non_base_image_witness_conflict
-    v5._image_witness_conflict = _strict_non_base_image_witness_conflict
+    # v12 installs v11 -> v10 -> v9 again after argument parsing. Patch both the
+    # v9 source hook and the currently-installed v5 hook so a later re-install
+    # cannot restore the old Silver fail-neutral Base/non-Base behavior.
+    v9._image_witness_conflict_hardened = _authoritative_prizm_back_mark_conflict
+    v5._image_witness_conflict = _authoritative_prizm_back_mark_conflict
 
     # Stamp staged receipts with this incident-specific runner.
     v12.SCHEMA = SCHEMA
     v11.SCHEMA = SCHEMA
 
 
-def _self_test_non_base_witness_gate() -> None:
+def _self_test_prizm_back_mark_gate() -> None:
     from types import SimpleNamespace
+
+    global _prizm_back_mark_probe_override
 
     def item(parallel: str | None) -> dict[str, Any]:
         return {
@@ -89,25 +140,27 @@ def _self_test_non_base_witness_gate() -> None:
             }
         )
 
-    previous = v5._image_parallel_probe_override
+    previous_image = v5._image_parallel_probe_override
+    previous_back = _prizm_back_mark_probe_override
     try:
-        # Exact production regression: teacher + Registry say Silver, but the
-        # image/runtime has no positive Silver witness.  v9 accepted this;
-        # v15 must reject it before candidate activation.
+        # Exact production regression: teacher + Registry said Silver, but the
+        # authoritative back did not carry the PRIZM mark. This is Base and must
+        # be rejected before candidate activation.
+        _prizm_back_mark_probe_override = lambda _item: False
         v5._image_parallel_probe_override = lambda _item: None
         conflict, image_marker, teacher_marker, registry_marker = (
-            _strict_non_base_image_witness_conflict(
+            _authoritative_prizm_back_mark_conflict(
                 item("Silver Prizm"),
                 registry("Prizms Silver"),
             )
         )
         assert conflict is True
-        assert image_marker is None
+        assert image_marker == "base"
         assert teacher_marker == registry_marker == "silver"
 
-        # Base remains fail-neutral when local vision has no named parallel.
+        # The same absent back mark is affirmative support for regular Base.
         conflict, image_marker, teacher_marker, registry_marker = (
-            _strict_non_base_image_witness_conflict(
+            _authoritative_prizm_back_mark_conflict(
                 item("Base"),
                 registry("Base"),
             )
@@ -116,52 +169,91 @@ def _self_test_non_base_witness_gate() -> None:
         assert image_marker is None
         assert teacher_marker == registry_marker == "base"
 
-        # A positive Silver witness preserves the proven Silver fixture.
-        v5._image_parallel_probe_override = lambda _item: "silver"
+        # A real back PRIZM mark is enough to preserve an ordinary Silver
+        # teacher/Registry lock even though front geometry has no Silver label.
+        _prizm_back_mark_probe_override = lambda _item: True
+        v5._image_parallel_probe_override = lambda _item: None
         conflict, image_marker, teacher_marker, registry_marker = (
-            _strict_non_base_image_witness_conflict(
+            _authoritative_prizm_back_mark_conflict(
                 item("Silver Prizm"),
                 registry("Prizms Silver"),
             )
         )
         assert conflict is False
-        assert image_marker == teacher_marker == registry_marker == "silver"
+        assert image_marker is None
+        assert teacher_marker == registry_marker == "silver"
 
-        # A physically contradictory witness stays fail closed.
-        v5._image_parallel_probe_override = lambda _item: "green"
+        # A visible back PRIZM mark means explicit Base is physically wrong.
         conflict, image_marker, teacher_marker, registry_marker = (
-            _strict_non_base_image_witness_conflict(
+            _authoritative_prizm_back_mark_conflict(
+                item("Base"),
+                registry("Base"),
+            )
+        )
+        assert conflict is True
+        assert image_marker == "prizm_back_mark"
+        assert teacher_marker == registry_marker == "base"
+
+        # The back mark does not weaken existing pattern-sensitive gates.
+        conflict, image_marker, teacher_marker, registry_marker = (
+            _authoritative_prizm_back_mark_conflict(
+                item("Blue Velocity Prizm"),
+                registry("Prizms Blue Velocity"),
+            )
+        )
+        assert conflict is True
+        assert image_marker is None
+        assert teacher_marker == registry_marker == "velocity"
+
+        v5._image_parallel_probe_override = lambda _item: "velocity"
+        conflict, image_marker, teacher_marker, registry_marker = (
+            _authoritative_prizm_back_mark_conflict(
+                item("Blue Velocity Prizm"),
+                registry("Prizms Blue Velocity"),
+            )
+        )
+        assert conflict is False
+        assert image_marker == teacher_marker == registry_marker == "velocity"
+
+        # If the back cannot be read at all, non-Base promotion fails closed.
+        _prizm_back_mark_probe_override = lambda _item: None
+        v5._image_parallel_probe_override = lambda _item: None
+        conflict, image_marker, teacher_marker, registry_marker = (
+            _authoritative_prizm_back_mark_conflict(
                 item("Silver Prizm"),
                 registry("Prizms Silver"),
             )
         )
         assert conflict is True
-        assert image_marker == "green"
+        assert image_marker is None
         assert teacher_marker == registry_marker == "silver"
     finally:
-        v5._image_parallel_probe_override = previous
+        v5._image_parallel_probe_override = previous_image
+        _prizm_back_mark_probe_override = previous_back
 
-    # Frozen 15 has 15 expansion candidates for 10 required additions.  The
+    # Frozen 15 has 15 expansion candidates for 10 required additions. The
     # captured production run already rejected Ajsa and Brianna; rejecting the
-    # newly-proven unsafe DeWanna fixture still leaves twelve candidates for ten
+    # newly-proven Base DeWanna fixture still leaves twelve candidates for ten
     # slots, so v14 backfill can continue instead of activating a known loser.
     assert v14.PINNED_BACKFILL_POOL_SIZES[15] == 15
     assert v14.REQUIRED_NEW_FIXTURES[15] == 10
     assert v14.PINNED_BACKFILL_POOL_SIZES[15] - 3 >= v14.REQUIRED_NEW_FIXTURES[15]
 
-    print("PASS v15 rejects DeWanna-style Silver fixtures with no positive image variant witness")
-    print("PASS v15 preserves Base fail-neutral behavior when no named parallel is visible")
-    print("PASS v15 preserves Silver fixtures when local vision positively supports Silver")
-    print("PASS v15 keeps contradictory non-Base teacher/image/Registry evidence fail-closed")
+    print("PASS v15 rejects Silver when the authoritative back PRIZM mark is absent")
+    print("PASS v15 treats absent back PRIZM mark as regular Base")
+    print("PASS v15 allows ordinary Silver only when the back PRIZM mark is present")
+    print("PASS v15 rejects explicit Base when the back PRIZM mark is present")
+    print("PASS v15 preserves Velocity/Ice deterministic surface gates after the back-mark gate")
+    print("PASS v15 fails non-Base promotion closed when the back mark cannot be read")
     print("PASS v15 Frozen 15 backfill capacity survives the two prior rejects plus DeWanna")
 
 
 def self_test() -> int:
     assert v14.self_test() == 0
     _install_contract()
-    _self_test_non_base_witness_gate()
-    assert v9._image_witness_conflict_hardened is _strict_non_base_image_witness_conflict
-    assert v5._image_witness_conflict is _strict_non_base_image_witness_conflict
+    _self_test_prizm_back_mark_gate()
+    assert v9._image_witness_conflict_hardened is _authoritative_prizm_back_mark_conflict
+    assert v5._image_witness_conflict is _authoritative_prizm_back_mark_conflict
     print("PASS v15 preserves every v14/v13/v12/v11/v10/v9 inherited fail-closed gate")
     return 0
 
