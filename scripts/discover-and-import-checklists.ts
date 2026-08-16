@@ -4,8 +4,9 @@ import { postChecklistRegistryAction } from "./lib/checklist-registry-action-cli
 
 const ARCHIVE_ROOT = "https://upperdeck.com/category/checklist/";
 const AUTO_IMPORT = process.env.CHECKLIST_DISCOVERY_AUTO_IMPORT === "true";
-const MAX_PAGES = Math.max(1, Number(process.env.CHECKLIST_DISCOVERY_MAX_PAGES || 12));
-const MAX_SOURCES = Math.max(1, Number(process.env.CHECKLIST_DISCOVERY_MAX_SOURCES || 60));
+const MAX_PAGES = Math.max(1, Number(process.env.CHECKLIST_DISCOVERY_MAX_PAGES || 50));
+const MAX_SOURCES = Math.max(1, Math.min(60, Number(process.env.CHECKLIST_DISCOVERY_MAX_SOURCES || 60)));
+const MAX_CANDIDATES = 2_000;
 const OUTPUT = resolve(
   process.cwd(),
   process.env.CHECKLIST_DISCOVERY_OUTPUT || ".checklist-discovery/latest-receipt.json",
@@ -55,9 +56,9 @@ async function fetchHtml(url: string) {
   return html;
 }
 
-async function discover() {
+async function discoverCandidates() {
   const found = new Set<string>();
-  for (let page = 1; page <= MAX_PAGES && found.size < MAX_SOURCES; page += 1) {
+  for (let page = 1; page <= MAX_PAGES && found.size < MAX_CANDIDATES; page += 1) {
     const pageUrl = page === 1 ? ARCHIVE_ROOT : `${ARCHIVE_ROOT}page/${page}/`;
     const pageLinks = links(await fetchHtml(pageUrl));
     if (!pageLinks.length) break;
@@ -65,12 +66,30 @@ async function discover() {
     pageLinks.forEach((url) => found.add(url));
     if (before === found.size) break;
   }
-  return [...found].slice(0, MAX_SOURCES);
+  return [...found].slice(0, MAX_CANDIDATES);
+}
+
+async function selectDailySources(candidates: string[]) {
+  const response = await postChecklistRegistryAction({
+    operation: "upper_deck_select_sources",
+    sourceUrls: candidates,
+    limit: MAX_SOURCES,
+  });
+  const result = response.result;
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("Checklist Registry returned an invalid Upper Deck selection result.");
+  }
+  const selected = (result as Record<string, unknown>).sourceUrls;
+  if (!Array.isArray(selected) || selected.some((value) => typeof value !== "string")) {
+    throw new Error("Checklist Registry returned invalid Upper Deck source URLs.");
+  }
+  return selected as string[];
 }
 
 async function main() {
   const startedAt = new Date().toISOString();
-  const sourceUrls = await discover();
+  const candidates = await discoverCandidates();
+  const sourceUrls = await selectDailySources(candidates);
   const results: Array<Record<string, unknown>> = [];
 
   for (const sourceUrl of sourceUrls) {
@@ -99,8 +118,9 @@ async function main() {
     completedAt: new Date().toISOString(),
     mode: AUTO_IMPORT ? "automatic_import" : "validation_only",
     archiveRoot: ARCHIVE_ROOT,
-    limits: { maxPages: MAX_PAGES, maxSources: MAX_SOURCES },
-    discoveredCount: sourceUrls.length,
+    limits: { maxPages: MAX_PAGES, maxSources: MAX_SOURCES, maxCandidates: MAX_CANDIDATES },
+    candidateCount: candidates.length,
+    selectedCount: sourceUrls.length,
     results,
   };
   mkdirSync(dirname(OUTPUT), { recursive: true });
