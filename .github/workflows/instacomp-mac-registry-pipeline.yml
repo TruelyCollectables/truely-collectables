@@ -5,11 +5,17 @@ on:
     paths:
       - "services/instacomp-ai/**"
       - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-checklist-rate-limit-policy.ts"
+      - "src/app/api/instacomp/checklist-lookup/route.ts"
+      - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
   push:
     paths:
       - "services/instacomp-ai/**"
       - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-checklist-rate-limit-policy.ts"
+      - "src/app/api/instacomp/checklist-lookup/route.ts"
+      - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
 
 jobs:
@@ -37,6 +43,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Prove trusted service-token Registry traffic is unthrottled
+        run: node --import tsx scripts/run-instacomp-checklist-unthrottled-service-simulations.ts
       - name: Typecheck Next.js bridge
         run: npx tsc --noEmit
 
