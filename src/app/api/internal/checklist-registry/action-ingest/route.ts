@@ -12,12 +12,32 @@ const REPOSITORY = "TruelyCollectables/truely-collectables";
 const UPPER_DECK_WORKFLOW = `${REPOSITORY}/.github/workflows/automatic-checklist-discovery.yml@refs/heads/main`;
 const TOPPS_WORKFLOW = `${REPOSITORY}/.github/workflows/automatic-topps-baseball-checklist-discovery.yml@refs/heads/main`;
 const MAX_UPPER_DECK_HTML_BYTES = 8 * 1024 * 1024;
+const MAX_SELECTION_CANDIDATES = 2_000;
+const MAX_UPPER_DECK_SELECTION = 60;
+const MAX_TOPPS_SELECTION = 40;
+
+type UpperDeckSelectionPayload = {
+  operation: "upper_deck_select_sources";
+  sourceUrls: string[];
+  limit?: number;
+};
 
 type UpperDeckPayload = {
   operation: "upper_deck_source";
   sourceUrl: string;
   content: string;
   autoImport?: boolean;
+};
+
+type ToppsProductCandidate = {
+  url: string;
+  title: string;
+};
+
+type ToppsSelectionPayload = {
+  operation: "topps_select_products";
+  productPages: ToppsProductCandidate[];
+  limit?: number;
 };
 
 type ToppsCatalogPayload = {
@@ -29,6 +49,18 @@ type ToppsCatalogPayload = {
   checkedAt: string;
   issueSummary: Array<{ code: string; severity: string; message: string }>;
   metadata: Record<string, unknown>;
+};
+
+type ActionPayload =
+  | UpperDeckSelectionPayload
+  | UpperDeckPayload
+  | ToppsSelectionPayload
+  | ToppsCatalogPayload;
+
+type CatalogSelectionRow = {
+  source_url: string | null;
+  last_checked_at: string | null;
+  metadata?: unknown;
 };
 
 function serviceClient() {
@@ -50,6 +82,17 @@ function issueSummary(values: Array<{ code: string; severity: string; message: s
   }));
 }
 
+function boundedLimit(value: number | undefined, fallback: number, maximum: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.min(maximum, Math.floor(value as number)));
+}
+
+function checkedTime(value: string | null | undefined) {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 async function upsertCatalog(values: Record<string, unknown>) {
   const { error } = await serviceClient()
     .from("checklist_source_catalog")
@@ -57,11 +100,74 @@ async function upsertCatalog(values: Record<string, unknown>) {
   if (error) throw new Error(`Could not update checklist source catalog: ${error.message}`);
 }
 
+async function catalogSelectionRows(manufacturer: string, sport?: string) {
+  const db = serviceClient();
+  const rows: CatalogSelectionRow[] = [];
+  const pageSize = 1_000;
+
+  for (let start = 0; start < 10_000; start += pageSize) {
+    let query = db
+      .from("checklist_source_catalog")
+      .select("source_url,last_checked_at,metadata")
+      .eq("manufacturer", manufacturer)
+      .range(start, start + pageSize - 1);
+    if (sport) query = query.eq("sport", sport);
+    const { data, error } = await query;
+    if (error) throw new Error(`Could not read checklist source catalog: ${error.message}`);
+    const page = (data || []) as CatalogSelectionRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows;
+}
+
 function assertUpperDeckUrl(value: string) {
   const url = new URL(value);
   if (url.protocol !== "https:" || !/(^|\.)upperdeck\.com$/i.test(url.hostname)) {
     throw new Error("Upper Deck checklist source URL is not trusted.");
   }
+}
+
+function assertToppsProductUrl(value: string) {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    !/^(?:www\.)?topps\.com$/i.test(url.hostname) ||
+    !/^\/(?:pages|products)\//i.test(url.pathname)
+  ) {
+    throw new Error("Topps product page URL is not trusted.");
+  }
+}
+
+async function selectUpperDeckSources(payload: UpperDeckSelectionPayload) {
+  if (!Array.isArray(payload.sourceUrls) || payload.sourceUrls.length === 0) return { sourceUrls: [] };
+  const unique = [...new Set(payload.sourceUrls.slice(0, MAX_SELECTION_CANDIDATES))];
+  unique.forEach(assertUpperDeckUrl);
+  const limit = boundedLimit(payload.limit, MAX_UPPER_DECK_SELECTION, MAX_UPPER_DECK_SELECTION);
+  const rows = await catalogSelectionRows("Upper Deck");
+  const lastChecked = new Map<string, number>();
+  for (const row of rows) {
+    if (row.source_url) lastChecked.set(row.source_url, checkedTime(row.last_checked_at));
+  }
+
+  const ranked = unique
+    .map((sourceUrl, index) => ({
+      sourceUrl,
+      index,
+      seen: lastChecked.has(sourceUrl),
+      lastCheckedAt: lastChecked.get(sourceUrl) ?? 0,
+    }))
+    .sort((left, right) => {
+      if (left.seen !== right.seen) return left.seen ? 1 : -1;
+      if (left.lastCheckedAt !== right.lastCheckedAt) return left.lastCheckedAt - right.lastCheckedAt;
+      return left.index - right.index;
+    });
+
+  return {
+    sourceUrls: ranked.slice(0, limit).map((candidate) => candidate.sourceUrl),
+    candidateCount: unique.length,
+    unseenCount: ranked.filter((candidate) => !candidate.seen).length,
+  };
 }
 
 async function processUpperDeck(payload: UpperDeckPayload) {
@@ -166,6 +272,53 @@ async function processUpperDeck(payload: UpperDeckPayload) {
   };
 }
 
+async function selectToppsProducts(payload: ToppsSelectionPayload) {
+  if (!Array.isArray(payload.productPages) || payload.productPages.length === 0) return { productPages: [] };
+  const unique = new Map<string, ToppsProductCandidate>();
+  for (const candidate of payload.productPages.slice(0, MAX_SELECTION_CANDIDATES)) {
+    if (!candidate || typeof candidate.url !== "string" || typeof candidate.title !== "string") {
+      throw new Error("Topps product candidate is invalid.");
+    }
+    assertToppsProductUrl(candidate.url);
+    unique.set(candidate.url, { url: candidate.url, title: candidate.title.slice(0, 500) });
+  }
+  const candidates = [...unique.values()];
+  const limit = boundedLimit(payload.limit, MAX_TOPPS_SELECTION, MAX_TOPPS_SELECTION);
+  const rows = await catalogSelectionRows("Topps", "Baseball");
+  const lastChecked = new Map<string, number>();
+
+  for (const row of rows) {
+    const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? row.metadata as Record<string, unknown>
+      : null;
+    const productPageUrl = typeof metadata?.productPageUrl === "string"
+      ? metadata.productPageUrl
+      : null;
+    if (!productPageUrl) continue;
+    const timestamp = checkedTime(row.last_checked_at);
+    lastChecked.set(productPageUrl, Math.max(lastChecked.get(productPageUrl) || 0, timestamp));
+  }
+
+  const ranked = candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      seen: lastChecked.has(candidate.url),
+      lastCheckedAt: lastChecked.get(candidate.url) ?? 0,
+    }))
+    .sort((left, right) => {
+      if (left.seen !== right.seen) return left.seen ? 1 : -1;
+      if (left.lastCheckedAt !== right.lastCheckedAt) return left.lastCheckedAt - right.lastCheckedAt;
+      return left.index - right.index;
+    });
+
+  return {
+    productPages: ranked.slice(0, limit).map((candidate) => candidate.candidate),
+    candidateCount: candidates.length,
+    unseenCount: ranked.filter((candidate) => !candidate.seen).length,
+  };
+}
+
 async function processTopps(payload: ToppsCatalogPayload) {
   const source = new URL(payload.sourceUrl);
   if (source.protocol !== "https:") throw new Error("Topps source URL must use HTTPS.");
@@ -191,11 +344,19 @@ async function processTopps(payload: ToppsCatalogPayload) {
 export async function POST(request: Request) {
   try {
     const claims = await authenticateChecklistDiscoveryAction(request);
-    const payload = (await request.json()) as UpperDeckPayload | ToppsCatalogPayload;
+    const payload = (await request.json()) as ActionPayload;
 
+    if (payload.operation === "upper_deck_select_sources") {
+      if (claims.workflow_ref !== UPPER_DECK_WORKFLOW) throw new Error("Workflow is not allowed to select Upper Deck sources.");
+      return Response.json({ ok: true, result: await selectUpperDeckSources(payload) });
+    }
     if (payload.operation === "upper_deck_source") {
       if (claims.workflow_ref !== UPPER_DECK_WORKFLOW) throw new Error("Workflow is not allowed to ingest Upper Deck sources.");
       return Response.json({ ok: true, result: await processUpperDeck(payload) });
+    }
+    if (payload.operation === "topps_select_products") {
+      if (claims.workflow_ref !== TOPPS_WORKFLOW) throw new Error("Workflow is not allowed to select Topps products.");
+      return Response.json({ ok: true, result: await selectToppsProducts(payload) });
     }
     if (payload.operation === "topps_catalog_upsert") {
       if (claims.workflow_ref !== TOPPS_WORKFLOW) throw new Error("Workflow is not allowed to update Topps discovery records.");
