@@ -1,0 +1,86 @@
+name: Checklist Priority Final Production Proof 20260816
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/checklist-priority-final-proof-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  priority-production-proof:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 20
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install verifier runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node --check scripts/verify-priority-checklists-production-v2.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/priority-proof-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Certify all 11 priority releases in Production
+        shell: bash
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-proof"
+          mkdir -p "$out"
+          PRIORITY_CHECKLIST_VERIFY_OUTPUT="$out/proof.json" \
+            node --import tsx scripts/verify-priority-checklists-production-v2.mjs
+          jq . "$out/proof.json"
+          test "$(jq -r '.expected' "$out/proof.json")" -eq 11
+          test "$(jq -r '.verified' "$out/proof.json")" -eq 11
+          test "$(jq -r '.failed' "$out/proof.json")" -eq 0
+          test "$(jq -r '.byGroup.wnba.verified' "$out/proof.json")" -eq 8
+          test "$(jq -r '.byGroup.hockey.verified' "$out/proof.json")" -eq 3
+
+      - name: Upload final Production proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-priority-final-production-proof-${{ github.run_id }}
+          path: ${{ runner.temp }}/priority-proof
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/priority-proof-production" .env.local .env.production.local .vercel
