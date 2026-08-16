@@ -1,0 +1,67 @@
+name: Checklist Offline WNBA Hockey Trigger 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-offline-wnba-hockey-trigger-20260815.yml'
+      - '.github/workflows/checklist-offline-wnba-hockey-harvest-20260815.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-offline-wnba-hockey-trigger-20260815
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Execute committed offline harvest recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir pyyaml==6.0.2
+          python - <<'PY'
+          import os, subprocess, yaml
+          path = '.github/workflows/checklist-offline-wnba-hockey-harvest-20260815.yml'
+          with open(path, encoding='utf-8') as f:
+              workflow = yaml.safe_load(f)
+          steps = workflow['jobs']['harvest']['steps']
+          executed = 0
+          for step in steps:
+              command = step.get('run')
+              if not command:
+                  continue
+              name = step.get('name', f'run-step-{executed+1}')
+              print(f'\n===== OFFLINE RECIPE: {name} =====', flush=True)
+              subprocess.run(command, shell=True, executable='/bin/bash', check=True, env=os.environ.copy())
+              executed += 1
+          if executed < 5:
+              raise SystemExit(f'Expected at least 5 executable recipe steps, got {executed}')
+          print(f'Executed {executed} offline recipe steps.', flush=True)
+          PY
+
+      - name: Upload harvested sources, parsed data and Registry plans
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-offline-wnba-hockey-${{ github.run_id }}
+          path: ${{ runner.temp }}/offline-harvest
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
