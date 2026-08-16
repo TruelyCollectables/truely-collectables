@@ -54,6 +54,12 @@ function registryActionUrl() {
   return process.env.CHECKLIST_REGISTRY_ACTION_URL || DEFAULT_REGISTRY_ACTION_URL;
 }
 
+function registryActionTimeoutMs() {
+  const configured = Number(process.env.CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS || "");
+  if (!Number.isFinite(configured) || configured <= 0) return 120_000;
+  return Math.max(30_000, Math.min(10 * 60 * 1000, Math.floor(configured)));
+}
+
 async function postOnce(payload: Record<string, unknown>, forceTokenRefresh = false) {
   const response = await fetch(registryActionUrl(), {
     method: "POST",
@@ -63,7 +69,7 @@ async function postOnce(payload: Record<string, unknown>, forceTokenRefresh = fa
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(registryActionTimeoutMs()),
   });
   const text = await response.text();
   let body: Record<string, unknown> = {};
