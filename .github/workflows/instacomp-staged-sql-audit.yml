@@ -18,7 +18,7 @@ jobs:
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Read live staged checklist function definitions
+      - name: Read live staged checklist SQL and uniqueness
         shell: bash
         run: |
           set -euo pipefail
@@ -31,7 +31,8 @@ jobs:
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' evidence/projects.json)
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
-          read -r -d '' sql <<'SQL' || true
+
+          read -r -d '' functions_sql <<'SQL' || true
           select
             p.proname,
             pg_catalog.pg_get_function_identity_arguments(p.oid) as identity_arguments,
@@ -46,7 +47,7 @@ jobs:
             )
           order by p.proname;
           SQL
-          jq -cn --arg query "$sql" '{query:$query,read_only:true}' > evidence/query.json
+          jq -cn --arg query "$functions_sql" '{query:$query,read_only:true}' > evidence/query.json
           curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 2 --max-time 90 \
             -X POST \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
@@ -54,13 +55,33 @@ jobs:
             --data-binary @evidence/query.json \
             -o evidence/staged-functions.json \
             "https://api.supabase.com/v1/projects/$project_ref/database/query"
-          rm -f evidence/projects.json evidence/query.json
           jq -e 'length == 3' evidence/staged-functions.json
-          jq -r '.[] | "===== " + .proname + " =====\n" + .definition + "\n"' evidence/staged-functions.json
+
+          read -r -d '' indexes_sql <<'SQL' || true
+          select schemaname, tablename, indexname, indexdef
+          from pg_catalog.pg_indexes
+          where schemaname = 'public'
+            and tablename in ('checklist_cards','checklist_card_identities','checklist_sets','checklist_parallels')
+          order by tablename,indexname;
+          SQL
+          jq -cn --arg query "$indexes_sql" '{query:$query,read_only:true}' > evidence/query.json
+          curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 2 --max-time 90 \
+            -X POST \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data-binary @evidence/query.json \
+            -o evidence/checklist-indexes.json \
+            "https://api.supabase.com/v1/projects/$project_ref/database/query"
+          rm -f evidence/projects.json evidence/query.json
+          jq -e 'length > 0' evidence/checklist-indexes.json
+          echo '--- checklist_cards indexes ---'
+          jq -r '.[] | select(.tablename=="checklist_cards") | .indexdef' evidence/checklist-indexes.json
       - name: Upload staged SQL audit
         uses: actions/upload-artifact@v4
         with:
           name: instacomp-staged-sql-audit-${{ github.run_id }}
-          path: evidence/staged-functions.json
+          path: |
+            evidence/staged-functions.json
+            evidence/checklist-indexes.json
           if-no-files-found: error
           retention-days: 30
