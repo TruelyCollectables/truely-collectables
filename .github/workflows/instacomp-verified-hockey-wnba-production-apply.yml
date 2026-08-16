@@ -65,7 +65,7 @@ jobs:
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -o "$root/api-keys.json" \
             "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
-          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_"")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
           test -n "$service_key"
           echo "::add-mask::$service_key"
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
@@ -100,7 +100,7 @@ jobs:
           receipt="$VERIFIED_APPLY_RECEIPT"
           test -s "$receipt"
           jq '{selectedScope,selectedReadyCount,selectedValidationFailedCount,selectedHardFailureCount,requestedCount,attemptedCount,persistedCount,failedCount,persistedCards,persistedParallels,persistedIdentities}' "$receipt"
-          jq -e '.selectedReadyCount == 85 and .selectedValidationFailedCount == 29 and .selectedHardFailureCount == 0 and .requestedCount == 85 and .attemptedCount == 85 and .persistedCount == 85 and .failedCount == 0' "$receipt"
+          jq -e '.selectedReadyCount == 87 and .selectedValidationFailedCount == 27 and .selectedHardFailureCount == 0 and .requestedCount == 87 and .attemptedCount == 87 and .persistedCount == 87 and .failedCount == 0' "$receipt"
 
       - name: Upload selected Production apply receipt
         if: always()
