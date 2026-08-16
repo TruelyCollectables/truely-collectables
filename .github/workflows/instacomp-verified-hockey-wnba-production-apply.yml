@@ -1,0 +1,116 @@
+name: InstaComp Verified Hockey WNBA Production Apply
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/instacomp-verified-hockey-wnba-production-apply.yml'
+      - 'scripts/instacomp-target-checklists/apply-verified-harvest.mjs'
+      - 'scripts/instacomp-target-checklists/staged-registry-writer.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-verified-hockey-wnba-production-apply
+  cancel-in-progress: false
+
+jobs:
+  selected-production-apply:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/instacomp-selected-verified
+      VERIFIED_APPLY_RECEIPT: /home/runner/work/_temp/instacomp-selected-verified/selected-production-apply-receipt.json
+      VERIFIED_APPLY_MAX_SETS: '250'
+      VERIFIED_SOURCE_RUN_ID: '31924171342'
+      VERIFIED_DB_HEALTH_ATTEMPTS: '18'
+      VERIFIED_DB_HEALTH_DELAY_MS: '5000'
+      VERIFIED_TARGET_ATTEMPTS: '5'
+      VERIFIED_TARGET_RETRY_DELAY_MS: '10000'
+      VERIFIED_TARGET_SUCCESS_DELAY_MS: '2000'
+      CHECKLIST_REGISTRY_SET_CHUNK: '100'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_RPC_ATTEMPTS: '4'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Resolve Production Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/selected-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Download verified exhaustive harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/instacomp-selected-verified
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Prove immutable verified input bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$VERIFIED_HARVEST_ROOT/output/summary.json"
+          jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities}' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+
+      - name: Apply clean selected plans through staged Registry RPCs
+        shell: bash
+        run: |
+          set -o pipefail
+          node --experimental-strip-types scripts/instacomp-target-checklists/apply-verified-harvest.mjs
+
+      - name: Enforce complete selected clean-plan receipt
+        if: always()
+        shell: bash
+        run: |
+          receipt="$VERIFIED_APPLY_RECEIPT"
+          test -s "$receipt"
+          jq '{selectedScope,selectedReadyCount,selectedValidationFailedCount,selectedHardFailureCount,requestedCount,attemptedCount,persistedCount,failedCount,persistedCards,persistedParallels,persistedIdentities}' "$receipt"
+          jq -e '.selectedReadyCount == 85 and .selectedValidationFailedCount == 29 and .selectedHardFailureCount == 0 and .requestedCount == 85 and .attemptedCount == 85 and .persistedCount == 85 and .failedCount == 0' "$receipt"
+
+      - name: Upload selected Production apply receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-selected-production-${{ github.run_id }}
+          path: /home/runner/work/_temp/instacomp-selected-verified/selected-production-apply-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/selected-production" .env.local .env.production.local .vercel
