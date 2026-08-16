@@ -1,4 +1,4 @@
-# Priority lane: drain all other checklist writers, then load the eight WNBA PDFs alone.
+# Priority lane: drain other checklist writers, then load the eight WNBA Panini PDFs alone.
 name: Checklist WNBA Priority Production Load 20260815
 
 on:
@@ -7,6 +7,7 @@ on:
       - ops/checklist-conveyor-live-20260815
     paths:
       - '.github/workflows/checklist-wnba-priority-production-load-20260815.yml'
+      - 'scripts/import-wnba-panini-pdfs.mjs'
       - 'scripts/mainstream-checklist/registry-tools.mjs'
   workflow_dispatch:
 
@@ -79,7 +80,7 @@ jobs:
 
           list_conflicts
           if [ -s "$root/conflicts.txt" ]; then
-            echo "Gracefully cancelling overlapping checklist runs before the priority WNBA Production load:"
+            echo "Gracefully cancelling overlapping checklist runs:"
             cat "$root/conflicts.txt"
             request_stop cancel
           else
@@ -96,7 +97,7 @@ jobs:
 
           list_conflicts
           if [ -s "$root/conflicts.txt" ]; then
-            echo "Graceful cancellation did not stop all checklist writers; force-cancelling the remainder:"
+            echo "Force-cancelling stuck checklist writers:"
             cat "$root/conflicts.txt"
             request_stop force-cancel
           fi
@@ -110,7 +111,7 @@ jobs:
               break
             fi
             if [ "$round" -eq 6 ]; then
-              echo "Checklist writers failed to drain even after force-cancel. Refusing to overload Production Supabase."
+              echo "Checklist writers failed to drain. Refusing to overload Production Supabase."
               cat "$root/conflicts.txt"
               exit 1
             fi
@@ -123,18 +124,13 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install parser dependencies
+      - name: Install structured PDF parser dependencies
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq poppler-utils
-          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
           npm ci
-          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/import-wnba-panini-pdfs.mjs
           node --check scripts/mainstream-checklist/registry-tools.mjs
 
       - name: Resolve Production Supabase
@@ -158,92 +154,31 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
 
-      - name: Build deterministic WNBA target queue
-        shell: bash
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/wnba-load"
-          mkdir -p "$out"
-
-          OUT="$out" node --input-type=module <<'NODE'
-          import { writeFileSync } from 'node:fs';
-          import { join } from 'node:path';
-          const out = process.env.OUT;
-          const desired = [
-            { exactSetKey: 'basketball|2024|panini|origins-wnba', year: 2024, name: '2024 Panini Origins WNBA', url: 'https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf' },
-            { exactSetKey: 'basketball|2024|panini|select-wnba', year: 2024, name: '2024 Panini Select WNBA', url: 'https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf' },
-            { exactSetKey: 'basketball|2024|panini|prizm-wnba', year: 2024, name: '2024 Panini Prizm WNBA', url: 'https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf' },
-            { exactSetKey: 'basketball|2025|panini|donruss-wnba', year: 2025, name: '2025 Donruss WNBA', url: 'https://gogts.net/wp-content/uploads/2025/09/2025-Donruss-WNBA-Basketball-Cards-Checklist.pdf' },
-            { exactSetKey: 'basketball|2025|panini|prizm-wnba', year: 2025, name: '2025 Panini Prizm WNBA', url: 'https://gogts.net/wp-content/uploads/2026/03/2025-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf' },
-            { exactSetKey: 'basketball|2025|panini|select-wnba', year: 2025, name: '2025 Panini Select WNBA', url: 'https://gogts.net/wp-content/uploads/2026/04/2025-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf' },
-            { exactSetKey: 'basketball|2025|panini|impeccable-wnba', year: 2025, name: '2025 Panini Impeccable WNBA', url: 'https://gogts.net/wp-content/uploads/2025/12/2025-Panini-Impeccable-WNBA-Basketball-Cards-Checklist.pdf' },
-            { exactSetKey: 'basketball|2025|panini|one-and-one-wnba', year: 2025, name: '2025 Panini One and One WNBA', url: 'https://gogts.net/wp-content/uploads/2026/03/2025-Panini-One-and-One-WNBA-Basketball-Cards-Checklist.pdf' }
-          ];
-          const targets = desired.map(d => ({
-            exactSetKey: d.exactSetKey,
-            year: d.year,
-            sport: 'basketball',
-            sourceArtifact: 'priority-wnba-production-load-20260815-direct-pdf',
-            exactCandidateCount: 1,
-            trustedAutoImportCandidateCount: 1,
-            candidates: [],
-            sourceUrl: d.url,
-            desiredName: d.name,
-            deterministicKey: true
-          }));
-          writeFileSync(join(out, 'queue.json'), JSON.stringify({
-            schema: 'tcos.checklist.mainstream2005plusCandidateValidationQueue.v1',
-            count: targets.length,
-            targets: targets.map(({sourceUrl,desiredName,deterministicKey,...t}) => t)
-          }, null, 2));
-          writeFileSync(join(out, 'filter.json'), JSON.stringify({
-            schema: 'tcos.checklist.wnbaPriorityTargets.v1',
-            targets: targets.map(t => ({ exactSetKey: t.exactSetKey, sourceUrl: t.sourceUrl }))
-          }, null, 2));
-          writeFileSync(join(out, 'resolved-targets.json'), JSON.stringify({ count: targets.length, targets }, null, 2));
-          console.log(JSON.stringify({ targets: targets.map(t => ({ name:t.desiredName, exactSetKey:t.exactSetKey, sourceUrl:t.sourceUrl })) }, null, 2));
-          NODE
-
-      - name: Import WNBA targets into Production Registry
+      - name: Import eight structured WNBA Panini PDFs into Production Registry
         shell: bash
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/wnba-load"
-          imported=false
-          for attempt in 1 2 3 4 5; do
-            echo "Production Registry importer attempt $attempt/5"
-            if PUBLIC_WEB_CANDIDATE_QUEUE="$out/queue.json" \
-              PUBLIC_WEB_TARGET_FILTER="$out/filter.json" \
-              PUBLIC_WEB_PROMOTION_APPLY=true \
-              PUBLIC_WEB_PROMOTION_OUTPUT="$out/receipt.json" \
-              PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$out/validated.json" \
-              PUBLIC_WEB_MINING_RUN_ID="$GITHUB_RUN_ID" \
-              PUBLIC_WEB_AGGREGATE_RUN_ID="$GITHUB_RUN_ID" \
-              node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs; then
-              imported=true
-              break
-            fi
-            if [ "$attempt" -lt 5 ]; then
-              delay=$((attempt * 10))
-              echo "Importer startup failed; retrying after ${delay}s"
-              sleep "$delay"
-            fi
-          done
-          test "$imported" = true
+          mkdir -p "$out"
+          WNBA_IMPORT_OUTPUT="$out/receipt.json" \
+            node --import tsx scripts/import-wnba-panini-pdfs.mjs
 
-      - name: Require verified Production persistence for every WNBA target
+      - name: Require verified Production persistence for all eight WNBA targets
         shell: bash
         run: |
           set -euo pipefail
           receipt="$RUNNER_TEMP/wnba-load/receipt.json"
           jq . "$receipt"
-          expected="$(jq '.count' "$RUNNER_TEMP/wnba-load/resolved-targets.json")"
-          imported="$(jq '[.results[] | select(.status == "imported" and .persistence.ok == true)] | length' "$receipt")"
-          echo "WNBA verified persisted: $imported / $expected"
-          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.parallels // 0),(.persistence.ok // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
-          test "$imported" -eq "$expected"
+          expected="$(jq -r '.expected' "$receipt")"
+          imported="$(jq -r '.imported' "$receipt")"
+          failed="$(jq -r '.failed' "$receipt")"
+          echo "WNBA verified persisted: $imported / $expected; failed=$failed"
+          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.sets // 0),(.persistence.ok // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
+          test "$expected" -eq 8
+          test "$imported" -eq 8
+          test "$failed" -eq 0
 
       - name: Upload WNBA Production receipts
         if: always()
