@@ -71,7 +71,9 @@ const checklistRoutePath = path.join(
 );
 const checklistRoute = fs.readFileSync(checklistRoutePath, "utf8");
 const checklistActorIndex = checklistRoute.indexOf("requireInstaCompJobActor(req)");
-const checklistSecurityIndex = checklistRoute.indexOf(
+// Use the final occurrence so the import statement cannot be mistaken for the
+// runtime security decision we are ordering relative to authentication/limiting.
+const checklistSecurityIndex = checklistRoute.lastIndexOf(
   "assertTrustedInstaCompMutationRequest",
 );
 const checklistPolicyIndex = checklistRoute.indexOf(
@@ -110,7 +112,7 @@ const sentinelAuthIndex = registryRoute.indexOf(
   "isValidInstaCompSentinelArchiveRequest(req)",
 );
 const registryActorIndex = registryRoute.indexOf("requireInstaCompJobActor(req)");
-const registrySecurityIndex = registryRoute.indexOf(
+const registrySecurityIndex = registryRoute.lastIndexOf(
   "assertTrustedInstaCompMutationRequest",
 );
 const registryPolicyIndex = registryRoute.indexOf(
