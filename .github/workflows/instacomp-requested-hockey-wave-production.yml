@@ -91,6 +91,18 @@ jobs:
           test -s "$VERIFIED_HARVEST_ROOT/output/summary.json"
           jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
 
+      - name: Normalize harvest releaseSlug field for wave loader
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/instacomp-target-checklists/apply-requested-hockey-waves.mjs')
+          text = path.read_text()
+          text = text.replace('plan?.release?.slug', 'plan?.release?.releaseSlug')
+          text = text.replace('plan.release.slug', 'plan.release.releaseSlug')
+          path.write_text(text)
+          PY
+
       - name: Apply only missing requested Hockey catalogs in four-catalog waves
         run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-waves.mjs
 
