@@ -1,4 +1,4 @@
-name: Market Intel Build
+name: Supabase Storage Disaster Recovery Snapshot
 
 on:
   push:
@@ -8,42 +8,197 @@ on:
 permissions:
   contents: read
 
+env:
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 180
     steps:
-      - name: Checkout complete repository history
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Build exact source and Git recovery artifacts
+      - name: Require Supabase management access
         shell: bash
-        env:
-          BASE_SHA: 7659fe3da536f8ce48f0b14b2a17b2ec09831a07
+        run: |
+          set -Eeuo pipefail
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo 'Missing SUPABASE_ACCESS_TOKEN'; exit 2; }
+          echo 'Supabase management credential is available; values will not be printed.'
+
+      - name: Install isolated Storage client
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p /tmp/tc-storage-tool
+          cd /tmp/tc-storage-tool
+          npm init -y >/dev/null 2>&1
+          npm install --silent --no-audit --no-fund @supabase/supabase-js@2
+
+      - name: Download every Supabase Storage object
+        shell: bash
         run: |
           set -Eeuo pipefail
           umask 077
-          mkdir -p disaster-recovery-source
-          git cat-file -e "${BASE_SHA}^{commit}"
-          git archive --format=tar.gz --prefix=truely-collectables-${BASE_SHA}/ --output="disaster-recovery-source/TruelyCollectables-source-${BASE_SHA}.tar.gz" "${BASE_SHA}"
-          git bundle create "disaster-recovery-source/TruelyCollectables-all-refs.bundle" --all
-          git show --no-patch --format=fuller "${BASE_SHA}" > disaster-recovery-source/PINNED_MAIN_COMMIT.txt
-          git branch -a -vv > disaster-recovery-source/BRANCHES.txt
-          git tag -n > disaster-recovery-source/TAGS.txt
-          git remote -v > disaster-recovery-source/REMOTES.txt
-          git log --all --decorate --oneline -100 > disaster-recovery-source/RECENT_COMMITS.txt
-          git ls-tree -r --full-tree "${BASE_SHA}" > disaster-recovery-source/PINNED_MAIN_TREE.txt
-          (cd disaster-recovery-source && sha256sum * > SHA256SUMS.txt)
-          git bundle verify disaster-recovery-source/TruelyCollectables-all-refs.bundle
-          tar -tzf "disaster-recovery-source/TruelyCollectables-source-${BASE_SHA}.tar.gz" >/dev/null
+          mkdir -p /tmp/tc-storage-backup/objects /tmp/tc-storage-backup/metadata
+          cd /tmp/tc-storage-tool
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import { createClient } from '@supabase/supabase-js';
 
-      - name: Upload source disaster-recovery artifact
+          const ref = process.env.SUPABASE_PROJECT_REF;
+          const mgmt = process.env.SUPABASE_ACCESS_TOKEN;
+          const apiUrl = `https://${ref}.supabase.co`;
+          const root = '/tmp/tc-storage-backup';
+          const objRoot = path.join(root, 'objects');
+          const metaRoot = path.join(root, 'metadata');
+
+          const keyResp = await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`, {
+            headers: { Authorization: `Bearer ${mgmt}`, 'Content-Type': 'application/json' },
+          });
+          if (!keyResp.ok) throw new Error(`Management API key retrieval failed: HTTP ${keyResp.status}`);
+          const keys = await keyResp.json();
+          if (!Array.isArray(keys)) throw new Error('Management API key response was not an array.');
+          const candidate = keys.find(k => String(k?.type || '').toLowerCase() === 'secret' && k?.api_key)
+            || keys.find(k => String(k?.name || '').toLowerCase() === 'service_role' && k?.api_key)
+            || keys.find(k => String(k?.api_key || '').startsWith('sb_secret_'));
+          if (!candidate?.api_key) throw new Error('No server-side Supabase secret/service_role key could be resolved.');
+          const secretKey = String(candidate.api_key);
+          console.log('Resolved a server-side Supabase API key; value is intentionally not printed.');
+
+          const supabase = createClient(apiUrl, secretKey, {
+            auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+          });
+          const { data: buckets, error: bucketError } = await supabase.storage.listBuckets({ limit: 1000, offset: 0 });
+          if (bucketError) throw bucketError;
+          const manifest = {
+            createdAt: new Date().toISOString(),
+            projectRef: ref,
+            bucketCount: buckets?.length || 0,
+            objectCount: 0,
+            totalBytes: 0,
+            buckets: [],
+            objects: [],
+            errors: [],
+          };
+
+          function cleanSegment(s) {
+            const v = String(s || '').replace(/[\\/\0]/g, '_');
+            return v || '_';
+          }
+          function destination(bucket, objectPath) {
+            const bucketDir = path.join(objRoot, cleanSegment(bucket));
+            const parts = String(objectPath).split('/').map(cleanSegment);
+            let target = path.join(bucketDir, ...parts);
+            const resolvedBucket = path.resolve(bucketDir) + path.sep;
+            if (!path.resolve(target).startsWith(resolvedBucket)) {
+              const ext = path.extname(objectPath).slice(0, 20);
+              target = path.join(bucketDir, '_hashed', crypto.createHash('sha256').update(objectPath).digest('hex') + ext);
+            }
+            return target;
+          }
+
+          async function listFolder(bucket, prefix = '') {
+            let offset = 0;
+            const limit = 1000;
+            for (;;) {
+              const { data, error } = await supabase.storage.from(bucket).list(prefix, {
+                limit,
+                offset,
+                sortBy: { column: 'name', order: 'asc' },
+              });
+              if (error) throw new Error(`List failed for ${bucket}/${prefix}: ${error.message}`);
+              const entries = data || [];
+              for (const item of entries) {
+                const objectPath = prefix ? `${prefix}/${item.name}` : item.name;
+                if (item.id === null || item.id === undefined) {
+                  await listFolder(bucket, objectPath);
+                  continue;
+                }
+                try {
+                  const { data: blob, error: downloadError } = await supabase.storage.from(bucket).download(objectPath);
+                  if (downloadError) throw downloadError;
+                  const bytes = Buffer.from(await blob.arrayBuffer());
+                  const target = destination(bucket, objectPath);
+                  fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+                  fs.writeFileSync(target, bytes, { mode: 0o600 });
+                  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+                  manifest.objectCount++;
+                  manifest.totalBytes += bytes.length;
+                  manifest.objects.push({
+                    bucket,
+                    path: objectPath,
+                    bytes: bytes.length,
+                    sha256,
+                    localPath: path.relative(root, target),
+                    metadata: item.metadata || null,
+                    createdAt: item.created_at || null,
+                    updatedAt: item.updated_at || null,
+                  });
+                } catch (e) {
+                  manifest.errors.push({ bucket, path: objectPath, error: e?.message || String(e) });
+                }
+              }
+              if (entries.length < limit) break;
+              offset += entries.length;
+            }
+          }
+
+          for (const bucket of buckets || []) {
+            manifest.buckets.push({
+              id: bucket.id,
+              name: bucket.name,
+              public: bucket.public,
+              fileSizeLimit: bucket.file_size_limit ?? null,
+              allowedMimeTypes: bucket.allowed_mime_types ?? null,
+              createdAt: bucket.created_at ?? null,
+              updatedAt: bucket.updated_at ?? null,
+            });
+            await listFolder(bucket.id, '');
+          }
+
+          fs.writeFileSync(path.join(metaRoot, 'storage-manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
+          fs.writeFileSync(path.join(metaRoot, 'summary.txt'), [
+            `bucketCount=${manifest.bucketCount}`,
+            `objectCount=${manifest.objectCount}`,
+            `totalBytes=${manifest.totalBytes}`,
+            `downloadErrors=${manifest.errors.length}`,
+          ].join('\n') + '\n', { mode: 0o600 });
+          console.log(`Storage snapshot complete: buckets=${manifest.bucketCount}, objects=${manifest.objectCount}, bytes=${manifest.totalBytes}, errors=${manifest.errors.length}`);
+          if (manifest.errors.length) process.exitCode = 3;
+          NODE
+
+      - name: Encrypt Storage snapshot and create separate recovery key
+        if: success()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          tar -C /tmp -czf /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz tc-storage-backup
+          openssl rand -base64 48 > /tmp/TruelyCollectables-supabase-storage-2026-08-15.recovery-key.txt
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 310000 -md sha256 \
+            -in /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz \
+            -out /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz.enc \
+            -pass file:/tmp/TruelyCollectables-supabase-storage-2026-08-15.recovery-key.txt
+          sha256sum /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz.enc > /tmp/TruelyCollectables-supabase-storage-2026-08-15.sha256
+          rm -f /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz
+
+      - name: Upload encrypted Storage backup
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: TruelyCollectables-source-disaster-recovery-2026-08-15
-          path: disaster-recovery-source/
+          name: TruelyCollectables-supabase-storage-encrypted-2026-08-15
+          path: |
+            /tmp/TruelyCollectables-supabase-storage-2026-08-15.tar.gz.enc
+            /tmp/TruelyCollectables-supabase-storage-2026-08-15.sha256
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
+
+      - name: Upload Storage recovery key separately
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TruelyCollectables-supabase-storage-recovery-key-2026-08-15
+          path: /tmp/TruelyCollectables-supabase-storage-2026-08-15.recovery-key.txt
+          if-no-files-found: error
+          retention-days: 1
