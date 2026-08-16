@@ -1,4 +1,4 @@
-name: Supabase Targeted SQL Recovery Probe
+name: Supabase Ephemeral Login Backup Probe
 
 on:
   push:
@@ -15,47 +15,75 @@ env:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Run safe targeted SQL probes
+      - name: Checkout isolated recovery branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Create ephemeral database login and probe backup path
         shell: bash
         run: |
           set -Eeuo pipefail
           umask 077
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const ref=process.env.SUPABASE_PROJECT_REF;
-          const token=process.env.SUPABASE_ACCESS_TOKEN;
-          if(!token) throw new Error('Missing SUPABASE_ACCESS_TOKEN');
-          const url=`https://api.supabase.com/v1/projects/${ref}/database/query/read-only`;
-          const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
-          async function q(name,query,ms=20000){
-            const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms);
-            const started=Date.now();
-            try{
-              const r=await fetch(url,{method:'POST',headers,body:JSON.stringify({query,parameters:[]}),signal:c.signal});
-              const text=await r.text(); let body; try{body=JSON.parse(text)}catch{body=text}
-              const out={name,status:r.status,ok:r.ok,ms:Date.now()-started,body};
-              fs.writeFileSync(`/tmp/${name}.json`,JSON.stringify(out,null,2)+'\n',{mode:0o600});
-              console.log(`${name}: status=${r.status} ok=${r.ok} ms=${out.ms} resultItems=${Array.isArray(body)?body.length:'n/a'}`);
-            }catch(e){
-              const out={name,status:0,ok:false,ms:Date.now()-started,error:e.name+': '+e.message};
-              fs.writeFileSync(`/tmp/${name}.json`,JSON.stringify(out,null,2)+'\n',{mode:0o600});
-              console.log(`${name}: aborted/error after ${out.ms}ms`);
-            }finally{clearTimeout(t)}
-          }
-          await q('current-db','select current_database() as db, now() as now');
-          await q('public-table-names',`select c.relname as table_name from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','p') order by c.relname`,30000);
-          await q('products-count','select count(*)::bigint as count from public.products',30000);
-          await q('products-one','select row_to_json(t) as row from (select * from public.products limit 1) t',30000);
-          await q('storage-buckets-count','select count(*)::bigint as count from storage.buckets',30000);
-          await q('storage-objects-count','select count(*)::bigint as count from storage.objects',30000);
-          NODE
+          : "${SUPABASE_ACCESS_TOKEN:?Missing SUPABASE_ACCESS_TOKEN}"
+          REF="$SUPABASE_PROJECT_REF"
+          API="https://api.supabase.com/v1/projects/$REF"
+          HDR="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
 
-      - name: Upload safe probe receipts
+          cleanup() {
+            curl -fsS -X DELETE "$API/cli/login-role" -H "$HDR" >/dev/null 2>&1 || true
+            rm -f /tmp/login.json /tmp/pooler.json /tmp/dsn.txt
+          }
+          trap cleanup EXIT
+
+          curl -fsS -X POST "$API/cli/login-role" \
+            -H "$HDR" -H 'Content-Type: application/json' \
+            -d '{"read_only":false}' > /tmp/login.json
+          curl -fsS "$API/config/database/pooler" -H "$HDR" > /tmp/pooler.json
+
+          ROLE=$(jq -r '.role // empty' /tmp/login.json)
+          PASS=$(jq -r '.password // empty' /tmp/login.json)
+          TTL=$(jq -r '.ttl_seconds // 0' /tmp/login.json)
+          HOST=$(jq -r '.[0].db_host // .[0].host // empty' /tmp/pooler.json)
+          [ -n "$ROLE" ] && [ -n "$PASS" ] && [ -n "$HOST" ]
+          echo "Ephemeral login created; ttl_seconds=$TTL; pooler host resolved. Values not printed."
+
+          export PGPASSWORD="$PASS"
+          CONNECTED=0
+          WORKING_USER=''
+          for USER in "$ROLE.$REF" "$ROLE"; do
+            if timeout 25s psql "host=$HOST port=5432 dbname=postgres user=$USER sslmode=require connect_timeout=10" -Atqc 'select 1' >/tmp/psql.out 2>/tmp/psql.err; then
+              CONNECTED=1
+              WORKING_USER="$USER"
+              break
+            fi
+          done
+          rm -f /tmp/psql.out /tmp/psql.err
+          [ "$CONNECTED" = 1 ] || { echo 'Ephemeral login could not connect through session pooler.'; exit 20; }
+          echo 'Ephemeral login connected through IPv4 session pooler.'
+
+          node -e 'const fs=require("fs"); const u=process.argv[1], p=process.argv[2], h=process.argv[3]; fs.writeFileSync("/tmp/dsn.txt",`postgresql://${encodeURIComponent(u)}:${encodeURIComponent(p)}@${h}:5432/postgres?sslmode=require`,{mode:0o600})' "$WORKING_USER" "$PASS" "$HOST"
+          DSN=$(cat /tmp/dsn.txt)
+
+          timeout 6m npx --yes supabase@latest db dump --db-url "$DSN" --schema public -f /tmp/public-schema-probe.sql >/tmp/dump.out 2>/tmp/dump.err
+          [ -s /tmp/public-schema-probe.sql ]
+          SIZE=$(wc -c < /tmp/public-schema-probe.sql)
+          TABLES=$(grep -c '^CREATE TABLE' /tmp/public-schema-probe.sql || true)
+          printf 'ephemeral_login=PASS\nsession_pooler=PASS\npublic_schema_dump=PASS\npublic_schema_bytes=%s\ncreate_table_statements=%s\n' "$SIZE" "$TABLES" > /tmp/probe-summary.txt
+          echo "Public schema logical dump succeeded: bytes=$SIZE tables=$TABLES"
+          rm -f /tmp/dump.out /tmp/dump.err /tmp/dsn.txt
+
+      - name: Upload safe probe summary and schema artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TruelyCollectables-supabase-targeted-sql-probe-2026-08-15
-          path: /tmp/*.json
+          name: TruelyCollectables-supabase-ephemeral-login-probe-2026-08-15
+          path: |
+            /tmp/probe-summary.txt
+            /tmp/public-schema-probe.sql
           if-no-files-found: error
           retention-days: 1
