@@ -255,6 +255,79 @@ async function persistSettings(params: {
   return params.repository.update(params.inventory.id, { metadata: next });
 }
 
+async function persistSynchronizedSitePrice(params: {
+  supabase: ReturnType<typeof requireInstaCompJobSupabase>;
+  repository: InventoryRepository;
+  inventory: InventoryItem;
+  product: any;
+  storeId: string;
+  legacyProductId: number;
+  sitePrice: number;
+}) {
+  const previousProductPrice = money(params.product.price);
+  const previousInventoryPrice = money(params.inventory.price);
+  const rollbackProductPrice = previousProductPrice || previousInventoryPrice;
+  const rollbackInventoryPrice = previousInventoryPrice || previousProductPrice;
+  let inventoryChanged = false;
+  let productChanged = false;
+
+  try {
+    await params.repository.update(params.inventory.id, { price: params.sitePrice });
+    inventoryChanged = true;
+
+    const { data: updatedProduct, error: productPriceError } = await params.supabase
+      .from("products")
+      .update({ price: params.sitePrice })
+      .eq("store_id", params.storeId)
+      .eq("id", params.legacyProductId)
+      .select("price")
+      .maybeSingle();
+
+    if (productPriceError) throw productPriceError;
+    productChanged = true;
+    if (!updatedProduct || money(updatedProduct.price) !== params.sitePrice) {
+      throw new Error("Product price write could not be verified.");
+    }
+
+    const verifiedInventory = await params.repository.getById(params.inventory.id);
+    if (!verifiedInventory || money(verifiedInventory.price) !== params.sitePrice) {
+      throw new Error("Inventory price write could not be verified.");
+    }
+  } catch (error) {
+    const rollbackFailures: string[] = [];
+
+    if (inventoryChanged && rollbackInventoryPrice) {
+      try {
+        await params.repository.update(params.inventory.id, {
+          price: rollbackInventoryPrice,
+        });
+      } catch (rollbackError) {
+        rollbackFailures.push(
+          `inventory rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        );
+      }
+    }
+
+    if (productChanged && rollbackProductPrice) {
+      const { error: rollbackError } = await params.supabase
+        .from("products")
+        .update({ price: rollbackProductPrice })
+        .eq("store_id", params.storeId)
+        .eq("id", params.legacyProductId);
+      if (rollbackError) {
+        rollbackFailures.push(`product rollback: ${rollbackError.message}`);
+      }
+    }
+
+    if (rollbackFailures.length) {
+      throw new Error(
+        `${error instanceof Error ? error.message : "Price synchronization failed."} Rollback was incomplete (${rollbackFailures.join("; ")}).`,
+      );
+    }
+    throw error;
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const actor = await requireAdmin(request);
@@ -399,6 +472,16 @@ export async function POST(request: Request) {
     if (action === "set_site_active" || action === "set_site_draft") {
       const status = action === "set_site_active" ? "active" : "draft";
       await engine.setStatus({ legacyProductId, status });
+
+      if (action === "set_site_active") {
+        const { error: visibilityError } = await supabase
+          .from("products")
+          .update({ archived_at: null })
+          .eq("store_id", actor.storeId)
+          .eq("id", legacyProductId);
+        if (visibilityError) throw visibilityError;
+      }
+
       return NextResponse.json({
         ok: true,
         action,
@@ -465,13 +548,15 @@ export async function POST(request: Request) {
       last_error: null,
     };
 
-    const productPriceUpdate = supabase
-      .from("products")
-      .update({ price: sitePrice })
-      .eq("store_id", actor.storeId)
-      .eq("id", legacyProductId);
-    const inventoryPriceUpdate = repository.update(inventory.id, { price: sitePrice });
-    await Promise.all([productPriceUpdate, inventoryPriceUpdate]);
+    await persistSynchronizedSitePrice({
+      supabase,
+      repository,
+      inventory,
+      product,
+      storeId: actor.storeId,
+      legacyProductId,
+      sitePrice,
+    });
 
     let currentInventory = await repository.getById(inventory.id);
     if (!currentInventory) {
