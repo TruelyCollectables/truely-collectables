@@ -1,0 +1,226 @@
+name: InstaComp Requested Hockey Workbook Recovery
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-requested-hockey-workbook-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# Share the Production writer lock with the clean-catalog wave loader.
+concurrency:
+  group: instacomp-requested-hockey-wave-production
+  cancel-in-progress: false
+
+jobs:
+  recover-requested-workbooks:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/requested-hockey-workbook-recovery
+      CHECKLIST_REGISTRY_SET_CHUNK: '100'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_RPC_ATTEMPTS: '5'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
+      WORKBOOK_TARGET_ATTEMPTS: '4'
+      WORKBOOK_TARGET_RETRY_DELAY_MS: '15000'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install workbook readers
+        run: python3 -m pip install --disable-pip-version-check openpyxl xlrd
+
+      - name: Resolve Production Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/requested-hockey-workbook-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Download immutable 122-catalog harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/requested-hockey-workbook-recovery
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Prove immutable source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$VERIFIED_HARVEST_ROOT/output/summary.json"
+          jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+
+      - name: Preflight the seven remaining workbook-source repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$VERIFIED_HARVEST_ROOT/workbook-recovery"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const base = String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+          const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+          if (!base || !key) throw new Error('Supabase credentials unavailable');
+          const targets = [
+            ['hockey|2021-22|upper-deck|black-diamond-nhl','2021-22-upper-deck-black-diamond-nhl-hockey'],
+            ['hockey|2021-22|upper-deck|o-pee-chee-nhl','2021-22-upper-deck-o-pee-chee-nhl-hockey'],
+            ['hockey|2021-22|upper-deck|sp-game-used-nhl','2021-22-upper-deck-sp-game-used-nhl-hockey'],
+            ['hockey|2023|leaf|ultimate','2023-leaf-ultimate-hockey'],
+            ['hockey|2024|leaf|metal-legends','2024-leaf-metal-legends-hockey'],
+            ['hockey|2025|upper-deck|national-hockey-card-day','2025-upper-deck-national-hockey-card-day-hockey'],
+            ['hockey|2026|upper-deck|national-hockey-card-day','2026-upper-deck-national-hockey-card-day-hockey'],
+          ];
+          const headers={apikey:key,Authorization:`Bearer ${key}`,Accept:'application/json'};
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function get(url,label){
+            let last;
+            for(let attempt=1;attempt<=6;attempt++){
+              try{
+                const res=await fetch(url,{headers,signal:AbortSignal.timeout(25000)});
+                const text=await res.text();
+                if(res.ok) return text?JSON.parse(text):[];
+                last=new Error(`${label} HTTP ${res.status}: ${text.slice(0,250)}`);
+              }catch(e){last=e;}
+              if(attempt<6) await sleep(Math.min(30000,5000*attempt));
+            }
+            throw last;
+          }
+          async function state(exactSetKey,slug){
+            const ru=new URL(`${base}/rest/v1/checklist_releases`);
+            ru.searchParams.set('select','id,slug'); ru.searchParams.set('slug',`eq.${slug}`); ru.searchParams.set('limit','1');
+            const releases=await get(ru,`release ${slug}`);
+            if(!releases.length) return {exactSetKey,slug,status:'missing'};
+            const vu=new URL(`${base}/rest/v1/checklist_versions`);
+            vu.searchParams.set('select','id,status,is_active,normalized_card_count,normalized_identity_count');
+            vu.searchParams.set('release_id',`eq.${releases[0].id}`); vu.searchParams.set('is_active','eq.true'); vu.searchParams.set('status','in.(live,revised)');
+            const versions=await get(vu,`version ${slug}`);
+            const ready=versions.find(v=>Number(v.normalized_card_count||0)>0&&Number(v.normalized_identity_count||0)>0);
+            return ready?{exactSetKey,slug,status:'already_live',cards:Number(ready.normalized_card_count||0),identities:Number(ready.normalized_identity_count||0)}:{exactSetKey,slug,status:'missing'};
+          }
+          (async()=>{
+            const results=[];
+            for(const [exactSetKey,slug] of targets){
+              try{results.push(await state(exactSetKey,slug));}
+              catch(e){results.push({exactSetKey,slug,status:'preflight_failed',error:e instanceof Error?e.message:String(e)});}
+            }
+            const receipt={schema:'tcos.requestedHockeyWorkbookPreflight.v1',checkedAt:new Date().toISOString(),results,missing:results.filter(r=>r.status==='missing').map(r=>r.exactSetKey),alreadyLive:results.filter(r=>r.status==='already_live').map(r=>r.exactSetKey),failed:results.filter(r=>r.status==='preflight_failed')};
+            fs.writeFileSync(`${process.env.VERIFIED_HARVEST_ROOT}/workbook-recovery/preflight.json`,JSON.stringify(receipt,null,2)+'\n');
+            console.log(JSON.stringify({missing:receipt.missing.length,alreadyLive:receipt.alreadyLive.length,failed:receipt.failed.length},null,2));
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Prepare parameterized workbook recovery runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/instacomp-target-checklists/recover-selected-workbooks.mjs "$RUNNER_TEMP/recover-requested-workbook.mjs"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path=Path(__import__('os').environ['RUNNER_TEMP'])/'recover-requested-workbook.mjs'
+          text=path.read_text()
+          replacement='const EXACT_KEYS = new Set(JSON.parse(process.env.RECOVERY_EXACT_KEYS_JSON || "[]"));'
+          text,n=re.subn(r'const EXACT_KEYS = new Set\(\[.*?\]\);',replacement,text,count=1,flags=re.S)
+          if n != 1: raise SystemExit(f'EXACT_KEYS patch count={n}')
+          path.write_text(text)
+          PY
+
+      - name: Recover missing workbook catalogs in waves of four
+        shell: bash
+        run: |
+          set -uo pipefail
+          root="$VERIFIED_HARVEST_ROOT/workbook-recovery"
+          mapfile -t keys < <(jq -r '.missing[]' "$root/preflight.json")
+          overall=0
+          receipts=()
+          logs=()
+          for ((offset=0; offset<${#keys[@]}; offset+=4)); do
+            wave=$((offset/4+1))
+            echo "=== WORKBOOK RECOVERY WAVE $wave ==="
+            pids=()
+            wave_logs=()
+            for ((j=offset; j<offset+4 && j<${#keys[@]}; j++)); do
+              key="${keys[$j]}"
+              receipt="$root/receipt-$j.json"
+              log="$root/target-$j.log"
+              receipts+=("$receipt")
+              logs+=("$log")
+              payload="$(jq -cn --arg k "$key" '[$k]')"
+              (
+                export RECOVERY_EXACT_KEYS_JSON="$payload"
+                export WORKBOOK_RECOVERY_RECEIPT="$receipt"
+                node --import tsx "$RUNNER_TEMP/recover-requested-workbook.mjs"
+              ) >"$log" 2>&1 &
+              pids+=("$!")
+              wave_logs+=("$log")
+            done
+            for pid in "${pids[@]}"; do
+              if ! wait "$pid"; then overall=1; fi
+            done
+            for log in "${wave_logs[@]}"; do cat "$log"; done
+            if (( offset+4 < ${#keys[@]} )); then
+              echo 'Five-minute recovery wave gap.'
+              sleep 300
+            fi
+          done
+          jq -s '{schema:"tcos.requestedHockeyWorkbookRecoveryCombined.v1",receipts:.,persistedCount:(map(.persistedCount // 0)|add // 0),unresolvedCount:(map(.unresolvedCount // 0)|add // 0),persistedCards:(map(.persistedCards // 0)|add // 0),persistedIdentities:(map(.persistedIdentities // 0)|add // 0)}' "${receipts[@]}" > "$root/combined.json" 2>/dev/null || true
+          preflight_failed="$(jq '.failed|length' "$root/preflight.json")"
+          if [[ "$preflight_failed" != '0' ]]; then overall=1; fi
+          exit "$overall"
+
+      - name: Show workbook recovery result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$VERIFIED_HARVEST_ROOT/workbook-recovery"
+          jq '{missing:(.missing|length),alreadyLive:(.alreadyLive|length),failed:(.failed|length)}' "$root/preflight.json"
+          test -s "$root/combined.json" && jq '{persistedCount,unresolvedCount,persistedCards,persistedIdentities}' "$root/combined.json" || true
+
+      - name: Upload requested workbook recovery receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-requested-hockey-workbook-recovery-${{ github.run_id }}
+          path: /home/runner/work/_temp/requested-hockey-workbook-recovery/workbook-recovery
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/requested-hockey-workbook-production" "$RUNNER_TEMP/recover-requested-workbook.mjs" .env.local .env.production.local .vercel
