@@ -12,10 +12,17 @@ function replaceOnce(before, after, label) {
   source = source.replace(before, after);
 }
 
+replaceOnce('  persistPlan,\n', '', 'remove legacy persistence import');
+replaceOnce(
+  '} from "./mainstream-checklist/registry-tools.mjs";\n',
+  '} from "./mainstream-checklist/registry-tools.mjs";\nimport { persistChunkedPlan } from "./mainstream-checklist/chunked-registry-tools.mjs";\n',
+  'add resumable chunked writer import',
+);
+
 replaceOnce(
   '  plan.adapterVersion = "1.0.0";\n',
-  '  plan.adapterVersion = "1.1.0";\n',
-  "Upper Deck adapter-version bump",
+  '  plan.adapterVersion = "1.2.0";\n',
+  "Upper Deck chunked adapter-version bump",
 );
 
 replaceOnce(
@@ -83,5 +90,11 @@ replaceOnce(
   "Production proof-card join verifier",
 );
 
+replaceOnce(
+  '  const persistence = await retry(`persist ${target.release.exactSetKey}`, () => persistPlan(db, plan, source.bytes), 4);\n',
+  '  const persistence = await retry(`persist ${target.release.exactSetKey}`, () => persistChunkedPlan(db, plan, source.bytes), 4);\n',
+  'switch hockey importer to resumable chunked writer',
+);
+
 writeFileSync(targetPath, source, "utf8");
-console.log("Hockey priority importer patched: adapter 1.1.0 + normalized card-player verification.");
+console.log("Hockey priority importer patched: adapter 1.2.0 + resumable chunked writer + normalized proof verification.");
