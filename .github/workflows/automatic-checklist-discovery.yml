@@ -12,11 +12,11 @@ on:
           - validate
           - apply
       max_pages:
-        description: Archive pages to inspect
+        description: Archive pages to inspect for backlog candidates
         required: true
-        default: "12"
+        default: "50"
       max_sources:
-        description: Maximum checklist sources per run
+        description: Maximum checklist sources to process per run
         required: true
         default: "60"
   schedule:
@@ -39,7 +39,7 @@ jobs:
     env:
       CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
       CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || inputs.mode == 'apply' }}
-      CHECKLIST_DISCOVERY_MAX_PAGES: ${{ inputs.max_pages || '12' }}
+      CHECKLIST_DISCOVERY_MAX_PAGES: ${{ inputs.max_pages || '50' }}
       CHECKLIST_DISCOVERY_MAX_SOURCES: ${{ inputs.max_sources || '60' }}
       CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/receipt.json
     steps:
