@@ -8,17 +8,17 @@ const OUTPUT = resolve(
 );
 
 const TARGETS = [
-  { group: "wnba", key: "basketball|2024|panini|origins-wnba", slug: "2024-panini-origins-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "wnba", key: "basketball|2024|panini|select-wnba", slug: "2024-panini-select-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "wnba", key: "basketball|2024|panini|prizm-wnba", slug: "2024-panini-prizm-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "wnba", key: "basketball|2025|panini|donruss-wnba", slug: "2025-panini-donruss-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "wnba", key: "basketball|2025|panini|prizm-wnba", slug: "2025-panini-prizm-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "wnba", key: "basketball|2025|panini|select-wnba", slug: "2025-panini-select-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "wnba", key: "basketball|2025|panini|impeccable-wnba", slug: "2025-panini-impeccable-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "wnba", key: "basketball|2025|panini|one-and-one-wnba", slug: "2025-panini-one-and-one-wnba-basketball", parserVersion: "1.0.0", minCards: 25 },
-  { group: "hockey", key: "hockey|2021-22|upper-deck|sp-authentic", slug: "2021-22-upper-deck-sp-authentic-hockey", parserVersion: "1.1.0", minCards: 200 },
-  { group: "hockey", key: "hockey|2024-25|upper-deck|artifacts", slug: "2024-25-upper-deck-artifacts-hockey", parserVersion: "1.1.0", minCards: 100 },
-  { group: "hockey", key: "hockey|2025-26|upper-deck|star-rookies-box-set", slug: "2025-26-upper-deck-star-rookies-box-set-hockey", parserVersion: "1.1.0", minCards: 20 },
+  { group: "wnba", key: "basketball|2024|panini|origins-wnba", slug: "2024-panini-origins-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "wnba", key: "basketball|2024|panini|select-wnba", slug: "2024-panini-select-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "wnba", key: "basketball|2024|panini|prizm-wnba", slug: "2024-panini-prizm-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "wnba", key: "basketball|2025|panini|donruss-wnba", slug: "2025-panini-donruss-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "wnba", key: "basketball|2025|panini|prizm-wnba", slug: "2025-panini-prizm-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "wnba", key: "basketball|2025|panini|select-wnba", slug: "2025-panini-select-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "wnba", key: "basketball|2025|panini|impeccable-wnba", slug: "2025-panini-impeccable-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "wnba", key: "basketball|2025|panini|one-and-one-wnba", slug: "2025-panini-one-and-one-wnba-basketball", parserVersion: "1.2.0", minCards: 25 },
+  { group: "hockey", key: "hockey|2021-22|upper-deck|sp-authentic", slug: "2021-22-upper-deck-sp-authentic-hockey", parserVersion: "1.2.0", minCards: 200 },
+  { group: "hockey", key: "hockey|2024-25|upper-deck|artifacts", slug: "2024-25-upper-deck-artifacts-hockey", parserVersion: "1.2.0", minCards: 100 },
+  { group: "hockey", key: "hockey|2025-26|upper-deck|star-rookies-box-set", slug: "2025-26-upper-deck-star-rookies-box-set-hockey", parserVersion: "1.2.0", minCards: 20 },
 ];
 
 async function verifyTarget(db, target) {
