@@ -58,6 +58,20 @@ export function recommendedEbayPrice(sitePrice: number, markupPercent = 10) {
   return Math.max(markedUp, Math.round((site + 0.01) * 100) / 100);
 }
 
+export function recommendedSitePriceFromEbay(
+  ebayPrice: number,
+  markupPercent = 10,
+) {
+  const ebay = Math.max(0, Number(ebayPrice || 0));
+  const markup = Math.max(0, Number(markupPercent || 0));
+  if (!ebay) return 0;
+
+  const divisor = 1 + markup / 100;
+  const derived = Math.round((ebay / divisor) * 100) / 100;
+  const belowEbay = Math.round((ebay - 0.01) * 100) / 100;
+  return Math.max(0.01, Math.min(derived, belowEbay));
+}
+
 export function directPriceAdvantage(sitePrice: number, ebayPrice: number) {
   const site = Number(sitePrice || 0);
   const ebay = Number(ebayPrice || 0);
