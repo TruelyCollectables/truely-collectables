@@ -91,7 +91,6 @@ jobs:
           grep -F 'persistChunkedPlan' scripts/import-hockey-2021plus-priority.mjs
           node --check scripts/import-hockey-2021plus-priority.mjs
           node --check scripts/mainstream-checklist/chunked-registry-tools.mjs
-          bash -n scripts/install-checklist-chunked-writer.sh
 
       - name: Resolve Production Supabase
         shell: bash
@@ -114,12 +113,6 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
-
-      - name: Install Production resumable Registry writer
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/install-checklist-chunked-writer.sh
 
       - name: Import and verify hockey 2021 plus targets
         shell: bash
@@ -154,4 +147,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/hockey-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/checklist-chunked-writer-install" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/hockey-production" "$RUNNER_TEMP/checklist-isolation" .env.local .env.production.local .vercel
