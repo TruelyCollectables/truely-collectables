@@ -15,16 +15,47 @@ if (!existsSync(summaryPath) || !existsSync(plansDir) || !existsSync(sourcesDir)
 }
 
 const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
-const ready = Array.isArray(summary.ready) ? summary.ready.slice(0, MAX_SETS) : [];
-if (!ready.length) throw new Error("Coordinate harvest bundle has no ready targets.");
+const priority = [
+  "hockey|2025-26|upper-deck|extended-series-nhl",
+  "hockey|2025-26|upper-deck|o-pee-chee-platinum-nhl",
+  "hockey|2025-26|upper-deck|allure-nhl",
+  "basketball|2025|panini|prizm-wnba",
+  "basketball|2025|panini|select-wnba",
+  "basketball|2025|panini|donruss-wnba",
+  "hockey|2025-26|upper-deck|series-one-nhl",
+  "hockey|2025-26|upper-deck|series-two-nhl",
+  "hockey|2025-26|upper-deck|credentials-nhl",
+  "hockey|2025-26|upper-deck|sp-authentic-nhl",
+  "hockey|2025-26|upper-deck|artifacts-nhl",
+  "hockey|2025-26|upper-deck|spx-nhl",
+  "basketball|2025|panini|impeccable-wnba",
+  "basketball|2024|panini|origins-wnba",
+  "basketball|2024|panini|select-wnba",
+  "basketball|2022|panini|prizm-wnba",
+  "basketball|2021|panini|prizm-wnba",
+];
+const priorityIndex = new Map(priority.map((key, index) => [key, index]));
+const alreadyPersisted = new Set([
+  "basketball|2025|panini|one-and-one-wnba",
+]);
+const ready = (Array.isArray(summary.ready) ? summary.ready : [])
+  .filter((row) => !alreadyPersisted.has(row.exactSetKey))
+  .sort((a, b) => {
+    const ai = priorityIndex.has(a.exactSetKey) ? priorityIndex.get(a.exactSetKey) : 999;
+    const bi = priorityIndex.has(b.exactSetKey) ? priorityIndex.get(b.exactSetKey) : 999;
+    if (ai !== bi) return ai - bi;
+    return Number(a?.counts?.identities || 0) - Number(b?.counts?.identities || 0);
+  })
+  .slice(0, MAX_SETS);
+if (!ready.length) throw new Error("Coordinate harvest bundle has no remaining ready targets.");
 
 const safeSlug = (value) => String(value || "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "target";
 const sourceFiles = readdirSync(sourcesDir);
 const db = dbClient();
 
 async function proveDatabase() {
-  const maxAttempts = Math.max(1, Number(process.env.COORDINATE_DB_HEALTH_ATTEMPTS || 10));
-  const delayMs = Math.max(1_000, Number(process.env.COORDINATE_DB_HEALTH_DELAY_MS || 20_000));
+  const maxAttempts = Math.max(1, Number(process.env.COORDINATE_DB_HEALTH_ATTEMPTS || 4));
+  const delayMs = Math.max(1_000, Number(process.env.COORDINATE_DB_HEALTH_DELAY_MS || 5_000));
   let last = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const started = Date.now();
@@ -90,14 +121,15 @@ for (let index = 0; index < ready.length; index += 1) {
     const message = error instanceof Error ? error.message : String(error);
     results.push({ exactSetKey, status: "failed", counts: plan.validation.counts, error: message });
     console.error(JSON.stringify({ exactSetKey, status: "failed", error: message }));
-    if (/connection|timeout|too many connections|522|544/i.test(message)) break;
+    const infrastructureFailure = /too many connections|connection terminated|connection timed out|could not query the database|web server is down|ssl handshake|\b52[125]\b|\b544\b/i.test(message);
+    if (infrastructureFailure) break;
   }
 }
 
 const persisted = results.filter((row) => row.status === "persisted");
 const failed = results.filter((row) => row.status !== "persisted");
 const receipt = {
-  schema: "tcos.checklist.coordinateProductionApply.v1",
+  schema: "tcos.checklist.coordinateProductionApply.v2",
   sourceHarvestRunId: Number(process.env.COORDINATE_SOURCE_RUN_ID || 0) || null,
   health,
   requestedCount: ready.length,
@@ -106,8 +138,9 @@ const receipt = {
   persistedCards: persisted.reduce((sum, row) => sum + Number(row.counts?.cards || 0), 0),
   persistedParallels: persisted.reduce((sum, row) => sum + Number(row.counts?.parallels || 0), 0),
   persistedIdentities: persisted.reduce((sum, row) => sum + Number(row.counts?.identities || 0), 0),
+  alreadyPersisted: [...alreadyPersisted],
   results,
 };
 writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`);
 console.log(JSON.stringify({ persistedCount: receipt.persistedCount, attemptedCount: receipt.attemptedCount, persistedCards: receipt.persistedCards, persistedParallels: receipt.persistedParallels, persistedIdentities: receipt.persistedIdentities }, null, 2));
-if (!persisted.length || failed.length) process.exitCode = 2;
+if (!persisted.length) process.exitCode = 2;
