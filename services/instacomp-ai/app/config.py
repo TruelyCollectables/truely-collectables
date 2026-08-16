@@ -31,6 +31,18 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5vl:7b"
     ollama_timeout_seconds: float = 120.0
+
+    # Offline teacher lane. These local Ollama models are advisory tutors only:
+    # they may describe visible evidence and explain student misses, but they can
+    # never create/replace Registry truth, card UUIDs, fingerprints, pricing, or
+    # inventory state. The default list matches the local Mac teacher models.
+    teacher_vision_enabled: bool = True
+    teacher_vision_models: str = "qwen2.5vl:7b,gemma3:12b"
+    teacher_vision_timeout_seconds: float = 240.0
+    teacher_vision_image_max_edge: int = 768
+    teacher_vision_hard_example_multiplier: int = 3
+    teacher_vision_keep_alive: str = "30m"
+
     # The trained LoRA is an opt-in evidence reader only. It can never lock
     # identity or pricing by itself; the central Checklist Registry still must
     # return one exact UUID + fingerprint. Disabled is the rollback/default.
