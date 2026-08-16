@@ -6,8 +6,8 @@ on:
       - feature/instacomp-target-checklists-20260816
     paths:
       - '.github/workflows/instacomp-requested-hockey-wave-production.yml'
-      - 'scripts/instacomp-target-checklists/apply-requested-hockey-waves.mjs'
-      - 'scripts/instacomp-target-checklists/staged-registry-writer.mjs'
+      - 'scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs'
+      - 'scripts/instacomp-target-checklists/management-staged-registry-writer.mjs'
   workflow_dispatch:
 
 permissions:
@@ -30,51 +30,25 @@ jobs:
       REQUESTED_HOCKEY_RECEIPT: /home/runner/work/_temp/requested-hockey-harvest/requested-hockey-wave-receipt.json
       REQUESTED_HOCKEY_WAVE_SIZE: '4'
       REQUESTED_HOCKEY_WAVE_DELAY_MS: '15000'
-      REQUESTED_HOCKEY_PREFLIGHT_ATTEMPTS: '6'
-      REQUESTED_HOCKEY_PREFLIGHT_TIMEOUT_MS: '25000'
-      REQUESTED_HOCKEY_PREFLIGHT_RETRY_MS: '5000'
       REQUESTED_HOCKEY_TARGET_ATTEMPTS: '4'
       REQUESTED_HOCKEY_TARGET_RETRY_MS: '15000'
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
       CHECKLIST_REGISTRY_SET_CHUNK: '100'
       CHECKLIST_REGISTRY_CARD_CHUNK: '75'
       CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
       CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
-      CHECKLIST_REGISTRY_RPC_ATTEMPTS: '5'
       CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci
 
       - name: Resolve Production Supabase credentials
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/requested-hockey-production"
-          mkdir -p "$root"
-          test -n "$GH_SUPABASE_ACCESS_TOKEN"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -o "$root/projects.json" \
-            "https://api.supabase.com/v1/projects"
-          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
-          test "${#candidates[@]}" -eq 1
-          project_ref="${candidates[0]}"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -o "$root/api-keys.json" \
-            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
-          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
-          test -n "$service_key"
-          echo "::add-mask::$service_key"
-          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
-          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
 
       - name: Download immutable 122-catalog harvest
         uses: actions/download-artifact@v4
@@ -85,26 +59,10 @@ jobs:
           run-id: 31924171342
 
       - name: Prove immutable source bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -s "$VERIFIED_HARVEST_ROOT/output/summary.json"
-          jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+        run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
 
-      - name: Normalize harvest releaseSlug field for wave loader
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('scripts/instacomp-target-checklists/apply-requested-hockey-waves.mjs')
-          text = path.read_text()
-          text = text.replace('plan?.release?.slug', 'plan?.release?.releaseSlug')
-          text = text.replace('plan.release.slug', 'plan.release.releaseSlug')
-          path.write_text(text)
-          PY
-
-      - name: Apply only missing requested Hockey catalogs in four-catalog waves
-        run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-waves.mjs
+      - name: Apply requested Hockey through direct management SQL
+        run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs
 
       - name: Summarize requested Hockey receipt
         if: always()
@@ -112,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s "$REQUESTED_HOCKEY_RECEIPT"
-          jq '{updatedAt, immutableHarvest, wave, preflight, apply}' "$REQUESTED_HOCKEY_RECEIPT"
+          jq '{updatedAt,transport,requestedHockeyReadyCount,wave,alreadyLiveCount,missingCount,persistedCount,failedCount,persistedCards,persistedIdentities}' "$REQUESTED_HOCKEY_RECEIPT"
 
       - name: Upload requested Hockey receipt
         if: always()
