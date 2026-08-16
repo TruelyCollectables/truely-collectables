@@ -1,0 +1,65 @@
+name: InstaComp Pinned Staged Promotion Self Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
+      - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
+      - "services/instacomp-ai/app/**"
+      - "services/instacomp-ai/requirements.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile pinned promotion runner
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
+          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+      - name: Prove pinned and throttle fail-fast contract
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py --self-test
+      - name: Prove source limits are explicit
+        run: |
+          grep -q 'PINNED_EXPANSION_BUDGETS = {10: 5, 15: 10, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
+          grep -q 'PREFLIGHT_REGISTRY_CALL_CEILINGS' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
+          grep -q 'Too many attempts' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
+          grep -q 'promotion-v12-pinned-throttle-fail-fast' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+
+  pinned-contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile and prove v12 on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py
+          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py --self-test
