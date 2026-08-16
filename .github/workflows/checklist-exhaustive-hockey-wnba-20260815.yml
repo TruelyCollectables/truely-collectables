@@ -5,6 +5,7 @@ on:
     paths:
       - "scripts/discover-exhaustive-hockey-wnba.mjs"
       - "scripts/harvest-gogts-coordinate-direct.mjs"
+      - "scripts/recover-held-workbook-checklists.mjs"
       - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
   push:
     branches:
@@ -12,6 +13,7 @@ on:
     paths:
       - "scripts/discover-exhaustive-hockey-wnba.mjs"
       - "scripts/harvest-gogts-coordinate-direct.mjs"
+      - "scripts/recover-held-workbook-checklists.mjs"
       - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
   workflow_dispatch:
 
@@ -21,6 +23,7 @@ permissions:
 
 jobs:
   census-harvest:
+    if: ${{ !contains(github.event.head_commit.message || '', '[held-recovery]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -65,7 +68,7 @@ jobs:
 
   production-apply:
     needs: census-harvest
-    if: ${{ always() && needs.census-harvest.result == 'success' }}
+    if: ${{ always() && needs.census-harvest.result == 'success' && !contains(github.event.head_commit.message || '', '[held-recovery]') }}
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 120
@@ -135,3 +138,45 @@ jobs:
       - name: Cleanup protected files
         if: always()
         run: rm -rf "$RUNNER_TEMP/exhaustive-production" .env.local .env.production.local .vercel
+
+  held-recovery:
+    if: ${{ contains(github.event.head_commit.message || '', '[held-recovery]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXHAUSTIVE_CHECKLIST_ROOT: /home/runner/work/_temp/held-recovery
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install structured parser runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Rebuild target census
+        run: |
+          set -euo pipefail
+          node scripts/discover-exhaustive-hockey-wnba.mjs
+          jq '{uniqueTargets,hockeyTargets,wnbaTargets,seasonCounts}' "$EXHAUSTIVE_CHECKLIST_ROOT/census.json"
+      - name: Recover held sets from structured workbooks
+        run: |
+          set -o pipefail
+          PUBLIC_WEB_MINIMUM_CARD_ROWS=20 \
+          GOGTS_COORDINATE_TARGETS="$EXHAUSTIVE_CHECKLIST_ROOT/targets.json" \
+          GOGTS_COORDINATE_OUTPUT="$EXHAUSTIVE_CHECKLIST_ROOT/output" \
+          node --import tsx scripts/recover-held-workbook-checklists.mjs
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities}' "$EXHAUSTIVE_CHECKLIST_ROOT/output/summary.json"
+      - name: Upload held recovery bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: held-recovery-${{ github.run_id }}
+          path: /home/runner/work/_temp/held-recovery
+          if-no-files-found: error
+          retention-days: 90
