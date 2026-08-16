@@ -1,4 +1,4 @@
-name: Checklist Direct Supabase SQL Probe
+name: Supabase Production Restart Recovery 20260815
 
 on:
   push:
@@ -12,10 +12,10 @@ permissions:
   actions: read
 
 jobs:
-  probe:
+  restart-recover:
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/direct-sql-probe"
+          root="$RUNNER_TEMP/supabase-restart"
           mkdir -p "$root"
           curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
@@ -35,31 +35,54 @@ jobs:
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
           test "${#candidates[@]}" -eq 1
           echo "PROJECT_REF=${candidates[0]}" >> "$GITHUB_ENV"
+          echo 'Resolved exactly one Production project.'
 
-      - name: Query function definition through Management API
+      - name: Restart Production Supabase project
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/direct-sql-probe"
-          query="select current_database() as database_name, now() as database_time, p.oid::regprocedure::text as signature, pg_get_functiondef(p.oid) as definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tcos_apply_checklist_import_plan';"
-          jq -n --arg q "$query" '{query:$q,read_only:true}' > "$root/query.json"
-          code="$(curl --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 60 \
+          root="$RUNNER_TEMP/supabase-restart"
+          code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
+            -X POST \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -H 'Content-Type: application/json' \
-            -o "$root/result.json" -w '%{http_code}' \
-            --data-binary @"$root/query.json" \
-            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query")"
-          echo "Management SQL HTTP $code"
-          jq . "$root/result.json"
-          test "$code" = "201"
-          jq -e 'type == "array" and length > 0' "$root/result.json" >/dev/null
-          jq -e '.[0].signature | contains("tcos_apply_checklist_import_plan")' "$root/result.json" >/dev/null
+            -o "$root/restart.json" -w '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/restart")"
+          echo "Restart HTTP $code"
+          cat "$root/restart.json" || true
+          test "$code" = '200'
 
-      - name: Upload probe receipt
+      - name: Wait for database recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/supabase-restart"
+          query='select 1 as ok;'
+          jq -n --arg q "$query" '{query:$q,read_only:true}' > "$root/health-query.json"
+          healthy=false
+          for attempt in $(seq 1 24); do
+            code="$(curl --silent --show-error --connect-timeout 8 --max-time 20 \
+              -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              -H 'Content-Type: application/json' \
+              -o "$root/health-$attempt.json" -w '%{http_code}' \
+              --data-binary @"$root/health-query.json" \
+              "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" || true)"
+            if [ "$code" = '201' ] && jq -e 'type=="array" and .[0].ok==1' "$root/health-$attempt.json" >/dev/null 2>&1; then
+              echo "Database recovered on attempt $attempt."
+              cp "$root/health-$attempt.json" "$root/health-success.json"
+              healthy=true
+              break
+            fi
+            echo "Recovery probe $attempt/24 HTTP ${code:-curl-failed}"
+            sleep 10
+          done
+          test "$healthy" = true
+
+      - name: Upload restart recovery receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: checklist-direct-sql-probe-${{ github.run_id }}
-          path: ${{ runner.temp }}/direct-sql-probe
+          name: supabase-production-restart-${{ github.run_id }}
+          path: ${{ runner.temp }}/supabase-restart
           if-no-files-found: error
           retention-days: 30
