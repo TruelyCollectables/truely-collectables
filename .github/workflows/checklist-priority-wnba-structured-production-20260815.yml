@@ -1,0 +1,200 @@
+name: Checklist Priority WNBA Structured Production 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/workflows/checklist-priority-wnba-structured-production-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+
+jobs:
+  wnba-production:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 90
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SHARD: ${{ matrix.shard }}
+      SHARDS: '2'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install checklist parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+
+      - name: Enable GoGTS structured normalization
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path='scripts/mainstream-checklist/source-tools.mjs';
+          let s=readFileSync(path,'utf8');
+          const ia='import { extname, resolve } from "node:path";\n';
+          const il='import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if(!s.includes(il)) {
+            if(!s.includes(ia)) throw new Error('normalizer import anchor missing');
+            s=s.replace(ia,ia+il);
+          }
+          const old='  const text = extractText(downloaded, filename);';
+          const replacement='  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));';
+          if(!s.includes(replacement)) {
+            if(!s.includes(old)) throw new Error('parser handoff anchor missing');
+            s=s.replace(old,replacement);
+          }
+          writeFileSync(path,s);
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/wnba-structured-prod-$SHARD"; mkdir -p "$root"
+          curl -sS --fail --retry 6 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" https://api.supabase.com/v1/projects
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl -sS --fail --retry 6 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Apply structured WNBA checklists and prove Production presence
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/wnba-structured-$SHARD"; mkdir -p "$out/receipts"
+          OUT="$out" SHARD="$SHARD" SHARDS="$SHARDS" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          import { join } from 'node:path';
+
+          const out=process.env.OUT;
+          const all=[
+            ['basketball|2024|panini|origins','https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Origins-WNBA-Basketball-Cards-Checklist.xls'],
+            ['basketball|2024|panini|prizm','https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-WNBA-Basketball-Cards-Checklist.xls'],
+            ['basketball|2024|panini|select','https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Select-WNBA-Basketball-Cards-Checklist.xls'],
+            ['basketball|2025|panini|donruss','https://gogts.net/wp-content/uploads/2025/09/2025-Donruss-WNBA-Basketball-Cards-Checklist.xls'],
+            ['basketball|2025|panini|impeccable','https://gogts.net/wp-content/uploads/2025/12/2025-Panini-Impeccable-WNBA-Basketball-Cards-Checklist.xls'],
+            ['basketball|2025|panini|one-and-one','https://gogts.net/wp-content/uploads/2026/03/2025-Panini-One-and-One-WNBA-Basketball-Cards-Checklist.xls'],
+            ['basketball|2025|panini|prizm','https://gogts.net/wp-content/uploads/2026/03/2025-Panini-Prizm-WNBA-Basketball-Cards-Checklist.xls'],
+            ['basketball|2025|panini|select','https://gogts.net/wp-content/uploads/2026/04/2025-Panini-Select-WNBA-Basketball-Cards-Checklist.xls']
+          ].map(([exactSetKey,sourceUrl])=>({exactSetKey,sourceUrl}));
+          const shard=Number(process.env.SHARD), shards=Number(process.env.SHARDS);
+          const targets=all.filter((_,i)=>i%shards===shard);
+          writeFileSync(join(out,'targets.json'),JSON.stringify({allCount:all.length,shard,shards,count:targets.length,targets},null,2));
+          const summary={schema:'tcos.checklist.wnbaStructuredProductionShard.v1',runId:process.env.GITHUB_RUN_ID||null,shard,targetCount:targets.length,verified:0,cards:0,netNew:0,alreadyPresent:0,failed:0,results:[],startedAt:new Date().toISOString()};
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+          function childApply(target,label,attempt){
+            const slug=target.exactSetKey.replace(/[^a-zA-Z0-9_.-]+/g,'_');
+            const queue=join(out,`queue-${slug}-${label}-${attempt}.json`);
+            const filter=join(out,`filter-${slug}-${label}-${attempt}.json`);
+            const receipt=join(out,'receipts',`${slug}-${label}-${attempt}.json`);
+            const validated=join(out,'receipts',`${slug}-${label}-${attempt}-validated.json`);
+            const year=Number((target.exactSetKey.split('|')[1].match(/\d{4}/)||[])[0]||0);
+            writeFileSync(queue,JSON.stringify({schema:'tcos.checklist.mainstream2005plusCandidateValidationQueue.v1',count:1,targets:[{exactSetKey:target.exactSetKey,year,sport:'basketball',sourceArtifact:'wnba-structured-priority-20260815',exactCandidateCount:1,trustedAutoImportCandidateCount:1,candidates:[]}]},null,2));
+            writeFileSync(filter,JSON.stringify({schema:'tcos.checklist.wnbaStructuredTarget.v1',targets:[{exactSetKey:target.exactSetKey,sourceUrl:target.sourceUrl}]},null,2));
+            const c=spawnSync('node',['--import','tsx','scripts/promote-mainstream-2005plus-public-web-candidates.mjs'],{encoding:'utf8',timeout:150000,env:{...process.env,PUBLIC_WEB_CANDIDATE_QUEUE:queue,PUBLIC_WEB_TARGET_FILTER:filter,PUBLIC_WEB_PROMOTION_APPLY:'true',PUBLIC_WEB_PROMOTION_OUTPUT:receipt,PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT:validated}});
+            if(c.stdout) process.stdout.write(c.stdout.slice(-10000));
+            if(c.stderr) process.stderr.write(c.stderr.slice(-6000));
+            try{
+              const r=JSON.parse(readFileSync(receipt,'utf8'));
+              return (r.results||[]).find(x=>String(x.exactSetKey).toLowerCase()===target.exactSetKey)||(r.results||[])[0]||null;
+            }catch{return null;}
+          }
+
+          async function applyWithRetry(target,label){
+            let last=null;
+            for(let attempt=1;attempt<=4;attempt++){
+              last=childApply(target,label,attempt);
+              if(last?.status==='imported'&&last?.persistence?.ok===true) return last;
+              const msg=String(last?.message||(last?.errors||[]).join('; ')||'');
+              const transient=/schema cache|503|timeout|timed out|fetch failed|connection|ECONN|upstream/i.test(msg);
+              if(!transient) return last;
+              console.warn(`TRANSIENT ${target.exactSetKey} ${label} attempt=${attempt}: ${msg}`);
+              await sleep(2500*attempt);
+            }
+            return last;
+          }
+
+          for(let i=0;i<targets.length;i++){
+            const t=targets[i];
+            console.log(`=== WNBA STRUCTURED SHARD ${shard} ${i+1}/${targets.length} ${t.exactSetKey} ===`);
+            const first=await applyWithRetry(t,'apply');
+            let reason=first?.message||(first?.errors||[]).join('; ')||`apply ${first?.status||'no receipt'}`;
+            if(first?.status==='imported'&&first?.persistence?.ok===true){
+              const verify=await applyWithRetry(t,'verify');
+              if(verify?.status==='imported'&&verify?.persistence?.ok===true&&verify?.persistence?.idempotent===true){
+                const already=first.persistence?.idempotent===true;
+                const cards=Number(first.counts?.cards||verify.counts?.cards||0);
+                summary.verified++;
+                summary.cards+=cards;
+                if(already) summary.alreadyPresent++; else summary.netNew++;
+                summary.results.push({exactSetKey:t.exactSetKey,status:'verified-production',cards,sourceUrl:t.sourceUrl,firstPersistence:first.persistence,verificationPersistence:verify.persistence});
+                console.log(`>>> WNBA VERIFIED ${already?'ALREADY':'NET-NEW'} ${t.exactSetKey} cards=${cards}`);
+                writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));
+                continue;
+              }
+              reason=verify?.message||(verify?.errors||[]).join('; ')||`verification ${verify?.status||'no receipt'}`;
+            }
+            summary.failed++;
+            summary.results.push({exactSetKey:t.exactSetKey,status:'failed',sourceUrl:t.sourceUrl,reason});
+            console.error(`--- WNBA FAILED ${t.exactSetKey}: ${reason}`);
+            writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));
+          }
+
+          summary.completedAt=new Date().toISOString();
+          writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));
+          console.log('FINAL_WNBA_STRUCTURED_SHARD '+JSON.stringify({shard:summary.shard,targetCount:summary.targetCount,verified:summary.verified,cards:summary.cards,netNew:summary.netNew,alreadyPresent:summary.alreadyPresent,failed:summary.failed}));
+          if(summary.failed) process.exitCode=2;
+          NODE
+
+      - name: Upload Production verification receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-wnba-structured-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/wnba-structured-${{ matrix.shard }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup secrets
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/wnba-structured-prod-$SHARD" .env.local .env.production.local .vercel
