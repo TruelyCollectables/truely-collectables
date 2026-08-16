@@ -39,6 +39,19 @@ jobs:
           run-id: 31924171342
       - name: Prove immutable source bundle
         run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+      - name: Preserve non-player checklist subjects in identity slot
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('scripts/instacomp-target-checklists/recover-layout-pdf-easy.mjs')
+          text=path.read_text()
+          old='players: subjectText ? [subjectText] : [],'
+          new='players: [subjectText || teamText || setText],'
+          if old not in text:
+              raise SystemExit('non-player subject patch anchor missing')
+          path.write_text(text.replace(old,new,1))
+          PY
       - name: Parse and validate three layout-PDF recoveries
         run: node --import tsx scripts/instacomp-target-checklists/recover-layout-pdf-easy.mjs
       - name: Show validation receipt
