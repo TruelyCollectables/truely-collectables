@@ -1,4 +1,4 @@
-name: Checklist Management SQL Probe 20260815
+name: Checklist Offline WNBA Hockey Harvest Plans 20260815
 
 on:
   push:
@@ -11,56 +11,262 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: checklist-offline-wnba-hockey-harvest-plans-20260815
+  cancel-in-progress: false
+
 jobs:
-  probe:
+  harvest:
     runs-on: ubuntu-24.04
-    environment: Production
-    timeout-minutes: 10
-    env:
-      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    timeout-minutes: 70
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve Production project
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+      - name: Enable GoGTS structured normalization
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/management-sql-probe"
-          mkdir -p "$root"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -o "$root/projects.json" \
-            "https://api.supabase.com/v1/projects"
-          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
-          test "${#candidates[@]}" -eq 1
-          project_ref="${candidates[0]}"
-          echo "PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
-          echo "Resolved Production project."
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'scripts/mainstream-checklist/source-tools.mjs';
+          let source = readFileSync(path, 'utf8');
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error('GoGTS normalizer import anchor not found');
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = '  const text = extractText(downloaded, filename);';
+          const normalizedParse = '  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));';
+          if (!source.includes(normalizedParse)) {
+            const n = source.split(parseAnchor).length - 1;
+            if (n !== 1) throw new Error(`Expected one parser handoff anchor, found ${n}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, 'utf8');
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
 
-      - name: Prove direct Management SQL and inspect Registry RPC
+      - name: Write 37-target WNBA and hockey manifest
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/management-sql-probe"
-          jq -n --arg q "select current_database() as database_name, now() as database_time, p.oid::regprocedure::text as signature, pg_get_functiondef(p.oid) as definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tcos_apply_checklist_import_plan';" '{query:$q,read_only:true}' > "$root/query.json"
-          code="$(curl --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 60 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -H 'Content-Type: application/json' \
-            -o "$root/result.json" -w '%{http_code}' \
-            --data-binary @"$root/query.json" \
-            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query")"
-          echo "Management SQL HTTP $code"
-          cat "$root/result.json" | jq .
-          test "$code" = "201"
-          jq -e 'type == "array" and length > 0' "$root/result.json" >/dev/null
-          jq -e '.[0].signature | contains("tcos_apply_checklist_import_plan")' "$root/result.json" >/dev/null
+          root="$RUNNER_TEMP/offline-harvest"
+          mkdir -p "$root/results" "$root/sources" "$root/plans" "$root/parsed"
+          cat > "$root/targets.json" <<'JSON'
+          [
+            {"exactSetKey":"basketball|2025|panini|one-and-one-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/03/2025-Panini-One-and-One-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|impeccable-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/12/2025-Panini-Impeccable-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|donruss-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/09/2025-Donruss-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|extended-series-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/05/2025-26-Upper-Deck-Extended-Series-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|o-pee-chee-platinum-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/05/2025-26-O-Pee-Chee-Platinum-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|allure-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/01/2025-26-Upper-Deck-Allure-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|prizm-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/03/2025-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|select-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/04/2025-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|origins-wnba","year":2024,"sourceUrl":"https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|prizm-wnba","year":2024,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|select-wnba","year":2024,"sourceUrl":"https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|series-one-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/10/2025-26-Upper-Deck-Series-One-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|series-two-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/02/2025-26-Upper-Deck-Series-Two-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|credentials-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/04/2025-26-Upper-Deck-Credentials-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|sp-authentic-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/06/2025-26-Upper-Deck-SP-Authentic-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|black-diamond-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/11/2025-26-Upper-Deck-Black-Diamond-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|artifacts-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/09/2025-26-Upper-Deck-Artifacts-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|spx-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/04/2025-26-Upper-Deck-SPx-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|mvp-nhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-upper-deck-mvp-nhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2026|upper-deck|national-day","year":2026,"sourceUrl":"https://gogts.net/2026-upper-deck-national-hockey-card-day-image-gallery-checklist/"},
+            {"exactSetKey":"basketball|2023|panini|origins-wnba","year":2023,"sourceUrl":"https://gogts.net/wp-content/uploads/2023/10/2023-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2023|panini|prizm-wnba","year":2023,"sourceUrl":"https://gogts.net/2023-panini-prizm-wnba-basketball-cards-checklist/"},
+            {"exactSetKey":"basketball|2022|panini|prizm-wnba","year":2022,"sourceUrl":"https://gogts.net/wp-content/uploads/2022/10/2022-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2019|donruss|wnba","year":2019,"sourceUrl":"https://gogts.net/2019-donruss-wnba-basketball-cards-checklist/"},
+            {"exactSetKey":"basketball|2020|panini|prizm-wnba","year":2020,"sourceUrl":"https://gogts.net/2020-panini-prizm-wnba-basketball-cards-checklist/"},
+            {"exactSetKey":"basketball|2021|panini|prizm-wnba","year":2021,"sourceUrl":"https://cconnect.s3.amazonaws.com/wp-content/uploads/2021/08/2021-Panini-Prizm-WNBA-Basketball-checklist-Excel-spreadsheet.xlsx"},
+            {"exactSetKey":"basketball|2022|panini|revolution-wnba-added","year":2022,"sourceUrl":"https://gogts.net/2022-panini-revolution-wnba-basketball-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|o-pee-chee-nhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-o-pee-chee-nhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|parkhurst-nhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-parkhurst-nhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|skybox-metal-universe-nhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-skybox-metal-universe-nhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|pwhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-upper-deck-pwhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|sp-game-used-nhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-upper-deck-sp-game-used-nhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|flair-nhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-flair-nhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|ultimate-collection-nhl","year":2025,"sourceUrl":"https://gogts.net/2025-26-upper-deck-ultimate-collection-nhl-hockey-cards/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|chl","year":2025,"sourceUrl":"https://gogts.net/2025-26-upper-deck-chl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|ahl","year":2025,"sourceUrl":"https://gogts.net/2025-26-upper-deck-ahl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|sp-nhl-retail","year":2025,"sourceUrl":"https://gogts.net/2025-26-upper-deck-sp-nhl-hockey-cards-retail-checklist/"}
+          ]
+          JSON
+          jq -e 'length == 37' "$root/targets.json" >/dev/null
+          echo "Offline harvest targets: $(jq length "$root/targets.json")"
 
-      - name: Upload SQL probe receipt
+      - name: Harvest, parse and build Registry-compatible plans
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/offline-harvest"
+
+          cat > "$RUNNER_TEMP/harvest-one.mjs" <<'NODE'
+          import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+          import { resolve, basename } from 'node:path';
+          import { pathToFileURL } from 'node:url';
+
+          const target = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const root = process.argv[3];
+          const sourceTools = await import(pathToFileURL(resolve(process.cwd(), 'scripts/mainstream-checklist/source-tools.mjs')).href);
+          const registryTools = await import(pathToFileURL(resolve(process.cwd(), 'scripts/mainstream-checklist/registry-tools.mjs')).href);
+          const { downloadAndParse, slug } = sourceTools;
+          const { buildPlan, assertPlanComplexity } = registryTools;
+          const acronyms = new Map([['fifa','FIFA'],['mlb','MLB'],['nba','NBA'],['nfl','NFL'],['nhl','NHL'],['ufc','UFC']]);
+          const displayToken = (value) => String(value || '').split('-').filter(Boolean).map((part) => acronyms.get(part.toLowerCase()) || `${part.slice(0,1).toUpperCase()}${part.slice(1)}`).join(' ');
+          const parts = String(target.exactSetKey).split('|');
+          if (parts.length !== 4) throw new Error(`Invalid exactSetKey ${target.exactSetKey}`);
+          const [sportKey, seasonKey, manufacturerKey, productKey] = parts;
+          const manufacturer = displayToken(manufacturerKey);
+          const product = displayToken(productKey);
+          const entry = {
+            id: `offline-${String(target.exactSetKey).replace(/[^a-z0-9]+/gi,'-')}`,
+            disposition: 'import',
+            sourceName: new URL(target.sourceUrl).hostname,
+            sourceUrl: target.sourceUrl,
+            fallbackUrls: [],
+            authority: 'approved_reference_dataset',
+            redistributionAllowed: false,
+            minimumCardRows: 25,
+            release: {
+              exactSetKey: target.exactSetKey,
+              canonicalName: `${seasonKey} ${manufacturer} ${product} ${displayToken(sportKey)}`,
+              manufacturer,
+              brand: null,
+              product,
+              releaseYear: Number(target.year || String(seasonKey).slice(0,4)),
+              season: seasonKey,
+              sport: sportKey,
+              league: null,
+            },
+          };
+          const keySlug = String(target.exactSetKey).replace(/[^a-z0-9]+/gi,'_');
+          const resultPath = resolve(root, 'results', `${keySlug}.json`);
+          try {
+            const checkedAt = new Date().toISOString();
+            const downloaded = await downloadAndParse(entry);
+            const plan = buildPlan(entry, downloaded.parsed, downloaded.source, checkedAt);
+            const complexity = assertPlanComplexity(plan);
+            const errors = plan.validation.issues.filter((issue) => issue.severity === 'error');
+            const sourceName = `${keySlug}__${downloaded.source.filename.replace(/[^A-Za-z0-9._-]+/g,'-')}`;
+            writeFileSync(resolve(root, 'sources', sourceName), Buffer.from(downloaded.source.bytes));
+            writeFileSync(resolve(root, 'parsed', `${keySlug}.json`), JSON.stringify(downloaded.parsed, null, 2));
+            writeFileSync(resolve(root, 'plans', `${keySlug}.json`), JSON.stringify(plan, null, 2));
+            const result = {
+              exactSetKey: target.exactSetKey,
+              status: errors.length ? 'validation_failed' : 'ready',
+              sourceUrl: target.sourceUrl,
+              selectedUrl: downloaded.source.selectedUrl || downloaded.source.finalUrl || target.sourceUrl,
+              finalUrl: downloaded.source.finalUrl,
+              mimeType: downloaded.source.mimeType,
+              filename: downloaded.source.filename,
+              sourceArtifact: `sources/${sourceName}`,
+              planArtifact: `plans/${keySlug}.json`,
+              parsedArtifact: `parsed/${keySlug}.json`,
+              counts: plan.validation.counts,
+              serializedBytes: complexity.serializedBytes,
+              sourceBytes: downloaded.source.bytes.byteLength,
+              errors: errors.slice(0,20),
+              warnings: plan.validation.issues.filter((issue) => issue.severity !== 'error').slice(0,20),
+              storage: plan.source.storage,
+            };
+            writeFileSync(resultPath, JSON.stringify(result, null, 2));
+            console.log(JSON.stringify({key:target.exactSetKey,status:result.status,counts:result.counts,mime:result.mimeType,bytes:result.sourceBytes}));
+          } catch (error) {
+            const result = { exactSetKey: target.exactSetKey, status:'failed', sourceUrl:target.sourceUrl, error:error instanceof Error ? error.stack || error.message : String(error) };
+            writeFileSync(resultPath, JSON.stringify(result, null, 2));
+            console.error(JSON.stringify({key:target.exactSetKey,status:'failed',error:result.error.slice(0,500)}));
+            process.exitCode = 1;
+          }
+          NODE
+
+          mkdir -p "$root/target-files"
+          jq -c '.[]' "$root/targets.json" | nl -ba -w3 -s' ' | while read -r idx payload; do
+            printf '%s\n' "$payload" > "$root/target-files/$idx.json"
+          done
+
+          export -f wait || true
+          running=0
+          failures=0
+          for file in "$root"/target-files/*.json; do
+            (
+              node --import tsx "$RUNNER_TEMP/harvest-one.mjs" "$file" "$root"
+            ) &
+            running=$((running+1))
+            if [ "$running" -ge 4 ]; then
+              if ! wait -n; then failures=$((failures+1)); fi
+              running=$((running-1))
+            fi
+          done
+          while [ "$running" -gt 0 ]; do
+            if ! wait -n; then failures=$((failures+1)); fi
+            running=$((running-1))
+          done
+          echo "Worker process failures: $failures"
+
+      - name: Build offline harvest summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/offline-harvest"
+          python - <<'PY'
+          import json,glob,os
+          root=os.environ['RUNNER_TEMP']+'/offline-harvest'
+          rows=[]
+          for path in sorted(glob.glob(root+'/results/*.json')):
+              try: rows.append(json.load(open(path)))
+              except Exception as e: rows.append({'status':'result_read_failed','path':path,'error':str(e)})
+          ready=[r for r in rows if r.get('status')=='ready']
+          validation=[r for r in rows if r.get('status')=='validation_failed']
+          failed=[r for r in rows if r.get('status') not in ('ready','validation_failed')]
+          summary={
+              'schema':'tcos.checklist.offlineWnbaHockeyHarvest.v1',
+              'targetCount':37,
+              'resultCount':len(rows),
+              'readyCount':len(ready),
+              'validationFailedCount':len(validation),
+              'failedCount':len(failed),
+              'totalCards':sum((r.get('counts') or {}).get('cards',0) for r in ready),
+              'totalParallels':sum((r.get('counts') or {}).get('parallels',0) for r in ready),
+              'ready':ready,
+              'validationFailed':validation,
+              'failed':failed,
+          }
+          json.dump(summary,open(root+'/summary.json','w'),indent=2)
+          print(json.dumps({k:summary[k] for k in ['targetCount','resultCount','readyCount','validationFailedCount','failedCount','totalCards','totalParallels']},indent=2))
+          PY
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,ready:[.ready[]|{exactSetKey,counts,mimeType,sourceBytes}],validationFailed:[.validationFailed[]|{exactSetKey,counts,errors}],failed:[.failed[]|{exactSetKey,error}]}' "$root/summary.json"
+          test "$(jq -r '.resultCount' "$root/summary.json")" -eq 37
+          test "$(jq -r '.readyCount' "$root/summary.json")" -gt 0
+
+      - name: Upload harvested sources, parsed data and import plans
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: checklist-management-sql-probe-${{ github.run_id }}
-          path: ${{ runner.temp }}/management-sql-probe
+          name: checklist-offline-wnba-hockey-${{ github.run_id }}
+          path: ${{ runner.temp }}/offline-harvest
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
+          compression-level: 6
