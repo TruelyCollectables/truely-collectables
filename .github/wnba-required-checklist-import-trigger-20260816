@@ -1,2 +1,3 @@
 Import the eight required WNBA checklist releases into the production Checklist Registry after this change reaches main.
 Retry 1: run the importer as ESM after the CJS top-level-await runner failure.
+Retry 2: coalesce Registry card rows to the production set/card-number uniqueness while preserving every identity fingerprint.
