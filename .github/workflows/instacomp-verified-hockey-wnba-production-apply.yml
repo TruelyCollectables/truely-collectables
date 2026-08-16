@@ -65,7 +65,7 @@ jobs:
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -o "$root/api-keys.json" \
             "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
-          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_"")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
           test -n "$service_key"
           echo "::add-mask::$service_key"
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
