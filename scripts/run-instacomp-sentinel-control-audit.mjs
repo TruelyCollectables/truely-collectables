@@ -21,14 +21,20 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+// The Mac installer owns only the localhost service and named Cloudflare tunnel.
+// Production Worker secrets are managed remotely and must not be read, rewritten,
+// or deployed from the Mac.
 assert(contents.installer.includes("cloudflared tunnel login"), "Installer must authenticate a named Cloudflare tunnel.");
 assert(contents.installer.includes("cloudflared tunnel create"), "Installer must create or reuse a named tunnel.");
+assert(contents.installer.includes("cloudflared tunnel route dns"), "Installer must bind the named tunnel to DNS.");
 assert(contents.installer.includes("com.truelycollectables.instacomp-ai-tunnel"), "Tunnel must have its own LaunchAgent.");
-assert(contents.installer.includes("INSTACOMP_AI_LOCAL_URL"), "Installer must set the Vercel Mac URL.");
-assert(contents.installer.includes("INSTACOMP_AI_LOCAL_KEY"), "Installer must synchronize the Mac key.");
-assert(contents.installer.includes("INSTACOMP_SENTINEL_ARCHIVE_TOKEN"), "Installer must synchronize the dedicated archive token.");
-assert(contents.installer.includes("npx vercel --prod --yes"), "Installer must deploy Production after environment changes.");
-assert(contents.installer.includes("internal-readiness"), "Installer must verify the Vercel-to-Mac hop.");
+assert(contents.installer.includes('set_local_env INSTACOMP_AI_API_KEY "$local_key"'), "Installer must retain the Mac-side shared key locally.");
+assert(contents.installer.includes('set_local_env INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN "$archive_token"'), "Installer must retain the Mac-side archive token locally.");
+assert(!/\bvercel\b/i.test(contents.installer), "Cloudflare-era installer must not read, write, or deploy Vercel configuration.");
+assert(!contents.installer.includes("INSTACOMP_AI_LOCAL_URL"), "Mac installer must not rewrite the Production tunnel URL secret.");
+assert(!contents.installer.includes("INSTACOMP_AI_LOCAL_KEY"), "Mac installer must not rewrite the Production Mac key secret.");
+assert(contents.installer.includes("internal-readiness"), "Installer must verify the Production-to-Mac hop.");
+assert(contents.installer.includes("Cloudflare Production reaches the Mac"), "Installer must certify the current Cloudflare Production hop.");
 assert(contents.installer.includes("archive-probe.json"), "Installer must test private archive write/delete access.");
 assert(contents.installer.includes("proxy-status.json"), "Installer must test the full website-to-Mac proxy.");
 assert(contents.installer.includes("dashboard_code"), "Installer must verify the dashboard route exists.");
@@ -36,9 +42,7 @@ assert(contents.installer.includes("openssl rand -hex 32"), "Installer must gene
 assert(contents.installer.includes("http://sentinel:${archive_token}@127.0.0.1:8787"), "Local multipart relay must use dedicated Basic authentication.");
 assert(contents.installer.includes("for ((attempt=1;"), "Installer retry loops must use Bash built-ins.");
 assert(!contents.installer.includes("$(seq "), "Installer must not depend on seq being installed on macOS.");
-assert(!contents.installer.includes("vercel env pull"), "Installer must not try to read back Vercel sensitive values.");
 assert(!contents.installer.includes("INSTACOMP_SERVICE_TOKEN"), "Installer must not rotate unrelated InstaComp service credentials.");
-assert(!contents.installer.includes("env add \"$name\" \"$environment\" --force --sensitive --yes"), "Installer must not pass unsupported --yes to vercel env add.");
 assert(contents.installer.includes(String.raw`--url http:\/\/127\.0\.0\.1:8787`), "Installer must remove only the obsolete quick tunnel.");
 assert(!contents.installer.includes("pkill cloudflared"), "Installer must never kill every cloudflared process.");
 
@@ -72,6 +76,7 @@ assert(contents.proxy.includes("assertTrustedInstaCompMutationRequest"), "Run No
 assert(contents.proxy.includes("isValidInstaCompSentinelArchiveRequest"), "Installer status probe must use the dedicated archive token.");
 assert(contents.proxy.includes("X-InstaComp-AI-Key"), "Website proxy must authenticate to the Mac.");
 assert(contents.proxy.includes("INSTACOMP_AI_LOCAL_URL"), "Website proxy must use the configured permanent tunnel.");
+assert(contents.proxy.includes("INSTACOMP_AI_LOCAL_KEY"), "Website proxy must use the configured Mac key.");
 assert(contents.proxy.includes("localhost"), "Website proxy must reject Production localhost configuration.");
 
 assert(contents.dashboard.includes("Checklist Sentinel™"), "Dashboard branding is incorrect.");
@@ -87,13 +92,13 @@ assert(!contents.dashboard.includes("instacomp.truelycollectables.com"), "Browse
 assert(contents.quickTools.includes("/admin/instacomp/checklist-sentinel"), "Admin quick tools must link to Sentinel.");
 assert(contents.env.includes("INSTACOMP_AI_SENTINEL_INTERVAL_SECONDS=86400"), "Documented cadence must be 24 hours.");
 assert(contents.env.includes("INSTACOMP_AI_SENTINEL_CHECKPOINT_SECONDS=300"), "Documented checkpoint must be five minutes.");
-assert(contents.env.includes("INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN"), "Documented configuration must include the archive credential.");
+assert(contents.env.includes("INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN"), "Documented Mac configuration must include the archive credential.");
 assert(contents.env.includes("Keep the large multipart transfer on localhost"), "Documented import must stay on localhost.");
 
-console.log("✓ Named tunnel and both LaunchAgents are installer-owned");
-console.log("✓ Dedicated Mac and archive secrets are generated locally and synchronized once");
-console.log("✓ No unrelated Vercel service credential is read or rotated");
-console.log("✓ Large files stay off the Vercel request body");
+console.log("✓ Named Cloudflare tunnel and both LaunchAgents are installer-owned");
+console.log("✓ Mac-side shared and archive secrets are generated and stored locally");
+console.log("✓ Mac installer cannot mutate Production Worker/Vercel configuration");
+console.log("✓ Large files stay off the Production proxy request body");
 console.log("✓ Source URL, redirects, DNS, byte count, duplicate bytes, and SHA-256 fail closed");
 console.log("✓ Central source archive is private with immutable source provenance");
 console.log("✓ Admin dashboard controls the Mac only through the secure CSRF-protected proxy");
