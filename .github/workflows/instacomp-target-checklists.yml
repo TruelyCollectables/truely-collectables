@@ -1,0 +1,175 @@
+name: InstaComp Target Checklists
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate sources or apply validated Registry imports
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - apply
+      workers:
+        description: Concurrent checklist parsers per batch
+        required: true
+        default: "2"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-target-checklists
+  cancel-in-progress: false
+
+jobs:
+  target-checklists:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MASTER_CHECKLIST_CATALOG_ROOT: .master-checklist-catalog
+      INSTACOMP_TARGET_CORPUS_ROOT: .instacomp-target-checklist-corpus
+      MASTER_CHECKLIST_CORPUS_ROOT: .instacomp-target-checklist-corpus
+      MASTER_CHECKLIST_EXTRACTED_ROOT: .master-checklist-extracted
+      MASTER_CHECKLIST_WORKERS: ${{ inputs.workers }}
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download master checklist catalog artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$MASTER_CHECKLIST_CATALOG_ROOT"
+          curl --fail --location --retry 4 --retry-delay 5 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/8972199339/zip" \
+            -o /tmp/master-checklist-catalog.zip
+          unzip -q /tmp/master-checklist-catalog.zip -d "$MASTER_CHECKLIST_CATALOG_ROOT"
+          rm -f /tmp/master-checklist-catalog.zip
+
+      - name: Build the focused corpus
+        run: node scripts/instacomp-target-checklists/prepare-target-corpus.mjs
+
+      - name: Enforce target scope and zero source gaps
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const summary = JSON.parse(fs.readFileSync('.instacomp-target-checklist-corpus/summary.json', 'utf8'));
+          const expected = {
+            'hockey:2021-22': 48,
+            'hockey:2022-23': 47,
+            'hockey:2023-24': 48,
+            'hockey:2024-25': 55,
+            'hockey:2025-26': 68,
+            'wnba:2024': 5,
+            'wnba:2025': 7,
+          };
+          if (summary.counts.sets !== 278) throw new Error(`Target scope drifted: ${summary.counts.sets}/278 releases.`);
+          if (summary.counts.gaps !== 0) throw new Error(`Target corpus still has ${summary.counts.gaps} source gaps.`);
+          if (summary.batchCount !== 6) throw new Error(`Expected 6 guarded batches, found ${summary.batchCount}.`);
+          for (const [bucket, count] of Object.entries(expected)) {
+            if (summary.byBucket?.[bucket]?.total !== count) {
+              throw new Error(`${bucket} drifted: ${summary.byBucket?.[bucket]?.total ?? 0}/${count}.`);
+            }
+          }
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Download master checklist source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 4 --retry-delay 10 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/8972198573/zip" \
+            -o /tmp/master-checklist-archive.zip
+
+      - name: Extract only target source files
+        run: |
+          set -euo pipefail
+          mkdir -p "$MASTER_CHECKLIST_EXTRACTED_ROOT"
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            unzip -q -o /tmp/master-checklist-archive.zip "$path" -d "$MASTER_CHECKLIST_EXTRACTED_ROOT"
+          done < "$INSTACOMP_TARGET_CORPUS_ROOT/extract-files.txt"
+          rm -f /tmp/master-checklist-archive.zip
+
+      - name: Validate or apply six guarded batches
+        env:
+          MASTER_CHECKLIST_APPLY: ${{ inputs.mode == 'apply' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          mkdir -p .checklist-discovery/instacomp-target
+          for batch in 0 1 2 3 4 5; do
+            echo "=== InstaComp target batch $batch / mode=$MASTER_CHECKLIST_APPLY ==="
+            MASTER_CHECKLIST_BATCH_INDEX="$batch" \
+            MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target/batch-${batch}.json" \
+              node scripts/ingest-master-checklist-archive.mjs
+          done
+
+      - name: Enforce validation/import receipts
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const dir = '.checklist-discovery/instacomp-target';
+          const files = fs.readdirSync(dir).filter((name) => /^batch-\d+\.json$/.test(name)).sort();
+          if (files.length !== 6) throw new Error(`Expected 6 batch receipts, found ${files.length}.`);
+          const failures = [];
+          let selected = 0;
+          const statuses = {};
+          for (const name of files) {
+            const receipt = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+            selected += Number(receipt.batch?.selected || 0);
+            for (const [status, count] of Object.entries(receipt.statuses || {})) {
+              statuses[status] = (statuses[status] || 0) + Number(count || 0);
+            }
+            for (const result of receipt.results || []) {
+              if (['quarantined', 'gap_pending', 'aggregate_index', 'needs_name_review'].includes(result.status)) {
+                failures.push({ batch: name, exactSetKey: result.exactSetKey, status: result.status, failures: result.failures });
+              }
+            }
+          }
+          if (selected !== 278) throw new Error(`Receipts covered ${selected}/278 releases.`);
+          if (failures.length) {
+            fs.writeFileSync('.checklist-discovery/instacomp-target/failures.json', JSON.stringify(failures, null, 2));
+            throw new Error(`${failures.length} target releases failed validation/import.`);
+          }
+          console.log(JSON.stringify({ selected, statuses }, null, 2));
+          NODE
+
+      - name: Upload target receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-target-checklist-${{ inputs.mode }}-${{ github.run_id }}
+          path: |
+            .instacomp-target-checklist-corpus/summary.json
+            .instacomp-target-checklist-corpus/manifest.json
+            .checklist-discovery/instacomp-target/*.json
+          if-no-files-found: warn
+          retention-days: 30
