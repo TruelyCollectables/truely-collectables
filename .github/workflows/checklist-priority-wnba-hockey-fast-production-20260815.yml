@@ -1,0 +1,132 @@
+name: Checklist Priority WNBA Hockey Fast Production 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/workflows/checklist-priority-wnba-hockey-fast-production-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+
+jobs:
+  fast-production-load:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 120
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Enable GoGTS normalization
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path='scripts/mainstream-checklist/source-tools.mjs';
+          let s=readFileSync(path,'utf8');
+          const ia='import { extname, resolve } from "node:path";\n';
+          const il='import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if(!s.includes(il)) s=s.replace(ia,ia+il);
+          s=s.replace('  const text = extractText(downloaded, filename);','  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));');
+          writeFileSync(path,s);
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+      - name: Resolve Production Supabase
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/priority-fast-prod"; mkdir -p "$root"
+          curl -sS --fail --retry 5 --retry-all-errors --max-time 45 -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" -o "$root/projects.json" https://api.supabase.com/v1/projects
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl -sS --fail --retry 5 --retry-all-errors --max-time 45 -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" -o "$root/keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/keys.json")"
+          test -n "$service_key"; echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+      - name: Pull hockey-only catalog rows
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-fast"; mkdir -p "$out/receipts"
+          code="$(curl -sS --output "$out/hockey.json" --write-out '%{http_code}' --max-time 60 \
+            -H "apikey: $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" -H 'Range: 0-2999' \
+            "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/checklist_source_catalog?select=status,sport,source_url,release_name,metadata,validation_counts&sport=ilike.*hockey*&order=created_at.desc")"
+          case "$code" in 200|206) ;; *) echo "hockey catalog fetch failed $code" >&2; exit 1;; esac
+          echo "Hockey source rows pulled: $(jq 'length' "$out/hockey.json")"
+      - name: WNBA first, then hockey, require second idempotent Production apply
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-fast"
+          HOCKEY="$out/hockey.json" OUT="$out" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          import { join } from 'node:path';
+          const out=process.env.OUT; mkdirSync(join(out,'receipts'),{recursive:true});
+          const hockeyRows=JSON.parse(readFileSync(process.env.HOCKEY,'utf8'));
+          const wnba=[
+            ['basketball|2024|panini|origins','https://gogts.net/2024-panini-origins-wnba-basketball-cards-checklist/'],
+            ['basketball|2024|panini|prizm','https://gogts.net/2024-panini-prizm-wnba-basketball-cards-checklist/'],
+            ['basketball|2024|panini|select','https://gogts.net/2024-panini-select-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|donruss','https://gogts.net/2025-donruss-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|impeccable','https://gogts.net/2025-panini-impeccable-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|one-and-one','https://gogts.net/2025-panini-one-and-one-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|prizm','https://gogts.net/2025-panini-prizm-wnba-basketball-cards-checklist/'],
+            ['basketball|2025|panini|select','https://gogts.net/2025-panini-select-wnba-basketball-cards-checklist/']
+          ].map(([exactSetKey,source_url])=>({exactSetKey,source_url,group:'wnba'}));
+          const byKey=new Map();
+          for(const r of hockeyRows){
+            const k=String(r?.metadata?.masterArchiveExactSetKey||r?.metadata?.exactSetKey||'').toLowerCase();
+            const parts=k.split('|');
+            const yr=Number(((parts[1]||'').match(/\d{4}/)||[])[0]||0);
+            if(parts.length!==4||yr<2021) continue;
+            const prior=byKey.get(k);
+            const score=x=>(x?.status==='imported'?100:0)+(/\.(xlsx?|csv|pdf)(?:\?|$)/i.test(x?.source_url||'')?20:0)+(/gogts\.net/i.test(x?.source_url||'')?10:0);
+            const v={...r,exactSetKey:k,group:'hockey'};
+            if(!prior||score(v)>score(prior)) byKey.set(k,v);
+          }
+          const targets=[...wnba,...[...byKey.values()].sort((a,b)=>a.exactSetKey.localeCompare(b.exactSetKey))];
+          const clean=s=>String(s||'').replaceAll('&amp;','&');
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          const summary={schema:'tcos.checklist.priorityFastProduction.v1',runId:process.env.GITHUB_RUN_ID||null,startedAt:new Date().toISOString(),wnbaTargets:wnba.length,hockeyTargets:byKey.size,targetCount:targets.length,verified:0,verifiedWnba:0,verifiedHockey:0,cards:0,netNew:0,alreadyPresent:0,failed:0,results:[]};
+          writeFileSync(join(out,'targets.json'),JSON.stringify(targets,null,2));
+          async function fetchText(url){for(let a=0;a<3;a++){try{const c=new AbortController();const t=setTimeout(()=>c.abort(),16000);const r=await fetch(url,{signal:c.signal,redirect:'follow'});clearTimeout(t);if(r.ok)return await r.text();}catch{} await sleep(700*(a+1));}return '';}
+          async function urlsFor(t){const page=t.source_url;if(!page)return[];if(/\.(xlsx?|csv|pdf)(?:\?|$)/i.test(page))return[page];let html='';try{const u=new URL(page);if(/gogts\.net$/i.test(u.hostname)){const slug=u.pathname.split('/').filter(Boolean).pop();const body=await fetchText(`https://gogts.net/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&_fields=content,link`);const rows=body?JSON.parse(body):[];html=String(rows?.[0]?.content?.rendered||'');}}catch{}if(!html)html=await fetchText(page);const links=new Set();for(const m of html.matchAll(/(?:href|data-href)=["']([^"']+\.(?:xlsx?|csv|pdf)(?:\?[^"']*)?)["']/gi)){try{links.add(new URL(clean(m[1]),page).href)}catch{}}const arr=[...links].sort((a,b)=>(/\.xlsx?/i.test(a)?0:/\.csv/i.test(a)?1:2)-(/\.xlsx?/i.test(b)?0:/\.csv/i.test(b)?1:2));if(!arr.length)arr.push(page);return arr.slice(0,4);}
+          function run(t,url,label){const slug=t.exactSetKey.replace(/[^a-zA-Z0-9_.-]+/g,'_');const q=join(out,`q-${slug}-${label}.json`),f=join(out,`f-${slug}-${label}.json`),r=join(out,'receipts',`${slug}-${label}.json`),v=join(out,'receipts',`${slug}-${label}-v.json`);const season=t.exactSetKey.split('|')[1]||'';const year=Number((season.match(/\d{4}/)||[])[0]||0);writeFileSync(q,JSON.stringify({schema:'tcos.checklist.mainstream2005plusCandidateValidationQueue.v1',count:1,targets:[{exactSetKey:t.exactSetKey,year,sport:t.exactSetKey.split('|')[0],sourceArtifact:'priority-fast-20260815',exactCandidateCount:1,trustedAutoImportCandidateCount:1,candidates:[]}]},null,2));writeFileSync(f,JSON.stringify({schema:'tcos.checklist.priorityTarget.v1',targets:[{exactSetKey:t.exactSetKey,sourceUrl:url}]},null,2));const c=spawnSync('node',['--import','tsx','scripts/promote-mainstream-2005plus-public-web-candidates.mjs'],{encoding:'utf8',timeout:120000,env:{...process.env,PUBLIC_WEB_CANDIDATE_QUEUE:q,PUBLIC_WEB_TARGET_FILTER:f,PUBLIC_WEB_PROMOTION_APPLY:'true',PUBLIC_WEB_PROMOTION_OUTPUT:r,PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT:v}});if(c.stdout)process.stdout.write(c.stdout.slice(-6000));if(c.stderr)process.stderr.write(c.stderr.slice(-4000));try{const x=JSON.parse(readFileSync(r,'utf8'));return (x.results||[]).find(z=>String(z.exactSetKey).toLowerCase()===t.exactSetKey)||(x.results||[])[0]||null;}catch{return null;}}
+          for(let i=0;i<targets.length;i++){const t=targets[i];console.log(`=== ${i+1}/${targets.length} ${t.group.toUpperCase()} ${t.exactSetKey} ===`);let ok=null,reason='no source';const urls=await urlsFor(t);for(let u=0;u<urls.length;u++){const a=run(t,urls[u],`a${u}`);if(a?.status!=='imported'||a?.persistence?.ok!==true){reason=a?.message||(a?.errors||[]).join('; ')||`apply ${a?.status||'no receipt'}`;continue;}const b=run(t,urls[u],`v${u}`);if(b?.status==='imported'&&b?.persistence?.ok===true&&b?.persistence?.idempotent===true){ok={a,b,url:urls[u]};break;}reason=b?.message||(b?.errors||[]).join('; ')||`verify ${b?.status||'no receipt'}`;}
+            if(ok){const already=ok.a.persistence?.idempotent===true;const cards=Number(ok.a.counts?.cards||ok.b.counts?.cards||0);summary.verified++;summary.cards+=cards;if(t.group==='wnba')summary.verifiedWnba++;else summary.verifiedHockey++;if(already)summary.alreadyPresent++;else summary.netNew++;summary.results.push({exactSetKey:t.exactSetKey,group:t.group,status:'verified-production',cards,sourceUrl:ok.url,firstPersistence:ok.a.persistence,verificationPersistence:ok.b.persistence});console.log(`>>> VERIFIED ${already?'ALREADY':'NET-NEW'} ${t.exactSetKey} cards=${cards}`);}else{summary.failed++;summary.results.push({exactSetKey:t.exactSetKey,group:t.group,status:'failed',reason,candidateUrls:urls});console.error(`--- FAILED ${t.exactSetKey}: ${reason}`);}writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}
+          summary.completedAt=new Date().toISOString();writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));console.log('FINAL_FAST_SUMMARY '+JSON.stringify({targetCount:summary.targetCount,wnbaTargets:summary.wnbaTargets,hockeyTargets:summary.hockeyTargets,verified:summary.verified,verifiedWnba:summary.verifiedWnba,verifiedHockey:summary.verifiedHockey,cards:summary.cards,netNew:summary.netNew,alreadyPresent:summary.alreadyPresent,failed:summary.failed}));if(summary.failed)process.exitCode=2;
+          NODE
+      - name: Upload receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-priority-fast-${{ github.run_id }}
+          path: ${{ runner.temp }}/priority-fast
+          if-no-files-found: error
+          retention-days: 90
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/priority-fast-prod" .env.local .env.production.local .vercel
