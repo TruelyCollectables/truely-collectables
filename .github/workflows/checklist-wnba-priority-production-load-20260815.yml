@@ -57,38 +57,58 @@ jobs:
             sort -u "$root/conflicts.txt" -o "$root/conflicts.txt"
           }
 
-          list_conflicts
-          if [ -s "$root/conflicts.txt" ]; then
-            echo "Cancelling overlapping checklist runs before the priority WNBA Production load:"
-            cat "$root/conflicts.txt"
+          request_stop() {
+            local endpoint="$1"
             while IFS=$'\t' read -r run_id run_name run_path run_status; do
               [ -n "$run_id" ] || continue
-              echo "Cancel $run_id :: $run_name :: $run_status"
-              code="$(curl --silent --show-error --output "$root/cancel-$run_id.json" --write-out '%{http_code}' \
+              echo "$endpoint $run_id :: $run_name :: $run_status"
+              code="$(curl --silent --show-error --output "$root/${endpoint//\//-}-$run_id.json" --write-out '%{http_code}' \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $GH_ACTIONS_TOKEN" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
-                "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel")"
+                "https://api.github.com/repos/$repo/actions/runs/$run_id/$endpoint")"
               case "$code" in
                 202|409) ;;
-                *) echo "Unexpected cancel response $code for run $run_id"; cat "$root/cancel-$run_id.json"; exit 1 ;;
+                *) echo "Unexpected $endpoint response $code for run $run_id"; cat "$root/${endpoint//\//-}-$run_id.json"; exit 1 ;;
               esac
             done < "$root/conflicts.txt"
+          }
+
+          list_conflicts
+          if [ -s "$root/conflicts.txt" ]; then
+            echo "Gracefully cancelling overlapping checklist runs before the priority WNBA Production load:"
+            cat "$root/conflicts.txt"
+            request_stop cancel
           else
             echo "No overlapping checklist workflow runs found."
           fi
 
-          for round in 1 2 3 4 5 6 7 8 9; do
+          for round in 1 2 3; do
             sleep 10
             list_conflicts
             remaining="$(wc -l < "$root/conflicts.txt" | tr -d ' ')"
-            echo "Checklist drain round $round: $remaining conflicting run(s) remain"
+            echo "Graceful drain round $round: $remaining conflicting run(s) remain"
+            [ "$remaining" -eq 0 ] && break
+          done
+
+          list_conflicts
+          if [ -s "$root/conflicts.txt" ]; then
+            echo "Graceful cancellation did not stop all checklist writers; force-cancelling the remainder:"
+            cat "$root/conflicts.txt"
+            request_stop force-cancel
+          fi
+
+          for round in 1 2 3 4 5 6; do
+            sleep 10
+            list_conflicts
+            remaining="$(wc -l < "$root/conflicts.txt" | tr -d ' ')"
+            echo "Force drain round $round: $remaining conflicting run(s) remain"
             if [ "$remaining" -eq 0 ]; then
               break
             fi
-            if [ "$round" -eq 9 ]; then
-              echo "Checklist writers failed to drain. Refusing to overload Production Supabase."
+            if [ "$round" -eq 6 ]; then
+              echo "Checklist writers failed to drain even after force-cancel. Refusing to overload Production Supabase."
               cat "$root/conflicts.txt"
               exit 1
             fi
