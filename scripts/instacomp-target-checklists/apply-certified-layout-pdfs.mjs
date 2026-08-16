@@ -10,12 +10,17 @@ const OUTPUT = resolve(process.env.CERTIFIED_LAYOUT_PDF_APPLY_RECEIPT || `${HARV
 const ATTEMPTS = Math.max(1, Number(process.env.CERTIFIED_LAYOUT_PDF_ATTEMPTS || 4));
 const RETRY_MS = Math.max(2000, Number(process.env.CERTIFIED_LAYOUT_PDF_RETRY_MS || 15000));
 const PREFLIGHT_ATTEMPTS = Math.max(1, Number(process.env.CERTIFIED_LAYOUT_PDF_PREFLIGHT_ATTEMPTS || 5));
-
-const EXACT_KEYS = [
+const WAVE_SIZE = Math.max(1, Number(process.env.CERTIFIED_LAYOUT_PDF_WAVE_SIZE || 4));
+const WAVE_DELAY_MS = Math.max(0, Number(process.env.CERTIFIED_LAYOUT_PDF_WAVE_DELAY_MS || 300000));
+const DEFAULT_KEYS = [
   "hockey|2021-22|topps|sticker-collection-nhl",
   "hockey|2022-23|upper-deck|o-pee-chee-nhl",
   "hockey|2022|leaf|art-of",
 ];
+const parsedKeys = process.env.CERTIFIED_LAYOUT_PDF_EXACT_KEYS_JSON ? JSON.parse(process.env.CERTIFIED_LAYOUT_PDF_EXACT_KEYS_JSON) : DEFAULT_KEYS;
+if (!Array.isArray(parsedKeys) || !parsedKeys.length) throw new Error("At least one certified Hockey exact-set key is required.");
+const EXACT_KEYS = [...new Set(parsedKeys.map(String))];
+if (EXACT_KEYS.some((key) => !key.startsWith("hockey|"))) throw new Error("Certified PDF applier refuses non-Hockey exact-set keys.");
 
 if (!HARVEST_ROOT || !existsSync(HARVEST_ROOT)) throw new Error(`Verified harvest root is missing: ${HARVEST_ROOT}`);
 if (!PLAN_ROOT || !existsSync(PLAN_ROOT)) throw new Error(`Certified layout PDF plan directory is missing: ${PLAN_ROOT}`);
@@ -28,6 +33,7 @@ if (!supabaseUrl || !serviceRoleKey) throw new Error("Production Supabase creden
 const db = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const headers = { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}`, Accept: "application/json" };
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+const chunks = (values, size) => Array.from({ length: Math.ceil(values.length / size) }, (_, index) => values.slice(index * size, index * size + size));
 const safeSlug = (value) => String(value || "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "target";
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const transient = (message) => /timeout|timed out|too many connections|connection terminated|connection reset|connection refused|could not query the database|fetch failed|network|aborted|\b52[125]\b|\b544\b/i.test(String(message || ""));
@@ -88,7 +94,7 @@ async function persistWithRetry(plan, bytes, exactSetKey) {
 }
 
 const sourceFiles = readdirSync(sourcesDir);
-const receipt = { schema: "tcos.requestedHockeyCertifiedLayoutPdfApply.v1", targetCount: EXACT_KEYS.length, results: [] };
+const receipt = { schema: "tcos.requestedHockeyCertifiedLayoutPdfApply.v2", targetCount: EXACT_KEYS.length, wave: { size: WAVE_SIZE, delayMs: WAVE_DELAY_MS }, results: [] };
 function save() {
   receipt.updatedAt = new Date().toISOString();
   receipt.persistedCount = receipt.results.filter((row) => row.status === "persisted").length;
@@ -97,7 +103,7 @@ function save() {
   writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`);
 }
 
-const tasks = EXACT_KEYS.map(async (exactSetKey) => {
+async function applyOne(exactSetKey) {
   const row = { exactSetKey };
   receipt.results.push(row);
   try {
@@ -143,9 +149,19 @@ const tasks = EXACT_KEYS.map(async (exactSetKey) => {
   } finally {
     save();
   }
-});
+}
 
-await Promise.all(tasks);
+const waves = chunks(EXACT_KEYS, WAVE_SIZE);
+for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
+  console.log(`=== CERTIFIED PDF WAVE ${waveIndex + 1}/${waves.length}: ${waves[waveIndex].length} catalogs ===`);
+  await Promise.all(waves[waveIndex].map((key) => applyOne(key)));
+  save();
+  if (waveIndex < waves.length - 1 && WAVE_DELAY_MS) {
+    console.log(`Five-minute certified PDF wave gap (${WAVE_DELAY_MS}ms).`);
+    await sleep(WAVE_DELAY_MS);
+  }
+}
+
 save();
 console.log(JSON.stringify({ targetCount: receipt.targetCount, persistedCount: receipt.persistedCount, alreadyLiveCount: receipt.alreadyLiveCount, failedCount: receipt.failedCount }, null, 2));
 if (receipt.failedCount) process.exitCode = 2;
