@@ -113,7 +113,13 @@ function registrySetName(body: Record<string, unknown>, visibleBrand: string | n
 export function buildInstaCompRegistryLockProbe(body: Record<string, unknown>) {
   const manufacturer = text(body.manufacturer, 120);
   const visibleBrand = text(body.brand, 160);
-  const registryBrand = manufacturer || visibleBrand;
+  // Brand/product-line evidence is more specific than manufacturer.  A real
+  // candidate can legitimately contain manufacturer="Panini" and
+  // brand="Panini Prizm WNBA".  Collapsing that to "Panini" explodes a Base
+  // lookup across unrelated Panini releases and prevents otherwise-safe bounded
+  // card-number recovery.  Keep the visible brand when present; manufacturer is
+  // only the fallback when the reader has no brand/product-line evidence.
+  const registryBrand = visibleBrand || manufacturer;
   const visibleText = text(body.registryVisibleText ?? body.ocrText, 12_000);
   return {
     year: text(body.year, 20),
