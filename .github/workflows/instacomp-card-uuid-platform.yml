@@ -43,7 +43,7 @@ jobs:
           grep -q 'def _resolve_card_uuid' services/instacomp-ai/app/main.py
           grep -q 'card_uuid_for_image_pair' services/instacomp-ai/app/storage.py
           grep -q 'card_uuid' src/lib/instacomp-ai-local.ts
-          grep -q 'card_uuid' src/app/api/instacomp/live-scan/route.ts
+          grep -q 'cardUuid' src/app/api/instacomp/live-scan/route.ts
 
       - uses: actions/setup-python@v5
         with:
