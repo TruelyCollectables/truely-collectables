@@ -14,16 +14,20 @@ def analyze_source() -> str:
     )[0]
 
 
-def test_unknown_scan_uses_ollama_for_evidence_not_authority():
+def test_unknown_scan_keeps_ollama_out_of_default_live_identity_path():
     analyze = analyze_source()
-    assert "suggestion = await reader.analyze(" in analyze
+    guard = "if settings.ollama_runtime_reader_enabled:"
+    reader_call = "suggestion = await reader.analyze("
+    assert guard in analyze
+    assert reader_call in analyze
+    assert analyze.index(guard) < analyze.index(reader_call)
+    assert 'status = "needs_review"' in analyze
+    assert "preserve it as a hard training example" in analyze
+    assert "do not hand the live identity decision to a teacher model" in analyze
+    # The legacy engineering comparison path may still lock only through Registry.
     assert "suggestion_registry = await checklist_gateway.match(" in analyze
-    assert analyze.index("suggestion = await reader.analyze(") < analyze.index(
-        "suggestion_registry = await checklist_gateway.match("
-    )
     assert 'match_source = "ollama_backup"' in analyze
     assert 'receipt.startswith("registry_fingerprint:")' in analyze
-    assert "pricing_allowed = True" in analyze
 
 
 def test_unresolved_scan_still_builds_saves_and_blocks_response():
@@ -36,9 +40,13 @@ def test_unresolved_scan_still_builds_saves_and_blocks_response():
     assert "pricing_allowed = False" in analyze
 
 
-def test_health_reports_required_local_reader():
+def test_health_reports_teacher_status_without_requiring_teacher_runtime():
     source = main_source()
     assert "ollama_ready = await reader.health()" in source
-    assert "ok=database_ready and checklist_ready and ollama_ready" in source
+    assert (
+        "runtime_ollama_ready = ollama_ready if settings.ollama_runtime_reader_enabled else True"
+        in source
+    )
+    assert "ok=database_ready and checklist_ready and runtime_ollama_ready" in source
     assert 'ollama="ready" if ollama_ready else "unavailable"' in source
     assert "ollama_model=settings.ollama_model" in source
