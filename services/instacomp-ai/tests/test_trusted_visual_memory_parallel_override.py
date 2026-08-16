@@ -173,8 +173,6 @@ def _database_with_silver_reference(tmp_path):
 def test_trusted_silver_visual_memory_cannot_override_base_without_back_prizm(tmp_path):
     database_path = _database_with_silver_reference(tmp_path)
 
-    # The authoritative back rule runs before style memory in production. Once
-    # it has established Base, visual similarity is not allowed to promote it.
     current = _visual(back_prizm=False, parallel_hint="Base")
     styled = apply_trusted_pattern_style(
         database_path=database_path,
@@ -261,7 +259,6 @@ def test_back_prizm_mark_does_not_turn_unsupported_model_parallel_into_base(tmp_
         },
         visual,
     )
-    # Existing conservative behavior still strips an unsupported color-only
-    # model guess. The important Base/non-Base contract is that a present back
-    # PRIZM mark does not force this card to Base.
-    assert merged["identity"]["parallel"] is None
+    # An unsupported stronger color guess is stripped, but the physical back
+    # PRIZM mark still establishes the deterministic minimum: Silver Prizm.
+    assert merged["identity"]["parallel"] == "Silver Prizm"
