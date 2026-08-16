@@ -70,7 +70,8 @@ for raw in path.read_text("utf-8").splitlines():
 PY
 }
 
-before="$(git -C "$repo_root" rev-parse HEAD)"
+checkout_before="$(git -C "$repo_root" rev-parse HEAD)"
+before="${INSTACOMP_UPDATE_ROLLBACK_COMMIT:-$checkout_before}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 receipt_dir="$service_root/data/runtime-updates"
 backup_dir="$service_root/backups/runtime-source-$timestamp"
@@ -92,12 +93,21 @@ trap rollback ERR
 
 git -C "$repo_root" fetch --prune origin main
 remote_main="$(git -C "$repo_root" rev-parse origin/main)"
-git -C "$repo_root" merge-base --is-ancestor "$before" "$remote_main" || {
+git -C "$repo_root" merge-base --is-ancestor "$checkout_before" "$remote_main" || {
   echo "Refusing update: local main cannot fast-forward to origin/main." >&2
   exit 2
 }
 git -C "$repo_root" merge --ff-only origin/main
 updated="$(git -C "$repo_root" rev-parse HEAD)"
+
+if [[ "$updated" != "$checkout_before" && "${INSTACOMP_UPDATE_REEXECED:-0}" != "1" ]]; then
+  trap - ERR
+  echo "Updater fast-forwarded to $updated; restarting from the updated source before verification."
+  exec env \
+    INSTACOMP_UPDATE_REEXECED=1 \
+    INSTACOMP_UPDATE_ROLLBACK_COMMIT="$before" \
+    bash "$service_root/scripts/update-live-from-main.sh"
+fi
 
 bash "$service_root/scripts/install-macos.sh"
 python_bin="$service_root/.venv/bin/python"
