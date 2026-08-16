@@ -1,4 +1,4 @@
-name: InstaComp Requested Hockey Wave Production
+name: InstaComp Requested Hockey Wave Production Retired
 
 on:
   push:
@@ -6,81 +6,17 @@ on:
       - feature/instacomp-target-checklists-20260816
     paths:
       - '.github/workflows/instacomp-requested-hockey-wave-production.yml'
-      - 'scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs'
-      - 'scripts/instacomp-target-checklists/management-staged-registry-writer.mjs'
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: instacomp-requested-hockey-wave-production
   cancel-in-progress: true
 
 jobs:
-  apply-requested-hockey:
+  retire-old-rest-writer:
     runs-on: ubuntu-24.04
-    environment: Production
-    timeout-minutes: 240
-    env:
-      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/requested-hockey-harvest
-      VERIFIED_SOURCE_RUN_ID: '31924171342'
-      REQUESTED_HOCKEY_RECEIPT: /home/runner/work/_temp/requested-hockey-harvest/requested-hockey-wave-receipt.json
-      REQUESTED_HOCKEY_WAVE_SIZE: '4'
-      REQUESTED_HOCKEY_WAVE_DELAY_MS: '15000'
-      REQUESTED_HOCKEY_TARGET_ATTEMPTS: '4'
-      REQUESTED_HOCKEY_TARGET_RETRY_MS: '15000'
-      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
-      CHECKLIST_REGISTRY_SET_CHUNK: '100'
-      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
-      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
-      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
-      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
-
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-
-      - name: Resolve Production Supabase credentials
-        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
-
-      - name: Download immutable 122-catalog harvest
-        uses: actions/download-artifact@v4
-        with:
-          name: exhaustive-hockey-wnba-31924171342
-          path: /home/runner/work/_temp/requested-hockey-harvest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: 31924171342
-
-      - name: Prove immutable source bundle
-        run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
-
-      - name: Apply requested Hockey through direct management SQL
-        run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs
-
-      - name: Summarize requested Hockey receipt
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -s "$REQUESTED_HOCKEY_RECEIPT"
-          jq '{updatedAt,transport,requestedHockeyReadyCount,wave,alreadyLiveCount,missingCount,persistedCount,failedCount,persistedCards,persistedIdentities}' "$REQUESTED_HOCKEY_RECEIPT"
-
-      - name: Upload requested Hockey receipt
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: instacomp-requested-hockey-wave-${{ github.run_id }}
-          path: /home/runner/work/_temp/requested-hockey-harvest/requested-hockey-wave-receipt.json
-          if-no-files-found: warn
-          retention-days: 90
-
-      - name: Cleanup protected files
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/requested-hockey-production" .env.local .env.production.local .vercel
+      - run: echo 'Old PostgREST Hockey writer retired; management-SQL writer is authoritative.'
