@@ -26,47 +26,32 @@ replaceOnce(
   'expand transient transport errors',
 );
 replaceOnce(
-`  const plan = buildPlan(entryFor(target), parsed, source, checkedAt);
-  const complexity = assertPlanComplexity(plan);
-`,
-`  const plan = buildPlan(entryFor(target), parsed, source, checkedAt);
-  plan.adapterId = "panini-pdf-tsv-v2";
-  plan.adapterVersion = "1.1.0";
-  // A prior partial release can legitimately have the same source SHA attached to
-  // an older Registry release row. Use a deterministic v2 object name so the
-  // global storage-path uniqueness constraint cannot block the corrected import.
-  const storagePath = plan.source.storage.objectPath;
-  const slash = storagePath.lastIndexOf("/");
-  plan.source.storage.objectPath = `${storagePath.slice(0, slash + 1)}bulk-v2-${storagePath.slice(slash + 1)}`;
-  const complexity = assertPlanComplexity(plan);
-`,
+  "  const plan = buildPlan(entryFor(target), parsed, source, checkedAt);\n  const complexity = assertPlanComplexity(plan);\n",
+  "  const plan = buildPlan(entryFor(target), parsed, source, checkedAt);\n" +
+    "  plan.adapterId = \"panini-pdf-tsv-v2\";\n" +
+    "  plan.adapterVersion = \"1.1.0\";\n" +
+    "  // A prior partial release can legitimately have the same source SHA attached to\n" +
+    "  // an older Registry release row. Use a deterministic v2 object name so the\n" +
+    "  // global storage-path uniqueness constraint cannot block the corrected import.\n" +
+    "  const storagePath = plan.source.storage.objectPath;\n" +
+    "  const slash = storagePath.lastIndexOf(\"/\");\n" +
+    "  plan.source.storage.objectPath = storagePath.slice(0, slash + 1) + \"bulk-v2-\" + storagePath.slice(slash + 1);\n" +
+    "  const complexity = assertPlanComplexity(plan);\n",
   'set WNBA v2 adapter and collision-free source path',
 );
 replaceOnce(
-`  const persistence = await retry(` + '`' + `Registry persistence ${target.name}` + '`' + `, () =>
-    persistPlan(db, plan, source.bytes),
-  );
-`,
-`  const persistence = await retry(` + '`' + `Registry bulk persistence ${target.name}` + '`' + `, () =>
-    persistBulkPlan(db, plan, source.bytes),
-  );
-`,
+  "  const persistence = await retry(`Registry persistence ${target.name}`, () =>\n    persistPlan(db, plan, source.bytes),\n  );\n",
+  "  const persistence = await retry(`Registry bulk persistence ${target.name}`, () =>\n    persistBulkPlan(db, plan, source.bytes),\n  );\n",
   'switch to bulk Registry writer',
 );
 replaceOnce(
-`    }
-  }
-
-  const imported = results.filter(
-`,
-`    }
-    // Give the managed database pool a small recovery window between large atomic
-    // releases. This prevents one completed import from starving the next archive.
-    await sleep(2_000);
-  }
-
-  const imported = results.filter(
-`,
+  "    }\n  }\n\n  const imported = results.filter(\n",
+  "    }\n" +
+    "    // Give the managed database pool a small recovery window between large atomic\n" +
+    "    // releases. This prevents one completed import from starving the next archive.\n" +
+    "    await sleep(2_000);\n" +
+    "  }\n\n" +
+    "  const imported = results.filter(\n",
   'serialize release recovery window',
 );
 
