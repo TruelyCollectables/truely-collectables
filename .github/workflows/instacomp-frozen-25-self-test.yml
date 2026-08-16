@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "services/instacomp-ai/app/__init__.py"
+      - "services/instacomp-ai/app/candidate_identity_guard.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/lora_candidate_runtime_v2.py"
       - "services/instacomp-ai/app/serial_evidence_guard.py"
@@ -28,6 +29,7 @@ on:
     branches: [main]
     paths:
       - "services/instacomp-ai/app/__init__.py"
+      - "services/instacomp-ai/app/candidate_identity_guard.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/lora_candidate_runtime_v2.py"
       - "services/instacomp-ai/app/serial_evidence_guard.py"
@@ -69,6 +71,7 @@ jobs:
       - name: Compile Frozen 25 promotion code and candidate runtime
         run: |
           python -m py_compile \
+            services/instacomp-ai/app/candidate_identity_guard.py \
             services/instacomp-ai/app/lora_candidate_runtime_v2.py \
             services/instacomp-ai/app/serial_evidence_guard.py \
             services/instacomp-ai/tests/test_serial_evidence_guard.py \
