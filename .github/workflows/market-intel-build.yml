@@ -1,4 +1,4 @@
-name: Supabase Portable Disaster Recovery Snapshot
+name: Supabase Targeted SQL Recovery Probe
 
 on:
   push:
@@ -11,39 +11,51 @@ permissions:
 env:
   SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
   SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
-  PINNED_MAIN_SHA: 7659fe3da536f8ce48f0b14b2a17b2ec09831a07
 
 jobs:
-  backup:
+  probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
-      - name: Checkout isolated recovery branch
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Run accelerated portable Supabase recovery snapshot
+      - name: Run safe targeted SQL probes
         shell: bash
-        run: bash .github/scripts/run-supabase-portable-backup.sh
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const ref=process.env.SUPABASE_PROJECT_REF;
+          const token=process.env.SUPABASE_ACCESS_TOKEN;
+          if(!token) throw new Error('Missing SUPABASE_ACCESS_TOKEN');
+          const url=`https://api.supabase.com/v1/projects/${ref}/database/query/read-only`;
+          const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+          async function q(name,query,ms=20000){
+            const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms);
+            const started=Date.now();
+            try{
+              const r=await fetch(url,{method:'POST',headers,body:JSON.stringify({query,parameters:[]}),signal:c.signal});
+              const text=await r.text(); let body; try{body=JSON.parse(text)}catch{body=text}
+              const out={name,status:r.status,ok:r.ok,ms:Date.now()-started,body};
+              fs.writeFileSync(`/tmp/${name}.json`,JSON.stringify(out,null,2)+'\n',{mode:0o600});
+              console.log(`${name}: status=${r.status} ok=${r.ok} ms=${out.ms} resultItems=${Array.isArray(body)?body.length:'n/a'}`);
+            }catch(e){
+              const out={name,status:0,ok:false,ms:Date.now()-started,error:e.name+': '+e.message};
+              fs.writeFileSync(`/tmp/${name}.json`,JSON.stringify(out,null,2)+'\n',{mode:0o600});
+              console.log(`${name}: aborted/error after ${out.ms}ms`);
+            }finally{clearTimeout(t)}
+          }
+          await q('current-db','select current_database() as db, now() as now');
+          await q('public-table-names',`select c.relname as table_name from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','p') order by c.relname`,30000);
+          await q('products-count','select count(*)::bigint as count from public.products',30000);
+          await q('products-one','select row_to_json(t) as row from (select * from public.products limit 1) t',30000);
+          await q('storage-buckets-count','select count(*)::bigint as count from storage.buckets',30000);
+          await q('storage-objects-count','select count(*)::bigint as count from storage.objects',30000);
+          NODE
 
-      - name: Upload encrypted portable Supabase backup
+      - name: Upload safe probe receipts
         uses: actions/upload-artifact@v4
         with:
-          name: TruelyCollectables-supabase-portable-encrypted-2026-08-15
-          path: |
-            /tmp/TruelyCollectables-supabase-portable-2026-08-15.tar.gz.enc
-            /tmp/TruelyCollectables-supabase-portable-2026-08-15.sha256
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload portable Supabase recovery key separately
-        uses: actions/upload-artifact@v4
-        with:
-          name: TruelyCollectables-supabase-portable-recovery-key-2026-08-15
-          path: /tmp/TruelyCollectables-supabase-portable-2026-08-15.recovery-key.txt
+          name: TruelyCollectables-supabase-targeted-sql-probe-2026-08-15
+          path: /tmp/*.json
           if-no-files-found: error
           retention-days: 1
