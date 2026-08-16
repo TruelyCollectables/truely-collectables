@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/workflows/checklist-wnba-structured-production-load-20260815.yml'
       - 'scripts/patch-wnba-panini-conflict-resolution.mjs'
+      - 'scripts/repair-mainstream-checklist-schema.sh'
+      - 'supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql'
+      - 'supabase/migrations/20260807124500_checklist_registry_writer_timeout.sql'
   workflow_dispatch:
 
 permissions:
@@ -117,6 +120,7 @@ jobs:
           node --check scripts/patch-wnba-panini-conflict-resolution.mjs
           node scripts/patch-wnba-panini-conflict-resolution.mjs
           node --check scripts/import-wnba-panini-pdfs.mjs
+          bash -n scripts/repair-mainstream-checklist-schema.sh
 
       - name: Resolve Production Supabase
         shell: bash
@@ -137,7 +141,14 @@ jobs:
           test -n "$service_key"
           echo "::add-mask::$service_key"
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Repair and optimize Production Registry writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/repair-mainstream-checklist-schema.sh
 
       - name: Import all eight WNBA PDFs into Production Registry
         shell: bash
@@ -176,4 +187,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" .env.local .env.production.local .vercel
