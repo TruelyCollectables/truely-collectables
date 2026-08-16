@@ -5,18 +5,23 @@ on:
     paths:
       - "scripts/discover-exhaustive-hockey-wnba.mjs"
       - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
+  push:
+    branches:
+      - ops/checklist-public-web-registry-promotion-20260814
+    paths:
+      - "scripts/discover-exhaustive-hockey-wnba.mjs"
+      - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  EXHAUSTIVE_CHECKLIST_ROOT: ${{ runner.temp }}/exhaustive-hockey-wnba
-
 jobs:
   census-harvest:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      EXHAUSTIVE_CHECKLIST_ROOT: /home/runner/work/_temp/exhaustive-hockey-wnba
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,7 +56,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: exhaustive-hockey-wnba-${{ github.run_id }}
-          path: ${{ env.EXHAUSTIVE_CHECKLIST_ROOT }}
+          path: /home/runner/work/_temp/exhaustive-hockey-wnba
           if-no-files-found: error
           retention-days: 90
 
@@ -64,8 +69,8 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      COORDINATE_HARVEST_ROOT: ${{ runner.temp }}/exhaustive-hockey-wnba
-      COORDINATE_APPLY_RECEIPT: ${{ runner.temp }}/exhaustive-hockey-wnba/production-apply-receipt.json
+      COORDINATE_HARVEST_ROOT: /home/runner/work/_temp/exhaustive-hockey-wnba
+      COORDINATE_APPLY_RECEIPT: /home/runner/work/_temp/exhaustive-hockey-wnba/production-apply-receipt.json
       COORDINATE_APPLY_MAX_SETS: "250"
       COORDINATE_DB_HEALTH_ATTEMPTS: "12"
       COORDINATE_DB_HEALTH_DELAY_MS: "10000"
@@ -80,7 +85,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: exhaustive-hockey-wnba-${{ github.run_id }}
-          path: ${{ runner.temp }}/exhaustive-hockey-wnba
+          path: /home/runner/work/_temp/exhaustive-hockey-wnba
       - name: Apply every clean plan to Production Registry
         run: |
           set -o pipefail
@@ -88,7 +93,7 @@ jobs:
       - name: Print Production receipt
         if: always()
         run: |
-          receipt="$RUNNER_TEMP/exhaustive-hockey-wnba/production-apply-receipt.json"
+          receipt="$COORDINATE_APPLY_RECEIPT"
           if [ -s "$receipt" ]; then
             jq '{requestedCount,attemptedCount,persistedCount,persistedCards,persistedParallels,persistedIdentities,results:[.results[]|{exactSetKey,status,counts,error}]}' "$receipt"
           else
@@ -99,6 +104,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: exhaustive-hockey-wnba-production-${{ github.run_id }}
-          path: ${{ env.COORDINATE_APPLY_RECEIPT }}
+          path: /home/runner/work/_temp/exhaustive-hockey-wnba/production-apply-receipt.json
           if-no-files-found: warn
           retention-days: 90
