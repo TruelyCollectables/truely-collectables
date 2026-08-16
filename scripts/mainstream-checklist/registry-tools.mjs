@@ -10,6 +10,8 @@ import { normalized, sha256, slug } from "./source-tools.mjs";
 export const ARCHIVE_BUCKET = "tcos-checklist-universal-archive";
 const ARCHIVE_PREFIX = "backlog/mainstream-2000-plus";
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
+const SKIP_ARCHIVE_BUCKET_PREFLIGHT =
+  String(process.env.CHECKLIST_SKIP_ARCHIVE_BUCKET_PREFLIGHT || "").trim().toLowerCase() === "true";
 
 export function dbClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -224,6 +226,10 @@ export function assertPlanComplexity(plan) {
 }
 
 export async function ensureArchiveBucket(db) {
+  if (SKIP_ARCHIVE_BUCKET_PREFLIGHT) {
+    return { bucket: ARCHIVE_BUCKET, skipped: true };
+  }
+
   const options = {
     public: false,
     fileSizeLimit: MAX_SOURCE_BYTES,
@@ -241,7 +247,18 @@ export async function ensureArchiveBucket(db) {
     ],
   };
   const existing = await db.storage.getBucket(ARCHIVE_BUCKET);
-  if (existing.error || !existing.data) {
+  if (existing.error) {
+    const message = String(existing.error.message || "Unknown Storage error");
+    const status = Number(existing.error.statusCode || existing.error.status || 0);
+    const missing =
+      status === 404 ||
+      /bucket\s+not\s+found|not\s+found|does\s+not\s+exist|no\s+such\s+bucket/i.test(message);
+    if (!missing) {
+      throw new Error(`Could not verify archive bucket: ${message}`);
+    }
+  }
+
+  if (!existing.data) {
     const created = await db.storage.createBucket(ARCHIVE_BUCKET, options);
     if (created.error && !/already exists|duplicate|409/i.test(created.error.message || "")) {
       throw new Error(`Could not create archive bucket: ${created.error.message}`);
@@ -249,6 +266,7 @@ export async function ensureArchiveBucket(db) {
   } else if (existing.data.public) {
     throw new Error(`${ARCHIVE_BUCKET} exists but is public.`);
   }
+  return { bucket: ARCHIVE_BUCKET, skipped: false };
 }
 
 export async function uploadArchive(db, source) {
