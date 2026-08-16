@@ -15,6 +15,9 @@ function dbClient() {
 const ROOT = resolve(process.env.COORDINATE_HARVEST_ROOT || "");
 const OUTPUT = resolve(process.env.COORDINATE_APPLY_RECEIPT || `${ROOT}/production-staged-apply-receipt.json`);
 const MAX_SETS = Math.max(1, Number(process.env.COORDINATE_APPLY_MAX_SETS || 250));
+const TARGET_ATTEMPTS = Math.max(1, Number(process.env.COORDINATE_TARGET_ATTEMPTS || 5));
+const TARGET_RETRY_DELAY_MS = Math.max(2_000, Number(process.env.COORDINATE_TARGET_RETRY_DELAY_MS || 10_000));
+const TARGET_SUCCESS_DELAY_MS = Math.max(0, Number(process.env.COORDINATE_TARGET_SUCCESS_DELAY_MS || 2_000));
 if (!ROOT || !existsSync(ROOT)) throw new Error(`Exhaustive harvest root is missing: ${ROOT}`);
 
 const summaryPath = resolve(ROOT, "output/summary.json");
@@ -35,6 +38,11 @@ if (!ready.length) throw new Error("Exhaustive harvest bundle has no remaining r
 const safeSlug = (value) => String(value || "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "target";
 const sourceFiles = readdirSync(sourcesDir);
 const db = dbClient();
+const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+
+function transientMessage(message) {
+  return /timeout|timed out|too many connections|connection terminated|connection reset|connection refused|could not query the database|web server is down|ssl handshake|\b52[125]\b|\b544\b|fetch failed|network/i.test(String(message || ""));
+}
 
 async function proveDatabase() {
   const maxAttempts = Math.max(1, Number(process.env.COORDINATE_DB_HEALTH_ATTEMPTS || 12));
@@ -54,9 +62,31 @@ async function proveDatabase() {
       last = error;
       console.warn(`Database health attempt ${attempt}/${maxAttempts} threw: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (attempt < maxAttempts) await new Promise((resolvePromise) => setTimeout(resolvePromise, delayMs));
+    if (attempt < maxAttempts) await sleep(delayMs);
   }
   throw new Error(`Production database never became healthy: ${last instanceof Error ? last.message : String(last?.message || last || "unknown")}`);
+}
+
+async function persistWithRecovery(plan, sourceBytes, exactSetKey) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= TARGET_ATTEMPTS; attempt += 1) {
+    try {
+      const transaction = await persistPlanStaged(db, plan, sourceBytes);
+      if (attempt > 1) console.log(`${exactSetKey} recovered on target attempt ${attempt}/${TARGET_ATTEMPTS}.`);
+      return transaction;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`${exactSetKey} target attempt ${attempt}/${TARGET_ATTEMPTS} failed: ${lastError.message}`);
+      if (!transientMessage(lastError.message) || attempt >= TARGET_ATTEMPTS) break;
+      await sleep(Math.min(60_000, TARGET_RETRY_DELAY_MS * attempt));
+      try {
+        await proveDatabase();
+      } catch (healthError) {
+        console.warn(`${exactSetKey} recovery health probe failed: ${healthError instanceof Error ? healthError.message : String(healthError)}`);
+      }
+    }
+  }
+  throw lastError || new Error(`Unknown staged persistence failure for ${exactSetKey}`);
 }
 
 const health = await proveDatabase();
@@ -90,21 +120,26 @@ for (let index = 0; index < ready.length; index += 1) {
 
   console.log(`=== STAGED PRODUCTION APPLY ${index + 1}/${ready.length}: ${exactSetKey} ===`);
   try {
-    const transaction = await persistPlanStaged(db, plan, sourceBytes);
+    const transaction = await persistWithRecovery(plan, sourceBytes, exactSetKey);
     const row = { exactSetKey, status: "persisted", counts: plan.validation.counts, transaction, source: plan.source.storage };
     results.push(row);
     console.log(JSON.stringify({ exactSetKey, status: row.status, counts: row.counts, transactionCounts: transaction?.counts }));
+    if (TARGET_SUCCESS_DELAY_MS) await sleep(TARGET_SUCCESS_DELAY_MS);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     results.push({ exactSetKey, status: "failed", counts: plan.validation.counts, error: message });
     console.error(JSON.stringify({ exactSetKey, status: "failed", error: message }));
-    if (/too many connections|connection terminated|connection timed out|could not query the database|web server is down|ssl handshake|\b52[125]\b|\b544\b/i.test(message)) break;
+    if (transientMessage(message)) {
+      console.warn(`Cooling down after exhausted transient failure for ${exactSetKey}; continuing with the remaining validated targets.`);
+      await sleep(Math.min(60_000, TARGET_RETRY_DELAY_MS * 2));
+    }
   }
 }
 
 const persisted = results.filter((row) => row.status === "persisted");
+const failed = results.filter((row) => row.status !== "persisted");
 const receipt = {
-  schema: "tcos.checklist.exhaustiveStagedProductionApply.v1",
+  schema: "tcos.checklist.exhaustiveStagedProductionApply.v2",
   sourceHarvestRunId: Number(process.env.COORDINATE_SOURCE_RUN_ID || 0) || null,
   health,
   summaryCounts: {
@@ -119,6 +154,7 @@ const receipt = {
   requestedCount: ready.length,
   attemptedCount: results.length,
   persistedCount: persisted.length,
+  failedCount: failed.length,
   persistedCards: persisted.reduce((sum, row) => sum + Number(row.counts?.cards || 0), 0),
   persistedParallels: persisted.reduce((sum, row) => sum + Number(row.counts?.parallels || 0), 0),
   persistedIdentities: persisted.reduce((sum, row) => sum + Number(row.counts?.identities || 0), 0),
@@ -126,5 +162,5 @@ const receipt = {
   results,
 };
 writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`);
-console.log(JSON.stringify({ persistedCount: receipt.persistedCount, attemptedCount: receipt.attemptedCount, persistedCards: receipt.persistedCards, persistedParallels: receipt.persistedParallels, persistedIdentities: receipt.persistedIdentities }, null, 2));
-if (!persisted.length) process.exitCode = 2;
+console.log(JSON.stringify({ persistedCount: receipt.persistedCount, failedCount: receipt.failedCount, attemptedCount: receipt.attemptedCount, persistedCards: receipt.persistedCards, persistedParallels: receipt.persistedParallels, persistedIdentities: receipt.persistedIdentities }, null, 2));
+if (!persisted.length || failed.length) process.exitCode = 2;
