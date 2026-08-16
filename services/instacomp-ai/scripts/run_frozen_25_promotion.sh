@@ -3,14 +3,14 @@ set -euo pipefail
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/promote_lora_candidate_frozen_25_v10.py"
+target="$service_root/scripts/promote_lora_candidate_frozen_25_v11.py"
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
   exit 2
 }
 [[ -f "$target" ]] || {
-  echo "Frozen 25 promotion runner is missing: $target" >&2
+  echo "Staged InstaComp promotion runner is missing: $target" >&2
   exit 2
 }
 
@@ -39,7 +39,7 @@ if [[ -n "${INSTACOMP_AI_REGISTRY_TOKEN:-}" || -n "${INSTACOMP_AI_SENTINEL_ARCHI
 elif [[ "$self_test" == "1" ]]; then
   echo "INFO Registry client authentication not configured for isolated self-test"
 else
-  echo "Refusing Frozen 25 promotion: Registry authentication is missing after loading $service_root/.env." >&2
+  echo "Refusing staged InstaComp promotion: Registry authentication is missing after loading $service_root/.env." >&2
   echo "Candidate runtime was not activated." >&2
   exit 2
 fi
@@ -58,5 +58,6 @@ if service_root not in origin.parents:
 print(f"PASS InstaComp app import path: {origin}")
 PY
 
-echo "PASS Frozen 25 launcher mode: promotion-v10-evidence-aligned-registry-preflight"
+echo "PASS staged promotion launcher mode: promotion-v11-frozen-10-15-25"
+echo "INFO default stage is Frozen 10; advance explicitly with --stage-target 15 then --stage-target 25"
 exec "$service_python" "$target" "$@"
