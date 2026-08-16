@@ -3,11 +3,50 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
+SERVICE_VENV = SERVICE_ROOT / ".venv"
+SERVICE_PYTHON = SERVICE_VENV / "bin" / "python"
+
+
+def _bootstrap_service_runtime() -> None:
+    """Run teacher mining under the certified InstaComp service environment on macOS.
+
+    The teacher pipeline imports the normal InstaComp vision stack (including OpenCV)
+    before it hands LoRA training to the separate `.venv-lora` runtime. A user may
+    legitimately launch this script with Homebrew `python3`, so re-exec into the
+    already-installed service `.venv` before importing any app modules.
+    """
+
+    if sys.platform != "darwin":
+        return
+
+    try:
+        already_in_service_venv = Path(sys.prefix).resolve() == SERVICE_VENV.resolve()
+    except OSError:
+        already_in_service_venv = False
+    if already_in_service_venv:
+        return
+
+    if not SERVICE_PYTHON.is_file():
+        raise SystemExit(
+            "InstaComp service runtime is missing. Run "
+            "`bash services/instacomp-ai/scripts/install-macos.sh` once, then rerun "
+            "this teacher command."
+        )
+
+    os.execv(
+        str(SERVICE_PYTHON),
+        [str(SERVICE_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]],
+    )
+
+
+_bootstrap_service_runtime()
+
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
