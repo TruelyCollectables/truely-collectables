@@ -1,33 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${SUPABASE_ACCESS_TOKEN:?SUPABASE_ACCESS_TOKEN is required}"
-: "${SUPABASE_PROJECT_REF:=${RESOLVED_SUPABASE_PROJECT_REF:-}}"
-: "${SUPABASE_PROJECT_REF:?SUPABASE_PROJECT_REF or RESOLVED_SUPABASE_PROJECT_REF is required}"
+: "${GH_SUPABASE_ACCESS_TOKEN:?Supabase Management API token is required}"
+: "${RESOLVED_SUPABASE_PROJECT_REF:?Resolved Supabase project ref is required}"
 
-SQL_FILE="supabase/migrations/20260816134500_checklist_registry_chunked_writer.sql"
-ROOT="${RUNNER_TEMP:-/tmp}/checklist-chunked-writer-install"
-mkdir -p "$ROOT"
+sql_file="supabase/migrations/20260816134500_checklist_registry_chunked_writer.sql"
+work_dir="$RUNNER_TEMP/checklist-chunked-writer-install"
+mkdir -p "$work_dir"
+request_file="$work_dir/request.json"
+response_file="$work_dir/response.json"
+reload_file="$work_dir/reload.json"
 
-jq -Rs '{query: .}' < "$SQL_FILE" > "$ROOT/query.json"
+jq -Rs '{query: ., read_only: false}' "$sql_file" > "$request_file"
+http_code="$(curl --silent --show-error \
+  --retry 5 --retry-delay 2 --retry-all-errors \
+  --request POST \
+  --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+  --header "Content-Type: application/json" \
+  --data-binary "@$request_file" \
+  --output "$response_file" \
+  --write-out '%{http_code}' \
+  "https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF/database/query")"
 
-curl --silent --show-error --fail --retry 4 --retry-all-errors --max-time 120 \
-  -X POST \
-  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data-binary @"$ROOT/query.json" \
-  "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
-  -o "$ROOT/result.json"
+if [[ ! "$http_code" =~ ^2 ]]; then
+  echo "Checklist Registry chunked-writer install returned HTTP ${http_code}." >&2
+  cat "$response_file" >&2 || true
+  exit 1
+fi
+jq -e 'if type == "object" and (.error? // null) then error(.error) else true end' "$response_file" >/dev/null
 
-cat "$ROOT/result.json"
+jq -n '{query: "NOTIFY pgrst, '\''reload schema'\'';", read_only: false}' > "$work_dir/reload-request.json"
+reload_code="$(curl --silent --show-error \
+  --retry 5 --retry-delay 2 --retry-all-errors \
+  --request POST \
+  --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+  --header "Content-Type: application/json" \
+  --data-binary "@$work_dir/reload-request.json" \
+  --output "$reload_file" \
+  --write-out '%{http_code}' \
+  "https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF/database/query")"
+if [[ ! "$reload_code" =~ ^2 ]]; then
+  echo "PostgREST schema reload returned HTTP ${reload_code}." >&2
+  cat "$reload_file" >&2 || true
+  exit 1
+fi
 
-curl --silent --show-error --fail --retry 4 --retry-all-errors --max-time 60 \
-  -X POST \
-  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"query":"NOTIFY pgrst, '\''reload schema'\'';"}' \
-  "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
-  -o "$ROOT/reload.json"
-
-cat "$ROOT/reload.json"
-echo "Checklist Registry chunked writer installed for $SUPABASE_PROJECT_REF."
+echo "Checklist Registry resumable chunked writer installed."
