@@ -1,4 +1,4 @@
-name: Supabase Production Restart Recovery 20260815
+name: Supabase Checklist Registry Schema Probe 20260815
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   actions: read
 
 jobs:
-  restart-recover:
+  registry-schema-probe:
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 15
@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/supabase-restart"
+          root="$RUNNER_TEMP/registry-schema-probe"
           mkdir -p "$root"
           curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
@@ -35,54 +35,91 @@ jobs:
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
           test "${#candidates[@]}" -eq 1
           echo "PROJECT_REF=${candidates[0]}" >> "$GITHUB_ENV"
-          echo 'Resolved exactly one Production project.'
 
-      - name: Restart Production Supabase project
+      - name: Read Registry function and table definitions
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/supabase-restart"
+          root="$RUNNER_TEMP/registry-schema-probe"
+          cat > "$root/schema.sql" <<'SQL'
+          select jsonb_build_object(
+            'functions', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'schema', n.nspname,
+                'name', p.proname,
+                'identity_args', pg_get_function_identity_arguments(p.oid),
+                'definition', pg_get_functiondef(p.oid)
+              ) order by p.proname)
+              from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public'
+                and p.proname in ('tcos_apply_checklist_import_plan')
+            ), '[]'::jsonb),
+            'tables', coalesce((
+              select jsonb_agg(t.obj order by t.table_name)
+              from (
+                select c.table_name,
+                  jsonb_build_object(
+                    'table', c.table_name,
+                    'columns', jsonb_agg(jsonb_build_object(
+                      'name', c.column_name,
+                      'type', c.data_type,
+                      'udt', c.udt_name,
+                      'nullable', c.is_nullable,
+                      'default', c.column_default
+                    ) order by c.ordinal_position),
+                    'constraints', coalesce((
+                      select jsonb_agg(jsonb_build_object(
+                        'name', con.conname,
+                        'type', con.contype,
+                        'definition', pg_get_constraintdef(con.oid, true)
+                      ) order by con.conname)
+                      from pg_constraint con
+                      join pg_class rel on rel.oid = con.conrelid
+                      join pg_namespace ns on ns.oid = rel.relnamespace
+                      where ns.nspname='public' and rel.relname=c.table_name
+                    ), '[]'::jsonb),
+                    'indexes', coalesce((
+                      select jsonb_agg(jsonb_build_object('name', indexname, 'definition', indexdef) order by indexname)
+                      from pg_indexes i
+                      where i.schemaname='public' and i.tablename=c.table_name
+                    ), '[]'::jsonb),
+                    'triggers', coalesce((
+                      select jsonb_agg(jsonb_build_object(
+                        'name', tg.tgname,
+                        'definition', pg_get_triggerdef(tg.oid, true)
+                      ) order by tg.tgname)
+                      from pg_trigger tg
+                      join pg_class rel on rel.oid=tg.tgrelid
+                      join pg_namespace ns on ns.oid=rel.relnamespace
+                      where ns.nspname='public' and rel.relname=c.table_name and not tg.tgisinternal
+                    ), '[]'::jsonb)
+                  ) as obj
+                from information_schema.columns c
+                where c.table_schema='public'
+                  and c.table_name like 'checklist_%'
+                group by c.table_name
+              ) t
+            ), '[]'::jsonb)
+          ) as registry_schema;
+          SQL
+          jq -Rs '{query:.,read_only:true}' < "$root/schema.sql" > "$root/request.json"
           code="$(curl --silent --show-error --connect-timeout 15 --max-time 90 \
-            -X POST \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -H 'Content-Type: application/json' \
-            -o "$root/restart.json" -w '%{http_code}' \
-            "https://api.supabase.com/v1/projects/$PROJECT_REF/restart")"
-          echo "Restart HTTP $code"
-          cat "$root/restart.json" || true
-          test "$code" = '200'
+            -o "$root/result.json" -w '%{http_code}' \
+            --data-binary @"$root/request.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" || true)"
+          echo "Schema probe HTTP $code"
+          test "$code" = '201'
+          jq -e 'type=="array" and length==1 and .[0].registry_schema.functions|length>=1' "$root/result.json" >/dev/null
+          jq '.[0].registry_schema | {functions:[.functions[]|{name,identity_args}],tables:[.tables[]|{table,column_count:(.columns|length),constraint_count:(.constraints|length),index_count:(.indexes|length),trigger_count:(.triggers|length)}]}' "$root/result.json"
 
-      - name: Wait for database recovery
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/supabase-restart"
-          query='select 1 as ok;'
-          jq -n --arg q "$query" '{query:$q,read_only:true}' > "$root/health-query.json"
-          healthy=false
-          for attempt in $(seq 1 24); do
-            code="$(curl --silent --show-error --connect-timeout 8 --max-time 20 \
-              -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-              -H 'Content-Type: application/json' \
-              -o "$root/health-$attempt.json" -w '%{http_code}' \
-              --data-binary @"$root/health-query.json" \
-              "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" || true)"
-            if [ "$code" = '201' ] && jq -e 'type=="array" and .[0].ok==1' "$root/health-$attempt.json" >/dev/null 2>&1; then
-              echo "Database recovered on attempt $attempt."
-              cp "$root/health-$attempt.json" "$root/health-success.json"
-              healthy=true
-              break
-            fi
-            echo "Recovery probe $attempt/24 HTTP ${code:-curl-failed}"
-            sleep 10
-          done
-          test "$healthy" = true
-
-      - name: Upload restart recovery receipt
+      - name: Upload schema probe
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: supabase-production-restart-${{ github.run_id }}
-          path: ${{ runner.temp }}/supabase-restart
+          name: checklist-registry-schema-${{ github.run_id }}
+          path: ${{ runner.temp }}/registry-schema-probe
           if-no-files-found: error
           retention-days: 30
