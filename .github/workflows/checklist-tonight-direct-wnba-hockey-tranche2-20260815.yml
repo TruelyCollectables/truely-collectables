@@ -1,0 +1,183 @@
+name: Checklist Tonight Direct WNBA Hockey Tranche 2 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-tonight-direct-wnba-hockey-tranche2-20260815.yml'
+      - 'scripts/mainstream-checklist/source-tools.mjs'
+      - 'scripts/mainstream-checklist/gogts-structured-normalizer.mjs'
+      - 'scripts/promote-mainstream-2005plus-public-web-candidates.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-tonight-direct-wnba-hockey-tranche2-20260815
+  cancel-in-progress: false
+
+jobs:
+  direct-harvest:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 100
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/mainstream-checklist/gogts-structured-normalizer.mjs
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+      - name: Enable GoGTS normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'scripts/mainstream-checklist/source-tools.mjs';
+          let source = readFileSync(path, 'utf8');
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error('GoGTS normalizer import anchor not found');
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = '  const text = extractText(downloaded, filename);';
+          const normalizedParse = '  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));';
+          if (!source.includes(normalizedParse)) {
+            const n = source.split(parseAnchor).length - 1;
+            if (n !== 1) throw new Error(`Expected one parser handoff anchor, found ${n}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, 'utf8');
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/tonight-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Write tranche two target manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/tonight-direct-2"
+          mkdir -p "$out/apply"
+          cat > "$out/targets.json" <<'JSON'
+          [
+            {"exactSetKey":"basketball|2024|panini|origins-wnba","year":2024,"sport":"basketball","sourceUrl":"https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|prizm-wnba","year":2024,"sport":"basketball","sourceUrl":"https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|select-wnba","year":2024,"sport":"basketball","sourceUrl":"https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2023|panini|origins-wnba","year":2023,"sport":"basketball","sourceUrl":"https://gogts.net/wp-content/uploads/2023/10/2023-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2023|panini|prizm-wnba","year":2023,"sport":"basketball","sourceUrl":"https://gogts.net/2023-panini-prizm-wnba-basketball-cards-checklist/"},
+            {"exactSetKey":"basketball|2022|panini|prizm-wnba","year":2022,"sport":"basketball","sourceUrl":"https://gogts.net/wp-content/uploads/2022/10/2022-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|artifacts-nhl","year":2025,"sport":"hockey","sourceUrl":"https://gogts.net/wp-content/uploads/2025/09/2025-26-Upper-Deck-Artifacts-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|spx-nhl","year":2025,"sport":"hockey","sourceUrl":"https://gogts.net/wp-content/uploads/2026/04/2025-26-Upper-Deck-SPx-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|mvp-nhl","year":2025,"sport":"hockey","sourceUrl":"https://gogts.net/2025-26-upper-deck-mvp-nhl-hockey-cards-checklist/"},
+            {"exactSetKey":"hockey|2026|upper-deck|national-day","year":2026,"sport":"hockey","sourceUrl":"https://gogts.net/2026-upper-deck-national-hockey-card-day-image-gallery-checklist/"}
+          ]
+          JSON
+          jq -e 'length == 10 and all(.[]; (.exactSetKey|length)>0 and (.sourceUrl|length)>0)' "$out/targets.json" >/dev/null
+          jq -r '.[] | [.exactSetKey,.sourceUrl] | @tsv' "$out/targets.json"
+
+      - name: Validate and persist tranche two one by one
+        shell: bash
+        run: |
+          set -u
+          out="$RUNNER_TEMP/tonight-direct-2"
+          total="$(jq 'length' "$out/targets.json")"
+          attempted=0
+          while IFS= read -r target; do
+            attempted=$((attempted+1))
+            key="$(jq -r '.exactSetKey' <<<"$target")"
+            url="$(jq -r '.sourceUrl' <<<"$target")"
+            year="$(jq -r '.year' <<<"$target")"
+            sport="$(jq -r '.sport' <<<"$target")"
+            slug="$(printf '%s' "$key" | tr '|/' '__' | tr -cd '[:alnum:]_.-')"
+            queue="$out/apply/$slug-queue.json"
+            filter="$out/apply/$slug-filter.json"
+            receipt="$out/apply/$slug-receipt.json"
+            validated="$out/apply/$slug-validated.json"
+
+            jq -n --arg key "$key" --argjson year "$year" --arg sport "$sport" '{schema:"tcos.checklist.mainstream2005plusCandidateValidationQueue.v1",count:1,targets:[{exactSetKey:$key,year:$year,sport:$sport,sourceArtifact:"tonight-direct-pdf-tranche2-20260815",exactCandidateCount:1,trustedAutoImportCandidateCount:1,candidates:[]}]}' > "$queue"
+            jq -n --arg key "$key" --arg url "$url" '{schema:"tcos.checklist.tonightDirectPinnedSource.v1",targets:[{exactSetKey:$key,sourceUrl:$url}]}' > "$filter"
+
+            export PUBLIC_WEB_CANDIDATE_QUEUE="$queue"
+            export PUBLIC_WEB_TARGET_FILTER="$filter"
+            export PUBLIC_WEB_PROMOTION_APPLY=true
+            export PUBLIC_WEB_PROMOTION_OUTPUT="$receipt"
+            export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$validated"
+
+            echo "=== TRANCHE 2 APPLY $attempted/$total :: $key ==="
+            timeout 240s node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs || true
+            status="$(jq -r '.results[0].status // "missing-receipt"' "$receipt" 2>/dev/null || echo missing-receipt)"
+            persisted="$(jq -r '.results[0].persistence.ok // false' "$receipt" 2>/dev/null || echo false)"
+            cards="$(jq -r '.results[0].counts.cards // 0' "$receipt" 2>/dev/null || echo 0)"
+            parallels="$(jq -r '.results[0].counts.parallels // 0' "$receipt" 2>/dev/null || echo 0)"
+            echo "RESULT $key status=$status persisted=$persisted cards=$cards parallels=$parallels"
+          done < <(jq -c '.[]' "$out/targets.json")
+
+          python - <<'PY'
+          import glob,json,os
+          root=os.environ['RUNNER_TEMP']+'/tonight-direct-2/apply'
+          rows=[]
+          for p in sorted(glob.glob(root+'/*-receipt.json')):
+            try: r=json.load(open(p))
+            except Exception: continue
+            rows.extend(r.get('results',[]))
+          wins=[x for x in rows if x.get('status')=='imported' and (x.get('persistence') or {}).get('ok') is True]
+          failures=[x for x in rows if x not in wins]
+          summary={'schema':'tcos.checklist.tonightDirectWnbaHockeyTranche2Summary.v1','attempted':len(rows),'productionPersistedCount':len(wins),'wins':wins,'nonWins':failures}
+          json.dump(summary,open(os.environ['RUNNER_TEMP']+'/tonight-direct-2/production-summary.json','w'),indent=2)
+          print(json.dumps({'attempted':len(rows),'productionPersistedCount':len(wins),'nonWins':len(failures)}))
+          PY
+          jq '{attempted,productionPersistedCount,wins:[.wins[]|{exactSetKey,counts,persistence}],nonWins:[.nonWins[]|{exactSetKey,status,message,errors}]}' "$out/production-summary.json"
+
+      - name: Upload tranche two receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-tonight-direct-wnba-hockey-tranche2-${{ github.run_id }}
+          path: ${{ runner.temp }}/tonight-direct-2
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/tonight-production" .env.local .env.production.local .vercel
