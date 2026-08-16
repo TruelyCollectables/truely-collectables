@@ -1,8 +1,10 @@
 -- The public Truely Collectables catalog currently reads legacy products and
--- uses products.archived_at as its explicit storefront exclusion gate. Keep
--- that gate synchronized with the universal inventory status so a draft can
--- retain sellable quantity for an eBay-only listing without leaking onto the
--- direct storefront.
+-- uses products.archived_at as its explicit storefront exclusion gate. A draft
+-- inventory row must hide the product even when sellable quantity is retained
+-- for eBay. Moving inventory back to active does NOT clear archived_at here:
+-- only the explicit set_site_active admin action may unarchive a product. This
+-- prevents unrelated inventory status changes from resurrecting an intentionally
+-- archived legacy product.
 
 create or replace function public.tcos_sync_inventory_storefront_visibility()
 returns trigger
@@ -15,12 +17,7 @@ begin
     return new;
   end if;
 
-  if new.status = 'active' then
-    update public.products
-       set archived_at = null
-     where id = new.legacy_product_id
-       and store_id = new.store_id;
-  elsif new.status = 'draft' then
+  if new.status = 'draft' then
     update public.products
        set archived_at = coalesce(archived_at, now())
      where id = new.legacy_product_id
