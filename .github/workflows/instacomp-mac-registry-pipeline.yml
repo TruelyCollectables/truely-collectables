@@ -66,14 +66,17 @@ jobs:
             services/instacomp-ai/tests/test_authoritative_registry_gateway_retry.py \
             services/instacomp-ai/tests/test_deterministic_checklist_recovery.py
 
-      - name: Prove Registry authority and v9 fail-closed source contract
+      - name: Prove Registry authority and v10 plus v9 fail-closed source contract
         run: |
           set -euo pipefail
           grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
-          grep -q 'promotion-v9-serial-evidence-guard' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v9.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promotion-v10-evidence-aligned-registry-preflight' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v10.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'import promote_lora_candidate_frozen_25_v9 as v9' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
+          grep -q 'v9._install_contract_fix()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
+          grep -q 'PASS Frozen 25 v10 preserves every v9/v7/v6/v5 fail-closed gate' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
           grep -q 'class AuthoritativeRegistryChecklistGateway' services/instacomp-ai/app/authoritative_registry_gateway.py
           grep -q '/api/instacomp/registry-lock' services/instacomp-ai/app/authoritative_registry_gateway.py
           grep -q 'ChecklistOutcome.EXACT_MATCH' services/instacomp-ai/app/authoritative_registry_gateway.py
           grep -q 'return SerialEvidence(stamp_present=False)' services/instacomp-ai/app/serial_evidence_guard.py
-          echo "PASS native macOS serial evidence remains Registry-authoritative and fail-closed"
+          echo "PASS native macOS v10 preflight inherits v9 serial evidence and Registry fail-closed authority"
