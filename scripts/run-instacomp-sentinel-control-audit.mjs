@@ -80,7 +80,7 @@ assert(contents.proxy.includes("INSTACOMP_AI_LOCAL_KEY"), "Website proxy must us
 assert(contents.proxy.includes("localhost"), "Website proxy must reject Production localhost configuration.");
 
 assert(contents.dashboard.includes("Checklist Sentinel™"), "Dashboard branding is incorrect.");
-assert(contents.dashboard.includes("5 * 60 * 1000"), "Dashboard must refresh every five minutes.");
+assert(contents.dashboard.includes("20 * 60 * 1000"), "Dashboard must refresh every twenty minutes.");
 assert(contents.dashboard.includes('action("run")'), "Dashboard must expose Run Now.");
 assert(contents.dashboard.includes('action("refresh-targets")'), "Dashboard must expose target refresh.");
 assert(contents.dashboard.includes("status?.enabled &&"), "Dashboard must not claim connection health when Sentinel is disabled.");
