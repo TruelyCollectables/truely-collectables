@@ -103,7 +103,7 @@ jobs:
       - name: Download validated exhaustive harvest
         uses: actions/download-artifact@v4
         with:
-          name: checklist-exhaustive-census-harvest-31924171342
+          name: exhaustive-hockey-wnba-31924171342
           path: /home/runner/work/_temp/exhaustive-staged
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: 31924171342
