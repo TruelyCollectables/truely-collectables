@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: truely-disaster-recovery-live-snapshot
+  cancel-in-progress: true
+
 env:
   CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
   CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -17,7 +21,7 @@ env:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Require read-only recovery credentials
         shell: bash
@@ -49,48 +53,47 @@ jobs:
           const sbToken = process.env.SUPABASE_ACCESS_TOKEN;
           const sbRef = process.env.SUPABASE_PROJECT_REF;
 
-          function writeJson(file, value) {
-            fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
-          }
+          function writeJson(file, value) { fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 }); }
           function safe(s) { return String(s).replace(/[^A-Za-z0-9._-]+/g, '_'); }
-          async function req(url, options = {}) {
-            const res = await fetch(url, options);
-            const text = await res.text();
-            let body;
-            try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
-            return { ok: res.ok, status: res.status, body };
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          async function req(url, options = {}, attempts = 6) {
+            let last;
+            for (let i = 0; i < attempts; i++) {
+              try {
+                const res = await fetch(url, options);
+                const text = await res.text();
+                let body;
+                try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+                last = { ok: res.ok, status: res.status, body };
+                if (res.ok || ![429,500,502,503,504].includes(res.status)) return last;
+              } catch (e) { last = { ok: false, status: 0, body: { error: e.message } }; }
+              await sleep(Math.min(15000, 750 * 2 ** i));
+            }
+            return last;
           }
           function rowsFrom(x) {
             if (Array.isArray(x)) return x;
             if (!x || typeof x !== 'object') return [];
-            for (const key of ['data', 'result', 'rows']) {
+            for (const key of ['data','result','rows']) {
               if (Array.isArray(x[key])) return x[key];
-              if (x[key] && typeof x[key] === 'object') {
-                for (const sub of ['data', 'rows', 'result']) if (Array.isArray(x[key][sub])) return x[key][sub];
-              }
+              if (x[key] && typeof x[key] === 'object') for (const sub of ['data','rows','result']) if (Array.isArray(x[key][sub])) return x[key][sub];
             }
             return [];
           }
 
           const cfHeaders = { Authorization: `Bearer ${cfToken}`, 'Content-Type': 'application/json' };
           async function cfGet(name, endpoint) {
-            try {
-              const r = await req(`https://api.cloudflare.com/client/v4${endpoint}`, { headers: cfHeaders });
-              writeJson(path.join(cfDir, safe(name) + '.json'), r);
-              if (!r.ok) errors.push(`Cloudflare ${name}: HTTP ${r.status}`);
-              return r;
-            } catch (e) {
-              errors.push(`Cloudflare ${name}: ${e.message}`);
-              writeJson(path.join(cfDir, safe(name) + '.json'), { ok: false, error: e.message });
-              return { ok: false, body: null };
-            }
+            const r = await req(`https://api.cloudflare.com/client/v4${endpoint}`, { headers: cfHeaders });
+            writeJson(path.join(cfDir, safe(name) + '.json'), r);
+            if (!r?.ok) errors.push(`Cloudflare ${name}: HTTP ${r?.status ?? 0}`);
+            return r || { ok:false, body:null };
           }
-
           const scripts = await cfGet('workers-scripts', `/accounts/${cfAccount}/workers/scripts`);
           const scriptRows = Array.isArray(scripts.body?.result) ? scripts.body.result : [];
           for (const script of scriptRows) {
             const id = script?.id || script?.name;
             if (!id) continue;
+            await cfGet(`worker-${id}-content`, `/accounts/${cfAccount}/workers/scripts/${encodeURIComponent(id)}`);
             await cfGet(`worker-${id}-settings`, `/accounts/${cfAccount}/workers/scripts/${encodeURIComponent(id)}/settings`);
             await cfGet(`worker-${id}-deployments`, `/accounts/${cfAccount}/workers/scripts/${encodeURIComponent(id)}/deployments`);
             await cfGet(`worker-${id}-versions`, `/accounts/${cfAccount}/workers/scripts/${encodeURIComponent(id)}/versions`);
@@ -114,30 +117,19 @@ jobs:
 
           const sbHeaders = { Authorization: `Bearer ${sbToken}`, 'Content-Type': 'application/json' };
           async function sbGet(name, endpoint) {
-            try {
-              const r = await req(`https://api.supabase.com${endpoint}`, { headers: sbHeaders });
-              writeJson(path.join(sbDir, safe(name) + '.json'), r);
-              if (!r.ok) errors.push(`Supabase ${name}: HTTP ${r.status}`);
-              return r;
-            } catch (e) {
-              errors.push(`Supabase ${name}: ${e.message}`);
-              writeJson(path.join(sbDir, safe(name) + '.json'), { ok: false, error: e.message });
-              return { ok: false, body: null };
-            }
+            const r = await req(`https://api.supabase.com${endpoint}`, { headers: sbHeaders });
+            writeJson(path.join(sbDir, safe(name) + '.json'), r);
+            if (!r?.ok) errors.push(`Supabase ${name}: HTTP ${r?.status ?? 0}`);
+            return r || { ok:false, body:null };
           }
           async function sql(name, query, save = true) {
-            try {
-              const r = await req(`https://api.supabase.com/v1/projects/${sbRef}/database/query/read-only`, {
-                method: 'POST', headers: sbHeaders, body: JSON.stringify({ query, parameters: [] })
-              });
-              if (save) writeJson(path.join(sbDir, safe(name) + '.json'), r);
-              if (!r.ok) errors.push(`Supabase SQL ${name}: HTTP ${r.status}`);
-              return r;
-            } catch (e) {
-              errors.push(`Supabase SQL ${name}: ${e.message}`);
-              if (save) writeJson(path.join(sbDir, safe(name) + '.json'), { ok: false, error: e.message });
-              return { ok: false, body: null };
-            }
+            const r = await req(`https://api.supabase.com/v1/projects/${sbRef}/database/query/read-only`, {
+              method:'POST', headers:sbHeaders, body:JSON.stringify({ query, parameters:[] })
+            });
+            if (save) writeJson(path.join(sbDir, safe(name) + '.json'), r);
+            if (!r?.ok) errors.push(`Supabase SQL ${name}: HTTP ${r?.status ?? 0}`);
+            await sleep(75);
+            return r || { ok:false, body:null };
           }
 
           await sbGet('projects', '/v1/projects');
@@ -145,6 +137,7 @@ jobs:
           await sbGet('database-backups', `/v1/projects/${sbRef}/database/backups`);
           await sbGet('security-advisors', `/v1/projects/${sbRef}/advisors/security`);
           await sbGet('performance-advisors', `/v1/projects/${sbRef}/advisors/performance`);
+          await sbGet('api-key-metadata', `/v1/projects/${sbRef}/api-keys?reveal=false`);
 
           await sql('database-identity', `select current_database() as database_name, current_user as database_user, version() as postgres_version, now() as captured_at, pg_database_size(current_database()) as database_size_bytes`);
           await sql('schemas', `select schema_name, schema_owner from information_schema.schemata order by schema_name`);
@@ -159,65 +152,44 @@ jobs:
           await sql('extensions', `select extname, extversion from pg_extension order by extname`);
           await sql('rls-policies', `select schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check from pg_policies order by schemaname,tablename,policyname`);
           await sql('publications', `select pubname, puballtables, pubinsert, pubupdate, pubdelete, pubtruncate from pg_publication order by pubname`);
-          await sql('migration-history', `select * from supabase_migrations.schema_migrations order by version`, true);
+          await sql('migration-history', `select * from supabase_migrations.schema_migrations order by version`);
 
-          const tableRows = rowsFrom(tableResp.body).filter(r => r && r.table_schema && r.table_name && r.table_type === 'BASE TABLE');
+          const tableRows = rowsFrom(tableResp.body).filter(r => r?.table_schema && r?.table_name && r?.table_type === 'BASE TABLE');
           writeJson(path.join(sbDir, 'data-export-table-list.json'), tableRows);
-          let exportedTables = 0;
-          let exportedRows = 0;
-          const pageSize = 500;
+          let exportedTables=0, exportedRows=0;
+          const pageSize=1000;
           for (const t of tableRows) {
-            const schema = String(t.table_schema);
-            const table = String(t.table_name);
-            const ident = `"${schema.replaceAll('"','""')}"."${table.replaceAll('"','""')}"`;
-            const key = safe(`${schema}.${table}`);
-            const countResp = await sql(`count-${key}`, `select count(*)::bigint as row_count from ${ident}`, false);
+            const schema=String(t.table_schema), table=String(t.table_name);
+            const ident=`"${schema.replaceAll('"','""')}"."${table.replaceAll('"','""')}"`;
+            const key=safe(`${schema}.${table}`);
+            const countResp=await sql(`count-${key}`, `select count(*)::bigint as row_count from ${ident}`, false);
             writeJson(path.join(dataDir, `${key}.count.json`), countResp);
             if (!countResp.ok) continue;
-            const out = fs.createWriteStream(path.join(dataDir, `${key}.jsonl`), { mode: 0o600 });
-            let offset = 0;
-            let tableRowsWritten = 0;
+            const out=fs.createWriteStream(path.join(dataDir, `${key}.jsonl`), { mode:0o600 });
+            let offset=0, tableRowsWritten=0;
             for (;;) {
-              const page = await sql(`page-${key}-${offset}`, `select * from ${ident} limit ${pageSize} offset ${offset}`, false);
-              if (!page.ok) {
-                writeJson(path.join(dataDir, `${key}.error-${offset}.json`), page);
-                break;
-              }
-              const rows = rowsFrom(page.body);
+              const page=await sql(`page-${key}-${offset}`, `select * from ${ident} limit ${pageSize} offset ${offset}`, false);
+              if (!page.ok) { writeJson(path.join(dataDir, `${key}.error-${offset}.json`), page); break; }
+              const rows=rowsFrom(page.body);
               if (!rows.length) break;
-              for (const row of rows) out.write(JSON.stringify(row) + '\n');
-              tableRowsWritten += rows.length;
-              exportedRows += rows.length;
-              offset += rows.length;
+              for (const row of rows) out.write(JSON.stringify(row)+'\n');
+              tableRowsWritten += rows.length; exportedRows += rows.length; offset += rows.length;
               if (rows.length < pageSize) break;
-              if (offset > 2000000) {
-                errors.push(`Supabase table ${schema}.${table}: safety cap reached at ${offset} rows`);
-                break;
-              }
+              if (offset > 2000000) { errors.push(`Supabase table ${schema}.${table}: safety cap reached at ${offset} rows`); break; }
             }
-            out.end();
-            exportedTables++;
-            notes.push(`Exported ${schema}.${table}: ${tableRowsWritten} row(s)`);
+            out.end(); exportedTables++; notes.push(`Exported ${schema}.${table}: ${tableRowsWritten} row(s)`);
           }
 
-          writeJson(path.join(root, 'metadata', 'snapshot-summary.json'), {
-            createdAt: new Date().toISOString(),
-            githubRepository: process.env.GITHUB_REPOSITORY,
-            githubSha: process.env.GITHUB_SHA,
-            supabaseProjectRef: sbRef,
-            cloudflareAccountIdPresent: Boolean(cfAccount),
-            cloudflareWorkerCount: scriptRows.length,
-            cloudflareZoneCount: zoneRows.length,
-            supabaseBaseTablesDiscovered: tableRows.length,
-            supabaseTablesExported: exportedTables,
-            supabaseRowsExported: exportedRows,
-            errors,
-            notes,
-            limitations: [
-              'Cloudflare secret values are write-only and are intentionally recovered from the separate encrypted production-secrets vault.',
-              'Cloudflare R2 object bytes are not downloaded by this metadata snapshot.',
-              'Supabase Storage object bytes are not part of database backup data.',
-              'The SQL data export is read-only and paginated; it is not a transactionally consistent pg_dump.'
+          writeJson(path.join(root,'metadata','snapshot-summary.json'), {
+            createdAt:new Date().toISOString(), githubRepository:process.env.GITHUB_REPOSITORY, githubSha:process.env.GITHUB_SHA,
+            supabaseProjectRef:sbRef, cloudflareAccountIdPresent:Boolean(cfAccount), cloudflareWorkerCount:scriptRows.length,
+            cloudflareZoneCount:zoneRows.length, supabaseBaseTablesDiscovered:tableRows.length, supabaseTablesExported:exportedTables,
+            supabaseRowsExported:exportedRows, errors, notes,
+            limitations:[
+              'Cloudflare secret values are write-only and are recovered from the separate encrypted production-secrets vault.',
+              'No R2/DO cache binding exists in the pinned production source configuration; R2 bucket metadata is still captured if visible.',
+              'Supabase Storage object bytes are backed up separately by the Storage disaster-recovery snapshot.',
+              'This SQL export is read-only and paginated; it is an emergency logical export rather than a transactionally consistent pg_dump.'
             ]
           });
           console.log(`Live snapshot complete: Cloudflare workers=${scriptRows.length}, zones=${zoneRows.length}, Supabase tables=${tableRows.length}, rows=${exportedRows}, recordedErrors=${errors.length}`);
@@ -230,12 +202,8 @@ jobs:
           umask 077
           tar -C /tmp -czf /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz tc-live-snapshot
           openssl rand -base64 48 > /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.recovery-key.txt
-          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 310000 -md sha256 \
-            -in /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz \
-            -out /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz.enc \
-            -pass file:/tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.recovery-key.txt
-          sha256sum /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz.enc \
-            > /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.sha256
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 310000 -md sha256 -in /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz -out /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz.enc -pass file:/tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.recovery-key.txt
+          sha256sum /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz.enc > /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.sha256
           rm -f /tmp/TruelyCollectables-live-infrastructure-data-2026-08-15.tar.gz
 
       - name: Upload encrypted live recovery snapshot
