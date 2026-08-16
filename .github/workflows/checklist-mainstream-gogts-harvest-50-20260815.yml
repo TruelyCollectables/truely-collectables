@@ -121,7 +121,7 @@ jobs:
           jq -s 'unique_by(.metadata.masterArchiveExactSetKey) | map(select(.metadata.masterArchiveExactSetKey != null))' "$out/catalog.ndjson" > "$out/catalog.json"
           echo "Production quarantined GoGTS exact keys: $(jq 'length' "$out/catalog.json")"
 
-      - name: Discover structured Excel checklist files from exact GoGTS articles
+      - name: Discover PDF-first checklist files from exact GoGTS articles
         shell: bash
         run: |
           set -euo pipefail
@@ -148,14 +148,17 @@ jobs:
             while(cursor<rows.length && discovered.length<limit){
               const i=cursor++; const row=rows[i]; const page=row.source_url; const html=await fetchText(page); if(!html) continue;
               const links=new Set();
-              for(const m of html.matchAll(/(?:href|data-href)=["']([^"']+\.(?:xlsx?|csv)(?:\?[^"']*)?)["']/gi)){
+              for(const m of html.matchAll(/(?:href|data-href)=["']([^"']+\.(?:pdf|xlsx?|csv)(?:\?[^"']*)?)["']/gi)){
                 try{links.add(new URL(clean(m[1]),page).href);}catch{}
               }
-              for(const m of html.matchAll(/https?:\\?\/\\?\/[^"'<>\s]+\.(?:xlsx?|csv)(?:\?[^"'<>\s]*)?/gi)){
+              for(const m of html.matchAll(/https?:\\?\/\\?\/[^"'<>\s]+\.(?:pdf|xlsx?|csv)(?:\?[^"'<>\s]*)?/gi)){
                 try{links.add(clean(m[0].replaceAll('\\/','/')));}catch{}
               }
-              const preferred=[...links].filter(u=>/checklist/i.test(u));
-              const sourceUrl=(preferred[0] || [...links][0] || null);
+              const all=[...links];
+              const pdfChecklist=all.filter(u=>/checklist/i.test(u) && /\.pdf(?:$|[?#])/i.test(u));
+              const pdfAny=all.filter(u=>/\.pdf(?:$|[?#])/i.test(u));
+              const checklist=all.filter(u=>/checklist/i.test(u));
+              const sourceUrl=(pdfChecklist[0] || pdfAny[0] || checklist[0] || all[0] || null);
               if(!sourceUrl) continue;
               const k=row.metadata?.masterArchiveExactSetKey; if(!k) continue;
               const [sport,season,manufacturer] = k.split('|');
