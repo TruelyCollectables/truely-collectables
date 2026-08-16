@@ -1,10 +1,13 @@
 import { CHECKLIST_SOURCE_BUCKET } from "../../src/lib/checklist-registry/storage.ts";
 
+// Keep each managed PostgREST transaction comfortably below the hard API timeout.
+// Source-key indexes make these chunks cheap, while small card/identity batches keep
+// player/team/link resolution from monopolizing the Production connection pool.
 const CHUNK_SIZES = Object.freeze({
-  sets: 100,
-  cards: 100,
-  parallels: 100,
-  identities: 200,
+  sets: 50,
+  cards: 25,
+  parallels: 50,
+  identities: 75,
 });
 
 function sleep(ms) {
@@ -17,7 +20,7 @@ function transient(message) {
   );
 }
 
-async function rpcWithRetry(db, name, args, label, attempts = 6) {
+async function rpcWithRetry(db, name, args, label, attempts = 8) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const { data, error } = await db.rpc(name, args);
@@ -25,7 +28,8 @@ async function rpcWithRetry(db, name, args, label, attempts = 6) {
     lastError = error;
     const message = `${label}: ${error.message || "unknown Supabase RPC error"}`;
     if (!transient(message) || attempt === attempts) throw new Error(message);
-    const delay = Math.min(8_000, 800 * 2 ** (attempt - 1));
+    // Give the managed pool progressively more room to clear after a timeout or 520.
+    const delay = Math.min(15_000, 1_000 * 2 ** (attempt - 1));
     console.warn(`${message}; retry ${attempt}/${attempts} after ${delay}ms`);
     await sleep(delay);
   }
