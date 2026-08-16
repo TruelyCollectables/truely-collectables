@@ -2,8 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { resolve } from "node:path";
 
 import { assertPlanComplexity, buildPlan } from "../mainstream-checklist/registry-tools.mjs";
-import { parseChecklist } from "../mainstream-checklist/source-tools.mjs";
-import { normalizeCoordinateParsedChecklist, normalizeGoGtsPdfCoordinates } from "./gogts-pdf-coordinate-normalizer.mjs";
+import { normalizeGoGtsPdfCoordinates } from "./gogts-pdf-coordinate-normalizer.mjs";
 
 const ROOT = resolve(process.env.VERIFIED_HARVEST_ROOT || "");
 const OUTPUT = resolve(process.env.SOURCE_DUPLICATE_PDF_RECEIPT || `${ROOT}/source-duplicate-pdf-recovery-receipt.json`);
@@ -26,7 +25,7 @@ mkdirSync(PLAN_DIR, { recursive: true });
 const acronyms = new Map([["ahl","AHL"],["chl","CHL"],["nba","NBA"],["nfl","NFL"],["nhl","NHL"],["pwhl","PWHL"],["wnba","WNBA"]]);
 const displayToken = (value) => String(value || "").split("-").filter(Boolean).map((part) => acronyms.get(part.toLowerCase()) || `${part.slice(0,1).toUpperCase()}${part.slice(1)}`).join(" ");
 const safeSlug = (value) => String(value || "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "target";
-const clean = (value) => String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+const clean = (value) => String(value ?? "").normalize("NFKC").replace(/[®™]/g, "").replace(/[‐‑‒–—―]/g, "-").replace(/\s+/g, " ").trim();
 const normalizedKey = (value) => clean(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 function buildEntry(row, sourceUrl) {
@@ -54,90 +53,148 @@ function buildEntry(row, sourceUrl) {
   };
 }
 
-function subjectLabel(card) {
-  const players = (Array.isArray(card.players) ? card.players : []).map(clean).filter(Boolean);
-  if (players.length) return players.join(" / ");
-  const teams = (Array.isArray(card.teams) ? card.teams : []).map(clean).filter(Boolean);
-  if (teams.length) return teams.join(" / ");
-  return clean(card.sourceNotes) || "Source row";
+function explicitlyMultiSubjectSet(name) {
+  const text = clean(name).toLowerCase();
+  const multi = /\b(?:dual|triple|quad|quartet|quint(?:uple)?|sextet|six[- ]?way|octet|eight[- ]?way|multi(?:ple)?|combo|combination|pairing|book|booklet|ensemble)\b/i.test(text);
+  const hitType = /\b(?:autograph|signature|signed|relic|memorabilia|patch|swatch|jersey|book|booklet)\b/i.test(text);
+  return Boolean(text && multi && hitType);
 }
 
-function disambiguateSourceDuplicates(parsed) {
-  const output = structuredClone(parsed);
-  const groups = new Map();
-  for (const card of output.cards || []) {
-    const baseVariation = normalizedKey(card.variation || "");
-    const key = `${normalizedKey(card.setName)}\u001f${normalizedKey(card.cardNumber)}\u001f${baseVariation}`;
-    const list = groups.get(key) || [];
-    list.push(card);
-    groups.set(key, list);
-  }
+function splitSubject(subject) {
+  const text = clean(subject).replace(/\s+(?:RC|ROOKIE CARD|ROOKIE)$/i, "").replace(/\s+\(RC\)$/i, "").replace(/\s+\*+$/g, "").trim();
+  const pieces = text.split(/\s+(?:\/|;|\+|&amp;)\s+/i).map(clean).filter((value) => value.length >= 2 && value.length <= 180);
+  return pieces.length ? [...new Set(pieces)] : text ? [text] : [];
+}
 
-  const resolved = [];
-  const unresolved = [];
-  for (const [key, cards] of groups) {
-    if (cards.length < 2) continue;
-    const subjects = new Map();
-    for (const card of cards) {
-      const label = subjectLabel(card);
-      const normalizedSubject = normalizedKey(label);
-      const list = subjects.get(normalizedSubject) || [];
-      list.push({ card, label });
-      subjects.set(normalizedSubject, list);
+function statusForSet(setName) {
+  const value = clean(setName).toLowerCase();
+  return {
+    autographStatus: /autograph|signature|signed/.test(value) ? "autograph" : "non-auto",
+    memorabiliaStatus: /relic|memorabilia|patch|swatch|jersey|materials?/.test(value) ? "memorabilia" : "non-memorabilia",
+  };
+}
+
+function buildParsedFromCoordinate(coordinate) {
+  const cards = [];
+  const parallels = [];
+  const resolvedDuplicateGroups = [];
+  const combinedMultiSubjectGroups = [];
+  const errors = [];
+
+  for (const bucket of coordinate.buckets || []) {
+    const setName = clean(bucket.setName) || "Base Set";
+    const status = statusForSet(setName);
+    const byNumber = new Map();
+    for (const row of bucket.rows || []) {
+      const cardNumber = clean(row.cardNumber).replace(/^#\s*/, "");
+      const subject = clean(row.subject);
+      if (!cardNumber || !subject) continue;
+      const key = normalizedKey(cardNumber);
+      const list = byNumber.get(key) || [];
+      list.push({
+        cardNumber,
+        subject,
+        team: clean(row.team),
+        sequence: clean(row.sequence),
+      });
+      byNumber.set(key, list);
     }
-    if (subjects.size < 2) continue;
-    if ([...subjects.keys()].some((value) => !value)) {
-      unresolved.push({ key, reason: "missing_source_subject" });
-      continue;
-    }
-    for (const entries of subjects.values()) {
-      const label = entries[0].label;
-      for (const { card } of entries) {
-        const sourceDisambiguator = `Checklist subject: ${label}`;
-        card.variation = clean(card.variation) ? `${clean(card.variation)} | ${sourceDisambiguator}` : sourceDisambiguator;
-        card.sourceNotes = [clean(card.sourceNotes), "Source-authentic duplicate card number preserved with subject disambiguator."].filter(Boolean).join("; ");
+
+    for (const rows of byNumber.values()) {
+      const subjectGroups = new Map();
+      for (const row of rows) {
+        const subjectKey = normalizedKey(row.subject);
+        const list = subjectGroups.get(subjectKey) || [];
+        list.push(row);
+        subjectGroups.set(subjectKey, list);
+      }
+      const distinct = [...subjectGroups.values()].map((values) => values[0]);
+      if (distinct.length > 1 && explicitlyMultiSubjectSet(setName)) {
+        const players = [...new Set(distinct.flatMap((row) => splitSubject(row.subject)))];
+        const teams = [...new Set(distinct.map((row) => row.team).filter(Boolean))];
+        cards.push({
+          setName,
+          cardNumber: distinct[0].cardNumber,
+          players,
+          teams,
+          rookieDesignation: /\b(?:rookie|rookies|young guns?|1st round rookies|future watch)\b/i.test(setName) || distinct.some((row) => /\bRC\b|\brookie\b/i.test(row.subject)),
+          firstBowmanDesignation: false,
+          ...status,
+          variation: null,
+          sourceNotes: "Coordinate-source rows combined as one source-proven multi-subject physical card.",
+        });
+        combinedMultiSubjectGroups.push({ setName, cardNumber: distinct[0].cardNumber, subjects: distinct.map((row) => row.subject) });
+        continue;
+      }
+
+      for (const row of distinct) {
+        const players = splitSubject(row.subject);
+        if (!players.length) {
+          errors.push({ code: "source_coordinate_subject_missing", severity: "error", message: `${setName} #${row.cardNumber} has no usable source subject.` });
+          continue;
+        }
+        const sourceDisambiguator = distinct.length > 1 ? `Checklist subject: ${row.subject}` : null;
+        cards.push({
+          setName,
+          cardNumber: row.cardNumber,
+          players,
+          teams: row.team ? [row.team] : [],
+          rookieDesignation: /\b(?:rookie|rookies|young guns?|1st round rookies|future watch)\b/i.test(setName) || /\bRC\b|\brookie\b/i.test(row.subject),
+          firstBowmanDesignation: false,
+          ...status,
+          variation: sourceDisambiguator,
+          sourceNotes: [
+            row.sequence ? `Source sequence ${row.sequence}` : "",
+            distinct.length > 1 ? "Source-authentic duplicate card number preserved with checklist-subject variation." : "Coordinate-extracted source row.",
+          ].filter(Boolean).join("; "),
+        });
+      }
+      if (distinct.length > 1) {
+        resolvedDuplicateGroups.push({ setName, cardNumber: distinct[0].cardNumber, subjects: distinct.map((row) => row.subject) });
       }
     }
-    resolved.push({
-      key,
-      setName: clean(cards[0]?.setName),
-      cardNumber: clean(cards[0]?.cardNumber),
-      subjects: [...subjects.values()].map((entries) => entries[0].label),
-    });
-  }
 
-  const postKeys = new Map();
-  for (const card of output.cards || []) {
-    const key = `${normalizedKey(card.setName)}\u001f${normalizedKey(card.cardNumber)}\u001f${normalizedKey(card.variation || "")}`;
-    const prior = postKeys.get(key);
-    if (prior && normalizedKey(subjectLabel(prior)) !== normalizedKey(subjectLabel(card))) {
-      unresolved.push({ key, reason: "post_disambiguation_collision", subjects: [subjectLabel(prior), subjectLabel(card)] });
-    } else if (!prior) {
-      postKeys.set(key, card);
+    for (const parallel of bucket.parallels || []) {
+      const name = clean(parallel.name);
+      if (!name) continue;
+      parallels.push({
+        setName,
+        name,
+        serialRun: Number.isFinite(Number(parallel.serialRun)) && Number(parallel.serialRun) > 0 ? Number(parallel.serialRun) : null,
+        configurationExclusivity: null,
+        appliesToAllCards: true,
+      });
     }
   }
 
-  const conflictErrors = (output.errors || []).filter((issue) => issue?.code === "reference_card_number_subject_conflict");
-  if (conflictErrors.length && !resolved.length) {
-    unresolved.push({ reason: "parser_reported_conflict_without_resolved_group", messages: conflictErrors.map((issue) => issue.message) });
+  const uniqueness = new Map();
+  for (const card of cards) {
+    const key = `${normalizedKey(card.setName)}\u001f${normalizedKey(card.cardNumber)}\u001f${normalizedKey(card.variation || "")}`;
+    const prior = uniqueness.get(key);
+    if (prior) {
+      errors.push({
+        code: "source_duplicate_disambiguation_unresolved",
+        severity: "error",
+        message: `${card.setName} #${card.cardNumber} still collides after source-grounded variation assignment.`,
+      });
+    } else {
+      uniqueness.set(key, card);
+    }
   }
-  output.errors = (output.errors || []).filter((issue) => issue?.code !== "reference_card_number_subject_conflict");
-  output.warnings = [
-    ...(output.warnings || []),
-    ...resolved.map((row) => ({
+
+  const warnings = [
+    {
+      code: "coordinate_pdf_direct_recovery",
+      severity: "warning",
+      message: "Built deterministic checklist rows directly from the official PDF coordinate buckets so source-authentic duplicate card numbers are preserved before generic parser deduplication.",
+    },
+    ...resolvedDuplicateGroups.map((row) => ({
       code: "source_duplicate_card_number_preserved",
       severity: "warning",
-      message: `${row.setName} #${row.cardNumber} is reused by the source checklist; preserved ${row.subjects.length} subjects with source-subject variations.`,
+      message: `${row.setName} #${row.cardNumber} is reused by the source checklist; preserved ${row.subjects.length} subjects with checklist-subject variations.`,
     })),
   ];
-  if (unresolved.length) {
-    output.errors.push({
-      code: "source_duplicate_disambiguation_unresolved",
-      severity: "error",
-      message: `${unresolved.length} source duplicate card-number groups could not be safely disambiguated.`,
-    });
-  }
-  return { parsed: output, resolved, unresolved, originalConflictErrorCount: conflictErrors.length };
+  return { parsed: { cards, parallels, warnings, errors }, resolvedDuplicateGroups, combinedMultiSubjectGroups };
 }
 
 const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
@@ -167,11 +224,10 @@ for (const row of candidates) {
     if (!coordinate.detected || coordinate.rows.length < MINIMUM_CARD_ROWS) {
       throw new Error(`Coordinate extractor produced only ${coordinate.rows.length} deterministic rows.`);
     }
-    const initialParsed = normalizeCoordinateParsedChecklist(parseChecklist(entry, coordinate.text));
-    const repaired = disambiguateSourceDuplicates(initialParsed);
+    const repaired = buildParsedFromCoordinate(coordinate);
     const plan = buildPlan(entry, repaired.parsed, source, new Date().toISOString());
     const complexity = assertPlanComplexity(plan);
-    const errors = plan.validation.issues.filter((issue) => issue.severity === "error");
+    const validationErrors = plan.validation.issues.filter((issue) => issue.severity === "error");
     const planPath = resolve(PLAN_DIR, `${slug}.json`);
     writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
     results.push({
@@ -179,12 +235,11 @@ for (const row of candidates) {
       status: plan.validation.status === "passed" ? "validated" : "validation_failed",
       coordinateRows: coordinate.rows.length,
       coordinateBuckets: coordinate.buckets.length,
-      originalConflictErrorCount: repaired.originalConflictErrorCount,
-      resolvedDuplicateGroups: repaired.resolved,
-      unresolvedDuplicateGroups: repaired.unresolved,
+      resolvedDuplicateGroups: repaired.resolvedDuplicateGroups,
+      combinedMultiSubjectGroups: repaired.combinedMultiSubjectGroups,
       counts: plan.validation.counts,
       serializedBytes: complexity.serializedBytes,
-      validationErrors: errors.slice(0, 30),
+      validationErrors: validationErrors.slice(0, 30),
       planFile: planPath.split("/").pop(),
     });
   } catch (error) {
@@ -194,7 +249,7 @@ for (const row of candidates) {
 
 const validated = results.filter((row) => row.status === "validated");
 const receipt = {
-  schema: "tcos.checklist.sourceDuplicatePdfRecovery.v1",
+  schema: "tcos.checklist.sourceDuplicatePdfRecovery.v2",
   targetCount: EXACT_KEYS.size,
   validatedCount: validated.length,
   unresolvedCount: results.length - validated.length,
