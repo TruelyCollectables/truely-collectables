@@ -5,7 +5,7 @@ service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
 target="$service_root/scripts/promote_lora_candidate_frozen_25_v15.py"
 visual_memory_repair="$service_root/scripts/repair_trusted_visual_memory.py"
-pinned_visual_memory_repair="$service_root/scripts/repair_pinned_visual_memory.py"
+pinned_visual_memory_repair="$service_root/scripts/repair_pinned_visual_memory_v15.py"
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
@@ -20,7 +20,7 @@ pinned_visual_memory_repair="$service_root/scripts/repair_pinned_visual_memory.p
   exit 2
 }
 [[ -f "$pinned_visual_memory_repair" ]] || {
-  echo "Pinned visual-memory repair is missing: $pinned_visual_memory_repair" >&2
+  echo "Pinned v15 visual-memory gate is missing: $pinned_visual_memory_repair" >&2
   exit 2
 }
 
@@ -75,15 +75,16 @@ if [[ "$self_test" == "0" ]]; then
     --max-repairs 250 \
     --workers 6
 
-  echo "INFO Hydrating trusted visual-pattern evidence for the exact pinned stage pool regardless verification-source label"
+  echo "INFO Hydrating exact pinned-stage visual evidence; non-retrievable style labels are deferred to v15 physical/Registry preflight"
   "$service_python" "$pinned_visual_memory_repair" "$@"
 fi
 
-echo "PASS pinned staged promotion launcher mode: promotion-v15-strict-non-base-image-witness"
-echo "INFO Non-Base expansion fixtures now require a positive matching local image variant witness before activation"
+echo "PASS pinned staged promotion launcher mode: promotion-v15-authoritative-prizm-back-mark"
+echo "INFO For Panini Prizm, the bold black PRIZM word on the back is authoritative for Base versus non-Base"
+echo "INFO Pattern-sensitive families such as Velocity and Cracked Ice still require deterministic matching surface evidence"
 echo "INFO Frozen 10 keeps the original five pinned priorities and automatically tries later pinned replacements after a safety reject"
-echo "INFO Frozen 15 skips visually unproven Silver/color/foil pins and continues through the v14 deterministic backfill pool"
+echo "INFO Frozen 15 rejects physically contradictory or style-conflicting pins and continues through the deterministic backfill pool"
 echo "INFO Registry service-token traffic is unthrottled; v13 backoff remains only as fail-safe handling for infrastructure 429/throttle responses"
 echo "INFO Trusted supervised visual memory is hydrated from archived images before live candidate rounds; identity and Registry truth are unchanged"
-echo "INFO Exact pinned-stage trusted rows are hydrated even when their verification-source label differs from the supervised batch label"
+echo "INFO Exact pinned-stage trusted rows are hydrated regardless verification-source label; v15 adjudicates advisory style-memory misses before activation"
 exec "$service_python" "$target" "$@"
