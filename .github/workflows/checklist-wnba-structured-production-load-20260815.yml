@@ -1,4 +1,4 @@
-# Bulk-writer certification trigger v2
+# Resumable chunk-writer certification trigger v3
 name: Checklist WNBA Structured Production Load 20260815
 
 on:
@@ -9,12 +9,12 @@ on:
       - '.github/workflows/checklist-wnba-structured-production-load-20260815.yml'
       - 'scripts/patch-wnba-panini-conflict-resolution.mjs'
       - 'scripts/patch-wnba-bulk-writer.mjs'
-      - 'scripts/mainstream-checklist/bulk-registry-tools.mjs'
-      - 'scripts/install-checklist-bulk-writer.sh'
+      - 'scripts/mainstream-checklist/chunked-registry-tools.mjs'
+      - 'scripts/install-checklist-chunked-writer.sh'
       - 'scripts/repair-mainstream-checklist-schema.sh'
       - 'supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql'
       - 'supabase/migrations/20260807124500_checklist_registry_writer_timeout.sql'
-      - 'supabase/migrations/20260816120500_checklist_registry_bulk_writer.sql'
+      - 'supabase/migrations/20260816134500_checklist_registry_chunked_writer.sql'
   workflow_dispatch:
 
 permissions:
@@ -115,7 +115,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install and certify structured Panini bulk loader
+      - name: Install and certify structured Panini chunked loader
         shell: bash
         run: |
           set -euo pipefail
@@ -127,9 +127,9 @@ jobs:
           node --check scripts/patch-wnba-bulk-writer.mjs
           node scripts/patch-wnba-bulk-writer.mjs
           node --check scripts/import-wnba-panini-pdfs.mjs
-          node --check scripts/mainstream-checklist/bulk-registry-tools.mjs
+          node --check scripts/mainstream-checklist/chunked-registry-tools.mjs
           bash -n scripts/repair-mainstream-checklist-schema.sh
-          bash -n scripts/install-checklist-bulk-writer.sh
+          bash -n scripts/install-checklist-chunked-writer.sh
 
       - name: Resolve Production Supabase
         shell: bash
@@ -158,7 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/repair-mainstream-checklist-schema.sh
-          bash scripts/install-checklist-bulk-writer.sh
+          bash scripts/install-checklist-chunked-writer.sh
 
       - name: Import all eight WNBA PDFs into Production Registry
         shell: bash
@@ -181,7 +181,7 @@ jobs:
           imported="$(jq -r '.imported' "$receipt")"
           failed="$(jq -r '.failed' "$receipt")"
           echo "WNBA verified persisted: $imported / $expected; failed=$failed"
-          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.sets // 0),(.persistence.ok // false),(.persistence.bulk // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
+          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.sets // 0),(.persistence.ok // false),(.persistence.chunked // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
           test "$expected" -eq 8
           test "$imported" -eq 8
           test "$failed" -eq 0
@@ -197,4 +197,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" "$RUNNER_TEMP/checklist-bulk-writer-install" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" "$RUNNER_TEMP/checklist-chunked-writer-install" .env.local .env.production.local .vercel
