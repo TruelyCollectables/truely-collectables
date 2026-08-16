@@ -6,9 +6,12 @@ on:
     paths:
       - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/app/candidate_identity_guard.py"
+      - "services/instacomp-ai/app/card_number_evidence_guard.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/lora_candidate_runtime_v2.py"
+      - "services/instacomp-ai/app/ollama.py"
       - "services/instacomp-ai/app/serial_evidence_guard.py"
+      - "services/instacomp-ai/tests/test_card_number_evidence_guard.py"
       - "services/instacomp-ai/tests/test_serial_evidence_guard.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
@@ -30,9 +33,12 @@ on:
     paths:
       - "services/instacomp-ai/app/__init__.py"
       - "services/instacomp-ai/app/candidate_identity_guard.py"
+      - "services/instacomp-ai/app/card_number_evidence_guard.py"
       - "services/instacomp-ai/app/lora_candidate_runtime.py"
       - "services/instacomp-ai/app/lora_candidate_runtime_v2.py"
+      - "services/instacomp-ai/app/ollama.py"
       - "services/instacomp-ai/app/serial_evidence_guard.py"
+      - "services/instacomp-ai/tests/test_card_number_evidence_guard.py"
       - "services/instacomp-ai/tests/test_serial_evidence_guard.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server.py"
       - "services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py"
@@ -72,8 +78,10 @@ jobs:
         run: |
           python -m py_compile \
             services/instacomp-ai/app/candidate_identity_guard.py \
+            services/instacomp-ai/app/card_number_evidence_guard.py \
             services/instacomp-ai/app/lora_candidate_runtime_v2.py \
             services/instacomp-ai/app/serial_evidence_guard.py \
+            services/instacomp-ai/tests/test_card_number_evidence_guard.py \
             services/instacomp-ai/tests/test_serial_evidence_guard.py \
             services/instacomp-ai/scripts/run_lora_candidate_server.py \
             services/instacomp-ai/scripts/run_lora_candidate_server_legacy.py \
@@ -87,6 +95,11 @@ jobs:
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_five_v2.py
+
+      - name: Prove card-number OCR cannot overwrite an explicit candidate
+        env:
+          PYTHONPATH: services/instacomp-ai
+        run: python -m pytest -q services/instacomp-ai/tests/test_card_number_evidence_guard.py
 
       - name: Prove physical serial evidence parsing and candidate reconciliation
         env:
