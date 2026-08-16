@@ -1,0 +1,58 @@
+name: InstaComp Source Duplicate PDF Recovery Validate
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-source-duplicate-pdf-recovery-validate.yml'
+      - 'scripts/instacomp-target-checklists/recover-source-duplicate-pdfs.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/source-duplicate-pdf-harvest
+      SOURCE_DUPLICATE_PDF_RECEIPT: /home/runner/work/_temp/source-duplicate-pdf-harvest/source-duplicate-pdf-recovery-receipt.json
+      SOURCE_DUPLICATE_PDF_PLAN_DIR: /home/runner/work/_temp/source-duplicate-pdf-harvest/source-duplicate-pdf-plans
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install PDF text tools
+        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
+      - name: Download immutable 122-catalog harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/source-duplicate-pdf-harvest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+      - name: Prove immutable source bundle
+        run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+      - name: Recover and validate five source-duplicate Hockey PDFs
+        run: node --import tsx scripts/instacomp-target-checklists/recover-source-duplicate-pdfs.mjs
+      - name: Show recovery receipt
+        if: always()
+        shell: bash
+        run: |
+          test -s "$SOURCE_DUPLICATE_PDF_RECEIPT" && jq '{targetCount,validatedCount,unresolvedCount,validatedCards,validatedIdentities,results:[.results[]|{exactSetKey,status,coordinateRows,originalConflictErrorCount,resolvedDuplicateGroups,unresolvedDuplicateGroups,counts,validationErrors,error}]}' "$SOURCE_DUPLICATE_PDF_RECEIPT" || true
+      - name: Upload certified plans and receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-source-duplicate-pdf-recovery-${{ github.run_id }}
+          path: |
+            /home/runner/work/_temp/source-duplicate-pdf-harvest/source-duplicate-pdf-recovery-receipt.json
+            /home/runner/work/_temp/source-duplicate-pdf-harvest/source-duplicate-pdf-plans
+          if-no-files-found: warn
+          retention-days: 90
