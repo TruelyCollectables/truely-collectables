@@ -23,12 +23,13 @@ jobs:
   recover-requested-hockey:
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 210
+    timeout-minutes: 240
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/requested-hockey-recovery
-      CERTIFIED_LAYOUT_PDF_PLAN_DIR: /home/runner/work/_temp/requested-hockey-recovery/layout-pdf-certification/layout-pdf-plans
+      CERTIFIED_LAYOUT_PDF_PLAN_DIR: /home/runner/work/_temp/requested-hockey-recovery/combined-pdf-plans
       CERTIFIED_LAYOUT_PDF_APPLY_RECEIPT: /home/runner/work/_temp/requested-hockey-recovery/layout-pdf-apply-receipt.json
+      CERTIFIED_LAYOUT_PDF_EXACT_KEYS_JSON: '["hockey|2021-22|topps|sticker-collection-nhl","hockey|2022-23|upper-deck|o-pee-chee-nhl","hockey|2022|leaf|art-of","hockey|2021-22|upper-deck|the-cup-nhl","hockey|2022-23|upper-deck|premier-nhl","hockey|2023-24|upper-deck|skybox-metal-universe-nhl","hockey|2024-25|upper-deck|series-two-nhl","hockey|2024-25|upper-deck|sp-authentic-nhl"]'
       CHECKLIST_REGISTRY_SET_CHUNK: '100'
       CHECKLIST_REGISTRY_CARD_CHUNK: '75'
       CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
@@ -40,6 +41,8 @@ jobs:
       CERTIFIED_LAYOUT_PDF_ATTEMPTS: '4'
       CERTIFIED_LAYOUT_PDF_RETRY_MS: '15000'
       CERTIFIED_LAYOUT_PDF_PREFLIGHT_ATTEMPTS: '5'
+      CERTIFIED_LAYOUT_PDF_WAVE_SIZE: '4'
+      CERTIFIED_LAYOUT_PDF_WAVE_DELAY_MS: '300000'
 
     steps:
       - uses: actions/checkout@v4
@@ -64,22 +67,36 @@ jobs:
       - name: Prove immutable source bundle
         run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
 
-      - name: Download certified three-PDF recovery plans
+      - name: Download certified easy PDF recovery plans
         uses: actions/download-artifact@v4
         with:
           name: instacomp-layout-pdf-recovery-31975826952
-          path: /home/runner/work/_temp/requested-hockey-recovery/layout-pdf-certification
+          path: /home/runner/work/_temp/requested-hockey-recovery/pdf-easy
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: 31975826952
 
-      - name: Prove three certified PDF plans
+      - name: Download certified duplicate-number PDF recovery plans
+        uses: actions/download-artifact@v4
+        with:
+          name: instacomp-source-duplicate-pdf-recovery-31976899232
+          path: /home/runner/work/_temp/requested-hockey-recovery/pdf-duplicates
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976899232
+
+      - name: Prove and combine eight certified PDF plans
         shell: bash
         run: |
           set -euo pipefail
-          receipt="$VERIFIED_HARVEST_ROOT/layout-pdf-certification/layout-pdf-recovery-receipt.json"
-          test -s "$receipt"
-          jq -e '.targetCount == 3 and .validatedCount == 3 and .unresolvedCount == 0' "$receipt"
-          test "$(find "$CERTIFIED_LAYOUT_PDF_PLAN_DIR" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')" = '3'
+          easy="$VERIFIED_HARVEST_ROOT/pdf-easy/layout-pdf-recovery-receipt.json"
+          duplicate="$VERIFIED_HARVEST_ROOT/pdf-duplicates/source-duplicate-pdf-recovery-receipt.json"
+          test -s "$easy"
+          test -s "$duplicate"
+          jq -e '.targetCount == 3 and .validatedCount == 3 and .unresolvedCount == 0' "$easy"
+          jq -e '.targetCount == 5 and .validatedCount == 5 and .unresolvedCount == 0' "$duplicate"
+          mkdir -p "$CERTIFIED_LAYOUT_PDF_PLAN_DIR"
+          cp "$VERIFIED_HARVEST_ROOT"/pdf-easy/layout-pdf-plans/*.json "$CERTIFIED_LAYOUT_PDF_PLAN_DIR"/
+          cp "$VERIFIED_HARVEST_ROOT"/pdf-duplicates/source-duplicate-pdf-plans/*.json "$CERTIFIED_LAYOUT_PDF_PLAN_DIR"/
+          test "$(find "$CERTIFIED_LAYOUT_PDF_PLAN_DIR" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')" = '8'
 
       - name: Recover seven requested workbook holdouts in waves of four
         id: workbook_recovery
@@ -133,15 +150,15 @@ jobs:
             [[ -s "$receipt" ]] && existing+=("$receipt")
           done
           if (( ${#existing[@]} )); then
-            jq -s '{schema:"tcos.requestedHockeyWorkbookRecoveryCombined.v3",targetCount:7,receiptCount:length,persistedCount:(map(.persistedCount // 0)|add // 0),unresolvedCount:(map(.unresolvedCount // 0)|add // 0),persistedCards:(map(.persistedCards // 0)|add // 0),persistedIdentities:(map(.persistedIdentities // 0)|add // 0),receipts:.}' "${existing[@]}" > "$root/combined.json"
+            jq -s '{schema:"tcos.requestedHockeyWorkbookRecoveryCombined.v4",targetCount:7,receiptCount:length,persistedCount:(map(.persistedCount // 0)|add // 0),unresolvedCount:(map(.unresolvedCount // 0)|add // 0),persistedCards:(map(.persistedCards // 0)|add // 0),persistedIdentities:(map(.persistedIdentities // 0)|add // 0),receipts:.}' "${existing[@]}" > "$root/combined.json"
           else
-            printf '%s\n' '{"schema":"tcos.requestedHockeyWorkbookRecoveryCombined.v3","targetCount":7,"receiptCount":0,"persistedCount":0,"unresolvedCount":7}' > "$root/combined.json"
+            printf '%s\n' '{"schema":"tcos.requestedHockeyWorkbookRecoveryCombined.v4","targetCount":7,"receiptCount":0,"persistedCount":0,"unresolvedCount":7}' > "$root/combined.json"
             overall=1
           fi
           jq '{targetCount,receiptCount,persistedCount,unresolvedCount,persistedCards,persistedIdentities}' "$root/combined.json"
           exit "$overall"
 
-      - name: Apply three certified requested Hockey PDF catalogs
+      - name: Apply eight certified requested Hockey PDF catalogs in waves of four
         id: pdf_apply
         continue-on-error: true
         run: node --import tsx scripts/instacomp-target-checklists/apply-certified-layout-pdfs.mjs
@@ -179,4 +196,4 @@ jobs:
           test -s "$workbook"
           test -s "$pdf"
           jq -e '.receiptCount == 7 and .unresolvedCount == 0' "$workbook"
-          jq -e '.targetCount == 3 and .failedCount == 0 and ((.persistedCount + .alreadyLiveCount) == 3)' "$pdf"
+          jq -e '.targetCount == 8 and .failedCount == 0 and ((.persistedCount + .alreadyLiveCount) == 8)' "$pdf"
