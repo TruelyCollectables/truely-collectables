@@ -1,0 +1,103 @@
+name: Checklist Apply Coordinate WNBA Hockey 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-apply-coordinate-wnba-hockey-20260815.yml'
+      - 'scripts/apply-coordinate-harvest-plans.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-apply-coordinate-wnba-hockey-20260815
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 30
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      COORDINATE_SOURCE_RUN_ID: '31921722829'
+      COORDINATE_DB_HEALTH_ATTEMPTS: '10'
+      COORDINATE_DB_HEALTH_DELAY_MS: '20000'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install runtime dependencies
+        run: npm ci
+
+      - name: Download clean coordinate harvest bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: checklist-coordinate-wnba-hockey-31921722829
+          path: ${{ runner.temp }}/coordinate-bundle
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: TruelyCollectables/truely-collectables
+          run-id: 31921722829
+
+      - name: Resolve Production Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/coordinate-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+          echo "COORDINATE_HARVEST_ROOT=$RUNNER_TEMP/coordinate-bundle" >> "$GITHUB_ENV"
+          echo "COORDINATE_APPLY_RECEIPT=$RUNNER_TEMP/coordinate-bundle/production-apply-receipt.json" >> "$GITHUB_ENV"
+
+      - name: Apply 17 validated plans to Production Registry
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx scripts/apply-coordinate-harvest-plans.mjs
+
+      - name: Print Production receipt
+        if: always()
+        shell: bash
+        run: |
+          receipt="$RUNNER_TEMP/coordinate-bundle/production-apply-receipt.json"
+          if [ -s "$receipt" ]; then
+            jq '{requestedCount,attemptedCount,persistedCount,persistedCards,persistedParallels,persistedIdentities,results:[.results[]|{exactSetKey,status,counts,error}]}' "$receipt"
+          else
+            echo 'No Production apply receipt was created.'
+          fi
+
+      - name: Upload Production apply receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-coordinate-production-apply-${{ github.run_id }}
+          path: ${{ runner.temp }}/coordinate-bundle/production-apply-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/coordinate-production" .env.local .env.production.local .vercel
