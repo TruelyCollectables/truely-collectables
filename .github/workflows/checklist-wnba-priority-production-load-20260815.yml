@@ -1,0 +1,176 @@
+name: Checklist WNBA Priority Production Load 20260815
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/workflows/checklist-wnba-priority-production-load-20260815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+
+jobs:
+  wnba-production-load:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 110
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/wnba-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Build WNBA target queue using existing Production keys when available
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/wnba-load"
+          mkdir -p "$out"
+          curl --silent --show-error --fail --get --max-time 60 \
+            -H "apikey: $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+            --data-urlencode 'select=source_url,release_name,status,metadata' \
+            --data-urlencode 'or=(source_url.ilike.*wnba*,release_name.ilike.*WNBA*)' \
+            --data-urlencode 'limit=1000' \
+            "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/checklist_source_catalog" > "$out/existing-wnba.json"
+
+          OUT="$out" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const out = process.env.OUT;
+          const existing = JSON.parse(readFileSync(join(out, 'existing-wnba.json'), 'utf8'));
+          const desired = [
+            { year: 2024, product: 'origins', name: '2024 Panini Origins WNBA', url: 'https://gogts.net/2024-panini-origins-wnba-basketball-cards-checklist/' },
+            { year: 2024, product: 'select', name: '2024 Panini Select WNBA', url: 'https://gogts.net/2024-panini-select-wnba-basketball-cards-checklist/' },
+            { year: 2024, product: 'prizm', name: '2024 Panini Prizm WNBA', url: 'https://gogts.net/2024-panini-prizm-wnba-basketball-cards-checklist/' },
+            { year: 2025, product: 'donruss', name: '2025 Donruss WNBA', url: 'https://gogts.net/2025-donruss-wnba-basketball-cards-checklist/' },
+            { year: 2025, product: 'prizm', name: '2025 Panini Prizm WNBA', url: 'https://gogts.net/2025-panini-prizm-wnba-basketball-cards-checklist/' },
+            { year: 2025, product: 'select', name: '2025 Panini Select WNBA', url: 'https://gogts.net/2025-panini-select-wnba-basketball-cards-checklist/' },
+            { year: 2025, product: 'impeccable', name: '2025 Panini Impeccable WNBA', url: 'https://gogts.net/2025-panini-impeccable-wnba-basketball-cards-checklist/' },
+            { year: 2025, product: 'one-and-one', name: '2025 Panini One and One WNBA', url: 'https://gogts.net/2025-panini-one-and-one-wnba-basketball-cards-checklist/' }
+          ];
+          const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+          function score(row, d) {
+            const hay = norm(`${row.release_name || ''} ${row.source_url || ''}`);
+            let n = 0;
+            if (hay.includes(String(d.year))) n += 5;
+            if (hay.includes('wnba')) n += 10;
+            for (const token of d.product.split('-')) if (hay.includes(token)) n += 4;
+            return n;
+          }
+          const targets = desired.map(d => {
+            const ranked = existing.map(row => ({ row, score: score(row, d) })).sort((a,b) => b.score-a.score);
+            const best = ranked[0]?.score >= 15 ? ranked[0].row : null;
+            const existingKey = best?.metadata?.exactSetKey || best?.metadata?.masterArchiveExactSetKey || null;
+            const exactSetKey = existingKey || `basketball|${d.year}|panini|${d.product}-wnba`;
+            return {
+              exactSetKey,
+              year: d.year,
+              sport: 'basketball',
+              sourceArtifact: 'priority-wnba-production-load-20260815',
+              exactCandidateCount: 1,
+              trustedAutoImportCandidateCount: 1,
+              candidates: [],
+              sourceUrl: d.url,
+              desiredName: d.name,
+              reusedProductionKey: Boolean(existingKey)
+            };
+          });
+          writeFileSync(join(out, 'queue.json'), JSON.stringify({
+            schema: 'tcos.checklist.mainstream2005plusCandidateValidationQueue.v1',
+            count: targets.length,
+            targets: targets.map(({sourceUrl,desiredName,reusedProductionKey,...t}) => t)
+          }, null, 2));
+          writeFileSync(join(out, 'filter.json'), JSON.stringify({
+            schema: 'tcos.checklist.wnbaPriorityTargets.v1',
+            targets: targets.map(t => ({ exactSetKey: t.exactSetKey, sourceUrl: t.sourceUrl }))
+          }, null, 2));
+          writeFileSync(join(out, 'resolved-targets.json'), JSON.stringify({ count: targets.length, targets }, null, 2));
+          console.log(JSON.stringify({ targets: targets.map(t => ({ name:t.desiredName, exactSetKey:t.exactSetKey, reusedProductionKey:t.reusedProductionKey, sourceUrl:t.sourceUrl })) }, null, 2));
+          NODE
+
+      - name: Import WNBA targets into Production Registry
+        shell: bash
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/wnba-load"
+          PUBLIC_WEB_CANDIDATE_QUEUE="$out/queue.json" \
+          PUBLIC_WEB_TARGET_FILTER="$out/filter.json" \
+          PUBLIC_WEB_PROMOTION_APPLY=true \
+          PUBLIC_WEB_PROMOTION_OUTPUT="$out/receipt.json" \
+          PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$out/validated.json" \
+          PUBLIC_WEB_MINING_RUN_ID="$GITHUB_RUN_ID" \
+          PUBLIC_WEB_AGGREGATE_RUN_ID="$GITHUB_RUN_ID" \
+          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+
+      - name: Require verified Production persistence for every WNBA target
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/wnba-load/receipt.json"
+          jq . "$receipt"
+          expected="$(jq '.count' "$RUNNER_TEMP/wnba-load/resolved-targets.json")"
+          imported="$(jq '[.results[] | select(.status == "imported" and .persistence.ok == true)] | length' "$receipt")"
+          echo "WNBA verified persisted: $imported / $expected"
+          jq -r '.results[] | [.exactSetKey,.status,(.counts.cards // 0),(.counts.parallels // 0),(.persistence.ok // false),(.persistence.idempotent // false),(.message // "")] | @tsv' "$receipt"
+          test "$imported" -eq "$expected"
+
+      - name: Upload WNBA Production receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-wnba-priority-production-load-${{ github.run_id }}
+          path: ${{ runner.temp }}/wnba-load
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/wnba-production" .env.local .env.production.local .vercel
