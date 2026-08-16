@@ -8,7 +8,7 @@ const CATALOG_ROOT = resolve(process.cwd(), process.env.MASTER_CHECKLIST_CATALOG
 const OUTPUT_ROOT = resolve(process.cwd(), process.env.INSTACOMP_TARGET_CORPUS_ROOT || ".instacomp-target-checklist-corpus");
 const ARCHIVE_PREFIX = ".card-checklist-master-archive";
 const BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.INSTACOMP_TARGET_BATCH_SIZE || 50)));
-const STRUCTURED_EXTENSIONS = new Set([".csv", ".tsv", ".txt", ".xls", ".xlsx"]);
+const STRUCTURED_EXTENSIONS = new Set([".csv", ".tsv", ".txt", ".xls", ".xlsx", ".html", ".htm"]);
 const SUPPLEMENTAL_SOURCES = new Map([
   ["hockey|2024-25|upper-deck|artifacts", {
     id: "recovered-2024-25-upper-deck-artifacts", source: "upperdeck", title: "2024-25 Upper Deck Artifacts Checklist",
