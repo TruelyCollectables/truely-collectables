@@ -4,12 +4,14 @@ import { dirname, resolve } from "node:path";
 import { postChecklistRegistryAction } from "./lib/checklist-registry-action-client";
 
 const INDEX_URL = "https://www.topps.com/pages/checklists";
-const MAX_PRODUCTS = Math.max(1, Number(process.env.TOPPS_BASEBALL_MAX_PRODUCTS || 40));
+const MAX_PRODUCTS = Math.max(1, Math.min(40, Number(process.env.TOPPS_BASEBALL_MAX_PRODUCTS || 40)));
 const OUTPUT = resolve(
   process.cwd(),
   process.env.TOPPS_BASEBALL_DISCOVERY_OUTPUT ||
     ".checklist-discovery/topps-baseball-receipt.json",
 );
+
+type ProductPage = { url: string; title: string };
 
 function clean(value: string) {
   return value
@@ -72,7 +74,7 @@ function inferYear(value: string) {
   return value.match(/\b(20\d{2})\b/)?.[1] || null;
 }
 function productPages(html: string) {
-  const unique = new Map<string, { url: string; title: string }>();
+  const unique = new Map<string, ProductPage>();
   for (const anchor of anchors(html, INDEX_URL)) {
     if (!isBaseballTitle(anchor.text)) continue;
     const parsed = new URL(anchor.url);
@@ -80,7 +82,7 @@ function productPages(html: string) {
     if (!/^\/pages\//i.test(parsed.pathname) && !/^\/products\//i.test(parsed.pathname)) continue;
     unique.set(anchor.url, { url: anchor.url, title: anchor.text });
   }
-  return [...unique.values()].slice(0, MAX_PRODUCTS);
+  return [...unique.values()];
 }
 function checklistAssets(html: string, pageUrl: string) {
   const unique = new Map<string, { url: string; label: string }>();
@@ -103,9 +105,55 @@ function mimeType(url: string, header: string) {
   return "application/octet-stream";
 }
 
+async function selectDailyProducts(candidates: ProductPage[]) {
+  const response = await postChecklistRegistryAction({
+    operation: "topps_select_products",
+    productPages: candidates,
+    limit: MAX_PRODUCTS,
+  });
+  const result = response.result;
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("Checklist Registry returned an invalid Topps selection result.");
+  }
+  const selected = (result as Record<string, unknown>).productPages;
+  if (!Array.isArray(selected)) throw new Error("Checklist Registry returned invalid Topps product pages.");
+  return selected.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Checklist Registry returned an invalid Topps product candidate.");
+    }
+    const candidate = value as Record<string, unknown>;
+    if (typeof candidate.url !== "string" || typeof candidate.title !== "string") {
+      throw new Error("Checklist Registry returned an invalid Topps product candidate.");
+    }
+    return { url: candidate.url, title: candidate.title };
+  });
+}
+
+async function recordNoChecklistAsset(page: ProductPage, html: string) {
+  const checkedAt = new Date().toISOString();
+  await postChecklistRegistryAction({
+    operation: "topps_catalog_upsert",
+    sourceUrl: page.url,
+    sourceSha256: sha256(html),
+    releaseName: page.title,
+    status: "discovered",
+    checkedAt,
+    issueSummary: [],
+    metadata: {
+      productPageUrl: page.url,
+      noChecklistAsset: true,
+      releaseYear: inferYear(page.title),
+      mimeType: "text/html",
+      sizeBytes: Buffer.byteLength(html, "utf8"),
+      provider: "topps_official_checklist_index",
+    },
+  });
+}
+
 async function main() {
   const startedAt = new Date().toISOString();
-  const pages = productPages(await fetchHtml(INDEX_URL));
+  const candidates = productPages(await fetchHtml(INDEX_URL));
+  const pages = await selectDailyProducts(candidates);
   const results: Array<Record<string, unknown>> = [];
 
   for (const page of pages) {
@@ -113,6 +161,7 @@ async function main() {
       const html = await fetchHtml(page.url);
       const assets = checklistAssets(html, page.url);
       if (!assets.length) {
+        await recordNoChecklistAsset(page, html);
         results.push({ productPage: page.url, title: page.title, status: "no_checklist_asset" });
         continue;
       }
@@ -174,6 +223,7 @@ async function main() {
     startedAt,
     completedAt: new Date().toISOString(),
     indexUrl: INDEX_URL,
+    candidateProductCount: candidates.length,
     productCount: pages.length,
     results,
   };
