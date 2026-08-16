@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveChecklistRegistry } from "../../../../lib/instacomp-learning-server";
+import { shouldApplyInstaCompRegistryLockPublicRateLimit } from "../../../../lib/instacomp-checklist-rate-limit-policy";
 import {
   buildInstaCompRegistryLockProbe,
   publicRegistryLockStatus,
@@ -32,23 +33,34 @@ export async function POST(req: NextRequest) {
         }
       : await requireInstaCompJobActor(req);
 
-    if (!sentinelMacRequest) {
-      assertTrustedInstaCompMutationRequest({ request: req, actor });
-    }
+    const security = sentinelMacRequest
+      ? null
+      : assertTrustedInstaCompMutationRequest({ request: req, actor });
 
-    const rateLimit = await checkPublicEndpointRateLimit({
-      request: req,
-      endpointKey: "instacomp_registry_lock",
-      subjectKey:
-        actor.type === "seller"
-          ? `seller:${actor.sellerAccountId}`
-          : `admin:${actor.storeId}`,
-      maxAttempts: 2000,
-      windowSeconds: 24 * 60 * 60,
-    });
-    if (!rateLimit.allowed) {
-      const blocked = publicEndpointRateLimitResponse(rateLimit);
-      return NextResponse.json(blocked.body, { status: blocked.status });
+    // Both internal Mac credentials are authenticated before this point. They
+    // are intentionally unthrottled so promotion, certification, and torture
+    // tests can drive Registry at full speed without consuming a public abuse
+    // bucket. Seller and browser-admin callers retain the existing limiter.
+    if (
+      shouldApplyInstaCompRegistryLockPublicRateLimit({
+        channel: security?.channel ?? null,
+        sentinelMacRequest,
+      })
+    ) {
+      const rateLimit = await checkPublicEndpointRateLimit({
+        request: req,
+        endpointKey: "instacomp_registry_lock",
+        subjectKey:
+          actor.type === "seller"
+            ? `seller:${actor.sellerAccountId}`
+            : `admin:${actor.storeId}`,
+        maxAttempts: 2000,
+        windowSeconds: 24 * 60 * 60,
+      });
+      if (!rateLimit.allowed) {
+        const blocked = publicEndpointRateLimitResponse(rateLimit);
+        return NextResponse.json(blocked.body, { status: blocked.status });
+      }
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
