@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   census-harvest:
@@ -69,8 +70,7 @@ jobs:
     environment: Production
     timeout-minutes: 120
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       COORDINATE_HARVEST_ROOT: /home/runner/work/_temp/exhaustive-hockey-wnba
       COORDINATE_APPLY_RECEIPT: /home/runner/work/_temp/exhaustive-hockey-wnba/production-apply-receipt.json
       COORDINATE_APPLY_MAX_SETS: "250"
@@ -88,6 +88,29 @@ jobs:
         with:
           name: exhaustive-hockey-wnba-${{ github.run_id }}
           path: /home/runner/work/_temp/exhaustive-hockey-wnba
+      - name: Resolve Production Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/exhaustive-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
       - name: Apply every clean plan to Production Registry
         run: |
           set -o pipefail
@@ -109,3 +132,6 @@ jobs:
           path: /home/runner/work/_temp/exhaustive-hockey-wnba/production-apply-receipt.json
           if-no-files-found: warn
           retention-days: 90
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/exhaustive-production" .env.local .env.production.local .vercel
