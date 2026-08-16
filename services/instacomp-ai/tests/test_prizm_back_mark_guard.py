@@ -17,8 +17,6 @@ def _back_image(*, dark: bool) -> bytes:
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
 
-    # Matches the synthetic Apple Vision lower-left box below:
-    # x=.20..45, y=.55..60 -> PIL top-left y=.40..45.
     left, right = int(0.20 * width), int(0.45 * width)
     top, bottom = int(0.40 * height), int(0.45 * height)
     ink = (20, 20, 20) if dark else (185, 185, 185)
@@ -90,20 +88,26 @@ def test_missing_back_prizm_mark_forces_prizm_family_to_base():
     evidence = _vision(back_text=None, parallel="Silver Prizm")
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
     assert guarded.identity_hints.parallel == "Base"
-    assert any(
-        "forced to Base" in value
-        for value in guarded.back.pattern.geometry
-    )
+    assert any("forced to Base" in value for value in guarded.back.pattern.geometry)
 
 
-def test_present_back_prizm_mark_preserves_non_base_evidence():
-    evidence = _vision(back_text="PRIZM", parallel="Silver Prizm")
+def test_present_back_prizm_mark_sets_silver_minimum_when_parallel_is_missing():
+    evidence = _vision(back_text="PRIZM", parallel=None)
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
     assert guarded.identity_hints.parallel == "Silver Prizm"
-    assert any(
-        "PRIZM back mark present" in value
-        for value in guarded.back.pattern.geometry
-    )
+    assert any("minimum parallel Silver Prizm" in value for value in guarded.back.pattern.geometry)
+
+
+def test_present_back_prizm_mark_upgrades_base_to_silver_minimum():
+    evidence = _vision(back_text="PRIZM", parallel="Base")
+    guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
+    assert guarded.identity_hints.parallel == "Silver Prizm"
+
+
+def test_present_back_prizm_mark_preserves_stronger_non_base_evidence():
+    evidence = _vision(back_text="PRIZM", parallel="Green Prizm")
+    guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
+    assert guarded.identity_hints.parallel == "Green Prizm"
 
 
 def test_model_cannot_promote_silver_over_guarded_base():
@@ -125,6 +129,45 @@ def test_model_cannot_promote_silver_over_guarded_base():
     assert merged["identity"]["parallel"] == "Base"
 
 
+def test_model_base_is_upgraded_to_silver_when_back_prizm_is_present():
+    evidence = _vision(back_text="PRIZM", parallel=None)
+    guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
+    merged = merge_local_vision_payload(
+        {
+            "identity": {
+                "brand": "2025 Panini Prizm WNBA",
+                "set_name": "Base",
+                "player": "Aari McDonald",
+                "card_number": "10",
+                "parallel": "Base",
+            },
+            "evidence": {},
+        },
+        guarded,
+    )
+    assert merged["identity"]["parallel"] == "Silver Prizm"
+
+
+def test_model_color_survives_when_back_prizm_is_present():
+    evidence = _vision(back_text="PRIZM", parallel="Green Prizm")
+    guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
+    merged = merge_local_vision_payload(
+        {
+            "identity": {
+                "brand": "2025 Panini Prizm WNBA",
+                "set_name": "Base",
+                "player": "Aneesah Morrow",
+                "card_number": "79",
+                "parallel": "Green Prizm",
+            },
+            "evidence": {},
+        },
+        guarded,
+    )
+    assert merged["identity"]["parallel"] == "Green Prizm"
+
+
 def test_ollama_prompt_uses_authoritative_back_rule():
     assert "absence is not proof of Base" not in SYSTEM_PROMPT
     assert "bold black word PRIZM on the BACK is authoritative" in SYSTEM_PROMPT
+    assert "at least Silver Prizm" in SYSTEM_PROMPT
