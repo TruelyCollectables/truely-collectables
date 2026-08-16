@@ -1,0 +1,92 @@
+name: InstaComp Certified PDF Management Production
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-certified-pdf-management-production.yml'
+      - 'scripts/instacomp-target-checklists/apply-certified-pdfs-management.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-certified-pdf-management-production
+  cancel-in-progress: true
+
+jobs:
+  apply-certified-pdfs:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/certified-pdf-management/harvest
+      EASY_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/certified-pdf-management/easy/layout-pdf-plans
+      HARD_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/certified-pdf-management/hard/source-duplicate-pdf-plans
+      CERTIFIED_PDF_MANAGEMENT_RECEIPT: /home/runner/work/_temp/certified-pdf-management/certified-pdf-management-receipt.json
+      CERTIFIED_PDF_MANAGEMENT_WAVE_SIZE: '1'
+      CERTIFIED_PDF_MANAGEMENT_WAVE_DELAY_MS: '15000'
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
+      CHECKLIST_REGISTRY_SET_CHUNK: '100'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+      - name: Download immutable harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/certified-pdf-management/harvest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+      - name: Download easy certified plans
+        uses: actions/download-artifact@v4
+        with:
+          name: instacomp-layout-pdf-recovery-31975826952
+          path: /home/runner/work/_temp/certified-pdf-management/easy
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31975826952
+      - name: Download hard certified plans
+        uses: actions/download-artifact@v4
+        with:
+          name: instacomp-source-duplicate-pdf-recovery-31976899232
+          path: /home/runner/work/_temp/certified-pdf-management/hard
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976899232
+      - name: Prove certified plan artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.targetCount == 3 and .validatedCount == 3 and .unresolvedCount == 0' /home/runner/work/_temp/certified-pdf-management/easy/layout-pdf-recovery-receipt.json
+          jq -e '.targetCount == 5 and .validatedCount == 5 and .unresolvedCount == 0' /home/runner/work/_temp/certified-pdf-management/hard/source-duplicate-pdf-recovery-receipt.json
+      - name: Apply eight repaired Hockey PDFs through management SQL
+        run: node --import tsx scripts/instacomp-target-checklists/apply-certified-pdfs-management.mjs
+      - name: Summarize certified PDF receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$CERTIFIED_PDF_MANAGEMENT_RECEIPT"
+          jq '{updatedAt,targetCount,alreadyLiveCount,persistedCount,failedCount,persistedCards,persistedIdentities,results:[.results[]|{exactSetKey,status,counts,error}]}' "$CERTIFIED_PDF_MANAGEMENT_RECEIPT"
+      - name: Upload certified PDF receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-certified-pdf-management-${{ github.run_id }}
+          path: /home/runner/work/_temp/certified-pdf-management/certified-pdf-management-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
