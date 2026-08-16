@@ -1,5 +1,6 @@
 name: Cancel obsolete checklist run 20260815
 
+# Emergency cleanup for the obsolete run whose old concurrency policy can preempt the current writer.
 on:
   push:
     branches:
