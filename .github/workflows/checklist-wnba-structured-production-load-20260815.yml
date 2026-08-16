@@ -1,4 +1,4 @@
-# Resumable chunk-writer certification trigger v4
+# Resumable chunk-writer certification trigger v5
 name: Checklist WNBA Structured Production Load 20260815
 
 on:
@@ -10,7 +10,6 @@ on:
       - 'scripts/patch-wnba-panini-conflict-resolution.mjs'
       - 'scripts/patch-wnba-bulk-writer.mjs'
       - 'scripts/mainstream-checklist/chunked-registry-tools.mjs'
-      - 'scripts/install-checklist-chunked-writer.sh'
       - 'supabase/migrations/20260816134500_checklist_registry_chunked_writer.sql'
   workflow_dispatch:
 
@@ -104,7 +103,6 @@ jobs:
           node scripts/patch-wnba-bulk-writer.mjs
           node --check scripts/import-wnba-panini-pdfs.mjs
           node --check scripts/mainstream-checklist/chunked-registry-tools.mjs
-          bash -n scripts/install-checklist-chunked-writer.sh
 
       - name: Resolve Production Supabase
         shell: bash
@@ -127,12 +125,6 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
           echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
-
-      - name: Install Production resumable Registry writer only
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/install-checklist-chunked-writer.sh
 
       - name: Import all eight WNBA PDFs into Production Registry
         shell: bash
@@ -171,4 +163,4 @@ jobs:
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/checklist-chunked-writer-install" .env.local .env.production.local .vercel
+        run: rm -rf "$RUNNER_TEMP/wnba-production" "$RUNNER_TEMP/checklist-isolation" .env.local .env.production.local .vercel
