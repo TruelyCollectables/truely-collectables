@@ -1,7 +1,16 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { dbClient } from "./mainstream-checklist/registry-tools.mjs";
+import { createClient } from "@supabase/supabase-js";
 import { persistPlanStaged } from "./mainstream-checklist/staged-registry-writer.mjs";
+
+function dbClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey) throw new Error("Production Supabase credentials are required.");
+  return createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 const ROOT = resolve(process.env.COORDINATE_HARVEST_ROOT || "");
 const OUTPUT = resolve(process.env.COORDINATE_APPLY_RECEIPT || `${ROOT}/production-staged-apply-receipt.json`);
