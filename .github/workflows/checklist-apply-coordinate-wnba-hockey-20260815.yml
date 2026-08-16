@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/checklist-apply-coordinate-wnba-hockey-20260815.yml'
+      - 'supabase/migrations/20260816042000_tcos_checklist_staged_import.sql'
+      - 'scripts/mainstream-checklist/staged-registry-writer.mjs'
+      - 'scripts/apply-exhaustive-staged-plans.mjs'
   workflow_dispatch:
 
 permissions:
@@ -12,19 +15,38 @@ permissions:
   actions: read
 
 jobs:
-  probe:
+  staged-production-apply:
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 10
+    timeout-minutes: 180
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      COORDINATE_HARVEST_ROOT: /home/runner/work/_temp/exhaustive-staged
+      COORDINATE_APPLY_RECEIPT: /home/runner/work/_temp/exhaustive-staged/production-staged-apply-receipt.json
+      COORDINATE_APPLY_MAX_SETS: '250'
+      COORDINATE_SOURCE_RUN_ID: '31924171342'
+      COORDINATE_DB_HEALTH_ATTEMPTS: '18'
+      COORDINATE_DB_HEALTH_DELAY_MS: '5000'
+      CHECKLIST_REGISTRY_SET_CHUNK: '100'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_RPC_ATTEMPTS: '4'
     steps:
-      - name: Read live Registry indexes and incomplete imports
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Resolve Production Supabase credentials
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/registry-probe"
+          root="$RUNNER_TEMP/staged-production"
           mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
           curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -o "$root/projects.json" \
@@ -32,37 +54,90 @@ jobs:
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
-          sql=$(cat <<'SQL'
-          select jsonb_build_object(
-            'indexes', coalesce((
-              select jsonb_agg(jsonb_build_object('table', tablename, 'name', indexname, 'definition', indexdef) order by tablename,indexname)
-              from pg_indexes
-              where schemaname='public' and tablename in ('checklist_sets','checklist_cards','checklist_parallels','checklist_card_identities','checklist_versions')
-            ), '[]'::jsonb),
-            'incomplete', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'versionId',v.id,'releaseId',v.release_id,'product',r.product_name,'season',r.season,'year',r.release_year,
-                'status',v.status,'active',v.is_active,'sourceRows',v.source_row_count,'cards',v.normalized_card_count,
-                'identities',v.normalized_identity_count,'metadata',v.metadata
-              ) order by v.created_at desc)
-              from checklist_versions v join checklist_releases r on r.id=v.release_id
-              where v.status in ('importing','failed','validation_required')
-            ), '[]'::jsonb)
-          ) as registry_probe;
-          SQL
-          )
-          jq -n --arg query "$sql" '{query:$query}' > "$root/query.json"
-          curl --silent --show-error --fail --retry 2 --retry-all-errors --retry-delay 2 --max-time 60 \
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Deploy chunk-safe Registry migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/staged-production"
+          sql_file="supabase/migrations/20260816042000_tcos_checklist_staged_import.sql"
+          test -s "$sql_file"
+          jq -Rs '{query:.}' < "$sql_file" > "$root/migration.json"
+          curl --silent --show-error --fail --retry 2 --retry-all-errors --retry-delay 2 --max-time 120 \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
-            --data-binary @"$root/query.json" \
-            -o "$root/schema.json" \
-            "https://api.supabase.com/v1/projects/$project_ref/database/query"
-          jq . "$root/schema.json"
-      - name: Upload exact schema
+            --data-binary @"$root/migration.json" \
+            -o "$root/migration-result.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
+          jq . "$root/migration-result.json"
+
+      - name: Prove staged RPCs are live
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/staged-production"
+          sql="select proname, pg_get_function_identity_arguments(p.oid) args from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and proname in ('tcos_begin_checklist_import_plan','tcos_append_checklist_import_chunk','tcos_finalize_checklist_import_plan') order by proname;"
+          jq -n --arg query "$sql" '{query:$query}' > "$root/proof-query.json"
+          curl --silent --show-error --fail --max-time 60 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @"$root/proof-query.json" \
+            -o "$root/proof.json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query"
+          jq . "$root/proof.json"
+          test "$(jq 'length' "$root/proof.json")" -ge 3
+
+      - name: Download validated exhaustive harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: checklist-exhaustive-census-harvest-31924171342
+          path: /home/runner/work/_temp/exhaustive-staged
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Prove validated input bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$COORDINATE_HARVEST_ROOT/output/summary.json"
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities}' "$COORDINATE_HARVEST_ROOT/output/summary.json"
+
+      - name: Apply every clean plan through staged Registry writer
+        shell: bash
+        run: |
+          set -o pipefail
+          node --experimental-strip-types scripts/apply-exhaustive-staged-plans.mjs
+
+      - name: Print Production staged receipt
+        if: always()
+        shell: bash
+        run: |
+          receipt="$COORDINATE_APPLY_RECEIPT"
+          if [ -s "$receipt" ]; then
+            jq '{sourceHarvestRunId,summaryCounts,requestedCount,attemptedCount,persistedCount,persistedCards,persistedParallels,persistedIdentities,results:[.results[]|{exactSetKey,status,counts,error,transactionCounts:.transaction.counts}]}' "$receipt"
+          else
+            echo 'No Production staged receipt was created.'
+          fi
+
+      - name: Upload Production staged receipt
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: registry-index-probe-${{ github.run_id }}
-          path: ${{ runner.temp }}/registry-probe/schema.json
-          if-no-files-found: error
-          retention-days: 7
+          name: checklist-production-staged-${{ github.run_id }}
+          path: /home/runner/work/_temp/exhaustive-staged/production-staged-apply-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/staged-production" .env.local .env.production.local .vercel
