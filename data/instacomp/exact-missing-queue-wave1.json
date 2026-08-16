@@ -8,147 +8,139 @@
     "automaticNonBeckettEligibleTargets": 243
   },
   "hardLock": "Only these exact reviewed queue targets may be processed; active live Production targets must be skipped.",
+  "wavePurpose": "Second exact Production wave using queue targets with Cardboard Connection sources after wave 1 proved staged persistence.",
   "targets": [
     {
-      "searchId": "SR-0236",
-      "exactSetKey": "golf|2021|upper-deck|sp-game-used",
-      "year": 2021,
+      "searchId": "SR-0033",
+      "exactSetKey": "baseball|2006|topps|series-3-updates-and-highlights-hobby",
+      "year": 2006,
+      "sport": "baseball",
+      "season": "2006",
+      "manufacturer": "Topps",
+      "product": "Series 3 Updates and Highlights Hobby",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2006-topps-updates-highlights-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0042",
+      "exactSetKey": "football|2006|upper-deck|arena",
+      "year": 2006,
+      "sport": "football",
+      "season": "2006",
+      "manufacturer": "Upper Deck",
+      "product": "Arena",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2006-upper-deck-arena-football-3"}]
+    },
+    {
+      "searchId": "SR-0048",
+      "exactSetKey": "baseball|2007|topps|update-set",
+      "year": 2007,
+      "sport": "baseball",
+      "season": "2007",
+      "manufacturer": "Topps",
+      "product": "Update Set",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2007-topps-updates-highlights-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0064",
+      "exactSetKey": "baseball|2009|topps|update-set",
+      "year": 2009,
+      "sport": "baseball",
+      "season": "2009",
+      "manufacturer": "Topps",
+      "product": "Update Set",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2009-topps-updates-highlights-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0206",
+      "exactSetKey": "baseball|2012|topps|heritage",
+      "year": 2012,
+      "sport": "baseball",
+      "season": "2012",
+      "manufacturer": "Topps",
+      "product": "Heritage",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2012-topps-heritage-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0214",
+      "exactSetKey": "baseball|2012|topps|update-set",
+      "year": 2012,
+      "sport": "baseball",
+      "season": "2012",
+      "manufacturer": "Topps",
+      "product": "Update Set",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2012-topps-update-series-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0222",
+      "exactSetKey": "baseball|2013|topps|heritage",
+      "year": 2013,
+      "sport": "baseball",
+      "season": "2013",
+      "manufacturer": "Topps",
+      "product": "Heritage",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2013-topps-heritage-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0223",
+      "exactSetKey": "baseball|2013|topps|update-set",
+      "year": 2013,
+      "sport": "baseball",
+      "season": "2013",
+      "manufacturer": "Topps",
+      "product": "Update Set",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2013-topps-update-series-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0224",
+      "exactSetKey": "baseball|2014|topps|heritage",
+      "year": 2014,
+      "sport": "baseball",
+      "season": "2014",
+      "manufacturer": "Topps",
+      "product": "Heritage",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2014-topps-heritage-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0225",
+      "exactSetKey": "baseball|2014|topps|update-set",
+      "year": 2014,
+      "sport": "baseball",
+      "season": "2014",
+      "manufacturer": "Topps",
+      "product": "Update Set",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2014-topps-update-series-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0226",
+      "exactSetKey": "golf|2014|upper-deck|sp-game-used",
+      "year": 2014,
       "sport": "golf",
-      "season": "2021",
+      "season": "2014",
       "manufacturer": "Upper Deck",
       "product": "SP Game Used",
       "classification": "Standalone checklist found",
-      "sources": [{"name": "Upper Deck", "url": "https://upperdeck.com/checklist/2021-sp-game-used-golf-checklist/"}]
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2014-sp-game-used-golf-cards"}]
     },
     {
-      "searchId": "SR-0304",
-      "exactSetKey": "hockey|2024-25|upper-deck|artifacts",
-      "year": 2024,
-      "sport": "hockey",
-      "season": "2024-25",
-      "manufacturer": "Upper Deck",
-      "product": "Artifacts",
-      "classification": "Standalone checklist found",
-      "sources": [{"name": "Upper Deck", "url": "https://upperdeck.com/checklist/2024-25-artifacts-checklist/"}]
-    },
-    {
-      "searchId": "SR-0312",
-      "exactSetKey": "hockey|2025-26|upper-deck|star-rookies-box-set",
-      "year": 2025,
-      "sport": "hockey",
-      "season": "2025-26",
-      "manufacturer": "Upper Deck",
-      "product": "Star Rookies Box Set",
-      "classification": "Standalone checklist found",
-      "sources": [{"name": "Upper Deck", "url": "https://upperdeck.com/checklist/2025-2026-nhl-star-rookies-box-set-checklist/"}]
-    },
-    {
-      "searchId": "SR-0354",
-      "exactSetKey": "football|2024|donruss|donruss",
-      "year": 2024,
-      "sport": "football",
-      "season": "2024",
-      "manufacturer": "Donruss",
-      "product": "Donruss",
-      "classification": "Standalone checklist found",
-      "sources": [
-        {"name": "Go GTS", "url": "https://gogts.net/2024-donruss-nfl-football-cards-checklist/"},
-        {"name": "Trading Card Database", "url": "https://www.tcdb.com/Checklist.cfm/sid/462124/2024-Donruss"}
-      ]
-    },
-    {
-      "searchId": "SR-0002",
-      "exactSetKey": "baseball|2000|topps|traded-set",
-      "year": 2000,
+      "searchId": "SR-0227",
+      "exactSetKey": "baseball|2015|topps|heritage",
+      "year": 2015,
       "sport": "baseball",
-      "season": "2000",
-      "manufacturer": "Topps",
-      "product": "Traded Set",
-      "classification": "Public full checklist",
-      "sources": [
-        {"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2000-topps-traded-and-rookies-baseball-cards"},
-        {"name": "BaseballCardPedia", "url": "https://www.baseballcardpedia.com/index.php/2000_Topps_Traded"}
-      ]
-    },
-    {
-      "searchId": "SR-0004",
-      "exactSetKey": "baseball|2001|topps|heritage",
-      "year": 2001,
-      "sport": "baseball",
-      "season": "2001",
+      "season": "2015",
       "manufacturer": "Topps",
       "product": "Heritage",
-      "classification": "Public full checklist",
-      "sources": [
-        {"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2001-topps-heritage-baseball-cards"},
-        {"name": "BaseballCardPedia", "url": "https://baseballcardpedia.com/index.php/2001_Topps_Heritage"}
-      ]
-    },
-    {
-      "searchId": "SR-0100",
-      "exactSetKey": "basketball|2010-11|panini|elite-black-box",
-      "year": 2010,
-      "sport": "basketball",
-      "season": "2010-11",
-      "manufacturer": "Panini",
-      "product": "Elite Black Box",
       "classification": "Standalone checklist found",
-      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-11-panini-elite-black-box-basketball-checklist/"}]
-    },
-    {
-      "searchId": "SR-0101",
-      "exactSetKey": "basketball|2010-11|panini|prestige",
-      "year": 2010,
-      "sport": "basketball",
-      "season": "2010-11",
-      "manufacturer": "Panini",
-      "product": "Prestige",
-      "classification": "Standalone checklist found",
-      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-11-panini-prestige-basketball-box-checklist/"}]
-    },
-    {
-      "searchId": "SR-0102",
-      "exactSetKey": "basketball|2010-11|panini|threads",
-      "year": 2010,
-      "sport": "basketball",
-      "season": "2010-11",
-      "manufacturer": "Panini",
-      "product": "Threads",
-      "classification": "Standalone checklist found",
-      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/10-11-panini-threads-basketball-box-checklist/"}]
-    },
-    {
-      "searchId": "SR-0105",
-      "exactSetKey": "football|2010|donruss|rated-rookie-box-set",
-      "year": 2010,
-      "sport": "football",
-      "season": "2010",
-      "manufacturer": "Donruss",
-      "product": "Rated Rookie Box Set",
-      "classification": "Standalone checklist found",
-      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-panini-donruss-rated-rookie-rc-football-box-set/"}]
-    },
-    {
-      "searchId": "SR-0106",
-      "exactSetKey": "football|2010|panini|adrenalyn-xl",
-      "year": 2010,
-      "sport": "football",
-      "season": "2010",
-      "manufacturer": "Panini",
-      "product": "Adrenalyn XL",
-      "classification": "Standalone checklist found",
-      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-panini-adrenalyn-xl-football-checklist/"}]
-    },
-    {
-      "searchId": "SR-0108",
-      "exactSetKey": "football|2010|panini|classics",
-      "year": 2010,
-      "sport": "football",
-      "season": "2010",
-      "manufacturer": "Panini",
-      "product": "Classics",
-      "classification": "Standalone checklist found",
-      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-panini-classics-football-checklist/"}]
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2015-topps-heritage-baseball-cards"}]
     }
   ]
 }
