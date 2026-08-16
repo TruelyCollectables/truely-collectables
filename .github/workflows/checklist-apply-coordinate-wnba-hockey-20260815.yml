@@ -65,15 +65,18 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
           echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
 
-      - name: Deploy chunk-safe Registry migration
+      - name: Deploy chunk-safe Registry RPCs
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/staged-production"
           sql_file="supabase/migrations/20260816042000_tcos_checklist_staged_import.sql"
+          function_sql="$root/staged-rpcs.sql"
           test -s "$sql_file"
-          jq -Rs '{query:.}' < "$sql_file" > "$root/migration.json"
-          curl --silent --show-error --fail --retry 2 --retry-all-errors --retry-delay 2 --max-time 120 \
+          sed -n '/^create or replace function/,$p' "$sql_file" > "$function_sql"
+          test -s "$function_sql"
+          jq -Rs '{query:.}' < "$function_sql" > "$root/migration.json"
+          curl --silent --show-error --fail --max-time 75 \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
             --data-binary @"$root/migration.json" \
