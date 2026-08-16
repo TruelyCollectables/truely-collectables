@@ -19,6 +19,11 @@ on:
         description: Maximum checklist sources to process per run
         required: true
         default: "60"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/checklist-discovery-catchup-trigger-20260816"
   schedule:
     # Daily catch-up budget: 60 Upper Deck sources + 40 Topps product candidates = 100 checks/day.
     - cron: "17 11 * * *"
@@ -38,7 +43,7 @@ jobs:
     timeout-minutes: 45
     env:
       CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
-      CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || inputs.mode == 'apply' }}
+      CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || github.event_name == 'push' || inputs.mode == 'apply' }}
       CHECKLIST_DISCOVERY_MAX_PAGES: ${{ inputs.max_pages || '50' }}
       CHECKLIST_DISCOVERY_MAX_SOURCES: ${{ inputs.max_sources || '60' }}
       CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/receipt.json
