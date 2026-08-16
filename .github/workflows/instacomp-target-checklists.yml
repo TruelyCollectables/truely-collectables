@@ -115,10 +115,14 @@ jobs:
       - name: Extract only target source files
         run: |
           set -euo pipefail
-          mkdir -p "$MASTER_CHECKLIST_EXTRACTED_ROOT"
+          mkdir -p "$MASTER_CHECKLIST_EXTRACTED_ROOT" /tmp/master-checklist-artifact
+          unzip -q -o /tmp/master-checklist-archive.zip -d /tmp/master-checklist-artifact
+          master_tar="/tmp/master-checklist-artifact/sports-card-checklist-master-archive.tar.gz"
+          test -f "$master_tar"
           mapfile -t target_paths < "$INSTACOMP_TARGET_CORPUS_ROOT/extract-files.txt"
-          unzip -q -o /tmp/master-checklist-archive.zip "${target_paths[@]}" -d "$MASTER_CHECKLIST_EXTRACTED_ROOT"
-          rm -f /tmp/master-checklist-archive.zip
+          test "${#target_paths[@]}" -gt 0
+          tar -xzf "$master_tar" -C "$MASTER_CHECKLIST_EXTRACTED_ROOT" -- "${target_paths[@]}"
+          rm -rf /tmp/master-checklist-archive.zip /tmp/master-checklist-artifact
 
       - name: Validate or apply six guarded batches
         env:
