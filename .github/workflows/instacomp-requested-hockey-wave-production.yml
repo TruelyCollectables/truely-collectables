@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: instacomp-requested-hockey-wave-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apply-requested-hockey:
@@ -29,7 +29,7 @@ jobs:
       VERIFIED_SOURCE_RUN_ID: '31924171342'
       REQUESTED_HOCKEY_RECEIPT: /home/runner/work/_temp/requested-hockey-harvest/requested-hockey-wave-receipt.json
       REQUESTED_HOCKEY_WAVE_SIZE: '4'
-      REQUESTED_HOCKEY_WAVE_DELAY_MS: '300000'
+      REQUESTED_HOCKEY_WAVE_DELAY_MS: '15000'
       REQUESTED_HOCKEY_PREFLIGHT_ATTEMPTS: '6'
       REQUESTED_HOCKEY_PREFLIGHT_TIMEOUT_MS: '25000'
       REQUESTED_HOCKEY_PREFLIGHT_RETRY_MS: '5000'
