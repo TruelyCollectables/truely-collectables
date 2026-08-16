@@ -1,0 +1,154 @@
+{
+  "schema": "tcos.instacomp.exactMissingChecklistQueue.wave1.v1",
+  "sourceWorkbook": "instacomp_missing_checklists_master_queue_search_pass8_complete.xlsx",
+  "queueFacts": {
+    "knownExactMissingSets": 375,
+    "individualSearchAttemptsReviewed": 405,
+    "queuedSearchRows": 332,
+    "automaticNonBeckettEligibleTargets": 243
+  },
+  "hardLock": "Only these exact reviewed queue targets may be processed; active live Production targets must be skipped.",
+  "targets": [
+    {
+      "searchId": "SR-0236",
+      "exactSetKey": "golf|2021|upper-deck|sp-game-used",
+      "year": 2021,
+      "sport": "golf",
+      "season": "2021",
+      "manufacturer": "Upper Deck",
+      "product": "SP Game Used",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Upper Deck", "url": "https://upperdeck.com/checklist/2021-sp-game-used-golf-checklist/"}]
+    },
+    {
+      "searchId": "SR-0304",
+      "exactSetKey": "hockey|2024-25|upper-deck|artifacts",
+      "year": 2024,
+      "sport": "hockey",
+      "season": "2024-25",
+      "manufacturer": "Upper Deck",
+      "product": "Artifacts",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Upper Deck", "url": "https://upperdeck.com/checklist/2024-25-artifacts-checklist/"}]
+    },
+    {
+      "searchId": "SR-0312",
+      "exactSetKey": "hockey|2025-26|upper-deck|star-rookies-box-set",
+      "year": 2025,
+      "sport": "hockey",
+      "season": "2025-26",
+      "manufacturer": "Upper Deck",
+      "product": "Star Rookies Box Set",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Upper Deck", "url": "https://upperdeck.com/checklist/2025-2026-nhl-star-rookies-box-set-checklist/"}]
+    },
+    {
+      "searchId": "SR-0354",
+      "exactSetKey": "football|2024|donruss|donruss",
+      "year": 2024,
+      "sport": "football",
+      "season": "2024",
+      "manufacturer": "Donruss",
+      "product": "Donruss",
+      "classification": "Standalone checklist found",
+      "sources": [
+        {"name": "Go GTS", "url": "https://gogts.net/2024-donruss-nfl-football-cards-checklist/"},
+        {"name": "Trading Card Database", "url": "https://www.tcdb.com/Checklist.cfm/sid/462124/2024-Donruss"}
+      ]
+    },
+    {
+      "searchId": "SR-0002",
+      "exactSetKey": "baseball|2000|topps|traded-set",
+      "year": 2000,
+      "sport": "baseball",
+      "season": "2000",
+      "manufacturer": "Topps",
+      "product": "Traded Set",
+      "classification": "Public full checklist",
+      "sources": [
+        {"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2000-topps-traded-and-rookies-baseball-cards"},
+        {"name": "BaseballCardPedia", "url": "https://www.baseballcardpedia.com/index.php/2000_Topps_Traded"}
+      ]
+    },
+    {
+      "searchId": "SR-0004",
+      "exactSetKey": "baseball|2001|topps|heritage",
+      "year": 2001,
+      "sport": "baseball",
+      "season": "2001",
+      "manufacturer": "Topps",
+      "product": "Heritage",
+      "classification": "Public full checklist",
+      "sources": [
+        {"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2001-topps-heritage-baseball-cards"},
+        {"name": "BaseballCardPedia", "url": "https://baseballcardpedia.com/index.php/2001_Topps_Heritage"}
+      ]
+    },
+    {
+      "searchId": "SR-0100",
+      "exactSetKey": "basketball|2010-11|panini|elite-black-box",
+      "year": 2010,
+      "sport": "basketball",
+      "season": "2010-11",
+      "manufacturer": "Panini",
+      "product": "Elite Black Box",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-11-panini-elite-black-box-basketball-checklist/"}]
+    },
+    {
+      "searchId": "SR-0101",
+      "exactSetKey": "basketball|2010-11|panini|prestige",
+      "year": 2010,
+      "sport": "basketball",
+      "season": "2010-11",
+      "manufacturer": "Panini",
+      "product": "Prestige",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-11-panini-prestige-basketball-box-checklist/"}]
+    },
+    {
+      "searchId": "SR-0102",
+      "exactSetKey": "basketball|2010-11|panini|threads",
+      "year": 2010,
+      "sport": "basketball",
+      "season": "2010-11",
+      "manufacturer": "Panini",
+      "product": "Threads",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/10-11-panini-threads-basketball-box-checklist/"}]
+    },
+    {
+      "searchId": "SR-0105",
+      "exactSetKey": "football|2010|donruss|rated-rookie-box-set",
+      "year": 2010,
+      "sport": "football",
+      "season": "2010",
+      "manufacturer": "Donruss",
+      "product": "Rated Rookie Box Set",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-panini-donruss-rated-rookie-rc-football-box-set/"}]
+    },
+    {
+      "searchId": "SR-0106",
+      "exactSetKey": "football|2010|panini|adrenalyn-xl",
+      "year": 2010,
+      "sport": "football",
+      "season": "2010",
+      "manufacturer": "Panini",
+      "product": "Adrenalyn XL",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-panini-adrenalyn-xl-football-checklist/"}]
+    },
+    {
+      "searchId": "SR-0108",
+      "exactSetKey": "football|2010|panini|classics",
+      "year": 2010,
+      "sport": "football",
+      "season": "2010",
+      "manufacturer": "Panini",
+      "product": "Classics",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Sports Card Radio", "url": "https://www.sportscardradio.com/2010-panini-classics-football-checklist/"}]
+    }
+  ]
+}
