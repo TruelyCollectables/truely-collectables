@@ -90,3 +90,5 @@ jobs:
           path: /home/runner/work/_temp/certified-pdf-management/certified-pdf-management-receipt.json
           if-no-files-found: warn
           retention-days: 90
+
+# Registered trigger for repaired Hockey PDF production import.
