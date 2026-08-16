@@ -55,31 +55,121 @@ run_query \
   writer-identity-uniqueness-repair \
   supabase/migrations/20260807111500_checklist_identity_uniqueness_repair.sql
 
-# Reinstall the transactional writer from the exact source in this checkout. Do
-# not pull a historical raw-GitHub copy here: that can silently reinstall stale
-# function semantics after a production repair.
+# Reinstall the transactional writer from the exact source in this checkout, but
+# replace the quadratic JSONB source-key maps with transaction-local indexed temp
+# maps first. Panini releases contain thousands of cards; repeatedly concatenating
+# an ever-growing JSONB object made the otherwise-correct atomic writer exceed the
+# Supabase request window. Temp primary-key maps preserve identical semantics while
+# making source-key lookup O(log n) and keep the import atomic/fail-closed.
 writer_source="supabase/migrations/20260731161500_checklist_registry_transactional_writer.sql"
-python3 - "$writer_source" <<'PY'
+optimized_writer="$work_dir/checklist-registry-transactional-writer-optimized.sql"
+python3 - "$writer_source" "$optimized_writer" <<'PY'
 from pathlib import Path
 import sys
 
-source = Path(sys.argv[1]).read_text(encoding="utf-8")
+source_path = Path(sys.argv[1])
+out_path = Path(sys.argv[2])
+source = source_path.read_text(encoding="utf-8")
+
 release_target = "on conflict (release_id, source_type, source_url) do update"
 identity_target = "on conflict (identity_schema, fingerprint_sha256) do nothing;"
 if source.count(release_target) != 1:
     raise SystemExit("Transactional writer does not contain the expected release-source conflict target.")
 if source.count(identity_target) != 1:
     raise SystemExit("Transactional writer does not contain the expected identity conflict target.")
-PY
-run_query writer-conflict-target-reinstall "$writer_source"
 
-# Large but fully validated mainstream releases need more than the project's
-# default API-role timeout, but the Supabase client API is capped at 60 seconds.
-# Install a 55-second statement budget plus a 30-second lock wait for this atomic
-# writer only; validation and fail-closed Registry rules remain unchanged.
+replacements = [
+    (
+        "  v_set_map jsonb := '{}'::jsonb;\n  v_card_map jsonb := '{}'::jsonb;\n  v_parallel_map jsonb := '{}'::jsonb;\n",
+        "",
+    ),
+    (
+        "  ) returning id into v_import_run_id;\n\n  for v_set in select value from jsonb_array_elements(coalesce(p_plan->'sets','[]'::jsonb))\n",
+        "  ) returning id into v_import_run_id;\n\n"
+        "  create temporary table tcos_checklist_set_map (\n"
+        "    source_key text primary key,\n"
+        "    object_id uuid not null\n"
+        "  ) on commit drop;\n"
+        "  create temporary table tcos_checklist_card_map (\n"
+        "    source_key text primary key,\n"
+        "    object_id uuid not null,\n"
+        "    set_id uuid not null\n"
+        "  ) on commit drop;\n"
+        "  create temporary table tcos_checklist_parallel_map (\n"
+        "    source_key text primary key,\n"
+        "    object_id uuid not null\n"
+        "  ) on commit drop;\n\n"
+        "  for v_set in select value from jsonb_array_elements(coalesce(p_plan->'sets','[]'::jsonb))\n",
+    ),
+    (
+        "    v_set_map := v_set_map || jsonb_build_object(v_set->>'sourceKey', v_set_id::text);\n",
+        "    insert into pg_temp.tcos_checklist_set_map(source_key, object_id)\n"
+        "    values (v_set->>'sourceKey', v_set_id);\n",
+    ),
+    (
+        "    v_set_id := nullif(v_set_map->>(v_card->>'setSourceKey'), '')::uuid;\n",
+        "    select object_id into v_set_id\n"
+        "    from pg_temp.tcos_checklist_set_map\n"
+        "    where source_key = v_card->>'setSourceKey';\n",
+    ),
+    (
+        "    v_card_map := v_card_map || jsonb_build_object(v_card->>'sourceKey', v_card_id::text);\n",
+        "    insert into pg_temp.tcos_checklist_card_map(source_key, object_id, set_id)\n"
+        "    values (v_card->>'sourceKey', v_card_id, v_set_id);\n",
+    ),
+    (
+        "    v_set_id := nullif(v_set_map->>(v_parallel->>'setSourceKey'), '')::uuid;\n",
+        "    select object_id into v_set_id\n"
+        "    from pg_temp.tcos_checklist_set_map\n"
+        "    where source_key = v_parallel->>'setSourceKey';\n",
+    ),
+    (
+        "    v_parallel_map := v_parallel_map || jsonb_build_object(v_parallel->>'sourceKey', v_parallel_id::text);\n",
+        "    insert into pg_temp.tcos_checklist_parallel_map(source_key, object_id)\n"
+        "    values (v_parallel->>'sourceKey', v_parallel_id);\n",
+    ),
+    (
+        "    v_card_id := nullif(v_card_map->>(v_identity->>'cardSourceKey'), '')::uuid;\n"
+        "    if v_card_id is null then\n"
+        "      raise exception 'Checklist identity references unknown card source key %', v_identity->>'cardSourceKey';\n"
+        "    end if;\n\n"
+        "    select set_id into v_set_id from public.checklist_cards where id = v_card_id;\n",
+        "    select object_id, set_id into v_card_id, v_set_id\n"
+        "    from pg_temp.tcos_checklist_card_map\n"
+        "    where source_key = v_identity->>'cardSourceKey';\n"
+        "    if v_card_id is null then\n"
+        "      raise exception 'Checklist identity references unknown card source key %', v_identity->>'cardSourceKey';\n"
+        "    end if;\n",
+    ),
+    (
+        "      v_parallel_id := nullif(v_parallel_map->>(v_identity->>'parallelSourceKey'), '')::uuid;\n",
+        "      select object_id into v_parallel_id\n"
+        "      from pg_temp.tcos_checklist_parallel_map\n"
+        "      where source_key = v_identity->>'parallelSourceKey';\n",
+    ),
+]
+
+for before, after in replacements:
+    count = source.count(before)
+    if count != 1:
+        raise SystemExit(f"Checklist writer optimization expected one match, found {count}: {before[:90]!r}")
+    source = source.replace(before, after, 1)
+
+# Guard against accidentally leaving the quadratic maps in the installed writer.
+for forbidden in ("v_set_map :=", "v_card_map :=", "v_parallel_map :="):
+    if forbidden in source:
+        raise SystemExit(f"Optimized writer still contains quadratic map operation: {forbidden}")
+
+out_path.write_text(source, encoding="utf-8")
+PY
+run_query writer-conflict-target-reinstall "$optimized_writer"
+
+# Large but fully validated releases still need a bounded window. The optimized
+# writer normally completes well inside this budget; keeping the cap prevents a
+# malformed import from monopolizing a Production connection.
 run_query \
   writer-bounded-timeout \
   supabase/migrations/20260807124500_checklist_registry_writer_timeout.sql
 
 sleep 5
-echo "Checklist Registry uniqueness contracts, current writer, and bounded statement/lock timeouts are ready."
+echo "Checklist Registry uniqueness contracts, optimized atomic writer, and bounded timeouts are ready."
