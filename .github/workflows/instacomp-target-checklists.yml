@@ -134,7 +134,7 @@ jobs:
             echo "=== InstaComp target batch $batch / apply=$MASTER_CHECKLIST_APPLY ==="
             MASTER_CHECKLIST_BATCH_INDEX="$batch" \
             MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target/batch-${batch}.json" \
-              node scripts/ingest-master-checklist-archive.mjs
+              node --import tsx scripts/ingest-master-checklist-archive.mjs
           done
 
       - name: Enforce validation/import receipts
