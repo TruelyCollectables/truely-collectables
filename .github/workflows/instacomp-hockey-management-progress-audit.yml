@@ -18,49 +18,41 @@ jobs:
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Read current Hockey import progress
+      - name: Read current checklist import progress
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+          curl --silent --show-error --fail --max-time 30 \
             -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
             -o evidence/projects.json \
             "https://api.supabase.com/v1/projects"
-          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' evidence/projects.json)
+          mapfile -t candidates < <(jq -r '.[] | select(.name == "TruelyCollectables") | (.id // .ref // empty)' evidence/projects.json)
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
           read -r -d '' sql <<'SQL' || true
-          select jsonb_build_object(
-            'auditAt', now(),
-            'recentLiveCount', count(*) filter (where v.is_active and v.status in ('live','revised')),
-            'recentCards', coalesce(sum(v.normalized_card_count) filter (where v.is_active and v.status in ('live','revised')),0),
-            'recentIdentities', coalesce(sum(v.normalized_identity_count) filter (where v.is_active and v.status in ('live','revised')),0),
-            'recentImportingCount', count(*) filter (where v.status='importing'),
-            'rows', coalesce(jsonb_agg(jsonb_build_object(
-              'slug',r.slug,'status',v.status,'active',v.is_active,
-              'cards',v.normalized_card_count,'identities',v.normalized_identity_count,
-              'activatedAt',v.activated_at,'importedAt',v.imported_at
-            ) order by coalesce(v.activated_at,v.created_at) desc),'[]'::jsonb)
-          ) as result
-          from public.checklist_versions v
-          join public.checklist_releases r on r.id=v.release_id
-          join public.checklist_sports s on s.id=r.sport_id
-          where s.slug='hockey'
-            and v.created_at >= '2026-08-16T22:57:00Z'::timestamptz;
+          select id, release_id, status, is_active, normalized_card_count, normalized_identity_count, created_at
+          from public.checklist_versions
+          order by created_at desc
+          limit 25;
           SQL
           jq -cn --arg query "$sql" '{query:$query,read_only:true}' > evidence/query.json
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 90 \
+          code="$(curl --silent --show-error --max-time 45 \
             -X POST -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
             --data-binary @evidence/query.json \
-            -o evidence/progress.json \
-            "https://api.supabase.com/v1/projects/$project_ref/database/query"
-          rm -f evidence/projects.json evidence/query.json
-          cat evidence/progress.json | jq .
+            -o evidence/progress.json -w '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$project_ref/database/query" || true)"
+          echo "$code" > evidence/status.txt
+          echo "HTTP $code"
+          cat evidence/progress.json
+          echo
+          test "$code" = '200'
+          jq . evidence/progress.json
       - name: Upload progress audit
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: instacomp-hockey-management-progress-${{ github.run_id }}
-          path: evidence/progress.json
-          if-no-files-found: error
+          path: evidence
+          if-no-files-found: warn
           retention-days: 30
