@@ -1,0 +1,104 @@
+name: Exhaustive Hockey WNBA Census Harvest Apply 20260815
+
+on:
+  pull_request:
+    paths:
+      - "scripts/discover-exhaustive-hockey-wnba.mjs"
+      - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXHAUSTIVE_CHECKLIST_ROOT: ${{ runner.temp }}/exhaustive-hockey-wnba
+
+jobs:
+  census-harvest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install parser runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Exhaustive GoGTS census
+        run: |
+          set -euo pipefail
+          node scripts/discover-exhaustive-hockey-wnba.mjs
+          jq '{uniqueTargets,hockeyTargets,wnbaTargets,seasonCounts}' "$EXHAUSTIVE_CHECKLIST_ROOT/census.json"
+      - name: Download and validate every discovered checklist
+        run: |
+          set -o pipefail
+          PUBLIC_WEB_MINIMUM_CARD_ROWS=20 \
+          GOGTS_COORDINATE_TARGETS="$EXHAUSTIVE_CHECKLIST_ROOT/targets.json" \
+          GOGTS_COORDINATE_OUTPUT="$EXHAUSTIVE_CHECKLIST_ROOT/output" \
+          node --import tsx scripts/harvest-gogts-coordinate-direct.mjs
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities}' "$EXHAUSTIVE_CHECKLIST_ROOT/output/summary.json"
+      - name: Upload exhaustive harvest bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-${{ github.run_id }}
+          path: ${{ env.EXHAUSTIVE_CHECKLIST_ROOT }}
+          if-no-files-found: error
+          retention-days: 90
+
+  production-apply:
+    needs: census-harvest
+    if: ${{ always() && needs.census-harvest.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      COORDINATE_HARVEST_ROOT: ${{ runner.temp }}/exhaustive-hockey-wnba
+      COORDINATE_APPLY_RECEIPT: ${{ runner.temp }}/exhaustive-hockey-wnba/production-apply-receipt.json
+      COORDINATE_APPLY_MAX_SETS: "250"
+      COORDINATE_DB_HEALTH_ATTEMPTS: "12"
+      COORDINATE_DB_HEALTH_DELAY_MS: "10000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download exhaustive harvest bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-${{ github.run_id }}
+          path: ${{ runner.temp }}/exhaustive-hockey-wnba
+      - name: Apply every clean plan to Production Registry
+        run: |
+          set -o pipefail
+          node --import tsx scripts/apply-coordinate-harvest-plans.mjs
+      - name: Print Production receipt
+        if: always()
+        run: |
+          receipt="$RUNNER_TEMP/exhaustive-hockey-wnba/production-apply-receipt.json"
+          if [ -s "$receipt" ]; then
+            jq '{requestedCount,attemptedCount,persistedCount,persistedCards,persistedParallels,persistedIdentities,results:[.results[]|{exactSetKey,status,counts,error}]}' "$receipt"
+          else
+            echo 'No Production apply receipt was created.'
+          fi
+      - name: Upload Production receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-production-${{ github.run_id }}
+          path: ${{ env.COORDINATE_APPLY_RECEIPT }}
+          if-no-files-found: warn
+          retention-days: 90
