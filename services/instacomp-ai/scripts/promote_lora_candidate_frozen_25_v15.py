@@ -16,6 +16,24 @@ _INHERITED_IMAGE_WITNESS_CONFLICT = v9._image_witness_conflict_hardened
 PrizmBackMarkProbe = Callable[[dict[str, Any]], bool | None]
 _prizm_back_mark_probe_override: PrizmBackMarkProbe | None = None
 
+# Frozen 15 needs ten expansion fixtures beyond the trusted Frozen Five. The
+# prior v14 pool exposed only 15 of the 20 already-vetted pinned rows. A live run
+# on 2026-08-16 showed seven current Registry/metadata-drift rejects, leaving only
+# eight exact locks and therefore 13/15 total fixtures. Expose all 20 pinned rows
+# for the 15-card rung so stale pins can be skipped without weakening a single
+# Registry/physical-card gate. The pool stays finite and deterministic.
+FROZEN15_BACKFILL_POOL_SIZE = 20
+
+
+def _install_frozen15_live_drift_backfill() -> None:
+    if FROZEN15_BACKFILL_POOL_SIZE > len(v12.PINNED_EXPANSION_ROW_IDS):
+        raise RuntimeError("Frozen 15 backfill pool exceeds the vetted pinned row universe")
+    v14.PINNED_BACKFILL_POOL_SIZES[15] = FROZEN15_BACKFILL_POOL_SIZE
+    v12.PINNED_EXPANSION_BUDGETS[15] = FROZEN15_BACKFILL_POOL_SIZE
+    v12.PREFLIGHT_REGISTRY_CALL_CEILINGS[15] = (
+        FROZEN15_BACKFILL_POOL_SIZE * v12.MAX_REGISTRY_CALLS_PER_EXPANSION_ROW
+    )
+
 
 def _fixture_is_prizm(item: dict[str, Any], registry: Any) -> bool:
     identity = item.get("identity") or {}
@@ -99,6 +117,12 @@ def _install_contract() -> None:
     # Install v14's pinned backfill plus every inherited throttle, Registry,
     # serial, candidate-shape, and pattern-sensitive safety gate first.
     v14._install_contract()
+
+    # v14's Frozen 15 replacement pool was too small for the seven live
+    # Registry/metadata drift rejects observed on 2026-08-16. Expand only the
+    # deterministic pinned availability; every compatibility gate still decides
+    # admission exactly as before.
+    _install_frozen15_live_drift_backfill()
 
     # v12 installs v11 -> v10 -> v9 again after argument parsing. Patch both the
     # v9 source hook and the currently-installed v5 hook so a later re-install
@@ -231,13 +255,14 @@ def _self_test_prizm_back_mark_gate() -> None:
         v5._image_parallel_probe_override = previous_image
         _prizm_back_mark_probe_override = previous_back
 
-    # Frozen 15 has 15 expansion candidates for 10 required additions. The
-    # captured production run already rejected Ajsa and Brianna; rejecting the
-    # newly-proven Base DeWanna fixture still leaves twelve candidates for ten
-    # slots, so v14 backfill can continue instead of activating a known loser.
-    assert v14.PINNED_BACKFILL_POOL_SIZES[15] == 15
+    # The live Frozen 15 preflight observed seven incompatible/stale pins. All 20
+    # vetted expansion rows are now available, so seven rejects still leave 13
+    # possible exact locks for the ten required expansion slots.
+    assert v14.PINNED_BACKFILL_POOL_SIZES[15] == 20
+    assert v12.PINNED_EXPANSION_BUDGETS[15] == 20
+    assert v12.PREFLIGHT_REGISTRY_CALL_CEILINGS[15] == 60
     assert v14.REQUIRED_NEW_FIXTURES[15] == 10
-    assert v14.PINNED_BACKFILL_POOL_SIZES[15] - 3 >= v14.REQUIRED_NEW_FIXTURES[15]
+    assert v14.PINNED_BACKFILL_POOL_SIZES[15] - 7 >= v14.REQUIRED_NEW_FIXTURES[15]
 
     print("PASS v15 rejects Silver when the authoritative back PRIZM mark is absent")
     print("PASS v15 treats absent back PRIZM mark as regular Base")
@@ -245,7 +270,7 @@ def _self_test_prizm_back_mark_gate() -> None:
     print("PASS v15 rejects explicit Base when the back PRIZM mark is present")
     print("PASS v15 preserves Velocity/Ice deterministic surface gates after the back-mark gate")
     print("PASS v15 fails non-Base promotion closed when the back mark cannot be read")
-    print("PASS v15 Frozen 15 backfill capacity survives the two prior rejects plus DeWanna")
+    print("PASS v15 Frozen 15 backfill capacity survives seven live Registry/metadata drift rejects")
 
 
 def self_test() -> int:
