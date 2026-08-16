@@ -14,3 +14,15 @@ export function shouldApplyInstaCompChecklistPublicRateLimit(
 ) {
   return channel !== "service_token";
 }
+
+/**
+ * Registry-lock additionally supports the narrowly scoped Sentinel Mac
+ * credential as an authenticated read-only fallback for older Mac installs.
+ * That trusted internal channel is also intentionally unthrottled.
+ */
+export function shouldApplyInstaCompRegistryLockPublicRateLimit(params: {
+  channel: InstaCompMutationChannel | null;
+  sentinelMacRequest: boolean;
+}) {
+  return !params.sentinelMacRequest && params.channel !== "service_token";
+}
