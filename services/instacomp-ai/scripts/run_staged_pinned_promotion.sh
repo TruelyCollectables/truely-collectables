@@ -5,6 +5,7 @@ service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
 target="$service_root/scripts/promote_lora_candidate_frozen_25_v14.py"
 visual_memory_repair="$service_root/scripts/repair_trusted_visual_memory.py"
+pinned_visual_memory_repair="$service_root/scripts/repair_pinned_visual_memory.py"
 
 [[ -x "$service_python" ]] || {
   echo "InstaComp service Python is missing: $service_python" >&2
@@ -16,6 +17,10 @@ visual_memory_repair="$service_root/scripts/repair_trusted_visual_memory.py"
 }
 [[ -f "$visual_memory_repair" ]] || {
   echo "Trusted visual-memory repair is missing: $visual_memory_repair" >&2
+  exit 2
+}
+[[ -f "$pinned_visual_memory_repair" ]] || {
+  echo "Pinned visual-memory repair is missing: $pinned_visual_memory_repair" >&2
   exit 2
 }
 
@@ -69,10 +74,14 @@ if [[ "$self_test" == "0" ]]; then
     --source-contains supervised_203_operator_confirmed \
     --max-repairs 250 \
     --workers 6
+
+  echo "INFO Hydrating trusted visual-pattern evidence for the exact pinned stage pool regardless verification-source label"
+  "$service_python" "$pinned_visual_memory_repair" "$@"
 fi
 
 echo "PASS pinned staged promotion launcher mode: promotion-v14-pinned-backfill"
 echo "INFO Frozen 10 keeps the original five pinned priorities and automatically tries later pinned replacements after a safety reject"
 echo "INFO Registry service-token traffic is unthrottled; v13 backoff remains only as fail-safe handling for infrastructure 429/throttle responses"
 echo "INFO Trusted supervised visual memory is hydrated from archived images before live candidate rounds; identity and Registry truth are unchanged"
+echo "INFO Exact pinned-stage trusted rows are hydrated even when their verification-source label differs from the supervised batch label"
 exec "$service_python" "$target" "$@"
