@@ -1,6 +1,10 @@
 name: InstaComp Target Checklists
 
 on:
+  pull_request:
+    paths:
+      - "scripts/instacomp-target-checklists/**"
+      - ".github/workflows/instacomp-target-checklists.yml"
   workflow_dispatch:
     inputs:
       mode:
@@ -26,7 +30,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: instacomp-target-checklists
+  group: instacomp-target-checklists-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -40,7 +44,7 @@ jobs:
       INSTACOMP_TARGET_CORPUS_ROOT: .instacomp-target-checklist-corpus
       MASTER_CHECKLIST_CORPUS_ROOT: .instacomp-target-checklist-corpus
       MASTER_CHECKLIST_EXTRACTED_ROOT: .master-checklist-extracted
-      MASTER_CHECKLIST_WORKERS: ${{ inputs.workers }}
+      MASTER_CHECKLIST_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.workers || '2' }}
 
     steps:
       - name: Checkout target branch
@@ -120,12 +124,12 @@ jobs:
 
       - name: Validate or apply six guarded batches
         env:
-          MASTER_CHECKLIST_APPLY: ${{ inputs.mode == 'apply' && 'true' || 'false' }}
+          MASTER_CHECKLIST_APPLY: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'apply' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           mkdir -p .checklist-discovery/instacomp-target
           for batch in 0 1 2 3 4 5; do
-            echo "=== InstaComp target batch $batch / mode=$MASTER_CHECKLIST_APPLY ==="
+            echo "=== InstaComp target batch $batch / apply=$MASTER_CHECKLIST_APPLY ==="
             MASTER_CHECKLIST_BATCH_INDEX="$batch" \
             MASTER_CHECKLIST_OUTPUT=".checklist-discovery/instacomp-target/batch-${batch}.json" \
               node scripts/ingest-master-checklist-archive.mjs
@@ -166,7 +170,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-target-checklist-${{ inputs.mode }}-${{ github.run_id }}
+          name: instacomp-target-checklist-${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'validate' }}-${{ github.run_id }}
           path: |
             .instacomp-target-checklist-corpus/summary.json
             .instacomp-target-checklist-corpus/manifest.json
