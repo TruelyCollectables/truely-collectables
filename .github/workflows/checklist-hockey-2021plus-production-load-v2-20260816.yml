@@ -1,0 +1,154 @@
+name: Checklist Hockey 2021 Plus Production Load V2 20260816
+
+on:
+  push:
+    branches:
+      - ops/checklist-conveyor-live-20260815
+    paths:
+      - '.github/hockey-2021plus-v2-now-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  CHECKLIST_SKIP_ARCHIVE_BUCKET_PREFLIGHT: 'true'
+
+jobs:
+  hockey-2021plus-production-load:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 90
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Isolate this checklist writer
+        shell: bash
+        env:
+          GH_ACTIONS_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-isolation"
+          mkdir -p "$root"
+          repo="$GITHUB_REPOSITORY"
+          self="$GITHUB_RUN_ID"
+          list_conflicts() {
+            : > "$root/conflicts.txt"
+            for state in in_progress queued; do
+              curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 30 \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_ACTIONS_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$repo/actions/runs?status=$state&per_page=100" \
+                -o "$root/$state.json"
+              jq -r --arg self "$self" '.workflow_runs[] | select((.id|tostring)!=$self) | select((.path // "") | startswith(".github/workflows/checklist-")) | [.id,.name,.status] | @tsv' \
+                "$root/$state.json" >> "$root/conflicts.txt"
+            done
+            sort -u "$root/conflicts.txt" -o "$root/conflicts.txt"
+          }
+          stop_runs() {
+            local endpoint="$1"
+            while IFS=$'\t' read -r run_id run_name run_status; do
+              [ -n "$run_id" ] || continue
+              code="$(curl --silent --show-error --output "$root/$endpoint-$run_id.json" --write-out '%{http_code}' \
+                -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_ACTIONS_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$repo/actions/runs/$run_id/$endpoint")"
+              case "$code" in 202|409) ;; *) cat "$root/$endpoint-$run_id.json"; exit 1 ;; esac
+            done < "$root/conflicts.txt"
+          }
+          list_conflicts
+          [ ! -s "$root/conflicts.txt" ] || stop_runs cancel
+          sleep 12
+          list_conflicts
+          [ ! -s "$root/conflicts.txt" ] || stop_runs force-cancel
+          for round in 1 2 3 4 5 6; do
+            sleep 8
+            list_conflicts
+            [ ! -s "$root/conflicts.txt" ] && break
+            [ "$round" -lt 6 ] || { cat "$root/conflicts.txt"; exit 1; }
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and certify set-aware Upper Deck importer
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node scripts/patch-hockey-2021plus-priority-importer.mjs
+          grep -F 'plan.adapterVersion = "1.1.0";' scripts/import-hockey-2021plus-priority.mjs
+          node --check scripts/import-hockey-2021plus-priority.mjs
+          bash -n scripts/repair-mainstream-checklist-schema.sh
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/hockey-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_PROJECT_REF=$project_ref" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Repair and optimize Production Registry writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/repair-mainstream-checklist-schema.sh
+
+      - name: Import and verify hockey 2021 plus priority releases
+        shell: bash
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.RESOLVED_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/hockey-load"
+          mkdir -p "$out"
+          HOCKEY_2021PLUS_OUTPUT="$out/receipt.json" \
+            node --import tsx scripts/import-hockey-2021plus-priority.mjs
+
+      - name: Require all hockey targets verified in Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/hockey-load/receipt.json"
+          jq . "$receipt"
+          test "$(jq -r '.expected' "$receipt")" -eq 3
+          test "$(jq -r '.verified' "$receipt")" -eq 3
+          test "$(jq -r '.failed' "$receipt")" -eq 0
+          jq -r '.results[] | [.exactSetKey,.status,(.verification.cards // 0),(.verification.versionId // ""),(.message // "")] | @tsv' "$receipt"
+
+      - name: Upload hockey Production receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-hockey-2021plus-production-load-${{ github.run_id }}
+          path: ${{ runner.temp }}/hockey-load
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hockey-production" "$RUNNER_TEMP/checklist-isolation" "$RUNNER_TEMP/mainstream-checklist-writer-repair" .env.local .env.production.local .vercel
