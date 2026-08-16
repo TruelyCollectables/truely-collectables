@@ -1,0 +1,182 @@
+name: InstaComp Registry Production Schema Audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-registry-production-schema-audit.yml"
+      - "src/lib/instacomp-registry-leading-digit-recovery.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
+      - "scripts/run-instacomp-registry-production-data-regression.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+
+jobs:
+  audit-production-registry-schema:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read live Registry index definitions
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo 'SUPABASE_ACCESS_TOKEN is unavailable.'; exit 2; }
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const query = `
+            select tablename, indexname, indexdef
+            from pg_catalog.pg_indexes
+            where schemaname = 'public'
+              and tablename in (
+                'checklist_cards',
+                'checklist_versions',
+                'checklist_releases',
+                'checklist_card_identities',
+                'checklist_card_players',
+                'checklist_card_teams',
+                'checklist_sets'
+              )
+            order by tablename, indexname
+          `;
+          fs.writeFileSync('/tmp/registry-index-query.json', JSON.stringify({ query }));
+          NODE
+
+          curl -sS --fail-with-body --retry 2 --retry-all-errors --retry-delay 1 --max-time 30 \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            --data-binary @/tmp/registry-index-query.json \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+            -o /tmp/registry-indexes.json
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/registry-indexes.json', 'utf8'));
+          console.log('LIVE_REGISTRY_INDEXES=' + JSON.stringify(payload, null, 2));
+          const text = JSON.stringify(payload);
+          const expected = [
+            'checklist_cards_instacomp_number_lookup_idx',
+            'checklist_card_identities_instacomp_card_idx',
+            'checklist_card_players_instacomp_card_idx',
+            'checklist_card_teams_instacomp_card_idx',
+            'checklist_sets_instacomp_id_lookup_idx',
+          ];
+          const missing = expected.filter((name) => !text.includes(name));
+          if (missing.length) {
+            console.error('MISSING_EXPECTED_INSTACOMP_INDEXES=' + missing.join(','));
+            process.exitCode = 3;
+          } else {
+            console.log('PASS expected InstaComp Registry indexes are present in Production.');
+          }
+          NODE
+
+      - name: Inspect card index validity statistics and planner
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || exit 2
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const queries = {
+            validity: `
+              select ci.relname as index_name,
+                     i.indisvalid,
+                     i.indisready,
+                     i.indislive,
+                     pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(i.indexrelid)) as index_size
+              from pg_catalog.pg_index i
+              join pg_catalog.pg_class ci on ci.oid = i.indexrelid
+              join pg_catalog.pg_class ct on ct.oid = i.indrelid
+              join pg_catalog.pg_namespace n on n.oid = ct.relnamespace
+              where n.nspname = 'public'
+                and ct.relname = 'checklist_cards'
+                and ci.relname = 'checklist_cards_instacomp_number_lookup_idx'
+            `,
+            stats: `
+              select null_frac, n_distinct, most_common_vals::text, most_common_freqs::text
+              from pg_catalog.pg_stats
+              where schemaname = 'public'
+                and tablename = 'checklist_cards'
+                and attname = 'normalized_card_number'
+            `,
+            direct_plan: `
+              explain (format json)
+              select id, release_id, version_id, set_id, card_number, normalized_card_number
+              from public.checklist_cards
+              where normalized_card_number = '22'
+              limit 2500
+            `,
+            joined_plan: `
+              explain (format json)
+              select c.id, c.release_id, c.version_id, c.set_id, c.card_number, c.normalized_card_number
+              from public.checklist_cards c
+              join public.checklist_versions v
+                on v.id = c.version_id
+               and v.is_active = true
+               and v.status = 'live'
+              join public.checklist_releases r
+                on r.id = c.release_id
+              where c.normalized_card_number = '22'
+                and (r.release_year in ('2024','2025','2026') or r.season in ('2024','2025','2026'))
+              limit 2500
+            `,
+          };
+          for (const [name, query] of Object.entries(queries)) {
+            fs.writeFileSync(`/tmp/registry-${name}.json`, JSON.stringify({ query }));
+          }
+          NODE
+
+          for name in validity stats direct_plan joined_plan; do
+            curl -sS --fail-with-body --retry 1 --retry-all-errors --max-time 30 \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              --data-binary @"/tmp/registry-${name}.json" \
+              "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" \
+              -o "/tmp/registry-${name}-result.json"
+            echo "=== ${name} ==="
+            cat "/tmp/registry-${name}-result.json"
+            echo
+          done
+
+      - name: Read live Registry migration marker
+        if: always()
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || exit 2
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const query = `
+            select version, name
+            from supabase_migrations.schema_migrations
+            where version = '20260703104500'
+          `;
+          fs.writeFileSync('/tmp/registry-migration-query.json', JSON.stringify({ query }));
+          NODE
+
+          status="$(curl -sS --retry 1 --retry-all-errors --max-time 30 \
+            -o /tmp/registry-migration.json \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            --data-binary @/tmp/registry-migration-query.json \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query/read-only" || true)"
+          echo "MIGRATION_QUERY_HTTP_STATUS=$status"
+          cat /tmp/registry-migration.json || true
+          echo

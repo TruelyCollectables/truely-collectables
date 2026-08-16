@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveChecklistRegistry } from "../../../../lib/instacomp-learning-server";
+import {
+  resolveChecklistRegistryCardFirst,
+  resolveChecklistRegistryLeadingDigitRecovery,
+} from "../../../../lib/instacomp-registry-leading-digit-recovery";
 import {
   buildInstaCompRegistryLockProbe,
   publicRegistryLockStatus,
@@ -53,42 +56,29 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const probe = buildInstaCompRegistryLockProbe(body);
-    let resolution = await resolveChecklistRegistry(probe, {
-      evidenceTrusted: false,
-    });
+
+    // Production Registry identity resolution starts from the indexed normalized
+    // card number and validates only those referenced live versions/releases.
+    // This keeps the exact chooseRegistryMatch referee while eliminating the
+    // global active-version/release scans that began timing out as Registry data
+    // grew.
+    let resolution = await resolveChecklistRegistryCardFirst(probe);
 
     // OCR/VLM readers occasionally drop one leading digit from a printed card
-    // number (for example 122 -> 22). If the ordinary exact lookup fails, try
-    // exactly one additional leading digit 1..9 through the SAME authoritative
-    // resolver. Accept recovery only when exactly one distinct Registry identity
-    // resolves across all player/release/set/parallel evidence. This is bounded,
-    // deterministic, and fails closed on ambiguity.
+    // number (for example 122 -> 22). If the exact card-first lookup fails, try
+    // 1..9 + observed in one bounded indexed query. Recovery is accepted only
+    // when one unique identity survives, and adjacent-year relaxation is disabled
+    // for this fallback so two pieces of evidence are never relaxed together.
     const observedCardNumber = String(probe.cardNumber || "").trim();
     if (
       resolution.status !== "internal_exact_match" &&
       /^\d{1,3}$/.test(observedCardNumber)
     ) {
-      const recovered = new Map<string, typeof resolution>();
-      for (let prefix = 1; prefix <= 9; prefix += 1) {
-        const candidateNumber = `${prefix}${observedCardNumber}`;
-        const attempt = await resolveChecklistRegistry(
-          { ...probe, cardNumber: candidateNumber },
-          { evidenceTrusted: false },
-        );
-        if (attempt.status === "internal_exact_match" && attempt.match) {
-          recovered.set(attempt.match.identityId, attempt);
-        }
-      }
-      if (recovered.size === 1) {
-        const [only] = recovered.values();
-        resolution = {
-          ...only,
-          reasons: [
-            ...only.reasons,
-            `unique_leading_digit_card_number_recovery:${observedCardNumber}->${only.match?.cardNumber || ""}`,
-          ],
-        };
-      }
+      const recovered = await resolveChecklistRegistryLeadingDigitRecovery(
+        probe,
+        observedCardNumber,
+      );
+      if (recovered) resolution = recovered;
     }
 
     const match = resolution.status === "internal_exact_match" ? resolution.match : null;
@@ -115,7 +105,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       registryLock: true,
-      resolver: "resolveChecklistRegistry",
+      resolver: "resolveChecklistRegistryCardFirst",
       resolverStatus: resolution.status,
       status: publicRegistryLockStatus(resolution.status),
       reasons: resolution.reasons,
