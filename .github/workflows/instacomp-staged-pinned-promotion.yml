@@ -5,15 +5,18 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
       - "services/instacomp-ai/scripts/repair_trusted_visual_memory.py"
       - "services/instacomp-ai/scripts/repair_pinned_visual_memory.py"
       - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
       - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
+      - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
       - "services/instacomp-ai/app/**"
       - "services/instacomp-ai/requirements.txt"
   workflow_dispatch:
@@ -35,34 +38,41 @@ jobs:
       - name: Compile pinned promotion and visual-memory repair runners
         run: |
           python -m py_compile \
+            services/instacomp-ai/app/prizm_back_mark_guard.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py \
             services/instacomp-ai/scripts/repair_trusted_visual_memory.py \
             services/instacomp-ai/scripts/repair_pinned_visual_memory.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-      - name: Prove throttle handling and pinned backfill regression
+      - name: Prove throttle handling, pinned backfill, and authoritative Prizm back mark
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py --self-test
-      - name: Prove trusted visual-memory hydration and Base-to-Silver merge
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py --self-test
+      - name: Prove visual-memory hydration and authoritative Base/Silver merge
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           python services/instacomp-ai/scripts/repair_trusted_visual_memory.py --self-test
           python services/instacomp-ai/scripts/repair_pinned_visual_memory.py --self-test
-          python -m pytest -q services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-      - name: Prove pinned backfill, visual-memory repair, and throttle source contract
+          python -m pytest -q \
+            services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
+            services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
+      - name: Prove pinned backfill, visual-memory repair, throttle, and v15 source contract
         run: |
           grep -q 'PINNED_BACKFILL_POOL_SIZES = {10: 8, 15: 15, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py
           grep -q 'REQUIRED_NEW_FIXTURES = {10: 5, 15: 10, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py
+          grep -q 'back_mark is not True' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py
+          grep -q 'bold black PRIZM back mark' services/instacomp-ai/app/prizm_back_mark_guard.py
           grep -q 'MAX_THROTTLE_WINDOWS_PER_REQUEST = 6' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py
           grep -q 'class RegistryThrottleAbort(BaseException)' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py
           grep -q 'await sleep_fn(delay)' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py
-          grep -q 'promotion-v14-pinned-backfill' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v14.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promotion-v15-strict-non-base-image-witness' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v15.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q 'repair_trusted_visual_memory.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q 'repair_pinned_visual_memory.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q 'regardless verification-source label' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
@@ -78,11 +88,13 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and prove v14 visual-memory repair on macOS
+      - name: Compile and prove v15 authoritative back-mark contract on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           python -m py_compile \
+            services/instacomp-ai/app/prizm_back_mark_guard.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py \
@@ -91,5 +103,7 @@ jobs:
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           python services/instacomp-ai/scripts/repair_trusted_visual_memory.py --self-test
           python services/instacomp-ai/scripts/repair_pinned_visual_memory.py --self-test
-          python -m pytest -q services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py --self-test
+          python -m pytest -q \
+            services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
+            services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
+          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py --self-test

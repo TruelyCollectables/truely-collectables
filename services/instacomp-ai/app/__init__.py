@@ -15,10 +15,15 @@ from .deterministic_checklist_recovery import install_deterministic_checklist_re
 from .lora_candidate_runtime_v2 import install_lora_candidate_runtime
 from .models import LocalVisionEvidence, SideVisionEvidence
 from .pattern_memory import apply_trusted_pattern_style
+from .prizm_back_mark_guard import install_prizm_back_mark_guard
 from .psa_policy import install_psa_lead_only_policy
 from .runtime_compat import install_sentinel_runtime_compat
 from .serial_evidence_guard import install_serial_evidence_guard
 
+# This must run before the style-memory wrapper captures local vision. For Panini
+# Prizm, a missing bold black PRIZM mark on the back is authoritative Base truth;
+# style memory and local models are not allowed to promote over it.
+install_prizm_back_mark_guard()
 _original_analyze_local_vision = _local_vision.analyze_local_vision
 
 
