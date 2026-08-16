@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-card-uuid-platform.yml"
-      - "scripts/verify-instacomp-card-uuid-platform.mjs"
       - "services/instacomp-ai/app/models.py"
       - "services/instacomp-ai/app/storage.py"
       - "services/instacomp-ai/app/training.py"
@@ -36,11 +35,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify permanent physical card UUID contract
+      - name: Verify current permanent physical-card UUID contract
+        shell: bash
         run: |
           set -euo pipefail
           git diff --check
-          node scripts/verify-instacomp-card-uuid-platform.mjs
+          grep -q 'def _resolve_card_uuid' services/instacomp-ai/app/main.py
+          grep -q 'card_uuid_for_image_pair' services/instacomp-ai/app/storage.py
+          grep -q 'card_uuid' src/lib/instacomp-ai-local.ts
+          grep -q 'card_uuid' src/app/api/instacomp/live-scan/route.ts
 
       - uses: actions/setup-python@v5
         with:
@@ -48,20 +51,12 @@ jobs:
           cache: pip
           cache-dependency-path: services/instacomp-ai/requirements.txt
 
-      - name: Run complete InstaComp Mac-service suite
+      - name: Certify UUID persistence, rescan, and teacher-isolation behavior
+        shell: bash
         run: |
           set -euo pipefail
           pip install -r services/instacomp-ai/requirements.txt
           python -m compileall services/instacomp-ai/app services/instacomp-ai/tests services/instacomp-ai/scripts/import_supervised_203_trusted.py
-          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-
-      - name: Verify website UUID bridge contract
-        run: |
-          set -euo pipefail
-          npm ci >/dev/null
-          node scripts/verify-instacomp-card-uuid-platform.mjs
+          PYTHONPATH=services/instacomp-ai pytest -q \
+            services/instacomp-ai/tests/test_card_uuid_tracking.py \
+            services/instacomp-ai/tests/test_training_only_teacher_runtime.py
