@@ -22,7 +22,9 @@ jobs:
     environment: Production
     timeout-minutes: 45
     env:
-      CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/wnba-import
+      WNBA_REGISTRY_UPSTREAM_URL: https://truelycollectables.com/api/internal/checklist-registry/wnba-import
+      CHECKLIST_REGISTRY_ACTION_URL: http://127.0.0.1:4317/
+      CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS: "600000"
       WNBA_CHECKLIST_OUTPUT: .wnba-checklist-import/receipt.json
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +43,7 @@ jobs:
         shell: bash
         run: |
           for attempt in $(seq 1 120); do
-            code="$(curl -sS -o /dev/null -w '%{http_code}' "$CHECKLIST_REGISTRY_ACTION_URL" || true)"
+            code="$(curl -sS -o /dev/null -w '%{http_code}' "$WNBA_REGISTRY_UPSTREAM_URL" || true)"
             if [[ "$code" == "405" || "$code" == "401" ]]; then
               echo "Production import route is available (HTTP $code)."
               exit 0
@@ -53,6 +55,19 @@ jobs:
       - name: Import all eight required WNBA checklists
         shell: bash
         run: |
+          node scripts/lib/wnba-registry-card-coalescing-proxy.mjs &
+          proxy_pid=$!
+          trap 'kill "$proxy_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4317/health >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == "30" ]]; then
+              echo "WNBA card coalescing proxy did not start."
+              exit 1
+            fi
+            sleep 1
+          done
           cp scripts/import-required-wnba-checklists.ts scripts/import-required-wnba-checklists.mts
           npx tsx scripts/import-required-wnba-checklists.mts
       - name: Upload import receipt
