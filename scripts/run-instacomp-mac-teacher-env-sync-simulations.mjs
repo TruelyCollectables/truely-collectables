@@ -9,6 +9,10 @@ const productionRelease = fs.readFileSync(
   ".github/workflows/deal-hunter-cloudflare-production-release.yml",
   "utf8",
 );
+const wranglerDeployWrapper = fs.readFileSync(
+  "scripts/run-wrangler-deploy-redacted.mjs",
+  "utf8",
+);
 const routedWorkerConfig = fs.readFileSync(
   "wrangler.production-route.jsonc",
   "utf8",
@@ -23,11 +27,21 @@ const runtimeStatus = fs.readFileSync(
 assert.doesNotMatch(macUpdater, /\bvercel\b/i);
 assert.doesNotMatch(macUpdater, /set_vercel_env|sync_optional_teacher_env/);
 
-// Production owns its own remote Worker configuration. Deploys must preserve
-// remotely configured values/secrets instead of replacing them from the Mac.
+// Production owns its own remote Worker configuration. The release workflow now
+// deliberately routes Wrangler through the redacting wrapper so remote variable
+// values cannot leak into Actions logs. Verify both halves of that contract:
+// the workflow must use the wrapper, and the wrapper must preserve remote vars.
 assert.match(
   productionRelease,
-  /wrangler deploy --config wrangler\.production-route\.jsonc --keep-vars/,
+  /node scripts\/run-wrangler-deploy-redacted\.mjs --config wrangler\.production-route\.jsonc --label "routed production Worker"/,
+);
+assert.match(
+  wranglerDeployWrapper,
+  /\["--no-install", "wrangler", "deploy", "--config", config, "--keep-vars"\]/,
+);
+assert.match(
+  wranglerDeployWrapper,
+  /Raw Wrangler stdout\/stderr was intentionally withheld/,
 );
 assert.doesNotMatch(productionRelease, /\bvercel\b/i);
 assert.match(routedWorkerConfig, /"name"\s*:\s*"truely-collectables-preview"/);
