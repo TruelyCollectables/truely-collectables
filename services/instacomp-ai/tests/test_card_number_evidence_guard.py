@@ -16,6 +16,7 @@ def _observation(text: str, *, side: str) -> OCRObservation:
 
 
 def _vision(card_number_hint: str | None) -> LocalVisionEvidence:
+    visible_number = card_number_hint or "22"
     front = SideVisionEvidence(
         side="front",
         width=1200,
@@ -26,7 +27,7 @@ def _vision(card_number_hint: str | None) -> LocalVisionEvidence:
         side="back",
         width=1200,
         height=1800,
-        ocr=[_observation("22", side="back")],
+        ocr=[_observation(visible_number, side="back")],
     )
     return LocalVisionEvidence(
         front=front,
@@ -37,7 +38,7 @@ def _vision(card_number_hint: str | None) -> LocalVisionEvidence:
             player="Sonia Citron",
             card_number=card_number_hint,
         ),
-        combined_text="SONIA CITRON\n22",
+        combined_text=f"SONIA CITRON\n{visible_number}",
         apple_vision_available=True,
         opencv_available=True,
     )
@@ -57,7 +58,7 @@ def _identity(card_number: str | None) -> dict:
     }
 
 
-def test_partial_ocr_does_not_overwrite_explicit_candidate_card_number() -> None:
+def test_leading_truncated_ocr_does_not_overwrite_fuller_candidate_card_number() -> None:
     merged = merge_local_vision_payload(
         {"identity": _identity("122"), "evidence": {}},
         _vision("22"),
@@ -67,9 +68,23 @@ def test_partial_ocr_does_not_overwrite_explicit_candidate_card_number() -> None
     assert "22" in merged["evidence"]["back_visible_text"]
     assert "22" in merged["evidence"]["visible_text"]
     assert any(
-        "explicit candidate '122' preserved" in value
-        and "deterministic OCR hint '22' retained" in value
+        "fuller explicit candidate '122' preserved" in value
+        and "OCR hint '22'" in value
         for value in merged["evidence"]["uncertainty"]
+    )
+
+
+def test_non_truncation_conflict_keeps_existing_hard_ocr_authority() -> None:
+    merged = merge_local_vision_payload(
+        {"identity": _identity("1"), "evidence": {}},
+        _vision("118"),
+    )
+
+    assert merged["identity"]["card_number"] == "118"
+    assert "118" in merged["evidence"]["back_visible_text"]
+    assert not any(
+        "fuller explicit candidate" in value
+        for value in merged["evidence"].get("uncertainty", [])
     )
 
 
@@ -110,7 +125,7 @@ def test_exact_lora_candidate_path_preserves_sonia_122_and_raw_ocr_22() -> None:
     assert "22" in suggestion.evidence.back_visible_text
     assert "22" in suggestion.evidence.visible_text
     assert any(
-        "explicit candidate '122' preserved" in value
-        and "deterministic OCR hint '22' retained" in value
+        "fuller explicit candidate '122' preserved" in value
+        and "OCR hint '22'" in value
         for value in suggestion.evidence.uncertainty
     )
