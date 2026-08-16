@@ -219,8 +219,9 @@ async def health() -> HealthResponse:
     database_ready = store.ready()
     checklist_ready = await checklist_gateway.health()
     ollama_ready = await reader.health()
+    runtime_ollama_ready = ollama_ready if settings.ollama_runtime_reader_enabled else True
     return HealthResponse(
-        ok=database_ready and checklist_ready and ollama_ready,
+        ok=database_ready and checklist_ready and runtime_ollama_ready,
         app=settings.app_name,
         codename=settings.codename,
         version=settings.version,
@@ -423,11 +424,17 @@ async def secondary_identity_witness(
 ):
     """Return one independent established-model identity witness.
 
-    The endpoint is evidence-only. It bypasses the LoRA candidate wrapper so the
-    result is independent from a successful candidate primary read. It never
-    performs a Registry lookup, creates a lesson, enables pricing, or mutates
-    inventory/publishing state.
+    Disabled by default. Local large models are reserved for offline teacher
+    training; this endpoint exists only for deliberate engineering comparisons.
     """
+    if not settings.ollama_runtime_reader_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Runtime Ollama witness is disabled. Local large models are "
+                "training-only teachers for InstaComp."
+            ),
+        )
     front_content = await front.read()
     back_content = await back.read() if back else None
     if len(front_content) + len(back_content or b"") > settings.max_total_image_bytes:
@@ -622,7 +629,7 @@ async def analyze_scan(
     ) or None
 
     # PRIMARY ENGINE STEP TWO: bounded printed text and the Checklist
-    # Registry. A checklist-known card does not need Ollama or OpenAI.
+    # Registry. A checklist-known card does not need a teacher model.
     printed_registry = (
         await checklist_gateway.match(printed_identity, printed_text)
         if printed_identity.card_number
@@ -658,7 +665,7 @@ async def analyze_scan(
                 verification_source=f"registry:{printed_registry.identity_id}",
                 notes=(
                     "Resolved by bounded printed evidence and the Checklist "
-                    "Registry before Ollama."
+                    "Registry without a runtime teacher model."
                 ),
             )
         )
@@ -695,51 +702,52 @@ async def analyze_scan(
             ),
         )
 
-    # LOCAL EVIDENCE FALLBACK: trusted memory and bounded printed evidence run
-    # first. When they cannot identify a new card, Ollama reads the actual front/back
-    # images and supplies evidence only. The central Registry remains the sole identity
-    # authority, and pricing stays blocked without its identity ID and fingerprint.
+    # DEFAULT: InstaComp + deterministic local evidence + trusted memory + Registry
+    # stand on their own. The large local Ollama models are training-only teachers.
+    # A legacy runtime reader may be deliberately enabled for engineering comparison,
+    # but it is not part of the normal identity path and never has Registry authority.
     suggestion = None
     model_error = None
     model_error_code = None
     suggestion_registry = printed_registry
-    try:
-        suggestion = await reader.analyze(
-            front_image.content,
-            back_image.content if back_image else None,
-            local_vision=local_vision,
-        )
-        suggestion_text = "\n".join(
-            dict.fromkeys(
-                [
-                    *suggestion.evidence.visible_text,
-                    *suggestion.evidence.front_visible_text,
-                    *suggestion.evidence.back_visible_text,
-                    *suggestion.evidence.logos,
-                    *suggestion.evidence.front_notes,
-                    *suggestion.evidence.back_notes,
-                ]
+    if settings.ollama_runtime_reader_enabled:
+        try:
+            suggestion = await reader.analyze(
+                front_image.content,
+                back_image.content if back_image else None,
+                local_vision=local_vision,
             )
-        )
-        suggestion_registry = await checklist_gateway.match(
-            suggestion.identity,
-            suggestion_text,
-        )
-    except httpx.HTTPStatusError as exc:
-        model_error_code = f"ollama_http_{exc.response.status_code}"
-        detail = _safe_ollama_error_detail(exc.response.text)
-        model_error = (
-            f"{model_error_code}:{detail}" if detail else model_error_code
-        )
-    except httpx.TimeoutException:
-        model_error_code = "ollama_timeout"
-        model_error = model_error_code
-    except httpx.HTTPError as exc:
-        model_error_code = f"ollama_transport_{type(exc).__name__.lower()}"
-        model_error = model_error_code
-    except (TypeError, ValueError, KeyError) as exc:
-        model_error_code = f"ollama_parse_{type(exc).__name__.lower()}"
-        model_error = model_error_code
+            suggestion_text = "\n".join(
+                dict.fromkeys(
+                    [
+                        *suggestion.evidence.visible_text,
+                        *suggestion.evidence.front_visible_text,
+                        *suggestion.evidence.back_visible_text,
+                        *suggestion.evidence.logos,
+                        *suggestion.evidence.front_notes,
+                        *suggestion.evidence.back_notes,
+                    ]
+                )
+            )
+            suggestion_registry = await checklist_gateway.match(
+                suggestion.identity,
+                suggestion_text,
+            )
+        except httpx.HTTPStatusError as exc:
+            model_error_code = f"ollama_http_{exc.response.status_code}"
+            detail = _safe_ollama_error_detail(exc.response.text)
+            model_error = (
+                f"{model_error_code}:{detail}" if detail else model_error_code
+            )
+        except httpx.TimeoutException:
+            model_error_code = "ollama_timeout"
+            model_error = model_error_code
+        except httpx.HTTPError as exc:
+            model_error_code = f"ollama_transport_{type(exc).__name__.lower()}"
+            model_error = model_error_code
+        except (TypeError, ValueError, KeyError) as exc:
+            model_error_code = f"ollama_parse_{type(exc).__name__.lower()}"
+            model_error = model_error_code
 
     proposed_identity = suggestion.identity if suggestion else printed_identity
     memory_matches = (
@@ -791,7 +799,7 @@ async def analyze_scan(
         status = "trusted_memory_match"
         match_source = "ollama_backup"
         next_action = (
-            "Local front/back evidence was locked to one exact Registry identity. "
+            "Engineering-only runtime reader evidence was locked to one exact Registry identity. "
             "Continue to verified comps."
         )
     elif (
@@ -822,9 +830,9 @@ async def analyze_scan(
                 }
             )
             next_action = (
-                "The local Ollama evidence reader did not produce a usable result "
-                f"({model_error_code or 'unknown'}). Keep identity and pricing blocked, "
-                "repair the local reader, and retry."
+                "The explicitly enabled engineering-only Ollama reader did not produce a usable result "
+                f"({model_error_code or 'unknown'}). Keep identity and pricing blocked and retry only "
+                "after repairing that comparison reader."
             )
         elif checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:
             status = "needs_checklist"
@@ -835,7 +843,8 @@ async def analyze_scan(
             status = "needs_review"
             next_action = (
                 "InstaComp preserved the front/back evidence and Registry receipt, but "
-                "one exact identity was not proven. Review or correct the card privately."
+                "one exact identity was not proven. Preserve it as a hard training example; "
+                "do not hand the live identity decision to a teacher model."
             )
 
     suggestion_back_evidence = (
@@ -898,7 +907,7 @@ async def analyze_scan(
                 identity=trusted_identity,
                 verification_source=f"registry:{checklist_result.identity_id}",
                 notes=(
-                    "Promoted only after exact Registry lock. Future matching checks internal memory before Ollama."
+                    "Promoted only after exact Registry lock. Future matching checks internal memory before any optional engineering-only reader."
                 ),
             )
         )
