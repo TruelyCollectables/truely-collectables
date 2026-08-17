@@ -42,7 +42,8 @@ on:
       - ".github/checklist-discovery-catchup-trigger-20260816"
       - ".github/hockey-checklist-reconcile-trigger-20260816"
   schedule:
-    # Catch-up mode: newest releases first, then walk backward year-by-year until 100 net-new discoveries land.
+    # Temporarily retained for visibility, but the job is gated off for scheduled
+    # events while the source-only 5-minute overnight harvest is active.
     - cron: "17 11 * * *"
 
 permissions:
@@ -51,21 +52,20 @@ permissions:
 
 concurrency:
   group: automatic-checklist-discovery
-  # A newer catch-up control run must be able to preempt an old writer so
-  # priority Registry imports are never forced to wait behind stale discovery.
   cancel-in-progress: true
 
 jobs:
   discover-and-import:
-    # A marker commit on the dedicated trigger path is a deliberate no-op used
-    # to cancel an older broad catch-up writer while a priority import runs.
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[pause-checklist-catchup]') }}
+    # Overnight source collection is deliberately read-only. Scheduled broad
+    # discovery/import is paused so it cannot compete with the source harvester
+    # or write Production before the morning parse/import pass.
+    if: ${{ github.event_name != 'schedule' && (github.event_name != 'push' || !contains(github.event.head_commit.message, '[pause-checklist-catchup]')) }}
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 120
     env:
       CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
-      CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || github.event_name == 'push' || inputs.mode == 'apply' }}
+      CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'push' || inputs.mode == 'apply' }}
       CHECKLIST_DISCOVERY_EARLIEST_YEAR: ${{ inputs.earliest_year || '1990' }}
       CHECKLIST_DISCOVERY_MAX_YEAR_PAGES: ${{ inputs.max_year_pages || '12' }}
       CHECKLIST_DISCOVERY_TARGET_NEW: ${{ inputs.target_new || '100' }}
