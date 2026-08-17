@@ -1,5 +1,6 @@
 name: Overnight Requested Checklist Harvest
 
+# Bootstrap push after workflow registration; subsequent progress is schedule-driven.
 on:
   workflow_dispatch:
   push:
