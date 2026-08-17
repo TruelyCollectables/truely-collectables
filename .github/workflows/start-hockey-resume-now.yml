@@ -34,3 +34,5 @@ jobs:
             "https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
             -d "{\"ref\":\"$REF\"}"
           echo "Hockey Production resume dispatch accepted"
+
+# explicit second trigger 2026-08-17T23:46Z
