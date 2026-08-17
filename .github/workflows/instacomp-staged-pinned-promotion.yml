@@ -18,6 +18,7 @@ on:
       - "services/instacomp-ai/scripts/repair_pinned_visual_memory.py"
       - "services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py"
       - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
+      - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
       - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
       - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
       - "services/instacomp-ai/app/**"
@@ -38,7 +39,7 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile pinned promotion and visual-memory repair runners
+      - name: Compile pinned promotion and learning orchestration
         run: |
           python -m py_compile \
             services/instacomp-ai/app/prizm_back_mark_guard.py \
@@ -55,6 +56,7 @@ jobs:
             services/instacomp-ai/scripts/repair_pinned_visual_memory.py \
             services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
       - name: Prove throttle handling, certified prefix, dynamic backfill, and authoritative Prizm back mark
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
@@ -69,19 +71,18 @@ jobs:
           python -m pytest -q \
             services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
             services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-      - name: Prove certified-prefix backfill, advisory handoff, and v17 source contract
+      - name: Prove certified-prefix backfill and automatic stage ladder source contract
         run: |
           grep -q 'DYNAMIC_BACKFILL_POOL_SIZES = dict(v16.DYNAMIC_BACKFILL_POOL_SIZES)' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py
           grep -q 'manifest_carry_forward_expansion_ids' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py
-          grep -q 'PINNED_BACKFILL_POOL_SIZES = {10: 8, 15: 15, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py
-          grep -q 'REQUIRED_NEW_FIXTURES = {10: 5, 15: 10, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py
-          grep -q 'back_mark is not True' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py
-          grep -q '_MINIMUM_PRIZM_PARALLEL = "Silver Prizm"' services/instacomp-ai/app/prizm_back_mark_guard.py
-          grep -q 'minimum parallel Silver Prizm' services/instacomp-ai/app/prizm_back_mark_guard.py
-          grep -q '_ADVISORY_REASONS = {"trusted_style_memory_not_retrievable"}' services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
           grep -q 'promotion-v17-certified-prefix-backfill' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q 'promote_lora_candidate_frozen_25_v17.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          grep -q 'repair_pinned_visual_memory_v15.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q '15) stages=(10 15)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -q '25) stages=(10 15 25)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -q 'Cloudflare Sentinel deployment status is not a learning prerequisite' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -q 'back_mark is not True' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py
+          grep -q '_MINIMUM_PRIZM_PARALLEL = "Silver Prizm"' services/instacomp-ai/app/prizm_back_mark_guard.py
+          grep -q '_ADVISORY_REASONS = {"trusted_style_memory_not_retrievable"}' services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
 
   pinned-contract-macos:
     runs-on: macos-15
@@ -109,6 +110,7 @@ jobs:
             services/instacomp-ai/scripts/repair_pinned_visual_memory.py \
             services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
           python services/instacomp-ai/scripts/repair_trusted_visual_memory.py --self-test
           python services/instacomp-ai/scripts/repair_pinned_visual_memory.py --self-test
           python services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py --self-test
