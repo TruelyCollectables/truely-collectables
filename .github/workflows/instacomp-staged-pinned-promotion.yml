@@ -79,6 +79,7 @@ jobs:
           grep -q 'promote_lora_candidate_frozen_25_v17.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q '15) stages=(10 15)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
           grep -q '25) stages=(10 15 25)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -q 'passthrough_present=0' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
           grep -q 'Cloudflare Sentinel deployment status is not a learning prerequisite' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
           grep -q 'back_mark is not True' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py
           grep -q '_MINIMUM_PRIZM_PARALLEL = "Silver Prizm"' services/instacomp-ai/app/prizm_back_mark_guard.py
@@ -111,6 +112,7 @@ jobs:
             services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          bash -uc 'passthrough=(); passthrough_present=0; if [[ "$passthrough_present" == "1" ]]; then printf "%s\n" "${passthrough[@]}"; else true; fi'
           python services/instacomp-ai/scripts/repair_trusted_visual_memory.py --self-test
           python services/instacomp-ai/scripts/repair_pinned_visual_memory.py --self-test
           python services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py --self-test
