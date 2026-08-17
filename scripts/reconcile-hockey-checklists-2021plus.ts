@@ -6,6 +6,7 @@ const HOCKEY_CATEGORY_URL = "https://upperdeck.com/checklist-category/hockey/";
 const START_DATE = new Date(
   process.env.HOCKEY_CHECKLIST_START_DATE || "2021-07-01T00:00:00Z",
 );
+const MIN_START_YEAR = 2021;
 const MAX_CATEGORY_PAGES = Math.max(
   1,
   Math.min(50, Number(process.env.HOCKEY_CHECKLIST_MAX_CATEGORY_PAGES || 40)),
@@ -63,6 +64,18 @@ function publishedAtFromBlock(block: string) {
   )?.[0];
   const parsedHuman = parsedDate(human);
   return parsedHuman ? parsedHuman.toISOString() : null;
+}
+
+function sourceStartYearHint(sourceUrl: string) {
+  try {
+    const slug = new URL(sourceUrl).pathname.toLowerCase();
+    const season = slug.match(/(?:^|[^0-9])(20\d{2})-(?:20)?\d{2}(?:[^0-9]|$)/);
+    if (season) return Number(season[1]);
+    const year = slug.match(/(?:^|[^0-9])(20\d{2})(?:[^0-9]|$)/);
+    return year ? Number(year[1]) : null;
+  } catch {
+    return null;
+  }
 }
 
 function checklistUrlFromBlock(block: string, base: string) {
@@ -152,16 +165,27 @@ async function discoverHockeyCandidates() {
 
   for (let page = 1; page <= MAX_CATEGORY_PAGES; page += 1) {
     const pageUrl = page === 1 ? HOCKEY_CATEGORY_URL : `${HOCKEY_CATEGORY_URL}page/${page}/`;
-    const html = await fetchHtml(pageUrl);
+    let html: string;
+    try {
+      html = await fetchHtml(pageUrl);
+    } catch (error) {
+      if (page > 1 && /HTTP 404\b/i.test(error instanceof Error ? error.message : String(error))) break;
+      throw error;
+    }
+
     const entries = categoryEntries(html, pageUrl, page);
     if (!entries.length) break;
 
     const dated = entries
       .map((entry) => parsedDate(entry.publishedAt))
       .filter((value): value is Date => Boolean(value));
+    const pageClearlyOld = dated.length > 0 && dated.every((value) => value < START_DATE);
     const eligible = entries.filter((entry) => {
+      const yearHint = sourceStartYearHint(entry.sourceUrl);
+      if (yearHint !== null && yearHint < MIN_START_YEAR) return false;
       const published = parsedDate(entry.publishedAt);
-      return !published || published >= START_DATE;
+      if (published) return published >= START_DATE;
+      return !pageClearlyOld;
     });
 
     for (const entry of eligible) candidates.set(entry.sourceUrl, entry);
@@ -176,9 +200,9 @@ async function discoverHockeyCandidates() {
       oldestPublishedAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
     });
 
-    // Hockey archive pages are newest-to-oldest. Once every dated item on a page
-    // predates the 2021-22 boundary, later pages cannot contain an in-scope release.
-    if (dated.length === entries.length && dated.every((value) => value < START_DATE)) break;
+    // Hockey archive pages are newest-to-oldest. A wholly pre-boundary page is
+    // the hard stop even if one legacy card lacks a machine-readable date.
+    if (pageClearlyOld) break;
   }
 
   return { candidates: [...candidates.values()], pages };
