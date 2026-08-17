@@ -15,17 +15,21 @@ on:
         description: Archive pages to inspect for backlog candidates
         required: true
         default: "50"
-      max_sources:
-        description: Maximum checklist sources to process per run
+      target_new:
+        description: Net-new checklist discoveries required during catch-up
         required: true
-        default: "60"
+        default: "100"
+      max_attempts:
+        description: Unseen checklist candidates allowed to reach the net-new target
+        required: true
+        default: "250"
   push:
     branches:
       - main
     paths:
       - ".github/checklist-discovery-catchup-trigger-20260816"
   schedule:
-    # Daily catch-up budget: 60 Upper Deck sources + 40 Topps product candidates = 100 checks/day.
+    # Catch-up mode: keep advancing through unseen checklist sources until 100 net-new discoveries land.
     - cron: "17 11 * * *"
 
 permissions:
@@ -45,7 +49,8 @@ jobs:
       CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
       CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || github.event_name == 'push' || inputs.mode == 'apply' }}
       CHECKLIST_DISCOVERY_MAX_PAGES: ${{ inputs.max_pages || '50' }}
-      CHECKLIST_DISCOVERY_MAX_SOURCES: ${{ inputs.max_sources || '60' }}
+      CHECKLIST_DISCOVERY_TARGET_NEW: ${{ inputs.target_new || '100' }}
+      CHECKLIST_DISCOVERY_MAX_ATTEMPTS: ${{ inputs.max_attempts || '250' }}
       CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/receipt.json
     steps:
       - uses: actions/checkout@v4
