@@ -6,6 +6,9 @@ on:
       - feature/instacomp-target-checklists-20260816
     paths:
       - '.github/workflows/instacomp-staged-sql-audit.yml'
+      - 'scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts'
+      - 'src/lib/checklist-registry/topps-hockey-text.ts'
+      - 'src/lib/checklist-registry/topps-hockey-text-adapter.ts'
   workflow_dispatch:
 
 permissions:
