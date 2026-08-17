@@ -7,6 +7,8 @@ if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
 fi
 
 original_args=("$@")
+original_args_present=0
+(( $# > 0 )) && original_args_present=1
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -53,7 +55,7 @@ updated="$(git -C "$repo_root" rev-parse HEAD)"
 
 if [[ "$updated" != "$current" && "${INSTACOMP_STAGED_REEXECED:-0}" != "1" ]]; then
   echo "INFO Staged learner source advanced to $updated; restarting from updated orchestration code"
-  if (( ${#original_args[@]} > 0 )); then
+  if [[ "$original_args_present" == "1" ]]; then
     exec env INSTACOMP_STAGED_REEXECED=1 bash "$service_root/scripts/run-staged-learning-from-main.sh" "${original_args[@]}"
   else
     exec env INSTACOMP_STAGED_REEXECED=1 bash "$service_root/scripts/run-staged-learning-from-main.sh"
@@ -68,6 +70,7 @@ echo "PASS staged learner contract self-test"
 
 requested_target=10
 passthrough=()
+passthrough_present=0
 while (( $# > 0 )); do
   case "$1" in
     --stage-target)
@@ -81,6 +84,7 @@ while (( $# > 0 )); do
       ;;
     *)
       passthrough+=("$1")
+      passthrough_present=1
       shift
       ;;
   esac
@@ -99,7 +103,7 @@ esac
 echo "INFO Starting live staged promotion ladder ${stages[*]}; Cloudflare Sentinel deployment status is not a learning prerequisite"
 for stage in "${stages[@]}"; do
   echo "INFO Certifying Frozen $stage with current v17 Registry/physical-card gates"
-  if (( ${#passthrough[@]} > 0 )); then
+  if [[ "$passthrough_present" == "1" ]]; then
     bash "$launcher" "${passthrough[@]}" --stage-target "$stage"
   else
     bash "$launcher" --stage-target "$stage"
