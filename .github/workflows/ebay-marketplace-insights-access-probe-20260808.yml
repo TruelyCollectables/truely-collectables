@@ -1,0 +1,58 @@
+name: eBay Marketplace Insights Access Probe 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/app/api/release/ebay-marketplace-insights-access-probe/route.ts'
+      - 'src/lib/ebay-marketplace-insights-access-probe-20260808.marker'
+      - '.github/workflows/ebay-marketplace-insights-access-probe-20260808.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Link Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Temporarily deploy protected access probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Probe existing production eBay app access
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/ebay-marketplace-insights-access-probe" > probe.json
+          cat probe.json
+          node - <<'NODE'
+          const p=require('./probe.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          console.log('EBAY_MARKETPLACE_INSIGHTS_PROBE='+JSON.stringify({configured:p.configured,accessGranted:p.accessGranted,stage:p.stage,tokenHttpStatus:p.tokenHttpStatus,insightHttpStatus:p.insightHttpStatus,total:p.total,returnedSales:p.returnedSales,tokenError:p.tokenError,insightError:p.insightError}));
+          NODE
+      - name: Restore exact current main Production
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout --detach origin/main
+          echo "RESTORING_MAIN_SHA=$(git rev-parse HEAD)"
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
