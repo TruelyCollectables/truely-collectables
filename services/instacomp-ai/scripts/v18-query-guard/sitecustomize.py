@@ -10,6 +10,41 @@ def _text(value: object) -> str | None:
     return text or None
 
 
+def _with_card_number(identity: Any, card_number: str):
+    """Return the same identity with only the already-known card number restored."""
+    if _text(getattr(identity, "card_number", None)):
+        return identity
+    if hasattr(identity, "model_copy"):
+        return identity.model_copy(update={"card_number": card_number})
+
+    from app.models import CardIdentity
+
+    payload = dict(identity)
+    payload["card_number"] = card_number
+    return CardIdentity.model_validate(payload)
+
+
+def _self_test_card_number_restore() -> None:
+    from app.models import CardIdentity
+
+    missing = CardIdentity(
+        year="2025",
+        manufacturer="Panini",
+        brand="Prizm",
+        player="Guard Test",
+        card_number=None,
+        parallel="Silver Prizm",
+    )
+    repaired = _with_card_number(missing, "32")
+    assert repaired.card_number == "32"
+    assert repaired.player == "Guard Test"
+    assert repaired.parallel == "Silver Prizm"
+    print(
+        "PASS V18 staged Registry query guard self-test: missing retry card_number restores only the teacher number",
+        flush=True,
+    )
+
+
 def _install_v18_card_number_guard() -> None:
     import promote_lora_candidate_frozen_25_v10 as v10
 
@@ -31,14 +66,7 @@ def _install_v18_card_number_guard() -> None:
         # The training row's card number is a hard fact. If a normalization layer
         # ever drops it, restore only that exact value before V10 builds any retry.
         if teacher_number and not _text(getattr(teacher, "card_number", None)):
-            if hasattr(teacher, "model_copy"):
-                teacher = teacher.model_copy(update={"card_number": teacher_number})
-            else:
-                from app.models import CardIdentity
-
-                payload = dict(teacher)
-                payload["card_number"] = teacher_number
-                teacher = CardIdentity.model_validate(payload)
+            teacher = _with_card_number(teacher, teacher_number)
             print(
                 f"V18 REGISTRY TEACHER REPAIR: restored card_number={teacher_number!r}",
                 flush=True,
@@ -47,14 +75,7 @@ def _install_v18_card_number_guard() -> None:
         async def preserve_card_number(identity: Any, ocr: str | None):
             current_number = _text(getattr(identity, "card_number", None))
             if teacher_number and not current_number:
-                if hasattr(identity, "model_copy"):
-                    identity = identity.model_copy(update={"card_number": teacher_number})
-                else:
-                    from app.models import CardIdentity
-
-                    payload = dict(identity)
-                    payload["card_number"] = teacher_number
-                    identity = CardIdentity.model_validate(payload)
+                identity = _with_card_number(identity, teacher_number)
                 current_number = teacher_number
                 print(
                     "V18 REGISTRY QUERY REPAIR: "
@@ -78,6 +99,7 @@ def _install_v18_card_number_guard() -> None:
     guarded_registry_match_evidence_aligned._v18_card_number_guard = True
     v10._registry_match_evidence_aligned = guarded_registry_match_evidence_aligned
     v10._v18_card_number_guard_installed = True
+    _self_test_card_number_restore()
     print(
         "PASS V18 staged Registry query guard installed: teacher card_number is preserved across every V10 retry",
         flush=True,
