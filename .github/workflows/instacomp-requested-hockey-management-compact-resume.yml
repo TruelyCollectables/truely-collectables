@@ -27,19 +27,19 @@ jobs:
       VERIFIED_SOURCE_RUN_ID: '31924171342'
       REQUESTED_HOCKEY_RESIDUAL_RECEIPT: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-residual-receipt.json
       REQUESTED_HOCKEY_VERIFY_RECEIPT: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-individual-verification.json
-      REQUESTED_HOCKEY_WAVE_SIZE: '2'
-      REQUESTED_HOCKEY_WAVE_DELAY_MS: '5000'
-      REQUESTED_HOCKEY_TARGET_ATTEMPTS: '4'
-      REQUESTED_HOCKEY_TARGET_RETRY_MS: '10000'
-      REQUESTED_HOCKEY_VERIFY_CONCURRENCY: '3'
-      REQUESTED_HOCKEY_VERIFY_ATTEMPTS: '5'
-      REQUESTED_HOCKEY_VERIFY_RETRY_MS: '5000'
-      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
+      REQUESTED_HOCKEY_WAVE_SIZE: '1'
+      REQUESTED_HOCKEY_WAVE_DELAY_MS: '15000'
+      REQUESTED_HOCKEY_TARGET_ATTEMPTS: '6'
+      REQUESTED_HOCKEY_TARGET_RETRY_MS: '15000'
+      REQUESTED_HOCKEY_VERIFY_CONCURRENCY: '1'
+      REQUESTED_HOCKEY_VERIFY_ATTEMPTS: '6'
+      REQUESTED_HOCKEY_VERIFY_RETRY_MS: '10000'
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '6'
       CHECKLIST_REGISTRY_SET_CHUNK: '25'
       CHECKLIST_REGISTRY_CARD_CHUNK: '25'
       CHECKLIST_REGISTRY_PARALLEL_CHUNK: '25'
       CHECKLIST_REGISTRY_IDENTITY_CHUNK: '25'
-      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '6'
 
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +84,7 @@ jobs:
           PY
           grep -F 'validation: { status: plan.validation.status, counts: plan.validation.counts }' scripts/instacomp-target-checklists/management-staged-registry-writer.mjs
 
-      - name: Apply only the 23 known Production residual catalogs
+      - name: Apply only the 23 known Production residual catalogs sequentially
         run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-residual-management.mjs
 
       - name: Prove 23-catalog residual is zero
