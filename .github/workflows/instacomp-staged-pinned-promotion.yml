@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py"
@@ -40,6 +41,7 @@ jobs:
         run: |
           python -m py_compile \
             services/instacomp-ai/app/prizm_back_mark_guard.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
@@ -51,10 +53,10 @@ jobs:
             services/instacomp-ai/scripts/repair_pinned_visual_memory.py \
             services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-      - name: Prove throttle handling, pinned backfill, and authoritative Prizm back mark
+      - name: Prove throttle handling, dynamic backfill, and authoritative Prizm back mark
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py --self-test
+        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py --self-test
       - name: Prove visual-memory hydration and deterministic Prizm hierarchy
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
@@ -65,16 +67,17 @@ jobs:
           python -m pytest -q \
             services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
             services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-      - name: Prove pinned backfill, advisory handoff, and v15 source contract
+      - name: Prove dynamic backfill, advisory handoff, and v16 source contract
         run: |
+          grep -q 'DYNAMIC_BACKFILL_POOL_SIZES = {15: 60, 25: 120}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py
           grep -q 'PINNED_BACKFILL_POOL_SIZES = {10: 8, 15: 15, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py
           grep -q 'REQUIRED_NEW_FIXTURES = {10: 5, 15: 10, 25: 20}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py
           grep -q 'back_mark is not True' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py
           grep -q '_MINIMUM_PRIZM_PARALLEL = "Silver Prizm"' services/instacomp-ai/app/prizm_back_mark_guard.py
           grep -q 'minimum parallel Silver Prizm' services/instacomp-ai/app/prizm_back_mark_guard.py
           grep -q '_ADVISORY_REASONS = {"trusted_style_memory_not_retrievable"}' services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
-          grep -q 'promotion-v15-authoritative-prizm-back-mark' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v15.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promotion-v16-dynamic-fail-closed-backfill' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v16.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q 'repair_pinned_visual_memory_v15.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
 
   pinned-contract-macos:
@@ -87,12 +90,13 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and prove v15 physical Prizm hierarchy on macOS
+      - name: Compile and prove v16 physical Prizm hierarchy on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           python -m py_compile \
             services/instacomp-ai/app/prizm_back_mark_guard.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
@@ -107,4 +111,4 @@ jobs:
           python -m pytest -q \
             services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
             services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py --self-test
+          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py --self-test
