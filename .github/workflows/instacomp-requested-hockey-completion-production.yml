@@ -1,0 +1,311 @@
+name: InstaComp Requested Hockey Completion Production
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-requested-hockey-completion-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-requested-hockey-management-production
+  cancel-in-progress: false
+
+jobs:
+  complete-requested-hockey:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 360
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/hockey-completion/base
+      DOWNLOADED_CHECKLIST_CORPUS_ROOT: /home/runner/work/_temp/hockey-completion/corpus
+      EASY_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-completion/easy/layout-pdf-plans
+      HARD_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-completion/hard/source-duplicate-pdf-plans
+      THE_CUP_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-completion/cup/the-cup-layout-plans
+      SELECTED_WORKBOOK_RECEIPT: /home/runner/work/_temp/hockey-completion/selected-workbook-recovery.json
+      CERTIFIED_PDF_MANAGEMENT_RECEIPT: /home/runner/work/_temp/hockey-completion/certified-pdf-management.json
+      THE_CUP_MANAGEMENT_RECEIPT: /home/runner/work/_temp/hockey-completion/the-cup-management.json
+      LEAF_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/hockey-completion/leaf
+      LEAF_HOCKEY_RECEIPT: /home/runner/work/_temp/hockey-completion/leaf-production.json
+      TOPPS_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/hockey-completion/topps
+      TOPPS_HOCKEY_RECEIPT: /home/runner/work/_temp/hockey-completion/topps-production.json
+      UPPER_DECK_SUPPLEMENT_RECEIPT: /home/runner/work/_temp/hockey-completion/upper-deck-supplements.json
+      REQUESTED_HOCKEY_VERIFY_RECEIPT: /home/runner/work/_temp/hockey-completion/requested-hockey-individual-verification.json
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '6'
+      CHECKLIST_REGISTRY_SET_CHUNK: '100'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '6'
+      WORKBOOK_TARGET_ATTEMPTS: '5'
+      WORKBOOK_TARGET_RETRY_DELAY_MS: '10000'
+      CERTIFIED_PDF_MANAGEMENT_WAVE_SIZE: '1'
+      CERTIFIED_PDF_MANAGEMENT_WAVE_DELAY_MS: '3000'
+      LEAF_HOCKEY_MINIMUM_CARD_ROWS: '10'
+      UPPER_DECK_SUPPLEMENT_DELAY_MS: '3000'
+      UPPER_DECK_SUPPLEMENT_ATTEMPTS: '6'
+      REQUESTED_HOCKEY_VERIFY_CONCURRENCY: '1'
+      REQUESTED_HOCKEY_VERIFY_ATTEMPTS: '6'
+      REQUESTED_HOCKEY_VERIFY_RETRY_MS: '5000'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install deterministic source readers
+        run: |
+          python3 -m pip install --disable-pip-version-check openpyxl xlrd
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils
+
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Download immutable original 122-source harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/hockey-completion/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Download complete no-refetch source corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-complete-31992954544
+          path: /home/runner/work/_temp/hockey-completion/corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31992954544
+
+      - name: Download eight certified PDF repair plans
+        uses: actions/download-artifact@v4
+        with:
+          name: instacomp-layout-pdf-recovery-31975826952
+          path: /home/runner/work/_temp/hockey-completion/easy
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31975826952
+      - uses: actions/download-artifact@v4
+        with:
+          name: instacomp-source-duplicate-pdf-recovery-31976899232
+          path: /home/runner/work/_temp/hockey-completion/hard
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976899232
+
+      - name: Download certified 2022-23 The Cup plan
+        uses: actions/download-artifact@v4
+        with:
+          name: instacomp-the-cup-layout-recovery-31976115218
+          path: /home/runner/work/_temp/hockey-completion/cup
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976115218
+
+      - name: Prove all immutable inputs before writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*' | wc -l | tr -d ' ')" = '192'
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*.html' | wc -l | tr -d ' ')" = '55'
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*.pdf' | wc -l | tr -d ' ')" -ge '5'
+          jq -e '.targetCount == 3 and .validatedCount == 3 and .unresolvedCount == 0' /home/runner/work/_temp/hockey-completion/easy/layout-pdf-recovery-receipt.json
+          jq -e '.targetCount == 5 and .validatedCount == 5 and .unresolvedCount == 0' /home/runner/work/_temp/hockey-completion/hard/source-duplicate-pdf-recovery-receipt.json
+          jq -e '.exactSetKey == "hockey|2022-23|upper-deck|the-cup-nhl" and .status == "validated"' /home/runner/work/_temp/hockey-completion/cup/the-cup-layout-recovery-receipt.json
+
+      - name: Harden runtime writers and Upper Deck parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
+          text = writer.read_text()
+          old = '${jsonSql(plan, "plan")}'
+          new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
+          if old not in text:
+              raise SystemExit('Expected full-plan BEGIN payload was not found')
+          writer.write_text(text.replace(old, new, 1))
+          leaf = Path('scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs')
+          text = leaf.read_text()
+          pattern = r'const entry=entryFor\(target\); const expectedPlan=buildPlan\(entry,\{cards:\[\{setName:"Base Set".*?new Date\(\)\.toISOString\(\)\);\n      row\.releaseSlug=expectedPlan\.release\.releaseSlug;'
+          replacement = 'const entry=entryFor(target); row.releaseSlug=`${target.season}-leaf-${target.product}-hockey`.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");'
+          text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'Expected one dummy Leaf preflight plan, replaced {count}')
+          leaf.write_text(text)
+          PY
+
+      - name: Recover fifteen structured workbook holdouts
+        id: selected_workbooks
+        continue-on-error: true
+        env:
+          WORKBOOK_RECOVERY_RECEIPT: /home/runner/work/_temp/hockey-completion/selected-workbook-recovery.json
+        run: node --import tsx scripts/instacomp-target-checklists/recover-selected-workbooks.mjs
+
+      - name: Recover seven remaining workbook holdouts sequentially
+        id: remaining_workbooks
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          root=/home/runner/work/_temp/hockey-completion/remaining-workbooks
+          mkdir -p "$root"
+          keys=(
+            'hockey|2021-22|upper-deck|black-diamond-nhl'
+            'hockey|2021-22|upper-deck|o-pee-chee-nhl'
+            'hockey|2021-22|upper-deck|sp-game-used-nhl'
+            'hockey|2023|leaf|ultimate'
+            'hockey|2024|leaf|metal-legends'
+            'hockey|2025|upper-deck|national-hockey-card-day'
+            'hockey|2026|upper-deck|national-hockey-card-day'
+          )
+          rc=0
+          for i in "${!keys[@]}"; do
+            key="${keys[$i]}"
+            export RECOVERY_EXACT_KEYS_JSON="$(jq -cn --arg k "$key" '[$k]')"
+            export WORKBOOK_RECOVERY_RECEIPT="$root/receipt-$i.json"
+            if ! node --import tsx scripts/instacomp-target-checklists/run-parameterized-workbook-recovery.mjs; then rc=1; fi
+            sleep 3
+          done
+          jq -s '{schema:"tcos.requestedHockeyRemainingWorkbookRecovery.v1",targetCount:7,receiptCount:length,persistedCount:(map(.persistedCount // 0)|add // 0),failedCount:(map(.failedCount // .unresolvedCount // 0)|add // 0),persistedCards:(map(.persistedCards // 0)|add // 0),persistedIdentities:(map(.persistedIdentities // 0)|add // 0),receipts:.}' "$root"/receipt-*.json > "$root/combined.json"
+          jq '{targetCount,receiptCount,persistedCount,failedCount,persistedCards,persistedIdentities}' "$root/combined.json"
+          exit "$rc"
+
+      - name: Apply eight certified PDF repairs through management SQL
+        id: certified_pdfs
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-certified-pdfs-management.mjs
+
+      - name: Apply certified 2022-23 The Cup
+        id: the_cup
+        continue-on-error: true
+        run: node scripts/instacomp-target-checklists/apply-certified-the-cup-management.mjs
+
+      - name: Stage ten already-downloaded Leaf sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$LEAF_HOCKEY_SOURCE_ROOT"
+          copy_source() {
+            local pattern="$1" dest="$2" src
+            src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"
+            test -n "$src"
+            cp "$src" "$LEAF_HOCKEY_SOURCE_ROOT/$dest"
+          }
+          copy_source '*hockey_2021-22_leaf_signature-series.xlsx' '2021-22-signature-series.xlsx'
+          copy_source '*hockey_2021-22_leaf_pro-set.xlsx' '2021-22-pro-set.xlsx'
+          copy_source '*hockey_2021-22_leaf_lumber.xlsx' '2021-22-lumber.xlsx'
+          copy_source '*hockey_2022_leaf_art-of.xlsx' '2022-art-of.xlsx'
+          copy_source '*hockey_2022_leaf_expo-ink.xlsx' '2022-expo-ink.xlsx'
+          copy_source '*hockey_2022-23_leaf_in-the-game-used.xlsx' '2022-23-used.xlsx'
+          copy_source '*hockey_2023_leaf_ultimate.xlsx' '2023-ultimate.xlsx'
+          copy_source '*hockey_2024_leaf_metal-legends.xlsx' '2024-metal-legends.xlsx'
+          copy_source '*hockey_2025_leaf_metal-legends.xls' '2025-metal-legends.xls'
+          copy_source '*hockey_2026_leaf_metal.csv' '2026-metal.csv'
+          test "$(find "$LEAF_HOCKEY_SOURCE_ROOT" -maxdepth 1 -type f | wc -l | tr -d ' ')" = '10'
+
+      - name: Load ten official Leaf Hockey catalogs from downloaded files
+        id: leaf
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
+
+      - name: Stage five already-downloaded Topps sources and extract text locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
+          copy_pdf() {
+            local pattern="$1" dest="$2" src
+            src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"
+            test -n "$src"
+            cp "$src" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf"
+            pdftotext -layout "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"
+            test -s "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"
+          }
+          copy_pdf '*hockey_2021_topps_nhl-stickers.pdf' '2021-nhl-stickers'
+          copy_pdf '*hockey_2022-23_topps_nhl-sticker-album.pdf' '2022-23-nhl-sticker-album'
+          copy_pdf '*hockey_2022-23_topps_chrome-nhl-stickers.pdf' '2022-23-chrome-nhl-stickers'
+          copy_pdf '*hockey_2024-25_topps_nhl-sticker-collection.pdf' '2024-25-nhl-sticker-collection'
+          copy_pdf '*hockey_2025-26_topps_nhl-sticker-collection.pdf' '2025-26-nhl-sticker-collection'
+
+      - name: Load five official Topps Hockey catalogs from downloaded files
+        id: topps
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts
+
+      - name: Load downloaded Upper Deck supplement pages without refetching
+        id: upper_deck_supplements
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts
+
+      - name: Re-verify all 83 original validated Hockey catalogs individually
+        id: verify_baseline
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/verify-requested-hockey-individual.mjs
+
+      - name: Build final completion receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=/home/runner/work/_temp/hockey-completion/final-completion.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const root='/home/runner/work/_temp/hockey-completion';
+          const read=(p)=>{try{return JSON.parse(fs.readFileSync(`${root}/${p}`,'utf8'))}catch{return null}};
+          const selected=read('selected-workbook-recovery.json');
+          const remaining=read('remaining-workbooks/combined.json');
+          const pdf=read('certified-pdf-management.json');
+          const cup=read('the-cup-management.json');
+          const leaf=read('leaf-production.json');
+          const topps=read('topps-production.json');
+          const ud=read('upper-deck-supplements.json');
+          const baseline=read('requested-hockey-individual-verification.json');
+          const result={
+            schema:'tcos.requestedHockeyCompletionProduction.v1',
+            completedAt:new Date().toISOString(),
+            originalValidated:{targetCount:baseline?.targetCount??83,liveCount:baseline?.liveCount??0,unresolvedCount:baseline?.unresolvedCount??83,failedQueryCount:baseline?.failedQueryCount??0},
+            selectedWorkbooks:selected&&{targetCount:selected.targetCount,persistedCount:selected.persistedCount,failedCount:selected.failedCount??selected.unresolvedCount,results:selected.results},
+            remainingWorkbooks:remaining&&{targetCount:remaining.targetCount,persistedCount:remaining.persistedCount,failedCount:remaining.failedCount},
+            certifiedPdfs:pdf&&{targetCount:pdf.targetCount,alreadyLiveCount:pdf.alreadyLiveCount,persistedCount:pdf.persistedCount,failedCount:pdf.failedCount,results:pdf.results},
+            theCup:cup,
+            leaf:leaf&&{targetCount:leaf.targetCount,liveCount:leaf.liveCount,alreadyLiveCount:leaf.alreadyLiveCount,persistedCount:leaf.persistedCount,failedCount:leaf.failedCount,unresolvedCount:leaf.unresolvedCount,results:leaf.results},
+            topps:topps&&{targetCount:topps.targetCount,liveCount:topps.liveCount,alreadyLiveCount:topps.alreadyLiveCount,persistedCount:topps.persistedCount,failedCount:topps.failedCount,unresolvedCount:topps.unresolvedCount,results:topps.results},
+            upperDeckSupplements:ud&&{targetCount:ud.targetCount,liveCount:ud.liveCount,alreadyLiveCount:ud.alreadyLiveCount,persistedCount:ud.persistedCount,validationFailedCount:ud.validationFailedCount,failedCount:ud.failedCount,unresolvedCount:ud.unresolvedCount,results:ud.results},
+          };
+          fs.writeFileSync(`${root}/final-completion.json`,JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify({originalValidated:result.originalValidated,selectedWorkbooks:result.selectedWorkbooks&&{targetCount:result.selectedWorkbooks.targetCount,persistedCount:result.selectedWorkbooks.persistedCount,failedCount:result.selectedWorkbooks.failedCount},remainingWorkbooks:result.remainingWorkbooks,certifiedPdfs:result.certifiedPdfs&&{targetCount:result.certifiedPdfs.targetCount,alreadyLiveCount:result.certifiedPdfs.alreadyLiveCount,persistedCount:result.certifiedPdfs.persistedCount,failedCount:result.certifiedPdfs.failedCount},theCup:result.theCup&&{status:result.theCup.status},leaf:result.leaf&&{targetCount:result.leaf.targetCount,liveCount:result.leaf.liveCount,failedCount:result.leaf.failedCount},topps:result.topps&&{targetCount:result.topps.targetCount,liveCount:result.topps.liveCount,failedCount:result.topps.failedCount},upperDeckSupplements:result.upperDeckSupplements&&{targetCount:result.upperDeckSupplements.targetCount,liveCount:result.upperDeckSupplements.liveCount,validationFailedCount:result.upperDeckSupplements.validationFailedCount,failedCount:result.upperDeckSupplements.failedCount}},null,2));
+          NODE
+          test -s "$out"
+
+      - name: Upload complete Production receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-requested-hockey-completion-${{ github.run_id }}
+          path: |
+            /home/runner/work/_temp/hockey-completion/final-completion.json
+            /home/runner/work/_temp/hockey-completion/selected-workbook-recovery.json
+            /home/runner/work/_temp/hockey-completion/remaining-workbooks
+            /home/runner/work/_temp/hockey-completion/certified-pdf-management.json
+            /home/runner/work/_temp/hockey-completion/the-cup-management.json
+            /home/runner/work/_temp/hockey-completion/leaf-production.json
+            /home/runner/work/_temp/hockey-completion/topps-production.json
+            /home/runner/work/_temp/hockey-completion/upper-deck-supplements.json
+            /home/runner/work/_temp/hockey-completion/requested-hockey-individual-verification.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hockey-completion" .env.local .env.production.local .vercel
