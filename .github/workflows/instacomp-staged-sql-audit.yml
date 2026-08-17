@@ -18,7 +18,7 @@ jobs:
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Read live staged checklist SQL and uniqueness
+      - name: Read live staged checklist SQL, uniqueness, and Hockey census
         shell: bash
         run: |
           set -euo pipefail
@@ -31,6 +31,19 @@ jobs:
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' evidence/projects.json)
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
+
+          query_db() {
+            local sql="$1"
+            local out="$2"
+            jq -cn --arg query "$sql" '{query:$query,read_only:true}' > evidence/query.json
+            curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 2 --max-time 90 \
+              -X POST \
+              -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              -H 'Content-Type: application/json' \
+              --data-binary @evidence/query.json \
+              -o "$out" \
+              "https://api.supabase.com/v1/projects/$project_ref/database/query"
+          }
 
           read -r -d '' functions_sql <<'SQL' || true
           select
@@ -47,14 +60,7 @@ jobs:
             )
           order by p.proname;
           SQL
-          jq -cn --arg query "$functions_sql" '{query:$query,read_only:true}' > evidence/query.json
-          curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 2 --max-time 90 \
-            -X POST \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -H 'Content-Type: application/json' \
-            --data-binary @evidence/query.json \
-            -o evidence/staged-functions.json \
-            "https://api.supabase.com/v1/projects/$project_ref/database/query"
+          query_db "$functions_sql" evidence/staged-functions.json
           jq -e 'length == 3' evidence/staged-functions.json
 
           read -r -d '' indexes_sql <<'SQL' || true
@@ -64,18 +70,43 @@ jobs:
             and tablename in ('checklist_cards','checklist_card_identities','checklist_sets','checklist_parallels')
           order by tablename,indexname;
           SQL
-          jq -cn --arg query "$indexes_sql" '{query:$query,read_only:true}' > evidence/query.json
-          curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 2 --max-time 90 \
-            -X POST \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -H 'Content-Type: application/json' \
-            --data-binary @evidence/query.json \
-            -o evidence/checklist-indexes.json \
-            "https://api.supabase.com/v1/projects/$project_ref/database/query"
-          rm -f evidence/projects.json evidence/query.json
+          query_db "$indexes_sql" evidence/checklist-indexes.json
           jq -e 'length > 0' evidence/checklist-indexes.json
-          echo '--- checklist_cards indexes ---'
-          jq -r '.[] | select(.tablename=="checklist_cards") | .indexdef' evidence/checklist-indexes.json
+
+          read -r -d '' hockey_sql <<'SQL' || true
+          select
+            to_jsonb(r) as release,
+            jsonb_build_object(
+              'id', v.id,
+              'status', v.status,
+              'version_number', v.version_number,
+              'normalized_card_count', v.normalized_card_count,
+              'normalized_identity_count', v.normalized_identity_count,
+              'is_active', v.is_active
+            ) as version
+          from public.checklist_releases r
+          join lateral (
+            select id,status,version_number,normalized_card_count,normalized_identity_count,is_active
+            from public.checklist_versions
+            where release_id=r.id
+              and is_active=true
+              and status in ('live','revised')
+              and coalesce(normalized_card_count,0)>0
+              and coalesce(normalized_identity_count,0)>0
+            order by version_number desc
+            limit 1
+          ) v on true
+          where lower(coalesce(to_jsonb(r)->>'sport',''))='hockey'
+             or lower(coalesce(to_jsonb(r)->>'league',''))='nhl'
+             or lower(coalesce(to_jsonb(r)->>'slug','')) like '%hockey%'
+          order by coalesce(to_jsonb(r)->>'release_year',to_jsonb(r)->>'season',''), coalesce(to_jsonb(r)->>'manufacturer',''), coalesce(to_jsonb(r)->>'product',''), coalesce(to_jsonb(r)->>'slug','');
+          SQL
+          query_db "$hockey_sql" evidence/live-hockey-registry.json
+          jq -e 'type == "array"' evidence/live-hockey-registry.json
+          jq '{liveHockeyReleaseCount:length, manufacturers:(map(.release.manufacturer // .release.brand // "unknown")|group_by(.)|map({manufacturer:.[0],count:length}))}' evidence/live-hockey-registry.json > evidence/live-hockey-summary.json
+          cat evidence/live-hockey-summary.json
+
+          rm -f evidence/projects.json evidence/query.json
       - name: Upload staged SQL audit
         uses: actions/upload-artifact@v4
         with:
@@ -83,5 +114,7 @@ jobs:
           path: |
             evidence/staged-functions.json
             evidence/checklist-indexes.json
+            evidence/live-hockey-registry.json
+            evidence/live-hockey-summary.json
           if-no-files-found: error
           retention-days: 30
