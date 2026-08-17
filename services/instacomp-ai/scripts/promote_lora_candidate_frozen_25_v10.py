@@ -13,6 +13,26 @@ import promote_lora_candidate_frozen_five as base
 SCHEMA = "tcos.instacomp-ai.lora-frozen-25-promotion.v10"
 RegistryMatch = Callable[[Any, str | None], Awaitable[Any]]
 _V3_BUILD_FROZEN_25_LIVE = v3.build_frozen_25_live
+_PHYSICAL_PRIZM_VARIANT_FAMILIES = frozenset(
+    {
+        "ice",
+        "velocity",
+        "groovy",
+        "silver",
+        "green",
+        "red",
+        "blue",
+        "orange",
+        "purple",
+        "gold",
+        "black",
+        "wave",
+        "mojo",
+        "scope",
+        "hyper",
+        "pulsar",
+    }
+)
 
 
 def _text(value: object) -> str | None:
@@ -39,20 +59,65 @@ def _identity_signature(identity: Any) -> tuple[str, ...]:
     )
 
 
-def _normalized_teacher_identity(teacher: Any):
-    """Apply the same narrow semantic shape repair used by the LoRA runtime.
+def _preserve_prizm_subset_variant(identity: Any):
+    """Carry an already-declared physical Prizm variant across the core retry.
 
-    This is intentionally not a fuzzy Registry mapper. The only rewrite is the
+    Older supervised rows sometimes put the physical Prizm parallel in ``subset``
+    instead of ``parallel``. V4/V5 already treat that subset text as a variant
+    constraint, but V10's core Registry retry intentionally drops subset as noisy
+    catalog shape. Without copying the same recognized physical claim into
+    ``parallel`` first, Registry can exact-lock the UUID/fingerprint while the
+    returned canonical identity loses the variant and later fail-closed gates see
+    ``registry_variant=None``.
+
+    This is not fuzzy mapping and does not invent a variant. It only preserves a
+    recognized Prizm physical family that the teacher already declared and that
+    later image/Registry gates still must independently accept.
+    """
+    from app.models import CardIdentity
+
+    source = identity.model_dump(mode="json") if hasattr(identity, "model_dump") else dict(identity)
+    if _text(source.get("parallel")) or _text(source.get("variation")):
+        return identity
+
+    context = " ".join(
+        value
+        for value in (
+            _text(source.get("brand")),
+            _text(source.get("set_name")),
+        )
+        if value
+    )
+    if "prizm" not in base.norm(context):
+        return identity
+
+    subset = _text(source.get("subset"))
+    family = v9._canonical_variant_hardened(subset)
+    if subset is None or family not in _PHYSICAL_PRIZM_VARIANT_FAMILIES:
+        return identity
+
+    source["parallel"] = subset
+    return CardIdentity.model_validate(source)
+
+
+def _normalized_teacher_identity(teacher: Any):
+    """Apply narrow semantic shape repair while preserving physical constraints.
+
+    This is intentionally not a fuzzy Registry mapper. The first rewrite is the
     already-certified candidate identity guard (for example Panini Prizm WNBA
-    parallel text accidentally encoded in set_name). Registry remains the source
-    of the UUID/fingerprint and the final accepted identity.
+    parallel text accidentally encoded in set_name). The second only carries an
+    already-declared recognized Prizm parallel from legacy ``subset`` into
+    ``parallel`` so V10's later catalog-shape retry cannot erase that physical
+    constraint. Registry remains the source of the UUID/fingerprint and the final
+    accepted identity.
     """
     from app.candidate_identity_guard import normalize_candidate_identity_payload
     from app.models import CardIdentity
 
     payload = {"parsed": {"identity": teacher.model_dump(mode="json")}}
     normalized, _repaired = normalize_candidate_identity_payload(payload)
-    return CardIdentity.model_validate(normalized["parsed"]["identity"])
+    value = CardIdentity.model_validate(normalized["parsed"]["identity"])
+    return _preserve_prizm_subset_variant(value)
 
 
 def _core_registry_identity(teacher: Any, *, clear_manufacturer: bool = False):
@@ -60,10 +125,12 @@ def _core_registry_identity(teacher: Any, *, clear_manufacturer: bool = False):
 
     Brand/set/subset are deliberately omitted from the discovery request because
     old teacher rows frequently encode product naming differently than Registry.
-    Parallel/variation/serial/auto/relic remain physical type constraints. The
-    Registry resolver itself only exact-locks when its hard core identifies one
-    product/set and one typed identity, so removing noisy labels broadens lookup
-    without broadening acceptance.
+    A recognized Prizm physical variant that was packed in subset is copied into
+    parallel by ``_normalized_teacher_identity`` before this step. Parallel,
+    variation, serial, auto, and relic therefore remain physical constraints.
+    The Registry resolver itself only exact-locks when its hard core identifies
+    one product/set and one typed identity, so removing noisy labels broadens
+    lookup without broadening acceptance.
     """
     from app.models import CardIdentity
 
@@ -140,7 +207,7 @@ async def _registry_match_evidence_aligned(
 
     # Attempt 1: same narrow identity-shape normalization the actual candidate
     # runtime receives. This fixes semantic packaging drift without erasing any
-    # teacher dimensions.
+    # teacher dimensions or a legacy subset-packed physical Prizm variant.
     first = await registry_match(normalized, None)
     if _registry_exact(first):
         return first
@@ -240,6 +307,26 @@ def _self_test_registry_retry_ladder() -> None:
             ],
         )
 
+    def exact_preserving_query_variant(identity: CardIdentity) -> ChecklistResult:
+        return ChecklistResult(
+            outcome=ChecklistOutcome.EXACT_MATCH,
+            identity_id=exact_id,
+            identity=CardIdentity(
+                year="2025",
+                manufacturer="Panini",
+                brand="Prizm",
+                set_name="Base",
+                player=identity.player,
+                card_number=identity.card_number,
+                parallel=identity.parallel,
+            ),
+            candidate_count=1,
+            source_receipts=[
+                f"registry_identity:{exact_id}",
+                f"registry_fingerprint:{fingerprint}",
+            ],
+        )
+
     calls: list[tuple[CardIdentity, str | None]] = []
 
     async def core_match(identity: CardIdentity, ocr: str | None) -> ChecklistResult:
@@ -269,6 +356,53 @@ def _self_test_registry_retry_ladder() -> None:
     assert calls[0][0].brand is not None
     assert calls[1][0].brand is None and calls[1][0].set_name is None
     assert calls[1][0].parallel == "Silver Prizm"
+
+    # Exact regression from the V18 Mac preflight: older reviewed WNBA Prizm
+    # teacher rows can carry Silver/Ice/etc. in subset. V10 used to drop subset
+    # before its core retry, so an exact Registry lock came back with no variant
+    # and V15 rejected rows as registry_variant=None. Preserve the already-declared
+    # physical family as parallel while still dropping subset as catalog shape.
+    subset_teacher = CardIdentity(
+        year="2025",
+        manufacturer="Panini",
+        brand="Panini Prizm WNBA",
+        set_name="Base",
+        subset="Silver Prizms",
+        player="Caitlin Clark",
+        card_number="41",
+    )
+    normalized_subset = _normalized_teacher_identity(subset_teacher)
+    assert normalized_subset.subset == "Silver Prizms"
+    assert normalized_subset.parallel == "Silver Prizms"
+    assert v9._canonical_variant_hardened(normalized_subset.parallel) == "silver"
+
+    calls.clear()
+
+    async def subset_core_match(identity: CardIdentity, ocr: str | None) -> ChecklistResult:
+        calls.append((identity.model_copy(deep=True), ocr))
+        if identity.brand is None and identity.set_name is None and identity.manufacturer == "Panini":
+            return exact_preserving_query_variant(identity)
+        return ChecklistResult(
+            outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+            reasons=["catalog_shape_conflict"],
+        )
+
+    subset_result = asyncio.run(
+        _registry_match_evidence_aligned(subset_teacher, None, subset_core_match)
+    )
+    assert subset_result.outcome == ChecklistOutcome.EXACT_MATCH
+    assert len(calls) == 2
+    assert calls[1][0].subset is None
+    assert calls[1][0].parallel == "Silver Prizms"
+    assert subset_result.identity is not None
+    assert v9._canonical_variant_hardened(subset_result.identity.parallel) == "silver"
+
+    # Keep the repair narrow: a non-Prizm product subset is not promoted into a
+    # physical parallel merely because its name contains a color word.
+    non_prizm_subset = subset_teacher.model_copy(
+        update={"brand": "Select WNBA", "subset": "Silver", "parallel": None}
+    )
+    assert _normalized_teacher_identity(non_prizm_subset).parallel is None
 
     previous = globals()["_local_vision_for_item"]
     try:
@@ -338,6 +472,8 @@ def _self_test_registry_retry_ladder() -> None:
 
     print("PASS v10 strips noisy teacher product labels only for Registry discovery")
     print("PASS v10 preserves physical parallel/type constraints during core discovery")
+    print("PASS v10 preserves legacy Prizm subset variants through core Registry retry")
+    print("PASS v10 keeps non-Prizm subsets out of physical parallel repair")
     print("PASS v10 retries missing/stale manufacturer with deterministic image OCR")
     print("PASS v10 ambiguous Registry results remain fail-closed with no synthetic UUID")
     print("PASS v10 still requires Registry UUID, fingerprint, and teacher variant compatibility")
