@@ -1,3 +1,4 @@
 Run the post-fix checklist catch-up proof on current main.
 Retry 1: preserve hidden receipts and persist fatal Topps pre-loop errors for exact diagnostics.
 Retry 2: prove catch-up means 100 successful net-new checklist discoveries, with reserve unseen candidates for failures.
+Retry 3: crawl the live Upper Deck checklist-year archives instead of the now-empty legacy checklist category.
