@@ -1,0 +1,74 @@
+name: InstaComp V18 Live Launcher Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-v18-live-launcher-contract.yml"
+      - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v5.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v18-live-launcher-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build service venv
+        run: |
+          python -m venv services/instacomp-ai/.venv
+          services/instacomp-ai/.venv/bin/python -m pip install -r services/instacomp-ai/requirements.txt
+      - name: Syntax check launcher and V18
+        run: |
+          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          services/instacomp-ai/.venv/bin/python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+      - name: Run exact V18 launcher self-test five times on Linux
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== V18 LIVE LAUNCHER LINUX PASS ${pass}/5 ====="
+            output="$(bash services/instacomp-ai/scripts/run_staged_pinned_promotion.sh --self-test 2>&1)"
+            printf '%s\n' "$output"
+            grep -q 'PASS V18 live admission stack installed:' <<<"$output"
+            grep -q 'PASS v18 consolidated runner contract complete' <<<"$output"
+          done
+
+  v18-live-launcher-macos:
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build service venv
+        run: |
+          python -m venv services/instacomp-ai/.venv
+          services/instacomp-ai/.venv/bin/python -m pip install -r services/instacomp-ai/requirements.txt
+      - name: Syntax check launcher and V18 on macOS
+        run: |
+          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          services/instacomp-ai/.venv/bin/python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          bash -uc 'a=(); present=0; if [[ "$present" == "1" ]]; then printf "%s\n" "${a[@]}"; else true; fi'
+      - name: Run exact V18 launcher self-test five times on macOS
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== V18 LIVE LAUNCHER MACOS PASS ${pass}/5 ====="
+            output="$(bash services/instacomp-ai/scripts/run_staged_pinned_promotion.sh --self-test 2>&1)"
+            printf '%s\n' "$output"
+            grep -q 'PASS V18 live admission stack installed:' <<<"$output"
+            grep -q 'PASS v18 consolidated runner contract complete' <<<"$output"
+          done
