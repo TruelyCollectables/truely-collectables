@@ -88,6 +88,7 @@ echo "INFO Pattern-sensitive families such as Velocity and Cracked Ice still req
 echo "INFO Frozen 15/25 preserve the complete successful prior-stage fixture prefix, adapter hash, and dataset hash"
 echo "INFO Registry throttle handling remains same-request fail-safe backoff; throttle is never recorded as a card miss"
 echo "INFO Missing Registry canonical variant text is treated as omission, never contradiction; explicit variant conflicts still fail closed"
+echo "INFO Same-UUID historical Registry fingerprint drift defers to the current exact Registry fingerprint; UUID drift still fails closed"
 echo "INFO Two final exhaustive certification rounds run directly through the V14 traversal and cannot be overwritten by version monkey-patches"
 
 exec "$service_python" - "$@" <<'PY'
@@ -123,6 +124,61 @@ def registry_identity_matches_teacher_allow_omission(teacher: dict[str, Any], re
     if registry_marker is None:
         return True
     return registry_marker == teacher_marker
+
+
+def current_authoritative_locked_expansion(
+    item: dict[str, Any], registry: Any
+) -> dict[str, Any] | None:
+    """Use current exact Registry truth while rejecting real identity drift.
+
+    Historical supervised rows may retain the fingerprint of an older canonical
+    Registry payload. If the live Registry still returns the same exact UUID, a
+    changed fingerprint is canonical-payload drift rather than a different card.
+    V18 therefore records the current fingerprint in the lock. A changed UUID,
+    malformed current fingerprint, or fingerprint conflict without the same
+    stored UUID remains fail-closed.
+    """
+    from app.models import ChecklistOutcome
+
+    if getattr(registry, "outcome", None) != ChecklistOutcome.EXACT_MATCH:
+        return None
+    registry_id = v18.v3.legacy._valid_uuid(getattr(registry, "identity_id", None))
+    fingerprint = v18.v3._registry_fingerprint(registry)
+    if registry_id is None or fingerprint is None:
+        return None
+    if not v18.v3._registry_identity_matches_teacher(item["identity"], registry):
+        return None
+
+    metadata_registry_id = item.get("metadata_registry_id")
+    metadata_fingerprint = item.get("metadata_fingerprint")
+    if metadata_registry_id and v18.base.norm(metadata_registry_id) != v18.base.norm(registry_id):
+        return None
+
+    fingerprint_drift = bool(
+        metadata_fingerprint
+        and v18.base.norm(metadata_fingerprint) != v18.base.norm(fingerprint)
+    )
+    if fingerprint_drift:
+        if not metadata_registry_id:
+            return None
+        if v18.base.norm(metadata_registry_id) != v18.base.norm(registry_id):
+            return None
+
+    player = str(item["identity"].get("player") or "").strip()
+    number = str(item["identity"].get("card_number") or "").strip().lstrip("#")
+    locked = dict(item)
+    locked["case"] = (
+        f"registry-{registry_id[:8]}-{number}",
+        player,
+        number,
+        item.get("marker"),
+        registry_id,
+        fingerprint,
+    )
+    locked["registry_lock_source"] = "live_authoritative_registry_preflight"
+    if fingerprint_drift:
+        locked["stale_row_registry_fingerprint_ignored"] = True
+    return locked
 
 
 def physical_conflict_allow_registry_omission(
@@ -250,6 +306,73 @@ def self_test_registry_variant_omission_contract() -> None:
     )
 
 
+def self_test_current_registry_fingerprint_authority() -> None:
+    from app.models import ChecklistOutcome
+
+    registry_id = "00000000-0000-0000-0018-000000000032"
+    old_fingerprint = "a" * 64
+    current_fingerprint = "b" * 64
+    item = {
+        "identity": {
+            "year": "2025",
+            "manufacturer": "Panini",
+            "brand": "Prizm",
+            "set_name": "Base",
+            "player": "Fingerprint Player",
+            "card_number": "32",
+            "parallel": "Base",
+        },
+        "marker": None,
+        "metadata_registry_id": registry_id,
+        "metadata_fingerprint": old_fingerprint,
+    }
+    registry = SimpleNamespace(
+        outcome=ChecklistOutcome.EXACT_MATCH,
+        identity_id=registry_id,
+        identity={
+            "year": "2025",
+            "manufacturer": "Panini",
+            "brand": "Prizm",
+            "set_name": "Base",
+            "player": "Fingerprint Player",
+            "card_number": "32",
+            "parallel": "Base",
+        },
+        source_receipts=[
+            f"registry_identity:{registry_id}",
+            f"registry_fingerprint:{current_fingerprint}",
+        ],
+    )
+
+    previous_matcher = v18.v3._registry_identity_matches_teacher
+    try:
+        v18.v3._registry_identity_matches_teacher = registry_identity_matches_teacher_allow_omission
+        locked = current_authoritative_locked_expansion(item, registry)
+        assert locked is not None
+        assert locked["case"][4] == registry_id
+        assert locked["case"][5] == current_fingerprint
+        assert locked.get("stale_row_registry_fingerprint_ignored") is True
+
+        changed_uuid = SimpleNamespace(
+            **{
+                **registry.__dict__,
+                "identity_id": "00000000-0000-0000-0018-000000000033",
+            }
+        )
+        assert current_authoritative_locked_expansion(item, changed_uuid) is None
+
+        fingerprint_only = dict(item)
+        fingerprint_only["metadata_registry_id"] = None
+        assert current_authoritative_locked_expansion(fingerprint_only, registry) is None
+    finally:
+        v18.v3._registry_identity_matches_teacher = previous_matcher
+
+    print(
+        "PASS V18 accepts current fingerprint drift only when the authoritative Registry UUID is unchanged",
+        flush=True,
+    )
+
+
 def install_complete_v18_contract(target: int) -> None:
     if target not in v18.ALLOWED_STAGE_TARGETS:
         raise RuntimeError(
@@ -263,6 +386,7 @@ def install_complete_v18_contract(target: int) -> None:
 
     v18.v3._registry_identity_matches_teacher = registry_identity_matches_teacher_allow_omission
     v18.v5._image_witness_conflict = physical_conflict_allow_registry_omission
+    v18.v5._original_locked_expansion = current_authoritative_locked_expansion
 
     v18.v3.SCHEMA = v18.SCHEMA
     v18.v12.SCHEMA = v18.SCHEMA
@@ -274,12 +398,14 @@ def install_complete_v18_contract(target: int) -> None:
         raise RuntimeError("V18 live contract install failed: Registry variant omission matcher is not active")
     if v18.v5._image_witness_conflict is not physical_conflict_allow_registry_omission:
         raise RuntimeError("V18 live contract install failed: physical omission guard is not active")
+    if v18.v5._original_locked_expansion is not current_authoritative_locked_expansion:
+        raise RuntimeError("V18 live contract install failed: current Registry fingerprint authority is not active")
     if v18.v3._expansion_candidate is v18.v12._ORIGINAL_EXPANSION_CANDIDATE:
         raise RuntimeError("V18 live contract install failed: raw V3 expansion candidate builder is still active")
 
     print(
         "PASS V18 live admission stack installed: "
-        "V12/V10/V9/V5 Registry+physical contract + V15 back-mark authority + V13 throttle + omitted-variant guard",
+        "V12/V10/V9/V5 Registry+physical contract + V15 back-mark authority + V13 throttle + omitted-variant guard + same-UUID fingerprint authority",
         flush=True,
     )
 
@@ -304,6 +430,7 @@ def installed_candidate_items(dataset, *, require_images: bool) -> dict[str, dic
 v18._install_contract = install_complete_v18_contract
 v18._candidate_items = installed_candidate_items
 self_test_registry_variant_omission_contract()
+self_test_current_registry_fingerprint_authority()
 
 sys.argv[0] = str(v18.__file__)
 raise SystemExit(v18.main())
