@@ -39,8 +39,10 @@ jobs:
           set -uo pipefail
           for pass in 1 2 3 4 5; do
             echo "===== V18 LIVE LAUNCHER LINUX PASS ${pass}/5 ====="
+            set +e
             output="$(bash services/instacomp-ai/scripts/run_staged_pinned_promotion.sh --self-test 2>&1)"
             rc=$?
+            set -e
             printf '%s\n' "$output"
             if (( rc != 0 )); then
               echo "V18 live launcher failed on Linux pass ${pass}/5 with rc=${rc}" >&2
@@ -72,8 +74,10 @@ jobs:
           set -uo pipefail
           for pass in 1 2 3 4 5; do
             echo "===== V18 LIVE LAUNCHER MACOS PASS ${pass}/5 ====="
+            set +e
             output="$(bash services/instacomp-ai/scripts/run_staged_pinned_promotion.sh --self-test 2>&1)"
             rc=$?
+            set -e
             printf '%s\n' "$output"
             if (( rc != 0 )); then
               echo "V18 live launcher failed on macOS pass ${pass}/5 with rc=${rc}" >&2
