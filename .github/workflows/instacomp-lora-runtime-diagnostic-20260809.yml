@@ -1,0 +1,176 @@
+name: InstaComp LoRA Runtime Diagnostic 20260809
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-runtime-diagnostic-20260809.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_BRANCH: ops/instacomp-lora-runtime-diagnostic-20260809
+  CERTIFIED_RUNTIME_COMMIT: 51f8320ff7f9e9baf540ea2399a38a91c8e24ee7
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: evidence/instacomp-lora-runtime-diagnostic-20260809
+  TEMP_DIR: /tmp/instacomp-lora-runtime-diagnostic-20260809
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Prove operations-only source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$CERTIFIED_RUNTIME_COMMIT"
+          changed="$(git diff --name-only "$CERTIFIED_RUNTIME_COMMIT"...HEAD | sort)"
+          test "$changed" = '.github/workflows/instacomp-lora-runtime-diagnostic-20260809.yml'
+          mkdir -p "$EVIDENCE_DIR" "$TEMP_DIR"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install and pull Production runtime configuration privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npm ci
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env pull "$TEMP_DIR/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Build secret runtime file without logging values
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRODUCTION_ENV_PATH="$TEMP_DIR/production.env" RUNTIME_ENV_PATH="$TEMP_DIR/runtime-env.sh" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const p={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#')) continue;
+            const i=line.indexOf('='); if(i<1) continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}
+            p[k]=v;
+          }
+          (async()=>{
+            const localUrl=String(p.INSTACOMP_AI_LOCAL_URL||'').trim().replace(/\/+$/,'');
+            const localKey=String(p.INSTACOMP_AI_LOCAL_KEY||'').trim();
+            const supabaseUrl=String(p.NEXT_PUBLIC_SUPABASE_URL||'').trim();
+            let serverKey=String(p.SUPABASE_SERVICE_ROLE_KEY||'').trim();
+            if(!localUrl||!/^https?:\/\//i.test(localUrl)) throw new Error('Production INSTACOMP_AI_LOCAL_URL is unavailable');
+            if(!supabaseUrl) throw new Error('Production Supabase URL is unavailable');
+            if(!serverKey){
+              const ref=new URL(supabaseUrl).hostname.split('.')[0];
+              const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+              const body=await r.text(); if(!r.ok) throw new Error(`Supabase key lookup HTTP ${r.status}`);
+              const keys=body?JSON.parse(body):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+              const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+              const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+              serverKey=val(modern||legacy);
+            }
+            if(!serverKey) throw new Error('Production Supabase server key is unavailable');
+            for(const secret of [localUrl,localKey,supabaseUrl,serverKey]) if(secret) console.log(`::add-mask::${secret}`);
+            const q=s=>JSON.stringify(s);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,[
+              `export INSTACOMP_AI_LOCAL_URL=${q(localUrl)}`,
+              `export INSTACOMP_AI_LOCAL_KEY=${q(localKey)}`,
+              `export NEXT_PUBLIC_SUPABASE_URL=${q(supabaseUrl)}`,
+              `export SUPABASE_SERVICE_ROLE_KEY=${q(serverKey)}`,
+              ''
+            ].join('\n'),{mode:0o600});
+          })().catch(e=>{console.error(e.message);process.exit(1)});
+          NODE
+
+      - name: Read Mac status and System Doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          auth=()
+          if [ -n "${INSTACOMP_AI_LOCAL_KEY:-}" ]; then auth=(-H "X-InstaComp-AI-Key: $INSTACOMP_AI_LOCAL_KEY"); fi
+          status_code="$(curl -sS --max-time 30 -o "$EVIDENCE_DIR/control-status.json" -w '%{http_code}' "${auth[@]}" "$INSTACOMP_AI_LOCAL_URL/v1/control/status")"
+          doctor_code="$(curl -sS --max-time 60 -o "$EVIDENCE_DIR/system-doctor.json" -w '%{http_code}' "${auth[@]}" "$INSTACOMP_AI_LOCAL_URL/v1/control/doctor")"
+          test "$status_code" = "200"
+          test "$doctor_code" = "200"
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const s=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/control-status.json`,'utf8'));
+          const d=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE_DIR}/system-doctor.json`,'utf8'));
+          console.log(JSON.stringify({status:{database:s.database,ollama:s.ollama,central_registry:s.central_registry},doctor:{ok:d.ok,checks:d.checks}},null,2));
+          NODE
+
+      - name: Directly reproduce frozen Sonia Citron scan against Mac
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$TEMP_DIR/runtime-env.sh"
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const crypto=require('node:crypto');
+          const {createClient}=require('@supabase/supabase-js');
+          const inventoryId='ef0e06a3-a6de-4242-8c52-52b420185850';
+          const expectedFront='eaacec37493b419f1d397df739aedd9df218639ded876c481b2fb28b2b3eb2b1';
+          const expectedBack='3ecd070456e09342ed83ca88193ed2d029cd8a77ed5b2e2ae1ce443e9866978c';
+          const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const text=v=>String(v??'').trim();
+          function choose(rows){
+            const ordered=rows.map(r=>({url:text(r.image_url),alt:text(r.alt_text),order:Number(r.sort_order||0),primary:r.is_primary===true})).filter(r=>r.url).sort((a,b)=>a.primary!==b.primary?(a.primary?-1:1):a.order-b.order);
+            const front=ordered.find(r=>/\bfront\b/i.test(r.alt))||ordered.find(r=>r.primary)||ordered[0];
+            const back=ordered.find(r=>/\bback\b/i.test(r.alt)&&r.url!==front?.url)||ordered.find(r=>!r.primary&&r.url!==front?.url)||ordered.find(r=>r.url!==front?.url);
+            if(!front?.url||!back?.url||front.url===back.url) throw new Error('Distinct frozen image pair not found');
+            return [front.url,back.url];
+          }
+          (async()=>{
+            const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+            const q=await db.from('inventory_images').select('inventory_item_id,image_url,alt_text,sort_order,is_primary').eq('inventory_item_id',inventoryId).order('sort_order',{ascending:true});
+            if(q.error) throw new Error(`Image query failed: ${q.error.message}`);
+            const [frontUrl,backUrl]=choose(q.data||[]);
+            const [fr,br]=await Promise.all([fetch(frontUrl,{signal:AbortSignal.timeout(30000)}),fetch(backUrl,{signal:AbortSignal.timeout(30000)})]);
+            if(!fr.ok||!br.ok) throw new Error(`Image HTTP front=${fr.status} back=${br.status}`);
+            const fb=Buffer.from(await fr.arrayBuffer()), bb=Buffer.from(await br.arrayBuffer());
+            const frontHash=sha(fb), backHash=sha(bb);
+            if(frontHash!==expectedFront||backHash!==expectedBack) throw new Error(`Frozen image hash mismatch front=${frontHash===expectedFront} back=${backHash===expectedBack}`);
+            const form=new FormData();
+            form.append('front',new File([fb],'front.jpg',{type:(fr.headers.get('content-type')||'image/jpeg').split(';')[0]}));
+            form.append('back',new File([bb],'back.jpg',{type:(br.headers.get('content-type')||'image/jpeg').split(';')[0]}));
+            const headers={}; if(process.env.INSTACOMP_AI_LOCAL_KEY) headers['X-InstaComp-AI-Key']=process.env.INSTACOMP_AI_LOCAL_KEY;
+            const started=Date.now();
+            const r=await fetch(`${process.env.INSTACOMP_AI_LOCAL_URL.replace(/\/+$/,'')}/v1/scans/analyze`,{method:'POST',headers,body:form,signal:AbortSignal.timeout(180000)});
+            const raw=await r.text(); let payload; try{payload=raw?JSON.parse(raw):{}}catch{payload={parse_error:true,body_prefix:raw.slice(0,500)}}
+            const receipt={schema:'tcos.instacomp-ai.lora-direct-mac-diagnostic.v1',generatedAt:new Date().toISOString(),inventoryItemId:inventoryId,physicalImages:{frontSha256:frontHash,backSha256:backHash,exact:true},httpStatus:r.status,httpOk:r.ok,durationMs:Date.now()-started,payload};
+            fs.writeFileSync(`${process.env.EVIDENCE_DIR}/direct-mac-scan.json`,JSON.stringify(receipt,null,2)+'\n');
+            const p=payload||{};
+            console.log(JSON.stringify({httpStatus:r.status,status:p.status||null,match_source:p.match_source||null,pricing_allowed:p.pricing_allowed??null,checklist:p.checklist||null,next_action:p.next_action||null,local_suggestion:p.local_suggestion?{provider:p.local_suggestion.provider,identity:p.local_suggestion.identity,raw:p.local_suggestion.raw}:null},null,2));
+          })().catch(e=>{console.error(e.message);process.exit(1)});
+          NODE
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-lora-runtime-diagnostic-20260809
+          path: evidence/instacomp-lora-runtime-diagnostic-20260809
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove temporary secrets
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR" .env.local .env.production.local
