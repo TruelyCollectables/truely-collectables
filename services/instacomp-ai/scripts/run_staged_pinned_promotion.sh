@@ -3,7 +3,7 @@ set -euo pipefail
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/promote_lora_candidate_frozen_25_v17.py"
+target="$service_root/scripts/promote_lora_candidate_frozen_25_v18.py"
 visual_memory_repair="$service_root/scripts/repair_trusted_visual_memory.py"
 pinned_visual_memory_repair="$service_root/scripts/repair_pinned_visual_memory_v15.py"
 
@@ -12,7 +12,7 @@ pinned_visual_memory_repair="$service_root/scripts/repair_pinned_visual_memory_v
   exit 2
 }
 [[ -f "$target" ]] || {
-  echo "Pinned staged promotion runner is missing: $target" >&2
+  echo "V18 staged promotion runner is missing: $target" >&2
   exit 2
 }
 [[ -f "$visual_memory_repair" ]] || {
@@ -20,7 +20,7 @@ pinned_visual_memory_repair="$service_root/scripts/repair_pinned_visual_memory_v
   exit 2
 }
 [[ -f "$pinned_visual_memory_repair" ]] || {
-  echo "Pinned v15 visual-memory gate is missing: $pinned_visual_memory_repair" >&2
+  echo "Pinned visual-memory gate is missing: $pinned_visual_memory_repair" >&2
   exit 2
 }
 
@@ -49,7 +49,7 @@ if [[ -n "${INSTACOMP_AI_REGISTRY_TOKEN:-}" || -n "${INSTACOMP_AI_SENTINEL_ARCHI
 elif [[ "$self_test" == "1" ]]; then
   echo "INFO Registry client authentication not configured for isolated self-test"
 else
-  echo "Refusing pinned staged promotion: Registry authentication is missing after loading $service_root/.env." >&2
+  echo "Refusing V18 staged promotion: Registry authentication is missing after loading $service_root/.env." >&2
   echo "Candidate runtime was not activated." >&2
   exit 2
 fi
@@ -75,17 +75,17 @@ if [[ "$self_test" == "0" ]]; then
     --max-repairs 250 \
     --workers 6
 
-  echo "INFO Hydrating exact pinned-stage visual evidence; non-retrievable style labels are deferred to v17 physical/Registry preflight"
+  echo "INFO Hydrating reviewed pinned visual evidence; V18 still requires fresh physical/Registry admission for every fixture"
   "$service_python" "$pinned_visual_memory_repair" "$@"
 fi
 
-echo "PASS pinned staged promotion launcher mode: promotion-v17-certified-prefix-backfill"
-echo "INFO For Panini Prizm, the bold black PRIZM word on the back is authoritative for Base versus non-Base"
+echo "PASS pinned staged promotion launcher mode: promotion-v18-current-authoritative-two-pass"
+echo "INFO Legacy Frozen Five rows are priority candidates only; none bypass current physical/Registry preflight"
+echo "INFO Every selected fixture requires a current exact Registry UUID/fingerprint and physical-card compatibility"
+echo "INFO Each selected candidate must then survive two exact candidate/Registry qualification passes before certification rounds"
+echo "INFO For Panini Prizm, the bold black PRIZM word on the back remains authoritative for Base versus non-Base"
 echo "INFO Pattern-sensitive families such as Velocity and Cracked Ice still require deterministic matching surface evidence"
-echo "INFO Frozen 10 keeps the original five pinned priorities and automatically tries later pinned replacements after a safety reject"
-echo "INFO Frozen 15/25 force the exact successful prior-stage expansion rows first, then use reviewed pins and bounded deterministic replacements"
-echo "INFO Every carried or replacement row is revalidated through the same live Registry exact-lock and physical-card gates"
-echo "INFO Registry service-token traffic is unthrottled; v13 backoff remains only as fail-safe handling for infrastructure 429/throttle responses"
-echo "INFO Trusted supervised visual memory is hydrated from archived images before live candidate rounds; identity and Registry truth are unchanged"
-echo "INFO Exact pinned-stage trusted rows are hydrated regardless verification-source label; v17 adjudicates advisory style-memory misses before activation"
+echo "INFO Frozen 15/25 preserve the complete successful prior-stage fixture prefix, adapter hash, and dataset hash"
+echo "INFO Registry throttle handling remains same-request fail-safe backoff; throttle is never recorded as a card miss"
+echo "INFO Two final exhaustive certification rounds run directly through the V14 traversal and cannot be overwritten by version monkey-patches"
 exec "$service_python" "$target" "$@"
