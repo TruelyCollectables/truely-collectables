@@ -4,7 +4,7 @@ import { buildChecklistSourceStorageReceipt } from "./storage";
 import { parseToppsHockeyChecklistText } from "./topps-hockey-text";
 
 export const TOPPS_HOCKEY_TEXT_ADAPTER_ID = "topps-hockey-text-checklist" as const;
-export const TOPPS_HOCKEY_TEXT_ADAPTER_VERSION = "1.0.0" as const;
+export const TOPPS_HOCKEY_TEXT_ADAPTER_VERSION = "1.0.1" as const;
 
 function slug(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -20,7 +20,7 @@ function inferSetType(name: string) {
   return "insert" as const;
 }
 function sourceTitle(artifact: ChecklistSourceArtifact) {
-  const title = artifact.originalFilename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const title = artifact.originalFilename.replace(/\.[^.]+$/, "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
   return /checklist$/i.test(title) ? title : `${title} Checklist`;
 }
 
