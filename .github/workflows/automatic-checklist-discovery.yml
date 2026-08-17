@@ -62,5 +62,6 @@ jobs:
         with:
           name: automatic-checklist-discovery-receipt
           path: .checklist-discovery/*.json
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
