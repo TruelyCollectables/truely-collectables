@@ -11,10 +11,14 @@ on:
         options:
           - validate
           - apply
-      max_pages:
-        description: Archive pages to inspect for backlog candidates
+      earliest_year:
+        description: Oldest Upper Deck checklist-year archive to sweep during catch-up
         required: true
-        default: "50"
+        default: "2015"
+      max_year_pages:
+        description: Maximum archive pages to inspect per Upper Deck checklist year
+        required: true
+        default: "12"
       target_new:
         description: Net-new checklist discoveries required during catch-up
         required: true
@@ -48,7 +52,8 @@ jobs:
     env:
       CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
       CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || github.event_name == 'push' || inputs.mode == 'apply' }}
-      CHECKLIST_DISCOVERY_MAX_PAGES: ${{ inputs.max_pages || '50' }}
+      CHECKLIST_DISCOVERY_EARLIEST_YEAR: ${{ inputs.earliest_year || '2015' }}
+      CHECKLIST_DISCOVERY_MAX_YEAR_PAGES: ${{ inputs.max_year_pages || '12' }}
       CHECKLIST_DISCOVERY_TARGET_NEW: ${{ inputs.target_new || '100' }}
       CHECKLIST_DISCOVERY_MAX_ATTEMPTS: ${{ inputs.max_attempts || '250' }}
       CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/receipt.json
