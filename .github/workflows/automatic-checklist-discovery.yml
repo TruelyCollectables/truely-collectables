@@ -11,6 +11,14 @@ on:
         options:
           - validate
           - apply
+      scope:
+        description: Standard discovery or full 2021-plus hockey reconciliation
+        required: true
+        default: standard
+        type: choice
+        options:
+          - standard
+          - hockey_2021_plus
       earliest_year:
         description: Oldest Upper Deck checklist-year archive to sweep during catch-up
         required: true
@@ -32,6 +40,7 @@ on:
       - main
     paths:
       - ".github/checklist-discovery-catchup-trigger-20260816"
+      - ".github/hockey-checklist-reconcile-trigger-20260816"
   schedule:
     # Catch-up mode: newest releases first, then walk backward year-by-year until 100 net-new discoveries land.
     - cron: "17 11 * * *"
@@ -53,7 +62,7 @@ jobs:
     if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[pause-checklist-catchup]') }}
     runs-on: ubuntu-24.04
     environment: Production
-    timeout-minutes: 45
+    timeout-minutes: 120
     env:
       CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
       CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || github.event_name == 'push' || inputs.mode == 'apply' }}
@@ -62,6 +71,10 @@ jobs:
       CHECKLIST_DISCOVERY_TARGET_NEW: ${{ inputs.target_new || '100' }}
       CHECKLIST_DISCOVERY_MAX_ATTEMPTS: ${{ inputs.max_attempts || '250' }}
       CHECKLIST_DISCOVERY_OUTPUT: .checklist-discovery/receipt.json
+      HOCKEY_CHECKLIST_START_DATE: "2021-07-01T00:00:00Z"
+      HOCKEY_CHECKLIST_MAX_CATEGORY_PAGES: "40"
+      HOCKEY_CHECKLIST_OUTPUT: .hockey-checklist-reconcile/receipt.json
+      REQUESTED_DISCOVERY_SCOPE: ${{ inputs.scope || 'standard' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,14 +82,39 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Select checklist run mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          hockey=false
+          if [[ "${REQUESTED_DISCOVERY_SCOPE}" == "hockey_2021_plus" ]]; then
+            hockey=true
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            if jq -e --arg marker ".github/hockey-checklist-reconcile-trigger-20260816" '
+              ((.head_commit.added // []) + (.head_commit.modified // [])) | index($marker) != null
+            ' "${GITHUB_EVENT_PATH}" >/dev/null; then
+              hockey=true
+            fi
+          fi
+          echo "HOCKEY_RECONCILE=${hockey}" >> "${GITHUB_ENV}"
+          if [[ "${hockey}" == "true" ]]; then
+            echo "CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS=600000" >> "${GITHUB_ENV}"
+          fi
+      - name: Reconcile every 2021-plus hockey checklist
+        if: ${{ env.HOCKEY_RECONCILE == 'true' }}
+        run: npx tsx scripts/reconcile-hockey-checklists-2021plus.ts
       - name: Discover, validate, and safely import
+        if: ${{ env.HOCKEY_RECONCILE != 'true' }}
         run: npx tsx scripts/discover-and-import-checklists.ts
       - name: Upload sanitized receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: automatic-checklist-discovery-receipt
-          path: .checklist-discovery/*.json
+          path: |
+            .checklist-discovery/*.json
+            .hockey-checklist-reconcile/*.json
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
