@@ -14,6 +14,8 @@ service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 expected_service_root="$repo_root/services/instacomp-ai"
 launcher="$service_root/scripts/run_staged_pinned_promotion.sh"
+query_guard_dir="$service_root/scripts/v18-query-guard"
+query_guard="$query_guard_dir/sitecustomize.py"
 
 if [[ -z "$repo_root" || "$service_root" != "$expected_service_root" ]]; then
   echo "Refusing staged learning: unexpected repository layout." >&2
@@ -42,6 +44,11 @@ fi
   exit 2
 }
 
+[[ -f "$query_guard" ]] || {
+  echo "Refusing staged learning: V18 Registry query guard is missing: $query_guard" >&2
+  exit 2
+}
+
 echo "INFO Syncing staged learner directly from origin/main"
 git -C "$repo_root" fetch --prune origin main
 current="$(git -C "$repo_root" rev-parse HEAD)"
@@ -63,6 +70,16 @@ if [[ "$updated" != "$current" && "${INSTACOMP_STAGED_REEXECED:-0}" != "1" ]]; t
 fi
 
 echo "PASS staged learner source synchronized at $updated"
+
+# Isolate the card-number preservation shim to staged promotion Python launched
+# from stdin. The inner launcher prepends service_root/scripts to PYTHONPATH and
+# retains this directory, so Python imports this sitecustomize only for this
+# staged learner process tree. Ordinary InstaComp service/runtime processes are
+# unaffected.
+export INSTACOMP_V18_STAGED_QUERY_GUARD=1
+export PYTHONPATH="$query_guard_dir${PYTHONPATH:+:$PYTHONPATH}"
+echo "PASS V18 staged Registry query guard enabled"
+
 echo "INFO Running the isolated V18 promotion contract self-test before live preflight"
 bash "$launcher" --self-test
 
