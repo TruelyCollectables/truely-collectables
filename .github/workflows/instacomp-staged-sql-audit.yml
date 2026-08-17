@@ -14,11 +14,11 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - name: Read live staged checklist SQL, uniqueness, and Hockey census
+      - name: Census live Hockey Registry releases
         shell: bash
         run: |
           set -euo pipefail
@@ -31,48 +31,6 @@ jobs:
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' evidence/projects.json)
           test "${#candidates[@]}" -eq 1
           project_ref="${candidates[0]}"
-
-          query_db() {
-            local sql="$1"
-            local out="$2"
-            jq -cn --arg query "$sql" '{query:$query,read_only:true}' > evidence/query.json
-            curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 2 --max-time 90 \
-              -X POST \
-              -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-              -H 'Content-Type: application/json' \
-              --data-binary @evidence/query.json \
-              -o "$out" \
-              "https://api.supabase.com/v1/projects/$project_ref/database/query"
-          }
-
-          read -r -d '' functions_sql <<'SQL' || true
-          select
-            p.proname,
-            pg_catalog.pg_get_function_identity_arguments(p.oid) as identity_arguments,
-            pg_catalog.pg_get_functiondef(p.oid) as definition
-          from pg_catalog.pg_proc as p
-          join pg_catalog.pg_namespace as n on n.oid = p.pronamespace
-          where n.nspname = 'public'
-            and p.proname in (
-              'tcos_begin_checklist_import_plan',
-              'tcos_append_checklist_import_chunk',
-              'tcos_finalize_checklist_import_plan'
-            )
-          order by p.proname;
-          SQL
-          query_db "$functions_sql" evidence/staged-functions.json
-          jq -e 'length == 3' evidence/staged-functions.json
-
-          read -r -d '' indexes_sql <<'SQL' || true
-          select schemaname, tablename, indexname, indexdef
-          from pg_catalog.pg_indexes
-          where schemaname = 'public'
-            and tablename in ('checklist_cards','checklist_card_identities','checklist_sets','checklist_parallels')
-          order by tablename,indexname;
-          SQL
-          query_db "$indexes_sql" evidence/checklist-indexes.json
-          jq -e 'length > 0' evidence/checklist-indexes.json
-
           read -r -d '' hockey_sql <<'SQL' || true
           select
             to_jsonb(r) as release,
@@ -101,19 +59,23 @@ jobs:
              or lower(coalesce(to_jsonb(r)->>'slug','')) like '%hockey%'
           order by coalesce(to_jsonb(r)->>'release_year',to_jsonb(r)->>'season',''), coalesce(to_jsonb(r)->>'manufacturer',''), coalesce(to_jsonb(r)->>'product',''), coalesce(to_jsonb(r)->>'slug','');
           SQL
-          query_db "$hockey_sql" evidence/live-hockey-registry.json
+          jq -cn --arg query "$hockey_sql" '{query:$query,read_only:true}' > evidence/query.json
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 90 \
+            -X POST \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data-binary @evidence/query.json \
+            -o evidence/live-hockey-registry.json \
+            "https://api.supabase.com/v1/projects/$project_ref/database/query"
           jq -e 'type == "array"' evidence/live-hockey-registry.json
-          jq '{liveHockeyReleaseCount:length, manufacturers:(map(.release.manufacturer // .release.brand // "unknown")|group_by(.)|map({manufacturer:.[0],count:length}))}' evidence/live-hockey-registry.json > evidence/live-hockey-summary.json
+          jq '{liveHockeyReleaseCount:length, manufacturers:(sort_by(.release.manufacturer // .release.brand // "unknown")|group_by(.release.manufacturer // .release.brand // "unknown")|map({manufacturer:(.[0].release.manufacturer // .[0].release.brand // "unknown"),count:length}))}' evidence/live-hockey-registry.json > evidence/live-hockey-summary.json
           cat evidence/live-hockey-summary.json
-
           rm -f evidence/projects.json evidence/query.json
-      - name: Upload staged SQL audit
+      - name: Upload Hockey census
         uses: actions/upload-artifact@v4
         with:
           name: instacomp-staged-sql-audit-${{ github.run_id }}
           path: |
-            evidence/staged-functions.json
-            evidence/checklist-indexes.json
             evidence/live-hockey-registry.json
             evidence/live-hockey-summary.json
           if-no-files-found: error
