@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   recover-and-apply:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 180
