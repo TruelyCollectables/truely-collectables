@@ -88,4 +88,85 @@ echo "INFO Pattern-sensitive families such as Velocity and Cracked Ice still req
 echo "INFO Frozen 15/25 preserve the complete successful prior-stage fixture prefix, adapter hash, and dataset hash"
 echo "INFO Registry throttle handling remains same-request fail-safe backoff; throttle is never recorded as a card miss"
 echo "INFO Two final exhaustive certification rounds run directly through the V14 traversal and cannot be overwritten by version monkey-patches"
-exec "$service_python" "$target" "$@"
+
+# V18 deliberately owns fixture selection instead of delegating back through
+# v12.main(). That means it must install the complete inherited admission stack
+# explicitly before its first live Registry lock. The original V18 runner only
+# installed the outer v15/v13 wrappers, leaving raw v3 identity-lock semantics
+# active and causing every real candidate to be rejected before activation.
+# Keep this correction in-process so there is still exactly one V18 runner.
+exec "$service_python" - "$@" <<'PY'
+from __future__ import annotations
+
+import sys
+from typing import Any
+
+import promote_lora_candidate_frozen_25_v18 as v18
+
+
+def install_complete_v18_contract(target: int) -> None:
+    if target not in v18.ALLOWED_STAGE_TARGETS:
+        raise RuntimeError(
+            f"Unsupported stage target {target}; allowed={v18.ALLOWED_STAGE_TARGETS}"
+        )
+
+    # This is the install step v12.main() used to provide implicitly. It installs
+    # v10 -> v9/v7/v5 into v3, including canonical teacher/Registry matching and
+    # the image-backed expansion candidate semantics V18 expects.
+    v18.v12._install_contract(target)
+
+    # Re-apply the current physical-card authority and throttle behavior after
+    # the inherited stack is installed. These layers intentionally override only
+    # the witness/throttle hooks, never Registry exactness or UUID/fingerprint.
+    v18.v15._install_contract()
+    v18.v13._install_contract()
+    v18.v11._configure_stage(target)
+
+    v18.v3.SCHEMA = v18.SCHEMA
+    v18.v12.SCHEMA = v18.SCHEMA
+    v18.v11.SCHEMA = v18.SCHEMA
+
+    # Fail immediately if a future refactor again leaves raw V3 admission active.
+    if v18.v3._locked_expansion is not v18.v5._locked_expansion:
+        raise RuntimeError("V18 live contract install failed: V5 physical Registry lock is not active")
+    if v18.v3._registry_identity_matches_teacher is not v18.v5._registry_identity_matches_teacher:
+        raise RuntimeError("V18 live contract install failed: canonical teacher/Registry matcher is not active")
+    if v18.v5._image_witness_conflict is not v18.v15._authoritative_prizm_back_mark_conflict:
+        raise RuntimeError("V18 live contract install failed: authoritative Prizm back-mark gate is not active")
+    if v18.v3._expansion_candidate is v18.v12._ORIGINAL_EXPANSION_CANDIDATE:
+        raise RuntimeError("V18 live contract install failed: raw V3 expansion candidate builder is still active")
+
+    print(
+        "PASS V18 live admission stack installed: "
+        "V12/V10/V9/V5 Registry+physical contract + V15 back-mark authority + V13 throttle",
+        flush=True,
+    )
+
+
+def installed_candidate_items(dataset, *, require_images: bool) -> dict[str, dict[str, Any]]:
+    # Build the actual V18 admission universe through the currently installed
+    # candidate builder. The original V18 accidentally used the frozen raw V3
+    # constructor, bypassing the canonical variant-marker repair used by V17.
+    items: dict[str, dict[str, Any]] = {}
+    for row in v18.base.load_rows(dataset):
+        item = v18.v3._expansion_candidate(row, require_images=require_images)
+        if item is None:
+            continue
+        row_id = str(item.get("row_id") or "")
+        if not row_id or row_id in items:
+            raise RuntimeError(
+                f"V18 expansion candidate row ID is missing/duplicated: {row_id!r}"
+            )
+        items[row_id] = item
+    if not items:
+        raise RuntimeError("V18 found no image-backed training candidates")
+    return items
+
+
+v18._install_contract = install_complete_v18_contract
+v18._candidate_items = installed_candidate_items
+
+# Preserve the exact CLI contract of promote_lora_candidate_frozen_25_v18.py.
+sys.argv[0] = str(v18.__file__)
+raise SystemExit(v18.main())
+PY
