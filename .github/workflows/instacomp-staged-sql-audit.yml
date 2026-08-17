@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/instacomp-staged-sql-audit.yml'
       - 'scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py'
+      - 'scripts/instacomp-target-checklists/patch-upper-deck-recovery-discovery.py'
+      - 'scripts/instacomp-target-checklists/upper-deck-hockey-discovery.ts'
       - 'scripts/instacomp-target-checklists/audit-upper-deck-hockey-2021plus-local.ts'
   workflow_dispatch:
 
@@ -34,6 +36,9 @@ jobs:
 
       - name: Patch systemic Upper Deck parser defects in recovery checkout
         run: python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+
+      - name: Wire recovery scripts to proven 154-page discovery
+        run: python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-discovery.py
 
       - name: Type-check patched recovery parser
         run: npx tsc --noEmit --pretty false
