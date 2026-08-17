@@ -1,0 +1,44 @@
+{
+  "schema": "tcos.checklist.discoverySources.v1",
+  "updatedOn": "2026-08-10",
+  "promotionPolicy": {
+    "minimumCardRows": 25,
+    "requireExactYear": true,
+    "requireExactProduct": true,
+    "failClosed": true,
+    "neverPromoteDiscoveryOnlyEvidence": true
+  },
+  "priorityOrder": [
+    "official_direct_spreadsheet",
+    "official_direct_pdf",
+    "verified_direct_spreadsheet",
+    "deterministic_page_capture",
+    "discovery_cross_check"
+  ],
+  "sources": [
+    {
+      "id": "cardladder",
+      "name": "Card Ladder",
+      "baseUrl": "https://cardladder.com/ladder",
+      "role": "discovery_cross_check",
+      "sports": [
+        "baseball",
+        "basketball",
+        "football",
+        "hockey",
+        "soccer",
+        "wrestling",
+        "multi-sport"
+      ],
+      "useFor": [
+        "discover_missing_releases",
+        "discover_card_numbers",
+        "discover_insert_and_parallel_names",
+        "cross_check_release_identity"
+      ],
+      "authority": "secondary_discovery_only",
+      "mayPromoteDirectly": false,
+      "notes": "Search Card Ladder while sourcing mainstream checklist gaps. Card Ladder evidence may identify a candidate release/card/parallel, but it cannot by itself satisfy Registry promotion. Promotion still requires a verified exact-year/exact-product source and at least 25 deterministic card rows through the normal fail-closed parser and Registry gates."
+    }
+  ]
+}
