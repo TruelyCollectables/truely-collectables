@@ -3,3 +3,4 @@ Retry 1: preserve hidden receipts and persist fatal Topps pre-loop errors for ex
 Retry 2: prove catch-up means 100 successful net-new checklist discoveries, with reserve unseen candidates for failures.
 Retry 3: crawl the live Upper Deck checklist-year archives instead of the now-empty legacy checklist category.
 Retry 4: newest-to-oldest sweep from the current year backward, with 100 net-new discoveries as the catch-up target.
+Paused broad catch-up writer so the required WNBA checklist import can acquire Registry locks without contention.
