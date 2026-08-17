@@ -1,0 +1,78 @@
+name: Audit Upper Deck Unprocessed Hockey Checklist Pages
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/audit-upper-deck-unprocessed-checklist-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Read only the four unprocessed archive pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/pages
+          for page in 14 15 16 17; do
+            echo "Reading Upper Deck Hockey archive page $page"
+            curl --location --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 3 --max-time 60 \
+              -A 'TruelyCollectables-Checklist-Scope-Audit/1.0 (+https://truelycollectables.com)' \
+              -o "evidence/pages/$page.html" "https://upperdeck.com/checklist-category/hockey/page/$page/"
+            if [[ "$page" != '17' ]]; then sleep 30; fi
+          done
+
+          python3 - <<'PY'
+          import html, json, re
+          from pathlib import Path
+          expected = {14:7, 15:8, 16:6, 17:3}
+          out = []
+          for page, count in expected.items():
+              text = Path(f'evidence/pages/{page}.html').read_text(errors='replace')
+              anchors = re.findall(r'<a\b[^>]*href=["\']([^"\']+/checklist/[^"\']+)["\'][^>]*>(.*?)</a>', text, flags=re.I|re.S)
+              seen = set(); rows = []
+              for href, body in anchors:
+                  href = html.unescape(href).split('#')[0]
+                  title = re.sub(r'<[^>]+>', ' ', body)
+                  title = html.unescape(re.sub(r'\s+', ' ', title)).strip()
+                  if not href.startswith('https://upperdeck.com/checklist/'):
+                      continue
+                  if href in seen:
+                      continue
+                  seen.add(href)
+                  if not title or title.lower() in {'read more', 'checklist'}:
+                      continue
+                  rows.append({'url':href, 'title':title})
+              if len(rows) < count:
+                  # Some themes put the title outside the anchor. Fall back to unique checklist hrefs.
+                  seen = set(); rows = []
+                  for href in re.findall(r'href=["\'](https://upperdeck\.com/checklist/[^"\']+)["\']', text, flags=re.I):
+                      href = html.unescape(href).split('#')[0]
+                      if href in seen: continue
+                      seen.add(href)
+                      rows.append({'url':href, 'title':href.rstrip('/').split('/')[-1]})
+              rows = rows[:count]
+              if len(rows) != count:
+                  raise SystemExit(f'page {page}: expected {count} eligible checklist links, found {len(rows)}')
+              for row in rows:
+                  row['categoryPage'] = page
+                  out.append(row)
+          if len(out) != 24:
+              raise SystemExit(f'expected 24 unprocessed candidates, found {len(out)}')
+          Path('evidence/older-upper-deck-candidates.json').write_text(json.dumps({'count':len(out),'candidates':out}, indent=2)+'\n')
+          print(json.dumps({'count':len(out),'candidates':out}, indent=2))
+          PY
+      - name: Upload scope audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: upper-deck-unprocessed-hockey-candidates-${{ github.run_id }}
+          path: evidence/older-upper-deck-candidates.json
+          if-no-files-found: error
+          retention-days: 30
