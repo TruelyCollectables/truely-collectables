@@ -1,0 +1,38 @@
+{
+  "schema": "tcos.requestedChecklistSourceQueue.v1",
+  "createdAt": "2026-08-17T04:00:00Z",
+  "scope": {
+    "hockey": "2021-22 through current published checklists",
+    "parseTonight": false,
+    "databaseWritesTonight": false,
+    "minimumSecondsBetweenSourceFetches": 300,
+    "purpose": "Upper Deck omissions found by official archive reconciliation"
+  },
+  "supplements": [
+    {"key":"hockey|2025|upper-deck|western-canada-sports-collectors-convention","title":"2025 Western Canada Sports Collectors Convention Checklist","url":"https://upperdeck.com/checklist/2025-western-canada-sports-collectors-convention-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2025|upper-deck|fall-expo","title":"2025 Fall Expo Checklist","url":"https://upperdeck.com/checklist/2025-fall-expo-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2025-26|upper-deck|tim-hortons","title":"2025-26 Tim Hortons Checklist","url":"https://upperdeck.com/checklist/2025-2026-tim-hortons-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2024-25|upper-deck|star-rookies-box-set","title":"2024-25 Star Rookies Box Set Checklist","url":"https://upperdeck.com/checklist/2024-25-star-rookies-box-set-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2024-25|upper-deck|sp-hockey","title":"2024-25 SP Hockey Checklist","url":"https://upperdeck.com/checklist/2024-25-sp-hockey-checklist-final/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2024|upper-deck|pwhl","title":"2024 UD PWHL Checklist","url":"https://upperdeck.com/checklist/2024-ud-pwhl-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2024-25|upper-deck|rookie-debut-epack","title":"2024-25 UD Rookie Debut e-Pack Checklist","url":"https://upperdeck.com/checklist/2024-25-ud-rookie-debut-checklist-e-pack/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2023-24|upper-deck|parkhurst","title":"2023-24 Parkhurst Checklist","url":"https://upperdeck.com/checklist/2023-24-parkhurst-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2024|upper-deck|boston-bruins-centennial-hobby","title":"2024 Boston Bruins Centennial Checklist Hobby","url":"https://upperdeck.com/checklist/2024-boston-bruins-centennial-checklist-hobby/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2024-25|upper-deck|tim-hortons","title":"2024-25 Tim Hortons Hockey Checklist","url":"https://upperdeck.com/checklist/2024-25-tim-hortons-hockey-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2023-24|upper-deck|sp-game-used-chl","title":"2023-24 SP Game Used CHL Checklist","url":"https://upperdeck.com/checklist/2023-24-sp-game-used-chl-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2023-24|upper-deck|sp-hockey","title":"2023-24 SP Hockey Checklist","url":"https://upperdeck.com/checklist/2023-24-sp-retail-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2022-23|upper-deck|clear-cut","title":"2022-23 Clear Cut Checklist","url":"https://upperdeck.com/checklist/2022-23-clear-cut-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2022-23|upper-deck|ice","title":"2022-23 Ice Checklist","url":"https://upperdeck.com/checklist/2022-23-ice-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2022-23|upper-deck|sp-hockey","title":"2022-23 SP Hockey Checklist","url":"https://upperdeck.com/checklist/2022-23-sp-retail-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2022-23|upper-deck|parkhurst","title":"2022-23 Parkhurst Checklist","url":"https://upperdeck.com/checklist/2022-23-nhl-parkhurst-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2021-22|upper-deck|sp-hockey","title":"2021-22 SP Hockey Checklist","url":"https://upperdeck.com/checklist/2021-22-sp-retail-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2021-22|upper-deck|spx","title":"2021-22 SPx Checklist","url":"https://upperdeck.com/checklist/2021-22-spx-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2022-23|upper-deck|star-rookies-box-set","title":"2022-23 Star Rookies Box Set Checklist","url":"https://upperdeck.com/checklist/2022-23-star-rookies-box-set-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2022-23|upper-deck|series-one","title":"2022-23 Upper Deck Series 1 Checklist","url":"https://upperdeck.com/checklist/2022-23-upper-deck-series-1-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2021-22|upper-deck|artifacts","title":"2021-22 Artifacts Checklist","url":"https://upperdeck.com/checklist/2021-22-artifacts-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2022-23|upper-deck|mvp","title":"2022-23 MVP Checklist","url":"https://upperdeck.com/checklist/2022-23-mvp-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2021-22|upper-deck|extended-series","title":"2021-22 Upper Deck Extended Series Checklist","url":"https://upperdeck.com/checklist/2021-22-upper-deck-extended-series-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2021-22|upper-deck|parkhurst","title":"2021-22 Parkhurst Checklist","url":"https://upperdeck.com/checklist/2021-22-parkhurst-checklist/","kind":"html","authority":"official_manufacturer"},
+    {"key":"hockey|2021-22|upper-deck|tim-hortons-team-canada","title":"2021-22 Tim Hortons Team Canada Checklist","url":"https://upperdeck.com/checklist/2021-22-tim-hortons-team-canada-checklist/","kind":"html","authority":"official_manufacturer"}
+  ]
+}
