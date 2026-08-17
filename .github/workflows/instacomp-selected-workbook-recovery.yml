@@ -14,11 +14,12 @@ permissions:
   actions: read
 
 concurrency:
-  group: instacomp-leaf-hockey-production-recovery
+  group: instacomp-selected-workbook-recovery
   cancel-in-progress: true
 
 jobs:
   recover-and-apply:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 180
@@ -75,22 +76,18 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
           text = writer.read_text()
           old = '${jsonSql(plan, "plan")}'
           new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
-          if old not in text:
-              raise SystemExit('Expected full-plan BEGIN payload was not found')
+          if old not in text: raise SystemExit('Expected full-plan BEGIN payload was not found')
           writer.write_text(text.replace(old, new, 1))
-
           leaf = Path('scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs')
           text = leaf.read_text()
           pattern = r'const entry=entryFor\(target\); const expectedPlan=buildPlan\(entry,\{cards:\[\{setName:"Base Set".*?new Date\(\)\.toISOString\(\)\);\n      row\.releaseSlug=expectedPlan\.release\.releaseSlug;'
           replacement = 'const entry=entryFor(target); row.releaseSlug=`${target.season}-leaf-${target.product}-hockey`.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");'
           text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
-          if count != 1:
-              raise SystemExit(f'Expected exactly one dummy Leaf preflight plan, replaced {count}')
+          if count != 1: raise SystemExit(f'Expected exactly one dummy Leaf preflight plan, replaced {count}')
           leaf.write_text(text)
           PY
           ! grep -F 'Preflight Placeholder' scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
