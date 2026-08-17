@@ -11,6 +11,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
+const CATALOG_RETRY_ATTEMPTS = 6;
+const CATALOG_RETRY_BASE_MS = 500;
 const ALLOWED_RELEASES = new Map([
   ["2024-panini-origins-wnba", { year: "2024", brand: "Origins", product: "Origins WNBA" }],
   ["2024-panini-prizm-wnba", { year: "2024", brand: "Prizm", product: "Prizm WNBA" }],
@@ -29,6 +31,13 @@ type WnbaImportPayload = {
   originalFilename: string;
   sourceBase64: string;
   plan: ChecklistImportPlan;
+};
+
+type CatalogError = {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+  hint?: string | null;
 };
 
 function serviceClient() {
@@ -52,6 +61,53 @@ function issueSummary(plan: ChecklistImportPlan) {
     severity: clean(value.severity).slice(0, 20),
     message: clean(value.message).slice(0, 500),
   }));
+}
+
+function sleep(ms: number) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
+function isTransientCatalogError(error: CatalogError | null | undefined) {
+  if (!error) return false;
+  const code = clean(error.code).toUpperCase();
+  if (/^PGRST00[0-3]$/.test(code)) return true;
+  const text = [error.message, error.details, error.hint, error.code].map(clean).join(" ");
+  return /\b(?:408|425|429|500|502|503|504|521)\b|fetch failed|schema cache|connection (?:closed|reset|refused)|network error|timed? out|temporarily unavailable|web server is down/i.test(text);
+}
+
+async function readCatalog(db: ReturnType<typeof serviceClient>, sourceUrl: string) {
+  for (let attempt = 1; attempt <= CATALOG_RETRY_ATTEMPTS; attempt += 1) {
+    const { data, error } = await db
+      .from("checklist_source_catalog")
+      .select("status,source_sha256,metadata")
+      .eq("source_url", sourceUrl)
+      .maybeSingle();
+    if (!error) return data;
+    if (!isTransientCatalogError(error) || attempt === CATALOG_RETRY_ATTEMPTS) {
+      throw new Error(`Could not read checklist source catalog: ${error.message}`);
+    }
+    const delay = Math.min(8_000, CATALOG_RETRY_BASE_MS * 2 ** (attempt - 1));
+    console.warn(`[wnba-checklist-import] transient catalog read failure; retry ${attempt}/${CATALOG_RETRY_ATTEMPTS} in ${delay}ms: ${error.message}`);
+    await sleep(delay);
+  }
+  throw new Error("Could not read checklist source catalog after bounded retries.");
+}
+
+async function upsertCatalogReceipt(
+  db: ReturnType<typeof serviceClient>,
+  row: Record<string, unknown>,
+) {
+  for (let attempt = 1; attempt <= CATALOG_RETRY_ATTEMPTS; attempt += 1) {
+    const { error } = await db.from("checklist_source_catalog").upsert(row, { onConflict: "source_url" });
+    if (!error) return;
+    if (!isTransientCatalogError(error) || attempt === CATALOG_RETRY_ATTEMPTS) {
+      throw new Error(`Could not update WNBA checklist catalog receipt: ${error.message}`);
+    }
+    const delay = Math.min(8_000, CATALOG_RETRY_BASE_MS * 2 ** (attempt - 1));
+    console.warn(`[wnba-checklist-import] transient catalog receipt failure; retry ${attempt}/${CATALOG_RETRY_ATTEMPTS} in ${delay}ms: ${error.message}`);
+    await sleep(delay);
+  }
+  throw new Error("Could not update WNBA checklist catalog receipt after bounded retries.");
 }
 
 function assertTrustedSource(value: string) {
@@ -209,12 +265,7 @@ async function processImport(payload: WnbaImportPayload) {
     identities: plan.identities,
   }));
   const db = serviceClient();
-  const { data: existing, error: existingError } = await db
-    .from("checklist_source_catalog")
-    .select("status,source_sha256,metadata")
-    .eq("source_url", payload.sourceUrl)
-    .maybeSingle();
-  if (existingError) throw new Error(`Could not read checklist source catalog: ${existingError.message}`);
+  const existing = await readCatalog(db, payload.sourceUrl);
   const existingMetadata = existing?.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
     ? existing.metadata as Record<string, unknown>
     : {};
@@ -265,7 +316,7 @@ async function processImport(payload: WnbaImportPayload) {
   }
 
   const releaseName = `${plan.release.releaseYear} ${plan.release.product}`;
-  const { error: catalogError } = await db.from("checklist_source_catalog").upsert({
+  await upsertCatalogReceipt(db, {
     manufacturer: "Panini",
     sport: "Basketball",
     source_url: payload.sourceUrl,
@@ -287,8 +338,7 @@ async function processImport(payload: WnbaImportPayload) {
       requiredWnbaBatch: true,
       normalizedPlanSha256,
     },
-  }, { onConflict: "source_url" });
-  if (catalogError) throw new Error(`Could not update WNBA checklist catalog receipt: ${catalogError.message}`);
+  });
 
   return {
     status: "imported",
