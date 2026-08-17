@@ -14,7 +14,7 @@ on:
       earliest_year:
         description: Oldest Upper Deck checklist-year archive to sweep during catch-up
         required: true
-        default: "2015"
+        default: "1990"
       max_year_pages:
         description: Maximum archive pages to inspect per Upper Deck checklist year
         required: true
@@ -33,7 +33,7 @@ on:
     paths:
       - ".github/checklist-discovery-catchup-trigger-20260816"
   schedule:
-    # Catch-up mode: keep advancing through unseen checklist sources until 100 net-new discoveries land.
+    # Catch-up mode: newest releases first, then walk backward year-by-year until 100 net-new discoveries land.
     - cron: "17 11 * * *"
 
 permissions:
@@ -52,7 +52,7 @@ jobs:
     env:
       CHECKLIST_REGISTRY_ACTION_URL: https://truelycollectables.com/api/internal/checklist-registry/action-ingest
       CHECKLIST_DISCOVERY_AUTO_IMPORT: ${{ github.event_name == 'schedule' || github.event_name == 'push' || inputs.mode == 'apply' }}
-      CHECKLIST_DISCOVERY_EARLIEST_YEAR: ${{ inputs.earliest_year || '2015' }}
+      CHECKLIST_DISCOVERY_EARLIEST_YEAR: ${{ inputs.earliest_year || '1990' }}
       CHECKLIST_DISCOVERY_MAX_YEAR_PAGES: ${{ inputs.max_year_pages || '12' }}
       CHECKLIST_DISCOVERY_TARGET_NEW: ${{ inputs.target_new || '100' }}
       CHECKLIST_DISCOVERY_MAX_ATTEMPTS: ${{ inputs.max_attempts || '250' }}
