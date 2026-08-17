@@ -68,20 +68,32 @@ jobs:
           fetch '2025-metal-legends.xls' 'https://gogts.net/wp-content/uploads/2025/03/2025-Leaf-Metal-Legends-Hockey-Cards-Checklist.xls'
           fetch '2026-metal.csv' 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS6VjuhDWueHyJFOLMK_hkUr6GDPn4ldiyeuAM9arPPhDaxIiy4u5kFMXQ9fQVkAQ/pub?output=csv'
 
-      - name: Compact staged BEGIN payload
+      - name: Harden exact Leaf preflight and compact staged BEGIN payload
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
-          text = path.read_text()
+          import re
+
+          writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
+          text = writer.read_text()
           old = '${jsonSql(plan, "plan")}'
           new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
           if old not in text:
               raise SystemExit('Expected full-plan BEGIN payload was not found')
-          path.write_text(text.replace(old, new, 1))
+          writer.write_text(text.replace(old, new, 1))
+
+          leaf = Path('scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs')
+          text = leaf.read_text()
+          pattern = r'const entry=entryFor\(target\); const expectedPlan=buildPlan\(entry,\{cards:\[\{setName:"Base Set".*?new Date\(\)\.toISOString\(\)\);\n      row\.releaseSlug=expectedPlan\.release\.releaseSlug;'
+          replacement = 'const entry=entryFor(target); row.releaseSlug=`${target.season}-leaf-${target.product}-hockey`.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");'
+          text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one dummy Leaf preflight plan, replaced {count}')
+          leaf.write_text(text)
           PY
+          ! grep -F 'Preflight Placeholder' scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
 
       - name: Apply only missing Leaf Hockey releases to Production
         run: node --import tsx scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
