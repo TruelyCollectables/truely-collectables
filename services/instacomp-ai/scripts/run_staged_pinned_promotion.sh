@@ -97,6 +97,7 @@ import sys
 from types import SimpleNamespace
 from typing import Any
 
+import promote_lora_candidate_frozen_25_v9 as v9
 import promote_lora_candidate_frozen_25_v18 as v18
 
 
@@ -153,7 +154,7 @@ def physical_conflict_allow_registry_omission(
     ):
         return True, image_marker, teacher_marker, registry_marker
 
-    if teacher_marker in v18.v9._PATTERN_SENSITIVE_VARIANTS and image_marker is None:
+    if teacher_marker in v9._PATTERN_SENSITIVE_VARIANTS and image_marker is None:
         return True, None, teacher_marker, registry_marker
 
     if image_marker:
