@@ -6,29 +6,22 @@ on:
       - feature/instacomp-target-checklists-20260816
     paths:
       - '.github/workflows/instacomp-staged-sql-audit.yml'
-      - 'scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts'
-      - 'src/lib/checklist-registry/topps-hockey-text.ts'
-      - 'src/lib/checklist-registry/topps-hockey-text-adapter.ts'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: instacomp-upper-deck-hockey-recovery-audit
+  cancel-in-progress: true
+
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    environment: Production
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
-      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      TOPPS_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/topps-hockey-official
-      TOPPS_HOCKEY_RECEIPT: /home/runner/work/_temp/topps-hockey-official/topps-hockey-production-receipt.json
-      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
-      CHECKLIST_REGISTRY_SET_CHUNK: '25'
-      CHECKLIST_REGISTRY_CARD_CHUNK: '25'
-      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '25'
-      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '25'
-      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
+      UPPER_DECK_AUDIT_RECEIPT: /home/runner/work/_temp/upper-deck-hockey-recovery/audit.json
+      UPPER_DECK_AUDIT_CONCURRENCY: '6'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,66 +30,28 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Resolve Production Supabase credentials
-        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+      - name: Patch systemic Upper Deck parser defects in recovery checkout
+        run: python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
 
-      - name: Fetch five official Topps NHL checklist PDFs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
-          command -v pdftotext >/dev/null || { sudo apt-get update -qq; sudo apt-get install -y poppler-utils; }
-          fetch_pdf() {
-            local key="$1"; local url="$2"
-            curl --location --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 120 \
-              -A 'TCOS-InstaComp-Checklist-Recovery/1.0' \
-              -o "$TOPPS_HOCKEY_SOURCE_ROOT/$key.pdf" "$url"
-            test "$(wc -c < "$TOPPS_HOCKEY_SOURCE_ROOT/$key.pdf")" -gt 10000
-            pdftotext -layout -enc UTF-8 "$TOPPS_HOCKEY_SOURCE_ROOT/$key.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$key.txt"
-            test "$(wc -c < "$TOPPS_HOCKEY_SOURCE_ROOT/$key.txt")" -gt 1000
-          }
-          fetch_pdf '2021-nhl-stickers' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/CheckList_21NHLS_VERSION2.pdf'
-          fetch_pdf '2022-23-nhl-sticker-album' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2022NHLStickerAlbumChecklist.pdf'
-          fetch_pdf '2022-23-chrome-nhl-stickers' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2022-23ToppsChromeNHLStickersChecklist.pdf'
-          fetch_pdf '2024-25-nhl-sticker-collection' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/NHL2501-CheckList_24NHLS_VERSION1.pdf'
-          fetch_pdf '2025-26-nhl-sticker-collection' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-26_NHL_Sticker_Collection_-_CheckList_25NHLS.pdf?v=1771437045'
+      - name: Type-check patched recovery parser
+        run: npx tsc --noEmit --pretty false
 
-      - name: Compact staged BEGIN payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
-          text = path.read_text()
-          old = '${jsonSql(plan, "plan")}'
-          new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
-          if old not in text:
-              raise SystemExit('Expected full-plan BEGIN payload was not found')
-          path.write_text(text.replace(old, new, 1))
-          PY
+      - name: Validate complete official 2021-plus Hockey archive without Production writes
+        run: node --import tsx scripts/instacomp-target-checklists/audit-upper-deck-hockey-2021plus-local.ts
 
-      - name: Import only missing official Topps NHL releases into Production
-        run: node --import tsx scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts
-
-      - name: Prove official Topps NHL unresolved is zero
+      - name: Summarize complete audit
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          test -s "$TOPPS_HOCKEY_RECEIPT"
-          jq '{updatedAt,targetCount,liveCount,alreadyLiveCount,persistedCount,failedCount,unresolvedCount,results:[.results[]|{key,releaseSlug,status,error,validation:.validation.counts}]}' "$TOPPS_HOCKEY_RECEIPT"
-          jq -e '.targetCount == 5 and .liveCount == 5 and .failedCount == 0 and .unresolvedCount == 0' "$TOPPS_HOCKEY_RECEIPT"
+          test -s "$UPPER_DECK_AUDIT_RECEIPT"
+          jq '{updatedAt,candidateCount,counts,unresolvedCount,unresolved:[.unresolved[]|{sourceUrl,status,message,errors}]}' "$UPPER_DECK_AUDIT_RECEIPT"
 
-      - name: Upload Topps Hockey Production receipt
+      - name: Upload audit receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-topps-hockey-production-${{ github.run_id }}
-          path: /home/runner/work/_temp/topps-hockey-official/topps-hockey-production-receipt.json
+          name: instacomp-upper-deck-hockey-recovery-audit-${{ github.run_id }}
+          path: /home/runner/work/_temp/upper-deck-hockey-recovery/audit.json
           if-no-files-found: warn
-          retention-days: 90
-
-      - name: Cleanup official sources
-        if: always()
-        run: rm -rf "$TOPPS_HOCKEY_SOURCE_ROOT" .env.local .env.production.local .vercel
+          retention-days: 30
