@@ -1,0 +1,81 @@
+name: Overnight Requested Checklist Harvest
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/overnight-requested-checklist-harvest.yml'
+      - 'scripts/overnight-checklist-harvest.mjs'
+      - 'data/overnight-checklist-harvest-seeds.json'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: overnight-requested-checklist-harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest-one:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Harvest at most one requested checklist source
+        id: harvest
+        run: node scripts/overnight-checklist-harvest.mjs
+
+      - name: Persist tiny resume state only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          state='data/overnight-checklist-harvest-state.json'
+          if [[ ! -f "$state" ]]; then
+            echo 'No state file was produced.'
+            exit 0
+          fi
+          if git diff --quiet -- "$state" && git status --porcelain -- "$state" | grep -q '^??' >/dev/null 2>&1; then
+            :
+          elif git diff --quiet -- "$state"; then
+            echo 'Harvest state unchanged.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$state"
+          git commit -m 'chore(checklists): advance overnight harvest state [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Preserve raw source and receipt as private workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overnight-checklist-source-${{ github.run_id }}
+          path: .overnight-checklist-harvest/current/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Show harvest progress
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s .overnight-checklist-harvest/current/receipt.json ]]; then
+            cat .overnight-checklist-harvest/current/receipt.json
+            echo '### Overnight checklist harvest' >> "$GITHUB_STEP_SUMMARY"
+            jq -r '"Action: **\(.action.status // .status // "unknown")**\n\nRemaining source downloads: **\(.after.remainingDownloadCount // "unknown")**\n\nDatabase writes: **\(.databaseWrites)**"' .overnight-checklist-harvest/current/receipt.json >> "$GITHUB_STEP_SUMMARY" || true
+          fi
