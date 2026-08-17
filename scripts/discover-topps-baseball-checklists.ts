@@ -40,17 +40,17 @@ async function fetchResponse(url: string) {
     redirect: "follow",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText} fetching ${url}`);
   return response;
 }
 async function fetchHtml(url: string) {
   const response = await fetchResponse(url);
   const type = response.headers.get("content-type") || "";
   if (!type.toLowerCase().includes("text/html")) {
-    throw new Error(`Unexpected HTML content type ${type || "unknown"}`);
+    throw new Error(`Unexpected HTML content type ${type || "unknown"} fetching ${url}`);
   }
   const html = await response.text();
-  if (html.length < 1_000) throw new Error(`Incomplete HTML (${html.length} bytes)`);
+  if (html.length < 1_000) throw new Error(`Incomplete HTML (${html.length} bytes) fetching ${url}`);
   return html;
 }
 
@@ -103,6 +103,12 @@ function mimeType(url: string, header: string) {
   if (/\.xls(?:$|\?)/i.test(url)) return "application/vnd.ms-excel";
   if (/\.csv(?:$|\?)/i.test(url)) return "text/csv";
   return "application/octet-stream";
+}
+
+function writeReceipt(receipt: Record<string, unknown>) {
+  mkdirSync(dirname(OUTPUT), { recursive: true });
+  writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  console.log(JSON.stringify(receipt, null, 2));
 }
 
 async function selectDailyProducts(candidates: ProductPage[]) {
@@ -227,13 +233,22 @@ async function main() {
     productCount: pages.length,
     results,
   };
-  mkdirSync(dirname(OUTPUT), { recursive: true });
-  writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-  console.log(JSON.stringify(receipt, null, 2));
+  writeReceipt(receipt);
   if (results.some((result) => result.status === "failed")) process.exitCode = 1;
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
+  const message = error instanceof Error ? error.stack || error.message : String(error);
+  writeReceipt({
+    schema: "tcos.checklist.toppsBaseballDiscoveryReceipt.v1",
+    startedAt: null,
+    completedAt: new Date().toISOString(),
+    indexUrl: INDEX_URL,
+    candidateProductCount: 0,
+    productCount: 0,
+    results: [],
+    fatalError: message,
+  });
+  console.error(message);
   process.exitCode = 1;
 });
