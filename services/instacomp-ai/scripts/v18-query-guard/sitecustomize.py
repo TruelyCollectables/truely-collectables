@@ -10,6 +10,18 @@ def _text(value: object) -> str | None:
     return text or None
 
 
+def _is_v18_promotion_stdin(argv: list[str]) -> bool:
+    """Activate only for the final V18 stdin runner, never generic bootstrap probes."""
+    if not argv or argv[0] != "-":
+        return False
+    return any(
+        arg == "--self-test"
+        or arg == "--stage-target"
+        or arg.startswith("--stage-target=")
+        for arg in argv[1:]
+    )
+
+
 def _with_card_number(identity: Any, card_number: str):
     """Return the same identity with only the already-known card number restored."""
     if _text(getattr(identity, "card_number", None)):
@@ -22,6 +34,18 @@ def _with_card_number(identity: Any, card_number: str):
     payload = dict(identity)
     payload["card_number"] = card_number
     return CardIdentity.model_validate(payload)
+
+
+def _self_test_activation_scope() -> None:
+    assert _is_v18_promotion_stdin(["-"]) is False
+    assert _is_v18_promotion_stdin(["-", "/tmp/requirements.txt"]) is False
+    assert _is_v18_promotion_stdin(["-", "--self-test"]) is True
+    assert _is_v18_promotion_stdin(["-", "--stage-target", "10"]) is True
+    assert _is_v18_promotion_stdin(["-", "--stage-target=25"]) is True
+    print(
+        "PASS V18 staged Registry query guard activation scope excludes bootstrap Python probes",
+        flush=True,
+    )
 
 
 def _self_test_card_number_restore() -> None:
@@ -99,6 +123,7 @@ def _install_v18_card_number_guard() -> None:
     guarded_registry_match_evidence_aligned._v18_card_number_guard = True
     v10._registry_match_evidence_aligned = guarded_registry_match_evidence_aligned
     v10._v18_card_number_guard_installed = True
+    _self_test_activation_scope()
     _self_test_card_number_restore()
     if v10._registry_match_evidence_aligned is not guarded_registry_match_evidence_aligned:
         raise RuntimeError("V18 staged Registry query guard did not remain installed")
@@ -110,8 +135,7 @@ def _install_v18_card_number_guard() -> None:
 
 if (
     os.getenv("INSTACOMP_V18_STAGED_QUERY_GUARD", "") == "1"
-    and sys.argv
-    and sys.argv[0] == "-"
+    and _is_v18_promotion_stdin(sys.argv)
 ):
     try:
         _install_v18_card_number_guard()
