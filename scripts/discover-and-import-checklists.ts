@@ -8,7 +8,7 @@ const AUTO_IMPORT = process.env.CHECKLIST_DISCOVERY_AUTO_IMPORT === "true";
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const EARLIEST_ARCHIVE_YEAR = Math.max(
   1990,
-  Math.min(CURRENT_YEAR, Number(process.env.CHECKLIST_DISCOVERY_EARLIEST_YEAR || 2015)),
+  Math.min(CURRENT_YEAR, Number(process.env.CHECKLIST_DISCOVERY_EARLIEST_YEAR || 1990)),
 );
 const MAX_YEAR_PAGES = Math.max(
   1,
@@ -77,6 +77,7 @@ async function discoverCandidates() {
     console.warn(`Current Upper Deck checklist index could not be read: ${error instanceof Error ? error.message : String(error)}`);
   }
 
+  // Newest first: current season, then walk backward year-by-year until the historical floor.
   for (let year = CURRENT_YEAR; year >= EARLIEST_ARCHIVE_YEAR && found.size < MAX_CANDIDATES; year -= 1) {
     let previousSize = -1;
     for (let page = 1; page <= MAX_YEAR_PAGES && found.size < MAX_CANDIDATES; page += 1) {
@@ -166,6 +167,7 @@ async function main() {
     startedAt,
     completedAt: new Date().toISOString(),
     mode: AUTO_IMPORT ? "automatic_import" : "validation_only",
+    strategy: "newest_to_oldest",
     currentIndex: CURRENT_CHECKLISTS_URL,
     archiveRoot: YEAR_ARCHIVE_ROOT,
     archiveYears: { newest: CURRENT_YEAR, oldest: EARLIEST_ARCHIVE_YEAR },
