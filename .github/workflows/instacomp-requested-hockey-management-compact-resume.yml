@@ -25,11 +25,15 @@ jobs:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/requested-hockey-compact
       VERIFIED_SOURCE_RUN_ID: '31924171342'
-      REQUESTED_HOCKEY_RECEIPT: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-management-receipt.json
+      REQUESTED_HOCKEY_RESIDUAL_RECEIPT: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-residual-receipt.json
+      REQUESTED_HOCKEY_VERIFY_RECEIPT: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-individual-verification.json
       REQUESTED_HOCKEY_WAVE_SIZE: '2'
       REQUESTED_HOCKEY_WAVE_DELAY_MS: '5000'
       REQUESTED_HOCKEY_TARGET_ATTEMPTS: '4'
       REQUESTED_HOCKEY_TARGET_RETRY_MS: '10000'
+      REQUESTED_HOCKEY_VERIFY_CONCURRENCY: '3'
+      REQUESTED_HOCKEY_VERIFY_ATTEMPTS: '5'
+      REQUESTED_HOCKEY_VERIFY_RETRY_MS: '5000'
       CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
       CHECKLIST_REGISTRY_SET_CHUNK: '25'
       CHECKLIST_REGISTRY_CARD_CHUNK: '25'
@@ -64,13 +68,12 @@ jobs:
           node scripts/instacomp-target-checklists/canonicalize-registry-plans.mjs
           jq -e '.targetCount == 83 and .changedCount == 23 and .parallelRowsRemoved == 414 and .identityRowsRemoved == 1300' "$VERIFIED_HARVEST_ROOT/output/registry-plan-canonicalization-receipt.json"
 
-      - name: Compact staged BEGIN payload and harden transient retry
+      - name: Compact staged BEGIN payload
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
           writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
           text = writer.read_text()
           old = '${jsonSql(plan, "plan")}'
@@ -78,28 +81,33 @@ jobs:
           if old not in text:
               raise SystemExit('Expected full-plan BEGIN payload was not found')
           writer.write_text(text.replace(old, new, 1))
-
-          apply = Path('scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs')
-          text = apply.read_text()
-          old = r'/timeout|timed out|too many connections|connection terminated|connection reset|connection refused|could not query the database|fetch failed|network|aborted|temporar/i'
-          new = r'/timeout|timed out|too many connections|connection terminated|connection reset|connection refused|could not query the database|web server is down|ssl handshake|521|522|525|544|fetch failed|network|aborted|temporar/i'
-          if old not in text:
-              raise SystemExit('Expected target retry regex was not found')
-          apply.write_text(text.replace(old, new, 1))
           PY
           grep -F 'validation: { status: plan.validation.status, counts: plan.validation.counts }' scripts/instacomp-target-checklists/management-staged-registry-writer.mjs
 
-      - name: Apply only missing validated Hockey through compact management SQL
-        run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs
+      - name: Apply only the 23 known Production residual catalogs
+        run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-residual-management.mjs
 
-      - name: Prove validated Hockey residual is zero
+      - name: Prove 23-catalog residual is zero
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          test -s "$REQUESTED_HOCKEY_RECEIPT"
-          jq '{updatedAt,transport,requestedHockeyReadyCount,wave,alreadyLiveCount,missingCount,persistedCount,failedCount,persistedCards,persistedIdentities}' "$REQUESTED_HOCKEY_RECEIPT"
-          jq -e '.requestedHockeyReadyCount == 83 and .failedCount == 0 and (.alreadyLiveCount + .persistedCount) == 83' "$REQUESTED_HOCKEY_RECEIPT"
+          test -s "$REQUESTED_HOCKEY_RESIDUAL_RECEIPT"
+          jq '{updatedAt,transport,residualCount,alreadyLiveCount,persistedCount,resolvedCount,failedCount,persistedCards,persistedIdentities}' "$REQUESTED_HOCKEY_RESIDUAL_RECEIPT"
+          jq -e '.residualCount == 23 and .resolvedCount == 23 and .failedCount == 0' "$REQUESTED_HOCKEY_RESIDUAL_RECEIPT"
+
+      - name: Verify all 83 validated Hockey catalogs individually in Production
+        if: success()
+        run: node --import tsx scripts/instacomp-target-checklists/verify-requested-hockey-individual.mjs
+
+      - name: Prove all 83 validated Hockey catalogs are live
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$REQUESTED_HOCKEY_VERIFY_RECEIPT"
+          jq '{updatedAt,targetCount,liveCount,unresolvedCount,failedQueryCount}' "$REQUESTED_HOCKEY_VERIFY_RECEIPT"
+          jq -e '.targetCount == 83 and .liveCount == 83 and .unresolvedCount == 0 and .failedQueryCount == 0' "$REQUESTED_HOCKEY_VERIFY_RECEIPT"
 
       - name: Upload compact management receipts
         if: always()
@@ -107,7 +115,8 @@ jobs:
         with:
           name: instacomp-requested-hockey-compact-${{ github.run_id }}
           path: |
-            /home/runner/work/_temp/requested-hockey-compact/requested-hockey-management-receipt.json
+            /home/runner/work/_temp/requested-hockey-compact/requested-hockey-residual-receipt.json
+            /home/runner/work/_temp/requested-hockey-compact/requested-hockey-individual-verification.json
             /home/runner/work/_temp/requested-hockey-compact/output/registry-plan-canonicalization-receipt.json
           if-no-files-found: warn
           retention-days: 90
