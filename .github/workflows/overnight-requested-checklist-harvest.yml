@@ -1,6 +1,7 @@
 name: Overnight Requested Checklist Harvest
 
-# Bootstrap push after workflow registration; subsequent progress is schedule-driven.
+# Source-only overnight collector. It downloads at most one unresolved checklist
+# source per five-minute interval and never writes the Production Registry.
 on:
   workflow_dispatch:
   push:
@@ -14,7 +15,7 @@ on:
     - cron: '*/5 * * * *'
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
@@ -27,41 +28,31 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
+      - name: Restore rolling harvest state
+        uses: actions/cache/restore@v4
+        with:
+          path: data/overnight-checklist-harvest-state.json
+          key: overnight-checklist-state-${{ github.run_id }}
+          restore-keys: |
+            overnight-checklist-state-
+
       - name: Harvest at most one requested checklist source
         id: harvest
         run: node scripts/overnight-checklist-harvest.mjs
 
-      - name: Persist tiny resume state only
+      - name: Save rolling harvest state
         if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          state='data/overnight-checklist-harvest-state.json'
-          if [[ ! -f "$state" ]]; then
-            echo 'No state file was produced.'
-            exit 0
-          fi
-          if git diff --quiet -- "$state" && git status --porcelain -- "$state" | grep -q '^??' >/dev/null 2>&1; then
-            :
-          elif git diff --quiet -- "$state"; then
-            echo 'Harvest state unchanged.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$state"
-          git commit -m 'chore(checklists): advance overnight harvest state [skip ci]'
-          git pull --rebase origin main
-          git push origin HEAD:main
+        uses: actions/cache/save@v4
+        with:
+          path: data/overnight-checklist-harvest-state.json
+          key: overnight-checklist-state-${{ github.run_id }}
 
-      - name: Preserve raw source and receipt as private workflow artifact
+      - name: Preserve raw source and receipt as workflow artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -78,5 +69,5 @@ jobs:
           if [[ -s .overnight-checklist-harvest/current/receipt.json ]]; then
             cat .overnight-checklist-harvest/current/receipt.json
             echo '### Overnight checklist harvest' >> "$GITHUB_STEP_SUMMARY"
-            jq -r '"Action: **\(.action.status // .status // "unknown")**\n\nRemaining source downloads: **\(.after.remainingDownloadCount // "unknown")**\n\nDatabase writes: **\(.databaseWrites)**"' .overnight-checklist-harvest/current/receipt.json >> "$GITHUB_STEP_SUMMARY" || true
+            jq -r '"Action: **\(.action.status // .status // \"unknown\")**\n\nRemaining source downloads: **\(.after.remainingDownloadCount // \"unknown\")**\n\nDatabase writes: **\(.databaseWrites)**"' .overnight-checklist-harvest/current/receipt.json >> "$GITHUB_STEP_SUMMARY" || true
           fi
