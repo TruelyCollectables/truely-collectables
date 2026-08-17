@@ -53,7 +53,11 @@ updated="$(git -C "$repo_root" rev-parse HEAD)"
 
 if [[ "$updated" != "$current" && "${INSTACOMP_STAGED_REEXECED:-0}" != "1" ]]; then
   echo "INFO Staged learner source advanced to $updated; restarting from updated orchestration code"
-  exec env INSTACOMP_STAGED_REEXECED=1 bash "$service_root/scripts/run-staged-learning-from-main.sh" "${original_args[@]}"
+  if (( ${#original_args[@]} > 0 )); then
+    exec env INSTACOMP_STAGED_REEXECED=1 bash "$service_root/scripts/run-staged-learning-from-main.sh" "${original_args[@]}"
+  else
+    exec env INSTACOMP_STAGED_REEXECED=1 bash "$service_root/scripts/run-staged-learning-from-main.sh"
+  fi
 fi
 
 echo "PASS staged learner source synchronized at $updated"
@@ -95,7 +99,11 @@ esac
 echo "INFO Starting live staged promotion ladder ${stages[*]}; Cloudflare Sentinel deployment status is not a learning prerequisite"
 for stage in "${stages[@]}"; do
   echo "INFO Certifying Frozen $stage with current v17 Registry/physical-card gates"
-  bash "$launcher" "${passthrough[@]}" --stage-target "$stage"
+  if (( ${#passthrough[@]} > 0 )); then
+    bash "$launcher" "${passthrough[@]}" --stage-target "$stage"
+  else
+    bash "$launcher" --stage-target "$stage"
+  fi
   echo "PASS Frozen $stage certification completed"
 done
 
