@@ -48,5 +48,6 @@ jobs:
         with:
           name: automatic-topps-baseball-checklist-discovery-receipt
           path: .checklist-discovery/*.json
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
