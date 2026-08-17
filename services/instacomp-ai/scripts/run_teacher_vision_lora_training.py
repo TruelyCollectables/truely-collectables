@@ -4,8 +4,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +67,88 @@ from run_lora_training import (
 )
 
 
+def _configured_teacher_models() -> list[str]:
+    return list(
+        dict.fromkeys(
+            value.strip()
+            for value in settings.teacher_vision_models.split(",")
+            if value.strip()
+        )
+    )
+
+
+def _safe_model_dir(model: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._-]+", "-", model.strip())
+    return value.strip("-") or "teacher"
+
+
+def _receipt_snapshot(teacher_root: Path, models: list[str], *, started_wall: float) -> dict:
+    counts: dict[str, int] = {}
+    written_this_run: dict[str, int] = {}
+    newest_mtime = 0.0
+    for model in models:
+        root = teacher_root / "teacher-receipts" / _safe_model_dir(model)
+        count = 0
+        recent = 0
+        if root.is_dir():
+            for path in root.glob("*.json"):
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                count += 1
+                newest_mtime = max(newest_mtime, stat.st_mtime)
+                if stat.st_mtime >= started_wall:
+                    recent += 1
+        counts[model] = count
+        written_this_run[model] = recent
+    return {
+        "receipt_counts": counts,
+        "total_receipts": sum(counts.values()),
+        "written_this_run": written_this_run,
+        "total_written_this_run": sum(written_this_run.values()),
+        "newest_receipt_mtime": newest_mtime or None,
+    }
+
+
+def _start_teacher_heartbeat(
+    *,
+    teacher_root: Path,
+    models: list[str],
+    trusted_examples: int,
+    interval_seconds: float = 15.0,
+) -> tuple[threading.Event, threading.Thread]:
+    stop = threading.Event()
+    started_monotonic = time.monotonic()
+    started_wall = time.time()
+
+    def worker() -> None:
+        while not stop.wait(interval_seconds):
+            snapshot = _receipt_snapshot(
+                teacher_root,
+                models,
+                started_wall=started_wall,
+            )
+            payload = {
+                "status": "teacher_mining_alive",
+                "elapsed_seconds": round(time.monotonic() - started_monotonic, 1),
+                "trusted_examples_loaded": trusted_examples,
+                "teacher_models": models,
+                "request_timeout_seconds": settings.teacher_vision_timeout_seconds,
+                "image_max_edge": settings.teacher_vision_image_max_edge,
+                **snapshot,
+            }
+            print("TEACHER MINING HEARTBEAT " + json.dumps(payload, sort_keys=True), flush=True)
+
+    thread = threading.Thread(
+        target=worker,
+        name="instacomp-teacher-mining-heartbeat",
+        daemon=True,
+    )
+    thread.start()
+    return stop, thread
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -101,7 +186,7 @@ def main() -> int:
         )
 
     runtime = preflight_training_runtime()
-    print(json.dumps(runtime, indent=2))
+    print(json.dumps(runtime, indent=2), flush=True)
     if args.preflight_only:
         return 0
 
@@ -111,7 +196,7 @@ def main() -> int:
     examples = store.list_training_examples(trusted_only=True, limit=100_000)
     readiness = training_readiness(examples)
     if not readiness["ready_for_trial_lora"] and not args.allow_small_dataset:
-        print(json.dumps(readiness, indent=2))
+        print(json.dumps(readiness, indent=2), flush=True)
         raise SystemExit(
             "Training blocked: collect at least 50 trusted examples with OCR evidence. "
             "Use --allow-small-dataset only for a disposable engineering smoke test."
@@ -128,18 +213,61 @@ def main() -> int:
     teacher_root = settings.resolve_local_path("./data/training/teacher-vision")
     teacher_root.mkdir(parents=True, exist_ok=True)
     export_root = settings.resolve_local_path(settings.training_export_path)
-
-    mining, manifest = build_teacher_augmented_dataset(
-        prompt_examples,
-        settings=settings,
-        image_store_path=image_store,
-        destination_root=export_root,
-        teacher_root=teacher_root,
-        validation_percent=15,
-        force_teacher=args.force_teacher,
-        teacher_limit=args.teacher_limit,
+    teacher_models = _configured_teacher_models()
+    started_wall = time.time()
+    before = _receipt_snapshot(teacher_root, teacher_models, started_wall=started_wall)
+    print(
+        "TEACHER MINING START "
+        + json.dumps(
+            {
+                "trusted_examples_loaded": len(prompt_examples),
+                "teacher_models": teacher_models,
+                "teacher_limit": args.teacher_limit,
+                "force_teacher": args.force_teacher,
+                "image_max_edge": settings.teacher_vision_image_max_edge,
+                "request_timeout_seconds": settings.teacher_vision_timeout_seconds,
+                "heartbeat_seconds": 15,
+                "existing_receipts": before["receipt_counts"],
+                "resumable_receipts": True,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
     )
-    print(json.dumps({"teacher_mining": mining, "dataset": manifest}, indent=2))
+    heartbeat_stop, heartbeat_thread = _start_teacher_heartbeat(
+        teacher_root=teacher_root,
+        models=teacher_models,
+        trusted_examples=len(prompt_examples),
+        interval_seconds=15.0,
+    )
+    try:
+        mining, manifest = build_teacher_augmented_dataset(
+            prompt_examples,
+            settings=settings,
+            image_store_path=image_store,
+            destination_root=export_root,
+            teacher_root=teacher_root,
+            validation_percent=15,
+            force_teacher=args.force_teacher,
+            teacher_limit=args.teacher_limit,
+        )
+    finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=2.0)
+    after = _receipt_snapshot(teacher_root, teacher_models, started_wall=started_wall)
+    print(
+        "TEACHER MINING COMPLETE "
+        + json.dumps(
+            {
+                "receipt_counts": after["receipt_counts"],
+                "written_this_run": after["written_this_run"],
+                "total_written_this_run": after["total_written_this_run"],
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    print(json.dumps({"teacher_mining": mining, "dataset": manifest}, indent=2), flush=True)
 
     if mining.get("failed") and not args.allow_partial_teachers:
         raise SystemExit(
@@ -211,7 +339,7 @@ def main() -> int:
         ),
         "command": command,
     }
-    print(json.dumps(plan, indent=2))
+    print(json.dumps(plan, indent=2), flush=True)
     if args.dry_run:
         return 0
 
@@ -237,7 +365,8 @@ def main() -> int:
                 "teacher_prompt_uses_compact_local_vision": True,
             },
             indent=2,
-        )
+        ),
+        flush=True,
     )
     return 0
 
