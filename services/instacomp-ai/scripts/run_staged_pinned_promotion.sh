@@ -34,10 +34,6 @@ if [[ -f "$service_root/.env" ]]; then
   set +a
 fi
 
-# Python normally gets the scripts directory in sys.path when a promotion file
-# is executed directly. V18's in-process launcher wrapper runs Python from stdin,
-# so include both the service root and scripts explicitly to preserve that exact
-# import environment on Linux CI and the production Apple-silicon Mac.
 export PYTHONPATH="$service_root:$service_root/scripts${PYTHONPATH:+:$PYTHONPATH}"
 
 self_test=0
@@ -91,139 +87,164 @@ echo "INFO For Panini Prizm, the bold black PRIZM word on the back remains autho
 echo "INFO Pattern-sensitive families such as Velocity and Cracked Ice still require deterministic matching surface evidence"
 echo "INFO Frozen 15/25 preserve the complete successful prior-stage fixture prefix, adapter hash, and dataset hash"
 echo "INFO Registry throttle handling remains same-request fail-safe backoff; throttle is never recorded as a card miss"
-echo "INFO Exact Registry responses that drop a required teacher variant are retried before physical admission"
+echo "INFO Missing Registry canonical variant text is treated as omission, never contradiction; explicit variant conflicts still fail closed"
 echo "INFO Two final exhaustive certification rounds run directly through the V14 traversal and cannot be overwritten by version monkey-patches"
 
-# V18 deliberately owns fixture selection instead of delegating back through
-# v12.main(). That means it must install the complete inherited admission stack
-# explicitly before its first live Registry lock. The original V18 runner only
-# installed the outer v15/v13 wrappers, leaving raw v3 identity-lock semantics
-# active and causing every real candidate to be rejected before activation.
-# Keep this correction in-process so there is still exactly one V18 runner.
 exec "$service_python" - "$@" <<'PY'
 from __future__ import annotations
 
-import asyncio
 import sys
+from types import SimpleNamespace
 from typing import Any
 
 import promote_lora_candidate_frozen_25_v18 as v18
 
 
-def registry_exact_preserves_teacher_variant(registry: Any, teacher: Any) -> bool:
-    """Accept an exact Registry result only when required physical identity survived.
-
-    Registry remains the UUID/fingerprint authority. This guard does not synthesize
-    or copy a variant into Registry truth; it only notices when an otherwise exact
-    response has dropped a non-Base teacher variant and therefore cannot pass the
-    already-installed V5/V15 physical compatibility gate. Such a response remains
-    eligible for V10's narrower core/OCR retry ladder instead of terminating that
-    ladder early.
-    """
-    if not v18.v10._registry_exact(registry):
+def registry_identity_matches_teacher_allow_omission(teacher: dict[str, Any], registry: Any) -> bool:
+    locked = getattr(registry, "identity", None)
+    if locked is None:
         return False
-    payload = (
-        teacher.model_dump(mode="json")
-        if hasattr(teacher, "model_dump")
-        else dict(teacher)
-    )
-    return v18.v5._registry_identity_matches_teacher(payload, registry)
+    payload = locked.model_dump(mode="json") if hasattr(locked, "model_dump") else dict(locked)
+    if v18.base.norm(payload.get("player")) != v18.base.norm(teacher.get("player")):
+        return False
+    if (
+        v18.base.norm(payload.get("card_number")).lstrip("#")
+        != v18.base.norm(teacher.get("card_number")).lstrip("#")
+    ):
+        return False
+
+    teacher_marker = v18.v5._teacher_variant_claim(teacher)
+    registry_marker = v18.v5._registry_variant_claim(registry)
+    if teacher_marker is None:
+        return True
+    if teacher_marker == "base":
+        return registry_marker in {None, "base"}
+    if registry_marker is None:
+        return True
+    return registry_marker == teacher_marker
 
 
-async def registry_match_evidence_aligned_strict(
-    teacher: Any,
-    item: dict[str, Any] | None,
-    registry_match,
-):
-    """V10 retry ladder with fail-closed handling for incomplete exact results."""
-    normalized = v18.v10._normalized_teacher_identity(teacher)
+def physical_conflict_allow_registry_omission(
+    item: dict[str, Any], registry: Any
+) -> tuple[bool, str | None, str | None, str | None]:
+    teacher_marker = v18.v5._teacher_variant_claim(item["identity"])
+    registry_marker = v18.v5._registry_variant_claim(registry)
+    image_marker = v18.v5._image_parallel_probe(item)
+    is_prizm = v18.v15._fixture_is_prizm(item, registry)
 
-    first = await registry_match(normalized, None)
-    if registry_exact_preserves_teacher_variant(first, normalized):
-        return first
+    if is_prizm:
+        back_mark = v18.v15._prizm_back_mark_probe(item)
+        if back_mark is not True:
+            if teacher_marker not in {None, "base"} or registry_marker not in {None, "base"}:
+                return (
+                    True,
+                    "base" if back_mark is False else None,
+                    teacher_marker,
+                    registry_marker,
+                )
+            return False, None, teacher_marker, registry_marker
+        if teacher_marker == "base" or registry_marker == "base":
+            return True, "prizm_back_mark", teacher_marker, registry_marker
 
-    core = v18.v10._core_registry_identity(normalized)
-    second = await registry_match(core, None)
-    if registry_exact_preserves_teacher_variant(second, normalized):
-        return second
+    if (
+        registry_marker is not None
+        and teacher_marker is not None
+        and registry_marker != teacher_marker
+    ):
+        return True, image_marker, teacher_marker, registry_marker
 
-    vision = v18.v10._local_vision_for_item(item)
-    ocr = (
-        v18.v10._text(getattr(vision, "combined_text", None))
-        if vision is not None
-        else None
-    )
-    if not ocr:
-        return second
+    if teacher_marker in v18.v9._PATTERN_SENSITIVE_VARIANTS and image_marker is None:
+        return True, None, teacher_marker, registry_marker
 
-    ocr_core = v18.v10._core_registry_identity(normalized, clear_manufacturer=True)
-    hints = getattr(vision, "identity_hints", None)
-    visible_manufacturer = (
-        v18.v10._text(getattr(hints, "manufacturer", None))
-        if hints is not None
-        else None
-    )
-    if visible_manufacturer:
-        ocr_core.manufacturer = visible_manufacturer
-
-    third = await registry_match(ocr_core, ocr)
-    return third
-
-
-def self_test_incomplete_exact_variant_retry() -> None:
-    """Regression: DeWanna #32 exact UUID with variant=None must retry, not lock."""
-    from app.models import CardIdentity, ChecklistOutcome, ChecklistResult
-
-    exact_id = "00000000-0000-0000-0018-000000000032"
-    fingerprint = "d" * 64
-    teacher = CardIdentity(
-        year="2025",
-        manufacturer="Panini",
-        brand="Panini Prizm WNBA",
-        set_name="Base",
-        player="DeWanna Bonner",
-        card_number="32",
-        parallel="Silver Prizm",
-    )
-    calls: list[tuple[CardIdentity, str | None]] = []
-
-    def exact(identity: CardIdentity, *, parallel: str | None) -> ChecklistResult:
-        return ChecklistResult(
-            outcome=ChecklistOutcome.EXACT_MATCH,
-            identity_id=exact_id,
-            identity=CardIdentity(
-                year="2025",
-                manufacturer="Panini",
-                brand="Prizm",
-                set_name="Base",
-                player=identity.player,
-                card_number=identity.card_number,
-                parallel=parallel,
-            ),
-            candidate_count=1,
-            source_receipts=[
-                f"registry_identity:{exact_id}",
-                f"registry_fingerprint:{fingerprint}",
-            ],
+    if image_marker:
+        teacher_conflict = teacher_marker is not None and teacher_marker != image_marker
+        registry_conflict = registry_marker is not None and registry_marker != image_marker
+        return (
+            teacher_conflict or registry_conflict,
+            image_marker,
+            teacher_marker,
+            registry_marker,
         )
 
-    async def registry_match(identity: CardIdentity, ocr: str | None) -> ChecklistResult:
-        calls.append((identity.model_copy(deep=True), ocr))
-        if len(calls) == 1:
-            return exact(identity, parallel=None)
-        return exact(identity, parallel=identity.parallel)
+    if (
+        not is_prizm
+        and teacher_marker not in {None, "base"}
+        and registry_marker is None
+    ):
+        return True, None, teacher_marker, registry_marker
 
-    result = asyncio.run(
-        registry_match_evidence_aligned_strict(teacher, None, registry_match)
-    )
-    assert len(calls) == 2
-    assert calls[0][0].parallel == "Silver Prizm"
-    assert calls[1][0].brand is None and calls[1][0].set_name is None
-    assert calls[1][0].parallel == "Silver Prizm"
-    assert v18.v5._registry_variant_claim(result) == "silver"
-    assert registry_exact_preserves_teacher_variant(result, teacher) is True
+    return False, None, teacher_marker, registry_marker
+
+
+def self_test_registry_variant_omission_contract() -> None:
+    item = {
+        "identity": {
+            "year": "2025",
+            "manufacturer": "Panini",
+            "brand": "Panini Prizm WNBA",
+            "set_name": "Base",
+            "player": "DeWanna Bonner",
+            "card_number": "32",
+            "parallel": "Silver Prizm",
+        }
+    }
+
+    def registry(parallel: str | None, *, brand: str = "Prizm"):
+        return SimpleNamespace(
+            identity={
+                "year": "2025",
+                "manufacturer": "Panini",
+                "brand": brand,
+                "set_name": "Base",
+                "player": "DeWanna Bonner",
+                "card_number": "32",
+                "parallel": parallel,
+            }
+        )
+
+    previous_back = v18.v15._prizm_back_mark_probe_override
+    previous_image = v18.v5._image_parallel_probe_override
+    try:
+        v18.v15._prizm_back_mark_probe_override = lambda _item: True
+        v18.v5._image_parallel_probe_override = lambda _item: "silver"
+        omitted = registry(None)
+        assert registry_identity_matches_teacher_allow_omission(item["identity"], omitted) is True
+        conflict, image, teacher, reg = physical_conflict_allow_registry_omission(item, omitted)
+        assert conflict is False and image == "silver" and teacher == "silver" and reg is None
+
+        wrong = registry("Prizms Ice")
+        assert registry_identity_matches_teacher_allow_omission(item["identity"], wrong) is False
+        conflict, _image, _teacher, _reg = physical_conflict_allow_registry_omission(item, wrong)
+        assert conflict is True
+
+        v18.v15._prizm_back_mark_probe_override = lambda _item: False
+        conflict, image, teacher, reg = physical_conflict_allow_registry_omission(item, omitted)
+        assert conflict is True and image == "base" and teacher == "silver" and reg is None
+
+        v18.v15._prizm_back_mark_probe_override = lambda _item: True
+        ice_item = {"identity": {**item["identity"], "parallel": "Cracked Ice Prizm"}}
+        v18.v5._image_parallel_probe_override = lambda _item: None
+        conflict, _image, teacher, reg = physical_conflict_allow_registry_omission(ice_item, omitted)
+        assert conflict is True and teacher == "ice" and reg is None
+
+        non_prizm = {
+            "identity": {
+                **item["identity"],
+                "brand": "Select WNBA",
+                "parallel": "Silver",
+            }
+        }
+        non_prizm_registry = registry(None, brand="Select WNBA")
+        conflict, _image, teacher, reg = physical_conflict_allow_registry_omission(
+            non_prizm, non_prizm_registry
+        )
+        assert conflict is True and teacher == "silver" and reg is None
+    finally:
+        v18.v15._prizm_back_mark_probe_override = previous_back
+        v18.v5._image_parallel_probe_override = previous_image
+
     print(
-        "PASS V18 retries exact Registry responses that drop a required teacher variant",
+        "PASS V18 treats omitted Registry variant as omission while preserving physical fail-closed gates",
         flush=True,
     )
 
@@ -234,52 +255,35 @@ def install_complete_v18_contract(target: int) -> None:
             f"Unsupported stage target {target}; allowed={v18.ALLOWED_STAGE_TARGETS}"
         )
 
-    # This is the install step v12.main() used to provide implicitly. It installs
-    # v10 -> v9/v7/v5 into v3, including canonical teacher/Registry matching and
-    # the image-backed expansion candidate semantics V18 expects.
     v18.v12._install_contract(target)
-
-    # Re-apply the current physical-card authority and throttle behavior after
-    # the inherited stack is installed. These layers intentionally override only
-    # the witness/throttle hooks, never Registry exactness or UUID/fingerprint.
     v18.v15._install_contract()
     v18.v13._install_contract()
     v18.v11._configure_stage(target)
 
-    # V10 normally returns immediately for any Registry exact_match. A live
-    # Frozen-25 ladder exposed an exact response for DeWanna Bonner #32 whose
-    # canonical identity dropped the required Silver variant. Keep Registry as
-    # authority, but retry that incomplete exact result through the same V10
-    # evidence-aligned ladder instead of allowing it to poison carry-forward.
-    v18.v10._registry_match_evidence_aligned = registry_match_evidence_aligned_strict
+    v18.v3._registry_identity_matches_teacher = registry_identity_matches_teacher_allow_omission
+    v18.v5._image_witness_conflict = physical_conflict_allow_registry_omission
 
     v18.v3.SCHEMA = v18.SCHEMA
     v18.v12.SCHEMA = v18.SCHEMA
     v18.v11.SCHEMA = v18.SCHEMA
 
-    # Fail immediately if a future refactor again leaves raw V3 admission active.
     if v18.v3._locked_expansion is not v18.v5._locked_expansion:
         raise RuntimeError("V18 live contract install failed: V5 physical Registry lock is not active")
-    if v18.v3._registry_identity_matches_teacher is not v18.v5._registry_identity_matches_teacher:
-        raise RuntimeError("V18 live contract install failed: canonical teacher/Registry matcher is not active")
-    if v18.v5._image_witness_conflict is not v18.v15._authoritative_prizm_back_mark_conflict:
-        raise RuntimeError("V18 live contract install failed: authoritative Prizm back-mark gate is not active")
+    if v18.v3._registry_identity_matches_teacher is not registry_identity_matches_teacher_allow_omission:
+        raise RuntimeError("V18 live contract install failed: Registry variant omission matcher is not active")
+    if v18.v5._image_witness_conflict is not physical_conflict_allow_registry_omission:
+        raise RuntimeError("V18 live contract install failed: physical omission guard is not active")
     if v18.v3._expansion_candidate is v18.v12._ORIGINAL_EXPANSION_CANDIDATE:
         raise RuntimeError("V18 live contract install failed: raw V3 expansion candidate builder is still active")
-    if v18.v10._registry_match_evidence_aligned is not registry_match_evidence_aligned_strict:
-        raise RuntimeError("V18 live contract install failed: incomplete exact Registry retry guard is not active")
 
     print(
         "PASS V18 live admission stack installed: "
-        "V12/V10/V9/V5 Registry+physical contract + V15 back-mark authority + V13 throttle",
+        "V12/V10/V9/V5 Registry+physical contract + V15 back-mark authority + V13 throttle + omitted-variant guard",
         flush=True,
     )
 
 
 def installed_candidate_items(dataset, *, require_images: bool) -> dict[str, dict[str, Any]]:
-    # Build the actual V18 admission universe through the currently installed
-    # candidate builder. The original V18 accidentally used the frozen raw V3
-    # constructor, bypassing the canonical variant-marker repair used by V17.
     items: dict[str, dict[str, Any]] = {}
     for row in v18.base.load_rows(dataset):
         item = v18.v3._expansion_candidate(row, require_images=require_images)
@@ -298,9 +302,8 @@ def installed_candidate_items(dataset, *, require_images: bool) -> dict[str, dic
 
 v18._install_contract = install_complete_v18_contract
 v18._candidate_items = installed_candidate_items
-self_test_incomplete_exact_variant_retry()
+self_test_registry_variant_omission_contract()
 
-# Preserve the exact CLI contract of promote_lora_candidate_frozen_25_v18.py.
 sys.argv[0] = str(v18.__file__)
 raise SystemExit(v18.main())
 PY
