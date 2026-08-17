@@ -34,7 +34,11 @@ if [[ -f "$service_root/.env" ]]; then
   set +a
 fi
 
-export PYTHONPATH="$service_root${PYTHONPATH:+:$PYTHONPATH}"
+# Python normally gets the scripts directory in sys.path when a promotion file
+# is executed directly. V18's in-process launcher wrapper runs Python from stdin,
+# so include both the service root and scripts explicitly to preserve that exact
+# import environment on Linux CI and the production Apple-silicon Mac.
+export PYTHONPATH="$service_root:$service_root/scripts${PYTHONPATH:+:$PYTHONPATH}"
 
 self_test=0
 for arg in "$@"; do
