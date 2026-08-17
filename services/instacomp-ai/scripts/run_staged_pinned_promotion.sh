@@ -146,7 +146,6 @@ def physical_conflict_allow_registry_omission(
         if teacher_marker == "base" or registry_marker == "base":
             return True, "prizm_back_mark", teacher_marker, registry_marker
 
-    # An explicit Registry parallel remains authoritative contradictory evidence.
     if (
         registry_marker is not None
         and teacher_marker is not None
@@ -154,7 +153,6 @@ def physical_conflict_allow_registry_omission(
     ):
         return True, image_marker, teacher_marker, registry_marker
 
-    # Pattern-sensitive variants still require the deterministic image witness.
     if teacher_marker in v18.v9._PATTERN_SENSITIVE_VARIANTS and image_marker is None:
         return True, None, teacher_marker, registry_marker
 
@@ -168,9 +166,6 @@ def physical_conflict_allow_registry_omission(
             registry_marker,
         )
 
-    # Outside Prizm, a missing Registry variant is only usable when deterministic
-    # image evidence positively proves the teacher variant. Do not broaden generic
-    # non-Prizm promotion when both Registry and image omit the variant.
     if (
         not is_prizm
         and teacher_marker not in {None, "base"}
@@ -194,12 +189,12 @@ def self_test_registry_variant_omission_contract() -> None:
         }
     }
 
-    def registry(parallel: str | None):
+    def registry(parallel: str | None, *, brand: str = "Prizm"):
         return SimpleNamespace(
             identity={
                 "year": "2025",
                 "manufacturer": "Panini",
-                "brand": "Prizm",
+                "brand": brand,
                 "set_name": "Base",
                 "player": "DeWanna Bonner",
                 "card_number": "32",
@@ -239,7 +234,10 @@ def self_test_registry_variant_omission_contract() -> None:
                 "parallel": "Silver",
             }
         }
-        conflict, _image, teacher, reg = physical_conflict_allow_registry_omission(non_prizm, omitted)
+        non_prizm_registry = registry(None, brand="Select WNBA")
+        conflict, _image, teacher, reg = physical_conflict_allow_registry_omission(
+            non_prizm, non_prizm_registry
+        )
         assert conflict is True and teacher == "silver" and reg is None
     finally:
         v18.v15._prizm_back_mark_probe_override = previous_back
@@ -262,9 +260,6 @@ def install_complete_v18_contract(target: int) -> None:
     v18.v13._install_contract()
     v18.v11._configure_stage(target)
 
-    # Registry exact UUID/fingerprint remains mandatory. Only a missing canonical
-    # variant field becomes fail-neutral; explicit Registry variant contradictions
-    # still reject, and the V15 back-mark / V9 pattern witnesses remain mandatory.
     v18.v3._registry_identity_matches_teacher = registry_identity_matches_teacher_allow_omission
     v18.v5._image_witness_conflict = physical_conflict_allow_registry_omission
 
