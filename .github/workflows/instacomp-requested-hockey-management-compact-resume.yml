@@ -59,39 +59,56 @@ jobs:
       - name: Prove immutable source bundle
         run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
 
-      - name: Compact staged BEGIN payload
+      - name: Canonicalize plans to Production Registry uniqueness
+        run: |
+          node scripts/instacomp-target-checklists/canonicalize-registry-plans.mjs
+          jq -e '.targetCount == 83 and .changedCount == 23 and .parallelRowsRemoved == 414 and .identityRowsRemoved == 1300' "$VERIFIED_HARVEST_ROOT/output/registry-plan-canonicalization-receipt.json"
+
+      - name: Compact staged BEGIN payload and harden transient retry
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
-          text = path.read_text()
+
+          writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
+          text = writer.read_text()
           old = '${jsonSql(plan, "plan")}'
           new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
           if old not in text:
               raise SystemExit('Expected full-plan BEGIN payload was not found')
-          path.write_text(text.replace(old, new, 1))
+          writer.write_text(text.replace(old, new, 1))
+
+          apply = Path('scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs')
+          text = apply.read_text()
+          old = r'/timeout|timed out|too many connections|connection terminated|connection reset|connection refused|could not query the database|fetch failed|network|aborted|temporar/i'
+          new = r'/timeout|timed out|too many connections|connection terminated|connection reset|connection refused|could not query the database|web server is down|ssl handshake|521|522|525|544|fetch failed|network|aborted|temporar/i'
+          if old not in text:
+              raise SystemExit('Expected target retry regex was not found')
+          apply.write_text(text.replace(old, new, 1))
           PY
           grep -F 'validation: { status: plan.validation.status, counts: plan.validation.counts }' scripts/instacomp-target-checklists/management-staged-registry-writer.mjs
 
-      - name: Apply missing Hockey through compact management SQL
+      - name: Apply only missing validated Hockey through compact management SQL
         run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-management.mjs
 
-      - name: Summarize compact management receipt
+      - name: Prove validated Hockey residual is zero
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           test -s "$REQUESTED_HOCKEY_RECEIPT"
           jq '{updatedAt,transport,requestedHockeyReadyCount,wave,alreadyLiveCount,missingCount,persistedCount,failedCount,persistedCards,persistedIdentities}' "$REQUESTED_HOCKEY_RECEIPT"
+          jq -e '.requestedHockeyReadyCount == 83 and .failedCount == 0 and (.alreadyLiveCount + .persistedCount) == 83' "$REQUESTED_HOCKEY_RECEIPT"
 
-      - name: Upload compact management receipt
+      - name: Upload compact management receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: instacomp-requested-hockey-compact-${{ github.run_id }}
-          path: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-management-receipt.json
+          path: |
+            /home/runner/work/_temp/requested-hockey-compact/requested-hockey-management-receipt.json
+            /home/runner/work/_temp/requested-hockey-compact/output/registry-plan-canonicalization-receipt.json
           if-no-files-found: warn
           retention-days: 90
 
