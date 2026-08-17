@@ -1,12 +1,12 @@
 name: InstaComp Selected Workbook Recovery
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
     paths:
       - '.github/workflows/instacomp-selected-workbook-recovery.yml'
-      - 'scripts/instacomp-target-checklists/recover-selected-workbooks.mjs'
-      - 'scripts/instacomp-target-checklists/staged-registry-writer.mjs'
+      - 'scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs'
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: instacomp-selected-workbook-recovery
+  group: instacomp-leaf-hockey-production-recovery
   cancel-in-progress: true
 
 jobs:
@@ -24,16 +24,14 @@ jobs:
     timeout-minutes: 180
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/selected-workbook-recovery
-      WORKBOOK_RECOVERY_RECEIPT: /home/runner/work/_temp/selected-workbook-recovery/selected-workbook-recovery-receipt.json
-      PUBLIC_WEB_MINIMUM_CARD_ROWS: '20'
-      WORKBOOK_TARGET_ATTEMPTS: '4'
-      WORKBOOK_TARGET_RETRY_DELAY_MS: '10000'
-      CHECKLIST_REGISTRY_SET_CHUNK: '100'
-      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
-      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
-      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
-      CHECKLIST_REGISTRY_RPC_ATTEMPTS: '4'
+      LEAF_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/leaf-hockey-official
+      LEAF_HOCKEY_RECEIPT: /home/runner/work/_temp/leaf-hockey-official/leaf-hockey-production-receipt.json
+      LEAF_HOCKEY_MINIMUM_CARD_ROWS: '10'
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
+      CHECKLIST_REGISTRY_SET_CHUNK: '25'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '25'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '25'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '25'
       CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
     steps:
       - uses: actions/checkout@v4
@@ -46,66 +44,66 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check openpyxl xlrd
 
       - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Fetch exact Leaf Hockey checklist source census
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/selected-workbook-production"
-          mkdir -p "$root"
-          test -n "$GH_SUPABASE_ACCESS_TOKEN"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -o "$root/projects.json" \
-            "https://api.supabase.com/v1/projects"
-          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
-          test "${#candidates[@]}" -eq 1
-          project_ref="${candidates[0]}"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -o "$root/api-keys.json" \
-            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
-          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
-          test -n "$service_key"
-          echo "::add-mask::$service_key"
-          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
-          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+          mkdir -p "$LEAF_HOCKEY_SOURCE_ROOT"
+          fetch() {
+            local file="$1"; local url="$2"
+            curl --location --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 120 \
+              -A 'TCOS-InstaComp-Checklist-Recovery/1.0' -o "$LEAF_HOCKEY_SOURCE_ROOT/$file" "$url"
+            test "$(wc -c < "$LEAF_HOCKEY_SOURCE_ROOT/$file")" -gt 200
+          }
+          fetch '2021-22-signature-series.xlsx' 'https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/61d8c19756efab55de994cdd_2021-22_Leaf_Signature_Series_Hockey_CL_F_REV.xlsx'
+          fetch '2021-22-pro-set.xlsx' 'https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/619e9d990442443640f2c3e2_2021-22_Pro_Set_Hockey_Blaster_CL_F.xlsx'
+          fetch '2021-22-lumber.xlsx' 'https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/6413320c760607c2daf89414_2021-22_Leaf_Lumber_Hockey_CL_F.xlsx'
+          fetch '2022-art-of.xlsx' 'https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/6463dcb3553743090c5c4408_2022_Leaf_Art_of_Hockey_CL_F.xlsx'
+          fetch '2022-expo-ink.xlsx' 'https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/6290e8576fe33c83591e1cb9_2022_Leaf_Expo_Ink_Hockey_CL_F.xlsx'
+          fetch '2022-23-used.xlsx' 'https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/64fb38d302373a5e553d19ac_2022-23_Leaf_In_The_Game_Used_Hockey_CL_F.xlsx'
+          fetch '2023-ultimate.xlsx' 'https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/65396e9f6889e50b260b010b_2023_Leaf_Ultimate_Hockey_CL_F.xlsx'
+          fetch '2024-metal-legends.xlsx' 'https://assets-global.website-files.com/6185749e80385c9daf8ddaf3/65fb05959701deda1ce4804b_2024_Leaf_Metal_Hockey_Legends_CL_F.xlsx'
+          fetch '2025-metal-legends.xls' 'https://gogts.net/wp-content/uploads/2025/03/2025-Leaf-Metal-Legends-Hockey-Cards-Checklist.xls'
+          fetch '2026-metal.csv' 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS6VjuhDWueHyJFOLMK_hkUr6GDPn4ldiyeuAM9arPPhDaxIiy4u5kFMXQ9fQVkAQ/pub?output=csv'
 
-      - name: Download immutable verified harvest
-        uses: actions/download-artifact@v4
-        with:
-          name: exhaustive-hockey-wnba-31924171342
-          path: /home/runner/work/_temp/selected-workbook-recovery
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: 31924171342
-
-      - name: Prove recovery source bundle
+      - name: Compact staged BEGIN payload
         shell: bash
         run: |
           set -euo pipefail
-          test -s "$VERIFIED_HARVEST_ROOT/output/summary.json"
-          jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
-          test "$(find "$VERIFIED_HARVEST_ROOT/output/sources" -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 122
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
+          text = path.read_text()
+          old = '${jsonSql(plan, "plan")}'
+          new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
+          if old not in text:
+              raise SystemExit('Expected full-plan BEGIN payload was not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
 
-      - name: Recover and persist 15 workbook releases
-        run: node --import tsx scripts/instacomp-target-checklists/recover-selected-workbooks.mjs
+      - name: Apply only missing Leaf Hockey releases to Production
+        run: node scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
 
-      - name: Enforce complete recovery receipt
+      - name: Prove Leaf Hockey unresolved is zero
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          test -s "$WORKBOOK_RECOVERY_RECEIPT"
-          jq '{targetCount,attemptedCount,persistedCount,failedCount,persistedCards,persistedIdentities}' "$WORKBOOK_RECOVERY_RECEIPT"
-          jq -e '.targetCount == 15 and .attemptedCount == 15 and .persistedCount == 15 and .failedCount == 0' "$WORKBOOK_RECOVERY_RECEIPT"
+          test -s "$LEAF_HOCKEY_RECEIPT"
+          jq '{updatedAt,targetCount,liveCount,alreadyLiveCount,persistedCount,failedCount,unresolvedCount,results:[.results[]|{key,exactSetKey,releaseSlug,status,rawRows,error,validation:.validation.counts}]}' "$LEAF_HOCKEY_RECEIPT"
+          jq -e '.targetCount == 10 and .liveCount == 10 and .failedCount == 0 and .unresolvedCount == 0' "$LEAF_HOCKEY_RECEIPT"
 
-      - name: Upload workbook recovery receipt
+      - name: Upload Leaf Hockey Production receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-workbook-recovery-${{ github.run_id }}
-          path: /home/runner/work/_temp/selected-workbook-recovery/selected-workbook-recovery-receipt.json
+          name: instacomp-leaf-hockey-production-${{ github.run_id }}
+          path: /home/runner/work/_temp/leaf-hockey-official/leaf-hockey-production-receipt.json
           if-no-files-found: warn
           retention-days: 90
 
       - name: Cleanup protected files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/selected-workbook-production" .env.local .env.production.local .vercel
+        run: rm -rf "$LEAF_HOCKEY_SOURCE_ROOT" .checklist-discovery/leaf-hockey-workbook-tmp .env.local .env.production.local .vercel
