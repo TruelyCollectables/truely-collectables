@@ -31,7 +31,7 @@ def test_lazy_miner_skips_image_preparation_for_cached_receipts(tmp_path: Path, 
     monkeypatch.setattr(lazy.tvt, "latest_training_examples", lambda values: list(values))
     monkeypatch.setattr(lazy.tvt, "_stable_split", lambda _example, _percent: "train")
     monkeypatch.setattr(lazy.tvt, "_teacher_priority", lambda example: (0, example.training_example_id))
-    monkeypatch.setattr(lazy.tvt, "OllamaVisionTeacher", _Teacher)
+    monkeypatch.setattr(lazy, "CompactRetryOllamaVisionTeacher", _Teacher)
     monkeypatch.setattr(
         lazy.tvt,
         "_receipt_path",
