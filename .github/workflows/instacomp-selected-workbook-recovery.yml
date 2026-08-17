@@ -84,7 +84,7 @@ jobs:
           PY
 
       - name: Apply only missing Leaf Hockey releases to Production
-        run: node scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
 
       - name: Prove Leaf Hockey unresolved is zero
         if: always()
