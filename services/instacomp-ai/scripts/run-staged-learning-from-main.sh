@@ -63,10 +63,10 @@ if [[ "$updated" != "$current" && "${INSTACOMP_STAGED_REEXECED:-0}" != "1" ]]; t
 fi
 
 echo "PASS staged learner source synchronized at $updated"
-echo "INFO Running the isolated promotion contract self-test before live preflight"
+echo "INFO Running the isolated V18 promotion contract self-test before live preflight"
 bash "$launcher" --self-test
 
-echo "PASS staged learner contract self-test"
+echo "PASS V18 staged learner contract self-test"
 
 requested_target=10
 passthrough=()
@@ -100,15 +100,15 @@ case "$requested_target" in
     ;;
 esac
 
-echo "INFO Starting live staged promotion ladder ${stages[*]}; Cloudflare Sentinel deployment status is not a learning prerequisite"
+echo "INFO Starting V18 live staged promotion ladder ${stages[*]}; Cloudflare Sentinel deployment status is not a learning prerequisite"
 for stage in "${stages[@]}"; do
-  echo "INFO Certifying Frozen $stage with current v17 Registry/physical-card gates"
+  echo "INFO Certifying Frozen $stage with V18 current-authoritative Registry/physical/candidate gates"
   if [[ "$passthrough_present" == "1" ]]; then
     bash "$launcher" "${passthrough[@]}" --stage-target "$stage"
   else
     bash "$launcher" --stage-target "$stage"
   fi
-  echo "PASS Frozen $stage certification completed"
+  echo "PASS Frozen $stage V18 certification completed"
 done
 
-echo "PASS staged learning ladder completed through Frozen $requested_target"
+echo "PASS V18 staged learning ladder completed through Frozen $requested_target"
