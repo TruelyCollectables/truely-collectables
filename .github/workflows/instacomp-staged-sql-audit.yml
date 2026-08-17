@@ -14,69 +14,86 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    environment: Production
+    timeout-minutes: 90
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      TOPPS_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/topps-hockey-official
+      TOPPS_HOCKEY_RECEIPT: /home/runner/work/_temp/topps-hockey-official/topps-hockey-production-receipt.json
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '5'
+      CHECKLIST_REGISTRY_SET_CHUNK: '25'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '25'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '25'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '25'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
     steps:
-      - name: Census live Hockey Registry releases
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Fetch five official Topps NHL checklist PDFs
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence
-          test -n "$GH_SUPABASE_ACCESS_TOKEN"
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -o evidence/projects.json \
-            "https://api.supabase.com/v1/projects"
-          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' evidence/projects.json)
-          test "${#candidates[@]}" -eq 1
-          project_ref="${candidates[0]}"
-          read -r -d '' hockey_sql <<'SQL' || true
-          select
-            to_jsonb(r) as release,
-            jsonb_build_object(
-              'id', v.id,
-              'status', v.status,
-              'version_number', v.version_number,
-              'normalized_card_count', v.normalized_card_count,
-              'normalized_identity_count', v.normalized_identity_count,
-              'is_active', v.is_active
-            ) as version
-          from public.checklist_releases r
-          join lateral (
-            select id,status,version_number,normalized_card_count,normalized_identity_count,is_active
-            from public.checklist_versions
-            where release_id=r.id
-              and is_active=true
-              and status in ('live','revised')
-              and coalesce(normalized_card_count,0)>0
-              and coalesce(normalized_identity_count,0)>0
-            order by version_number desc
-            limit 1
-          ) v on true
-          where lower(coalesce(to_jsonb(r)->>'sport',''))='hockey'
-             or lower(coalesce(to_jsonb(r)->>'league',''))='nhl'
-             or lower(coalesce(to_jsonb(r)->>'slug','')) like '%hockey%'
-          order by coalesce(to_jsonb(r)->>'release_year',to_jsonb(r)->>'season',''), coalesce(to_jsonb(r)->>'manufacturer',''), coalesce(to_jsonb(r)->>'product',''), coalesce(to_jsonb(r)->>'slug','');
-          SQL
-          jq -cn --arg query "$hockey_sql" '{query:$query,read_only:true}' > evidence/query.json
-          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 90 \
-            -X POST \
-            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
-            -H 'Content-Type: application/json' \
-            --data-binary @evidence/query.json \
-            -o evidence/live-hockey-registry.json \
-            "https://api.supabase.com/v1/projects/$project_ref/database/query"
-          jq -e 'type == "array"' evidence/live-hockey-registry.json
-          jq '{liveHockeyReleaseCount:length, manufacturers:(sort_by(.release.manufacturer // .release.brand // "unknown")|group_by(.release.manufacturer // .release.brand // "unknown")|map({manufacturer:(.[0].release.manufacturer // .[0].release.brand // "unknown"),count:length}))}' evidence/live-hockey-registry.json > evidence/live-hockey-summary.json
-          cat evidence/live-hockey-summary.json
-          rm -f evidence/projects.json evidence/query.json
-      - name: Upload Hockey census
+          mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
+          command -v pdftotext >/dev/null || { sudo apt-get update -qq; sudo apt-get install -y poppler-utils; }
+          fetch_pdf() {
+            local key="$1"; local url="$2"
+            curl --location --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 120 \
+              -A 'TCOS-InstaComp-Checklist-Recovery/1.0' \
+              -o "$TOPPS_HOCKEY_SOURCE_ROOT/$key.pdf" "$url"
+            test "$(wc -c < "$TOPPS_HOCKEY_SOURCE_ROOT/$key.pdf")" -gt 10000
+            pdftotext -layout -enc UTF-8 "$TOPPS_HOCKEY_SOURCE_ROOT/$key.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$key.txt"
+            test "$(wc -c < "$TOPPS_HOCKEY_SOURCE_ROOT/$key.txt")" -gt 1000
+          }
+          fetch_pdf '2021-nhl-stickers' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/CheckList_21NHLS_VERSION2.pdf'
+          fetch_pdf '2022-23-nhl-sticker-album' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2022NHLStickerAlbumChecklist.pdf'
+          fetch_pdf '2022-23-chrome-nhl-stickers' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2022-23ToppsChromeNHLStickersChecklist.pdf'
+          fetch_pdf '2024-25-nhl-sticker-collection' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/NHL2501-CheckList_24NHLS_VERSION1.pdf'
+          fetch_pdf '2025-26-nhl-sticker-collection' 'https://cdn.shopify.com/s/files/1/0662/9749/5709/files/2025-26_NHL_Sticker_Collection_-_CheckList_25NHLS.pdf?v=1771437045'
+
+      - name: Compact staged BEGIN payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
+          text = path.read_text()
+          old = '${jsonSql(plan, "plan")}'
+          new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
+          if old not in text:
+              raise SystemExit('Expected full-plan BEGIN payload was not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Import only missing official Topps NHL releases into Production
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts
+
+      - name: Prove official Topps NHL unresolved is zero
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$TOPPS_HOCKEY_RECEIPT"
+          jq '{updatedAt,targetCount,liveCount,alreadyLiveCount,persistedCount,failedCount,unresolvedCount,results:[.results[]|{key,releaseSlug,status,error,validation:.validation.counts}]}' "$TOPPS_HOCKEY_RECEIPT"
+          jq -e '.targetCount == 5 and .liveCount == 5 and .failedCount == 0 and .unresolvedCount == 0' "$TOPPS_HOCKEY_RECEIPT"
+
+      - name: Upload Topps Hockey Production receipt
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: instacomp-staged-sql-audit-${{ github.run_id }}
-          path: |
-            evidence/live-hockey-registry.json
-            evidence/live-hockey-summary.json
-          if-no-files-found: error
-          retention-days: 30
+          name: instacomp-topps-hockey-production-${{ github.run_id }}
+          path: /home/runner/work/_temp/topps-hockey-official/topps-hockey-production-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup official sources
+        if: always()
+        run: rm -rf "$TOPPS_HOCKEY_SOURCE_ROOT" .env.local .env.production.local .vercel
