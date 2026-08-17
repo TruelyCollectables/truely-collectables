@@ -1,0 +1,38 @@
+name: Emergency Source Snapshot
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact migration head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Build source and Git recovery bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p emergency-snapshot
+          git bundle create emergency-snapshot/Truely-Collectables-all-refs.bundle --all
+          git archive --format=tar.gz --output=emergency-snapshot/Truely-Collectables-source.tar.gz HEAD
+          git rev-parse HEAD > emergency-snapshot/commit.txt
+          git branch --show-current > emergency-snapshot/branch.txt || true
+          sha256sum emergency-snapshot/* > emergency-snapshot/SHA256SUMS.txt
+
+      - name: Upload emergency snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: truely-collectables-emergency-source
+          path: emergency-snapshot/
+          if-no-files-found: error
+          retention-days: 7
