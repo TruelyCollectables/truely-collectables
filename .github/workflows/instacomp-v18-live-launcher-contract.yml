@@ -34,6 +34,7 @@ jobs:
         run: |
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           services/instacomp-ai/.venv/bin/python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          services/instacomp-ai/.venv/bin/python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
       - name: Run exact V18 launcher self-test five times on Linux
         run: |
           set -uo pipefail
@@ -49,6 +50,7 @@ jobs:
               exit "$rc"
             fi
             grep -q 'PASS V18 live admission stack installed:' <<<"$output" || { echo "Missing live admission stack marker" >&2; exit 1; }
+            grep -q 'PASS v10 preserves legacy Prizm subset variants through core Registry retry' <<<"$output" || { echo "Missing V10 subset-variant regression marker" >&2; exit 1; }
             grep -q 'PASS v18 consolidated runner contract complete' <<<"$output" || { echo "Missing V18 completion marker" >&2; exit 1; }
           done
 
@@ -68,6 +70,7 @@ jobs:
         run: |
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           services/instacomp-ai/.venv/bin/python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          services/instacomp-ai/.venv/bin/python -m py_compile services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
           bash -uc 'a=(); present=0; if [[ "$present" == "1" ]]; then printf "%s\n" "${a[@]}"; else true; fi'
       - name: Run exact V18 launcher self-test five times on macOS
         run: |
@@ -84,5 +87,6 @@ jobs:
               exit "$rc"
             fi
             grep -q 'PASS V18 live admission stack installed:' <<<"$output" || { echo "Missing live admission stack marker" >&2; exit 1; }
+            grep -q 'PASS v10 preserves legacy Prizm subset variants through core Registry retry' <<<"$output" || { echo "Missing V10 subset-variant regression marker" >&2; exit 1; }
             grep -q 'PASS v18 consolidated runner contract complete' <<<"$output" || { echo "Missing V18 completion marker" >&2; exit 1; }
           done
