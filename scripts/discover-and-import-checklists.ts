@@ -2,9 +2,18 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { postChecklistRegistryAction } from "./lib/checklist-registry-action-client";
 
-const ARCHIVE_ROOT = "https://upperdeck.com/category/checklist/";
+const CURRENT_CHECKLISTS_URL = "https://upperdeck.com/checklists/";
+const YEAR_ARCHIVE_ROOT = "https://upperdeck.com/checklist-year/";
 const AUTO_IMPORT = process.env.CHECKLIST_DISCOVERY_AUTO_IMPORT === "true";
-const MAX_PAGES = Math.max(1, Number(process.env.CHECKLIST_DISCOVERY_MAX_PAGES || 50));
+const CURRENT_YEAR = new Date().getUTCFullYear();
+const EARLIEST_ARCHIVE_YEAR = Math.max(
+  1990,
+  Math.min(CURRENT_YEAR, Number(process.env.CHECKLIST_DISCOVERY_EARLIEST_YEAR || 2015)),
+);
+const MAX_YEAR_PAGES = Math.max(
+  1,
+  Math.min(20, Number(process.env.CHECKLIST_DISCOVERY_MAX_YEAR_PAGES || 12)),
+);
 const TARGET_NEW = Math.max(1, Math.min(100, Number(process.env.CHECKLIST_DISCOVERY_TARGET_NEW || 100)));
 const MAX_ATTEMPTS = Math.max(
   TARGET_NEW,
@@ -16,23 +25,22 @@ const OUTPUT = resolve(
   process.env.CHECKLIST_DISCOVERY_OUTPUT || ".checklist-discovery/latest-receipt.json",
 );
 
-function canonical(value: string) {
-  const url = new URL(value, ARCHIVE_ROOT);
+function canonical(value: string, base: string) {
+  const url = new URL(value, base);
   url.hash = "";
   url.search = "";
   if (!url.pathname.endsWith("/")) url.pathname += "/";
   return url.toString();
 }
 
-function links(html: string) {
+function links(html: string, base: string) {
   const found = new Set<string>();
-  for (const match of html.matchAll(/href=["']([^"']+)["']/gi)) {
+  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     try {
-      const url = canonical(match[1]);
+      const url = canonical(match[1], base);
       const parsed = new URL(url);
-      if (parsed.hostname === "upperdeck.com" && /^\/checklist\/[^/]+\/$/i.test(parsed.pathname)) {
-        found.add(url);
-      }
+      if (!/(^|\.)upperdeck\.com$/i.test(parsed.hostname)) continue;
+      if (/^\/checklist\/[^/]+\/$/i.test(parsed.pathname)) found.add(url);
     } catch {
       // Ignore unrelated malformed links.
     }
@@ -50,26 +58,43 @@ async function fetchHtml(url: string) {
     redirect: "follow",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText} fetching ${url}`);
   const type = response.headers.get("content-type") || "";
   if (!type.toLowerCase().includes("text/html")) {
-    throw new Error(`Unexpected content type ${type || "unknown"}`);
+    throw new Error(`Unexpected content type ${type || "unknown"} fetching ${url}`);
   }
   const html = await response.text();
-  if (html.length < 1_000) throw new Error(`Incomplete HTML (${html.length} bytes)`);
+  if (html.length < 1_000) throw new Error(`Incomplete HTML (${html.length} bytes) fetching ${url}`);
   return html;
 }
 
 async function discoverCandidates() {
   const found = new Set<string>();
-  for (let page = 1; page <= MAX_PAGES && found.size < MAX_CANDIDATES; page += 1) {
-    const pageUrl = page === 1 ? ARCHIVE_ROOT : `${ARCHIVE_ROOT}page/${page}/`;
-    const pageLinks = links(await fetchHtml(pageUrl));
-    if (!pageLinks.length) break;
-    const before = found.size;
-    pageLinks.forEach((url) => found.add(url));
-    if (before === found.size) break;
+
+  try {
+    links(await fetchHtml(CURRENT_CHECKLISTS_URL), CURRENT_CHECKLISTS_URL).forEach((url) => found.add(url));
+  } catch (error) {
+    console.warn(`Current Upper Deck checklist index could not be read: ${error instanceof Error ? error.message : String(error)}`);
   }
+
+  for (let year = CURRENT_YEAR; year >= EARLIEST_ARCHIVE_YEAR && found.size < MAX_CANDIDATES; year -= 1) {
+    let previousSize = -1;
+    for (let page = 1; page <= MAX_YEAR_PAGES && found.size < MAX_CANDIDATES; page += 1) {
+      const base = `${YEAR_ARCHIVE_ROOT}${year}/`;
+      const pageUrl = page === 1 ? base : `${base}page/${page}/`;
+      try {
+        const pageLinks = links(await fetchHtml(pageUrl), pageUrl);
+        if (!pageLinks.length) break;
+        previousSize = found.size;
+        pageLinks.forEach((url) => found.add(url));
+        if (previousSize === found.size) break;
+      } catch (error) {
+        console.warn(`Upper Deck ${year} archive page ${page} stopped: ${error instanceof Error ? error.message : String(error)}`);
+        break;
+      }
+    }
+  }
+
   return [...found].slice(0, MAX_CANDIDATES);
 }
 
@@ -137,16 +162,18 @@ async function main() {
 
   const backlogExhausted = successfulNew < TARGET_NEW && sourceUrls.length < MAX_ATTEMPTS;
   const receipt = {
-    schema: "tcos.checklist.discoveryReceipt.v2",
+    schema: "tcos.checklist.discoveryReceipt.v3",
     startedAt,
     completedAt: new Date().toISOString(),
     mode: AUTO_IMPORT ? "automatic_import" : "validation_only",
-    archiveRoot: ARCHIVE_ROOT,
+    currentIndex: CURRENT_CHECKLISTS_URL,
+    archiveRoot: YEAR_ARCHIVE_ROOT,
+    archiveYears: { newest: CURRENT_YEAR, oldest: EARLIEST_ARCHIVE_YEAR },
     targetNew: TARGET_NEW,
     successfulNew,
     backlogExhausted,
     limits: {
-      maxPages: MAX_PAGES,
+      maxYearPages: MAX_YEAR_PAGES,
       maxAttempts: MAX_ATTEMPTS,
       maxCandidates: MAX_CANDIDATES,
     },
