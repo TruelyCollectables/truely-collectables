@@ -6,6 +6,8 @@ on:
       - feature/instacomp-target-checklists-20260816
     paths:
       - '.github/workflows/instacomp-staged-sql-audit.yml'
+      - 'scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py'
+      - 'scripts/instacomp-target-checklists/audit-upper-deck-hockey-2021plus-local.ts'
   workflow_dispatch:
 
 permissions:
