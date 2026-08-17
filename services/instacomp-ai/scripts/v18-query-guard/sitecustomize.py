@@ -100,6 +100,8 @@ def _install_v18_card_number_guard() -> None:
     v10._registry_match_evidence_aligned = guarded_registry_match_evidence_aligned
     v10._v18_card_number_guard_installed = True
     _self_test_card_number_restore()
+    if v10._registry_match_evidence_aligned is not guarded_registry_match_evidence_aligned:
+        raise RuntimeError("V18 staged Registry query guard did not remain installed")
     print(
         "PASS V18 staged Registry query guard installed: teacher card_number is preserved across every V10 retry",
         flush=True,
@@ -111,4 +113,12 @@ if (
     and sys.argv
     and sys.argv[0] == "-"
 ):
-    _install_v18_card_number_guard()
+    try:
+        _install_v18_card_number_guard()
+    except BaseException as error:
+        print(
+            f"FATAL V18 staged Registry query guard failed to install: {type(error).__name__}: {error}",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(2) from error
