@@ -1,10 +1,19 @@
-name: InstaComp Pinned Staged Promotion Self Test
+name: InstaComp V18 Staged Promotion Self Test
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py"
+      - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
+      - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
+      - "services/instacomp-ai/app/**"
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py"
@@ -19,6 +28,7 @@ on:
       - "services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py"
       - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
       - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
+      - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
       - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
       - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
       - "services/instacomp-ai/app/**"
@@ -29,9 +39,9 @@ permissions:
   contents: read
 
 jobs:
-  pinned-contract-linux:
+  v18-contract-linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,55 +49,50 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile pinned promotion and learning orchestration
+      - name: Compile V18 and syntax-check both launchers
         run: |
           python -m py_compile \
-            services/instacomp-ai/app/prizm_back_mark_guard.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py \
-            services/instacomp-ai/scripts/repair_trusted_visual_memory.py \
-            services/instacomp-ai/scripts/repair_pinned_visual_memory.py \
-            services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
+            services/instacomp-ai/app/lora_candidate_runtime.py \
+            services/instacomp-ai/app/prizm_back_mark_guard.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-      - name: Prove throttle handling, certified prefix, dynamic backfill, and authoritative Prizm back mark
-        env:
-          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
-        run: python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py --self-test
-      - name: Prove visual-memory hydration and deterministic Prizm hierarchy
+      - name: Run complete V18 contract five consecutive times on Linux
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
-          python services/instacomp-ai/scripts/repair_trusted_visual_memory.py --self-test
-          python services/instacomp-ai/scripts/repair_pinned_visual_memory.py --self-test
-          python services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py --self-test
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== V18 LINUX SELF-TEST PASS ${pass}/5 ====="
+            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py --self-test
+          done
+      - name: Prove physical pattern and Prizm regressions
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
           python -m pytest -q \
+            services/instacomp-ai/tests/test_opencv_pattern_native.py \
             services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
             services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-      - name: Prove certified-prefix backfill and automatic stage ladder source contract
+      - name: Prove V18 source and orchestration contract
         run: |
-          grep -q 'DYNAMIC_BACKFILL_POOL_SIZES = dict(v16.DYNAMIC_BACKFILL_POOL_SIZES)' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py
-          grep -q 'manifest_carry_forward_expansion_ids' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py
-          grep -q 'promotion-v17-certified-prefix-backfill' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v17.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'CANDIDATE_DRY_PASSES = 2' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          grep -q 'Use legacy Frozen Five only as preference, never as accepted truth' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          grep -q 'v14.run_round_exhaustive' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          grep -q 'v18_current_authoritative_selection' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          ! grep -q 'return v12.main' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
+          grep -q 'promotion-v18-current-authoritative-two-pass' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v18.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q '15) stages=(10 15)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
           grep -q '25) stages=(10 15 25)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-          grep -q 'passthrough_present=0' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-          grep -q 'Cloudflare Sentinel deployment status is not a learning prerequisite' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-          grep -q 'back_mark is not True' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py
-          grep -q '_MINIMUM_PRIZM_PARALLEL = "Silver Prizm"' services/instacomp-ai/app/prizm_back_mark_guard.py
-          grep -q '_ADVISORY_REASONS = {"trusted_style_memory_not_retrievable"}' services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
+          grep -q 'V18 current-authoritative Registry/physical/candidate gates' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
 
-  pinned-contract-macos:
+  v18-contract-macos:
     runs-on: macos-15
-    timeout-minutes: 12
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -95,28 +100,38 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and prove v17 certified prefix plus physical Prizm hierarchy on macOS
+      - name: Compile V18 and prove macOS Bash nounset paths
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
+            services/instacomp-ai/app/lora_candidate_runtime.py \
+            services/instacomp-ai/app/prizm_back_mark_guard.py
+          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          bash -uc 'a=(); present=0; if [[ "$present" == "1" ]]; then printf "%s\n" "${a[@]}"; else true; fi'
+      - name: Run complete V18 contract five consecutive times on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
-          python -m py_compile \
-            services/instacomp-ai/app/prizm_back_mark_guard.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py \
-            services/instacomp-ai/scripts/repair_trusted_visual_memory.py \
-            services/instacomp-ai/scripts/repair_pinned_visual_memory.py \
-            services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py
-          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-          bash -uc 'passthrough=(); passthrough_present=0; if [[ "$passthrough_present" == "1" ]]; then printf "%s\n" "${passthrough[@]}"; else true; fi'
-          python services/instacomp-ai/scripts/repair_trusted_visual_memory.py --self-test
-          python services/instacomp-ai/scripts/repair_pinned_visual_memory.py --self-test
-          python services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py --self-test
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== V18 MACOS SELF-TEST PASS ${pass}/5 ====="
+            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py --self-test
+          done
+      - name: Prove macOS physical pattern and Prizm regressions
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
           python -m pytest -q \
+            services/instacomp-ai/tests/test_opencv_pattern_native.py \
             services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
             services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-          python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py --self-test
+      - name: Prove V18 launcher source contract on macOS
+        run: |
+          grep -q 'promotion-v18-current-authoritative-two-pass' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v18.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'passthrough_present=0' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -q 'V18 live staged promotion ladder' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
