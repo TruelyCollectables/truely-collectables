@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,7 +13,7 @@ import benchmark_lora_unseen_holdout_v4 as v4
 canonical = v4.canonical
 SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v5"
 _CANONICAL_AUTHORITATIVE_HOLDOUT = canonical._authoritative_holdout
-MAX_BOOTSTRAP_ATTEMPTS = 700
+MAX_BOOTSTRAP_ATTEMPTS = 900
 BOOTSTRAP_EXACT_RESERVE = 180
 
 
@@ -137,7 +136,8 @@ async def _bootstrap_one(item: dict[str, Any], identity: Any) -> tuple[Any | Non
 
     resolved = _bootstrap_identity(data, identity)
     if resolved is not None:
-        return resolved, "unique_registry_bootstrap"
+        mode = str(data.get("bootstrapMode") or "unique_registry_bootstrap")
+        return resolved, f"unique_registry_bootstrap:{mode}"
     resolver_status = str(data.get("resolverStatus") or data.get("status") or "no_match")
     reasons = data.get("reasons") if isinstance(data.get("reasons"), list) else []
     reason = str(reasons[0] if reasons else resolver_status)
@@ -161,16 +161,17 @@ async def _authoritative_holdout(
     attempts = 0
     exact = 0
 
-    # Preserve canonical V3 diversity order while repairing only rows that V20
-    # would otherwise reject locally for missing year/brand/set coordinates.
+    # Bootstrap BOTH locally-incomplete rows and rows whose old release labels
+    # are complete-shaped but no longer map to the current Registry. The route
+    # may repair stale release coordinates only when player/card/variant truth
+    # collapses to one unique active fingerprint. Every repaired identity still
+    # goes through normal V20 exact Registry + physical admission below.
     for item in canonical._diverse_order(items):
         value = dict(item)
         identity = CardIdentity.model_validate(value["identity"])
         ready, _missing = canonical.legacy.v20._visible_set_identity_readiness(identity)
         if ready:
-            enriched.append(value)
             stats["already_registry_ready"] += 1
-            continue
 
         if (
             attempts < MAX_BOOTSTRAP_ATTEMPTS
@@ -181,8 +182,8 @@ async def _authoritative_holdout(
             resolved, reason = await _bootstrap_one(value, identity)
             stats[reason] += 1
             if resolved is not None:
+                value["trusted_prebootstrap_identity"] = canonical.legacy._identity_payload(identity)
                 value["identity"] = canonical.legacy._identity_payload(resolved)
-                value["trusted_identity"] = canonical.legacy._identity_payload(identity)
                 value["trusted_registry_bootstrap_identity"] = canonical.legacy._identity_payload(resolved)
                 value["registry_bootstrap_source"] = "unique_active_registry_identity_pending_normal_v20_revalidation"
                 exact += 1
@@ -192,7 +193,7 @@ async def _authoritative_holdout(
         "UNSEEN TRUSTED REGISTRY BOOTSTRAP: "
         f"attempted={attempts} exact={exact} reserve_goal={BOOTSTRAP_EXACT_RESERVE} "
         f"already_ready={stats['already_registry_ready']} "
-        f"top_outcomes={stats.most_common(8)}",
+        f"top_outcomes={stats.most_common(10)}",
         flush=True,
     )
 
@@ -273,6 +274,7 @@ def _self_test() -> int:
 
     print("PASS unseen V5 bootstrap requires current trusted exact-image validation truth")
     print("PASS unseen V5 accepts only one UUID/fingerprint-shaped Registry bootstrap")
+    print("PASS unseen V5 may repair stale release coordinates only through one unique identity")
     print("PASS unseen V5 refuses player/card drift before normal V20 revalidation")
     print("PASS unseen V5 bootstrap cannot bypass canonical V3/V20 admission")
     return 0
@@ -282,6 +284,7 @@ def main() -> int:
     if "--self-test" in sys.argv[1:]:
         return _self_test()
 
+    v4.SCHEMA = SCHEMA
     canonical.SCHEMA = SCHEMA
     canonical._authoritative_holdout = _authoritative_holdout
     return int(v4.main())
