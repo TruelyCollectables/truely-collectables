@@ -3,8 +3,12 @@ import type { ChecklistSourceArtifact } from "../src/lib/checklist-registry/sour
 
 const CLEAR_CUT_URL = "https://upperdeck.com/checklist/2025-26-clear-cut-checklist/";
 const SERIES_2_URL = "https://upperdeck.com/checklist/2024-25-upper-deck-series-2-checklist/";
+const MVP_2021_URL = "https://upperdeck.com/checklist/2021-22-mvp-checklist/";
+const ARTIFACTS_2021_URL = "https://upperdeck.com/checklist/2021-22-artifacts-checklist/";
+const ULTIMATE_2025_URL = "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/";
 const CLEAR_CUT_ADAPTER = "upper-deck-clear-cut-official-html-checklist";
 const SERIES_2_ADAPTER = "upper-deck-2024-25-series-2-errata-html-checklist";
+const MODERN_HOCKEY_ADAPTER = "upper-deck-2025-26-normalized-html";
 
 type ParsedResult = Awaited<ReturnType<typeof importChecklistArtifact>>;
 
@@ -55,7 +59,7 @@ async function fetchAndParse(
   const response = await fetch(sourceUrl, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "TruelyCollectables-Checklist-Reconcile/1.0",
+      "User-Agent": "TruelyCollectables-Checklist-Reconcile/1.1",
     },
     signal: AbortSignal.timeout(45_000),
   });
@@ -86,6 +90,12 @@ async function fetchAndParse(
   return result;
 }
 
+function assertHockey(result: ParsedResult, label: string) {
+  if (result.plan.release.sport !== "Hockey") {
+    throw new Error(`${label} preflight parsed sport=${result.plan.release.sport}; expected Hockey.`);
+  }
+}
+
 async function validateClearCut() {
   const result = await fetchAndParse(
     CLEAR_CUT_URL,
@@ -100,6 +110,7 @@ async function validateClearCut() {
   requireIdentity(result, "CC-ZB", "Zach Benson", "Clear Cut");
   requireIdentity(result, "CS-ZB", "Zach Benson", "Clear Cut");
   requireIdentity(result, "CS-ZB", "Zachary Bolduc", "Clear Cut");
+  assertHockey(result, "Clear Cut");
 
   return {
     label: "Clear Cut",
@@ -126,6 +137,7 @@ async function validateSeries2() {
 
   requireIdentity(result, "C145", "Roman Josi", "2024-25 Series 2");
   requireIdentity(result, "C190", "Elvis Merzlikins", "2024-25 Series 2");
+  assertHockey(result, "2024-25 Series 2");
 
   const badRoman = result.plan.cards.some(
     (card) =>
@@ -153,10 +165,45 @@ async function validateSeries2() {
   };
 }
 
+async function validateModernHockeySource(
+  sourceUrl: string,
+  filename: string,
+  label: string,
+) {
+  const result = await fetchAndParse(
+    sourceUrl,
+    filename,
+    MODERN_HOCKEY_ADAPTER,
+    label,
+  );
+  assertHockey(result, label);
+  return {
+    label,
+    adapter: result.adapter,
+    counts: result.plan.validation.counts,
+    sport: result.plan.release.sport,
+  };
+}
+
 async function main() {
   const checks = [];
   checks.push(await validateClearCut());
   checks.push(await validateSeries2());
+  checks.push(await validateModernHockeySource(
+    MVP_2021_URL,
+    "2021-22-mvp-checklist.html",
+    "2021-22 MVP",
+  ));
+  checks.push(await validateModernHockeySource(
+    ARTIFACTS_2021_URL,
+    "2021-22-artifacts-checklist.html",
+    "2021-22 Artifacts",
+  ));
+  checks.push(await validateModernHockeySource(
+    ULTIMATE_2025_URL,
+    "2025-26-nhl-ultimate-collection-checklist.html",
+    "2025-26 Ultimate Collection",
+  ));
 
   console.log(JSON.stringify({ ok: true, checks }, null, 2));
 }
