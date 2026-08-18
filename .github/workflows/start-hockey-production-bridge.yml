@@ -94,3 +94,4 @@ jobs:
             -d "$payload"
 
 # rescue trigger 2026-08-17
+# apt-free retrigger 2026-08-17
