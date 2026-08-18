@@ -30,6 +30,7 @@ export function buildDealHunterEbaySearchUrl({
   url.searchParams.set("q", String(query || "").trim());
   url.searchParams.set("limit", String(scanLimit));
   url.searchParams.set("sort", "newlyListed");
+  url.searchParams.set("fieldgroups", "EXTENDED");
   if (Array.isArray(categoryIds) && categoryIds.length) {
     url.searchParams.set("category_ids", categoryIds.map(String).join(","));
   }
@@ -218,6 +219,7 @@ export class DealHunterEbayBrowseAdapter {
       diagnostics: {
         ...this.status(),
         sortApplied: "newlyListed",
+        fieldgroups: "EXTENDED",
         requestedResultLimit: requestedResults,
         screenedScanLimit: scanLimit,
         apiResultCount: itemSummaries.length,
