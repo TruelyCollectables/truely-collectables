@@ -76,6 +76,7 @@ jobs:
       HOCKEY_CHECKLIST_OUTPUT: .hockey-checklist-reconcile/receipt.json
       HOCKEY_INGEST_REVISION_URL: https://truelycollectables.com/api/internal/checklist-registry/ingest-revision
       EXPECTED_HOCKEY_INGEST_REVISION: "2026-08-18-hockey-context-v1"
+      HOCKEY_STATUS_BRANCH: "ops/hockey-reconcile-status"
       REQUESTED_DISCOVERY_SCOPE: ${{ inputs.scope || 'standard' }}
     steps:
       - uses: actions/checkout@v4
@@ -121,6 +122,25 @@ jobs:
           done
           echo "Repaired Production checklist ingest revision never became ready." >&2
           exit 1
+      - name: Publish hockey Production gate receipt
+        if: ${{ env.HOCKEY_RECONCILE == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "${HOCKEY_STATUS_BRANCH}"
+          mkdir -p data/ops
+          jq -n \
+            --arg status "production_ingest_ready" \
+            --arg ingestRevision "${EXPECTED_HOCKEY_INGEST_REVISION}" \
+            --arg triggerSha "${GITHUB_SHA}" \
+            --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{status:$status,ingestRevision:$ingestRevision,triggerSha:$triggerSha,generatedAt:$generatedAt}' \
+            > data/ops/hockey-checklist-reconcile-gate.json
+          git add data/ops/hockey-checklist-reconcile-gate.json
+          git commit -m "ops(checklists): hockey Production ingest gate passed" || true
+          git push --force origin "HEAD:${HOCKEY_STATUS_BRANCH}"
       - name: Reconcile every 2021-plus hockey checklist
         if: ${{ env.HOCKEY_RECONCILE == 'true' }}
         run: npx tsx scripts/reconcile-hockey-checklists-2021plus.ts
@@ -148,14 +168,18 @@ jobs:
             echo "No hockey receipt was produced." >&2
             exit 1
           fi
-          mkdir -p data/ops
-          cp "${receipt}" data/ops/hockey-checklist-reconcile-latest.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          current_branch="$(git branch --show-current)"
+          if [[ "${current_branch}" != "${HOCKEY_STATUS_BRANCH}" ]]; then
+            git switch -C "${HOCKEY_STATUS_BRANCH}"
+          fi
+          mkdir -p data/ops
+          cp "${receipt}" data/ops/hockey-checklist-reconcile-latest.json
           git add data/ops/hockey-checklist-reconcile-latest.json
           if git diff --cached --quiet; then
             echo "Published hockey receipt is already current."
             exit 0
           fi
-          git commit -m "ops(checklists): publish hockey reconcile receipt [pause-checklist-catchup]"
-          git push origin HEAD:main
+          git commit -m "ops(checklists): publish hockey reconcile receipt"
+          git push origin "HEAD:${HOCKEY_STATUS_BRANCH}"
