@@ -16,6 +16,7 @@ import { CHECKLIST_SOURCE_BUCKET } from "./storage";
 import { tcgdexJapaneseSetBundleAdapter } from "./tcgdex-japanese";
 import { toppsBaseballTextChecklistAdapter } from "./topps-baseball-text-adapter";
 import { toppsFootballTextChecklistAdapter } from "./topps-football-text-adapter";
+import { upperDeck2024_25Series2ErrataHtmlChecklistAdapter } from "./upper-deck-2024-25-series-2-errata-html";
 import { upperDeck2025_26ChicagoHtmlChecklistAdapter } from "./upper-deck-2025-26-chicago-html";
 import { upperDeck2025_26NormalizedHtmlChecklistAdapter } from "./upper-deck-2025-26-normalized-html";
 import { upperDeck2025_26OpcHtmlChecklistAdapter } from "./upper-deck-2025-26-opc-html";
@@ -44,6 +45,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   upperDeck2025_26ChicagoHtmlChecklistAdapter,
   upperDeck2025_26OpcHtmlChecklistAdapter,
   upperDeck2025_26NormalizedHtmlChecklistAdapter,
+  upperDeck2024_25Series2ErrataHtmlChecklistAdapter,
   upperDeckClearCutOfficialHtmlChecklistAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
