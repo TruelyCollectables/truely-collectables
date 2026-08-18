@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: instacomp-requested-hockey-management-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   hockey-production:
@@ -63,10 +63,15 @@ jobs:
       - run: npm ci
 
       - name: Install deterministic source readers
+        shell: bash
         run: |
-          python3 -m pip install --disable-pip-version-check openpyxl xlrd
-          sudo apt-get update -qq
-          sudo apt-get install -y poppler-utils
+          set -euo pipefail
+          timeout 120s python3 -m pip install --disable-pip-version-check openpyxl xlrd
+          if ! command -v pdftotext >/dev/null 2>&1; then
+            sudo timeout 120s apt-get update -qq
+            sudo timeout 120s apt-get install -y --no-install-recommends poppler-utils
+          fi
+          command -v pdftotext
 
       - name: Resolve Production Supabase credentials
         run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
