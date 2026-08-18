@@ -66,12 +66,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          timeout 120s python3 -m pip install --disable-pip-version-check openpyxl xlrd
-          if ! command -v pdftotext >/dev/null 2>&1; then
-            sudo timeout 120s apt-get update -qq
-            sudo timeout 120s apt-get install -y --no-install-recommends poppler-utils
-          fi
-          command -v pdftotext
+          timeout 120s python3 -m pip install --disable-pip-version-check openpyxl xlrd pypdf
+          python3 -c 'import openpyxl, xlrd, pypdf; print("source readers ready")'
 
       - name: Resolve Production Supabase credentials
         run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
@@ -172,7 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
-          copy_pdf(){ local pattern="$1" dest="$2" src; src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"; test -n "$src"; cp "$src" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf"; pdftotext -layout "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; test -s "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; }
+          copy_pdf(){ local pattern="$1" dest="$2" src; src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"; test -n "$src"; cp "$src" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf"; python3 scripts/instacomp-target-checklists/pdf-to-layout-text.py "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; test -s "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; }
           copy_pdf '*hockey_2021_topps_nhl-stickers.pdf' '2021-nhl-stickers'
           copy_pdf '*hockey_2022-23_topps_nhl-sticker-album.pdf' '2022-23-nhl-sticker-album'
           copy_pdf '*hockey_2022-23_topps_chrome-nhl-stickers.pdf' '2022-23-chrome-nhl-stickers'
