@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
 text = writer.read_text()
@@ -52,13 +51,13 @@ if old not in text:
     raise SystemExit('Expected staged chunk loops not found')
 writer.write_text(text.replace(old, new, 1))
 
+# The current Leaf loader already computes its preflight release slug directly.
+# Older recovery branches contained a dummy buildPlan() preflight that required a
+# runtime rewrite; that obsolete shape is no longer present and must not make the
+# Production recovery fail.
 leaf = Path('scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs')
 ltext = leaf.read_text()
-pattern = r'const entry=entryFor\(target\); const expectedPlan=buildPlan\(entry,\{cards:\[\{setName:"Base Set".*?new Date\(\)\.toISOString\(\);\n      row\.releaseSlug=expectedPlan\.release\.releaseSlug;'
-replacement = 'const entry=entryFor(target); row.releaseSlug=`${target.season}-leaf-${target.product}-hockey`.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");'
-ltext, count = re.subn(pattern, replacement, ltext, count=1, flags=re.S)
-if count != 1:
-    raise SystemExit(f'Expected one dummy Leaf preflight plan, replaced {count}')
-leaf.write_text(ltext)
+if 'row.releaseSlug=' not in ltext or 'preflightReleaseManagement(row.releaseSlug)' not in ltext:
+    raise SystemExit('Current Leaf preflight releaseSlug path was not found')
 
-print('Patched resumable Production writer and Leaf preflight')
+print('Patched resumable Production writer; current Leaf preflight is already compatible')
