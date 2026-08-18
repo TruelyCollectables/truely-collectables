@@ -1,0 +1,66 @@
+name: InstaComp Hockey Management Progress Audit
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-hockey-management-progress-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Inspect first residual staged version
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl --silent --show-error --fail --max-time 30 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o evidence/projects.json \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select(.name == "TruelyCollectables") | (.id // .ref // empty)' evidence/projects.json)
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          read -r -d '' sql <<'SQL' || true
+          select
+            r.slug,
+            v.id as version_id,
+            v.version_number,
+            v.status,
+            v.is_active,
+            v.normalized_card_count,
+            v.normalized_identity_count,
+            v.created_at,
+            (select count(*) from public.checklist_sets s where s.version_id=v.id) as staged_sets,
+            (select count(*) from public.checklist_cards c where c.version_id=v.id) as staged_cards,
+            (select count(*) from public.checklist_parallels p where p.version_id=v.id) as staged_parallels,
+            (select count(*) from public.checklist_card_identities i where i.version_id=v.id) as staged_identities
+          from public.checklist_releases r
+          join public.checklist_versions v on v.release_id=r.id
+          where r.slug='2021-22-upper-deck-skybox-metal-universe-nhl-hockey'
+          order by v.version_number desc
+          limit 5;
+          SQL
+          jq -cn --arg query "$sql" '{query:$query,read_only:true}' > evidence/query.json
+          curl --silent --show-error --fail --retry 4 --retry-all-errors --retry-delay 2 --max-time 60 \
+            -X POST -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+            --data-binary @evidence/query.json -o evidence/progress.json \
+            "https://api.supabase.com/v1/projects/$project_ref/database/query"
+          jq . evidence/progress.json | tee evidence/summary.json
+      - name: Upload progress audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-hockey-management-progress-${{ github.run_id }}
+          path: evidence
+          if-no-files-found: warn
+          retention-days: 30

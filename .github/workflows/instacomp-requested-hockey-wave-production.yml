@@ -1,0 +1,22 @@
+name: InstaComp Requested Hockey Wave Production Retired
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-requested-hockey-wave-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-requested-hockey-wave-production
+  cancel-in-progress: true
+
+jobs:
+  retire-old-rest-writer:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'Old PostgREST Hockey writer retired; management-SQL writer is authoritative.'

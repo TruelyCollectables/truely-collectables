@@ -1,0 +1,54 @@
+name: InstaComp Hockey Live Count V2
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-hockey-live-count-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  count:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Count recent Registry versions directly
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl --silent --show-error --fail --max-time 30 -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" -o evidence/projects.json https://api.supabase.com/v1/projects
+          mapfile -t refs < <(jq -r '.[] | select(.name == "TruelyCollectables") | (.id // .ref // empty)' evidence/projects.json)
+          test "${#refs[@]}" -eq 1
+          ref="${refs[0]}"
+          cat > evidence/sql.txt <<'SQL'
+select jsonb_build_object(
+  'at', now(),
+  'allVersions', (select count(*) from public.checklist_versions),
+  'recentVersions', (select count(*) from public.checklist_versions where created_at >= '2026-08-16T23:17:31Z'::timestamptz),
+  'recentLive', (select count(*) from public.checklist_versions where created_at >= '2026-08-16T23:17:31Z'::timestamptz and is_active=true and status in ('live','revised')),
+  'recentImporting', (select count(*) from public.checklist_versions where created_at >= '2026-08-16T23:17:31Z'::timestamptz and status='importing')
+) as result;
+SQL
+          jq -Rs '{query:.,read_only:true}' < evidence/sql.txt > evidence/query.json
+          code="$(curl --silent --show-error --max-time 45 -X POST -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data-binary @evidence/query.json -o evidence/result.json -w '%{http_code}' "https://api.supabase.com/v1/projects/$ref/database/query" || true)"
+          echo "$code" > evidence/status.txt
+          echo "HTTP $code"
+          cat evidence/result.json
+          echo
+          test "$code" = '200'
+          jq -e '.[0].result' evidence/result.json
+      - name: Upload count evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-hockey-live-count-v2-${{ github.run_id }}
+          path: evidence
+          if-no-files-found: warn
+          retention-days: 30

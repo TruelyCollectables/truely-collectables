@@ -1,0 +1,59 @@
+name: InstaComp Upper Deck Hockey Recovery Audit
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-upper-deck-recovery-audit.yml'
+      - 'scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py'
+      - 'scripts/instacomp-target-checklists/audit-upper-deck-hockey-2021plus-local.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-upper-deck-hockey-recovery-audit
+  cancel-in-progress: true
+
+jobs:
+  audit-all-official-pages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      UPPER_DECK_AUDIT_RECEIPT: /home/runner/work/_temp/upper-deck-hockey-recovery/audit.json
+      UPPER_DECK_AUDIT_CONCURRENCY: '6'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Patch systemic Upper Deck parser defects in recovery checkout
+        run: python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+
+      - name: Type-check patched recovery parser
+        run: npx tsc --noEmit --pretty false
+
+      - name: Validate complete official 2021-plus Hockey archive without Production writes
+        run: node --import tsx scripts/instacomp-target-checklists/audit-upper-deck-hockey-2021plus-local.ts
+
+      - name: Summarize complete audit
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$UPPER_DECK_AUDIT_RECEIPT"
+          jq '{updatedAt,candidateCount,counts,unresolvedCount,unresolved:[.unresolved[]|{sourceUrl,status,message,errors}]}' "$UPPER_DECK_AUDIT_RECEIPT"
+
+      - name: Upload audit receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-upper-deck-hockey-recovery-audit-${{ github.run_id }}
+          path: /home/runner/work/_temp/upper-deck-hockey-recovery/audit.json
+          if-no-files-found: warn
+          retention-days: 30

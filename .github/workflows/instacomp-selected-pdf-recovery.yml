@@ -1,0 +1,113 @@
+name: InstaComp Selected PDF Recovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/instacomp-selected-pdf-recovery.yml'
+      - 'scripts/instacomp-target-checklists/recover-selected-pdfs.mjs'
+      - 'scripts/instacomp-target-checklists/gogts-pdf-coordinate-normalizer.mjs'
+      - 'scripts/instacomp-target-checklists/staged-registry-writer.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-selected-pdf-recovery
+  cancel-in-progress: true
+
+jobs:
+  recover-and-apply:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/selected-pdf-recovery
+      PDF_RECOVERY_RECEIPT: /home/runner/work/_temp/selected-pdf-recovery/selected-pdf-recovery-receipt.json
+      PUBLIC_WEB_MINIMUM_CARD_ROWS: '20'
+      PDF_TARGET_ATTEMPTS: '4'
+      PDF_TARGET_RETRY_DELAY_MS: '10000'
+      CHECKLIST_REGISTRY_SET_CHUNK: '100'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '75'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '100'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '150'
+      CHECKLIST_REGISTRY_RPC_ATTEMPTS: '4'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install PDF coordinate tools
+        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
+
+      - name: Resolve Production Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/selected-pdf-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Download immutable verified harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/selected-pdf-recovery
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Prove recovery source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$VERIFIED_HARVEST_ROOT/output/summary.json"
+          jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+          test "$(find "$VERIFIED_HARVEST_ROOT/output/sources" -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 122
+
+      - name: Recover and persist clean PDF releases
+        run: node --import tsx scripts/instacomp-target-checklists/recover-selected-pdfs.mjs
+
+      - name: Enforce PDF recovery receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$PDF_RECOVERY_RECEIPT"
+          jq '{targetCount,attemptedCount,persistedCount,unresolvedCount,persistedCards,persistedParallels,persistedIdentities}' "$PDF_RECOVERY_RECEIPT"
+          jq -e '.targetCount == 9 and .attemptedCount == 9 and .persistedCount >= 1' "$PDF_RECOVERY_RECEIPT"
+
+      - name: Upload PDF recovery receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-pdf-recovery-${{ github.run_id }}
+          path: /home/runner/work/_temp/selected-pdf-recovery/selected-pdf-recovery-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/selected-pdf-production" .env.local .env.production.local .vercel

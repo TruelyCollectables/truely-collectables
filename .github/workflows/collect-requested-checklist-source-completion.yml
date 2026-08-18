@@ -1,0 +1,372 @@
+name: Complete Requested Hockey Source Collection
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/collect-requested-checklist-source-completion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# Same group as the active overnight collector. This run waits behind it; it never
+# creates parallel checklist-source traffic.
+concurrency:
+  group: requested-checklist-source-collection-20260816
+  cancel-in-progress: false
+
+env:
+  FIRST_RUN_ID: '31992594572'
+  FIRST_CORPUS_ARTIFACT: requested-hockey-wnba-source-corpus-31992594572
+  COMPLETION_MANIFEST: data/requested-checklist-source-completion-20260816.json
+
+jobs:
+  prepare:
+    name: Build retry + completion queue
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download first overnight corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.FIRST_CORPUS_ARTIFACT }}
+          path: prior-corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ env.FIRST_RUN_ID }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Combine first-run failures with official completion list
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p queue
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const completion = JSON.parse(fs.readFileSync(process.env.COMPLETION_MANIFEST, 'utf8'));
+          const indexCandidates = [
+            'prior-corpus/corpus-index.json',
+            'prior-corpus/corpus/corpus-index.json',
+          ];
+          const indexPath = indexCandidates.find(p => fs.existsSync(p));
+          if (!indexPath) throw new Error('Could not locate first-run corpus-index.json');
+          const prior = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+          const retries = (prior.supplements?.failed || []).map(row => ({
+            key: row.key,
+            title: row.title,
+            url: row.url,
+            kind: String(row.url || '').match(/\.pdf(?:\?|$)/i) ? 'pdf'
+              : String(row.url || '').match(/\.xlsx(?:\?|$)/i) ? 'xlsx'
+              : String(row.url || '').match(/\.xls(?:\?|$)/i) ? 'xls'
+              : String(row.url || '').includes('output=csv') ? 'csv' : 'html',
+            authority: String(row.url || '').includes('gogts.net') ? 'approved_reference_dataset' : 'official_manufacturer',
+            retryOfFirstRun: true,
+          }));
+          const combined = [...retries, ...(completion.supplements || [])];
+          const deduped = [];
+          const seen = new Set();
+          for (const row of combined) {
+            const id = String(row.url || '').replace(/\/$/, '');
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            deduped.push(row);
+          }
+          const manifest = {
+            schema: 'tcos.requestedChecklistSourceQueue.v1',
+            createdAt: new Date().toISOString(),
+            scope: {
+              hockey: '2021-22 through current published checklists',
+              parseTonight: false,
+              databaseWritesTonight: false,
+              minimumSecondsBetweenSourceFetches: 300,
+              firstRunFailureRetries: retries.length,
+              officialCompletionCandidates: (completion.supplements || []).length,
+            },
+            supplements: deduped,
+          };
+          fs.writeFileSync('queue/combined-completion.json', JSON.stringify(manifest, null, 2) + '\n');
+          console.log(JSON.stringify({ firstRunFailureRetries: retries.length, officialCompletionCandidates: completion.supplements.length, combinedCount: deduped.length }, null, 2));
+          NODE
+      - name: Upload immutable combined queue
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue/combined-completion.json
+          if-no-files-found: error
+          retention-days: 90
+
+  batch1:
+    name: Completion sources 1-10
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue
+      - name: Fetch completion sources 1-10
+        run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest queue/combined-completion.json
+          --start 0 --count 10
+          --output .checklist-source-completion/batch-1
+          --receipt batch-1-receipt.json
+          --initial-delay-ms 300000
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-completion-batch-1-${{ github.run_id }}
+          path: .checklist-source-completion/batch-1
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch2:
+    name: Completion sources 11-20
+    needs: batch1
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue
+      - run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest queue/combined-completion.json
+          --start 10 --count 10
+          --output .checklist-source-completion/batch-2
+          --receipt batch-2-receipt.json
+          --initial-delay-ms 300000
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-completion-batch-2-${{ github.run_id }}
+          path: .checklist-source-completion/batch-2
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch3:
+    name: Completion sources 21-30
+    needs: batch2
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue
+      - run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest queue/combined-completion.json
+          --start 20 --count 10
+          --output .checklist-source-completion/batch-3
+          --receipt batch-3-receipt.json
+          --initial-delay-ms 300000
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-completion-batch-3-${{ github.run_id }}
+          path: .checklist-source-completion/batch-3
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch4:
+    name: Completion sources 31-40
+    needs: batch3
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue
+      - run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest queue/combined-completion.json
+          --start 30 --count 10
+          --output .checklist-source-completion/batch-4
+          --receipt batch-4-receipt.json
+          --initial-delay-ms 300000
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-completion-batch-4-${{ github.run_id }}
+          path: .checklist-source-completion/batch-4
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch5:
+    name: Completion sources 41-50
+    needs: batch4
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue
+      - run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest queue/combined-completion.json
+          --start 40 --count 10
+          --output .checklist-source-completion/batch-5
+          --receipt batch-5-receipt.json
+          --initial-delay-ms 300000
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-completion-batch-5-${{ github.run_id }}
+          path: .checklist-source-completion/batch-5
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch6:
+    name: Completion sources 51-60
+    needs: batch5
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue
+      - run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest queue/combined-completion.json
+          --start 50 --count 10
+          --output .checklist-source-completion/batch-6
+          --receipt batch-6-receipt.json
+          --initial-delay-ms 300000
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-completion-batch-6-${{ github.run_id }}
+          path: .checklist-source-completion/batch-6
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch7:
+    name: Completion sources 61-70
+    needs: batch6
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: queue
+      - run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest queue/combined-completion.json
+          --start 60 --count 10
+          --output .checklist-source-completion/batch-7
+          --receipt batch-7-receipt.json
+          --initial-delay-ms 300000
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-completion-batch-7-${{ github.run_id }}
+          path: .checklist-source-completion/batch-7
+          if-no-files-found: warn
+          retention-days: 90
+
+  assemble:
+    name: Assemble complete morning source corpus
+    needs: [prepare, batch1, batch2, batch3, batch4, batch5, batch6, batch7]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Download first overnight corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.FIRST_CORPUS_ARTIFACT }}
+          path: final-corpus/initial
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ env.FIRST_RUN_ID }}
+      - name: Download combined queue
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-combined-completion-queue-${{ github.run_id }}
+          path: final-corpus/completion
+      - name: Download all completion batches
+        uses: actions/download-artifact@v4
+        with:
+          pattern: requested-checklist-completion-batch-*-${{ github.run_id }}
+          path: final-corpus/completion/batches
+          merge-multiple: false
+      - name: Build final source-only index
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const walk = dir => fs.existsSync(dir) ? fs.readdirSync(dir, {withFileTypes:true}).flatMap(e => e.isDirectory() ? walk(path.join(dir,e.name)) : [path.join(dir,e.name)]) : [];
+          const all = walk('final-corpus');
+          const receiptPaths = all.filter(p => /batch-\d+-receipt\.json$/.test(p));
+          const results = receiptPaths.flatMap(p => {
+            try { return JSON.parse(fs.readFileSync(p,'utf8')).results || []; } catch { return []; }
+          });
+          const completionResults = results.filter(r => r.key);
+          const downloaded = completionResults.filter(r => r.status === 'downloaded');
+          const failed = completionResults.filter(r => r.status === 'failed');
+          const priorIndexPath = all.find(p => /(?:^|\/)corpus-index\.json$/.test(p));
+          const prior = priorIndexPath ? JSON.parse(fs.readFileSync(priorIndexPath,'utf8')) : null;
+          const index = {
+            schema: 'tcos.requestedChecklistSourceCorpusComplete.v1',
+            createdAt: new Date().toISOString(),
+            initialRunId: Number(process.env.FIRST_RUN_ID),
+            initialTotals: prior?.totals || null,
+            completionDownloadedCount: downloaded.length,
+            completionFailedCount: failed.length,
+            completionFailed: failed.map(r => ({key:r.key,title:r.title,url:r.url,error:r.error,httpStatus:r.httpStatus})),
+            parsingPerformed: false,
+            databaseWritesPerformed: false,
+          };
+          fs.writeFileSync('final-corpus/final-corpus-index.json', JSON.stringify(index,null,2)+'\n');
+          console.log(JSON.stringify(index,null,2));
+          NODE
+      - name: Upload complete source corpus for morning parsing
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-complete-${{ github.run_id }}
+          path: final-corpus
+          if-no-files-found: error
+          retention-days: 90

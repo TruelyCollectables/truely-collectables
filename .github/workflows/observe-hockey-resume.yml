@@ -1,0 +1,81 @@
+name: Observe Hockey Resume
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/observe-hockey-resume.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  statuses: write
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish dedicated Hockey Production status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          BRANCH: feature/instacomp-target-checklists-20260816
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/runs?branch=$BRANCH&per_page=100")"
+          latest="$(jq -c '
+            .workflow_runs
+            | map(select(
+                .name == "InstaComp Requested Hockey Resume Production"
+                or .path == ".github/workflows/instacomp-requested-hockey-finalize-resume-production.yml"
+              ))
+            | sort_by(.created_at) | reverse | .[0] // empty
+          ' <<<"$runs")"
+
+          if [[ -z "$latest" ]]; then
+            state=failure
+            desc="NO HOCKEY PRODUCTION RESUME RUN FOUND"
+            url="https://github.com/$REPO/actions"
+          else
+            id="$(jq -r '.id' <<<"$latest")"
+            status="$(jq -r '.status' <<<"$latest")"
+            conclusion="$(jq -r '.conclusion // "-"' <<<"$latest")"
+            url="$(jq -r '.html_url' <<<"$latest")"
+            if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+              state=success
+            elif [[ "$status" == "completed" ]]; then
+              state=failure
+            else
+              state=pending
+            fi
+            desc="Hockey run $id $status/$conclusion"
+            echo "HOCKEY_RUN_ID=$id"
+            echo "HOCKEY_STATUS=$status"
+            echo "HOCKEY_CONCLUSION=$conclusion"
+            echo "HOCKEY_URL=$url"
+          fi
+
+          payload="$(jq -nc \
+            --arg state "$state" \
+            --arg target_url "$url" \
+            --arg description "$desc" \
+            --arg context "hockey-production-observer" \
+            '{state:$state,target_url:$target_url,description:$description,context:$context}')"
+
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/statuses/$SHA" \
+            -d "$payload"
+
+# forced observer trigger 2026-08-18T00:45Z

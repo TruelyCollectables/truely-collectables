@@ -1,0 +1,56 @@
+name: InstaComp The Cup Layout Recovery Validate
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-the-cup-layout-recovery-validate.yml'
+      - 'scripts/instacomp-target-checklists/recover-2022-23-the-cup-layout.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate-the-cup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/the-cup-layout-harvest
+      THE_CUP_LAYOUT_RECEIPT: /home/runner/work/_temp/the-cup-layout-harvest/the-cup-layout-recovery-receipt.json
+      THE_CUP_LAYOUT_PLAN_DIR: /home/runner/work/_temp/the-cup-layout-harvest/the-cup-layout-plans
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install PDF text tools
+        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
+      - name: Download immutable 122-catalog harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/the-cup-layout-harvest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+      - name: Prove immutable source bundle
+        run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+      - name: Parse and validate 2022-23 The Cup
+        run: node --import tsx scripts/instacomp-target-checklists/recover-2022-23-the-cup-layout.mjs
+      - name: Show validation receipt
+        if: always()
+        run: test -s "$THE_CUP_LAYOUT_RECEIPT" && jq '{exactSetKey,status,layoutRows,uniqueSets,conflictCount,counts,validationErrors}' "$THE_CUP_LAYOUT_RECEIPT" || true
+      - name: Upload certified plan and receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-the-cup-layout-recovery-${{ github.run_id }}
+          path: |
+            /home/runner/work/_temp/the-cup-layout-harvest/the-cup-layout-recovery-receipt.json
+            /home/runner/work/_temp/the-cup-layout-harvest/the-cup-layout-plans
+          if-no-files-found: warn
+          retention-days: 90

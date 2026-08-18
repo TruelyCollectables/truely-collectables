@@ -1,0 +1,275 @@
+name: Collect Requested Hockey + WNBA Sources Overnight
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/collect-requested-checklist-sources-overnight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: requested-checklist-source-collection-20260816
+  cancel-in-progress: false
+
+env:
+  MANIFEST: data/requested-checklist-source-queue-20260816.json
+
+jobs:
+  batch1:
+    name: Collect sources 1-9
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch sources 1-9 with five-minute floor
+        run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest "$MANIFEST"
+          --start 0
+          --count 9
+          --output .checklist-source-collection/batch-1
+          --receipt batch-1-receipt.json
+          --initial-delay-ms 0
+      - name: Upload batch 1 checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-1-${{ github.run_id }}
+          path: .checklist-source-collection/batch-1
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch2:
+    name: Collect sources 10-18
+    needs: batch1
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch sources 10-18 with five-minute floor
+        run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest "$MANIFEST"
+          --start 9
+          --count 9
+          --output .checklist-source-collection/batch-2
+          --receipt batch-2-receipt.json
+          --initial-delay-ms 300000
+      - name: Upload batch 2 checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-2-${{ github.run_id }}
+          path: .checklist-source-collection/batch-2
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch3:
+    name: Collect sources 19-27
+    needs: batch2
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch sources 19-27 with five-minute floor
+        run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest "$MANIFEST"
+          --start 18
+          --count 9
+          --output .checklist-source-collection/batch-3
+          --receipt batch-3-receipt.json
+          --initial-delay-ms 300000
+      - name: Upload batch 3 checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-3-${{ github.run_id }}
+          path: .checklist-source-collection/batch-3
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch4:
+    name: Collect sources 28-36
+    needs: batch3
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch sources 28-36 with five-minute floor
+        run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest "$MANIFEST"
+          --start 27
+          --count 9
+          --output .checklist-source-collection/batch-4
+          --receipt batch-4-receipt.json
+          --initial-delay-ms 300000
+      - name: Upload batch 4 checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-4-${{ github.run_id }}
+          path: .checklist-source-collection/batch-4
+          if-no-files-found: warn
+          retention-days: 90
+
+  batch5:
+    name: Collect sources 37-45
+    needs: batch4
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch sources 37-45 with five-minute floor
+        run: >-
+          node scripts/collect-requested-checklist-sources.mjs
+          --manifest "$MANIFEST"
+          --start 36
+          --count 9
+          --output .checklist-source-collection/batch-5
+          --receipt batch-5-receipt.json
+          --initial-delay-ms 300000
+      - name: Upload batch 5 checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-5-${{ github.run_id }}
+          path: .checklist-source-collection/batch-5
+          if-no-files-found: warn
+          retention-days: 90
+
+  consolidate:
+    name: Assemble morning source corpus
+    needs: [batch1, batch2, batch3, batch4, batch5]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download existing 122-source Hockey/WNBA corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: corpus/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Download batch 1
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-1-${{ github.run_id }}
+          path: corpus/supplements/batch-1
+      - name: Download batch 2
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-2-${{ github.run_id }}
+          path: corpus/supplements/batch-2
+      - name: Download batch 3
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-3-${{ github.run_id }}
+          path: corpus/supplements/batch-3
+      - name: Download batch 4
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-4-${{ github.run_id }}
+          path: corpus/supplements/batch-4
+      - name: Download batch 5
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-checklist-sources-batch-5-${{ github.run_id }}
+          path: corpus/supplements/batch-5
+
+      - name: Build immutable corpus index
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$MANIFEST" corpus/requested-checklist-source-queue-20260816.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const manifest = JSON.parse(fs.readFileSync('data/requested-checklist-source-queue-20260816.json', 'utf8'));
+          const receipts = [];
+          for (let batch = 1; batch <= 5; batch++) {
+            const p = `corpus/supplements/batch-${batch}/batch-${batch}-receipt.json`;
+            if (fs.existsSync(p)) receipts.push(JSON.parse(fs.readFileSync(p, 'utf8')));
+          }
+          const results = receipts.flatMap(r => r.results || []);
+          const downloaded = results.filter(r => r.status === 'downloaded');
+          const failed = results.filter(r => r.status === 'failed');
+          const baseSources = fs.existsSync('corpus/base/output/sources')
+            ? fs.readdirSync('corpus/base/output/sources').filter(n => !n.startsWith('.')).length
+            : 0;
+          const supplementalFiles = [];
+          for (let batch = 1; batch <= 5; batch++) {
+            const dir = `corpus/supplements/batch-${batch}/sources`;
+            if (fs.existsSync(dir)) {
+              for (const name of fs.readdirSync(dir)) supplementalFiles.push(`batch-${batch}/sources/${name}`);
+            }
+          }
+          const index = {
+            schema: 'tcos.requestedChecklistSourceCorpus.v1',
+            createdAt: new Date().toISOString(),
+            scope: manifest.scope,
+            baseCorpus: {
+              ...manifest.baseCorpus,
+              actualSourceFileCount: baseSources,
+            },
+            supplements: {
+              requestedCount: manifest.supplements.length,
+              receiptCount: receipts.length,
+              downloadedCount: downloaded.length,
+              failedCount: failed.length,
+              downloaded: downloaded.map(r => ({ key: r.key, title: r.title, file: r.file, bytes: r.bytes, sha256: r.sha256, finalUrl: r.finalUrl })),
+              failed: failed.map(r => ({ key: r.key, title: r.title, url: r.url, error: r.error, httpStatus: r.httpStatus })),
+              sourceFiles: supplementalFiles,
+            },
+            totals: {
+              existingBaseSources: baseSources,
+              newlyDownloadedSources: downloaded.length,
+              combinedSourceFiles: baseSources + downloaded.length,
+            },
+            parsingPerformed: false,
+            databaseWritesPerformed: false,
+          };
+          fs.writeFileSync('corpus/corpus-index.json', JSON.stringify(index, null, 2) + '\n');
+          console.log(JSON.stringify(index.totals, null, 2));
+          console.log(`Supplement failures: ${failed.length}`);
+          NODE
+
+      - name: Upload complete morning corpus
+        uses: actions/upload-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-${{ github.run_id }}
+          path: corpus
+          if-no-files-found: error
+          retention-days: 90

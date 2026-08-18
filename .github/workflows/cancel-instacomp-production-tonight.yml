@@ -1,0 +1,25 @@
+name: Pause InstaComp Production Writes Tonight
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/cancel-instacomp-production-tonight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-requested-hockey-management-production
+  cancel-in-progress: true
+
+jobs:
+  pause-production-writes:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm source-collection-only mode
+        run: |
+          echo 'Production checklist writes are paused for tonight.'
+          echo 'Source collection proceeds separately; parsing/import resumes later.'

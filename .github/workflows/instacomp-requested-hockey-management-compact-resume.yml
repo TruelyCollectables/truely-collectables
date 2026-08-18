@@ -1,0 +1,126 @@
+name: InstaComp Requested Hockey Compact Management Resume
+
+on:
+  push:
+    branches:
+      - feature/instacomp-target-checklists-20260816
+    paths:
+      - '.github/workflows/instacomp-requested-hockey-management-compact-resume.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-requested-hockey-management-production
+  cancel-in-progress: true
+
+jobs:
+  apply-requested-hockey-compact:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/requested-hockey-compact
+      VERIFIED_SOURCE_RUN_ID: '31924171342'
+      REQUESTED_HOCKEY_RESIDUAL_RECEIPT: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-residual-receipt.json
+      REQUESTED_HOCKEY_VERIFY_RECEIPT: /home/runner/work/_temp/requested-hockey-compact/requested-hockey-individual-verification.json
+      REQUESTED_HOCKEY_WAVE_SIZE: '1'
+      REQUESTED_HOCKEY_WAVE_DELAY_MS: '3000'
+      REQUESTED_HOCKEY_TARGET_ATTEMPTS: '6'
+      REQUESTED_HOCKEY_TARGET_RETRY_MS: '10000'
+      REQUESTED_HOCKEY_VERIFY_CONCURRENCY: '1'
+      REQUESTED_HOCKEY_VERIFY_ATTEMPTS: '6'
+      REQUESTED_HOCKEY_VERIFY_RETRY_MS: '5000'
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '6'
+      CHECKLIST_REGISTRY_SET_CHUNK: '250'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '250'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '250'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '500'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '6'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Download immutable 122-catalog harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/requested-hockey-compact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Prove immutable source bundle
+        run: jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+
+      - name: Canonicalize plans to Production Registry uniqueness
+        run: |
+          node scripts/instacomp-target-checklists/canonicalize-registry-plans.mjs
+          jq -e '.targetCount == 83 and .changedCount == 23 and .parallelRowsRemoved == 414 and .identityRowsRemoved == 1300' "$VERIFIED_HARVEST_ROOT/output/registry-plan-canonicalization-receipt.json"
+
+      - name: Compact staged BEGIN payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
+          text = writer.read_text()
+          old = '${jsonSql(plan, "plan")}'
+          new = '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}'
+          if old not in text:
+              raise SystemExit('Expected full-plan BEGIN payload was not found')
+          writer.write_text(text.replace(old, new, 1))
+          PY
+          grep -F 'validation: { status: plan.validation.status, counts: plan.validation.counts }' scripts/instacomp-target-checklists/management-staged-registry-writer.mjs
+
+      - name: Apply only the 23 known Production residual catalogs sequentially
+        run: node --import tsx scripts/instacomp-target-checklists/apply-requested-hockey-residual-management.mjs
+
+      - name: Prove 23-catalog residual is zero
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$REQUESTED_HOCKEY_RESIDUAL_RECEIPT"
+          jq '{updatedAt,transport,residualCount,alreadyLiveCount,persistedCount,resolvedCount,failedCount,persistedCards,persistedIdentities}' "$REQUESTED_HOCKEY_RESIDUAL_RECEIPT"
+          jq -e '.residualCount == 23 and .resolvedCount == 23 and .failedCount == 0' "$REQUESTED_HOCKEY_RESIDUAL_RECEIPT"
+
+      - name: Verify all 83 validated Hockey catalogs individually in Production
+        if: success()
+        run: node --import tsx scripts/instacomp-target-checklists/verify-requested-hockey-individual.mjs
+
+      - name: Prove all 83 validated Hockey catalogs are live
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$REQUESTED_HOCKEY_VERIFY_RECEIPT"
+          jq '{updatedAt,targetCount,liveCount,unresolvedCount,failedQueryCount}' "$REQUESTED_HOCKEY_VERIFY_RECEIPT"
+          jq -e '.targetCount == 83 and .liveCount == 83 and .unresolvedCount == 0 and .failedQueryCount == 0' "$REQUESTED_HOCKEY_VERIFY_RECEIPT"
+
+      - name: Upload compact management receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-requested-hockey-compact-${{ github.run_id }}
+          path: |
+            /home/runner/work/_temp/requested-hockey-compact/requested-hockey-residual-receipt.json
+            /home/runner/work/_temp/requested-hockey-compact/requested-hockey-individual-verification.json
+            /home/runner/work/_temp/requested-hockey-compact/output/registry-plan-canonicalization-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/requested-hockey-compact" .env.local .env.production.local .vercel
