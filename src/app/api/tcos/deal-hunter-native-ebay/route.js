@@ -1,4 +1,4 @@
-import { EbayBrowseAdapter } from "../../../../../connectors/tcos-market-intel-mcp/src/public-search.mjs";
+import { DealHunterEbayBrowseAdapter } from "../../../../lib/deal-hunter-ebay-native-search";
 import {
   buildDealHunterEbayQueryFamilies,
   DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT,
@@ -52,6 +52,26 @@ function rawEbayItem(entry) {
   return entry?.rawPayload?.raw_payload || entry?.rawPayload?.rawPayload || entry?.rawPayload || {};
 }
 
+function hoursSince(value, now = Date.now()) {
+  const parsed = new Date(value || 0).getTime();
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.max(0, (now - parsed) / 3_600_000);
+}
+
+function minutesUntil(value, now = Date.now()) {
+  const parsed = new Date(value || 0).getTime();
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return (parsed - now) / 60_000;
+}
+
+function freshnessBucket(hours) {
+  if (hours == null) return "UNKNOWN";
+  if (hours <= 24) return "NEW_24H";
+  if (hours <= 72) return "NEW_72H";
+  if (hours <= 168) return "NEW_7D";
+  return "OLDER";
+}
+
 function safeListing(entry, family, screening) {
   const raw = rawEbayItem(entry);
   const itemId = extractEbayItemId(raw) || extractEbayItemId({ url: entry.url });
@@ -61,8 +81,22 @@ function safeListing(entry, family, screening) {
       ...(entry.imageUrls || []),
       raw.image?.imageUrl,
       ...(raw.thumbnailImages || []).map((image) => image?.imageUrl),
+      ...(raw.additionalImages || []).map((image) => image?.imageUrl),
     ].filter(Boolean)),
   ).slice(0, 12);
+  const itemCreationDate = raw.itemOriginDate || raw.itemCreationDate || entry.discoveredAt || null;
+  const itemEndDate = raw.itemEndDate || null;
+  const listingAgeHours = hoursSince(itemCreationDate);
+  const auctionMinutesRemaining = buyingOptions.includes("AUCTION")
+    ? minutesUntil(itemEndDate)
+    : null;
+  const analysis = screening.analysis || {};
+  const lotQuantity = analysis.lotQuantityGuess || null;
+  const itemPrice = entry.askingPrice ?? null;
+  const unitPriceEstimate =
+    lotQuantity && Number.isFinite(Number(itemPrice))
+      ? Number((Number(itemPrice) / lotQuantity).toFixed(2))
+      : null;
 
   return {
     candidateId: itemId ? `ebay:${itemId}` : `ebay-url:${entry.url}`,
@@ -74,7 +108,7 @@ function safeListing(entry, family, screening) {
     lane: family.lane,
     itemType: family.itemType,
     queryFamilyIds: [family.familyId],
-    itemPrice: entry.askingPrice ?? null,
+    itemPrice,
     currency: raw.price?.currency || "USD",
     inboundShipping: entry.shipping ?? null,
     buyerFees: entry.buyerFees ?? null,
@@ -82,9 +116,29 @@ function safeListing(entry, family, screening) {
     sellerName: entry.sellerName || raw.seller?.username || null,
     buyingOptions,
     condition: raw.condition || raw.conditionId || null,
-    itemCreationDate: raw.itemOriginDate || raw.itemCreationDate || entry.discoveredAt || null,
-    itemEndDate: raw.itemEndDate || null,
+    itemCreationDate,
+    itemEndDate,
+    listingAgeHours:
+      listingAgeHours == null ? null : Number(listingAgeHours.toFixed(2)),
+    freshnessBucket: freshnessBucket(listingAgeHours),
+    auctionMinutesRemaining:
+      auctionMinutesRemaining == null
+        ? null
+        : Number(auctionMinutesRemaining.toFixed(1)),
+    auctionEndingSoon:
+      auctionMinutesRemaining != null &&
+      auctionMinutesRemaining >= 0 &&
+      auctionMinutesRemaining <= 180,
     location: entry.location || null,
+    categoryNames: analysis.categories || [],
+    targetMatchMethod: analysis.targetMatch?.method || null,
+    targetMatchedInTitle: Boolean(analysis.targetMatchedInTitle),
+    targetMatchedInMetadata: Boolean(analysis.targetMatchedInMetadata),
+    cardNumberGuess: analysis.cardNumberGuess || null,
+    lotSignal: Boolean(analysis.lotSignal),
+    lotQuantityGuess: lotQuantity,
+    unitPriceEstimate,
+    mislistReasons: analysis.mislistReasons || [],
     imageUrls,
     manualReviewRequired: Boolean(entry.manualReviewRequired || screening.manualReviewRequired),
     preliminaryScopeStatus: screening.manualReviewRequired
@@ -105,6 +159,7 @@ function mergeListing(existing, incoming) {
     lanes: Array.from(new Set([...(existing.lanes || [existing.lane]), incoming.lane].filter(Boolean))),
     manualReviewRequired: existing.manualReviewRequired || incoming.manualReviewRequired,
     preliminaryRisks: Array.from(new Set([...(existing.preliminaryRisks || []), ...(incoming.preliminaryRisks || [])])),
+    mislistReasons: Array.from(new Set([...(existing.mislistReasons || []), ...(incoming.mislistReasons || [])])),
     imageUrls: Array.from(new Set([...(existing.imageUrls || []), ...(incoming.imageUrls || [])])).slice(0, 12),
   };
 }
@@ -116,6 +171,32 @@ function classifyError(error) {
   if (/timed out|AbortError|aborted/i.test(message)) return "EBAY_BROWSE_TIMEOUT";
   if (/token/i.test(message)) return "EBAY_APPLICATION_TOKEN_FAILED";
   return "EBAY_BROWSE_QUERY_FAILED";
+}
+
+function sourceStatus({ coverage, errors, families, adapter }) {
+  const succeeded = coverage.filter((entry) => entry.status === "COMPLETE").length;
+  const failed = errors.length;
+  return {
+    source: "eBay Browse",
+    status:
+      failed === 0 && succeeded === families.length
+        ? "COMPLETE"
+        : succeeded > 0
+          ? "PARTIAL"
+          : "FAILED",
+    configured: adapter.configured,
+    checkedAt: new Date().toISOString(),
+    attemptedQueryFamilies: families.length,
+    successfulQueryFamilies: succeeded,
+    failedQueryFamilies: failed,
+    sort: "newlyListed",
+    deeperScreeningEnabled: true,
+    typoRescueEnabled: families.some((family) => family.rescueMode),
+    metadataTitleRescueEnabled: true,
+    lotDetectionEnabled: true,
+    wrongCategorySignalEnabled: true,
+    auctionEndingSignalEnabled: true,
+  };
 }
 
 export async function GET(request) {
@@ -135,7 +216,7 @@ export async function GET(request) {
 
   const players = parseDealHunterPlayers(url.searchParams.get("players"));
   const families = buildDealHunterEbayQueryFamilies({ scope, players });
-  const adapter = new EbayBrowseAdapter();
+  const adapter = new DealHunterEbayBrowseAdapter();
   const deployment = deploymentInfo();
 
   if (!adapter.configured) {
@@ -146,6 +227,15 @@ export async function GET(request) {
       nativeEbayUsed: false,
       scope,
       deployment,
+      sourceStatus: {
+        source: "eBay Browse",
+        status: "FAILED",
+        configured: false,
+        checkedAt: new Date().toISOString(),
+        attemptedQueryFamilies: 0,
+        successfulQueryFamilies: 0,
+        failedQueryFamilies: 0,
+      },
     }, 503);
   }
 
@@ -162,7 +252,13 @@ export async function GET(request) {
       const rejectionCounts = {};
 
       for (const entry of result.results || []) {
-        const screening = screenDealHunterEbayTitle({ title: entry.title, family });
+        const raw = rawEbayItem(entry);
+        const screening = screenDealHunterEbayTitle({
+          title: entry.title,
+          description: entry.description,
+          raw,
+          family,
+        });
         if (!screening.accepted) {
           for (const reason of screening.rejectionReasons) {
             rejectionCounts[reason] = Number(rejectionCounts[reason] || 0) + 1;
@@ -172,6 +268,7 @@ export async function GET(request) {
         accepted.push(safeListing(entry, family, screening));
       }
 
+      const returned = accepted.slice(0, perQuery);
       return {
         family,
         coverage: {
@@ -179,16 +276,18 @@ export async function GET(request) {
           watchedPerson: family.watchedPerson,
           lane: family.lane,
           query: family.query,
+          rescueMode: Boolean(family.rescueMode),
           status: "COMPLETE",
           rawResultCount: result.results?.length || 0,
           acceptedResultCount: accepted.length,
+          returnedResultCount: returned.length,
           rejectedResultCount: (result.results?.length || 0) - accepted.length,
           rejectionCounts,
           warnings: result.warnings || [],
           searchDiagnostics: result.diagnostics || null,
           durationMs: Date.now() - familyStartedAt,
         },
-        accepted,
+        accepted: returned,
       };
     }),
   );
@@ -207,9 +306,11 @@ export async function GET(request) {
         watchedPerson: family.watchedPerson,
         lane: family.lane,
         query: family.query,
+        rescueMode: Boolean(family.rescueMode),
         status: "FAILED",
         rawResultCount: 0,
         acceptedResultCount: 0,
+        returnedResultCount: 0,
         rejectedResultCount: 0,
         rejectionCounts: {},
         warnings: [],
@@ -243,12 +344,13 @@ export async function GET(request) {
   return json({
     ok: complete,
     schema: "TCOS_NATIVE_EBAY_FEED_V1",
+    featureVersion: "WNBA_EBAY_HARDENING_V2",
     generatedAt: new Date().toISOString(),
     scope,
     requestedPlayers: ["baseball_prospects", "signed_baseballs", "all"].includes(scope) ? players : [],
     deployment,
     marketplace: "eBay",
-    searchEngine: "Production eBay Browse item_summary/search sorted newlyListed with deeper scan",
+    searchEngine: "Production eBay Browse item_summary/search sorted newlyListed with 2x screening depth and rescue lanes",
     tokenMode: "client_credentials",
     nativeEbayUsed: successfulQueryCount > 0,
     queryFamilyCount: families.length,
@@ -264,6 +366,7 @@ export async function GET(request) {
     results: [...deduplicated.values()].sort(
       (a, b) => new Date(b.itemCreationDate || 0).getTime() - new Date(a.itemCreationDate || 0).getTime(),
     ),
+    sourceStatus: sourceStatus({ coverage, errors, families, adapter }),
     sourceCoverage: coverage,
     errors,
     durationMs: Date.now() - startedAt,
