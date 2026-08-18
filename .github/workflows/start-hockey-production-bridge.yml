@@ -22,7 +22,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          WORKFLOW: instacomp-hockey-production-run.yml
+          WORKFLOW: instacomp-hockey-final-six-production.yml
           HOCKEY_REF: main
         shell: bash
         run: |
@@ -97,3 +97,4 @@ jobs:
 # apt-free retrigger 2026-08-17
 # writer-patch retrigger 2026-08-17
 # final-23-repair trigger 2026-08-17
+# final-6-repair trigger 2026-08-18
