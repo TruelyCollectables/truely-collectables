@@ -27,3 +27,23 @@ for (const row of rows) {
   console.log(`===== ${row.name}(${row.args}) =====`);
   console.log(row.definition);
 }
+
+const indexes = await managementQuery(`
+  select indexname, indexdef
+  from pg_indexes
+  where schemaname='public' and tablename in ('checklist_sets','checklist_cards','checklist_parallels')
+  order by tablename,indexname;
+`, 'Inspect Production Checklist Registry indexes');
+console.log('===== CHECKLIST REGISTRY INDEXES =====');
+console.log(JSON.stringify(indexes, null, 2));
+
+const constraints = await managementQuery(`
+  select c.conname, c.contype, pg_get_constraintdef(c.oid) as definition
+  from pg_constraint c
+  join pg_class t on t.oid=c.conrelid
+  join pg_namespace n on n.oid=t.relnamespace
+  where n.nspname='public' and t.relname in ('checklist_sets','checklist_cards','checklist_parallels')
+  order by t.relname,c.conname;
+`, 'Inspect Production Checklist Registry constraints');
+console.log('===== CHECKLIST REGISTRY CONSTRAINTS =====');
+console.log(JSON.stringify(constraints, null, 2));
