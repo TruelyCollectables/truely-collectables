@@ -298,7 +298,8 @@ export async function POST(req: NextRequest) {
     const targetAuto = body.isAuto === true;
     const targetRelic = body.isRelic === true;
 
-    const matches = new Map<string, any>();
+    const strictMatches = new Map<string, any>();
+    const relaxedMatches = new Map<string, any>();
     for (const card of cards) {
       const registryPlayers = normalizedSubjects(
         (playersByCard.get(String(card.id)) || [])
@@ -318,19 +319,6 @@ export async function POST(req: NextRequest) {
       const sport = release.sport?.name || null;
       const league = release.league?.name || null;
 
-      if (targetYear && yearStart(releaseYear) !== targetYear) continue;
-      if (
-        targetBrand &&
-        !normalizedText([manufacturer, brand, product, setName].filter(Boolean).join(" ")).includes(targetBrand)
-      ) {
-        continue;
-      }
-      if (targetSetTokens.length) {
-        const registrySetTokens = new Set(
-          meaningfulTokens([brand, product, setName].filter(Boolean).join(" ")),
-        );
-        if (!targetSetTokens.every((token) => registrySetTokens.has(token))) continue;
-      }
       if (targetSport && normalizedText(sport) !== targetSport) continue;
       if (targetLeague && normalizedText(league) !== targetLeague) continue;
 
@@ -343,6 +331,27 @@ export async function POST(req: NextRequest) {
       ) {
         continue;
       }
+
+      const releaseEvidenceMatches = (() => {
+        if (targetYear && yearStart(releaseYear) !== targetYear) return false;
+        if (
+          targetBrand &&
+          !normalizedText(
+            [manufacturer, brand, product, setName].filter(Boolean).join(" "),
+          ).includes(targetBrand)
+        ) {
+          return false;
+        }
+        if (targetSetTokens.length) {
+          const registrySetTokens = new Set(
+            meaningfulTokens([brand, product, setName].filter(Boolean).join(" ")),
+          );
+          if (!targetSetTokens.every((token) => registrySetTokens.has(token))) {
+            return false;
+          }
+        }
+        return true;
+      })();
 
       for (const identity of identitiesByCard.get(String(card.id)) || []) {
         const fingerprint = String(identity.fingerprint_sha256 || "").trim().toLowerCase();
@@ -362,8 +371,6 @@ export async function POST(req: NextRequest) {
               continue;
             }
           } else if (!isBaseParallel(parallelName)) {
-            // Missing parallel truth may bootstrap only the unique non-serial Base
-            // identity. The downstream V20 physical witness must still confirm it.
             continue;
           }
         }
@@ -390,7 +397,7 @@ export async function POST(req: NextRequest) {
             canonicalField(identity.canonical_key, "configuration"),
         ) || null;
 
-        matches.set(fingerprint, {
+        const candidate = {
           identityId: String(identity.id),
           fingerprintSha256: fingerprint,
           manufacturer,
@@ -410,23 +417,38 @@ export async function POST(req: NextRequest) {
           configurationExclusivity,
           isAuto: registryAuto,
           isRelic: registryRelic,
-        });
+        };
+        relaxedMatches.set(fingerprint, candidate);
+        if (releaseEvidenceMatches) strictMatches.set(fingerprint, candidate);
       }
     }
 
-    const match = matches.size === 1 ? [...matches.values()][0] : null;
+    let match: any | null = null;
+    let bootstrapMode: "strict_release_evidence" | "unique_identity_release_recovery" | null = null;
+    if (strictMatches.size === 1) {
+      match = [...strictMatches.values()][0];
+      bootstrapMode = "strict_release_evidence";
+    } else if (strictMatches.size === 0 && relaxedMatches.size === 1) {
+      match = [...relaxedMatches.values()][0];
+      bootstrapMode = "unique_identity_release_recovery";
+    }
+
     const resolverStatus = match
       ? "internal_exact_match"
       : "internal_set_present_no_exact_match";
     const reasons = match
       ? [
-          "trusted_holdout_player_card_number_and_available_operator_truth_resolved_one_unique_active_registry_identity",
+          bootstrapMode === "strict_release_evidence"
+            ? "trusted_holdout_available_operator_truth_resolved_one_unique_active_registry_identity"
+            : "trusted_holdout_stale_release_coordinates_recovered_one_unique_active_registry_identity",
           "bootstrap_identity_requires_normal_v20_registry_and_physical_revalidation_before_benchmark_admission",
         ]
       : [
-          matches.size > 1
-            ? "trusted_holdout_registry_identity_ambiguous"
-            : "trusted_holdout_registry_no_identity_matches_available_operator_truth",
+          strictMatches.size > 1
+            ? "trusted_holdout_registry_identity_ambiguous_under_available_release_truth"
+            : relaxedMatches.size > 1
+              ? "trusted_holdout_registry_identity_ambiguous_after_release_coordinate_recovery"
+              : "trusted_holdout_registry_no_identity_matches_player_card_variant_truth",
         ];
 
     return NextResponse.json({
@@ -435,7 +457,10 @@ export async function POST(req: NextRequest) {
       resolverStatus,
       status: publicStatus(resolverStatus),
       reasons,
-      candidateCount: matches.size,
+      bootstrapMode,
+      candidateCount: match ? 1 : Math.max(strictMatches.size, relaxedMatches.size),
+      strictCandidateCount: strictMatches.size,
+      relaxedCandidateCount: relaxedMatches.size,
       registryIdentityId: match?.identityId || null,
       identityId: match?.identityId || null,
       registryFingerprintSha256: match?.fingerprintSha256 || null,
