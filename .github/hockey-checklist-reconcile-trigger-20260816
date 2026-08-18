@@ -1,6 +1,7 @@
-2026-08-18T13:43:00-06:00
+2026-08-18T14:03:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=5
-reason=live-status-guarded-production-reconcile-after-hockey-context-repair
+retry=6
+reason=bounded-source-timeout-after-live-run-53-stall
 expected_ingest_revision=2026-08-18-hockey-context-v1
+source_timeout_ms=180000
 status_branch=ops/hockey-reconcile-status
