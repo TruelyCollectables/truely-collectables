@@ -22,7 +22,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          WORKFLOW: instacomp-requested-hockey-finalize-resume-production.yml
+          WORKFLOW: instacomp-hockey-production-dispatch.yml
           HOCKEY_REF: feature/instacomp-target-checklists-20260816
         shell: bash
         run: |
