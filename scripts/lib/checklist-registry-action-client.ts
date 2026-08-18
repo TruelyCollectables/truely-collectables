@@ -2,7 +2,7 @@ const CHECKLIST_OIDC_AUDIENCE = "tcos-checklist-registry";
 const DEFAULT_REGISTRY_ACTION_URL =
   "https://truelycollectables.com/api/internal/checklist-registry/action-ingest";
 
-const MAX_ACTION_ATTEMPTS = 4;
+const DEFAULT_MAX_ACTION_ATTEMPTS = 4;
 const TRANSIENT_ACTION_MESSAGE =
   /timeout|timed out|upstream request timeout|connection.*timed out|canceling statement due to statement timeout|fetch failed|connection reset|econnreset|etimedout|temporarily unavailable|service unavailable|bad gateway|gateway timeout/i;
 
@@ -64,6 +64,12 @@ function registryActionTimeoutMs() {
   return Math.max(30_000, Math.min(10 * 60 * 1000, Math.floor(configured)));
 }
 
+function registryActionMaxAttempts() {
+  const configured = Number(process.env.CHECKLIST_REGISTRY_ACTION_MAX_ATTEMPTS || "");
+  if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_MAX_ACTION_ATTEMPTS;
+  return Math.max(1, Math.min(DEFAULT_MAX_ACTION_ATTEMPTS, Math.floor(configured)));
+}
+
 function transientTransportError(error: unknown) {
   if (error instanceof DOMException && error.name === "TimeoutError") return true;
   if (error instanceof Error) {
@@ -101,8 +107,9 @@ async function postOnce(payload: Record<string, unknown>, forceTokenRefresh = fa
 
 export async function postChecklistRegistryAction(payload: Record<string, unknown>) {
   let lastMessage = "Checklist Registry action failed.";
+  const maxAttempts = registryActionMaxAttempts();
 
-  for (let attempt = 0; attempt < MAX_ACTION_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const { response, body } = await postOnce(
         payload,
@@ -129,7 +136,7 @@ export async function postChecklistRegistryAction(payload: Record<string, unknow
       if (!transientTransportError(error)) throw error;
     }
 
-    if (attempt < MAX_ACTION_ATTEMPTS - 1) {
+    if (attempt < maxAttempts - 1) {
       await sleepBeforeRetry(attempt);
     }
   }
