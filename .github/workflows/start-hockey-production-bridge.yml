@@ -22,8 +22,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          WORKFLOW: instacomp-hockey-production-dispatch.yml
-          HOCKEY_REF: feature/instacomp-target-checklists-20260816
+          WORKFLOW: instacomp-hockey-production-run.yml
+          HOCKEY_REF: main
         shell: bash
         run: |
           set -euo pipefail
