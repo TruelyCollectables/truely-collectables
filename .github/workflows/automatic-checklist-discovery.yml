@@ -69,8 +69,9 @@ jobs:
       HOCKEY_CHECKLIST_START_DATE: "2021-07-01T00:00:00Z"
       HOCKEY_CHECKLIST_MAX_CATEGORY_PAGES: "40"
       HOCKEY_CHECKLIST_OUTPUT: .hockey-checklist-reconcile/receipt.json
+      HOCKEY_CHECKLIST_SHARD_COUNT: "4"
       HOCKEY_INGEST_REVISION_URL: https://truelycollectables.com/api/internal/checklist-registry/ingest-revision
-      EXPECTED_HOCKEY_INGEST_REVISION: "2026-08-18-hockey-preflight-v4"
+      EXPECTED_HOCKEY_INGEST_REVISION: "2026-08-18-hockey-preflight-v5"
       HOCKEY_STATUS_BRANCH: "ops/hockey-reconcile-status"
       REQUESTED_DISCOVERY_SCOPE: ${{ inputs.scope || 'standard' }}
     steps:
@@ -98,7 +99,8 @@ jobs:
           fi
           echo "HOCKEY_RECONCILE=${hockey}" >> "${GITHUB_ENV}"
           if [[ "${hockey}" == "true" ]]; then
-            echo "CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS=180000" >> "${GITHUB_ENV}"
+            echo "CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS=75000" >> "${GITHUB_ENV}"
+            echo "CHECKLIST_REGISTRY_ACTION_MAX_ATTEMPTS=2" >> "${GITHUB_ENV}"
           fi
       - name: Wait for repaired Production checklist ingest
         if: ${{ env.HOCKEY_RECONCILE == 'true' }}
@@ -142,7 +144,35 @@ jobs:
           git push --force origin "HEAD:${HOCKEY_STATUS_BRANCH}"
       - name: Reconcile every 2021-plus hockey checklist
         if: ${{ env.HOCKEY_RECONCILE == 'true' }}
-        run: npx tsx scripts/reconcile-hockey-checklists-2021plus.ts
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p .hockey-checklist-reconcile
+          pids=()
+          for shard in 0 1 2 3; do
+            (
+              export HOCKEY_CHECKLIST_SHARD_INDEX="${shard}"
+              export HOCKEY_CHECKLIST_OUTPUT=".hockey-checklist-reconcile/shard-${shard}.json"
+              npx tsx scripts/reconcile-hockey-checklists-2021plus.ts > ".hockey-checklist-reconcile/shard-${shard}.log" 2>&1
+            ) &
+            pids+=("$!")
+          done
+
+          shard_status=0
+          for pid in "${pids[@]}"; do
+            if ! wait "${pid}"; then
+              shard_status=1
+            fi
+          done
+
+          for log in .hockey-checklist-reconcile/shard-*.log; do
+            echo "::group::${log}"
+            tail -n 250 "${log}" || true
+            echo "::endgroup::"
+          done
+
+          export HOCKEY_CHECKLIST_OUTPUT=".hockey-checklist-reconcile/receipt.json"
+          npx tsx scripts/aggregate-hockey-checklist-reconcile.ts
       - name: Discover, validate, and safely import
         if: ${{ env.HOCKEY_RECONCILE != 'true' }}
         run: npx tsx scripts/discover-and-import-checklists.ts
