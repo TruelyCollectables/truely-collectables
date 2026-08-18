@@ -15,6 +15,7 @@ const MAX_UPPER_DECK_HTML_BYTES = 8 * 1024 * 1024;
 const MAX_SELECTION_CANDIDATES = 2_000;
 const MAX_UPPER_DECK_SELECTION = 60;
 const MAX_TOPPS_SELECTION = 40;
+const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-context-v1";
 
 type UpperDeckSelectionPayload = {
   operation: "upper_deck_select_sources";
@@ -91,6 +92,12 @@ function checkedTime(value: string | null | undefined) {
   if (!value) return 0;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function metadataRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 async function upsertCatalog(values: Record<string, unknown>) {
@@ -184,12 +191,20 @@ async function processUpperDeck(payload: UpperDeckPayload) {
   const sourceSha256 = sha256(payload.content);
   const { data: existing, error } = await db
     .from("checklist_source_catalog")
-    .select("status,source_sha256")
+    .select("status,source_sha256,metadata")
     .eq("source_url", payload.sourceUrl)
     .maybeSingle();
   if (error) throw new Error(`Could not read checklist source catalog: ${error.message}`);
 
-  if (["imported", "unchanged"].includes(existing?.status || "") && existing?.source_sha256 === sourceSha256) {
+  const existingMetadata = metadataRecord(existing?.metadata);
+  const existingRevision = typeof existingMetadata?.ingestRevision === "string"
+    ? existingMetadata.ingestRevision
+    : null;
+  if (
+    ["imported", "unchanged"].includes(existing?.status || "") &&
+    existing?.source_sha256 === sourceSha256 &&
+    existingRevision === UPPER_DECK_INGEST_REVISION
+  ) {
     const status = existing?.status === "imported" ? "imported" : "unchanged";
     await upsertCatalog({
       manufacturer: "Upper Deck",
@@ -198,6 +213,7 @@ async function processUpperDeck(payload: UpperDeckPayload) {
       status,
       last_seen_at: checkedAt,
       last_checked_at: checkedAt,
+      metadata: existingMetadata,
     });
     return { sourceUrl: payload.sourceUrl, status, sourceSha256, unchanged: true };
   }
@@ -235,6 +251,7 @@ async function processUpperDeck(payload: UpperDeckPayload) {
       season: validation.plan.release.season,
       releaseYear: validation.plan.release.releaseYear,
       league: validation.plan.release.league,
+      ingestRevision: UPPER_DECK_INGEST_REVISION,
     },
   };
 
