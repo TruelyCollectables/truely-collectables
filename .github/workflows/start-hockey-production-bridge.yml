@@ -61,3 +61,4 @@ jobs:
             -d "$payload"
 
 # service-role-rpc-final-six-retrigger 2026-08-18T12:24-06:00
+# rpc-duplicate-card-repair-retrigger 2026-08-18T12:53-06:00
