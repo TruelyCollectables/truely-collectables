@@ -21,6 +21,7 @@ import { upperDeck2025_26NormalizedHtmlChecklistAdapter } from "./upper-deck-202
 import { upperDeck2025_26OpcHtmlChecklistAdapter } from "./upper-deck-2025-26-opc-html";
 import { upperDeckArtifactsOfficialHtmlChecklistAdapter } from "./upper-deck-artifacts-official-html";
 import { upperDeckBlackDiamondOfficialHtmlChecklistAdapter } from "./upper-deck-black-diamond-official-html";
+import { upperDeckClearCutOfficialHtmlChecklistAdapter } from "./upper-deck-clear-cut-official-html";
 import { upperDeckMvpOfficialHtmlChecklistAdapter } from "./upper-deck-mvp-official-html";
 import { upperDeckOfficialHtmlChecklistAdapter } from "./upper-deck-official-html";
 import { upperDeckTeamCanadaOfficialHtmlChecklistAdapter } from "./upper-deck-team-canada-official-html";
@@ -43,6 +44,7 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   upperDeck2025_26ChicagoHtmlChecklistAdapter,
   upperDeck2025_26OpcHtmlChecklistAdapter,
   upperDeck2025_26NormalizedHtmlChecklistAdapter,
+  upperDeckClearCutOfficialHtmlChecklistAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
   paniniStructuredChecklistAdapter,
   toppsFootballTextChecklistAdapter,
