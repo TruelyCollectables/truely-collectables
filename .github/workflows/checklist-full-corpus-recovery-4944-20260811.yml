@@ -1,0 +1,26 @@
+name: Checklist Full Corpus Recovery 4944 20260811
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-full-corpus-recovery-4944-20260811.yml'
+      - 'scripts/ingest-master-checklist-archive.mjs'
+      - 'scripts/checklist-catalog-retry-prepatch.mjs'
+      - 'scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-full-corpus-recovery-4944-20260811
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'Full 16-batch recovery is complete; superseded by targeted missing-only recovery waves.'
