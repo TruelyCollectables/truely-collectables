@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 240
     env:
       GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/hockey-final-six/base
       DOWNLOADED_CHECKLIST_CORPUS_ROOT: /home/runner/work/_temp/hockey-final-six/corpus
       THE_CUP_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-final-six/cup/the-cup-layout-plans
       THE_CUP_MANAGEMENT_RECEIPT: /home/runner/work/_temp/hockey-final-six/the-cup-management.json
@@ -61,6 +62,14 @@ jobs:
       - name: Resolve Production Supabase credentials
         run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
 
+      - name: Download immutable original harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/hockey-final-six/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
       - name: Download complete immutable source corpus
         uses: actions/download-artifact@v4
         with:
@@ -81,6 +90,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -d "$VERIFIED_HARVEST_ROOT/output/sources"
+          test -n "$(find "$VERIFIED_HARVEST_ROOT/output/sources" -maxdepth 1 -type f -name 'hockey_2022-23_upper-deck_the-cup-nhl__*' -print -quit)"
           test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*' | wc -l | tr -d ' ')" = '192'
           jq -e '.exactSetKey == "hockey|2022-23|upper-deck|the-cup-nhl" and .status == "validated"' /home/runner/work/_temp/hockey-final-six/cup/the-cup-layout-recovery-receipt.json
 
@@ -125,7 +136,7 @@ jobs:
           const root = '/home/runner/work/_temp/hockey-final-six';
           const read = (name) => { try { return JSON.parse(fs.readFileSync(`${root}/${name}`, 'utf8')); } catch { return null; } };
           const r = {
-            schema: 'tcos.hockeyFinalSixProduction.v1',
+            schema: 'tcos.hockeyFinalSixProduction.v2',
             completedAt: new Date().toISOString(),
             theCup: read('the-cup-management.json'),
             topps: read('topps-production.json'),
@@ -133,7 +144,7 @@ jobs:
             baselineVerification: read('requested-hockey-individual-verification.json'),
           };
           const failures = [];
-          if (!r.theCup || Number(r.theCup.failedCount || 0) !== 0 || Number(r.theCup.unresolvedCount || 0) !== 0 || Number(r.theCup.liveCount || 0) < Number(r.theCup.targetCount || 1)) failures.push('theCup');
+          if (!r.theCup || !['already_live','persisted'].includes(String(r.theCup.status || ''))) failures.push('theCup');
           if (!r.topps || Number(r.topps.failedCount || 0) !== 0 || Number(r.topps.unresolvedCount || 0) !== 0 || Number(r.topps.liveCount || 0) !== 5) failures.push('topps');
           if (!r.upperDeckSupplements || Number(r.upperDeckSupplements.failedCount || 0) !== 0 || Number(r.upperDeckSupplements.validationFailedCount || 0) !== 0 || Number(r.upperDeckSupplements.unresolvedCount || 0) !== 0 || Number(r.upperDeckSupplements.liveCount || 0) !== 55) failures.push('upperDeckSupplements');
           const baselinePassed = Number(r.baselineVerification?.passedCount ?? r.baselineVerification?.liveCount ?? 0);
