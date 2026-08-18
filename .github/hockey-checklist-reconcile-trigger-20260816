@@ -1,8 +1,8 @@
-2026-08-18T17:36:00-06:00
+2026-08-18T17:57:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=11
-reason=preflight-v5-ultimate-lane-repair-and-four-way-bounded-shards
-expected_ingest_revision=2026-08-18-hockey-preflight-v5
+retry=12
+reason=preflight-v6-systemic-repeated-number-lane-normalization
+expected_ingest_revision=2026-08-18-hockey-preflight-v6
 shard_count=4
 source_timeout_ms=75000
 source_attempts=2
