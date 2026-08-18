@@ -167,38 +167,73 @@ workbook.write_text(wtext)
 
 # ---------------------------------------------------------------------------
 # 4) Generic Upper Deck HTML parser robustness for the remaining official
-#    pages: Subjects or First/Last can be the subject column, SP/SSP in the
-#    official serial column is a variation marker, and the 2025 Spring Expo is
-#    an official Upper Deck page outside /checklist/.
+#    pages. This script runs after patch-upper-deck-recovery-parser.py, so it
+#    supports both the pristine and already-rewritten parser shapes.
 # ---------------------------------------------------------------------------
 ud = Path('src/lib/checklist-registry/upper-deck-html.ts')
 udtext = ud.read_text()
 
+# Pristine shape fallback.
 udtext = udtext.replace(
     'description: findHeaderIndex(table.headers, ["Description", "Player Name"]),',
-    'description: findHeaderIndex(table.headers, ["Description", "Player Name", "Decription"]),\n    firstName: findHeaderIndex(table.headers, ["First Name"]),\n    lastName: findHeaderIndex(table.headers, ["Last Name"]),',
+    'description: findHeaderIndex(table.headers, ["Description", "Player Name", "Player", "Name", "Subjects", "Decription"]),\n    firstName: findHeaderIndex(table.headers, ["First Name", "FirstName"]),\n    lastName: findHeaderIndex(table.headers, ["Last Name", "LastName"]),',
     1,
 )
+# Shape after patch-upper-deck-recovery-parser.py.
 udtext = udtext.replace(
-    'if (indexes.setName < 0 || indexes.card < 0 || indexes.description < 0) {\n    throw new Error(\n      "Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns",\n    );\n  }',
-    'if (indexes.setName < 0 || indexes.card < 0 || (indexes.description < 0 && indexes.subjects < 0 && (indexes.firstName < 0 || indexes.lastName < 0))) {\n    throw new Error(\n      "Upper Deck checklist table requires Set Name, Card, and a Description/Player, Subjects, or First/Last Name column",\n    );\n  }',
+    'description: findHeaderIndex(table.headers, ["Description", "Player Name", "Player", "Name"]),',
+    'description: findHeaderIndex(table.headers, ["Description", "Player Name", "Player", "Name", "Subjects", "Decription"]),',
     1,
 )
+
+pristine_requirement = '''  if (indexes.setName < 0 || indexes.card < 0 || indexes.description < 0) {
+    throw new Error(
+      "Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns",
+    );
+  }'''
+recovery_requirement = '''  if (indexes.setName < 0 || indexes.card < 0 || (indexes.description < 0 && indexes.firstName < 0 && indexes.lastName < 0)) {
+    throw new Error(
+      "Upper Deck checklist table requires Set Name, Card, and a Description/Player or First/Last Name column",
+    );
+  }'''
+new_requirement = '''  if (indexes.setName < 0 || indexes.card < 0 || (indexes.description < 0 && indexes.subjects < 0 && (indexes.firstName < 0 || indexes.lastName < 0))) {
+    throw new Error(
+      "Upper Deck checklist table requires Set Name, Card, and a Description/Player, Subjects, or First/Last Name column",
+    );
+  }'''
+if pristine_requirement in udtext:
+    udtext = udtext.replace(pristine_requirement, new_requirement, 1)
+elif recovery_requirement in udtext:
+    udtext = udtext.replace(recovery_requirement, new_requirement, 1)
+elif new_requirement not in udtext:
+    raise SystemExit('Upper Deck subject-column requirement patch missed')
+
 udtext = udtext.replace(
     'description: at(cells, indexes.description),',
     'description: at(cells, indexes.description) || at(cells, indexes.subjects) || clean(`${at(cells, indexes.firstName)} ${at(cells, indexes.lastName)}`),',
     1,
 )
 udtext = udtext.replace(
-    'if (clean(row.shortPrint)) values.push(clean(row.shortPrint));',
-    'if (clean(row.shortPrint)) values.push(clean(row.shortPrint));\n  if (/^(?:SP|SSP)$/i.test(clean(row.serial))) values.push(clean(row.serial).toUpperCase());',
+    'description: at(cells, indexes.description) || clean(`${at(cells, indexes.firstName)} ${at(cells, indexes.lastName)}`),',
+    'description: at(cells, indexes.description) || at(cells, indexes.subjects) || clean(`${at(cells, indexes.firstName)} ${at(cells, indexes.lastName)}`),',
     1,
 )
-udtext = udtext.replace(
-    'if (row.serial && serialRun == null) {',
-    'if (row.serial && serialRun == null && !/^(?:SP|SSP)$/i.test(clean(row.serial))) {',
-    1,
-)
+
+if 'if (/^(?:SP|SSP)$/i.test(clean(row.serial))) values.push(clean(row.serial).toUpperCase());' not in udtext:
+    udtext = replace_once(
+        udtext,
+        'if (clean(row.shortPrint)) values.push(clean(row.shortPrint));',
+        'if (clean(row.shortPrint)) values.push(clean(row.shortPrint));\n  if (/^(?:SP|SSP)$/i.test(clean(row.serial))) values.push(clean(row.serial).toUpperCase());',
+        'Upper Deck SP/SSP variation',
+    )
+if 'row.serial && serialRun == null && !/^(?:SP|SSP)$/i.test(clean(row.serial))' not in udtext:
+    udtext = replace_once(
+        udtext,
+        'if (row.serial && serialRun == null) {',
+        'if (row.serial && serialRun == null && !/^(?:SP|SSP)$/i.test(clean(row.serial))) {',
+        'Upper Deck SP/SSP serial gate',
+    )
+
 udtext = udtext.replace(
     '!/^https:\\/\\/(?:www\\.)?upperdeck\\.com\\/checklist\\//i.test(artifact.sourceUrl)',
     '!/^https:\\/\\/(?:www\\.)?upperdeck\\.com\\/(?:checklist\\/|2025-spring-sports-card-memorabilia-expo\\/?)/i.test(artifact.sourceUrl)',
@@ -270,5 +305,19 @@ new_chicago = '''    const withSeason = original.replace(/<h1\\b([^>]*)>([\\s\\S
 if new_chicago not in ctext:
     ctext = replace_once(ctext, old_chicago, new_chicago, 'Chicago season normalization')
 chicago.write_text(ctext)
+
+
+# ---------------------------------------------------------------------------
+# 9) The 46 already-live Upper Deck supplement rows should not impose a 15s
+#    delay each during this targeted repair rerun.
+# ---------------------------------------------------------------------------
+supplements = Path('scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts')
+stext = supplements.read_text()
+stext = stext.replace(
+    'const DELAY_MS = Math.max(0, Number(process.env.UPPER_DECK_SUPPLEMENT_DELAY_MS || 3000));',
+    'const DELAY_MS = 0;',
+    1,
+)
+supplements.write_text(stext)
 
 print('Patched final Hockey Production unresolved import classes')
