@@ -63,9 +63,9 @@ if [[ "$updated" != "$current" && "${INSTACOMP_STAGED_REEXECED:-0}" != "1" ]]; t
 fi
 
 echo "PASS staged learner source synchronized at $updated"
-echo "INFO Running the isolated V19 canonical promotion self-test before live preflight"
+echo "INFO Running the isolated V20 Registry-ready reserve promotion self-test before live preflight"
 bash "$launcher" --self-test
-echo "PASS V19 staged learner contract self-test"
+echo "PASS V20 staged learner contract self-test"
 
 requested_target=10
 passthrough=()
@@ -99,15 +99,15 @@ case "$requested_target" in
     ;;
 esac
 
-echo "INFO Starting V19 live staged promotion ladder ${stages[*]}"
+echo "INFO Starting V20 live staged promotion ladder ${stages[*]}"
 for stage in "${stages[@]}"; do
-  echo "INFO Certifying Frozen $stage with V19 single canonical Registry/physical/candidate pipeline"
+  echo "INFO Certifying Frozen $stage with V20 Registry-ready reserve + canonical Registry/physical/candidate pipeline"
   if [[ "$passthrough_present" == "1" ]]; then
     bash "$launcher" "${passthrough[@]}" --stage-target "$stage"
   else
     bash "$launcher" --stage-target "$stage"
   fi
-  echo "PASS Frozen $stage V19 certification completed"
+  echo "PASS Frozen $stage V20 certification completed"
 done
 
-echo "PASS V19 staged learning ladder completed through Frozen $requested_target"
+echo "PASS V20 staged learning ladder completed through Frozen $requested_target"
