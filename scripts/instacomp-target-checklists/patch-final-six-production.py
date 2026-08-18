@@ -6,38 +6,71 @@ import re
 # management writer already committed on the Hockey recovery branch.
 
 # ---------------------------------------------------------------------------
-# 1) Registry writer: canonicalize the physical set sourceKey itself. The
-# management RPC may normalize/dedupe set rows; every card/parallel must use
-# the identical deterministic parent key or the chunk is correctly rejected.
+# 1) Registry writer: preserve the source's proven set sourceKeys, collapse
+# duplicate set aliases onto the first physical set row, then collapse cards
+# that the Registry treats as the same natural card (set + card number).
+#
+# IMPORTANT: do NOT synthesize new set sourceKeys here. The certified The Cup
+# plan previously persisted every set chunk with its original keys and only
+# failed later on duplicate cards. Rewriting those keys caused the regression
+# where the first set chunk left 25/25 keys unmapped.
 # ---------------------------------------------------------------------------
 writer = Path("scripts/instacomp-target-checklists/management-staged-registry-writer.mjs")
 wtext = writer.read_text()
 
-new_canonicalizer = r'''function canonicalizeSetAliases(plan){
+new_canonicalizers = r'''function canonicalizeSetAliases(plan){
   const norm=v=>String(v??"").normalize("NFKC").toLowerCase().replaceAll("&"," and ").replace(/[^\p{L}\p{N}]+/gu,"").trim();
-  const keyFor=v=>`set-${String(v||"base").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"base"}`;
   const kept=new Map(),alias=new Map(),sets=[];
   for(const s of plan.sets||[]){
-    const identity=norm(s.normalizedName||s.name||s.sourceKey),canonicalKey=keyFor(identity);
-    alias.set(String(s.sourceKey),canonicalKey);
-    if(!kept.has(identity)){
-      const row={...s,sourceKey:canonicalKey};
-      kept.set(identity,row);
-      sets.push(row);
+    const k=norm(s.normalizedName||s.name||s.sourceKey),p=kept.get(k);
+    if(!p){
+      kept.set(k,s);
+      alias.set(String(s.sourceKey),String(s.sourceKey));
+      sets.push(s);
+    }else{
+      alias.set(String(s.sourceKey),String(p.sourceKey));
     }
   }
-  const remap=r=>({...r,setSourceKey:alias.get(String(r.setSourceKey))||keyFor(r.setSourceKey)}),cards=(plan.cards||[]).map(remap),parallels=(plan.parallels||[]).map(remap);
+  const remap=r=>({...r,setSourceKey:alias.get(String(r.setSourceKey))||r.setSourceKey});
+  const cards=(plan.cards||[]).map(remap),parallels=(plan.parallels||[]).map(remap);
   return{...plan,sets,cards,parallels,validation:{...plan.validation,counts:{...plan.validation.counts,sets:sets.length}}};
+}
+function canonicalizeCardAliases(plan){
+  const norm=v=>String(v??"").normalize("NFKC").trim().toLowerCase().replace(/\s+/g," ");
+  const kept=new Map(),alias=new Map(),cards=[];
+  for(const c of plan.cards||[]){
+    const setKey=String(c.setSourceKey??"");
+    const number=norm(c.cardNumber??c.number??"");
+    const natural=`${setKey}\u0000${number}`;
+    const p=kept.get(natural);
+    if(!p){
+      kept.set(natural,c);
+      alias.set(String(c.sourceKey),String(c.sourceKey));
+      cards.push(c);
+    }else{
+      alias.set(String(c.sourceKey),String(p.sourceKey));
+    }
+  }
+  const remapCardKey=r=>r&&r.cardSourceKey?({...r,cardSourceKey:alias.get(String(r.cardSourceKey))||r.cardSourceKey}):r;
+  const identities=(plan.identities||[]).map(remapCardKey);
+  const parallels=(plan.parallels||[]).map(remapCardKey);
+  return{...plan,cards,parallels,identities,validation:{...plan.validation,counts:{...plan.validation.counts,cards:cards.length}}};
 }'''
 
 pattern = re.compile(
     r'function canonicalizeSetAliases\(plan\)\{.*?\}\nexport async function persistPlanManagement',
     re.S,
 )
-replacement = new_canonicalizer + "\nexport async function persistPlanManagement"
+replacement = new_canonicalizers + "\nexport async function persistPlanManagement"
 wtext, count = pattern.subn(lambda _match: replacement, wtext, count=1)
 if count != 1:
-    raise SystemExit(f"Registry canonical set-source-key repair missed current writer (replaced {count})")
+    raise SystemExit(f"Registry canonical alias repair missed current writer (replaced {count})")
+
+old_entry = '  plan = canonicalizeSetAliases(plan);'
+new_entry = '  plan = canonicalizeCardAliases(canonicalizeSetAliases(plan));'
+if old_entry not in wtext:
+    raise SystemExit("Registry persistence entrypoint repair missed current writer")
+wtext = wtext.replace(old_entry, new_entry, 1)
 writer.write_text(wtext)
 
 
