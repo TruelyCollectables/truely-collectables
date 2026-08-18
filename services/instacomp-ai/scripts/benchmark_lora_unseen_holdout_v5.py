@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+import time
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -16,6 +18,11 @@ SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v5"
 _CANONICAL_AUTHORITATIVE_HOLDOUT = canonical._authoritative_holdout
 MAX_BOOTSTRAP_ATTEMPTS = 1200
 BOOTSTRAP_EXACT_RESERVE = 240
+BOOTSTRAP_CONCURRENCY = 6
+BOOTSTRAP_PROGRESS_EVERY = 20
+BOOTSTRAP_HTTP_TIMEOUT_SECONDS = 12.0
+BOOTSTRAP_ITEM_TIMEOUT_SECONDS = 20.0
+BOOTSTRAP_WALL_BUDGET_SECONDS = 900.0
 
 
 @dataclass(frozen=True)
@@ -120,7 +127,11 @@ def _bootstrap_truth(data: dict[str, Any], teacher: Any) -> BootstrapTruth | Non
     )
 
 
-async def _bootstrap_one(item: dict[str, Any], identity: Any) -> tuple[BootstrapTruth | None, str]:
+async def _bootstrap_one(
+    client: httpx.AsyncClient,
+    item: dict[str, Any],
+    identity: Any,
+) -> tuple[BootstrapTruth | None, str]:
     from app.checklist import _bounded_ocr, _registry_base_url, _registry_headers
 
     base_url = _registry_base_url()
@@ -131,12 +142,11 @@ async def _bootstrap_one(item: dict[str, Any], identity: Any) -> tuple[Bootstrap
     ocr = str(getattr(vision, "combined_text", None) or "").strip() or None
     payload = _bootstrap_payload(identity, ocr_text=_bounded_ocr(ocr))
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{base_url}/api/instacomp/registry-holdout-lock",
-                headers=_registry_headers(),
-                json=payload,
-            )
+        response = await client.post(
+            f"{base_url}/api/instacomp/registry-holdout-lock",
+            headers=_registry_headers(),
+            json=payload,
+        )
     except httpx.HTTPError as error:
         return None, f"transport:{type(error).__name__}"
 
@@ -191,32 +201,95 @@ async def _authoritative_holdout(
 
     replacements: dict[str, BootstrapTruth] = {}
     stats: Counter[str] = Counter()
-    attempts = 0
     exact = 0
 
+    work: list[tuple[dict[str, Any], Any, bool]] = []
     for item in _bootstrap_order(items):
         identity = CardIdentity.model_validate(item["identity"])
         ready, _missing = canonical.legacy.v20._visible_set_identity_readiness(identity)
         if ready:
             stats["already_registry_ready"] += 1
-        if (
-            attempts >= MAX_BOOTSTRAP_ATTEMPTS
-            or exact >= BOOTSTRAP_EXACT_RESERVE
-            or not _bootstrap_eligible(item, identity)
-        ):
-            continue
-        attempts += 1
-        resolved, reason = await _bootstrap_one(item, identity)
-        stats[reason] += 1
-        if resolved is None:
-            continue
-        row_id = str(item.get("row_id") or "")
-        if not row_id:
-            continue
-        replacements[row_id] = resolved
-        exact += 1
-        stats["bootstrap_receipt_preserved"] += 1
-        stats["bootstrap_incomplete" if not ready else "bootstrap_ready"] += 1
+        if _bootstrap_eligible(item, identity):
+            work.append((item, identity, ready))
+        if len(work) >= MAX_BOOTSTRAP_ATTEMPTS:
+            break
+
+    print(
+        "UNSEEN TRUSTED REGISTRY BOOTSTRAP START: "
+        f"eligible={len(work)} concurrency={BOOTSTRAP_CONCURRENCY} "
+        f"item_timeout={BOOTSTRAP_ITEM_TIMEOUT_SECONDS:.0f}s "
+        f"http_timeout={BOOTSTRAP_HTTP_TIMEOUT_SECONDS:.0f}s "
+        f"wall_budget={BOOTSTRAP_WALL_BUDGET_SECONDS:.0f}s",
+        flush=True,
+    )
+
+    started = time.monotonic()
+    attempts = 0
+    semaphore = asyncio.Semaphore(BOOTSTRAP_CONCURRENCY)
+    timeout = httpx.Timeout(BOOTSTRAP_HTTP_TIMEOUT_SECONDS)
+    limits = httpx.Limits(
+        max_connections=BOOTSTRAP_CONCURRENCY,
+        max_keepalive_connections=BOOTSTRAP_CONCURRENCY,
+    )
+
+    async def run_one(
+        client: httpx.AsyncClient,
+        item: dict[str, Any],
+        identity: Any,
+    ) -> tuple[BootstrapTruth | None, str]:
+        async with semaphore:
+            try:
+                return await asyncio.wait_for(
+                    _bootstrap_one(client, item, identity),
+                    timeout=BOOTSTRAP_ITEM_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                return None, "bootstrap_item_timeout"
+
+    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+        for batch_start in range(0, len(work), BOOTSTRAP_PROGRESS_EVERY):
+            elapsed = time.monotonic() - started
+            if exact >= BOOTSTRAP_EXACT_RESERVE:
+                stats["bootstrap_exact_reserve_reached"] += 1
+                break
+            if elapsed >= BOOTSTRAP_WALL_BUDGET_SECONDS:
+                stats["bootstrap_wall_budget_exhausted"] += 1
+                print(
+                    "UNSEEN TRUSTED REGISTRY BOOTSTRAP WATCHDOG: "
+                    f"wall budget reached after {elapsed:.1f}s; continuing fail-closed with "
+                    f"attempted={attempts} exact={exact}",
+                    flush=True,
+                )
+                break
+
+            batch = work[batch_start : batch_start + BOOTSTRAP_PROGRESS_EVERY]
+            results = await asyncio.gather(
+                *(run_one(client, item, identity) for item, identity, _ready in batch)
+            )
+            attempts += len(batch)
+
+            for (item, _identity, ready), (resolved, reason) in zip(batch, results, strict=True):
+                stats[reason] += 1
+                if resolved is None or exact >= BOOTSTRAP_EXACT_RESERVE:
+                    continue
+                row_id = str(item.get("row_id") or "")
+                if not row_id:
+                    continue
+                replacements[row_id] = resolved
+                exact += 1
+                stats["bootstrap_receipt_preserved"] += 1
+                stats["bootstrap_incomplete" if not ready else "bootstrap_ready"] += 1
+
+            elapsed = time.monotonic() - started
+            rate = attempts / elapsed if elapsed > 0 else 0.0
+            print(
+                "UNSEEN TRUSTED REGISTRY BOOTSTRAP PROGRESS: "
+                f"attempted={attempts}/{len(work)} exact={exact}/{BOOTSTRAP_EXACT_RESERVE} "
+                f"receipt_preserved={stats['bootstrap_receipt_preserved']} "
+                f"elapsed={elapsed:.1f}s rate={rate:.2f}/s "
+                f"recent_top={stats.most_common(5)}",
+                flush=True,
+            )
 
     enriched: list[dict[str, Any]] = []
     for item in items:
@@ -235,13 +308,14 @@ async def _authoritative_holdout(
             )
         enriched.append(value)
 
+    elapsed = time.monotonic() - started
     print(
         "UNSEEN TRUSTED REGISTRY BOOTSTRAP: "
         f"attempted={attempts} exact={exact} reserve_goal={BOOTSTRAP_EXACT_RESERVE} "
         f"already_ready={stats['already_registry_ready']} "
         f"receipt_preserved={stats['bootstrap_receipt_preserved']} "
         f"bootstrapped_incomplete={stats['bootstrap_incomplete']} "
-        f"bootstrapped_ready={stats['bootstrap_ready']} "
+        f"bootstrapped_ready={stats['bootstrap_ready']} elapsed={elapsed:.1f}s "
         f"top_outcomes={stats.most_common(12)}",
         flush=True,
     )
@@ -346,11 +420,18 @@ def _self_test() -> int:
         "incomplete",
         "ready",
     ]
+    assert BOOTSTRAP_CONCURRENCY > 1
+    assert BOOTSTRAP_PROGRESS_EVERY <= 20
+    assert BOOTSTRAP_HTTP_TIMEOUT_SECONDS < 30.0
+    assert BOOTSTRAP_ITEM_TIMEOUT_SECONDS <= 20.0
+    assert BOOTSTRAP_WALL_BUDGET_SECONDS <= 900.0
 
     print("PASS unseen V5 bootstrap requires current trusted exact-image validation truth")
     print("PASS unseen V5 accepts only one UUID/fingerprint-shaped Registry bootstrap")
     print("PASS unseen V5 preserves current bootstrap UUID/fingerprint for normal V20 receipt revalidation")
     print("PASS unseen V5 prioritizes locally incomplete trusted rows before already-ready rows")
+    print("PASS unseen V5 bootstrap reuses bounded parallel HTTP with hard per-item timeout")
+    print("PASS unseen V5 bootstrap emits progress and has a hard wall-clock watchdog")
     print("PASS unseen V5 may repair stale release coordinates only through one unique identity")
     print("PASS unseen V5 refuses player/card drift before normal V20 revalidation")
     print("PASS unseen V5 bootstrap cannot bypass canonical V3/V20 admission")
