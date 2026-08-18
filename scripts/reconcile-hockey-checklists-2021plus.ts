@@ -15,6 +15,15 @@ const OUTPUT = resolve(
   process.cwd(),
   process.env.HOCKEY_CHECKLIST_OUTPUT || ".hockey-checklist-reconcile/receipt.json",
 );
+const SHARD_COUNT = Math.max(
+  1,
+  Math.min(16, Number(process.env.HOCKEY_CHECKLIST_SHARD_COUNT || 1)),
+);
+const SHARD_INDEX = Number(process.env.HOCKEY_CHECKLIST_SHARD_INDEX || 0);
+
+if (!Number.isInteger(SHARD_INDEX) || SHARD_INDEX < 0 || SHARD_INDEX >= SHARD_COUNT) {
+  throw new Error(`Invalid hockey shard ${SHARD_INDEX}/${SHARD_COUNT}.`);
+}
 
 type HockeyCandidate = {
   sourceUrl: string;
@@ -108,7 +117,6 @@ function categoryEntries(html: string, base: string, categoryPage: number) {
 
   if (entries.size) return [...entries.values()];
 
-  // Fallback for older/current WordPress templates that do not wrap cards in <article>.
   const matches = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)];
   for (const match of matches) {
     try {
@@ -137,7 +145,7 @@ async function fetchHtml(url: string) {
     headers: {
       Accept: "text/html,application/xhtml+xml",
       "Cache-Control": "no-cache",
-      "User-Agent": "TCOS-Hockey-Checklist-Reconcile/1.0 (+private registry automation; contact sales@truelycollectables.com)",
+      "User-Agent": "TCOS-Hockey-Checklist-Reconcile/1.1 (+private registry automation; contact sales@truelycollectables.com)",
     },
     redirect: "follow",
     signal: AbortSignal.timeout(60_000),
@@ -200,12 +208,13 @@ async function discoverHockeyCandidates() {
       oldestPublishedAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
     });
 
-    // Hockey archive pages are newest-to-oldest. A wholly pre-boundary page is
-    // the hard stop even if one legacy card lacks a machine-readable date.
     if (pageClearlyOld) break;
   }
 
-  return { candidates: [...candidates.values()], pages };
+  return {
+    candidates: [...candidates.values()].sort((left, right) => left.sourceUrl.localeCompare(right.sourceUrl)),
+    pages,
+  };
 }
 
 function writeReceipt(value: Record<string, unknown>) {
@@ -220,19 +229,24 @@ async function main() {
     throw new Error("Upper Deck hockey archive produced zero in-scope checklist pages.");
   }
 
+  const selected = discovery.candidates.filter((_, index) => index % SHARD_COUNT === SHARD_INDEX);
   const results: ImportResult[] = [];
   const baseReceipt = {
-    schema: "tcos.hockeyChecklistReconcileReceipt.v1",
+    schema: "tcos.hockeyChecklistReconcileShardReceipt.v1",
     startedAt,
     source: HOCKEY_CATEGORY_URL,
     boundary: START_DATE.toISOString(),
     latestExpected: "2026-27 MVP",
     categoryPages: discovery.pages,
     candidateCount: discovery.candidates.length,
+    shardCount: SHARD_COUNT,
+    shardIndex: SHARD_INDEX,
+    selectedCandidateCount: selected.length,
+    selectedSourceUrls: selected.map((candidate) => candidate.sourceUrl),
   };
   writeReceipt({ ...baseReceipt, status: "running", results });
 
-  for (const candidate of discovery.candidates) {
+  for (const candidate of selected) {
     try {
       const content = await fetchHtml(candidate.sourceUrl);
       const response = await postChecklistRegistryAction({
@@ -285,10 +299,10 @@ async function main() {
   console.log(JSON.stringify(receipt, null, 2));
 
   if (unresolved.length) {
-    console.error(`Hockey Registry reconciliation incomplete: ${unresolved.length} checklist source(s) unresolved.`);
+    console.error(`Hockey Registry shard ${SHARD_INDEX}/${SHARD_COUNT} incomplete: ${unresolved.length} source(s) unresolved.`);
     process.exitCode = 1;
   } else {
-    console.log(`PASS: ${results.length}/${discovery.candidates.length} in-scope hockey checklist sources are imported/current.`);
+    console.log(`PASS: hockey shard ${SHARD_INDEX}/${SHARD_COUNT} imported/current ${results.length}/${selected.length} selected sources.`);
   }
 }
 
