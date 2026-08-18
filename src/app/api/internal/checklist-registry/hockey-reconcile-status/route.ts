@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-context-v1";
+const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-reliability-v2";
 const MIN_START_YEAR = 2021;
 
 type CatalogRow = {
