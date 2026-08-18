@@ -7,14 +7,19 @@ import json
 import sys
 from collections import Counter, defaultdict, deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import benchmark_lora_unseen_holdout_v1 as legacy
 
-# Canonical successor for the 100-card image benchmark.  V1 correctly enforced
+# Capture every wrapped legacy callable BEFORE main() monkey-patches the legacy
+# module. Calling through legacy.<name> from inside a wrapper after monkey-patch
+# would recurse back into the wrapper (the live Mac caught exactly that bug).
+_LEGACY_POST_DATASET_TRUSTED_CANDIDATES = legacy._post_dataset_trusted_candidates
+
+# Canonical successor for the 100-card image benchmark. V1 correctly enforced
 # train/Frozen leakage and Registry/physical truth, but it allowed only one image
-# example per Registry UUID.  The live Mac therefore found 1,094 unseen rows yet
-# scored only 21.  This runner keeps every safety gate while allowing a bounded
+# example per Registry UUID. The live Mac therefore found 1,094 unseen rows yet
+# scored only 21. This runner keeps every safety gate while allowing a bounded
 # number of genuinely different image pairs for the same exact card identity.
 DEFAULT_REGISTRY_CALL_BUDGET = 1500
 MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY = 5
@@ -96,10 +101,21 @@ def _validation_holdout_candidates(dataset: Path, *, frozen_row_ids: set[str]) -
     return output
 
 
-def _post_dataset_trusted_candidates(**kwargs: Any) -> list[dict[str, Any]]:
+def _post_dataset_trusted_candidates(
+    *,
+    _source_fn: Callable[..., list[dict[str, Any]]] | None = None,
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    """Filter already-scored post-dataset rows without recursive monkey-patching.
+
+    `_source_fn` exists only for the regression self-test. Production always uses
+    the original V1 callable captured at module import, before main() replaces
+    the public legacy attribute with this wrapper.
+    """
     global _prior_pair_hashes
     prior_rows = _prior_scored_rows()
-    values = legacy._post_dataset_trusted_candidates(**kwargs)
+    source_fn = _source_fn or _LEGACY_POST_DATASET_TRUSTED_CANDIDATES
+    values = source_fn(**kwargs)
     output: list[dict[str, Any]] = []
     for item in values:
         row_id = str(item.get("row_id") or "")
@@ -330,10 +346,36 @@ def _self_test() -> int:
         player_counts=player_counts, used_pairs={"same"}, enforce_player_cap=False,
     ) == "duplicate_or_previously_scored_image_pair"
 
+    # Regression for the exact live-Mac failure: main() replaces the public
+    # legacy attribute with this wrapper. The wrapper must still dispatch to a
+    # callable captured before monkey-patching, never through the patched name.
+    legacy_public = legacy._post_dataset_trusted_candidates
+    source_calls = 0
+
+    def fake_original(**_kwargs: Any) -> list[dict[str, Any]]:
+        nonlocal source_calls
+        source_calls += 1
+        return [
+            {
+                "row_id": "fresh-post-dataset-row",
+                "image_pair_sha256": "a" * 64,
+            }
+        ]
+
+    try:
+        legacy._post_dataset_trusted_candidates = _post_dataset_trusted_candidates
+        wrapped = _post_dataset_trusted_candidates(_source_fn=fake_original)
+        assert source_calls == 1
+        assert [item["row_id"] for item in wrapped] == ["fresh-post-dataset-row"]
+        assert _LEGACY_POST_DATASET_TRUSTED_CANDIDATES is not legacy._post_dataset_trusted_candidates
+    finally:
+        legacy._post_dataset_trusted_candidates = legacy_public
+
     print("PASS canonical unseen benchmark prioritizes Registry-ready rows")
     print("PASS canonical unseen benchmark permits bounded repeated identities but unique images only")
     print("PASS canonical unseen benchmark keeps a hard five-image cap per Registry identity")
     print("PASS canonical unseen benchmark excludes previously scored rows before the next exam")
+    print("PASS canonical unseen benchmark wrapper cannot recurse after legacy monkey-patch")
     return 0
 
 
