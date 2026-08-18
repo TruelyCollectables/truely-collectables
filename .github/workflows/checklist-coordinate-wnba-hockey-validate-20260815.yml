@@ -1,0 +1,101 @@
+name: Checklist Coordinate WNBA Hockey Validate 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-coordinate-wnba-hockey-validate-20260815.yml'
+      - 'scripts/harvest-gogts-coordinate-direct.mjs'
+      - 'scripts/mainstream-checklist/gogts-pdf-coordinate-normalizer.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-coordinate-wnba-hockey-validate-20260815
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/mainstream-checklist/gogts-pdf-coordinate-normalizer.mjs
+          node --check scripts/harvest-gogts-coordinate-direct.mjs
+
+      - name: Write direct-source target manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/coordinate-harvest"
+          mkdir -p "$root"
+          cat > "$root/targets.json" <<'JSON'
+          [
+            {"exactSetKey":"basketball|2025|panini|one-and-one-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/03/2025-Panini-One-and-One-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|impeccable-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/12/2025-Panini-Impeccable-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|donruss-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/09/2025-Donruss-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|prizm-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/03/2025-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2025|panini|select-wnba","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/04/2025-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|origins-wnba","year":2024,"sourceUrl":"https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|prizm-wnba","year":2024,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/02/2024-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2024|panini|select-wnba","year":2024,"sourceUrl":"https://gogts.net/wp-content/uploads/2024/10/2024-Panini-Select-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2023|panini|origins-wnba","year":2023,"sourceUrl":"https://gogts.net/wp-content/uploads/2023/10/2023-Panini-Origins-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2022|panini|prizm-wnba","year":2022,"sourceUrl":"https://gogts.net/wp-content/uploads/2022/10/2022-Panini-Prizm-WNBA-Basketball-Cards-Checklist.pdf"},
+            {"exactSetKey":"basketball|2021|panini|prizm-wnba","year":2021,"sourceUrl":"https://cconnect.s3.amazonaws.com/wp-content/uploads/2021/08/2021-Panini-Prizm-WNBA-Basketball-checklist-Excel-spreadsheet.xlsx"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|extended-series-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/05/2025-26-Upper-Deck-Extended-Series-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|o-pee-chee-platinum-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/05/2025-26-O-Pee-Chee-Platinum-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|allure-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/01/2025-26-Upper-Deck-Allure-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|series-one-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/10/2025-26-Upper-Deck-Series-One-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|series-two-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/02/2025-26-Upper-Deck-Series-Two-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|credentials-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/04/2025-26-Upper-Deck-Credentials-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|sp-authentic-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/06/2025-26-Upper-Deck-SP-Authentic-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|black-diamond-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/11/2025-26-Upper-Deck-Black-Diamond-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|artifacts-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2025/09/2025-26-Upper-Deck-Artifacts-NHL-Hockey-Cards-Checklist.pdf"},
+            {"exactSetKey":"hockey|2025-26|upper-deck|spx-nhl","year":2025,"sourceUrl":"https://gogts.net/wp-content/uploads/2026/04/2025-26-Upper-Deck-SPx-NHL-Hockey-Cards-Checklist.pdf"}
+          ]
+          JSON
+          jq -e 'length == 21' "$root/targets.json" >/dev/null
+          echo "Coordinate targets: $(jq length "$root/targets.json")"
+
+      - name: Coordinate-extract and build fail-closed Registry plans
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/coordinate-harvest"
+          PUBLIC_WEB_MINIMUM_CARD_ROWS=25 \
+          GOGTS_COORDINATE_TARGETS="$root/targets.json" \
+          GOGTS_COORDINATE_OUTPUT="$root/output" \
+          node --import tsx scripts/harvest-gogts-coordinate-direct.mjs
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities,ready:[.ready[]|{exactSetKey,coordinateRows,coordinateBuckets,counts}],validationFailed:[.validationFailed[]|{exactSetKey,counts,errors}],failed:[.failed[]|{exactSetKey,error}]}' "$root/output/summary.json"
+          test "$(jq '.resultCount' "$root/output/summary.json")" -eq 21
+          test "$(jq '.readyCount' "$root/output/summary.json")" -gt 0
+
+      - name: Upload coordinate harvest bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-coordinate-wnba-hockey-${{ github.run_id }}
+          path: ${{ runner.temp }}/coordinate-harvest
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6

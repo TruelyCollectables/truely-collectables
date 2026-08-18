@@ -1,0 +1,287 @@
+name: Checklist Priority WNBA Hockey PDF Harvest 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-priority-wnba-hockey-harvest-20260815.yml'
+      - 'scripts/mainstream-checklist/source-tools.mjs'
+      - 'scripts/mainstream-checklist/gogts-structured-normalizer.mjs'
+      - 'scripts/promote-mainstream-2005plus-public-web-candidates.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-priority-wnba-hockey-pdf-20260815
+  cancel-in-progress: false
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+  HARVEST_DISCOVERY_LIMIT: '220'
+
+jobs:
+  priority-harvest:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 100
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/mainstream-checklist/gogts-structured-normalizer.mjs
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+      - name: Enable GoGTS structured normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'scripts/mainstream-checklist/source-tools.mjs';
+          let source = readFileSync(path, 'utf8');
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error('GoGTS normalizer import anchor not found');
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = '  const text = extractText(downloaded, filename);';
+          const normalizedParse = '  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));';
+          if (!source.includes(normalizedParse)) {
+            const n = source.split(parseAnchor).length - 1;
+            if (n !== 1) throw new Error(`Expected one parser handoff anchor, found ${n}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, 'utf8');
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/priority-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Pull only WNBA and hockey GoGTS gaps from Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-harvest"
+          mkdir -p "$out/catalog-pages"
+          : > "$out/catalog.ndjson"
+
+          fetch_group() {
+            local group="$1"
+            local filter="$2"
+            for start in 0 250 500 750 1000 1250 1500 1750 2000; do
+              end=$((start+249))
+              file="$out/catalog-pages/${group}-${start}.json"
+              code="$(curl --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 30 \
+                --output "$file" --write-out '%{http_code}' \
+                -H "apikey: $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+                -H "Authorization: Bearer $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+                -H "Range: $start-$end" \
+                --get \
+                --data-urlencode 'select=id,status,sport,manufacturer,source_url,release_name,metadata' \
+                --data-urlencode 'status=eq.quarantined' \
+                --data-urlencode 'source_url=like.*gogts.net*' \
+                --data-urlencode "$filter" \
+                "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/checklist_source_catalog")"
+              case "$code" in 200|206) ;; *) echo "$group catalog fetch failed HTTP $code" >&2; cat "$file" >&2 || true; exit 1;; esac
+              count="$(jq 'length' "$file")"
+              jq -c '.[]' "$file" >> "$out/catalog.ndjson"
+              echo "$group page $start -> $count rows"
+              [ "$count" -lt 250 ] && break
+            done
+          }
+
+          fetch_group wnba 'release_name=ilike.*WNBA*'
+          fetch_group hockey 'sport=ilike.*hockey*'
+
+          jq -s '
+            map(select(.metadata.masterArchiveExactSetKey != null))
+            | unique_by(.metadata.masterArchiveExactSetKey)
+            | sort_by(
+                (if ((.release_name // "") | ascii_downcase | contains("wnba")) then 0 else 1 end),
+                -((.metadata.masterArchiveExactSetKey // "" | capture("(?<y>[0-9]{4})")?.y // "0") | tonumber)
+              )
+          ' "$out/catalog.ndjson" > "$out/catalog.json"
+
+          echo "Priority exact gaps: $(jq 'length' "$out/catalog.json")"
+          echo "WNBA: $(jq '[.[] | select((.release_name // "" | ascii_downcase | contains("wnba")))] | length' "$out/catalog.json")"
+          echo "Hockey: $(jq '[.[] | select((.sport // "" | ascii_downcase | contains("hockey")))] | length' "$out/catalog.json")"
+          jq '[.[:30][] | {release_name,sport,source_url,exactSetKey:.metadata.masterArchiveExactSetKey}]' "$out/catalog.json"
+          test "$(jq 'length' "$out/catalog.json")" -gt 0
+
+      - name: Discover direct PDF-first checklist files
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-harvest"
+          CATALOG="$out/catalog.json" OUTPUT="$out/discovered.json" LIMIT="$HARVEST_DISCOVERY_LIMIT" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const rows = JSON.parse(readFileSync(process.env.CATALOG, 'utf8'));
+          const limit = Number(process.env.LIMIT || 220);
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const clean = (s) => String(s || '').replaceAll('&amp;', '&');
+          async function fetchText(url) {
+            for (let a=0;a<4;a++) {
+              try {
+                const c = new AbortController(); const t=setTimeout(()=>c.abort(),15000);
+                const r=await fetch(url,{signal:c.signal,redirect:'follow',headers:{'user-agent':'Mozilla/5.0 TCOS Checklist Harvester/1.1'}}); clearTimeout(t);
+                if(r.ok) return await r.text();
+              } catch {}
+              await sleep(400*(a+1));
+            }
+            return '';
+          }
+          const discovered=[]; let cursor=0;
+          async function worker(){
+            while(cursor<rows.length && discovered.length<limit){
+              const i=cursor++; const row=rows[i]; const page=row.source_url; const html=await fetchText(page); if(!html) continue;
+              const links=new Set();
+              for(const m of html.matchAll(/(?:href|data-href)=["']([^"']+\.(?:pdf|xlsx?|csv)(?:\?[^"']*)?)["']/gi)){
+                try{links.add(new URL(clean(m[1]),page).href);}catch{}
+              }
+              for(const m of html.matchAll(/https?:\\?\/\\?\/[^"'<>\s]+\.(?:pdf|xlsx?|csv)(?:\?[^"'<>\s]*)?/gi)){
+                try{links.add(clean(m[0].replaceAll('\\/','/')));}catch{}
+              }
+              const all=[...links];
+              const pdfChecklist=all.filter(u=>/checklist/i.test(u) && /\.pdf(?:$|[?#])/i.test(u));
+              const pdfAny=all.filter(u=>/\.pdf(?:$|[?#])/i.test(u));
+              const checklist=all.filter(u=>/checklist/i.test(u));
+              const sourceUrl=pdfChecklist[0] || pdfAny[0] || checklist[0] || all[0] || null;
+              if(!sourceUrl) continue;
+              const k=row.metadata?.masterArchiveExactSetKey; if(!k) continue;
+              const [sport,season,manufacturer] = k.split('|');
+              const year=Number((season.match(/\d{4}/)||[])[0]||0);
+              discovered.push({exactSetKey:k,year,sport,manufacturer,articleUrl:page,sourceUrl,releaseName:row.release_name});
+              console.log(`[${discovered.length}/${limit}] ${k} -> ${sourceUrl}`);
+            }
+          }
+          await Promise.all(Array.from({length:16},worker));
+          const unique=[...new Map(discovered.map(x=>[x.exactSetKey,x])).values()].slice(0,limit);
+          writeFileSync(process.env.OUTPUT,JSON.stringify({schema:'tcos.checklist.priorityWnbaHockeyDiscovery.v1',count:unique.length,targets:unique},null,2));
+          console.log(JSON.stringify({discovered:unique.length,scanned:Math.min(cursor,rows.length),catalog:rows.length}));
+          NODE
+          jq -e '.count > 0 and (.targets|length)==.count' "$out/discovered.json" >/dev/null
+          jq '{count, targets:[.targets[:40][]|{exactSetKey,sourceUrl}]}' "$out/discovered.json"
+
+      - name: Build exact validation queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-harvest"
+          jq '{schema:"tcos.checklist.mainstream2005plusCandidateValidationQueue.v1",count:.count,targets:[.targets[]|{exactSetKey,year,sport,sourceArtifact:"priority-wnba-hockey-pdf-harvest-20260815",exactCandidateCount:1,trustedAutoImportCandidateCount:1,candidates:[]}]}' "$out/discovered.json" > "$out/queue.json"
+          jq '{schema:"tcos.checklist.priorityWnbaHockeyTargets.v1",targets:[.targets[]|{exactSetKey,sourceUrl}]}' "$out/discovered.json" > "$out/filter.json"
+          echo "PUBLIC_WEB_CANDIDATE_QUEUE=$out/queue.json" >> "$GITHUB_ENV"
+
+      - name: Validate every discovered source
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/priority-harvest"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          export PUBLIC_WEB_PROMOTION_APPLY=false
+          export PUBLIC_WEB_TARGET_FILTER="$out/filter.json"
+          export PUBLIC_WEB_PROMOTION_OUTPUT="$out/validation-receipt.json"
+          export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$out/validated-targets.json"
+          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs || true
+          test -s "$out/validation-receipt.json"
+          test -s "$out/validated-targets.json"
+          echo "Discovered: $(jq '.count' "$out/discovered.json")"
+          echo "Validated: $(jq '.count' "$out/validated-targets.json")"
+          jq '{statuses,normalizedTotals,validatedTargets}' "$out/validation-receipt.json"
+
+      - name: Import validated WNBA and hockey targets into Production Registry
+        shell: bash
+        run: |
+          set -u
+          out="$RUNNER_TEMP/priority-harvest"
+          mkdir -p "$out/apply"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          total="$(jq '.count' "$out/validated-targets.json")"
+          attempted=0
+          jq -c '.targets[]' "$out/validated-targets.json" | while IFS= read -r target; do
+            attempted=$((attempted+1))
+            key="$(jq -r '.exactSetKey' <<<"$target")"
+            slug="$(printf '%s' "$key" | tr '|/' '__' | tr -cd '[:alnum:]_.-')"
+            one="$out/apply/$slug-filter.json"
+            receipt="$out/apply/$slug-receipt.json"
+            validated="$out/apply/$slug-imported.json"
+            jq -n --argjson t "$target" '{schema:"tcos.checklist.prioritySingleApply.v1",targets:[$t]}' > "$one"
+            export PUBLIC_WEB_PROMOTION_APPLY=true
+            export PUBLIC_WEB_TARGET_FILTER="$one"
+            export PUBLIC_WEB_PROMOTION_OUTPUT="$receipt"
+            export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$validated"
+            echo "=== APPLY $attempted/$total :: $key ==="
+            timeout 120s node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs || true
+            ok="$(jq -r '[.results[]? | select(.status=="imported" and .persistence.ok==true)] | length' "$receipt" 2>/dev/null || echo 0)"
+            if [ "$ok" -gt 0 ]; then echo "PERSISTED $key"; else echo "NOT-PERSISTED $key"; fi
+          done
+          python - <<'PY'
+          import json,glob,os
+          root=os.environ['RUNNER_TEMP']+'/priority-harvest/apply'
+          wins=[]; failures=[]
+          for p in glob.glob(root+'/*-receipt.json'):
+            try: r=json.load(open(p))
+            except Exception: continue
+            for x in r.get('results',[]):
+              row={'exactSetKey':x.get('exactSetKey'),'status':x.get('status'),'sourceUrl':x.get('sourceUrl'),'counts':x.get('counts'),'persistence':x.get('persistence'),'message':x.get('message'),'errors':x.get('errors')}
+              if x.get('status')=='imported' and (x.get('persistence') or {}).get('ok') is True: wins.append(row)
+              else: failures.append(row)
+          summary={'schema':'tcos.checklist.priorityWnbaHockeySummary.v1','productionPersistedCount':len(wins),'wins':wins,'nonWins':failures}
+          json.dump(summary,open(os.environ['RUNNER_TEMP']+'/priority-harvest/production-summary.json','w'),indent=2)
+          print(json.dumps({'productionPersistedCount':len(wins),'nonWins':len(failures)}))
+          PY
+          jq '{productionPersistedCount,wins:[.wins[]|{exactSetKey,counts,persistence}],nonWins:[.nonWins[]|{exactSetKey,status,message}]}' "$out/production-summary.json"
+
+      - name: Upload priority harvest receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-priority-wnba-hockey-${{ github.run_id }}
+          path: ${{ runner.temp }}/priority-harvest
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/priority-production" .env.local .env.production.local .vercel

@@ -1,0 +1,260 @@
+name: Checklist Mainstream GoGTS Harvest Tranche 2 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-mainstream-gogts-harvest-tranche2-20260815.yml'
+      - 'scripts/mainstream-checklist/gogts-structured-normalizer.mjs'
+      - 'scripts/promote-mainstream-2005plus-public-web-candidates.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-mainstream-gogts-harvest-tranche2-20260815
+  cancel-in-progress: false
+
+env:
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+  HARVEST_DISCOVERY_LIMIT: '90'
+  CATALOG_START_INDEX: '195'
+
+jobs:
+  harvest:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 120
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install proven parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/mainstream-checklist/gogts-structured-normalizer.mjs
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+      - name: Patch GoGTS structured normalization into proven parser path
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'scripts/mainstream-checklist/source-tools.mjs';
+          let source = readFileSync(path, 'utf8');
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error('GoGTS normalizer import anchor not found');
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = '  const text = extractText(downloaded, filename);';
+          const normalizedParse = '  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));';
+          if (!source.includes(normalizedParse)) {
+            const n = source.split(parseAnchor).length - 1;
+            if (n !== 1) throw new Error(`Expected one parser handoff anchor, found ${n}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, 'utf8');
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gogts-harvest-production"
+          mkdir -p "$root"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/projects.json" "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$root/api-keys.json" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Pull quarantined GoGTS exact targets from Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-harvest"
+          mkdir -p "$out/catalog-pages"
+          : > "$out/catalog.ndjson"
+          for start in 0 1000 2000 3000 4000 5000; do
+            end=$((start+999))
+            file="$out/catalog-pages/$start.json"
+            code="$(curl --silent --show-error --output "$file" --write-out '%{http_code}' --max-time 60 \
+              -H "apikey: $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $RESOLVED_SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Range: $start-$end" \
+              "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/checklist_source_catalog?select=id,status,sport,manufacturer,source_url,release_name,metadata&status=eq.quarantined&source_url=like.*gogts.net*&order=created_at.desc")"
+            case "$code" in 200|206) ;; *) echo "catalog fetch failed $code" >&2; exit 1;; esac
+            count="$(jq 'length' "$file")"
+            jq -c '.[]' "$file" >> "$out/catalog.ndjson"
+            [ "$count" -lt 1000 ] && break
+          done
+          jq -s 'unique_by(.metadata.masterArchiveExactSetKey) | map(select(.metadata.masterArchiveExactSetKey != null))' "$out/catalog.ndjson" > "$out/catalog.json"
+          echo "Production quarantined GoGTS exact keys: $(jq 'length' "$out/catalog.json")"
+
+      - name: Discover next untouched structured Excel checklist files
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-harvest"
+          CATALOG="$out/catalog.json" OUTPUT="$out/discovered.json" LIMIT="$HARVEST_DISCOVERY_LIMIT" START="$CATALOG_START_INDEX" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const rows = JSON.parse(readFileSync(process.env.CATALOG, 'utf8'));
+          const limit = Number(process.env.LIMIT || 90);
+          const start = Math.max(0, Number(process.env.START || 0));
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const clean = (s) => String(s || '').replaceAll('&amp;', '&');
+          async function fetchText(url) {
+            for (let a=0;a<3;a++) {
+              try {
+                const c = new AbortController(); const t=setTimeout(()=>c.abort(),15000);
+                const r=await fetch(url,{signal:c.signal,redirect:'follow',headers:{'user-agent':'Mozilla/5.0 TCOS Checklist Harvester/1.0'}}); clearTimeout(t);
+                if(r.ok) return await r.text();
+              } catch {}
+              await sleep(350*(a+1));
+            }
+            return '';
+          }
+          const discovered=[]; let cursor=start; let claimed=0;
+          async function worker(){
+            while(cursor<rows.length && discovered.length<limit){
+              const i=cursor++; claimed++;
+              const row=rows[i]; const page=row.source_url; const html=await fetchText(page); if(!html) continue;
+              const links=new Set();
+              for(const m of html.matchAll(/(?:href|data-href)=["']([^"']+\.(?:xlsx?|csv)(?:\?[^"']*)?)["']/gi)){
+                try{links.add(new URL(clean(m[1]),page).href);}catch{}
+              }
+              for(const m of html.matchAll(/https?:\\?\/\\?\/[^"'<>\s]+\.(?:xlsx?|csv)(?:\?[^"'<>\s]*)?/gi)){
+                try{links.add(clean(m[0].replaceAll('\\/','/')));}catch{}
+              }
+              const preferred=[...links].filter(u=>/checklist/i.test(u));
+              const sourceUrl=(preferred[0] || [...links][0] || null);
+              if(!sourceUrl) continue;
+              const k=row.metadata?.masterArchiveExactSetKey; if(!k) continue;
+              const [sport,season,manufacturer] = k.split('|');
+              const year=Number((season.match(/\d{4}/)||[])[0]||0);
+              discovered.push({catalogIndex:i,exactSetKey:k,year,sport,manufacturer,articleUrl:page,sourceUrl,releaseName:row.release_name});
+              console.log(`[${discovered.length}/${limit}] #${i} ${k} -> ${sourceUrl}`);
+            }
+          }
+          await Promise.all(Array.from({length:12},worker));
+          const unique=[...new Map(discovered.map(x=>[x.exactSetKey,x])).values()];
+          const payload={schema:'tcos.checklist.gogtsStructuredDiscovery.v2',count:unique.length,catalogStartIndex:start,catalogEndIndex:cursor-1,catalogRowsScanned:claimed,nextCatalogStartIndex:cursor,targets:unique};
+          writeFileSync(process.env.OUTPUT,JSON.stringify(payload,null,2));
+          console.log(JSON.stringify({discovered:unique.length,catalogStartIndex:start,catalogEndIndex:cursor-1,catalogRowsScanned:claimed,nextCatalogStartIndex:cursor,catalog:rows.length}));
+          NODE
+          jq -e '.count > 0 and (.targets|length)==.count and .nextCatalogStartIndex > .catalogStartIndex' "$out/discovered.json" >/dev/null
+          jq '{count,catalogStartIndex,catalogEndIndex,catalogRowsScanned,nextCatalogStartIndex,sample:.targets[:10]}' "$out/discovered.json"
+
+      - name: Build synthetic exact queue and filter
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-harvest"
+          jq '{schema:"tcos.checklist.mainstream2005plusCandidateValidationQueue.v1",count:.count,targets:[.targets[]|{exactSetKey,year,sport,sourceArtifact:"gogts-bulk-harvest-tranche2-20260815",exactCandidateCount:1,trustedAutoImportCandidateCount:1,candidates:[]}]}' "$out/discovered.json" > "$out/queue.json"
+          jq '{schema:"tcos.checklist.gogtsBulkHarvestTargets.v1",targets:[.targets[]|{exactSetKey,sourceUrl}]}' "$out/discovered.json" > "$out/filter.json"
+          echo "PUBLIC_WEB_CANDIDATE_QUEUE=$out/queue.json" >> "$GITHUB_ENV"
+
+      - name: Bulk validate every discovered structured source
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gogts-harvest"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          export PUBLIC_WEB_PROMOTION_APPLY=false
+          export PUBLIC_WEB_TARGET_FILTER="$out/filter.json"
+          export PUBLIC_WEB_PROMOTION_OUTPUT="$out/validation-receipt.json"
+          export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$out/validated-targets.json"
+          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs || true
+          test -s "$out/validation-receipt.json"
+          test -s "$out/validated-targets.json"
+          echo "Discovered: $(jq '.count' "$out/discovered.json")"
+          echo "Validated:  $(jq '.count' "$out/validated-targets.json")"
+          jq '{statuses,normalizedTotals,validatedTargets}' "$out/validation-receipt.json"
+
+      - name: Apply validated targets individually and prove Production persistence
+        shell: bash
+        run: |
+          set -u
+          out="$RUNNER_TEMP/gogts-harvest"
+          mkdir -p "$out/apply"
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          total="$(jq '.count' "$out/validated-targets.json")"
+          attempted=0
+          jq -c '.targets[]' "$out/validated-targets.json" | while IFS= read -r target; do
+            attempted=$((attempted+1))
+            key="$(jq -r '.exactSetKey' <<<"$target")"
+            slug="$(printf '%s' "$key" | tr '|/' '__' | tr -cd '[:alnum:]_.-')"
+            one="$out/apply/$slug-filter.json"
+            receipt="$out/apply/$slug-receipt.json"
+            validated="$out/apply/$slug-imported.json"
+            jq -n --argjson t "$target" '{schema:"tcos.checklist.gogtsSingleApply.v1",targets:[$t]}' > "$one"
+            export PUBLIC_WEB_PROMOTION_APPLY=true
+            export PUBLIC_WEB_TARGET_FILTER="$one"
+            export PUBLIC_WEB_PROMOTION_OUTPUT="$receipt"
+            export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$validated"
+            echo "=== APPLY $attempted/$total :: $key ==="
+            timeout 90s node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs || true
+            ok="$(jq -r '[.results[]? | select(.status=="imported" and .persistence.ok==true)] | length' "$receipt" 2>/dev/null || echo 0)"
+            if [ "$ok" -gt 0 ]; then echo "PERSISTED $key"; else echo "NOT-PERSISTED $key"; fi
+          done
+          python - <<'PY'
+          import json,glob,os
+          root=os.environ['RUNNER_TEMP']+'/gogts-harvest/apply'
+          wins=[]; failures=[]
+          for p in glob.glob(root+'/*-receipt.json'):
+            try: r=json.load(open(p))
+            except Exception: continue
+            for x in r.get('results',[]):
+              row={'exactSetKey':x.get('exactSetKey'),'status':x.get('status'),'sourceUrl':x.get('sourceUrl'),'counts':x.get('counts'),'persistence':x.get('persistence'),'message':x.get('message'),'errors':x.get('errors')}
+              if x.get('status')=='imported' and (x.get('persistence') or {}).get('ok') is True: wins.append(row)
+              else: failures.append(row)
+          discovery=json.load(open(os.environ['RUNNER_TEMP']+'/gogts-harvest/discovered.json'))
+          summary={'schema':'tcos.checklist.gogtsBulkHarvestSummary.v2','tranche':'gogts-2','catalogStartIndex':discovery.get('catalogStartIndex'),'catalogEndIndex':discovery.get('catalogEndIndex'),'nextCatalogStartIndex':discovery.get('nextCatalogStartIndex'),'productionPersistedCount':len(wins),'freshProductionPersistedCount':sum(1 for x in wins if (x.get('persistence') or {}).get('idempotent') is False),'wins':wins,'nonWins':failures}
+          json.dump(summary,open(os.environ['RUNNER_TEMP']+'/gogts-harvest/production-summary.json','w'),indent=2)
+          print(json.dumps({k:summary[k] for k in ('catalogStartIndex','catalogEndIndex','nextCatalogStartIndex','productionPersistedCount','freshProductionPersistedCount')}))
+          PY
+          jq '{catalogStartIndex,catalogEndIndex,nextCatalogStartIndex,productionPersistedCount,freshProductionPersistedCount,wins:[.wins[]|{exactSetKey,counts,persistence}]}' "$out/production-summary.json"
+
+      - name: Upload harvest receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-mainstream-gogts-harvest-tranche2-${{ github.run_id }}
+          path: ${{ runner.temp }}/gogts-harvest
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/gogts-harvest-production" .env.local .env.production.local .vercel
