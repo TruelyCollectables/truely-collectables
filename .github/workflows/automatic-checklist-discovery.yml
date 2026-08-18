@@ -47,7 +47,7 @@ on:
     - cron: "17 11 * * *"
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 concurrency:
@@ -74,6 +74,8 @@ jobs:
       HOCKEY_CHECKLIST_START_DATE: "2021-07-01T00:00:00Z"
       HOCKEY_CHECKLIST_MAX_CATEGORY_PAGES: "40"
       HOCKEY_CHECKLIST_OUTPUT: .hockey-checklist-reconcile/receipt.json
+      HOCKEY_INGEST_REVISION_URL: https://truelycollectables.com/api/internal/checklist-registry/ingest-revision
+      EXPECTED_HOCKEY_INGEST_REVISION: "2026-08-18-hockey-context-v1"
       REQUESTED_DISCOVERY_SCOPE: ${{ inputs.scope || 'standard' }}
     steps:
       - uses: actions/checkout@v4
@@ -102,6 +104,23 @@ jobs:
           if [[ "${hockey}" == "true" ]]; then
             echo "CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS=600000" >> "${GITHUB_ENV}"
           fi
+      - name: Wait for repaired Production checklist ingest
+        if: ${{ env.HOCKEY_RECONCILE == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 36); do
+            body="$(curl -fsS --max-time 15 "${HOCKEY_INGEST_REVISION_URL}" 2>/dev/null || true)"
+            revision="$(printf '%s' "${body}" | jq -r '.upperDeckIngestRevision // empty' 2>/dev/null || true)"
+            if [[ "${revision}" == "${EXPECTED_HOCKEY_INGEST_REVISION}" ]]; then
+              echo "Production checklist ingest revision ready: ${revision}"
+              exit 0
+            fi
+            echo "Production ingest not ready yet (${attempt}/36); observed revision='${revision:-unavailable}'"
+            sleep 10
+          done
+          echo "Repaired Production checklist ingest revision never became ready." >&2
+          exit 1
       - name: Reconcile every 2021-plus hockey checklist
         if: ${{ env.HOCKEY_RECONCILE == 'true' }}
         run: npx tsx scripts/reconcile-hockey-checklists-2021plus.ts
@@ -119,3 +138,24 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
+      - name: Publish latest hockey reconcile receipt
+        if: ${{ always() && env.HOCKEY_RECONCILE == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt=".hockey-checklist-reconcile/receipt.json"
+          if [[ ! -f "${receipt}" ]]; then
+            echo "No hockey receipt was produced." >&2
+            exit 1
+          fi
+          mkdir -p data/ops
+          cp "${receipt}" data/ops/hockey-checklist-reconcile-latest.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ops/hockey-checklist-reconcile-latest.json
+          if git diff --cached --quiet; then
+            echo "Published hockey receipt is already current."
+            exit 0
+          fi
+          git commit -m "ops(checklists): publish hockey reconcile receipt [pause-checklist-catchup]"
+          git push origin HEAD:main
