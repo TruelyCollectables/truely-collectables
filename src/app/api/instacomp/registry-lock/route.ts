@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveChecklistRegistry } from "../../../../lib/instacomp-learning-server";
+import {
+  revalidateChecklistRegistryReceipt,
+  resolveChecklistRegistry,
+} from "../../../../lib/instacomp-learning-server";
 import { shouldApplyInstaCompRegistryLockPublicRateLimit } from "../../../../lib/instacomp-checklist-rate-limit-policy";
 import {
   buildInstaCompRegistryLockProbe,
@@ -16,6 +19,11 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function text(value: unknown) {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -65,9 +73,43 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const probe = buildInstaCompRegistryLockProbe(body);
-    let resolution = await resolveChecklistRegistry(probe, {
-      evidenceTrusted: false,
-    });
+    const receiptIdentityId = text(
+      body.registryIdentityId || body.identityId || body.expectedRegistryIdentityId,
+    );
+    const receiptFingerprint = text(
+      body.registryFingerprintSha256 ||
+        body.fingerprintSha256 ||
+        body.expectedRegistryFingerprintSha256,
+    )?.toLowerCase();
+
+    let receiptRevalidationAttempted = false;
+    let receiptRevalidationAccepted = false;
+    let resolution = null as Awaited<ReturnType<typeof resolveChecklistRegistry>> | null;
+
+    // Locked validation/training rows can already carry a prior Registry UUID +
+    // fingerprint. Do not make the broad resolver rediscover that identity from
+    // scratch. Revalidate the exact receipt against the CURRENT live Registry
+    // row plus the current visible evidence. This remains fail-closed: stale,
+    // missing, inactive, fingerprint-drifted, or evidence-incompatible receipts
+    // return null and cannot become an authoritative lock.
+    if (receiptIdentityId && receiptFingerprint) {
+      receiptRevalidationAttempted = true;
+      const revalidated = await revalidateChecklistRegistryReceipt({
+        ai: probe,
+        identityId: receiptIdentityId,
+        fingerprintSha256: receiptFingerprint,
+      });
+      if (revalidated?.status === "internal_exact_match" && revalidated.match) {
+        resolution = revalidated;
+        receiptRevalidationAccepted = true;
+      }
+    }
+
+    if (!resolution) {
+      resolution = await resolveChecklistRegistry(probe, {
+        evidenceTrusted: false,
+      });
+    }
 
     // OCR/VLM readers occasionally drop one leading digit from a printed card
     // number (for example 122 -> 22). If the ordinary exact lookup fails, try
@@ -136,8 +178,14 @@ export async function POST(req: NextRequest) {
       identityId: match?.identityId || null,
       registryFingerprintSha256: match?.fingerprintSha256 || null,
       fingerprintSha256: match?.fingerprintSha256 || null,
+      receiptRevalidationAttempted,
+      receiptRevalidationAccepted,
       lockedFields,
-      identificationPath: match ? "authoritative_registry_exact_lock" : "review_required",
+      identificationPath: match
+        ? receiptRevalidationAccepted
+          ? "authoritative_registry_receipt_revalidated"
+          : "authoritative_registry_exact_lock"
+        : "review_required",
     });
   } catch (error) {
     console.error("InstaComp Registry exact-lock error:", error);

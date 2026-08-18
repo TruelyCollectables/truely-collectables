@@ -24,7 +24,7 @@ _LEGACY_POST_DATASET_TRUSTED_CANDIDATES = legacy._post_dataset_trusted_candidate
 DEFAULT_REGISTRY_CALL_BUDGET = 1500
 MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY = 5
 MAX_IMAGE_EXAMPLES_PER_PLAYER = 8
-SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v2"
+SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v3"
 
 _prior_pair_hashes: set[str] = set()
 
@@ -128,10 +128,51 @@ def _post_dataset_trusted_candidates(
     return output
 
 
+def _historical_receipt(item: dict[str, Any]) -> tuple[str, str] | None:
+    identity_id = legacy.v20.v19.legacy._valid_uuid(
+        item.get("historical_metadata_registry_id")
+    )
+    fingerprint = legacy.v20.v19.legacy._valid_sha256(
+        item.get("historical_metadata_fingerprint")
+    )
+    if identity_id and fingerprint:
+        return identity_id, fingerprint
+    return None
+
+
+class _ReceiptAwareGateway:
+    """Inject one trusted historical Registry receipt into the normal V20 request.
+
+    V20 still owns compatibility and physical-variant gates. The Production
+    registry-lock endpoint revalidates this UUID + fingerprint against the current
+    live Registry row and current visible evidence before it may return exact.
+    """
+
+    def __init__(self, gateway: Any, identity_id: str, fingerprint: str) -> None:
+        self.gateway = gateway
+        self.identity_id = identity_id
+        self.fingerprint = fingerprint
+        self.last_diagnostics: dict[str, Any] = {}
+
+    async def match_with_diagnostics(
+        self,
+        identity: Any,
+        ocr_text: str | None = None,
+    ) -> tuple[Any, dict[str, Any]]:
+        result, diagnostics = await self.gateway.match_with_diagnostics(
+            identity,
+            ocr_text,
+            registry_identity_id=self.identity_id,
+            registry_fingerprint_sha256=self.fingerprint,
+        )
+        self.last_diagnostics = dict(diagnostics)
+        return result, diagnostics
+
+
 def _ranked_item_key(item: dict[str, Any]) -> tuple[Any, ...]:
     identity = item.get("identity") or {}
     ready, _missing = legacy.v20._visible_set_identity_readiness(identity)
-    historical = legacy.v20._historical_registry_receipt(item)
+    historical = _historical_receipt(item) is not None
     release_score = legacy.v20._release_field_score(item)
     return (
         0 if ready else 1,
@@ -207,6 +248,10 @@ async def _authoritative_holdout(
     used_pairs: set[str] = set()
     calls = 0
     inspected = 0
+    historical_receipts_available = 0
+    historical_receipts_requested = 0
+    historical_receipts_revalidated = 0
+    historical_receipts_fell_back_to_resolver = 0
 
     for item in _diverse_order(items):
         if calls >= registry_call_budget or len(locked) >= target:
@@ -234,8 +279,36 @@ async def _authoritative_holdout(
             reasons["duplicate_or_previously_scored_image_pair"] += 1
             continue
 
+        receipt = _historical_receipt(item)
+        probe_gateway = gateway
+        receipt_gateway: _ReceiptAwareGateway | None = None
+        if receipt is not None:
+            historical_receipts_available += 1
+            historical_receipts_requested += 1
+            receipt_gateway = _ReceiptAwareGateway(gateway, receipt[0], receipt[1])
+            probe_gateway = receipt_gateway
+
         calls += 1
-        current, detail = await legacy.v20._lock_identity(item, identity, gateway=gateway)
+        current, detail = await legacy.v20._lock_identity(
+            item,
+            identity,
+            gateway=probe_gateway,
+        )
+        if receipt_gateway is not None:
+            accepted = bool(
+                receipt_gateway.last_diagnostics.get(
+                    "registry_receipt_revalidation_accepted"
+                )
+            )
+            if accepted:
+                historical_receipts_revalidated += 1
+                if current is not None:
+                    current["registry_lock_source"] = (
+                        "current_registry_receipt_revalidated_plus_v20_physical_witness"
+                    )
+            elif receipt_gateway.last_diagnostics:
+                historical_receipts_fell_back_to_resolver += 1
+
         if current is None:
             reasons[str(detail.get("reason") or "teacher_current_authority_reject")] += 1
             continue
@@ -270,11 +343,17 @@ async def _authoritative_holdout(
         player_counts[_norm(player)] += 1
         sources[str(item["benchmark_source"])] += 1
         if len(locked) <= 10 or len(locked) % 10 == 0:
+            receipt_label = (
+                " receipt=current"
+                if current.get("registry_lock_source")
+                == "current_registry_receipt_revalidated_plus_v20_physical_witness"
+                else ""
+            )
             print(
                 f"UNSEEN PREFLIGHT LOCK {len(locked)}/{target} {player} "
                 f"#{signature['card_number']} source={item['benchmark_source']} "
                 f"registry={registry_id} identity_image={registry_counts[registry_id]}/"
-                f"{MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY}",
+                f"{MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY}{receipt_label}",
                 flush=True,
             )
 
@@ -305,7 +384,7 @@ async def _authoritative_holdout(
         sources[str(current["benchmark_source"])] += 1
         reasons["player_cap_relaxed_from_deferred"] += 1
 
-    return locked, {
+    diagnostics = {
         "inspected": inspected,
         "registry_calls": calls,
         "locked": len(locked),
@@ -316,11 +395,29 @@ async def _authoritative_holdout(
         "registry_identity_distribution": dict(registry_counts),
         "source_counts": dict(sources),
         "reject_reasons": dict(reasons),
+        "historical_receipts_available": historical_receipts_available,
+        "historical_receipts_requested": historical_receipts_requested,
+        "historical_receipts_revalidated": historical_receipts_revalidated,
+        "historical_receipts_fell_back_to_resolver": historical_receipts_fell_back_to_resolver,
         "previously_scored_rows_excluded": len(_prior_scored_rows()),
         "previously_scored_image_pairs_known": len(_prior_pair_hashes),
         "registry_identity_image_cap": MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY,
         "player_image_cap": MAX_IMAGE_EXAMPLES_PER_PLAYER,
     }
+    if len(locked) < target:
+        top_rejects = ", ".join(
+            f"{reason}={count}" for reason, count in reasons.most_common(10)
+        ) or "none"
+        print(
+            "UNSEEN PREFLIGHT DIAGNOSTICS: "
+            f"inspected={inspected} registry_calls={calls} locked={len(locked)}/{target} "
+            f"historical_receipts={historical_receipts_available} "
+            f"revalidated={historical_receipts_revalidated} "
+            f"receipt_fallbacks={historical_receipts_fell_back_to_resolver} "
+            f"top_rejects=[{top_rejects}]",
+            flush=True,
+        )
+    return locked, diagnostics
 
 
 def _self_test() -> int:
@@ -371,11 +468,35 @@ def _self_test() -> int:
     finally:
         legacy._post_dataset_trusted_candidates = legacy_public
 
+    # The receipt-aware proxy must forward the prior UUID/fingerprint as keyword
+    # evidence while preserving the ordinary gateway contract used by V20.
+    class FakeGateway:
+        def __init__(self) -> None:
+            self.received: dict[str, Any] = {}
+
+        async def match_with_diagnostics(self, identity: Any, ocr_text: str | None = None, **kwargs: Any):
+            self.received = dict(kwargs)
+            return object(), {
+                "registry_receipt_revalidation_accepted": True,
+            }
+
+    fake = FakeGateway()
+    proxy = _ReceiptAwareGateway(
+        fake,
+        "11111111-1111-4111-8111-111111111111",
+        "a" * 64,
+    )
+    asyncio.run(proxy.match_with_diagnostics(object(), "visible"))
+    assert fake.received["registry_identity_id"] == "11111111-1111-4111-8111-111111111111"
+    assert fake.received["registry_fingerprint_sha256"] == "a" * 64
+    assert proxy.last_diagnostics["registry_receipt_revalidation_accepted"] is True
+
     print("PASS canonical unseen benchmark prioritizes Registry-ready rows")
     print("PASS canonical unseen benchmark permits bounded repeated identities but unique images only")
     print("PASS canonical unseen benchmark keeps a hard five-image cap per Registry identity")
     print("PASS canonical unseen benchmark excludes previously scored rows before the next exam")
     print("PASS canonical unseen benchmark wrapper cannot recurse after legacy monkey-patch")
+    print("PASS canonical unseen benchmark forwards historical Registry receipts for current revalidation")
     return 0
 
 
