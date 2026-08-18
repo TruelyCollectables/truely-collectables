@@ -4,29 +4,32 @@ const SET_CHUNK = Math.max(10, Number(process.env.CHECKLIST_REGISTRY_SET_CHUNK |
 const CARD_CHUNK = Math.max(10, Number(process.env.CHECKLIST_REGISTRY_CARD_CHUNK || 25));
 const PARALLEL_CHUNK = Math.max(10, Number(process.env.CHECKLIST_REGISTRY_PARALLEL_CHUNK || 25));
 const IDENTITY_CHUNK = Math.max(10, Number(process.env.CHECKLIST_REGISTRY_IDENTITY_CHUNK || 25));
-const RPC_ATTEMPTS = Math.max(1, Number(process.env.CHECKLIST_REGISTRY_RPC_ATTEMPTS || 5));
-const UPLOAD_ATTEMPTS = Math.max(1, Number(process.env.CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS || 5));
+const RPC_ATTEMPTS = Math.max(1, Number(process.env.CHECKLIST_REGISTRY_RPC_ATTEMPTS || 8));
+const UPLOAD_ATTEMPTS = Math.max(1, Number(process.env.CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS || 6));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const chunks = (values, size) => {
   const rows = Array.isArray(values) ? values : [];
   return Array.from({ length: Math.ceil(rows.length / size) }, (_, index) => rows.slice(index * size, index * size + size));
 };
-const transient = (message) => /timeout|timed out|statement timeout|lock timeout|too many connections|connection terminated|connection reset|connection refused|web server is down|ssl handshake|\b50[0234]\b|\b52[125]\b|\b544\b|fetch failed|network|aborted|temporar/i.test(String(message || ""));
+const transient = (message) => /timeout|timed out|statement timeout|lock timeout|too many connections|connection terminated|connection reset|connection refused|web server is down|ssl handshake|\b429\b|\b50[0234]\b|\b52[125]\b|\b544\b|fetch failed|network|aborted|temporar|55P03/i.test(String(message || ""));
 
+let cachedContext = null;
 function context() {
+  if (cachedContext) return cachedContext;
   const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/$/, "");
   const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
   if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is required for direct Registry RPC.");
   if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for direct Registry RPC.");
-  return {
+  cachedContext = {
     supabaseUrl,
     serviceRoleKey,
     db: createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { "X-Client-Info": "tcos-instacomp-registry-rpc/1.0" } },
+      global: { headers: { "X-Client-Info": "tcos-instacomp-registry-rpc/2.0" } },
     }),
   };
+  return cachedContext;
 }
 
 function errorText(error) {
@@ -44,7 +47,7 @@ async function withRetry(label, fn) {
       last = error instanceof Error ? error : new Error(errorText(error));
       console.warn(`${label} attempt ${attempt}/${RPC_ATTEMPTS} failed: ${last.message}`);
       if (attempt >= RPC_ATTEMPTS || !transient(last.message)) break;
-      await sleep(Math.min(20_000, 1500 * attempt));
+      await sleep(Math.min(30_000, 1500 * (2 ** (attempt - 1))));
     }
   }
   throw last || new Error(`${label} failed.`);
@@ -90,7 +93,7 @@ export async function preflightReleaseRpc(releaseSlug) {
   });
 }
 
-async function uploadRegistrySource(plan, bytes) {
+async function uploadRegistrySource(plan, bytes, { reuseArchivedSourceOnTransient = false } = {}) {
   const storage = plan?.source?.storage;
   if (!storage?.bucket || !storage?.objectPath) throw new Error("Validated Registry source storage metadata is incomplete.");
   const { db } = context();
@@ -109,7 +112,11 @@ async function uploadRegistrySource(plan, bytes) {
     }
     console.warn(`Registry source upload attempt ${attempt}/${UPLOAD_ATTEMPTS} failed: ${last.message}`);
     if (attempt >= UPLOAD_ATTEMPTS || !transient(last.message)) break;
-    await sleep(Math.min(20_000, 1500 * attempt));
+    await sleep(Math.min(30_000, 2000 * attempt));
+  }
+  if (reuseArchivedSourceOnTransient && transient(last?.message)) {
+    console.warn(`Reusing previously archived deterministic Registry source after transient Storage failure: ${storage.bucket}/${storage.objectPath}`);
+    return;
   }
   throw new Error(`Could not archive validated Registry source: ${last?.message || "unknown storage error"}`);
 }
@@ -162,32 +169,96 @@ async function finalizePlan(versionId, counts, issues, releaseSlug) {
   }, `direct Registry finalize ${releaseSlug}`);
 }
 
-export async function persistPlanRpc(plan, bytes) {
+function canonicalizeSetAliases(plan) {
+  const norm = (value) => String(value ?? "").normalize("NFKC").toLowerCase().replaceAll("&", " and ").replace(/[^\p{L}\p{N}]+/gu, "").trim();
+  const kept = new Map();
+  const alias = new Map();
+  const sets = [];
+  for (const set of plan.sets || []) {
+    const key = norm(set.normalizedName || set.name || set.sourceKey);
+    const prior = kept.get(key);
+    if (!prior) {
+      kept.set(key, set);
+      alias.set(String(set.sourceKey), String(set.sourceKey));
+      sets.push(set);
+    } else {
+      alias.set(String(set.sourceKey), String(prior.sourceKey));
+    }
+  }
+  const remap = (row) => ({ ...row, setSourceKey: alias.get(String(row.setSourceKey)) || row.setSourceKey });
+  const cards = (plan.cards || []).map(remap);
+  const parallels = (plan.parallels || []).map(remap);
+  return { ...plan, sets, cards, parallels, validation: { ...plan.validation, counts: { ...plan.validation.counts, sets: sets.length } } };
+}
+
+function canonicalizeCardAliases(plan) {
+  const norm = (value) => String(value ?? "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+  const kept = new Map();
+  const alias = new Map();
+  const cards = [];
+  for (const card of plan.cards || []) {
+    const natural = `${String(card.setSourceKey ?? "")}\u0000${norm(card.cardNumber ?? card.number ?? "")}`;
+    const prior = kept.get(natural);
+    if (!prior) {
+      kept.set(natural, card);
+      alias.set(String(card.sourceKey), String(card.sourceKey));
+      cards.push(card);
+    } else {
+      alias.set(String(card.sourceKey), String(prior.sourceKey));
+      prior.players = [...new Set([...(prior.players || []), ...(card.players || [])])];
+      prior.teams = [...new Set([...(prior.teams || []), ...(card.teams || [])])];
+    }
+  }
+  const remapCard = (row) => row?.cardSourceKey ? ({ ...row, cardSourceKey: alias.get(String(row.cardSourceKey)) || row.cardSourceKey }) : row;
+  const identities = (plan.identities || []).map(remapCard);
+  const parallels = (plan.parallels || []).map(remapCard);
+  return { ...plan, cards, parallels, identities, validation: { ...plan.validation, counts: { ...plan.validation.counts, cards: cards.length } } };
+}
+
+export async function persistPlanRpc(inputPlan, bytes, options = {}) {
+  let plan = canonicalizeCardAliases(canonicalizeSetAliases(inputPlan));
   if (plan?.validation?.status !== "passed") {
     throw new Error(`Direct staged persistence requires a passed plan, got ${plan?.validation?.status || "missing"}.`);
   }
-  await uploadRegistrySource(plan, bytes);
+
+  await uploadRegistrySource(plan, bytes, options);
   const begin = await beginPlan(plan);
   if (!begin?.ok) throw new Error(`Direct Registry begin did not return ok: ${JSON.stringify(begin)}`);
   if (begin.complete) return { ...begin, staged: true, transport: "service_role_rpc" };
   const versionId = begin.versionId;
   if (!versionId) throw new Error("Direct Registry begin did not return a versionId.");
 
+  const setByKey = new Map((plan.sets || []).map((row) => [String(row.sourceKey), row]));
+  const cardByKey = new Map((plan.cards || []).map((row) => [String(row.sourceKey), row]));
+  const parallelByKey = new Map((plan.parallels || []).map((row) => [String(row.sourceKey), row]));
+  const unique = (rows) => [...new Map(rows.filter(Boolean).map((row) => [String(row.sourceKey), row])).values()];
+
   const setChunks = chunks(plan.sets, SET_CHUNK);
   for (let i = 0; i < setChunks.length; i += 1) {
     await appendChunk(versionId, { sets: setChunks[i] }, `direct Registry sets ${i + 1}/${setChunks.length} ${plan.release.releaseSlug}`);
   }
+
   const cardChunks = chunks(plan.cards, CARD_CHUNK);
   for (let i = 0; i < cardChunks.length; i += 1) {
-    await appendChunk(versionId, { cards: cardChunks[i] }, `direct Registry cards ${i + 1}/${cardChunks.length} ${plan.release.releaseSlug}`);
+    const sets = unique(cardChunks[i].map((card) => setByKey.get(String(card.setSourceKey))));
+    await appendChunk(versionId, { sets, cards: cardChunks[i] }, `direct Registry cards ${i + 1}/${cardChunks.length} ${plan.release.releaseSlug}`);
   }
+
   const parallelChunks = chunks(plan.parallels, PARALLEL_CHUNK);
   for (let i = 0; i < parallelChunks.length; i += 1) {
-    await appendChunk(versionId, { parallels: parallelChunks[i] }, `direct Registry parallels ${i + 1}/${parallelChunks.length} ${plan.release.releaseSlug}`);
+    const sets = unique(parallelChunks[i].map((parallel) => setByKey.get(String(parallel.setSourceKey))));
+    await appendChunk(versionId, { sets, parallels: parallelChunks[i] }, `direct Registry parallels ${i + 1}/${parallelChunks.length} ${plan.release.releaseSlug}`);
   }
+
   const identityChunks = chunks(plan.identities, IDENTITY_CHUNK);
   for (let i = 0; i < identityChunks.length; i += 1) {
-    await appendChunk(versionId, { identities: identityChunks[i] }, `direct Registry identities ${i + 1}/${identityChunks.length} ${plan.release.releaseSlug}`);
+    const cards = unique(identityChunks[i].map((identity) => cardByKey.get(String(identity.cardSourceKey))));
+    const parallels = unique(identityChunks[i].map((identity) => identity.parallelSourceKey ? parallelByKey.get(String(identity.parallelSourceKey)) : null));
+    const sets = unique([
+      ...cards.map((card) => setByKey.get(String(card.setSourceKey))),
+      ...parallels.map((parallel) => setByKey.get(String(parallel.setSourceKey))),
+    ]);
+    await appendChunk(versionId, { sets, cards, parallels, identities: identityChunks[i] }, `direct Registry identities ${i + 1}/${identityChunks.length} ${plan.release.releaseSlug}`);
   }
 
   const finalized = await finalizePlan(versionId, plan.validation.counts || {}, plan.validation.issues || [], plan.release.releaseSlug);
