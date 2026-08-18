@@ -8,15 +8,38 @@ import { parseUpperDeckHtmlChecklist } from "./upper-deck-html";
 
 export const UPPER_DECK_OFFICIAL_HTML_ADAPTER_ID =
   "upper-deck-official-html-checklist" as const;
-export const UPPER_DECK_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.0" as const;
+export const UPPER_DECK_OFFICIAL_HTML_ADAPTER_VERSION = "1.0.1" as const;
+
+function sourceStartYear(context: string) {
+  const season = context.match(/(?:^|[^0-9])(20\d{2})[-_](?:20)?\d{2}(?:[^0-9]|$)/);
+  if (season) return Number(season[1]);
+  const year = context.match(/(?:^|[^0-9])(20\d{2})(?:[^0-9]|$)/);
+  return year ? Number(year[1]) : null;
+}
 
 function inferredSportFromSource(artifact: ChecklistSourceArtifact) {
   const context = `${artifact.sourceUrl} ${artifact.originalFilename}`.toLowerCase();
   if (context.includes("pwhl")) return { sport: "Hockey", league: "PWHL" };
   if (context.includes("ahl")) return { sport: "Hockey", league: "AHL" };
+  if (/(?:^|[^a-z])chl(?:[^a-z]|$)/i.test(context)) return { sport: "Hockey", league: "CHL" };
+  if (context.includes("team-canada")) return { sport: "Hockey", league: "Team Canada" };
   if (context.includes("hockey")) return { sport: "Hockey", league: "NHL" };
   if (context.includes("golf")) return { sport: "Golf", league: null };
   if (context.includes("aew")) return { sport: "Wrestling", league: "AEW" };
+  if (context.includes("baseball")) return { sport: "Baseball", league: "MLB" };
+  if (context.includes("basketball")) return { sport: "Basketball", league: "NBA" };
+  if (context.includes("football")) return { sport: "Football", league: "NFL" };
+
+  // Upper Deck's modern hockey archive frequently omits the word "Hockey"
+  // from both the checklist H1 and source slug (for example SP Authentic,
+  // Extended Series and MVP). From the 2021 boundary forward these product
+  // families are hockey programs unless the URL already declared another
+  // sport above. This keeps authoritative hockey rows out of sport="Other".
+  const year = sourceStartYear(context);
+  const modernHockeyProduct = /(?:^|[-_/])(mvp|sp-authentic|sp-hockey|the-cup|ultimate-collection|stature|credentials|o-pee-chee|opc|ice|black-diamond|ud-extended-series|upper-deck-series|ud-series|parkhurst|trilogy|skybox-metal-universe|spx|premier|clear-cut|sp-game-used)(?:[-_/]|$)/i;
+  if ((year ?? 0) >= 2021 && modernHockeyProduct.test(context)) {
+    return { sport: "Hockey", league: "NHL" };
+  }
   return null;
 }
 
