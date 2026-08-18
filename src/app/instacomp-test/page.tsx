@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import InstaCompBatchLiveScanner from "./InstaCompBatchLiveScanner";
 
@@ -78,6 +79,21 @@ export default async function InstaCompAdminPage() {
           Drag in many real front/back card images, verify every pair, and run the
           real identity and strict exact-market pipeline for each card.
         </p>
+        <Link
+          href="/instacomp-test/surprise"
+          style={{
+            display: "inline-block",
+            marginTop: 10,
+            padding: "10px 14px",
+            borderRadius: 9,
+            background: "#8a1c1c",
+            color: "white",
+            textDecoration: "none",
+            fontWeight: 900,
+          }}
+        >
+          SURPRISE MODE →
+        </Link>
       </div>
 
       <InstaCompBatchLiveScanner />
