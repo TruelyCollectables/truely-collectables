@@ -36,6 +36,9 @@ class AuthoritativeRegistryChecklistGateway:
         self,
         identity: CardIdentity,
         ocr_text: str | None = None,
+        *,
+        registry_identity_id: str | None = None,
+        registry_fingerprint_sha256: str | None = None,
     ) -> tuple[ChecklistResult, dict[str, Any]]:
         """Resolve with bounded transport retries and preserve the exact exchange.
 
@@ -43,6 +46,12 @@ class AuthoritativeRegistryChecklistGateway:
         timeout or connection reset must not turn one otherwise-valid card into a
         failed promotion. Only transport failures are retried; Registry responses
         themselves remain authoritative and fail closed exactly as before.
+
+        When a trusted historical Registry UUID + fingerprint is supplied, the
+        Production endpoint first revalidates that exact current Registry row
+        against the visible identity evidence. If it is stale or incompatible,
+        Production falls back to the normal exact resolver; the receipt itself can
+        never manufacture a match.
         """
         base_url = _registry_base_url()
         diagnostics: dict[str, Any] = {
@@ -58,6 +67,11 @@ class AuthoritativeRegistryChecklistGateway:
             "registry_candidate_count": 0,
             "registry_identity_id": None,
             "registry_fingerprint_sha256": None,
+            "registry_receipt_revalidation_requested": bool(
+                registry_identity_id and registry_fingerprint_sha256
+            ),
+            "registry_receipt_revalidation_attempted": False,
+            "registry_receipt_revalidation_accepted": False,
             "registry_transport_error": None,
             "registry_transport_errors": [],
             "registry_attempts": 0,
@@ -77,7 +91,7 @@ class AuthoritativeRegistryChecklistGateway:
             )
             return result, diagnostics
 
-        payload = {
+        payload: dict[str, Any] = {
             "year": identity.year,
             "manufacturer": identity.manufacturer,
             "brand": identity.brand,
@@ -95,6 +109,11 @@ class AuthoritativeRegistryChecklistGateway:
             "variation": identity.variation,
             "ocrText": _bounded_ocr(ocr_text),
         }
+        if registry_identity_id and registry_fingerprint_sha256:
+            payload["registryIdentityId"] = str(registry_identity_id).strip()
+            payload["registryFingerprintSha256"] = str(
+                registry_fingerprint_sha256
+            ).strip().lower()
         diagnostics["registry_request"] = payload
 
         response: httpx.Response | None = None
@@ -155,6 +174,12 @@ class AuthoritativeRegistryChecklistGateway:
         )
         diagnostics["registry_fingerprint_sha256"] = _text(
             data.get("registryFingerprintSha256") or data.get("fingerprintSha256")
+        )
+        diagnostics["registry_receipt_revalidation_attempted"] = bool(
+            data.get("receiptRevalidationAttempted")
+        )
+        diagnostics["registry_receipt_revalidation_accepted"] = bool(
+            data.get("receiptRevalidationAccepted")
         )
 
         if response.status_code in {401, 403}:
