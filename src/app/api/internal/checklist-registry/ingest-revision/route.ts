@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-preflight-v5";
+const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-preflight-v6";
 
 export async function GET() {
   return NextResponse.json(
