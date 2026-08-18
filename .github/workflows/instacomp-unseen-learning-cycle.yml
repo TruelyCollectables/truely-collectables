@@ -1,0 +1,114 @@
+name: InstaComp Unseen 100 Learning Cycle
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-unseen-learning-cycle.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py"
+      - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
+      - "services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh"
+      - "services/instacomp-ai/scripts/run_lora_training.py"
+      - "services/instacomp-ai/scripts/run_lora_training_checkpoint_safe.py"
+      - "services/instacomp-ai/scripts/finish_deal_hunter_ai_learning.py"
+      - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
+      - "services/instacomp-ai/app/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-unseen-learning-cycle.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py"
+      - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
+      - "services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile canonical benchmark and curriculum trainer
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py
+          bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          bash -n services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+      - name: Run contract self-tests five times
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== UNSEEN LEARNING CYCLE LINUX SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py --self-test
+            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py --self-test
+          done
+      - name: Prove benchmark stays clean and learning stays gated
+        run: |
+          benchmark=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py
+          curriculum=services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py
+          cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+          grep -q 'MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY = 5' "$benchmark"
+          grep -q 'previously_scored' "$benchmark"
+          grep -q 'duplicate_or_previously_scored_image_pair' "$benchmark"
+          grep -q 'legacy.v20._lock_identity' "$benchmark"
+          grep -q 'current trusted example with matching Registry UUID and fingerprint' "$curriculum"
+          grep -q 'DEFAULT_LEARNING_RATE = 5e-5' "$curriculum"
+          grep -q 'DEFAULT_CURRICULUM_MULTIPLIER = 3' "$curriculum"
+          grep -q 'No complete 100-card unseen benchmark exists' "$curriculum"
+          grep -q 'run-staged-learning-from-main.sh' "$cycle"
+          grep -q -- '--stage-target 25' "$cycle"
+          grep -q -- '--validation-only --required-examples 30' "$cycle"
+          grep -q 'ROLLBACK re-enabled prior certified runtime candidate' "$cycle"
+          ! grep -q -- '--allow-partial' "$cycle"
+          ! grep -Eq 'teacher|sold|pricing' "$benchmark" || true
+
+  contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile and syntax-check Mac path
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py
+          bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          bash -n services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+      - name: Repeat self-tests on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== UNSEEN LEARNING CYCLE MAC SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py --self-test
+            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py --self-test
+          done
+      - name: Prove one-command Mac path is fail-closed
+        run: |
+          cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+          grep -q 'No training was allowed' "$cycle"
+          grep -q 'different untouched 100-card exam' "$cycle"
+          grep -q 'current trusted truth still matches the benchmark Registry UUID + fingerprint' "$cycle"
+          grep -q 'restore_known_good' "$cycle"

@@ -12,7 +12,7 @@ service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 expected_service_root="$repo_root/services/instacomp-ai"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/benchmark_lora_unseen_holdout_v1.py"
+target="$service_root/scripts/benchmark_lora_unseen_holdout.py"
 
 if [[ -z "$repo_root" || "$service_root" != "$expected_service_root" ]]; then
   echo "Refusing unseen benchmark: unexpected repository layout." >&2
@@ -41,11 +41,11 @@ fi
   exit 2
 }
 [[ -f "$target" ]] || {
-  echo "Unseen benchmark runner is missing: $target" >&2
+  echo "Canonical unseen benchmark runner is missing: $target" >&2
   exit 2
 }
 
-echo "INFO Syncing unseen benchmark directly from origin/main"
+echo "INFO Syncing canonical unseen benchmark directly from origin/main"
 git -C "$repo_root" fetch --prune origin main
 current="$(git -C "$repo_root" rev-parse HEAD)"
 remote_main="$(git -C "$repo_root" rev-parse origin/main)"
@@ -79,11 +79,12 @@ fi
 
 export PYTHONPATH="$service_root:$service_root/scripts${PYTHONPATH:+:$PYTHONPATH}"
 
-echo "INFO Running unseen holdout benchmark contract self-test"
+echo "INFO Running canonical unseen holdout benchmark contract self-test"
 "$service_python" "$target" --self-test
-echo "PASS unseen holdout benchmark contract self-test"
+echo "PASS canonical unseen holdout benchmark contract self-test"
 echo "INFO Live benchmark is read-only: no training, no adapter mutation, no inventory mutation, no publishing"
-echo "INFO Eligible cards are validation-not-train minus Frozen-25 fixtures, plus post-dataset trusted operator-confirmed rows"
+echo "INFO Previously scored image rows are excluded from every later exam"
+echo "INFO Multiple unseen image pairs may share one Registry identity, capped at five images per exact identity"
 echo "INFO Current Registry UUID/fingerprint and physical evidence remain authoritative"
 echo "INFO Graduation requires a complete target, >=95% authoritative exact, zero wrong authoritative identities, zero dangerous variant errors, and zero fallback"
 
