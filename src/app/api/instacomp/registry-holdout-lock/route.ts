@@ -8,6 +8,10 @@ import { getActiveStoreId } from "../../../../lib/stores";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const DETAIL_CHUNK_SIZE = 100;
+const CARD_PAGE_SIZE = 500;
+const MAX_CARD_ROWS = 5000;
+
 function record(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
@@ -146,6 +150,70 @@ function publicStatus(status: string) {
   return "set_present_no_exact_match";
 }
 
+function queryCode(error: any) {
+  return String(error?.code || error?.name || "unknown");
+}
+
+function lookupUnavailable(reason: string, error?: any) {
+  const detail = error ? `${reason}:${queryCode(error)}` : reason;
+  return NextResponse.json({
+    ok: true,
+    resolver: "trustedHoldoutRegistryBootstrap",
+    resolverStatus: "lookup_unavailable",
+    status: "lookup_unavailable",
+    reasons: [detail],
+    candidateCount: 0,
+    registryIdentityId: null,
+    registryFingerprintSha256: null,
+    lockedFields: null,
+  });
+}
+
+async function chunkedInSelect(params: {
+  client: any;
+  table: string;
+  select: string;
+  column: string;
+  ids: string[];
+  chunkSize?: number;
+}) {
+  const rows: any[] = [];
+  const chunkSize = Math.max(1, params.chunkSize || DETAIL_CHUNK_SIZE);
+  for (let start = 0; start < params.ids.length; start += chunkSize) {
+    const ids = params.ids.slice(start, start + chunkSize);
+    if (!ids.length) continue;
+    const result = await params.client
+      .from(params.table)
+      .select(params.select)
+      .in(params.column, ids);
+    if (result.error) return { data: [] as any[], error: result.error };
+    rows.push(...(result.data || []));
+  }
+  return { data: rows, error: null as any };
+}
+
+async function cardsForNumber(client: any, cardNumber: string) {
+  const rows: any[] = [];
+  for (let start = 0; start < MAX_CARD_ROWS; start += CARD_PAGE_SIZE) {
+    const result = await client
+      .from("checklist_cards")
+      .select(
+        "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+      )
+      .eq("normalized_card_number", cardNumber)
+      .range(start, start + CARD_PAGE_SIZE - 1);
+    if (result.error) {
+      return { data: [] as any[], error: result.error, overflow: false };
+    }
+    const page = result.data || [];
+    rows.push(...page);
+    if (page.length < CARD_PAGE_SIZE) {
+      return { data: rows, error: null as any, overflow: false };
+    }
+  }
+  return { data: rows, error: null as any, overflow: true };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const sentinelMacRequest = isValidInstaCompSentinelArchiveRequest(req);
@@ -189,19 +257,20 @@ export async function POST(req: NextRequest) {
       .eq("is_active", true)
       .eq("status", "live")
       .limit(5000);
-    if (versionResult.error) throw versionResult.error;
+    if (versionResult.error) {
+      return lookupUnavailable("trusted_holdout_active_version_lookup_failed", versionResult.error);
+    }
     const activeVersionIds = new Set(
       (versionResult.data || []).map((row: any) => String(row.id)).filter(Boolean),
     );
 
-    const cardResult = await supabase
-      .from("checklist_cards")
-      .select(
-        "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-      )
-      .eq("normalized_card_number", cardNumber)
-      .limit(1000);
-    if (cardResult.error) throw cardResult.error;
+    const cardResult = await cardsForNumber(supabase, cardNumber);
+    if (cardResult.error) {
+      return lookupUnavailable("trusted_holdout_card_number_lookup_failed", cardResult.error);
+    }
+    if (cardResult.overflow) {
+      return lookupUnavailable("trusted_holdout_card_number_scope_exceeded_safe_bound");
+    }
     const cards = (cardResult.data || []).filter((card: any) =>
       activeVersionIds.has(String(card.version_id)),
     );
@@ -225,32 +294,49 @@ export async function POST(req: NextRequest) {
     const releaseIds = unique(cards.map((card: any) => card.release_id));
     const setIds = unique(cards.map((card: any) => card.set_id));
 
+    // A common card number can exist across hundreds of releases. V5 previously
+    // put every ID into one PostgREST .in(...) URL, which produced the live Mac's
+    // HTTP 500 wave. Keep the exact same Registry rows but fetch them in bounded
+    // chunks so request size cannot become the authority failure.
     const [playerResult, teamResult, identityResult, releaseResult, setResult] =
       await Promise.all([
-        supabase
-          .from("checklist_card_players")
-          .select("card_id,display_order,player:checklist_players(canonical_name)")
-          .in("card_id", cardIds),
-        supabase
-          .from("checklist_card_teams")
-          .select("card_id,display_order,team:checklist_teams(canonical_name)")
-          .in("card_id", cardIds),
-        supabase
-          .from("checklist_card_identities")
-          .select(
+        chunkedInSelect({
+          client: supabase,
+          table: "checklist_card_players",
+          select: "card_id,display_order,player:checklist_players(canonical_name)",
+          column: "card_id",
+          ids: cardIds,
+        }),
+        chunkedInSelect({
+          client: supabase,
+          table: "checklist_card_teams",
+          select: "card_id,display_order,team:checklist_teams(canonical_name)",
+          column: "card_id",
+          ids: cardIds,
+        }),
+        chunkedInSelect({
+          client: supabase,
+          table: "checklist_card_identities",
+          select:
             "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
-          )
-          .in("card_id", cardIds),
-        supabase
-          .from("checklist_releases")
-          .select(
+          column: "card_id",
+          ids: cardIds,
+        }),
+        chunkedInSelect({
+          client: supabase,
+          table: "checklist_releases",
+          select:
             "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
-          )
-          .in("id", releaseIds),
-        supabase
-          .from("checklist_sets")
-          .select("id,name,normalized_name,release_id,version_id")
-          .in("id", setIds),
+          column: "id",
+          ids: releaseIds,
+        }),
+        chunkedInSelect({
+          client: supabase,
+          table: "checklist_sets",
+          select: "id,name,normalized_name,release_id,version_id",
+          column: "id",
+          ids: setIds,
+        }),
       ]);
 
     const detailError =
@@ -259,7 +345,9 @@ export async function POST(req: NextRequest) {
       identityResult.error ||
       releaseResult.error ||
       setResult.error;
-    if (detailError) throw detailError;
+    if (detailError) {
+      return lookupUnavailable("trusted_holdout_chunked_detail_lookup_failed", detailError);
+    }
 
     const groupByCard = (rows: any[]) => {
       const grouped = new Map<string, any[]>();

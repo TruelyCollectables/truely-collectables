@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -13,8 +14,16 @@ import benchmark_lora_unseen_holdout_v4 as v4
 canonical = v4.canonical
 SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v5"
 _CANONICAL_AUTHORITATIVE_HOLDOUT = canonical._authoritative_holdout
-MAX_BOOTSTRAP_ATTEMPTS = 900
-BOOTSTRAP_EXACT_RESERVE = 180
+MAX_BOOTSTRAP_ATTEMPTS = 1200
+BOOTSTRAP_EXACT_RESERVE = 240
+
+
+@dataclass(frozen=True)
+class BootstrapTruth:
+    identity: Any
+    registry_id: str
+    fingerprint: str
+    reason: str
 
 
 def _norm(value: object) -> str:
@@ -55,7 +64,7 @@ def _bootstrap_payload(identity: Any, *, ocr_text: str | None) -> dict[str, Any]
     }
 
 
-def _bootstrap_identity(data: dict[str, Any], teacher: Any) -> Any | None:
+def _bootstrap_truth(data: dict[str, Any], teacher: Any) -> BootstrapTruth | None:
     from app.models import CardIdentity
 
     status = str(data.get("status") or "")
@@ -100,10 +109,18 @@ def _bootstrap_identity(data: dict[str, Any], teacher: Any) -> Any | None:
     }
     identity = CardIdentity.model_validate(payload)
     ready, _missing = canonical.legacy.v20._visible_set_identity_readiness(identity)
-    return identity if ready else None
+    if not ready:
+        return None
+    mode = str(data.get("bootstrapMode") or "unique_registry_bootstrap")
+    return BootstrapTruth(
+        identity=identity,
+        registry_id=registry_id,
+        fingerprint=fingerprint,
+        reason=f"unique_registry_bootstrap:{mode}",
+    )
 
 
-async def _bootstrap_one(item: dict[str, Any], identity: Any) -> tuple[Any | None, str]:
+async def _bootstrap_one(item: dict[str, Any], identity: Any) -> tuple[BootstrapTruth | None, str]:
     from app.checklist import _bounded_ocr, _registry_base_url, _registry_headers
 
     base_url = _registry_base_url()
@@ -123,25 +140,41 @@ async def _bootstrap_one(item: dict[str, Any], identity: Any) -> tuple[Any | Non
     except httpx.HTTPError as error:
         return None, f"transport:{type(error).__name__}"
 
-    if response.status_code in {401, 403}:
-        return None, "authentication_failed"
-    if not response.is_success:
-        return None, f"http_{response.status_code}"
     try:
         data = response.json() if response.content else {}
     except Exception:
-        return None, "invalid_json"
+        data = {}
+    if response.status_code in {401, 403}:
+        return None, "authentication_failed"
+    if not response.is_success:
+        detail = ""
+        if isinstance(data, dict):
+            detail = str(data.get("error") or data.get("reasons") or "")
+        detail = " ".join(detail.split())[:120]
+        return None, f"http_{response.status_code}:{detail}" if detail else f"http_{response.status_code}"
     if not isinstance(data, dict) or data.get("ok") is not True:
         return None, "route_error"
 
-    resolved = _bootstrap_identity(data, identity)
+    resolved = _bootstrap_truth(data, identity)
     if resolved is not None:
-        mode = str(data.get("bootstrapMode") or "unique_registry_bootstrap")
-        return resolved, f"unique_registry_bootstrap:{mode}"
+        return resolved, resolved.reason
     resolver_status = str(data.get("resolverStatus") or data.get("status") or "no_match")
     reasons = data.get("reasons") if isinstance(data.get("reasons"), list) else []
     reason = str(reasons[0] if reasons else resolver_status)
     return None, reason
+
+
+def _bootstrap_order(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from app.models import CardIdentity
+
+    ordered = canonical._diverse_order(items)
+    incomplete: list[dict[str, Any]] = []
+    ready: list[dict[str, Any]] = []
+    for item in ordered:
+        identity = CardIdentity.model_validate(item["identity"])
+        is_ready, _missing = canonical.legacy.v20._visible_set_identity_readiness(identity)
+        (ready if is_ready else incomplete).append(item)
+    return incomplete + ready
 
 
 async def _authoritative_holdout(
@@ -156,50 +189,63 @@ async def _authoritative_holdout(
 ):
     from app.models import CardIdentity
 
-    enriched: list[dict[str, Any]] = []
+    replacements: dict[str, BootstrapTruth] = {}
     stats: Counter[str] = Counter()
     attempts = 0
     exact = 0
 
-    # Bootstrap BOTH locally-incomplete rows and rows whose old release labels
-    # are complete-shaped but no longer map to the current Registry. The route
-    # may repair stale release coordinates only when player/card/variant truth
-    # collapses to one unique active fingerprint. Every repaired identity still
-    # goes through normal V20 exact Registry + physical admission below.
-    for item in canonical._diverse_order(items):
-        value = dict(item)
-        identity = CardIdentity.model_validate(value["identity"])
+    for item in _bootstrap_order(items):
+        identity = CardIdentity.model_validate(item["identity"])
         ready, _missing = canonical.legacy.v20._visible_set_identity_readiness(identity)
         if ready:
             stats["already_registry_ready"] += 1
-
         if (
-            attempts < MAX_BOOTSTRAP_ATTEMPTS
-            and exact < BOOTSTRAP_EXACT_RESERVE
-            and _bootstrap_eligible(value, identity)
+            attempts >= MAX_BOOTSTRAP_ATTEMPTS
+            or exact >= BOOTSTRAP_EXACT_RESERVE
+            or not _bootstrap_eligible(item, identity)
         ):
-            attempts += 1
-            resolved, reason = await _bootstrap_one(value, identity)
-            stats[reason] += 1
-            if resolved is not None:
-                value["trusted_prebootstrap_identity"] = canonical.legacy._identity_payload(identity)
-                value["identity"] = canonical.legacy._identity_payload(resolved)
-                value["trusted_registry_bootstrap_identity"] = canonical.legacy._identity_payload(resolved)
-                value["registry_bootstrap_source"] = "unique_active_registry_identity_pending_normal_v20_revalidation"
-                exact += 1
+            continue
+        attempts += 1
+        resolved, reason = await _bootstrap_one(item, identity)
+        stats[reason] += 1
+        if resolved is None:
+            continue
+        row_id = str(item.get("row_id") or "")
+        if not row_id:
+            continue
+        replacements[row_id] = resolved
+        exact += 1
+        stats["bootstrap_receipt_preserved"] += 1
+        stats["bootstrap_incomplete" if not ready else "bootstrap_ready"] += 1
+
+    enriched: list[dict[str, Any]] = []
+    for item in items:
+        value = dict(item)
+        row_id = str(value.get("row_id") or "")
+        replacement = replacements.get(row_id)
+        if replacement is not None:
+            original = CardIdentity.model_validate(value["identity"])
+            value["trusted_prebootstrap_identity"] = canonical.legacy._identity_payload(original)
+            value["identity"] = canonical.legacy._identity_payload(replacement.identity)
+            value["trusted_registry_bootstrap_identity"] = canonical.legacy._identity_payload(replacement.identity)
+            value["historical_metadata_registry_id"] = replacement.registry_id
+            value["historical_metadata_fingerprint"] = replacement.fingerprint
+            value["registry_bootstrap_source"] = (
+                "unique_active_registry_identity_with_current_receipt_pending_normal_v20_revalidation"
+            )
         enriched.append(value)
 
     print(
         "UNSEEN TRUSTED REGISTRY BOOTSTRAP: "
         f"attempted={attempts} exact={exact} reserve_goal={BOOTSTRAP_EXACT_RESERVE} "
         f"already_ready={stats['already_registry_ready']} "
-        f"top_outcomes={stats.most_common(10)}",
+        f"receipt_preserved={stats['bootstrap_receipt_preserved']} "
+        f"bootstrapped_incomplete={stats['bootstrap_incomplete']} "
+        f"bootstrapped_ready={stats['bootstrap_ready']} "
+        f"top_outcomes={stats.most_common(12)}",
         flush=True,
     )
 
-    # Critical safety boundary: the bootstrap result is NOT admitted here. The
-    # unchanged V3 scorer calls the normal V20 Registry resolver again using the
-    # now-complete identity and then applies the same physical/parallel witness.
     return await _CANONICAL_AUTHORITATIVE_HOLDOUT(
         enriched,
         target=target,
@@ -246,6 +292,7 @@ def _self_test() -> int:
 
     data = {
         "status": "exact_match",
+        "bootstrapMode": "strict_release_evidence",
         "registryIdentityId": "11111111-1111-4111-8111-111111111111",
         "registryFingerprintSha256": "a" * 64,
         "lockedFields": {
@@ -262,18 +309,48 @@ def _self_test() -> int:
             "isRelic": False,
         },
     }
-    resolved = _bootstrap_identity(data, teacher)
+    resolved = _bootstrap_truth(data, teacher)
     assert resolved is not None
-    assert resolved.year == "2025"
-    assert resolved.brand == "Prizm"
-    assert resolved.set_name == "Base"
+    assert resolved.identity.year == "2025"
+    assert resolved.identity.brand == "Prizm"
+    assert resolved.identity.set_name == "Base"
+    assert resolved.registry_id == data["registryIdentityId"]
+    assert resolved.fingerprint == data["registryFingerprintSha256"]
 
     wrong = json.loads(json.dumps(data))
     wrong["lockedFields"]["player"] = "Wrong Player"
-    assert _bootstrap_identity(wrong, teacher) is None
+    assert _bootstrap_truth(wrong, teacher) is None
+
+    incomplete_item = {
+        "row_id": "incomplete",
+        "identity": {
+            "sport": "Basketball",
+            "player": "Truth Player",
+            "card_number": "77",
+            "parallel": "Base",
+        },
+    }
+    ready_item = {
+        "row_id": "ready",
+        "identity": {
+            "sport": "Basketball",
+            "year": "2025",
+            "brand": "Prizm",
+            "set_name": "Base",
+            "player": "Truth Player",
+            "card_number": "77",
+            "parallel": "Base",
+        },
+    }
+    assert [value["row_id"] for value in _bootstrap_order([ready_item, incomplete_item])] == [
+        "incomplete",
+        "ready",
+    ]
 
     print("PASS unseen V5 bootstrap requires current trusted exact-image validation truth")
     print("PASS unseen V5 accepts only one UUID/fingerprint-shaped Registry bootstrap")
+    print("PASS unseen V5 preserves current bootstrap UUID/fingerprint for normal V20 receipt revalidation")
+    print("PASS unseen V5 prioritizes locally incomplete trusted rows before already-ready rows")
     print("PASS unseen V5 may repair stale release coordinates only through one unique identity")
     print("PASS unseen V5 refuses player/card drift before normal V20 revalidation")
     print("PASS unseen V5 bootstrap cannot bypass canonical V3/V20 admission")
