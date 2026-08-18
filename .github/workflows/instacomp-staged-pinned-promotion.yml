@@ -1,39 +1,31 @@
-name: InstaComp V18 Staged Promotion Self Test
+name: InstaComp V19 Canonical Staged Promotion Self Test
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-staged-pinned-promotion.yml"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
       - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
       - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
-      - "services/instacomp-ai/scripts/v18-query-guard/**"
       - "services/instacomp-ai/app/**"
+      - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
+      - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
+      - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
+      - "services/instacomp-ai/requirements.txt"
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-staged-pinned-promotion.yml"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v16.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v13.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v12.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py"
-      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v9.py"
-      - "services/instacomp-ai/scripts/repair_trusted_visual_memory.py"
-      - "services/instacomp-ai/scripts/repair_pinned_visual_memory.py"
-      - "services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
       - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
       - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
-      - "services/instacomp-ai/scripts/v18-query-guard/**"
+      - "services/instacomp-ai/scripts/repair_trusted_visual_memory.py"
+      - "services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py"
+      - "services/instacomp-ai/app/**"
       - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
       - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
       - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
-      - "services/instacomp-ai/app/**"
       - "services/instacomp-ai/requirements.txt"
   workflow_dispatch:
 
@@ -41,7 +33,7 @@ permissions:
   contents: read
 
 jobs:
-  v18-contract-linux:
+  v19-contract-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -51,43 +43,24 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile V18 and syntax-check both launchers
+      - name: Compile V19 and syntax-check launchers
         run: |
           python -m py_compile \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
-            services/instacomp-ai/scripts/v18-query-guard/sitecustomize.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
+            services/instacomp-ai/app/authoritative_registry_gateway.py \
+            services/instacomp-ai/app/lora_candidate_runtime_v2.py \
             services/instacomp-ai/app/lora_candidate_runtime.py \
             services/instacomp-ai/app/prizm_back_mark_guard.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-      - name: Prove query guard cannot poison bootstrap Python stdin
-        env:
-          INSTACOMP_V18_STAGED_QUERY_GUARD: "1"
-          PYTHONPATH: services/instacomp-ai/scripts/v18-query-guard
-        run: |
-          python - <<'PY'
-          import sys
-          assert (3, 11) <= sys.version_info[:2] < (3, 14)
-          assert "promote_lora_candidate_frozen_25_v10" not in sys.modules
-          print("PASS bare stdin runtime probe bypasses the V18 query guard")
-          PY
-          PYTHONPATH="services/instacomp-ai/scripts/v18-query-guard:services/instacomp-ai:services/instacomp-ai/scripts" \
-            python - --self-test <<'PY'
-          import promote_lora_candidate_frozen_25_v10 as v10
-          assert getattr(v10, "_v18_card_number_guard_installed", False) is True
-          print("PASS V18 self-test stdin installs the query guard")
-          PY
-      - name: Run complete V18 contract five consecutive times on Linux
+      - name: Run complete V19 contract five consecutive times on Linux
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
           for pass in 1 2 3 4 5; do
-            echo "===== V18 LINUX SELF-TEST PASS ${pass}/5 ====="
-            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py --self-test
+            echo "===== V19 LINUX SELF-TEST PASS ${pass}/5 ====="
+            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py --self-test
           done
       - name: Prove physical pattern and Prizm regressions
         env:
@@ -97,20 +70,26 @@ jobs:
             services/instacomp-ai/tests/test_opencv_pattern_native.py \
             services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
             services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-      - name: Prove V18 source and orchestration contract
+      - name: Prove V19 canonical source contract
         run: |
-          grep -q 'CANDIDATE_DRY_PASSES = 2' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
-          grep -q 'Use legacy Frozen Five only as preference, never as accepted truth' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
-          grep -q 'v14.run_round_exhaustive' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
-          grep -q 'v18_current_authoritative_selection' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
-          ! grep -q 'return v12.main' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py
-          grep -q 'promotion-v18-current-authoritative-two-pass' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v18.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promotion-v19-single-canonical-pipeline' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v19.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q '_registry_lookup_ladder' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          grep -q '_candidate_probe' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          grep -q '_certification_round' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          grep -q 'AuthoritativeRegistryChecklistGateway()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          grep -q '_candidate_request_body' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          ! grep -q 'v14.run_round_exhaustive' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          ! grep -q 'checklist_gateway' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          ! grep -q 'OllamaReader' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py
+          ! grep -q 'sitecustomize' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          ! grep -q 'v18-query-guard' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          ! grep -q 'exec .* - ' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          ! grep -q 'v18\.' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q '15) stages=(10 15)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
           grep -q '25) stages=(10 15 25)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-          grep -q 'V18 current-authoritative Registry/physical/candidate gates' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
 
-  v18-contract-macos:
+  v19-contract-macos:
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -120,44 +99,25 @@ jobs:
           python-version: "3.13"
       - name: Install service requirements
         run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile V18 and prove macOS Bash nounset paths
+      - name: Compile V19 and prove macOS Bash paths
         run: |
           python -m py_compile \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v17.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v15.py \
-            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v14.py \
-            services/instacomp-ai/scripts/v18-query-guard/sitecustomize.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
+            services/instacomp-ai/app/authoritative_registry_gateway.py \
+            services/instacomp-ai/app/lora_candidate_runtime_v2.py \
             services/instacomp-ai/app/lora_candidate_runtime.py \
             services/instacomp-ai/app/prizm_back_mark_guard.py
           bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
           bash -uc 'a=(); present=0; if [[ "$present" == "1" ]]; then printf "%s\n" "${a[@]}"; else true; fi'
-      - name: Prove macOS query guard cannot poison bootstrap Python stdin
-        env:
-          INSTACOMP_V18_STAGED_QUERY_GUARD: "1"
-          PYTHONPATH: services/instacomp-ai/scripts/v18-query-guard
-        run: |
-          python - <<'PY'
-          import sys
-          assert (3, 11) <= sys.version_info[:2] < (3, 14)
-          assert "promote_lora_candidate_frozen_25_v10" not in sys.modules
-          print("PASS bare stdin runtime probe bypasses the V18 query guard")
-          PY
-          PYTHONPATH="services/instacomp-ai/scripts/v18-query-guard:services/instacomp-ai:services/instacomp-ai/scripts" \
-            python - --stage-target 10 <<'PY'
-          import promote_lora_candidate_frozen_25_v10 as v10
-          assert getattr(v10, "_v18_card_number_guard_installed", False) is True
-          print("PASS staged stdin installs the V18 query guard")
-          PY
-      - name: Run complete V18 contract five consecutive times on macOS
+      - name: Run complete V19 contract five consecutive times on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
           for pass in 1 2 3 4 5; do
-            echo "===== V18 MACOS SELF-TEST PASS ${pass}/5 ====="
-            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v18.py --self-test
+            echo "===== V19 MACOS SELF-TEST PASS ${pass}/5 ====="
+            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py --self-test
           done
       - name: Prove macOS physical pattern and Prizm regressions
         env:
@@ -167,9 +127,11 @@ jobs:
             services/instacomp-ai/tests/test_opencv_pattern_native.py \
             services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
             services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
-      - name: Prove V18 launcher source contract on macOS
+      - name: Prove V19 launcher has no runtime patch framework
         run: |
-          grep -q 'promotion-v18-current-authoritative-two-pass' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          grep -q 'promote_lora_candidate_frozen_25_v18.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
-          grep -q 'passthrough_present=0' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
-          grep -q 'V18 live staged promotion ladder' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -q 'promotion-v19-single-canonical-pipeline' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v19.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          ! grep -q 'sitecustomize' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          ! grep -q 'v18-query-guard' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          ! grep -q 'v18\.' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'V19 single canonical Registry/physical/candidate pipeline' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
