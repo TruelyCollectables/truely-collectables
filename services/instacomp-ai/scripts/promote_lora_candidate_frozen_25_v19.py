@@ -19,6 +19,7 @@ import promote_lora_candidate_frozen_25 as legacy
 import promote_lora_candidate_frozen_25_v3 as v3
 import promote_lora_candidate_frozen_25_v6 as v6
 import promote_lora_candidate_frozen_25_v11 as v11
+import promote_lora_candidate_frozen_25_v13 as v13
 import promote_lora_candidate_frozen_25_v17 as v17
 import promote_lora_candidate_frozen_five as base
 
@@ -70,6 +71,11 @@ def _dataset_fingerprint(dataset: Path, declared: object = None) -> str:
 
 
 def _canonical_variant(value: object) -> str | None:
+    """Canonicalize physical family before cosmetic color.
+
+    Pattern families must win over color words.  A Blue Velocity Prizm is
+    Velocity, not merely Blue; a Blue Cracked Ice is Ice, not merely Blue.
+    """
     text = _norm(value).replace("-", " ")
     if not text:
         return None
@@ -78,11 +84,15 @@ def _canonical_variant(value: object) -> str | None:
     words = set(text.split())
     if "cracked ice" in text or "ice" in words:
         return "ice"
+    if "velocity" in words:
+        return "velocity"
+    for token in ("groovy", "wave", "mojo", "scope", "hyper", "pulsar"):
+        if token in words:
+            return token
     for token in (
-        "groovy", "silver", "green", "red", "blue", "orange", "purple",
-        "gold", "black", "velocity", "wave", "mojo", "scope", "hyper", "pulsar",
+        "silver", "green", "red", "blue", "orange", "purple", "gold", "black",
     ):
-        if token in text:
+        if token in words:
             return token
     return text[:80]
 
@@ -322,17 +332,25 @@ def _core_registry_identity(identity: Any, *, clear_manufacturer: bool = False):
 
 
 async def _direct_local_vision(front: bytes, back: bytes | None):
-    """Run deterministic local vision and explicitly apply trusted style memory."""
+    """Run raw deterministic vision then explicitly enforce physical Prizm truth.
+
+    V19 does not rely on package monkey-patches for this.  The back-mark rule is
+    applied before trusted style memory and again afterward, preventing style
+    memory from promoting over a physical Base result.
+    """
     import app
     from app.config import settings
     from app.pattern_memory import apply_trusted_pattern_style
+    from app.prizm_back_mark_guard import apply_prizm_back_mark_rule
 
     vision = await app._original_analyze_local_vision(front, back, settings)
+    vision = apply_prizm_back_mark_rule(vision, back_bytes=back)
     try:
         database_path = settings.resolve_local_path(settings.database_path)
-        return apply_trusted_pattern_style(database_path=database_path, evidence=vision)
+        vision = apply_trusted_pattern_style(database_path=database_path, evidence=vision)
     except Exception:
-        return vision
+        pass
+    return apply_prizm_back_mark_rule(vision, back_bytes=back)
 
 
 async def _local_vision_for_item(item: dict[str, Any]):
@@ -457,6 +475,53 @@ async def _read_candidate_direct(
     }
 
 
+def _registry_throttle_reason(result: Any, diagnostics: dict[str, Any]) -> str | None:
+    reason = v13.v12._registry_throttle_reason(result)
+    if reason:
+        return str(reason)
+    if int(diagnostics.get("registry_http_status") or 0) == 429:
+        raw = diagnostics.get("registry_raw_response")
+        if isinstance(raw, dict):
+            for key in ("error", "detail", "reason", "message"):
+                text = _text(raw.get(key))
+                if text:
+                    return text
+        return "Registry HTTP 429. Try again in 60 seconds."
+    return None
+
+
+async def _registry_request_with_throttle(
+    gateway: Any,
+    identity: Any,
+    ocr_text: str | None,
+    *,
+    sleep_fn=asyncio.sleep,
+    max_windows: int = v13.MAX_THROTTLE_WINDOWS_PER_REQUEST,
+) -> tuple[Any, dict[str, Any]]:
+    """Retry the exact same Registry request when the server throttles it."""
+    windows = 0
+    while True:
+        result, diagnostics = await gateway.match_with_diagnostics(identity, ocr_text)
+        reason = _registry_throttle_reason(result, diagnostics)
+        if not reason:
+            return result, diagnostics
+        windows += 1
+        if windows > max_windows:
+            raise v13.RegistryThrottleAbort(
+                "Registry remained throttled after the bounded retry windows. "
+                "No card was marked failed and the candidate was not activated. "
+                f"Registry said: {reason}"
+            )
+        delay = v13._retry_seconds(reason) + v13.RETRY_WINDOW_BUFFER_SECONDS
+        print(
+            "REGISTRY THROTTLE BACKOFF: "
+            f"same_request_retry={windows}/{max_windows} "
+            f"delay_seconds={delay} reason={reason!r}; no card failure recorded",
+            flush=True,
+        )
+        await sleep_fn(delay)
+
+
 async def _registry_lookup_ladder(
     identity: Any,
     *,
@@ -484,7 +549,11 @@ async def _registry_lookup_ladder(
     last_result = None
     last_diagnostics: dict[str, Any] = {}
     for index, (query, ocr_text) in enumerate(attempts, 1):
-        result, diagnostics = await gateway.match_with_diagnostics(query, ocr_text)
+        result, diagnostics = await _registry_request_with_throttle(
+            gateway,
+            query,
+            ocr_text,
+        )
         last_result = result
         last_diagnostics = diagnostics
         if _registry_outcome(result) == "exact_match":
@@ -521,6 +590,40 @@ def _is_prizm(identity: Any, registry: Any) -> bool:
     return bool(re.search(r"\bprizm\b", " ".join(values), re.I))
 
 
+def _physical_variant_decision(
+    *,
+    teacher_marker: str | None,
+    registry_marker: str | None,
+    image_marker: str | None,
+    prizm: bool,
+    back_mark: bool | None,
+) -> tuple[bool, str | None]:
+    """Pure fail-closed physical decision used by live code and self-tests."""
+    if prizm:
+        if back_mark is not True:
+            if teacher_marker not in {None, "base"} or registry_marker not in {None, "base"}:
+                return False, "physical_prizm_back_mark_missing"
+            return True, None
+        if teacher_marker == "base" or registry_marker == "base":
+            return False, "physical_prizm_back_mark_contradicts_base"
+
+        claimed = teacher_marker or registry_marker
+        if claimed in PATTERN_SENSITIVE_VARIANTS and image_marker != claimed:
+            return False, "physical_pattern_witness_mismatch"
+        if image_marker is not None and claimed is not None and image_marker != claimed:
+            return False, "physical_variant_witness_contradiction"
+        return True, None
+
+    claimed = teacher_marker or registry_marker
+    if claimed in {None, "base"}:
+        if image_marker is not None:
+            return False, "physical_variant_witness_contradiction"
+        return True, None
+    if image_marker != claimed:
+        return False, "physical_non_prizm_variant_unproven"
+    return True, None
+
+
 def _physical_variant_gate(
     identity: Any,
     registry: Any,
@@ -528,7 +631,7 @@ def _physical_variant_gate(
     vision: Any,
     back_bytes: bytes | None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Pure physical gate: printed PRIZM back mark plus deterministic surface family."""
+    """Physical gate: printed PRIZM back mark plus deterministic surface family."""
     from app.prizm_back_mark_guard import bold_black_prizm_back_mark
 
     teacher_marker = _identity_variant(identity)
@@ -542,40 +645,24 @@ def _physical_variant_gate(
     back_mark: bool | None = None
     if prizm and back_bytes is not None:
         try:
-            raw_back_mark = bold_black_prizm_back_mark(vision, back_bytes)
-            back_mark = None if raw_back_mark is None else bool(raw_back_mark)
+            back_mark = bool(bold_black_prizm_back_mark(vision, back_bytes))
         except Exception:
             back_mark = None
 
-    detail = {
+    ok, reason = _physical_variant_decision(
+        teacher_marker=teacher_marker,
+        registry_marker=registry_marker,
+        image_marker=image_marker,
+        prizm=prizm,
+        back_mark=back_mark,
+    )
+    return ok, {
         "teacher_variant": teacher_marker,
         "registry_variant": registry_marker,
         "image_variant": image_marker,
         "prizm_back_mark": back_mark,
+        "reason": reason,
     }
-    if prizm:
-        if back_mark is not True:
-            if teacher_marker not in {None, "base"} or registry_marker not in {None, "base"}:
-                return False, {**detail, "reason": "physical_prizm_back_mark_missing"}
-            return True, {**detail, "reason": None}
-        if teacher_marker == "base" or registry_marker == "base":
-            return False, {**detail, "reason": "physical_prizm_back_mark_contradicts_base"}
-
-        claimed = teacher_marker or registry_marker
-        if claimed in PATTERN_SENSITIVE_VARIANTS and image_marker != claimed:
-            return False, {**detail, "reason": "physical_pattern_witness_mismatch"}
-        if image_marker is not None and claimed is not None and image_marker != claimed:
-            return False, {**detail, "reason": "physical_variant_witness_contradiction"}
-        return True, {**detail, "reason": None}
-
-    claimed = teacher_marker or registry_marker
-    if claimed in {None, "base"}:
-        if image_marker is not None:
-            return False, {**detail, "reason": "physical_variant_witness_contradiction"}
-        return True, {**detail, "reason": None}
-    if image_marker != claimed:
-        return False, {**detail, "reason": "physical_non_prizm_variant_unproven"}
-    return True, {**detail, "reason": None}
 
 
 async def _lock_identity(
@@ -1116,6 +1203,76 @@ def _self_test_registry_ladder() -> None:
     print("PASS V19 one Registry ladder preserves card number and exact UUID/fingerprint")
 
 
+def _self_test_throttle_same_request() -> None:
+    from app.models import CardIdentity, ChecklistOutcome, ChecklistResult
+
+    calls: list[tuple[str | None, str | None]] = []
+    sleeps: list[float] = []
+
+    class FakeGateway:
+        async def match_with_diagnostics(self, identity, ocr):
+            calls.append((identity.card_number, ocr))
+            if len(calls) == 1:
+                return ChecklistResult(
+                    outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+                    reasons=["Too many attempts. Try again in 9 seconds."],
+                ), {"registry_http_status": 429}
+            return ChecklistResult(
+                outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+                reasons=["ordinary miss"],
+            ), {"registry_http_status": 200}
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    identity = CardIdentity(player="Test", card_number="77")
+    result, _ = asyncio.run(
+        _registry_request_with_throttle(
+            FakeGateway(), identity, "same-ocr", sleep_fn=fake_sleep
+        )
+    )
+    assert _registry_outcome(result) == "set_present_no_exact_match"
+    assert calls == [("77", "same-ocr"), ("77", "same-ocr")]
+    assert sleeps == [9 + v13.RETRY_WINDOW_BUFFER_SECONDS]
+    print("PASS V19 Registry throttle retries the exact same identity/OCR request")
+
+
+def _self_test_physical_decisions() -> None:
+    assert _canonical_variant("Blue Velocity Prizm") == "velocity"
+    assert _canonical_variant("Blue Cracked Ice Prizm") == "ice"
+    assert _canonical_variant("Blue Prizm") == "blue"
+
+    assert _physical_variant_decision(
+        teacher_marker="silver", registry_marker="silver", image_marker=None,
+        prizm=True, back_mark=False,
+    ) == (False, "physical_prizm_back_mark_missing")
+    assert _physical_variant_decision(
+        teacher_marker="base", registry_marker="base", image_marker=None,
+        prizm=True, back_mark=False,
+    ) == (True, None)
+    assert _physical_variant_decision(
+        teacher_marker="base", registry_marker="base", image_marker=None,
+        prizm=True, back_mark=True,
+    ) == (False, "physical_prizm_back_mark_contradicts_base")
+    assert _physical_variant_decision(
+        teacher_marker="silver", registry_marker=None, image_marker="silver",
+        prizm=True, back_mark=True,
+    ) == (True, None)
+    assert _physical_variant_decision(
+        teacher_marker="velocity", registry_marker=None, image_marker="velocity",
+        prizm=True, back_mark=True,
+    ) == (True, None)
+    assert _physical_variant_decision(
+        teacher_marker="velocity", registry_marker="velocity", image_marker="silver",
+        prizm=True, back_mark=True,
+    ) == (False, "physical_pattern_witness_mismatch")
+    assert _physical_variant_decision(
+        teacher_marker="ice", registry_marker="ice", image_marker=None,
+        prizm=True, back_mark=True,
+    ) == (False, "physical_pattern_witness_mismatch")
+    print("PASS V19 pattern family outranks color and Prizm physical decisions fail closed")
+
+
 def _self_test_exact_binding() -> None:
     expected = {
         "row_id": "row-1", "player": "Player", "card_number": "1",
@@ -1130,15 +1287,15 @@ def _self_test_exact_binding() -> None:
         ),
     }
     assert _signature(locked) == expected
-    assert _canonical_variant("Prizms Ice") == "ice"
-    assert _canonical_variant("Blue Velocity Prizm") == "velocity"
     assert _leading_truncation("122", "22") is True
     assert _leading_truncation("118", "1") is False
-    print("PASS V19 exact Registry signature, variant, and card-number evidence rules")
+    print("PASS V19 exact Registry signature and card-number evidence rules")
 
 
 def self_test() -> int:
     _self_test_registry_ladder()
+    _self_test_throttle_same_request()
+    _self_test_physical_decisions()
     _self_test_exact_binding()
     assert CANDIDATE_DRY_PASSES == 2
     assert LOCKED_POOL_LIMITS[10] > 10 and LOCKED_POOL_LIMITS[15] > 15 and LOCKED_POOL_LIMITS[25] > 25
@@ -1245,6 +1402,11 @@ def main() -> int:
         )
         print(f"{_stage_label(target).upper()} V19 SUCCESS RECEIPT: {path}", flush=True)
         return 0
+    except v13.RegistryThrottleAbort as error:
+        if activated:
+            subprocess.run(["bash", str(base.DISABLE)], cwd=base.REPO_ROOT, check=False)
+        print(f"REGISTRY THROTTLE ABORT: {error}", flush=True)
+        return 3
     except BaseException as error:
         if activated:
             subprocess.run(["bash", str(base.DISABLE)], cwd=base.REPO_ROOT, check=False)
