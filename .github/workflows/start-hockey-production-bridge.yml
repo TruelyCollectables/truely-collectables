@@ -60,4 +60,4 @@ jobs:
             "https://api.github.com/repos/$REPO/statuses/$HEAD_SHA" \
             -d "$payload"
 
-# final-six-production-retrigger 2026-08-18T11:53-06:00
+# final-six-card-alias-retrigger 2026-08-18T11:56-06:00
