@@ -1,7 +1,9 @@
-2026-08-18T14:31:00-06:00
+2026-08-18T17:36:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=10
-reason=preflight-v4-prioritize-clear-cut-series2-errata-and-transient-db-retries
-expected_ingest_revision=2026-08-18-hockey-preflight-v4
-source_timeout_ms=180000
+retry=11
+reason=preflight-v5-ultimate-lane-repair-and-four-way-bounded-shards
+expected_ingest_revision=2026-08-18-hockey-preflight-v5
+shard_count=4
+source_timeout_ms=75000
+source_attempts=2
 status_branch=ops/hockey-reconcile-status
