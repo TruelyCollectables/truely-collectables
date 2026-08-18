@@ -75,7 +75,46 @@ writer.write_text(wtext)
 
 
 # ---------------------------------------------------------------------------
-# 2) Chicago Blackhawks Centennial: force exact known season + Hockey into the
+# 2) Final-six Production transport: stop using Supabase Management API direct
+# database connections for the remaining writes/verifications. That path is
+# the source of the 544 / "Too many connections" failures. The repo already
+# has the service-role PostgREST/RPC writer with the correct RPC signatures;
+# wire every final-six writer and the 83-set verifier to it.
+# ---------------------------------------------------------------------------
+def switch_to_rpc(path_str, *, reuse_archived_source=False):
+    path = Path(path_str)
+    text = path.read_text()
+    old_import = 'import { persistPlanManagement, preflightReleaseManagement } from "./management-staged-registry-writer.mjs";'
+    new_import = 'import { persistPlanRpc, preflightReleaseRpc } from "./rpc-staged-registry-writer.mjs";'
+    if old_import not in text:
+        raise SystemExit(f"RPC transport repair missed import in {path_str}")
+    text = text.replace(old_import, new_import, 1)
+    text = text.replace('preflightReleaseManagement(', 'preflightReleaseRpc(')
+    if reuse_archived_source:
+        text = text.replace('persistPlanManagement(plan, bytes)', 'persistPlanRpc(plan, bytes, { reuseArchivedSourceOnTransient: true })')
+        text = text.replace('persistPlanManagement(plan, pdf)', 'persistPlanRpc(plan, pdf, { reuseArchivedSourceOnTransient: true })')
+    else:
+        text = text.replace('persistPlanManagement(', 'persistPlanRpc(')
+    if 'persistPlanManagement' in text or 'preflightReleaseManagement' in text:
+        raise SystemExit(f"RPC transport repair left management writer references in {path_str}")
+    path.write_text(text)
+
+switch_to_rpc("scripts/instacomp-target-checklists/apply-certified-the-cup-management.mjs", reuse_archived_source=True)
+switch_to_rpc("scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts", reuse_archived_source=True)
+switch_to_rpc("scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts")
+
+verify = Path("scripts/instacomp-target-checklists/verify-requested-hockey-individual.mjs")
+vtext = verify.read_text()
+old_verify_import = 'import { preflightReleaseManagement } from "./management-staged-registry-writer.mjs";'
+new_verify_import = 'import { preflightReleaseRpc } from "./rpc-staged-registry-writer.mjs";'
+if old_verify_import not in vtext:
+    raise SystemExit("83-set verifier RPC transport repair missed import")
+vtext = vtext.replace(old_verify_import, new_verify_import, 1).replace('preflightReleaseManagement(', 'preflightReleaseRpc(')
+verify.write_text(vtext)
+
+
+# ---------------------------------------------------------------------------
+# 3) Chicago Blackhawks Centennial: force exact known season + Hockey into the
 # parser-view H1 while leaving the archived official source untouched.
 # ---------------------------------------------------------------------------
 chicago = Path("src/lib/checklist-registry/upper-deck-2025-26-chicago-html.ts")
@@ -108,4 +147,4 @@ if old_chicago not in ctext:
     raise SystemExit("Chicago Hockey classification repair missed current parser")
 chicago.write_text(ctext.replace(old_chicago, new_chicago, 1))
 
-print("Patched final six Hockey Production mapping/classification blockers")
+print("Patched final six Hockey Production mapping/classification/RPC transport blockers")
