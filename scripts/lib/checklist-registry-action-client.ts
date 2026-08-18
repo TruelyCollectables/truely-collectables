@@ -2,6 +2,10 @@ const CHECKLIST_OIDC_AUDIENCE = "tcos-checklist-registry";
 const DEFAULT_REGISTRY_ACTION_URL =
   "https://truelycollectables.com/api/internal/checklist-registry/action-ingest";
 
+const MAX_ACTION_ATTEMPTS = 4;
+const TRANSIENT_ACTION_MESSAGE =
+  /timeout|timed out|upstream request timeout|connection.*timed out|canceling statement due to statement timeout|fetch failed|connection reset|econnreset|etimedout|temporarily unavailable|service unavailable|bad gateway|gateway timeout/i;
+
 type CachedToken = { value: string; expiresAt: number };
 let cachedToken: CachedToken | null = null;
 
@@ -60,6 +64,20 @@ function registryActionTimeoutMs() {
   return Math.max(30_000, Math.min(10 * 60 * 1000, Math.floor(configured)));
 }
 
+function transientTransportError(error: unknown) {
+  if (error instanceof DOMException && error.name === "TimeoutError") return true;
+  if (error instanceof Error) {
+    if (["AbortError", "TimeoutError"].includes(error.name)) return true;
+    return TRANSIENT_ACTION_MESSAGE.test(error.message);
+  }
+  return false;
+}
+
+async function sleepBeforeRetry(attempt: number) {
+  const delayMs = 1_000 * 2 ** attempt;
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 async function postOnce(payload: Record<string, unknown>, forceTokenRefresh = false) {
   const response = await fetch(registryActionUrl(), {
     method: "POST",
@@ -83,14 +101,38 @@ async function postOnce(payload: Record<string, unknown>, forceTokenRefresh = fa
 
 export async function postChecklistRegistryAction(payload: Record<string, unknown>) {
   let lastMessage = "Checklist Registry action failed.";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const { response, body } = await postOnce(payload, attempt > 0 && attempt === 1);
-    if (response.ok) return body;
 
-    const message = typeof body.message === "string" ? body.message : `HTTP ${response.status}`;
-    lastMessage = `Checklist Registry action failed: ${message}`;
-    if (response.status !== 401 && response.status !== 429 && response.status < 500) break;
-    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
+  for (let attempt = 0; attempt < MAX_ACTION_ATTEMPTS; attempt += 1) {
+    try {
+      const { response, body } = await postOnce(
+        payload,
+        attempt === 1,
+      );
+      if (response.ok) return body;
+
+      const message = typeof body.message === "string"
+        ? body.message
+        : `HTTP ${response.status}`;
+      lastMessage = `Checklist Registry action failed: ${message}`;
+
+      const retryableStatus =
+        response.status === 401 ||
+        response.status === 408 ||
+        response.status === 425 ||
+        response.status === 429 ||
+        response.status >= 500;
+      const retryableMessage = TRANSIENT_ACTION_MESSAGE.test(message);
+      if (!retryableStatus && !retryableMessage) break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lastMessage = `Checklist Registry action failed: ${message}`;
+      if (!transientTransportError(error)) throw error;
+    }
+
+    if (attempt < MAX_ACTION_ATTEMPTS - 1) {
+      await sleepBeforeRetry(attempt);
+    }
   }
+
   throw new Error(lastMessage);
 }
