@@ -12,7 +12,7 @@ service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 expected_service_root="$repo_root/services/instacomp-ai"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/benchmark_lora_unseen_holdout.py"
+target="$service_root/scripts/benchmark_lora_unseen_holdout_v4.py"
 
 if [[ -z "$repo_root" || "$service_root" != "$expected_service_root" ]]; then
   echo "Refusing unseen benchmark: unexpected repository layout." >&2
@@ -83,6 +83,7 @@ echo "INFO Running canonical unseen holdout benchmark contract self-test"
 "$service_python" "$target" --self-test
 echo "PASS canonical unseen holdout benchmark contract self-test"
 echo "INFO Live benchmark is read-only: no training, no adapter mutation, no inventory mutation, no publishing"
+echo "INFO Validation truth may be enriched only from the Mac's current trusted exact-ID, exact-image-hash training example"
 echo "INFO Previously scored image rows are excluded from every later exam"
 echo "INFO Multiple unseen image pairs may share one Registry identity, capped at five images per exact identity"
 echo "INFO Current Registry UUID/fingerprint and physical evidence remain authoritative"

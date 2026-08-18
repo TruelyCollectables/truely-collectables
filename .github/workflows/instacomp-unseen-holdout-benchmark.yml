@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-unseen-holdout-benchmark.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v4.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
@@ -15,7 +17,9 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-unseen-holdout-benchmark.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v4.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
@@ -40,22 +44,26 @@ jobs:
       - name: Compile benchmark and syntax-check launcher
         run: |
           python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v4.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
-      - name: Run unseen benchmark self-test five times
+      - name: Run unseen V4 benchmark self-test five times
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
           for pass in 1 2 3 4 5; do
-            echo "===== UNSEEN HOLDOUT LINUX SELF-TEST ${pass}/5 ====="
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py --self-test
+            echo "===== UNSEEN HOLDOUT V4 LINUX SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v4.py --self-test
           done
       - name: Prove no train or Frozen-25 leakage and no mutations
         run: |
           target=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py
+          v4=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v4.py
+          launcher=services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           grep -q 'locked_validation_holdout' "$target"
           grep -q 'post_dataset_operator_confirmed' "$target"
           grep -q '_frozen_25_signatures' "$target"
@@ -65,9 +73,13 @@ jobs:
           grep -q 'wrong_authoritative_identity_nonzero' "$target"
           grep -q 'dangerous_variant_errors_nonzero' "$target"
           grep -q 'candidate_fallbacks_nonzero' "$target"
-          ! grep -Eq 'UPDATE[[:space:]]+training_examples|INSERT[[:space:]]+INTO[[:space:]]+training_examples|DELETE[[:space:]]+FROM[[:space:]]+training_examples' "$target"
-          ! grep -q 'enable-lora-candidate-macos.sh' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
-          ! grep -q 'automatic_promotion' "$target"
+          grep -q 'latest_training_examples' "$v4"
+          grep -q '_image_bytes_match_current_example' "$v4"
+          grep -q 'current_trusted_training_example_exact_id_and_image_hash' "$v4"
+          grep -q 'benchmark_lora_unseen_holdout_v4.py' "$launcher"
+          ! grep -Eq 'UPDATE[[:space:]]+training_examples|INSERT[[:space:]]+INTO[[:space:]]+training_examples|DELETE[[:space:]]+FROM[[:space:]]+training_examples' "$target" "$v4"
+          ! grep -q 'enable-lora-candidate-macos.sh' "$launcher"
+          ! grep -q 'automatic_promotion' "$target" "$v4"
 
   contract-macos:
     runs-on: macos-15
@@ -82,21 +94,26 @@ jobs:
       - name: Compile benchmark and prove macOS launcher syntax
         run: |
           python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v4.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
-      - name: Run unseen benchmark self-test five times on macOS
+      - name: Run unseen V4 benchmark self-test five times on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
           for pass in 1 2 3 4 5; do
-            echo "===== UNSEEN HOLDOUT MACOS SELF-TEST ${pass}/5 ====="
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py --self-test
+            echo "===== UNSEEN HOLDOUT V4 MACOS SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v4.py --self-test
           done
-      - name: Prove launcher remains read-only
+      - name: Prove launcher remains read-only and V4-enriched
         run: |
-          grep -q 'Live benchmark is read-only' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
-          grep -q 'Current Registry UUID/fingerprint and physical evidence remain authoritative' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
-          ! grep -q 'enable-lora-candidate-macos.sh' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          launcher=services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          grep -q 'Live benchmark is read-only' "$launcher"
+          grep -q "current trusted exact-ID, exact-image-hash training example" "$launcher"
+          grep -q 'Current Registry UUID/fingerprint and physical evidence remain authoritative' "$launcher"
+          grep -q 'benchmark_lora_unseen_holdout_v4.py' "$launcher"
+          ! grep -q 'enable-lora-candidate-macos.sh' "$launcher"
