@@ -34,7 +34,8 @@ pattern = re.compile(
     r'function canonicalizeSetAliases\(plan\)\{.*?\}\nexport async function persistPlanManagement',
     re.S,
 )
-wtext, count = pattern.subn(new_canonicalizer + "\nexport async function persistPlanManagement", wtext, count=1)
+replacement = new_canonicalizer + "\nexport async function persistPlanManagement"
+wtext, count = pattern.subn(lambda _match: replacement, wtext, count=1)
 if count != 1:
     raise SystemExit(f"Registry canonical set-source-key repair missed current writer (replaced {count})")
 writer.write_text(wtext)
