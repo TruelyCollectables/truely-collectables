@@ -6,7 +6,7 @@ import { parseUpperDeckHtmlChecklist } from "./upper-deck-html";
 
 export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_ID =
   "upper-deck-2025-26-normalized-html" as const;
-export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.0.0" as const;
+export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.0.1" as const;
 
 type Cell = {
   full: string;
@@ -80,6 +80,44 @@ function serialValue(value: string) {
   const per = normalized.match(/^(\d{1,7})\s+per(?:\s+.*)?$/i);
   if (per) return per[1];
   return value;
+}
+
+function ultimateCollectionSource(artifact: ChecklistSourceArtifact) {
+  return /^https:\/\/(?:www\.)?upperdeck\.com\/checklist\/2025-26-nhl-ultimate-collection-checklist\/?$/i.test(
+    artifact.sourceUrl,
+  );
+}
+
+function normalizeUltimateSetName(value: string) {
+  let normalized = text(value);
+  const update = normalized.match(/^(20(?:22|23|24))\s+Update\s*-\s*(.+)$/i);
+  if (update) normalized = `${update[2].trim()} - Update ${update[1]}`;
+
+  normalized = normalized
+    .replace(/^Ultimate Access Auto Patch Parallel$/i, "Auto Parallel - Ultimate Access Patch")
+    .replace(
+      /^Ultimate Access 4 Nations Face-Off Auto Patch Parallel$/i,
+      "Auto Parallel - Ultimate Access 4 Nations Face-Off Patch",
+    )
+    .replace(/^Ultimate Apparel Auto Parallel$/i, "Auto Parallel - Ultimate Apparel")
+    .replace(/^Ultimate Apparel Auto Black Parallel$/i, "Auto Black Parallel - Ultimate Apparel");
+
+  return normalized;
+}
+
+function normalizeUltimateCollectionHtml(
+  html: string,
+  artifact: ChecklistSourceArtifact,
+) {
+  if (!ultimateCollectionSource(artifact)) return html;
+  return html.replace(
+    /<(td)\b([^>]*)>([\s\S]*?)<\/\1>/gi,
+    (full, tag: string, attrs: string, inner: string) => {
+      const before = text(inner);
+      const after = normalizeUltimateSetName(before);
+      return after === before ? full : `<${tag}${attrs}>${after}</${tag}>`;
+    },
+  );
 }
 
 function normalizeChecklistTable(table: string) {
@@ -198,7 +236,8 @@ function normalizeOfficialHtml(artifact: ChecklistSourceArtifact) {
   const original = typeof artifact.content === "string"
     ? artifact.content
     : Buffer.from(artifact.content).toString("utf8");
-  const titled = normalizeTitle(original, artifact);
+  const ultimateNormalized = normalizeUltimateCollectionHtml(original, artifact);
+  const titled = normalizeTitle(ultimateNormalized, artifact);
   return titled.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, normalizeChecklistTable);
 }
 
