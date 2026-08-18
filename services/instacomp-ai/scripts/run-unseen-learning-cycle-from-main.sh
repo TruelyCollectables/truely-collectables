@@ -123,11 +123,7 @@ restore_known_good() {
 }
 
 run_exam() {
-  set +e
   bash "$benchmark_launcher" --target 100 --registry-call-budget 1500
-  local code=$?
-  set -e
-  return "$code"
 }
 
 # The initial exam belongs entirely to the currently certified adapter.
