@@ -1,4 +1,5 @@
-2026-08-18T13:34:00-06:00
+2026-08-18T13:46:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=3
-reason=repair-hockey-sport-context-and-invalidate-stale-ingest-cache
+retry=4
+reason=guarded-production-reconcile-after-hockey-context-repair
+expected_ingest_revision=2026-08-18-hockey-context-v1
