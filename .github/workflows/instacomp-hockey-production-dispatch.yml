@@ -1,0 +1,13 @@
+name: InstaComp Hockey Production Dispatch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  hockey-production:
+    uses: TruelyCollectables/truely-collectables/.github/workflows/instacomp-requested-hockey-finalize-resume-production.yml@feature/instacomp-target-checklists-20260816
+    secrets: inherit
