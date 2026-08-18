@@ -1,49 +1,42 @@
 import { managementQuery } from './management-staged-registry-writer.mjs';
 
-const names = [
-  'tcos_begin_checklist_import_plan',
-  'tcos_append_checklist_import_chunk',
-  'tcos_finalize_checklist_import_plan',
-];
-
-const quoted = names.map((name) => `'${name.replaceAll("'", "''")}'`).join(',');
-const rows = await managementQuery(`
+const stale = await managementQuery(`
   select
-    p.proname as name,
-    pg_get_function_identity_arguments(p.oid) as args,
-    pg_get_functiondef(p.oid) as definition
-  from pg_proc p
-  join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public'
-    and p.proname in (${quoted})
-  order by p.proname, pg_get_function_identity_arguments(p.oid);
-`, 'Inspect Production Checklist Registry RPC definitions');
+    r.slug,
+    r.product_name,
+    r.release_year,
+    r.season,
+    v.id as version_id,
+    v.version_number,
+    v.parser_version,
+    v.status,
+    v.is_active,
+    v.created_at,
+    sf.original_filename,
+    sf.sha256,
+    (select count(*) from public.checklist_sets s where s.version_id=v.id) as sets,
+    (select count(*) from public.checklist_cards c where c.version_id=v.id) as cards,
+    (select count(*) from public.checklist_parallels p where p.version_id=v.id) as parallels,
+    (select count(*) from public.checklist_card_identities i where i.version_id=v.id) as identities,
+    (select jsonb_agg(jsonb_build_object('name',s.name,'sourceKey',s.metadata->>'sourceKey') order by s.name)
+       from public.checklist_sets s where s.version_id=v.id) as set_keys
+  from public.checklist_versions v
+  join public.checklist_releases r on r.id=v.release_id
+  join public.checklist_source_files sf on sf.id=v.source_file_id
+  where v.status='importing'
+    and v.is_active=false
+    and coalesce((v.metadata->>'stagedImport')::boolean,false)=true
+    and lower(r.sport_id::text) is not null
+  order by v.created_at desc;
+`, 'Inspect stale staged Checklist Registry versions');
+console.log('===== STALE STAGED IMPORTING VERSIONS =====');
+console.log(JSON.stringify(stale, null, 2));
 
-if (!Array.isArray(rows) || rows.length < 3) {
-  throw new Error(`Expected at least 3 Registry RPC definitions, found ${Array.isArray(rows) ? rows.length : 'invalid payload'}`);
-}
-
-for (const row of rows) {
-  console.log(`===== ${row.name}(${row.args}) =====`);
-  console.log(row.definition);
-}
-
-const indexes = await managementQuery(`
-  select indexname, indexdef
+const versionIndexes = await managementQuery(`
+  select indexname,indexdef
   from pg_indexes
-  where schemaname='public' and tablename in ('checklist_sets','checklist_cards','checklist_parallels')
+  where schemaname='public' and tablename in ('checklist_versions','checklist_source_files')
   order by tablename,indexname;
-`, 'Inspect Production Checklist Registry indexes');
-console.log('===== CHECKLIST REGISTRY INDEXES =====');
-console.log(JSON.stringify(indexes, null, 2));
-
-const constraints = await managementQuery(`
-  select c.conname, c.contype, pg_get_constraintdef(c.oid) as definition
-  from pg_constraint c
-  join pg_class t on t.oid=c.conrelid
-  join pg_namespace n on n.oid=t.relnamespace
-  where n.nspname='public' and t.relname in ('checklist_sets','checklist_cards','checklist_parallels')
-  order by t.relname,c.conname;
-`, 'Inspect Production Checklist Registry constraints');
-console.log('===== CHECKLIST REGISTRY CONSTRAINTS =====');
-console.log(JSON.stringify(constraints, null, 2));
+`, 'Inspect Checklist Registry version indexes');
+console.log('===== VERSION/SOURCE INDEXES =====');
+console.log(JSON.stringify(versionIndexes, null, 2));
