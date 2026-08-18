@@ -103,7 +103,10 @@ jobs:
           fi
           echo "HOCKEY_RECONCILE=${hockey}" >> "${GITHUB_ENV}"
           if [[ "${hockey}" == "true" ]]; then
-            echo "CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS=600000" >> "${GITHUB_ENV}"
+            # Recovery should not let one pathological page hold the full
+            # sequential archive sweep for ten minutes. Three minutes is long
+            # enough for the Registry RPC while still surfacing a bad source.
+            echo "CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS=180000" >> "${GITHUB_ENV}"
           fi
       - name: Wait for repaired Production checklist ingest
         if: ${{ env.HOCKEY_RECONCILE == 'true' }}
@@ -135,8 +138,9 @@ jobs:
             --arg status "production_ingest_ready" \
             --arg ingestRevision "${EXPECTED_HOCKEY_INGEST_REVISION}" \
             --arg triggerSha "${GITHUB_SHA}" \
+            --arg runId "${GITHUB_RUN_ID}" \
             --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{status:$status,ingestRevision:$ingestRevision,triggerSha:$triggerSha,generatedAt:$generatedAt}' \
+            '{status:$status,ingestRevision:$ingestRevision,triggerSha:$triggerSha,runId:$runId,generatedAt:$generatedAt}' \
             > data/ops/hockey-checklist-reconcile-gate.json
           git add data/ops/hockey-checklist-reconcile-gate.json
           git commit -m "ops(checklists): hockey Production ingest gate passed" || true
