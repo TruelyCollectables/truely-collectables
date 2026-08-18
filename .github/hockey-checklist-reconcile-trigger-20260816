@@ -1,7 +1,7 @@
-2026-08-18T14:18:00-06:00
+2026-08-18T14:25:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=8
-reason=reliability-v2-with-live-clear-cut-preflight
-expected_ingest_revision=2026-08-18-hockey-reliability-v2
+retry=9
+reason=preflight-v3-clear-cut-series2-errata-and-transient-db-retries
+expected_ingest_revision=2026-08-18-hockey-preflight-v3
 source_timeout_ms=180000
 status_branch=ops/hockey-reconcile-status
