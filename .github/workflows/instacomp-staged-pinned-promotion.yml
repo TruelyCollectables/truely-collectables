@@ -14,6 +14,7 @@ on:
       - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
       - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
       - "services/instacomp-ai/requirements.txt"
+      - "src/lib/instacomp-learning-server.ts"
   pull_request:
     branches: [main]
     paths:
@@ -29,6 +30,7 @@ on:
       - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
       - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
       - "services/instacomp-ai/requirements.txt"
+      - "src/lib/instacomp-learning-server.ts"
   workflow_dispatch:
 
 permissions:
@@ -85,6 +87,8 @@ jobs:
           grep -q '_candidate_probe' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           grep -q '_certification_round' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           grep -q 'AuthoritativeRegistryChecklistGateway()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -Fq 'const requiredSetEvidence = [ai.year, ai.brand, ai.setName];' src/lib/instacomp-learning-server.ts
+          grep -Fq 'missing_or_uncertain_visible_set_identity_evidence' src/lib/instacomp-learning-server.ts
           ! grep -q '_core_registry_identity' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           ! grep -q '_registry_lookup_ladder' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           ! grep -q 'checklist_gateway' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
@@ -139,6 +143,7 @@ jobs:
           grep -q 'promotion-v20-registry-ready-reserve' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q 'promote_lora_candidate_frozen_25_v20.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
           grep -q 'V20 Registry-ready reserve' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -Fq 'const requiredSetEvidence = [ai.year, ai.brand, ai.setName];' src/lib/instacomp-learning-server.ts
           ! grep -q '_core_registry_identity' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           ! grep -q '_registry_lookup_ladder' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           ! grep -q 'sitecustomize' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
