@@ -1,0 +1,58 @@
+name: Hockey Reconcile Observer
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/hockey-reconcile-observer-trigger"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hockey-reconcile-observer
+  cancel-in-progress: true
+
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      STATUS_URL: https://truelycollectables.com/api/internal/checklist-registry/hockey-reconcile-status
+      STATUS_BRANCH: ops/hockey-reconcile-observer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Fetch live Registry status
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/ops
+          success=false
+          for attempt in $(seq 1 36); do
+            code="$(curl -sS --max-time 20 -o data/ops/hockey-reconcile-live-status.json -w '%{http_code}' "${STATUS_URL}" || true)"
+            if [[ "${code}" == "200" ]] && jq -e '.ok == true' data/ops/hockey-reconcile-live-status.json >/dev/null 2>&1; then
+              success=true
+              break
+            fi
+            sleep 10
+          done
+          if [[ "${success}" != "true" ]]; then
+            jq -n \
+              --arg status "probe_failed" \
+              --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '{ok:false,status:$status,generatedAt:$generatedAt}' \
+              > data/ops/hockey-reconcile-live-status.json
+          fi
+      - name: Publish live Registry status
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "${STATUS_BRANCH}"
+          git add data/ops/hockey-reconcile-live-status.json
+          git commit -m "ops(checklists): publish live hockey reconcile status" || true
+          git push --force origin "HEAD:${STATUS_BRANCH}"
