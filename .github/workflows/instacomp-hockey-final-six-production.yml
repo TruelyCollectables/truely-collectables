@@ -88,7 +88,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
-          python3 scripts/instacomp-target-checklists/patch-resumable-production-writer.py
           python3 scripts/instacomp-target-checklists/patch-final-six-production.py
 
       - name: Repair 2022-23 The Cup in Production
