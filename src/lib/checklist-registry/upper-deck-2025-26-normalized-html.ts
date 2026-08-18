@@ -6,7 +6,33 @@ import { parseUpperDeckHtmlChecklist } from "./upper-deck-html";
 
 export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_ID =
   "upper-deck-2025-26-normalized-html" as const;
-export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.0.1" as const;
+export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.1.0" as const;
+
+const KNOWN_PARALLEL_SUFFIXES = [
+  "Printing Plates",
+  "Black and White",
+  "Golden Treasures",
+  "Gold Glitter Bomb",
+  "Outburst Silver",
+  "Outburst Red",
+  "Outburst Gold",
+  "Speckled Rainbow",
+  "Black Rainbow",
+  "Orange Slice",
+  "Blue Spectrum",
+  "Purple Diamond",
+  "Pink Lemonade",
+  "Silver Foil",
+  "High Gloss",
+  "Exclusives",
+  "Clear Cut",
+  "Deluxe",
+  "Doubloons",
+  "Auto",
+].sort((left, right) => right.length - left.length);
+
+const MODERN_HOCKEY_PRODUCT =
+  /(?:black-diamond|credentials|artifacts|o-pee-chee|opc|mvp|skybox-metal-universe|sp-game-used|sp-authentic|spx|synergy|upper-deck-(?:series|extended)|ud-(?:series|extended)|the-cup|ultimate|stature|trilogy|allure|parkhurst|ice|premier|clear-cut|team-canada|tim-hortons|ahl|chl|pwhl)/i;
 
 type Cell = {
   full: string;
@@ -28,6 +54,7 @@ function decode(value: string) {
 
 function text(value: string) {
   return decode(value.replace(/<[^>]+>/g, " "))
+    .replace(/[‐‑‒–—―]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -45,6 +72,31 @@ function comparable(value: string) {
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9/]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function canonicalSetName(value: string) {
+  const normalized = text(value).replace(/^Base Set\s*-\s*/i, "");
+  return normalized || "Base Set";
+}
+
+function parsedSetKey(rawSetName: string) {
+  const value = text(rawSetName);
+  const match = value.match(/^(.*?)\s+Parallel(?:\s*-\s*(.+))?$/i);
+  if (!match) return comparable(canonicalSetName(value));
+
+  const beforeParallel = text(match[1]);
+  const explicitSetSuffix = text(match[2] || "");
+  let basePrefix = "";
+  for (const suffix of KNOWN_PARALLEL_SUFFIXES) {
+    if (beforeParallel.toLowerCase().endsWith(suffix.toLowerCase())) {
+      basePrefix = text(beforeParallel.slice(0, -suffix.length));
+      break;
+    }
+  }
+  const setPieces = [basePrefix, explicitSetSuffix].filter(Boolean);
+  return comparable(
+    setPieces.length ? canonicalSetName(setPieces.join(" - ")) : "Base Set",
+  );
 }
 
 function cells(row: string): Cell[] {
@@ -151,7 +203,7 @@ function normalizeChecklistTable(table: string) {
     const cardNumber = row[cardIndex]?.text || "";
     const subject = row[subjectIndex]?.text || "";
     if (!setName || !cardNumber || !subject) continue;
-    const key = `${comparable(setName)}:${comparable(cardNumber)}`;
+    const key = `${parsedSetKey(setName)}:${comparable(cardNumber)}`;
     const signatures = owners.get(key) || new Set<string>();
     signatures.add(comparable(subject));
     owners.set(key, signatures);
@@ -181,7 +233,7 @@ function normalizeChecklistTable(table: string) {
       const setName = rowCells[setIndex]?.text || "";
       const cardNumber = rowCells[cardIndex]?.text || "";
       const subject = rowCells[subjectIndex]?.text || "";
-      const key = `${comparable(setName)}:${comparable(cardNumber)}`;
+      const key = `${parsedSetKey(setName)}:${comparable(cardNumber)}`;
       if (conflicts.has(key) && subject) {
         const prior = spIndex < rowCells.length ? rowCells[spIndex]?.text || "" : "";
         const variation = [prior, `Subject: ${subject}`].filter(Boolean).join("; ");
@@ -198,7 +250,7 @@ function normalizeChecklistTable(table: string) {
               const setName = rowCells[setIndex]?.text || "";
               const cardNumber = rowCells[cardIndex]?.text || "";
               const subject = rowCells[subjectIndex]?.text || "";
-              return conflicts.has(`${comparable(setName)}:${comparable(cardNumber)}`) && subject
+              return conflicts.has(`${parsedSetKey(setName)}:${comparable(cardNumber)}`) && subject
                 ? `Subject: ${subject}`
                 : "";
             })()
@@ -241,13 +293,20 @@ function normalizeOfficialHtml(artifact: ChecklistSourceArtifact) {
   return titled.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, normalizeChecklistTable);
 }
 
+function modernHockeySource(artifact: ChecklistSourceArtifact) {
+  const context = `${artifact.originalFilename} ${artifact.sourceUrl}`;
+  const season = context.match(/\b(20\d{2})[-_](?:\d{2}|20\d{2})\b/);
+  if (!season || Number(season[1]) < 2021) return false;
+  return MODERN_HOCKEY_PRODUCT.test(context);
+}
+
 export const upperDeck2025_26NormalizedHtmlChecklistAdapter: ChecklistSourceAdapter = {
   id: UPPER_DECK_2025_26_NORMALIZED_ADAPTER_ID,
   version: UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION,
   supports(artifact) {
     return artifact.mimeType.toLowerCase() === "text/html" &&
       /^https:\/\/(?:www\.)?upperdeck\.com\/checklist\//i.test(artifact.sourceUrl) &&
-      /2025[-_](?:26|2026)/i.test(`${artifact.originalFilename} ${artifact.sourceUrl}`);
+      modernHockeySource(artifact);
   },
   parse(artifact) {
     return parseUpperDeckHtmlChecklist({
