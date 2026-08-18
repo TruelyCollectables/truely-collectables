@@ -15,7 +15,10 @@ const MAX_UPPER_DECK_HTML_BYTES = 8 * 1024 * 1024;
 const MAX_SELECTION_CANDIDATES = 2_000;
 const MAX_UPPER_DECK_SELECTION = 60;
 const MAX_TOPPS_SELECTION = 40;
-const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-context-v1";
+const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-reliability-v2";
+const DB_RETRY_ATTEMPTS = 4;
+const TRANSIENT_DB_MESSAGE =
+  /timeout|timed out|upstream request timeout|connection.*timed out|canceling statement due to statement timeout|connection reset|econnreset|etimedout|temporarily unavailable|service unavailable|bad gateway|gateway timeout/i;
 
 type UpperDeckSelectionPayload = {
   operation: "upper_deck_select_sources";
@@ -64,6 +67,12 @@ type CatalogSelectionRow = {
   metadata?: unknown;
 };
 
+type CatalogExistingRow = {
+  status: string | null;
+  source_sha256: string | null;
+  metadata: unknown;
+};
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -100,28 +109,73 @@ function metadataRecord(value: unknown) {
     : null;
 }
 
+function transientDbError(message: string) {
+  return TRANSIENT_DB_MESSAGE.test(message);
+}
+
+async function retryDelay(attempt: number) {
+  await new Promise((resolve) => setTimeout(resolve, 750 * 2 ** attempt));
+}
+
 async function upsertCatalog(values: Record<string, unknown>) {
-  const { error } = await serviceClient()
-    .from("checklist_source_catalog")
-    .upsert(values, { onConflict: "source_url" });
-  if (error) throw new Error(`Could not update checklist source catalog: ${error.message}`);
+  let lastMessage = "unknown database error";
+  for (let attempt = 0; attempt < DB_RETRY_ATTEMPTS; attempt += 1) {
+    const { error } = await serviceClient()
+      .from("checklist_source_catalog")
+      .upsert(values, { onConflict: "source_url" });
+    if (!error) return;
+    lastMessage = error.message || lastMessage;
+    if (!transientDbError(lastMessage) || attempt === DB_RETRY_ATTEMPTS - 1) break;
+    await retryDelay(attempt);
+  }
+  throw new Error(`Could not update checklist source catalog: ${lastMessage}`);
+}
+
+async function readCatalogEntry(sourceUrl: string) {
+  let lastMessage = "unknown database error";
+  for (let attempt = 0; attempt < DB_RETRY_ATTEMPTS; attempt += 1) {
+    const { data, error } = await serviceClient()
+      .from("checklist_source_catalog")
+      .select("status,source_sha256,metadata")
+      .eq("source_url", sourceUrl)
+      .maybeSingle();
+    if (!error) return (data || null) as CatalogExistingRow | null;
+    lastMessage = error.message || lastMessage;
+    if (!transientDbError(lastMessage) || attempt === DB_RETRY_ATTEMPTS - 1) break;
+    await retryDelay(attempt);
+  }
+  throw new Error(`Could not read checklist source catalog: ${lastMessage}`);
+}
+
+async function catalogSelectionPage(manufacturer: string, sport: string | undefined, start: number, end: number) {
+  let lastMessage = "unknown database error";
+  for (let attempt = 0; attempt < DB_RETRY_ATTEMPTS; attempt += 1) {
+    let query = serviceClient()
+      .from("checklist_source_catalog")
+      .select("source_url,last_checked_at,metadata")
+      .eq("manufacturer", manufacturer)
+      .range(start, end);
+    if (sport) query = query.eq("sport", sport);
+    const { data, error } = await query;
+    if (!error) return (data || []) as CatalogSelectionRow[];
+    lastMessage = error.message || lastMessage;
+    if (!transientDbError(lastMessage) || attempt === DB_RETRY_ATTEMPTS - 1) break;
+    await retryDelay(attempt);
+  }
+  throw new Error(`Could not read checklist source catalog: ${lastMessage}`);
 }
 
 async function catalogSelectionRows(manufacturer: string, sport?: string) {
-  const db = serviceClient();
   const rows: CatalogSelectionRow[] = [];
   const pageSize = 1_000;
 
   for (let start = 0; start < 10_000; start += pageSize) {
-    let query = db
-      .from("checklist_source_catalog")
-      .select("source_url,last_checked_at,metadata")
-      .eq("manufacturer", manufacturer)
-      .range(start, start + pageSize - 1);
-    if (sport) query = query.eq("sport", sport);
-    const { data, error } = await query;
-    if (error) throw new Error(`Could not read checklist source catalog: ${error.message}`);
-    const page = (data || []) as CatalogSelectionRow[];
+    const page = await catalogSelectionPage(
+      manufacturer,
+      sport,
+      start,
+      start + pageSize - 1,
+    );
     rows.push(...page);
     if (page.length < pageSize) break;
   }
@@ -186,15 +240,9 @@ async function processUpperDeck(payload: UpperDeckPayload) {
     throw new Error("Upper Deck checklist HTML exceeds the ingest limit.");
   }
 
-  const db = serviceClient();
   const checkedAt = new Date().toISOString();
   const sourceSha256 = sha256(payload.content);
-  const { data: existing, error } = await db
-    .from("checklist_source_catalog")
-    .select("status,source_sha256,metadata")
-    .eq("source_url", payload.sourceUrl)
-    .maybeSingle();
-  if (error) throw new Error(`Could not read checklist source catalog: ${error.message}`);
+  const existing = await readCatalogEntry(payload.sourceUrl);
 
   const existingMetadata = metadataRecord(existing?.metadata);
   const existingRevision = typeof existingMetadata?.ingestRevision === "string"
