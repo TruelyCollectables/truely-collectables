@@ -31,12 +31,7 @@ const getProduct = cache(async (id: string) => {
 function isPublicProduct(
   product: Awaited<ReturnType<typeof getProduct>>,
 ): product is NonNullable<Awaited<ReturnType<typeof getProduct>>> {
-  return Boolean(
-    product &&
-      product.imageUrl &&
-      product.quantity > 0 &&
-      product.status === "active",
-  );
+  return Boolean(product && product.imageUrl);
 }
 
 function absoluteUrl(value: string | null | undefined) {
@@ -50,13 +45,18 @@ function absoluteUrl(value: string | null | undefined) {
 }
 
 function productDescription(product: NonNullable<Awaited<ReturnType<typeof getProduct>>>) {
+  const quantity = Number(product.quantity || 0);
+  const isSoldOut = quantity <= 0 || product.status !== "active";
+
   return (
     product.description ||
     [
       product.title,
       product.player ? `featuring ${product.player}` : "",
       product.sport ? `in ${product.sport}` : "",
-      `available from Truely Collectables for $${Number(product.price).toFixed(2)}.`,
+      isSoldOut
+        ? "Previously sold by Truely Collectables."
+        : `available from Truely Collectables for $${Number(product.price).toFixed(2)}.`,
     ]
       .filter(Boolean)
       .join(" ")
@@ -160,7 +160,7 @@ export default async function ProductPage({
         </p>
 
         <p className="mb-6">
-          This item may have been sold, removed, or no longer exists.
+          This item may have been removed or no longer exists.
         </p>
 
         <Link href="/shop" className="inline-block border rounded px-4 py-2">
@@ -210,7 +210,7 @@ export default async function ProductPage({
   const facts = [
     ["Category", product.sport || "Not cataloged"],
     ["Player / Subject", product.player || "Not cataloged"],
-    ["Availability", `${quantity} in stock`],
+    ["Availability", isSoldOut ? "Sold out" : `${quantity} in stock`],
     ["Status", statusLabel(product.status, quantity)],
     ["SKU", product.sku || "Not assigned"],
     ["eBay", product.ebayItemId ? `#${product.ebayItemId}` : "Not linked"],
