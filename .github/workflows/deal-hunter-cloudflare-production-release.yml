@@ -17,6 +17,22 @@ on:
       - "cloudflare-native-fetch.ts"
       - "wrangler.jsonc"
       - "wrangler.production-route.jsonc"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
+      - "scripts/run-wrangler-deploy-redacted.mjs"
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "next.config.*"
+      - "open-next.config.ts"
+      - "cloudflare-worker.ts"
+      - "cloudflare-storefront-entrypoint.ts"
+      - "cloudflare-native-fetch.ts"
+      - "wrangler.jsonc"
+      - "wrangler.production-route.jsonc"
   workflow_dispatch:
 
 permissions:
@@ -31,6 +47,7 @@ env:
 
 jobs:
   deploy:
+    if: github.event_name != 'pull_request' || github.head_ref == 'emergency-diagnostic-deploy'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
