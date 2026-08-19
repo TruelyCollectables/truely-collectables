@@ -1,0 +1,51 @@
+name: Storefront Live Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "live-smoke.trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event_name != 'pull_request' || github.head_ref == 'emergency-diagnostic-deploy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check live storefront routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const checks = [
+            { name: 'edge-health', url: 'https://truelycollectables.com/__edge-health', expectedStatus: 200 },
+            { name: 'homepage', url: 'https://truelycollectables.com/', expectedStatus: 200 },
+            { name: 'shop', url: 'https://truelycollectables.com/shop', expectedStatus: 200 },
+          ];
+
+          let failed = false;
+          for (const check of checks) {
+            const started = Date.now();
+            try {
+              const response = await fetch(`${check.url}${check.url.includes('?') ? '&' : '?'}smoke=${Date.now()}`, {
+                redirect: 'follow',
+                signal: AbortSignal.timeout(12000),
+                headers: { 'user-agent': 'TruelyCollectables-Production-Smoke/1.0' },
+              });
+              const elapsedMs = Date.now() - started;
+              const body = await response.text();
+              const edgeVersion = response.headers.get('x-truely-edge-version') || 'none';
+              const snapshot = response.headers.get('x-truely-edge-snapshot') || 'none';
+              console.log(`${check.name}: status=${response.status} elapsed_ms=${elapsedMs} bytes=${body.length} edge_version=${edgeVersion} snapshot=${snapshot}`);
+              if (response.status !== check.expectedStatus || body.length === 0) failed = true;
+            } catch (error) {
+              console.error(`${check.name}: ERROR ${error instanceof Error ? error.message : String(error)}`);
+              failed = true;
+            }
+          }
+          if (failed) process.exit(1);
+          NODE
