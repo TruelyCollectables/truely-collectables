@@ -1,8 +1,8 @@
-2026-08-18T17:57:00-06:00
+2026-08-18T18:05:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=12
-reason=preflight-v6-systemic-repeated-number-lane-normalization
-expected_ingest_revision=2026-08-18-hockey-preflight-v6
+retry=13
+reason=preflight-v7-exact-series2-priority-plus-systemic-lane-normalization
+expected_ingest_revision=2026-08-18-hockey-preflight-v7
 shard_count=4
 source_timeout_ms=75000
 source_attempts=2
