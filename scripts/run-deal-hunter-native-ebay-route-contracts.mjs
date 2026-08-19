@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { buildDealHunterEbaySearchUrl } from "../src/lib/deal-hunter-ebay-native-search.js";
 import {
   buildDealHunterEbayQueryFamilies,
   DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT,
@@ -8,9 +9,19 @@ import {
   screenDealHunterEbayTitle,
 } from "../src/lib/deal-hunter-ebay-query-families.js";
 
+const searchContract = buildDealHunterEbaySearchUrl({
+  query: "Paige Bueckers WNBA rookie card",
+  maxResults: 20,
+});
+assert.equal(searchContract.requestedResults, 20);
+assert.equal(searchContract.scanLimit, 40);
+assert.equal(searchContract.url.searchParams.get("limit"), "40");
+assert.equal(searchContract.url.searchParams.get("sort"), "newlyListed");
+assert.equal(searchContract.url.searchParams.get("fieldgroups"), "EXTENDED");
+
 const wnba = buildDealHunterEbayQueryFamilies({ scope: "wnba" });
 assert.equal(wnba.length, DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
-assert.equal(new Set(wnba.map((family) => family.familyId)).size, 15);
+assert.equal(new Set(wnba.map((family) => family.familyId)).size, 25);
 for (const player of [
   "Caitlin Clark",
   "Paige Bueckers",
@@ -19,13 +30,15 @@ for (const player of [
   "Kiki Iriafen",
 ]) {
   const families = wnba.filter((family) => family.watchedPerson === player);
-  assert.equal(families.length, 3);
+  assert.equal(families.length, 5);
+  assert.equal(families.filter((family) => family.rescueMode).length, 2);
   assert.deepEqual(
     new Set(families.map((family) => family.lane)),
     new Set([
       "broad_professional_rookies",
       "silver_color_numbered_ssp",
       "autograph_memorabilia",
+      "name_typo_and_underspecified_rescue",
     ]),
   );
 }
@@ -83,37 +96,117 @@ assert.deepEqual(players, ["Jesus Made", "Leo De Vries"]);
 const all = buildDealHunterEbayQueryFamilies({ scope: "all", players });
 assert.equal(
   all.length,
-  15 + 3 + DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT + players.length * 2 + players.length,
+  DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT +
+    3 +
+    DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT +
+    players.length * 2 +
+    players.length,
 );
 assert.equal(new Set(all.map((family) => family.familyId)).size, all.length);
 
-const silverFamily = wnba.find(
-  (family) => family.lane === "silver_color_numbered_ssp",
+const paigeSilverFamily = wnba.find(
+  (family) =>
+    family.watchedPerson === "Paige Bueckers" &&
+    family.lane === "silver_color_numbered_ssp",
 );
+const soniaSilverFamily = wnba.find(
+  (family) =>
+    family.watchedPerson === "Sonia Citron" &&
+    family.lane === "silver_color_numbered_ssp",
+);
+const kikiRescueFamily = wnba.find(
+  (family) => family.watchedPerson === "Kiki Iriafen" && family.rescueMode,
+);
+
 assert.equal(
   screenDealHunterEbayTitle({
     title: "2025 Panini Prizm WNBA Paige Bueckers Silver Prizm Rookie",
-    family: silverFamily,
+    family: paigeSilverFamily,
   }).accepted,
   true,
 );
 assert.equal(
   screenDealHunterEbayTitle({
     title: "Paige Bueckers UConn Bowman University Base Rookie",
-    family: silverFamily,
+    family: paigeSilverFamily,
   }).accepted,
   false,
 );
 assert.equal(
   screenDealHunterEbayTitle({
     title: "Caitlin Clark custom digital rookie card",
-    family: silverFamily,
+    family: paigeSilverFamily,
   }).accepted,
   false,
 );
+
+const typoReview = screenDealHunterEbayTitle({
+  title: "2025 Panini Prizm WNBA Paige Buecker Silver Rookie",
+  family: paigeSilverFamily,
+});
+assert.equal(typoReview.accepted, true);
+assert.equal(typoReview.manualReviewRequired, true);
+assert.equal(typoReview.analysis.targetMatch.method, "fuzzy_name");
+assert.ok(
+  typoReview.reviewReasons.includes(
+    "seller_name_typo_or_variant_detected_verify_image",
+  ),
+);
+
+const metadataRescue = screenDealHunterEbayTitle({
+  title: "2025 Panini Prizm WNBA Silver Rookie #149",
+  description: "Kiki Iriafen Washington Mystics rookie card",
+  raw: {
+    categories: [{ categoryName: "Sports Trading Cards" }],
+  },
+  family: kikiRescueFamily,
+});
+assert.equal(metadataRescue.accepted, true);
+assert.equal(metadataRescue.manualReviewRequired, true);
+assert.equal(metadataRescue.analysis.targetMatchedInMetadata, true);
+assert.equal(metadataRescue.analysis.cardNumberGuess, "149");
+assert.ok(
+  metadataRescue.analysis.mislistReasons.includes(
+    "card_number_or_underspecified_title_rescue",
+  ),
+);
+
+const lotReview = screenDealHunterEbayTitle({
+  title: "Sonia Citron WNBA Rookie Silver Lot of 25 Cards",
+  raw: {
+    categories: [{ categoryName: "Sports Trading Cards" }],
+  },
+  family: soniaSilverFamily,
+});
+assert.equal(lotReview.accepted, true);
+assert.equal(lotReview.manualReviewRequired, true);
+assert.equal(lotReview.analysis.lotSignal, true);
+assert.equal(lotReview.analysis.lotQuantityGuess, 25);
+assert.ok(
+  lotReview.reviewReasons.includes(
+    "lot_or_bundle_unit_economics_review_required",
+  ),
+);
+
+const wrongCategoryReview = screenDealHunterEbayTitle({
+  title: "Sonia Citron WNBA Rookie Silver Prizm",
+  raw: {
+    categories: [{ categoryName: "Women's Shoes" }],
+  },
+  family: soniaSilverFamily,
+});
+assert.equal(wrongCategoryReview.accepted, true);
+assert.equal(wrongCategoryReview.manualReviewRequired, true);
+assert.equal(wrongCategoryReview.analysis.categoryLooksLikeCard, false);
+assert.ok(
+  wrongCategoryReview.analysis.mislistReasons.includes(
+    "possible_wrong_category_listing",
+  ),
+);
+
 const photoReview = screenDealHunterEbayTitle({
   title: "Sonia Citron WNBA Rookie Card",
-  family: silverFamily,
+  family: soniaSilverFamily,
 });
 assert.equal(photoReview.accepted, true);
 assert.equal(photoReview.manualReviewRequired, true);
@@ -136,7 +229,15 @@ console.log(
     {
       ok: true,
       schema: "TCOS_NATIVE_EBAY_FEED_V1",
+      hardeningVersion: "WNBA_EBAY_HARDENING_V2",
       wnbaQueryFamilies: wnba.length,
+      wnbaRescueFamilies: wnba.filter((family) => family.rescueMode).length,
+      newlyListedSort: searchContract.url.searchParams.get("sort"),
+      screenedScanLimit: searchContract.scanLimit,
+      metadataRescueCovered: true,
+      typoRescueCovered: true,
+      lotReviewCovered: true,
+      wrongCategoryReviewCovered: true,
       michkovYoungGunsQueryFamilies: michkov.length,
       fixedScopes: [
         "wnba",
