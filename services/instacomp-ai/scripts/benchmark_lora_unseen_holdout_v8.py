@@ -17,14 +17,130 @@ RECOVERY_ITEM_TIMEOUT_SECONDS = 7.0
 
 canonical = v7.canonical
 _ORIGINAL_LOCK_IDENTITY = canonical.legacy.v20._lock_identity
+_ORIGINAL_FAST_BOOTSTRAP_ONE = v7.v6._fast_bootstrap_one
 _recovery_semaphore = asyncio.Semaphore(RECOVERY_CONCURRENCY)
 _recovery_attempts = 0
+
+_COORDINATE_RECOVERY_REASONS = frozenset(
+    {
+        "trusted_holdout_scoped_set_not_found",
+        "trusted_holdout_scoped_release_not_found",
+        "trusted_holdout_scoped_registry_no_identity_matches_visible_truth",
+        "trusted_holdout_scoped_card_number_absent_from_release_scope",
+    }
+)
+
+
+def _norm(value: object) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
 
 
 def _should_attempt_recovery(detail: dict[str, Any], identity: Any) -> bool:
     """Recover only a server-side input mismatch for locally V20-ready truth."""
     ready, _missing = canonical.legacy.v20._visible_set_identity_readiness(identity)
     return ready and str(detail.get("reason") or "") == "registry_input_incomplete"
+
+
+def _broad_release_scope_token(identity: Any) -> str | None:
+    """Choose visible release-level text that widens only stale logical-set coordinates."""
+    payload = canonical.legacy.v20.v19._identity_payload(identity)
+    for key in ("brand", "league", "sport", "manufacturer"):
+        value = str(payload.get(key) or "").strip()
+        if value and canonical.legacy.v20._meaningful_set_tokens(value):
+            return value
+    return None
+
+
+def _coordinate_recovery_candidates(identity: Any) -> list[tuple[str, Any]]:
+    """Build bounded fail-closed retries for stale release/set packaging only.
+
+    Every candidate keeps year, player, card number, parallel/variation, serial,
+    autograph/relic, and sport. We may widen logical set to release-level visible
+    text, prefer manufacturer when brand coordinates drift, and drop league only
+    as a final release-coordinate relaxation. The scoped server must still return
+    exactly one current Registry UUID/fingerprint before V20 receipt revalidation.
+    """
+    from app.models import CardIdentity
+
+    source = canonical.legacy.v20.v19._identity_payload(identity)
+    broad_set = _broad_release_scope_token(identity)
+    manufacturer = str(source.get("manufacturer") or "").strip() or None
+    brand = str(source.get("brand") or "").strip() or None
+    league = str(source.get("league") or "").strip() or None
+
+    candidates: list[tuple[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add(label: str, **updates: Any) -> None:
+        payload = dict(source)
+        payload.update(updates)
+        candidate = CardIdentity.model_validate(payload)
+        ready, _missing = canonical.legacy.v20._visible_set_identity_readiness(candidate)
+        if not ready:
+            return
+        key = (
+            _norm(getattr(candidate, "brand", None)),
+            _norm(getattr(candidate, "set_name", None)),
+            _norm(getattr(candidate, "league", None)),
+        )
+        original_key = (
+            _norm(getattr(identity, "brand", None)),
+            _norm(getattr(identity, "set_name", None)),
+            _norm(getattr(identity, "league", None)),
+        )
+        if key == original_key or key in seen:
+            return
+        seen.add(key)
+        candidates.append((label, candidate))
+
+    if broad_set:
+        add("release_scope_set", set_name=broad_set)
+
+    if league:
+        add("league_relaxed", league=None)
+        if broad_set:
+            add("release_scope_set_league_relaxed", set_name=broad_set, league=None)
+
+    if manufacturer and _norm(manufacturer) != _norm(brand):
+        add("manufacturer_brand_scope", brand=manufacturer, league=None)
+        if broad_set:
+            add(
+                "manufacturer_brand_release_scope_set",
+                brand=manufacturer,
+                set_name=broad_set,
+                league=None,
+            )
+
+    return candidates[:4]
+
+
+async def _coordinate_recovering_fast_bootstrap_one(
+    client: httpx.AsyncClient,
+    item: dict[str, Any],
+    identity: Any,
+):
+    """Strict scoped bootstrap first, then bounded stale-coordinate recovery.
+
+    This never accepts a broadened query directly. The server must still resolve
+    one unique current identity, and callers preserve the normal V20
+    UUID/fingerprint receipt revalidation plus physical witness admission.
+    """
+    resolved, reason = await _ORIGINAL_FAST_BOOTSTRAP_ONE(client, item, identity)
+    if resolved is not None or reason not in _COORDINATE_RECOVERY_REASONS:
+        return resolved, reason
+
+    trail = [reason]
+    for label, candidate in _coordinate_recovery_candidates(identity):
+        recovered, recovered_reason = await _ORIGINAL_FAST_BOOTSTRAP_ONE(
+            client,
+            item,
+            candidate,
+        )
+        trail.append(f"{label}:{recovered_reason}")
+        if recovered is not None:
+            return recovered, f"coordinate_recovery:{label}:{recovered.reason}"
+
+    return None, "coordinate_recovery_exhausted:" + "|".join(trail[:5])
 
 
 async def _recovering_lock_identity(
@@ -39,10 +155,12 @@ async def _recovering_lock_identity(
     The first pass is the unchanged canonical V20 lock. Only when Production says
     input_incomplete for an identity that the local V20 readiness contract says is
     complete do we ask the release-scoped holdout resolver for one exact current
-    Registry UUID/fingerprint. That receipt is never accepted directly: it is
-    immediately sent back through /registry-lock receipt revalidation and the
-    unchanged V20 physical witness gate. Ambiguity, stale receipts, fingerprint
-    drift, physical conflicts, timeouts, and every other failure remain fail-closed.
+    Registry UUID/fingerprint. The scoped bootstrap may make bounded
+    stale-coordinate retries, but no broadened result is authoritative by itself:
+    the UUID/fingerprint is immediately sent back through /registry-lock receipt
+    revalidation and the unchanged V20 physical witness gate. Ambiguity, stale
+    receipts, fingerprint drift, physical conflicts, timeouts, and every other
+    failure remain fail-closed.
     """
     global _recovery_attempts
 
@@ -152,11 +270,13 @@ async def _recovering_lock_identity(
 
 
 def _install_runtime() -> None:
+    # Install the coordinate wrapper before V7/V6 wires V5's bootstrap function.
+    # Then explicitly preserve it after install so both initial bootstrap and V8
+    # input-incomplete recovery share the exact same bounded scoped behavior.
+    v7.v6._fast_bootstrap_one = _coordinate_recovering_fast_bootstrap_one
     v7._install_runtime()
-    # V6/V5 bootstrap and the V8 recovery branch both call _fast_bootstrap_one.
-    # Route those calls through release/year/set scoping before the million-row
-    # checklist_cards table, while preserving the same response/receipt contract.
     v7.v6.FAST_ROUTE = SCOPED_FAST_ROUTE
+    v7.v6.v5._bootstrap_one = _coordinate_recovering_fast_bootstrap_one
     canonical.legacy.v20._lock_identity = _recovering_lock_identity
     v7.v6.v5.SCHEMA = SCHEMA
     v7.v6.v5.v4.SCHEMA = SCHEMA
@@ -172,8 +292,9 @@ def _self_test() -> int:
         sport="Basketball",
         league="WNBA",
         year="2025",
+        manufacturer="Panini",
         brand="Prizm",
-        set_name="Base",
+        set_name="Stale Insert Name",
         player="Truth Player",
         card_number="77",
         parallel="Base",
@@ -193,13 +314,30 @@ def _self_test() -> int:
     assert RECOVERY_HTTP_TIMEOUT_SECONDS < v7.v6.FAST_HTTP_TIMEOUT_SECONDS
     assert RECOVERY_ITEM_TIMEOUT_SECONDS < v7.PREFLIGHT_ITEM_TIMEOUT_SECONDS
 
+    recovery_candidates = _coordinate_recovery_candidates(ready)
+    assert recovery_candidates
+    assert len(recovery_candidates) <= 4
+    for _label, candidate in recovery_candidates:
+        assert _norm(candidate.player) == _norm(ready.player)
+        assert _norm(candidate.card_number) == _norm(ready.card_number)
+        assert _norm(candidate.year) == _norm(ready.year)
+        assert _norm(candidate.parallel) == _norm(ready.parallel)
+        assert _norm(candidate.sport) == _norm(ready.sport)
+    assert any(
+        _norm(candidate.set_name) != _norm(ready.set_name)
+        for _label, candidate in recovery_candidates
+    )
+
     _install_runtime()
     assert v7.v6.FAST_ROUTE == SCOPED_FAST_ROUTE
+    assert v7.v6._fast_bootstrap_one is _coordinate_recovering_fast_bootstrap_one
+    assert v7.v6.v5._bootstrap_one is _coordinate_recovering_fast_bootstrap_one
     assert canonical.legacy.v20._lock_identity is _recovering_lock_identity
     assert v7.v6.v5._CANONICAL_AUTHORITATIVE_HOLDOUT is v7._bounded_authoritative_holdout
 
     print("PASS unseen V8 recovers only server input_incomplete on locally V20-ready truth")
     print("PASS unseen V8 routes bootstrap/recovery through release-scoped Registry lookup")
+    print("PASS unseen V8 bounds stale set/release coordinate widening and keeps year/player/card/variant/sport fixed")
     print("PASS unseen V8 bounds recovery concurrency, attempts, HTTP time, and item time")
     print("PASS unseen V8 requires the bootstrap UUID/fingerprint to pass CURRENT canonical receipt revalidation")
     print("PASS unseen V8 preserves V20 physical witness, UUID/fingerprint, unseen-image, and diversity gates")
