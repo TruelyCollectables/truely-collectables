@@ -45,9 +45,6 @@ const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
   upperDeckClearCutOfficialHtmlChecklistAdapter,
   upperDeck2025_26ChicagoHtmlChecklistAdapter,
   upperDeck2025_26OpcHtmlChecklistAdapter,
-  // Exact-source errata adapters must stay ahead of every broad modern-hockey
-  // normalizer so verified manufacturer typos (for example Series 2 C190/C145)
-  // cannot be shadowed by a generic parser.
   upperDeck2024_25Series2ErrataHtmlChecklistAdapter,
   upperDeck2025_26NormalizedHtmlChecklistAdapter,
   upperDeckOfficialHtmlChecklistAdapter,
@@ -103,40 +100,105 @@ async function storageRetryDelay(attempt: number) {
   await new Promise((resolve) => setTimeout(resolve, 750 * 2 ** attempt));
 }
 
-function transientStorageError(error: unknown) {
-  const status = Number((error as any)?.statusCode || (error as any)?.status || 0);
-  const message = String((error as any)?.message || error || "");
-  return status === 408 || status === 425 || status === 429 || status >= 500 || TRANSIENT_STORAGE_MESSAGE.test(message);
+function storageMessage(error: unknown) {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message || "");
+  }
+  return String(error || "");
 }
 
-function storageDuplicate(error: unknown) {
-  const status = Number((error as any)?.statusCode || (error as any)?.status || 0);
-  const message = String((error as any)?.message || error || "");
-  return status === 409 || /already exists|duplicate/i.test(message);
+function duplicateStorageMessage(message: string) {
+  return /already exists|duplicate|409/i.test(message);
 }
 
-async function archiveSourceWithRetry(params: {
-  supabase: ReturnType<typeof serviceClient>;
-  storagePath: string;
-  bytes: Buffer;
+async function archiveChecklistSource(params: {
+  objectPath: string;
+  content: Buffer;
   mimeType: string;
 }) {
-  let lastError: unknown = null;
+  let lastMessage = "unknown storage error";
+
   for (let attempt = 0; attempt < STORAGE_RETRY_ATTEMPTS; attempt += 1) {
-    const upload = await params.supabase.storage
+    const { error } = await serviceClient().storage
       .from(CHECKLIST_SOURCE_BUCKET)
-      .upload(params.storagePath, params.bytes, {
+      .upload(params.objectPath, params.content, {
         contentType: params.mimeType,
         upsert: false,
+        cacheControl: "0",
       });
-    if (!upload.error || storageDuplicate(upload.error)) return;
-    lastError = upload.error;
-    if (!transientStorageError(upload.error) || attempt >= STORAGE_RETRY_ATTEMPTS - 1) break;
+
+    if (!error) return { uploadedByThisRequest: true };
+    lastMessage = storageMessage(error) || lastMessage;
+    if (duplicateStorageMessage(lastMessage)) {
+      return { uploadedByThisRequest: false };
+    }
+    if (!TRANSIENT_STORAGE_MESSAGE.test(lastMessage) || attempt === STORAGE_RETRY_ATTEMPTS - 1) {
+      break;
+    }
     await storageRetryDelay(attempt);
   }
-  throw new Error(
-    `Checklist source archive upload failed: ${String((lastError as any)?.message || lastError || "unknown")}`,
+
+  throw new Error(`Could not archive checklist source: ${lastMessage}`);
+}
+
+export function assertChecklistPlanComplexity(plan: ChecklistImportPlan) {
+  const counts = {
+    sets: plan.sets.length,
+    cards: plan.cards.length,
+    parallels: plan.parallels.length,
+    identities: plan.identities.length,
+    validationIssues: plan.validation.issues.length,
+  };
+  const limits = CHECKLIST_IMPORT_COMPLEXITY_LIMITS;
+  const violations: string[] = [];
+
+  if (counts.sets > limits.sets) {
+    violations.push(`sets ${counts.sets}/${limits.sets}`);
+  }
+  if (counts.cards > limits.cards) {
+    violations.push(`cards ${counts.cards}/${limits.cards}`);
+  }
+  if (counts.parallels > limits.parallels) {
+    violations.push(`parallels ${counts.parallels}/${limits.parallels}`);
+  }
+  if (counts.identities > limits.identities) {
+    violations.push(`identities ${counts.identities}/${limits.identities}`);
+  }
+  if (counts.validationIssues > limits.validationIssues) {
+    violations.push(
+      `validation issues ${counts.validationIssues}/${limits.validationIssues}`,
+    );
+  }
+
+  const expansionCeiling = Math.max(
+    1_000,
+    counts.cards * limits.maximumIdentitiesPerCard,
   );
+  if (counts.identities > expansionCeiling) {
+    violations.push(
+      `identity expansion ${counts.identities}/${expansionCeiling} for ${counts.cards} cards`,
+    );
+  }
+
+  const serializedBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
+  if (serializedBytes > limits.serializedPlanBytes) {
+    violations.push(
+      `normalized plan ${serializedBytes}/${limits.serializedPlanBytes} bytes`,
+    );
+  }
+
+  if (violations.length) {
+    throw new Error(
+      `Checklist import complexity limit exceeded: ${violations.join(", ")}. Split this checklist into smaller validated source files.`,
+    );
+  }
+
+  return {
+    counts,
+    serializedBytes,
+    expansionCeiling,
+    limits,
+  };
 }
 
 export async function importChecklistArtifact(params: {
@@ -145,78 +207,64 @@ export async function importChecklistArtifact(params: {
 }) {
   const adapter = selectAdapter(params.artifact);
   const plan = adapter.parse(params.artifact);
+  const complexity = assertChecklistPlanComplexity(plan);
 
-  if (params.validateOnly) {
+  if (
+    params.validateOnly ||
+    plan.validation.status !== "passed" ||
+    planHasErrors(plan)
+  ) {
     return {
-      mode: "validated" as const,
+      ok: plan.validation.status === "passed",
+      validatedOnly: true,
       adapter: { id: adapter.id, version: adapter.version },
       plan,
-      importReceipt: null,
+      complexity,
+      persistence: null,
     };
-  }
-
-  if (planHasErrors(plan)) {
-    return {
-      mode: "quarantined" as const,
-      adapter: { id: adapter.id, version: adapter.version },
-      plan,
-      importReceipt: null,
-    };
-  }
-
-  const serializedPlan = JSON.stringify(plan);
-  if (Buffer.byteLength(serializedPlan, "utf8") > CHECKLIST_IMPORT_COMPLEXITY_LIMITS.serializedPlanBytes) {
-    throw new Error("Checklist import plan is too large to apply safely.");
-  }
-  if (plan.sets.length > CHECKLIST_IMPORT_COMPLEXITY_LIMITS.sets) {
-    throw new Error("Checklist import plan exceeds the set limit.");
-  }
-  if (plan.cards.length > CHECKLIST_IMPORT_COMPLEXITY_LIMITS.cards) {
-    throw new Error("Checklist import plan exceeds the card limit.");
-  }
-  if (plan.parallels.length > CHECKLIST_IMPORT_COMPLEXITY_LIMITS.parallels) {
-    throw new Error("Checklist import plan exceeds the parallel limit.");
-  }
-  if (plan.identities.length > CHECKLIST_IMPORT_COMPLEXITY_LIMITS.identities) {
-    throw new Error("Checklist import plan exceeds the identity limit.");
-  }
-  if (plan.validation.issues.length > CHECKLIST_IMPORT_COMPLEXITY_LIMITS.validationIssues) {
-    throw new Error("Checklist import plan exceeds the validation issue limit.");
-  }
-
-  const identitiesByCard = new Map<string, number>();
-  for (const identity of plan.identities) {
-    identitiesByCard.set(identity.cardKey, (identitiesByCard.get(identity.cardKey) || 0) + 1);
-  }
-  for (const [cardKey, count] of identitiesByCard) {
-    if (count > CHECKLIST_IMPORT_COMPLEXITY_LIMITS.maximumIdentitiesPerCard) {
-      throw new Error(`Checklist card ${cardKey} exceeds the identity fan-out limit.`);
-    }
   }
 
   const supabase = serviceClient();
   const archiveContent = params.artifact.archiveContent ?? params.artifact.content;
-  const sourceBytes = Buffer.isBuffer(archiveContent)
-    ? archiveContent
-    : Buffer.from(archiveContent);
-  await archiveSourceWithRetry({
-    supabase,
-    storagePath: plan.source.storage.storagePath,
-    bytes: sourceBytes,
-    mimeType: params.artifact.mimeType,
+  const content =
+    typeof archiveContent === "string"
+      ? Buffer.from(archiveContent, "utf8")
+      : Buffer.from(archiveContent);
+  const storage = plan.source.storage;
+
+  const archived = await archiveChecklistSource({
+    objectPath: storage.objectPath,
+    content,
+    mimeType: storage.mimeType,
   });
 
-  const rpc = await supabase.rpc("tcos_apply_checklist_import_plan", {
+  const { data, error } = await supabase.rpc("tcos_apply_checklist_import_plan", {
     p_plan: plan,
+    p_original_filename: storage.originalFilename,
+    p_mime_type: storage.mimeType,
+    p_size_bytes: storage.sizeBytes,
+    p_sha256: storage.sha256,
+    p_storage_bucket: storage.bucket,
+    p_storage_object_path: storage.objectPath,
   });
-  if (rpc.error) {
-    throw new Error(`Checklist Registry transaction failed: ${rpc.error.message}`);
+
+  if (error) {
+    if (archived.uploadedByThisRequest) {
+      await supabase.storage
+        .from(CHECKLIST_SOURCE_BUCKET)
+        .remove([storage.objectPath]);
+    }
+    throw new Error(
+      `Checklist Registry transaction failed: ${error.message}`,
+    );
   }
 
   return {
-    mode: "imported" as const,
+    ok: true,
+    validatedOnly: false,
     adapter: { id: adapter.id, version: adapter.version },
     plan,
-    importReceipt: rpc.data,
+    complexity,
+    persistence: data,
   };
 }
