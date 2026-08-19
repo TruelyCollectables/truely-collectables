@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "truely-collectables",
-  "main": "./cloudflare-worker.ts",
+  "main": "./cloudflare-storefront-entrypoint.ts",
   "compatibility_date": "2026-08-12",
   "compatibility_flags": [
     "nodejs_compat",
