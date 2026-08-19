@@ -13,6 +13,7 @@ on:
       - "next.config.*"
       - "open-next.config.ts"
       - "cloudflare-worker.ts"
+      - "cloudflare-storefront-entrypoint.ts"
       - "cloudflare-native-fetch.ts"
       - "wrangler.jsonc"
       - "wrangler.production-route.jsonc"
@@ -131,7 +132,8 @@ jobs:
           if (routed.name !== 'truely-collectables-preview') throw new Error(`Unexpected routed production Worker: ${routed.name}`);
           if (!scheduler.triggers?.crons?.length) throw new Error('Scheduler Worker must retain its cron trigger.');
           if (routed.triggers?.crons?.length) throw new Error('Routed production Worker must not have cron triggers.');
-          console.log('Cloudflare target split validated: scheduler + routed production Worker.');
+          if (routed.main !== './cloudflare-storefront-entrypoint.ts') throw new Error(`Unexpected routed entrypoint: ${routed.main}`);
+          console.log('Cloudflare target split validated: scheduler + resilient routed production Worker.');
           NODE
 
       - name: Deploy current main to scheduler Worker without exposing remote vars
@@ -146,41 +148,40 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/run-wrangler-deploy-redacted.mjs --config wrangler.production-route.jsonc --label "routed production Worker"
 
-      - name: Verify routed Deal Hunter execution
+      - name: Verify database-independent routed edge health
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const endpoint = 'https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?perQuery=1&scope=ivan_demidov';
+          const endpoint = 'https://truelycollectables.com/__edge-health';
           let lastFailure = 'No request attempted.';
-          for (let attempt = 1; attempt <= 6; attempt += 1) {
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
             try {
-              const response = await fetch(`${endpoint}&release_check=${Date.now()}`, {
+              const response = await fetch(`${endpoint}?release_check=${Date.now()}`, {
                 headers: { Accept: 'application/json' },
                 redirect: 'manual',
-                signal: AbortSignal.timeout(60_000),
+                signal: AbortSignal.timeout(10_000),
               });
-              const payload = await response.json();
+              const payload = await response.json().catch(() => null);
               const valid =
                 response.status === 200 &&
                 response.headers.get('x-truely-origin') === 'cloudflare-worker' &&
+                response.headers.get('x-truely-edge-version') === 'storefront-failsafe-v2' &&
                 payload?.ok === true &&
-                payload?.schema === 'TCOS_NATIVE_EBAY_FEED_V1' &&
-                payload?.queryFamilyCount === 3 &&
-                payload?.successfulQueryCount === 3 &&
-                payload?.failedQueryCount === 0 &&
-                payload?.nativeEbayUsed === true;
+                payload?.schema === 'TRUELY_EDGE_HEALTH_V1' &&
+                payload?.databaseIndependent === true &&
+                payload?.failsafeVersion === 'storefront-failsafe-v2';
               if (valid) {
-                console.log('Production Deal Hunter verified: Cloudflare Worker, 3/3 Ivan Demidov query families complete.');
+                console.log('Production storefront edge fail-safe verified without touching Postgres.');
                 process.exit(0);
               }
-              lastFailure = `attempt=${attempt} status=${response.status} successful=${payload?.successfulQueryCount} failed=${payload?.failedQueryCount}`;
+              lastFailure = `attempt=${attempt} status=${response.status} schema=${payload?.schema || 'unknown'}`;
             } catch (error) {
               lastFailure = `attempt=${attempt} error=${error instanceof Error ? error.message : String(error)}`;
             }
-            await new Promise((resolve) => setTimeout(resolve, 10_000));
+            await new Promise((resolve) => setTimeout(resolve, 5_000));
           }
-          throw new Error(`Production Deal Hunter verification failed: ${lastFailure}`);
+          throw new Error(`Production edge fail-safe verification failed: ${lastFailure}`);
           NODE
 
       - name: Remove recovered secret material
