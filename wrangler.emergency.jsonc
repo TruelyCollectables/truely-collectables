@@ -3,12 +3,6 @@
   "name": "truely-collectables",
   "main": "./cloudflare-emergency-storefront.ts",
   "compatibility_date": "2026-08-12",
-  "routes": [
-    {
-      "pattern": "truelycollectables.com/*",
-      "zone_name": "truelycollectables.com"
-    }
-  ],
   "observability": {
     "enabled": true
   }
