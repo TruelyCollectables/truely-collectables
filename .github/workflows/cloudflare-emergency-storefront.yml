@@ -1,6 +1,6 @@
 name: Cloudflare Emergency Storefront
 
-# Incident deployment trigger: merge this workflow change to force a GitHub-generated push event.
+# Production outage recovery path: overwrite the existing production Worker in place.
 on:
   push:
     branches: [main]
@@ -28,11 +28,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Deploy standalone emergency Worker to production route
+      - name: Deploy standalone emergency Worker in place
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx --yes wrangler@4 deploy --config wrangler.emergency.jsonc
+        run: npx --yes wrangler@4 deploy --config wrangler.emergency.jsonc --keep-vars
 
       - name: Verify production emergency edge health
         shell: bash
