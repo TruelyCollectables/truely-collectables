@@ -1,10 +1,11 @@
-name: InstaComp Unseen V7 Bounded Preflight Contract
+name: InstaComp Unseen V8 Recovery + V7 Bounded Preflight Contract
 
 on:
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-unseen-v7-contract.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v6.py"
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-unseen-v7-contract.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
 
@@ -31,21 +33,26 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and self-test V7 five times
+      - name: Compile and self-test V8 five times
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
-          python -m py_compile services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
+          python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           for pass in 1 2 3 4 5; do
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py --self-test
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py --self-test
           done
           grep -q 'PREFLIGHT_CONCURRENCY = 6' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           grep -q 'PREFLIGHT_ITEM_TIMEOUT_SECONDS = 25.0' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           grep -q 'PREFLIGHT_WALL_BUDGET_SECONDS = 600.0' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           grep -q 'UNSEEN PREFLIGHT PROGRESS' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
-          grep -q 'benchmark_lora_unseen_holdout_v7.py' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          grep -q 'RECOVERY_CONCURRENCY = 3' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
+          grep -q 'RECOVERY_MAX_ATTEMPTS = 300' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
+          grep -q 'registry_bootstrap_receipt_revalidation_not_accepted' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
+          grep -q 'benchmark_lora_unseen_holdout_v8.py' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
 
   macos:
     runs-on: macos-15
@@ -56,16 +63,21 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and self-test V7 five times on macOS
+      - name: Compile and self-test V8 five times on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
-          python -m py_compile services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
+          python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           for pass in 1 2 3 4 5; do
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py --self-test
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py --self-test
           done
           grep -q 'UNSEEN PREFLIGHT WATCHDOG' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           grep -q 'current_registry_receipt_revalidated_plus_v20_physical_witness' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
-          ! grep -Eq 'UPDATE[[:space:]]+training_examples|INSERT[[:space:]]+INTO[[:space:]]+training_examples|DELETE[[:space:]]+FROM[[:space:]]+training_examples' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
+          grep -q 'current_registry_bootstrap_receipt_revalidated_plus_v20_physical_witness' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
+          ! grep -Eq 'UPDATE[[:space:]]+training_examples|INSERT[[:space:]]+INTO[[:space:]]+training_examples|DELETE[[:space:]]+FROM[[:space:]]+training_examples' \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
