@@ -1,9 +1,10 @@
-2026-08-19T15:31:00-06:00
+2026-08-19T15:42:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
 retry=14
-reason=set-based-writer-plus-bounded-32mib-upper-deck-source-ingest
+reason=paused-after-set-based-benchmark-still-crossed-rest-db-ceiling
 expected_ingest_revision=2026-08-19-hockey-set-based-v8
 shard_count=4
 source_timeout_ms=75000
 source_attempts=2
 status_branch=ops/hockey-reconcile-status
+paused_for_staged_writer_repair=2026-08-19
