@@ -17,6 +17,12 @@
       "service": "truely-collectables"
     }
   ],
+  "routes": [
+    {
+      "pattern": "truelycollectables.com/*",
+      "zone_name": "truelycollectables.com"
+    }
+  ],
   "triggers": {
     "crons": [
       "* * * * *"
