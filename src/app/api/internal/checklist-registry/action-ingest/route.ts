@@ -11,11 +11,11 @@ export const revalidate = 0;
 const REPOSITORY = "TruelyCollectables/truely-collectables";
 const UPPER_DECK_WORKFLOW = `${REPOSITORY}/.github/workflows/automatic-checklist-discovery.yml@refs/heads/main`;
 const TOPPS_WORKFLOW = `${REPOSITORY}/.github/workflows/automatic-topps-baseball-checklist-discovery.yml@refs/heads/main`;
-const MAX_UPPER_DECK_HTML_BYTES = 8 * 1024 * 1024;
+const MAX_UPPER_DECK_HTML_BYTES = 32 * 1024 * 1024;
 const MAX_SELECTION_CANDIDATES = 2_000;
 const MAX_UPPER_DECK_SELECTION = 60;
 const MAX_TOPPS_SELECTION = 40;
-const UPPER_DECK_INGEST_REVISION = "2026-08-18-hockey-reliability-v2";
+const UPPER_DECK_INGEST_REVISION = "2026-08-19-hockey-set-based-v3";
 const DB_RETRY_ATTEMPTS = 4;
 const TRANSIENT_DB_MESSAGE =
   /timeout|timed out|upstream request timeout|connection.*timed out|canceling statement due to statement timeout|connection reset|econnreset|etimedout|temporarily unavailable|service unavailable|bad gateway|gateway timeout/i;
