@@ -1,10 +1,10 @@
-2026-08-19T15:42:00-06:00
+2026-08-19T15:58:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=14
-reason=paused-after-set-based-benchmark-still-crossed-rest-db-ceiling
-expected_ingest_revision=2026-08-19-hockey-set-based-v8
+retry=15
+reason=resumable-staged-writer-with-exact-count-finalize-and-identity-repair
+expected_ingest_revision=2026-08-19-hockey-staged-v9
+benchmark=https://upperdeck.com/checklist/2021-22-sp-authentic-checklist/
 shard_count=4
 source_timeout_ms=75000
-source_attempts=2
+source_attempts=3
 status_branch=ops/hockey-reconcile-status
-paused_for_staged_writer_repair=2026-08-19
