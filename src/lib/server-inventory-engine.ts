@@ -22,11 +22,14 @@ import { createSupabaseServerClient } from "./supabase-server";
 
 const PUBLIC_PRODUCT_PAGE_SIZE = 1000;
 const PUBLIC_PRODUCT_MAX_PAGES = 20;
-const PUBLIC_PRODUCT_PAGE_CONCURRENCY = 5;
-const PUBLIC_CATALOG_CACHE_TTL_MS = 15_000;
-const PUBLIC_CATALOG_CACHE_TTL_SECONDS = Math.floor(
-  PUBLIC_CATALOG_CACHE_TTL_MS / 1000,
-);
+// The storefront used to fan out five 1,000-row PostgREST reads at once on a
+// cold catalog load. Keep this serial so a public page can never create a burst
+// large enough to compete with checkout or other commerce traffic.
+const PUBLIC_PRODUCT_PAGE_CONCURRENCY = 1;
+const PUBLIC_PRODUCT_QUERY_TIMEOUT_MS = 3_000;
+const PUBLIC_CATALOG_MEMORY_TTL_MS = 30_000;
+const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 5 * 60_000;
+const PUBLIC_CATALOG_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
 const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v1";
 const PUBLIC_PRODUCT_COLUMNS =
@@ -37,17 +40,18 @@ type PublicCatalogCacheEntry = {
   promise: Promise<UniversalInventoryItem[]>;
 };
 
+type PublicCatalogEdgeSnapshot = {
+  generatedAt: number;
+  items: UniversalInventoryItem[];
+};
+
 type WorkerCache = {
   match(request: Request): Promise<Response | undefined>;
   put(request: Request, response: Response): Promise<void>;
 };
 
-// Cloudflare reuses Worker isolates across nearby requests. Keep a very short
-// best-effort cache of the already-classified public catalog so pagination,
-// filters, and section navigation do not repeatedly pay the same Supabase read
-// and classification cost. Correctness never depends on this cache: it expires
-// quickly, checkout still validates live inventory, and failed loads evict
-// themselves immediately.
+// Cloudflare reuses Worker isolates across nearby requests. Keep a short
+// in-memory cache so one isolate cannot repeatedly refresh the same catalog.
 const publicCatalogCache = new Map<string, PublicCatalogCacheEntry>();
 
 function getWorkerDefaultCache(): WorkerCache | null {
@@ -68,15 +72,36 @@ function publicCatalogEdgeCacheRequest(storeId: string) {
   );
 }
 
-async function readPublicCatalogFromEdgeCache(storeId: string) {
+async function readPublicCatalogFromEdgeCache(
+  storeId: string,
+): Promise<PublicCatalogEdgeSnapshot | null> {
   const cache = getWorkerDefaultCache();
   if (!cache) return null;
 
   try {
     const response = await cache.match(publicCatalogEdgeCacheRequest(storeId));
     if (!response) return null;
-    const items = (await response.json()) as UniversalInventoryItem[];
-    return Array.isArray(items) ? items : null;
+    const payload = (await response.json()) as
+      | PublicCatalogEdgeSnapshot
+      | UniversalInventoryItem[];
+
+    // Backward compatibility with the original short-lived v1 cache payload.
+    if (Array.isArray(payload)) {
+      return { generatedAt: Date.now(), items: payload };
+    }
+
+    if (
+      payload &&
+      Number.isFinite(Number(payload.generatedAt)) &&
+      Array.isArray(payload.items)
+    ) {
+      return {
+        generatedAt: Number(payload.generatedAt),
+        items: payload.items,
+      };
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -90,17 +115,25 @@ async function writePublicCatalogToEdgeCache(
   if (!cache) return;
 
   try {
+    const snapshot: PublicCatalogEdgeSnapshot = {
+      generatedAt: Date.now(),
+      items,
+    };
+
     await cache.put(
       publicCatalogEdgeCacheRequest(storeId),
-      new Response(JSON.stringify(items), {
+      new Response(JSON.stringify(snapshot), {
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "cache-control": `public, s-maxage=${PUBLIC_CATALOG_CACHE_TTL_SECONDS}`,
+          // Keep a last-known-good catalog for a full week. The timestamp in the
+          // payload controls normal refresh cadence; this retention is solely the
+          // outage fallback and does not make checkout trust stale quantity.
+          "cache-control": `public, s-maxage=${PUBLIC_CATALOG_EDGE_RETENTION_SECONDS}`,
         },
       }),
     );
   } catch {
-    // Cache API is a performance optimization only. Never make storefront
+    // Cache API is a resilience optimization only. Never make storefront
     // availability depend on an edge-cache write succeeding.
   }
 }
@@ -117,7 +150,7 @@ function getCachedPublicCatalog(
 
   const promise = loader();
   const entry: PublicCatalogCacheEntry = {
-    expiresAt: now + PUBLIC_CATALOG_CACHE_TTL_MS,
+    expiresAt: now + PUBLIC_CATALOG_MEMORY_TTL_MS,
     promise,
   };
   publicCatalogCache.set(storeId, entry);
@@ -232,7 +265,8 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       .not("image_url", "is", null)
       .is("archived_at", null)
       .order("id", { ascending: true })
-      .range(from, from + PUBLIC_PRODUCT_PAGE_SIZE - 1);
+      .range(from, from + PUBLIC_PRODUCT_PAGE_SIZE - 1)
+      .abortSignal(AbortSignal.timeout(PUBLIC_PRODUCT_QUERY_TIMEOUT_MS));
 
     if (error) throw error;
     return data || [];
@@ -251,9 +285,8 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     rows.push(...firstBatch);
     if (firstBatch.length < PUBLIC_PRODUCT_PAGE_SIZE) return rows;
 
-    // Fetch the remaining pages in small parallel waves. This preserves the
-    // exact page ordering and 20,000-row safety ceiling while avoiding a long
-    // chain of sequential Supabase round trips on Cloudflare.
+    // Deliberately keep the refresh serial. A cold storefront cache is never
+    // allowed to fan out enough reads to starve commerce traffic again.
     for (
       let startPage = 1;
       startPage < PUBLIC_PRODUCT_MAX_PAGES;
@@ -288,26 +321,46 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       this.publicCatalogPromise = getCachedPublicCatalog(
         this.publicStoreId,
         async () => {
-          const edgeCached = await readPublicCatalogFromEdgeCache(
+          const edgeSnapshot = await readPublicCatalogFromEdgeCache(
             this.publicStoreId,
           );
-          if (edgeCached) return edgeCached;
+          const edgeAge = edgeSnapshot
+            ? Math.max(0, Date.now() - edgeSnapshot.generatedAt)
+            : Number.POSITIVE_INFINITY;
 
-          const products = await this.readPublicProducts();
-          const catalog = products
-            .map(mapPublicProductRow)
-            .map(enforceStrictStorefrontFeatures)
-            .filter(
-              (item) =>
-                Boolean(item.imageUrl) &&
-                item.quantity > 0 &&
-                item.price > 0 &&
-                item.status === "active",
-            )
-            .filter(isPublicStorefrontItem);
+          if (
+            edgeSnapshot &&
+            edgeAge <= PUBLIC_CATALOG_EDGE_FRESH_TTL_MS
+          ) {
+            return edgeSnapshot.items;
+          }
 
-          await writePublicCatalogToEdgeCache(this.publicStoreId, catalog);
-          return catalog;
+          try {
+            const products = await this.readPublicProducts();
+            const catalog = products
+              .map(mapPublicProductRow)
+              .map(enforceStrictStorefrontFeatures)
+              .filter(
+                (item) =>
+                  Boolean(item.imageUrl) &&
+                  item.quantity > 0 &&
+                  item.price > 0 &&
+                  item.status === "active",
+              )
+              .filter(isPublicStorefrontItem);
+
+            await writePublicCatalogToEdgeCache(this.publicStoreId, catalog);
+            return catalog;
+          } catch (error) {
+            if (edgeSnapshot?.items.length) {
+              console.warn(
+                "Public catalog refresh failed; serving last-known-good edge snapshot.",
+                error,
+              );
+              return edgeSnapshot.items;
+            }
+            throw error;
+          }
         },
       );
     }
@@ -361,61 +414,18 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   }
 
   async getByLegacyProductId(legacyProductId: number) {
-    // The public product row and its inventory-item identity are independent
-    // lookups once the legacy id is known. Run them together so a slow
-    // PostgREST round trip cannot make the product route pay the latency twice.
-    const productRequest = this.publicDatabase
-      .from("products")
-      .select(PUBLIC_PRODUCT_COLUMNS)
-      .eq("store_id", this.publicStoreId)
-      .eq("id", legacyProductId)
-      .gt("price", 0)
-      .gt("quantity", 0)
-      .not("image_url", "is", null)
-      .is("archived_at", null)
-      .maybeSingle();
-
-    const inventoryRequest = this.publicDatabase
-      .from("inventory_items")
-      .select("id,sku")
-      .eq("store_id", this.publicStoreId)
-      .eq("legacy_product_id", legacyProductId)
-      .order("created_at", { ascending: true })
-      .limit(100);
-
-    const [productResult, inventoryResult] = await Promise.all([
-      productRequest,
-      inventoryRequest,
-    ]);
-
-    const { data, error } = productResult;
-    if (error) throw error;
-    if (!data) return null;
-
-    if (inventoryResult.error) throw inventoryResult.error;
-
-    const productSku = String(data.sku || "").trim();
-    const inventoryRows = inventoryResult.data || [];
-    const inventoryMatch = productSku
-      ? inventoryRows.find((row: any) => String(row.sku || "") === productSku)
-      : inventoryRows[0];
-    const inventoryItemId = inventoryMatch?.id
-      ? String(inventoryMatch.id)
-      : null;
-
-    const item = {
-      ...enforceStrictStorefrontFeatures(mapPublicProductRow(data)),
-      inventoryItemId,
-    };
-
-    return item && isPublicStorefrontItem(item) ? item : null;
+    // Product pages use the same resilient public snapshot as /shop. Checkout
+    // remains authoritative and validates live inventory before money moves.
+    const catalog = await this.readPublicCatalog();
+    return (
+      catalog.find((item) => item.legacyProductId === legacyProductId) || null
+    );
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
-    const items = (await super.getByLegacyProductIds(legacyProductIds)).map(
-      enforceStrictStorefrontFeatures,
-    );
-    return items.filter(isPublicStorefrontItem);
+    const requested = new Set(legacyProductIds);
+    const catalog = await this.readPublicCatalog();
+    return catalog.filter((item) => requested.has(item.legacyProductId));
   }
 }
 
