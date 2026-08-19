@@ -8,8 +8,8 @@ import { getActiveStoreId } from "../../../../lib/stores";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VERSION_CHUNK_SIZE = 100;
 const DETAIL_CHUNK_SIZE = 100;
+const VERSION_FILTER_CHUNK_SIZE = 200;
 const MAX_ACTIVE_CARD_ROWS = 1500;
 
 function record(value: unknown): Record<string, any> {
@@ -123,6 +123,10 @@ function statusIsPositive(value: unknown, kind: "auto" | "relic") {
         !/\b(non memorabilia|non relic|no relic|none|false)\b/.test(normalized);
 }
 
+function uniqueStrings(values: unknown[]) {
+  return Array.from(new Set(values.map((value) => String(value || "")).filter(Boolean)));
+}
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -170,30 +174,52 @@ async function chunkedInSelect(params: {
   return { data: rows, error: null as any };
 }
 
-async function activeCardsForNumber(
-  client: any,
-  cardNumber: string,
-  activeVersionIds: string[],
-) {
-  const rows: any[] = [];
-  for (let start = 0; start < activeVersionIds.length; start += VERSION_CHUNK_SIZE) {
-    const versions = activeVersionIds.slice(start, start + VERSION_CHUNK_SIZE);
-    if (!versions.length) continue;
-    const query = await client
-      .from("checklist_cards")
-      .select(
-        "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-      )
-      .eq("normalized_card_number", cardNumber)
-      .in("version_id", versions)
-      .limit(MAX_ACTIVE_CARD_ROWS + 1);
-    if (query.error) return { data: [] as any[], error: query.error, overflow: false };
-    rows.push(...(query.data || []));
-    if (rows.length > MAX_ACTIVE_CARD_ROWS) {
-      return { data: [] as any[], error: null as any, overflow: true };
+async function activeCardsForNumber(client: any, cardNumber: string) {
+  // Card number is the left-most column of checklist_cards_instacomp_number_lookup_idx.
+  // Query it first so one holdout request never enumerates every active Registry version.
+  const cardQuery = await client
+    .from("checklist_cards")
+    .select(
+      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+    )
+    .eq("normalized_card_number", cardNumber)
+    .limit(MAX_ACTIVE_CARD_ROWS + 1);
+  if (cardQuery.error) {
+    return { data: [] as any[], error: cardQuery.error, overflow: false };
+  }
+
+  const scopedCards = cardQuery.data || [];
+  if (scopedCards.length > MAX_ACTIVE_CARD_ROWS) {
+    return { data: [] as any[], error: null as any, overflow: true };
+  }
+  if (!scopedCards.length) {
+    return { data: [] as any[], error: null as any, overflow: false };
+  }
+
+  const versionIds = uniqueStrings(scopedCards.map((card: any) => card.version_id));
+  const activeVersionIds = new Set<string>();
+  for (let start = 0; start < versionIds.length; start += VERSION_FILTER_CHUNK_SIZE) {
+    const ids = versionIds.slice(start, start + VERSION_FILTER_CHUNK_SIZE);
+    if (!ids.length) continue;
+    const versionQuery = await client
+      .from("checklist_versions")
+      .select("id")
+      .in("id", ids)
+      .eq("is_active", true)
+      .eq("status", "live");
+    if (versionQuery.error) {
+      return { data: [] as any[], error: versionQuery.error, overflow: false };
+    }
+    for (const row of versionQuery.data || []) {
+      if (row?.id) activeVersionIds.add(String(row.id));
     }
   }
-  return { data: rows, error: null as any, overflow: false };
+
+  return {
+    data: scopedCards.filter((card: any) => activeVersionIds.has(String(card.version_id || ""))),
+    error: null as any,
+    overflow: false,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -226,29 +252,7 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = serviceClient();
-    const versions = await supabase
-      .from("checklist_versions")
-      .select("id")
-      .eq("is_active", true)
-      .eq("status", "live")
-      .limit(5000);
-    if (versions.error) {
-      return result(`trusted_holdout_active_version_lookup_failed:${String(versions.error.code || "unknown")}`, {
-        resolverStatus: "lookup_unavailable",
-        status: "lookup_unavailable",
-      });
-    }
-    const activeVersionIds = (versions.data || [])
-      .map((row: any) => String(row.id || ""))
-      .filter(Boolean);
-    if (!activeVersionIds.length) {
-      return result("trusted_holdout_no_active_registry_versions", {
-        resolverStatus: "lookup_unavailable",
-        status: "lookup_unavailable",
-      });
-    }
-
-    const cardResult = await activeCardsForNumber(supabase, cardNumber, activeVersionIds);
+    const cardResult = await activeCardsForNumber(supabase, cardNumber);
     if (cardResult.error) {
       return result(`trusted_holdout_active_card_lookup_failed:${String(cardResult.error.code || "unknown")}`, {
         resolverStatus: "lookup_unavailable",
@@ -266,11 +270,9 @@ export async function POST(req: NextRequest) {
       return result("trusted_holdout_card_number_absent_from_active_registry");
     }
 
-    const unique = (values: unknown[]) =>
-      Array.from(new Set(values.map((value) => String(value || "")).filter(Boolean)));
-    const cardIds = unique(cards.map((card: any) => card.id));
-    const releaseIds = unique(cards.map((card: any) => card.release_id));
-    const setIds = unique(cards.map((card: any) => card.set_id));
+    const cardIds = uniqueStrings(cards.map((card: any) => card.id));
+    const releaseIds = uniqueStrings(cards.map((card: any) => card.release_id));
+    const setIds = uniqueStrings(cards.map((card: any) => card.set_id));
 
     const [playerResult, teamResult, identityResult, releaseResult, setResult] =
       await Promise.all([
