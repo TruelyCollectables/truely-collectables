@@ -8,6 +8,7 @@ on:
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py"
       - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
       - "services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh"
       - "services/instacomp-ai/scripts/run_lora_training.py"
@@ -22,6 +23,7 @@ on:
       - ".github/workflows/instacomp-unseen-learning-cycle.yml"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
       - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
       - "services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh"
   workflow_dispatch:
@@ -45,7 +47,8 @@ jobs:
           python -m py_compile \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py \
-            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           bash -n services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
       - name: Run contract self-tests five times
@@ -56,12 +59,13 @@ jobs:
           for pass in 1 2 3 4 5; do
             echo "===== UNSEEN LEARNING CYCLE LINUX SELF-TEST ${pass}/5 ====="
             python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py --self-test
-            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py --self-test
+            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py --self-test
           done
       - name: Prove benchmark stays clean and learning stays gated
         run: |
           benchmark=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py
           curriculum=services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py
+          curriculum_v2=services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py
           cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
           grep -q 'MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY = 5' "$benchmark"
           grep -q 'previously_scored' "$benchmark"
@@ -71,6 +75,9 @@ jobs:
           grep -q 'DEFAULT_LEARNING_RATE = 5e-5' "$curriculum"
           grep -q 'DEFAULT_CURRICULUM_MULTIPLIER = 3' "$curriculum"
           grep -q 'No complete 100-card unseen benchmark exists' "$curriculum"
+          grep -q 'registry_receipt_revalidation_accepted' "$curriculum_v2"
+          grep -q 'Refusing stale curriculum truth' "$curriculum_v2"
+          grep -q 'train_lora_from_unseen_benchmarks_v2.py' "$cycle"
           grep -q 'run-staged-learning-from-main.sh' "$cycle"
           grep -q -- '--stage-target 25' "$cycle"
           grep -q -- '--validation-only --required-examples 30' "$cycle"
@@ -92,7 +99,8 @@ jobs:
         run: |
           python -m py_compile \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
-            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           bash -n services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
       - name: Repeat self-tests on macOS
@@ -103,12 +111,15 @@ jobs:
           for pass in 1 2 3 4 5; do
             echo "===== UNSEEN LEARNING CYCLE MAC SELF-TEST ${pass}/5 ====="
             python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py --self-test
-            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py --self-test
+            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py --self-test
           done
       - name: Prove one-command Mac path is fail-closed
         run: |
           cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+          curriculum_v2=services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py
           grep -q 'No training was allowed' "$cycle"
           grep -q 'different untouched 100-card exam' "$cycle"
           grep -q 'current trusted truth still matches the benchmark Registry UUID + fingerprint' "$cycle"
           grep -q 'restore_known_good' "$cycle"
+          grep -q 'registry_receipt_revalidation_accepted' "$curriculum_v2"
+          grep -q 'Refusing stale curriculum truth' "$curriculum_v2"
