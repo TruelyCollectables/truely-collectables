@@ -31,7 +31,10 @@ const PUBLIC_CATALOG_MEMORY_TTL_MS = 30_000;
 const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 5 * 60_000;
 const PUBLIC_CATALOG_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
-const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v1";
+// v2 adds physical-stock deduplication via card_uuid. Do not reuse a v1 edge
+// snapshot that may contain both CollX provenance and eBay representations of
+// the same owned card.
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v2";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
@@ -85,7 +88,7 @@ async function readPublicCatalogFromEdgeCache(
       | PublicCatalogEdgeSnapshot
       | UniversalInventoryItem[];
 
-    // Backward compatibility with the original short-lived v1 cache payload.
+    // Backward compatibility with the original short-lived cache payload.
     if (Array.isArray(payload)) {
       return { generatedAt: Date.now(), items: payload };
     }
@@ -205,6 +208,41 @@ function isPublicStorefrontItem(item: UniversalInventoryItem) {
   return (
     isLaunchCollectible(item) && !isMergedEbayAliasItemId(item.ebayItemId)
   );
+}
+
+function dedupeSharedPhysicalInventory(items: UniversalInventoryItem[]) {
+  const ungrouped: UniversalInventoryItem[] = [];
+  const byCardUuid = new Map<string, UniversalInventoryItem>();
+
+  for (const item of items) {
+    const cardUuid = validCardUuid(item.cardUuid);
+    if (!cardUuid) {
+      ungrouped.push(item);
+      continue;
+    }
+
+    const existing = byCardUuid.get(cardUuid);
+    if (!existing) {
+      byCardUuid.set(cardUuid, item);
+      continue;
+    }
+
+    // A linked card is one physical stock pool even when it has multiple source
+    // representations. Prefer the eBay-linked row because it normally carries
+    // the current listing photos/metadata; otherwise keep the lower product id
+    // so the chosen storefront URL is deterministic.
+    const itemHasEbay = Boolean(item.ebayItemId);
+    const existingHasEbay = Boolean(existing.ebayItemId);
+    if (
+      (itemHasEbay && !existingHasEbay) ||
+      (itemHasEbay === existingHasEbay &&
+        item.legacyProductId < existing.legacyProductId)
+    ) {
+      byCardUuid.set(cardUuid, item);
+    }
+  }
+
+  return [...ungrouped, ...byCardUuid.values()];
 }
 
 function mapPublicProductRow(product: any): UniversalInventoryItem {
@@ -337,17 +375,19 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
 
           try {
             const products = await this.readPublicProducts();
-            const catalog = products
-              .map(mapPublicProductRow)
-              .map(enforceStrictStorefrontFeatures)
-              .filter(
-                (item) =>
-                  Boolean(item.imageUrl) &&
-                  item.quantity > 0 &&
-                  item.price > 0 &&
-                  item.status === "active",
-              )
-              .filter(isPublicStorefrontItem);
+            const catalog = dedupeSharedPhysicalInventory(
+              products
+                .map(mapPublicProductRow)
+                .map(enforceStrictStorefrontFeatures)
+                .filter(
+                  (item) =>
+                    Boolean(item.imageUrl) &&
+                    item.quantity > 0 &&
+                    item.price > 0 &&
+                    item.status === "active",
+                )
+                .filter(isPublicStorefrontItem),
+            );
 
             await writePublicCatalogToEdgeCache(this.publicStoreId, catalog);
             return catalog;
