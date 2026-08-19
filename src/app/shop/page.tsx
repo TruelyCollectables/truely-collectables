@@ -191,40 +191,47 @@ export default async function Shop({
   let products: UniversalInventoryItem[] = [];
   let soldProducts: UniversalInventoryItem[] = [];
   let sections: string[] = [];
-  let error: Error | null = null;
+  let catalogUnavailable = false;
 
-  try {
-    const inventoryEngine = createServerInventoryEngine();
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
-    [products, soldProducts, sections] = await Promise.all([
-      inventoryEngine.listAvailable({
-        query: q,
-        section,
-        feature,
-        sort,
-      }),
-      listRecentSoldStorefrontItems({
-        supabase,
-        storeId,
-        query: q,
-        section,
-        feature,
-        sort,
-      }),
-      inventoryEngine.listAvailableSections(),
-    ]);
-  } catch (err: any) {
-    error = err;
+  const inventoryEngine = createServerInventoryEngine();
+  const supabase = createSupabaseServerClient({ admin: true });
+  const storeId = getActiveStoreId();
+
+  const [productsResult, soldResult, sectionsResult] = await Promise.allSettled([
+    inventoryEngine.listAvailable({
+      query: q,
+      section,
+      feature,
+      sort,
+    }),
+    listRecentSoldStorefrontItems({
+      supabase,
+      storeId,
+      query: q,
+      section,
+      feature,
+      sort,
+    }),
+    inventoryEngine.listAvailableSections(),
+  ]);
+
+  if (productsResult.status === "fulfilled") {
+    products = productsResult.value;
+  } else {
+    catalogUnavailable = true;
+    console.error("Shop active catalog unavailable:", productsResult.reason);
   }
 
-  if (error) {
-    return (
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <h1 className="text-2xl font-black">Error loading products</h1>
-        <p className="mt-3 break-words text-sm text-red-700">{error.message}</p>
-      </main>
-    );
+  if (soldResult.status === "fulfilled") {
+    soldProducts = soldResult.value;
+  } else {
+    console.warn("Shop recent-sale history unavailable:", soldResult.reason);
+  }
+
+  if (sectionsResult.status === "fulfilled") {
+    sections = sectionsResult.value;
+  } else {
+    console.warn("Shop section list unavailable:", sectionsResult.reason);
   }
 
   const totalProducts = products.length;
@@ -249,6 +256,12 @@ export default async function Shop({
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <ClearCartOnSuccess />
+
+      {catalogUnavailable ? (
+        <div className="mb-6 border-2 border-amber-700 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-950">
+          Inventory refresh is temporarily delayed. The storefront remains online while the catalog reconnects; checkout always re-validates live availability before payment.
+        </div>
+      ) : null}
 
       <section className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-neutral-200 pb-6">
         <div>
@@ -419,7 +432,11 @@ export default async function Shop({
       ) : null}
 
       {totalProducts === 0 ? (
-        <p className="text-gray-600">No active cards or collectibles found.</p>
+        <p className="text-gray-600">
+          {catalogUnavailable
+            ? "Inventory is temporarily refreshing. Please retry shortly."
+            : "No active cards or collectibles found."}
+        </p>
       ) : (
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-neutral-600">
           <p>
