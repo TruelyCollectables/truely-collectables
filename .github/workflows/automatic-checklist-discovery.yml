@@ -71,7 +71,7 @@ jobs:
       HOCKEY_CHECKLIST_OUTPUT: .hockey-checklist-reconcile/receipt.json
       HOCKEY_CHECKLIST_SHARD_COUNT: "4"
       HOCKEY_INGEST_REVISION_URL: https://truelycollectables.com/api/internal/checklist-registry/ingest-revision
-      EXPECTED_HOCKEY_INGEST_REVISION: "2026-08-18-hockey-preflight-v7"
+      EXPECTED_HOCKEY_INGEST_REVISION: "2026-08-19-hockey-set-based-v8"
       HOCKEY_STATUS_BRANCH: "ops/hockey-reconcile-status"
       REQUESTED_DISCOVERY_SCOPE: ${{ inputs.scope || 'standard' }}
     steps:
