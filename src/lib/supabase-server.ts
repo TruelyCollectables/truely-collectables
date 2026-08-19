@@ -4,7 +4,11 @@ type CloudflareFetchGlobal = typeof globalThis & {
   __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
 };
 
-const SERVER_READ_TIMEOUT_MS = 12_000;
+// A server-side read that needs multiple seconds is already unhealthy for a
+// storefront request. Abort it before it can pin a PostgREST transaction or
+// consume a connection long enough to cascade into a site-wide outage. Writes
+// are intentionally not covered by this timeout.
+const SERVER_READ_TIMEOUT_MS = 4_000;
 
 function getSupabaseUrl() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
