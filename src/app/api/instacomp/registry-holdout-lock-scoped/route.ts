@@ -12,12 +12,6 @@ const QUERY_CHUNK_SIZE = 80;
 const MAX_RELEASE_ROWS = 2000;
 const MAX_SCOPED_CARD_ROWS = 250;
 
-function record(value: unknown): Record<string, any> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, any>)
-    : {};
-}
-
 function normalizedText(value: unknown) {
   return String(value ?? "")
     .normalize("NFKC")
@@ -44,8 +38,11 @@ function normalizedSubjects(value: unknown) {
 }
 
 function subjectsMatch(target: string[], registry: string[]) {
-  if (!target.length || target.length !== registry.length) return false;
-  return target.every((subject, index) => subject === registry[index]);
+  return (
+    target.length > 0 &&
+    target.length === registry.length &&
+    target.every((subject, index) => subject === registry[index])
+  );
 }
 
 function yearStart(value: unknown) {
@@ -84,6 +81,11 @@ function meaningfulTokens(value: unknown) {
     );
 }
 
+function relationName(value: any) {
+  if (Array.isArray(value)) return value[0]?.name || null;
+  return value?.name || null;
+}
+
 function isBaseParallel(value: unknown) {
   const normalized = normalizedText(value);
   return !normalized || ["base", "base card", "standard", "regular"].includes(normalized);
@@ -91,8 +93,8 @@ function isBaseParallel(value: unknown) {
 
 function parallelSignature(value: unknown) {
   if (isBaseParallel(value)) return "base";
-  return [
-    ...new Set(
+  return Array.from(
+    new Set(
       normalizedText(value)
         .replace(/\bcracked\s+ice\b/g, "ice")
         .replace(/\bfoil\b/g, "holo")
@@ -112,7 +114,7 @@ function parallelSignature(value: unknown) {
             ].includes(token),
         ),
     ),
-  ]
+  )
     .sort()
     .join(" ");
 }
@@ -128,14 +130,18 @@ function statusIsPositive(value: unknown, kind: "auto" | "relic") {
 }
 
 function uniqueStrings(values: unknown[]) {
-  return Array.from(new Set(values.map((value) => String(value || "")).filter(Boolean)));
+  return Array.from(
+    new Set(values.map((value) => String(value || "")).filter(Boolean)),
+  );
 }
 
-function serviceClient() {
+function serviceClient(): any {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    throw new Error("Scoped trusted holdout Registry lookup requires Supabase service-role access.");
+    throw new Error(
+      "Scoped trusted holdout Registry lookup requires Supabase service-role access.",
+    );
   }
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -169,12 +175,12 @@ async function chunkedInSelect(params: {
   for (let start = 0; start < params.ids.length; start += QUERY_CHUNK_SIZE) {
     const ids = params.ids.slice(start, start + QUERY_CHUNK_SIZE);
     if (!ids.length) continue;
-    let query = params.client
+    let query: any = params.client
       .from(params.table)
       .select(params.select)
       .in(params.column, ids);
     if (params.filters) query = params.filters(query);
-    const response = await query;
+    const response: any = await query;
     if (response.error) return { data: [] as any[], error: response.error };
     rows.push(...(response.data || []));
   }
@@ -211,7 +217,8 @@ export async function POST(req: NextRequest) {
       ? ""
       : normalizedText(body.parallel);
     const targetParallel = parallelSignature(targetParallelRaw);
-    const targetSerialRun = String(body.serialNumber || "").match(/\/(\d{1,7})\b/)?.[1] || null;
+    const targetSerialRun =
+      String(body.serialNumber || "").match(/\/(\d{1,7})\b/)?.[1] || null;
     const targetAuto = body.isAuto === true;
     const targetRelic = body.isRelic === true;
 
@@ -232,10 +239,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const supabase = serviceClient();
+    const supabase: any = serviceClient();
     const releaseSelect =
       "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)";
-    const [yearResult, seasonResult] = await Promise.all([
+    const [yearResult, seasonResult]: any[] = await Promise.all([
       supabase
         .from("checklist_releases")
         .select(releaseSelect)
@@ -249,12 +256,17 @@ export async function POST(req: NextRequest) {
     ]);
     const releaseError = yearResult.error || seasonResult.error;
     if (releaseError) {
-      return result(`trusted_holdout_scoped_release_lookup_failed:${String(releaseError.code || "unknown")}`, {
-        resolverStatus: "lookup_unavailable",
-        status: "lookup_unavailable",
-      });
+      return result(
+        `trusted_holdout_scoped_release_lookup_failed:${String(
+          releaseError.code || "unknown",
+        )}`,
+        { resolverStatus: "lookup_unavailable", status: "lookup_unavailable" },
+      );
     }
-    if ((yearResult.data || []).length > MAX_RELEASE_ROWS || (seasonResult.data || []).length > MAX_RELEASE_ROWS) {
+    if (
+      (yearResult.data || []).length > MAX_RELEASE_ROWS ||
+      (seasonResult.data || []).length > MAX_RELEASE_ROWS
+    ) {
       return result("trusted_holdout_scoped_release_scope_exceeded_safe_bound", {
         resolverStatus: "lookup_unavailable",
         status: "lookup_unavailable",
@@ -262,12 +274,13 @@ export async function POST(req: NextRequest) {
     }
 
     const releaseById = new Map<string, any>();
-    for (const release of [...(yearResult.data || []), ...(seasonResult.data || [])]) {
-      const manufacturer = release.manufacturer?.name || null;
-      const rawBrand = release.brand?.name || null;
+    for (const value of [...(yearResult.data || []), ...(seasonResult.data || [])]) {
+      const release: any = value;
+      const manufacturer = relationName(release.manufacturer);
+      const rawBrand = relationName(release.brand);
       const product = release.product_name || null;
-      const sport = release.sport?.name || null;
-      const league = release.league?.name || null;
+      const sport = relationName(release.sport);
+      const league = relationName(release.league);
       const searchableBrand = normalizedText(
         [manufacturer, rawBrand, product].filter(Boolean).join(" "),
       );
@@ -276,6 +289,7 @@ export async function POST(req: NextRequest) {
       if (targetLeague && normalizedText(league) !== targetLeague) continue;
       releaseById.set(String(release.id), release);
     }
+
     const releaseIds = [...releaseById.keys()];
     if (!releaseIds.length) {
       return result("trusted_holdout_scoped_release_not_found");
@@ -290,12 +304,17 @@ export async function POST(req: NextRequest) {
       filters: (query) => query.eq("is_active", true).eq("status", "live"),
     });
     if (versionResult.error) {
-      return result(`trusted_holdout_scoped_version_lookup_failed:${String(versionResult.error.code || "unknown")}`, {
-        resolverStatus: "lookup_unavailable",
-        status: "lookup_unavailable",
-      });
+      return result(
+        `trusted_holdout_scoped_version_lookup_failed:${String(
+          versionResult.error.code || "unknown",
+        )}`,
+        { resolverStatus: "lookup_unavailable", status: "lookup_unavailable" },
+      );
     }
-    const versionIds = uniqueStrings((versionResult.data || []).map((row: any) => row.id));
+
+    const versionIds = uniqueStrings(
+      (versionResult.data || []).map((row: any) => row.id),
+    );
     if (!versionIds.length) {
       return result("trusted_holdout_scoped_no_active_release_version");
     }
@@ -308,56 +327,74 @@ export async function POST(req: NextRequest) {
       ids: versionIds,
     });
     if (setResult.error) {
-      return result(`trusted_holdout_scoped_set_lookup_failed:${String(setResult.error.code || "unknown")}`, {
-        resolverStatus: "lookup_unavailable",
-        status: "lookup_unavailable",
-      });
+      return result(
+        `trusted_holdout_scoped_set_lookup_failed:${String(
+          setResult.error.code || "unknown",
+        )}`,
+        { resolverStatus: "lookup_unavailable", status: "lookup_unavailable" },
+      );
     }
 
     const scopedSets = (setResult.data || []).filter((set: any) => {
-      const release = record(releaseById.get(String(set.release_id)));
+      const release: any = releaseById.get(String(set.release_id));
+      if (!release) return false;
       const registryTokens = new Set(
         meaningfulTokens(
-          [release.brand?.name, release.product_name, set.name]
+          [relationName(release.brand), release.product_name, set.name]
             .filter(Boolean)
             .join(" "),
         ),
       );
       return targetSetTokens.every((token) => registryTokens.has(token));
     });
-    const setIds = uniqueStrings(scopedSets.map((row: any) => row.id));
-    if (!setIds.length) {
+    if (!scopedSets.length) {
       return result("trusted_holdout_scoped_set_not_found");
     }
 
+    const setsByVersion = new Map<string, string[]>();
+    for (const set of scopedSets) {
+      const versionId = String(set.version_id || "");
+      const setId = String(set.id || "");
+      if (!versionId || !setId) continue;
+      const bucket = setsByVersion.get(versionId) || [];
+      bucket.push(setId);
+      setsByVersion.set(versionId, bucket);
+    }
+
     const cardsById = new Map<string, any>();
-    for (let start = 0; start < setIds.length; start += QUERY_CHUNK_SIZE) {
-      const ids = setIds.slice(start, start + QUERY_CHUNK_SIZE);
-      const cardResult = await supabase
-        .from("checklist_cards")
-        .select(
-          "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-        )
-        .in("set_id", ids)
-        .in("version_id", versionIds)
-        .eq("normalized_card_number", cardNumber)
-        .limit(MAX_SCOPED_CARD_ROWS + 1);
-      if (cardResult.error) {
-        return result(`trusted_holdout_scoped_card_lookup_failed:${String(cardResult.error.code || "unknown")}`, {
-          resolverStatus: "lookup_unavailable",
-          status: "lookup_unavailable",
-        });
-      }
-      for (const card of cardResult.data || []) {
-        cardsById.set(String(card.id), card);
-        if (cardsById.size > MAX_SCOPED_CARD_ROWS) {
-          return result("trusted_holdout_scoped_card_scope_exceeded_safe_bound", {
-            resolverStatus: "lookup_unavailable",
-            status: "lookup_unavailable",
-          });
+    for (const [versionId, rawSetIds] of setsByVersion) {
+      const setIds = uniqueStrings(rawSetIds);
+      for (let start = 0; start < setIds.length; start += QUERY_CHUNK_SIZE) {
+        const ids = setIds.slice(start, start + QUERY_CHUNK_SIZE);
+        const cardResult: any = await supabase
+          .from("checklist_cards")
+          .select(
+            "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+          )
+          .eq("version_id", versionId)
+          .in("set_id", ids)
+          .eq("normalized_card_number", cardNumber)
+          .limit(MAX_SCOPED_CARD_ROWS + 1);
+        if (cardResult.error) {
+          return result(
+            `trusted_holdout_scoped_card_lookup_failed:${String(
+              cardResult.error.code || "unknown",
+            )}`,
+            { resolverStatus: "lookup_unavailable", status: "lookup_unavailable" },
+          );
+        }
+        for (const card of cardResult.data || []) {
+          cardsById.set(String(card.id), card);
+          if (cardsById.size > MAX_SCOPED_CARD_ROWS) {
+            return result("trusted_holdout_scoped_card_scope_exceeded_safe_bound", {
+              resolverStatus: "lookup_unavailable",
+              status: "lookup_unavailable",
+            });
+          }
         }
       }
     }
+
     const cards = [...cardsById.values()];
     if (!cards.length) {
       return result("trusted_holdout_scoped_card_number_absent_from_release_scope");
@@ -388,12 +425,15 @@ export async function POST(req: NextRequest) {
         ids: cardIds,
       }),
     ]);
-    const detailError = playerResult.error || teamResult.error || identityResult.error;
+    const detailError =
+      playerResult.error || teamResult.error || identityResult.error;
     if (detailError) {
-      return result(`trusted_holdout_scoped_detail_lookup_failed:${String(detailError.code || "unknown")}`, {
-        resolverStatus: "lookup_unavailable",
-        status: "lookup_unavailable",
-      });
+      return result(
+        `trusted_holdout_scoped_detail_lookup_failed:${String(
+          detailError.code || "unknown",
+        )}`,
+        { resolverStatus: "lookup_unavailable", status: "lookup_unavailable" },
+      );
     }
 
     const groupByCard = (rows: any[]) => {
@@ -409,44 +449,55 @@ export async function POST(req: NextRequest) {
     const playersByCard = groupByCard(playerResult.data || []);
     const teamsByCard = groupByCard(teamResult.data || []);
     const identitiesByCard = groupByCard(identityResult.data || []);
-    const setById = new Map(scopedSets.map((row: any) => [String(row.id), row]));
+    const setById = new Map<string, any>(
+      scopedSets.map((set: any) => [String(set.id), set]),
+    );
 
     const matches = new Map<string, any>();
     for (const card of cards) {
       const registryPlayers = normalizedSubjects(
         (playersByCard.get(String(card.id)) || [])
-          .map((link: any) => link?.player?.canonical_name)
+          .map((link: any) => relationName(link.player))
           .filter(Boolean)
           .join(" / "),
       );
       if (!subjectsMatch(player, registryPlayers)) continue;
 
-      const release = record(releaseById.get(String(card.release_id)));
-      const set = record(setById.get(String(card.set_id)));
+      const release: any = releaseById.get(String(card.release_id));
+      const set: any = setById.get(String(card.set_id));
+      if (!release || !set) continue;
       const releaseYear = release.release_year || release.season || null;
-      const manufacturer = release.manufacturer?.name || null;
-      const rawBrand = release.brand?.name || null;
+      const manufacturer = relationName(release.manufacturer);
+      const rawBrand = relationName(release.brand);
       const product = release.product_name || null;
       const rawSetName = set.name || null;
       const brand = rawBrand || manufacturer || product || null;
       const setName = rawSetName || product || null;
-      const sport = release.sport?.name || null;
-      const league = release.league?.name || null;
+      const sport = relationName(release.sport);
+      const league = relationName(release.league);
 
       const teams = (teamsByCard.get(String(card.id)) || [])
-        .map((link: any) => link?.team?.canonical_name)
+        .map((link: any) => relationName(link.team))
         .filter(Boolean);
-      if (targetTeam && !teams.some((team: string) => normalizedText(team) === targetTeam)) {
+      if (
+        targetTeam &&
+        !teams.some((team: string) => normalizedText(team) === targetTeam)
+      ) {
         continue;
       }
 
       for (const identity of identitiesByCard.get(String(card.id)) || []) {
-        const fingerprint = String(identity.fingerprint_sha256 || "").trim().toLowerCase();
+        const fingerprint = String(identity.fingerprint_sha256 || "")
+          .trim()
+          .toLowerCase();
         const identityId = String(identity.id || "").trim();
         if (!fingerprint || !identityId) continue;
 
-        const parallelName = identity.parallel?.name || "Base";
-        const serialRun = Number(identity.parallel?.serial_run || 0) || null;
+        const parallelName = relationName(identity.parallel) || "Base";
+        const parallelRow = Array.isArray(identity.parallel)
+          ? identity.parallel[0]
+          : identity.parallel;
+        const serialRun = Number(parallelRow?.serial_run || 0) || null;
         if (targetSerialRun) {
           if (serialRun !== Number(targetSerialRun)) continue;
           if (!targetParallelRaw || targetParallel === "base") continue;
