@@ -1,5 +1,6 @@
 name: Cloudflare Emergency Storefront
 
+# Incident deployment trigger: merge this workflow change to force a GitHub-generated push event.
 on:
   push:
     branches: [main]
