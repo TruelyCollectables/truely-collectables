@@ -9,6 +9,7 @@ import httpx
 import benchmark_lora_unseen_holdout_v7 as v7
 
 SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v8"
+SCOPED_FAST_ROUTE = "/api/instacomp/registry-holdout-lock-scoped"
 RECOVERY_CONCURRENCY = 3
 RECOVERY_MAX_ATTEMPTS = 300
 RECOVERY_HTTP_TIMEOUT_SECONDS = 5.0
@@ -37,7 +38,7 @@ async def _recovering_lock_identity(
 
     The first pass is the unchanged canonical V20 lock. Only when Production says
     input_incomplete for an identity that the local V20 readiness contract says is
-    complete do we ask the existing fast holdout resolver for one exact current
+    complete do we ask the release-scoped holdout resolver for one exact current
     Registry UUID/fingerprint. That receipt is never accepted directly: it is
     immediately sent back through /registry-lock receipt revalidation and the
     unchanged V20 physical witness gate. Ambiguity, stale receipts, fingerprint
@@ -152,6 +153,10 @@ async def _recovering_lock_identity(
 
 def _install_runtime() -> None:
     v7._install_runtime()
+    # V6/V5 bootstrap and the V8 recovery branch both call _fast_bootstrap_one.
+    # Route those calls through release/year/set scoping before the million-row
+    # checklist_cards table, while preserving the same response/receipt contract.
+    v7.v6.FAST_ROUTE = SCOPED_FAST_ROUTE
     canonical.legacy.v20._lock_identity = _recovering_lock_identity
     v7.v6.v5.SCHEMA = SCHEMA
     v7.v6.v5.v4.SCHEMA = SCHEMA
@@ -182,16 +187,19 @@ def _self_test() -> int:
     assert _should_attempt_recovery({"reason": "registry_input_incomplete"}, ready)
     assert not _should_attempt_recovery({"reason": "registry_input_incomplete"}, incomplete)
     assert not _should_attempt_recovery({"reason": "registry_no_exact_match"}, ready)
+    assert SCOPED_FAST_ROUTE.endswith("registry-holdout-lock-scoped")
     assert RECOVERY_CONCURRENCY < v7.PREFLIGHT_CONCURRENCY
     assert RECOVERY_MAX_ATTEMPTS < 500
     assert RECOVERY_HTTP_TIMEOUT_SECONDS < v7.v6.FAST_HTTP_TIMEOUT_SECONDS
     assert RECOVERY_ITEM_TIMEOUT_SECONDS < v7.PREFLIGHT_ITEM_TIMEOUT_SECONDS
 
     _install_runtime()
+    assert v7.v6.FAST_ROUTE == SCOPED_FAST_ROUTE
     assert canonical.legacy.v20._lock_identity is _recovering_lock_identity
     assert v7.v6.v5._CANONICAL_AUTHORITATIVE_HOLDOUT is v7._bounded_authoritative_holdout
 
     print("PASS unseen V8 recovers only server input_incomplete on locally V20-ready truth")
+    print("PASS unseen V8 routes bootstrap/recovery through release-scoped Registry lookup")
     print("PASS unseen V8 bounds recovery concurrency, attempts, HTTP time, and item time")
     print("PASS unseen V8 requires the bootstrap UUID/fingerprint to pass CURRENT canonical receipt revalidation")
     print("PASS unseen V8 preserves V20 physical witness, UUID/fingerprint, unseen-image, and diversity gates")
