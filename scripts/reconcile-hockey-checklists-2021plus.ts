@@ -20,6 +20,11 @@ const SHARD_COUNT = Math.max(
   Math.min(16, Number(process.env.HOCKEY_CHECKLIST_SHARD_COUNT || 1)),
 );
 const SHARD_INDEX = Number(process.env.HOCKEY_CHECKLIST_SHARD_INDEX || 0);
+const ONLY_SOURCE_URL = (process.env.HOCKEY_CHECKLIST_ONLY_URL || "").trim();
+const MAX_STAGED_REQUESTS_PER_SOURCE = Math.max(
+  50,
+  Math.min(2_000, Number(process.env.HOCKEY_CHECKLIST_MAX_STAGED_REQUESTS || 1_000)),
+);
 
 if (!Number.isInteger(SHARD_INDEX) || SHARD_INDEX < 0 || SHARD_INDEX >= SHARD_COUNT) {
   throw new Error(`Invalid hockey shard ${SHARD_INDEX}/${SHARD_COUNT}.`);
@@ -145,7 +150,7 @@ async function fetchHtml(url: string) {
     headers: {
       Accept: "text/html,application/xhtml+xml",
       "Cache-Control": "no-cache",
-      "User-Agent": "TCOS-Hockey-Checklist-Reconcile/1.1 (+private registry automation; contact sales@truelycollectables.com)",
+      "User-Agent": "TCOS-Hockey-Checklist-Reconcile/1.2 (+private registry automation; contact sales@truelycollectables.com)",
     },
     redirect: "follow",
     signal: AbortSignal.timeout(60_000),
@@ -217,6 +222,39 @@ async function discoverHockeyCandidates() {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+async function importStagedSource(sourceUrl: string, content: string) {
+  let response = await postChecklistRegistryAction({
+    operation: "upper_deck_source",
+    sourceUrl,
+    content,
+    autoImport: true,
+  });
+
+  for (let requestCount = 1; requestCount <= MAX_STAGED_REQUESTS_PER_SOURCE; requestCount += 1) {
+    const result = asRecord(response.result);
+    if (!result) throw new Error("Checklist Registry returned an invalid Upper Deck result.");
+    if (result.status !== "importing") return result;
+
+    const next = asRecord(result.next);
+    if (!next) throw new Error("Checklist Registry staged import did not return its next step.");
+
+    response = await postChecklistRegistryAction({
+      operation: "upper_deck_source",
+      sourceUrl,
+      autoImport: true,
+      stage: next,
+    });
+  }
+
+  throw new Error(`Checklist Registry staged import exceeded ${MAX_STAGED_REQUESTS_PER_SOURCE} bounded requests.`);
+}
+
 function writeReceipt(value: Record<string, unknown>) {
   mkdirSync(dirname(OUTPUT), { recursive: true });
   writeFileSync(OUTPUT, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -229,10 +267,17 @@ async function main() {
     throw new Error("Upper Deck hockey archive produced zero in-scope checklist pages.");
   }
 
-  const selected = discovery.candidates.filter((_, index) => index % SHARD_COUNT === SHARD_INDEX);
+  const canonicalOnly = ONLY_SOURCE_URL ? canonical(ONLY_SOURCE_URL, HOCKEY_CATEGORY_URL) : "";
+  const selected = canonicalOnly
+    ? discovery.candidates.filter((candidate) => candidate.sourceUrl === canonicalOnly)
+    : discovery.candidates.filter((_, index) => index % SHARD_COUNT === SHARD_INDEX);
+  if (canonicalOnly && selected.length !== 1) {
+    throw new Error(`Requested hockey benchmark source is not in the 2021-plus discovery set: ${canonicalOnly}`);
+  }
+
   const results: ImportResult[] = [];
   const baseReceipt = {
-    schema: "tcos.hockeyChecklistReconcileShardReceipt.v1",
+    schema: "tcos.hockeyChecklistReconcileShardReceipt.v2",
     startedAt,
     source: HOCKEY_CATEGORY_URL,
     boundary: START_DATE.toISOString(),
@@ -241,6 +286,7 @@ async function main() {
     candidateCount: discovery.candidates.length,
     shardCount: SHARD_COUNT,
     shardIndex: SHARD_INDEX,
+    onlySourceUrl: canonicalOnly || null,
     selectedCandidateCount: selected.length,
     selectedSourceUrls: selected.map((candidate) => candidate.sourceUrl),
   };
@@ -249,18 +295,9 @@ async function main() {
   for (const candidate of selected) {
     try {
       const content = await fetchHtml(candidate.sourceUrl);
-      const response = await postChecklistRegistryAction({
-        operation: "upper_deck_source",
-        sourceUrl: candidate.sourceUrl,
-        content,
-        autoImport: true,
-      });
-      const result = response.result;
-      if (!result || typeof result !== "object" || Array.isArray(result)) {
-        throw new Error("Checklist Registry returned an invalid Upper Deck result.");
-      }
+      const result = await importStagedSource(candidate.sourceUrl, content);
       results.push({
-        ...(result as Record<string, unknown>),
+        ...result,
         categoryPage: candidate.categoryPage,
         publishedAt: candidate.publishedAt,
       });
