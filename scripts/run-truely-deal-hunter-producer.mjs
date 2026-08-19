@@ -14,13 +14,15 @@ const feeds = [
   {
     key: "wnba",
     path: "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=wnba",
-    expectedFamilyCount: 15,
+    expectedFamilyCount: 25,
     requiredFlag: ["requiredWnbaFamiliesExecuted", true],
+    requiresSourceStatus: true,
   },
   {
     key: "ivan_demidov",
     path: "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=ivan_demidov",
     expectedFamilyCount: 3,
+    requiresSourceStatus: true,
   },
   {
     key: "matvei_michkov_young_guns",
@@ -28,6 +30,7 @@ const feeds = [
       "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=matvei_michkov_young_guns",
     expectedFamilyCount: 8,
     requiredFlag: ["requiredMichkovFamiliesExecuted", true],
+    requiresSourceStatus: true,
   },
   {
     key: "matvei_michkov_opc_platinum",
@@ -41,12 +44,14 @@ const feeds = [
     path:
       "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=baseball_prospects",
     expectedFamilyCount: 10,
+    requiresSourceStatus: true,
   },
   {
     key: "signed_baseballs",
     path:
       "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=signed_baseballs",
     expectedFamilyCount: 5,
+    requiresSourceStatus: true,
   },
 ];
 
@@ -101,6 +106,7 @@ function validateFeed(payload, spec) {
   const sourceCoverage = Array.isArray(payload?.sourceCoverage)
     ? payload.sourceCoverage
     : [];
+  const sourceStatus = payload?.sourceStatus || null;
   const results = Array.isArray(payload?.results) ? payload.results : [];
 
   if (payload?.schema !== SCHEMA) errors.push(`schema=${payload?.schema}`);
@@ -133,6 +139,37 @@ function validateFeed(payload, spec) {
     .map((row) => ({ familyId: row?.familyId, status: row?.status }));
   if (incompleteCoverage.length > 0) {
     errors.push(`incompleteSourceCoverage=${JSON.stringify(incompleteCoverage)}`);
+  }
+
+  if (spec.requiresSourceStatus) {
+    if (!sourceStatus || typeof sourceStatus !== "object") {
+      errors.push("sourceStatus=missing");
+    } else {
+      if (sourceStatus.status !== "COMPLETE") {
+        errors.push(`sourceStatus.status=${sourceStatus.status}`);
+      }
+      if (sourceStatus.configured !== true) {
+        errors.push(`sourceStatus.configured=${sourceStatus.configured}`);
+      }
+      if (Number(sourceStatus.attemptedQueryFamilies) !== familyCount) {
+        errors.push(
+          `sourceStatus.attemptedQueryFamilies=${sourceStatus.attemptedQueryFamilies}; expected=${familyCount}`,
+        );
+      }
+      if (Number(sourceStatus.successfulQueryFamilies) !== familyCount) {
+        errors.push(
+          `sourceStatus.successfulQueryFamilies=${sourceStatus.successfulQueryFamilies}; expected=${familyCount}`,
+        );
+      }
+      if (Number(sourceStatus.failedQueryFamilies) !== 0) {
+        errors.push(
+          `sourceStatus.failedQueryFamilies=${sourceStatus.failedQueryFamilies}; expected=0`,
+        );
+      }
+      if (sourceStatus.sort !== "newlyListed") {
+        errors.push(`sourceStatus.sort=${sourceStatus.sort}; expected=newlyListed`);
+      }
+    }
   }
 
   if (spec.requiredFlag) {
@@ -174,6 +211,7 @@ function validateFeed(payload, spec) {
     deduplicatedResultCount: Number(payload?.deduplicatedResultCount || 0),
     resultCount: results.length,
     coverageCount: sourceCoverage.length,
+    sourceStatus: sourceStatus || null,
     deployment: payload?.deployment || null,
   };
 }

@@ -23,6 +23,10 @@ const PROHIBITED_LISTING =
 const PREMIUM_TIER =
   /\b(silver|prizm|refractor|holo|optic|parallel|numbered|ssp|sp\b|case hit|downtown|kaboom|gold|blue|red|green|purple|orange|pink|ice|wave|shimmer|scope|disco|fast break|choice|variation|courtside|premier|concourse|auto|autograph|signature|patch|relic|memorabilia)\b|\/\d{1,4}\b/i;
 const EXPLICIT_BASE = /\bbase(?: card)?\b/i;
+const LOT_OR_BUNDLE =
+  /\b(lot|bundle|collection|group of|set of)\b|\b(?:qty|quantity|x)\s*[:x-]?\s*\d{2,}\b|\b\d{2,}\s*(?:cards?|card lot)\b/i;
+const CARD_CATEGORY =
+  /\b(trading card|sports mem|sports memorabilia|collectible card|card singles?|trading cards?)\b/i;
 const MICHKOV_NAME_OR_MISSPELLING =
   /\b(michkov|michov|mikhkov|mitchkov)\b/i;
 const MICHKOV_CANONICAL_NAME = /\bmatvei\s+michkov\b/i;
@@ -36,6 +40,147 @@ function slug(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function normalizedWords(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function boundedEditDistance(left, right, maximum = 1) {
+  if (left === right) return 0;
+  if (Math.abs(left.length - right.length) > maximum) return maximum + 1;
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    let rowMinimum = row;
+    for (let column = 1; column <= right.length; column += 1) {
+      const value = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1),
+      );
+      current.push(value);
+      rowMinimum = Math.min(rowMinimum, value);
+    }
+    if (rowMinimum > maximum) return maximum + 1;
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function matchWatchedPerson(value, watchedPerson) {
+  const targetWords = normalizedWords(watchedPerson);
+  const words = normalizedWords(value);
+  if (!targetWords.length || !words.length) {
+    return { matched: false, method: "none", fuzzyTokens: [] };
+  }
+
+  const normalizedValue = ` ${words.join(" ")} `;
+  const normalizedTarget = ` ${targetWords.join(" ")} `;
+  if (normalizedValue.includes(normalizedTarget)) {
+    return { matched: true, method: "exact_name", fuzzyTokens: [] };
+  }
+
+  const fuzzyTokens = [];
+  for (const target of targetWords) {
+    const exact = words.includes(target);
+    if (exact) continue;
+    const fuzzy =
+      target.length >= 5 &&
+      words.some(
+        (word) =>
+          word.length >= 4 && boundedEditDistance(word, target, 1) <= 1,
+      );
+    if (!fuzzy) {
+      return { matched: false, method: "none", fuzzyTokens: [] };
+    }
+    fuzzyTokens.push(target);
+  }
+
+  return {
+    matched: true,
+    method: fuzzyTokens.length ? "fuzzy_name" : "exact_tokens",
+    fuzzyTokens,
+  };
+}
+
+function categoryNames(raw) {
+  if (!Array.isArray(raw?.categories)) return [];
+  return raw.categories
+    .map((category) => category?.categoryName || category?.name || "")
+    .map(String)
+    .filter(Boolean);
+}
+
+function lotQuantityGuess(value, raw) {
+  const nativeLotSize = Number(raw?.lotSize);
+  if (Number.isInteger(nativeLotSize) && nativeLotSize > 1) return nativeLotSize;
+  const text = String(value || "");
+  const matches = [
+    text.match(/\b(?:qty|quantity|x)\s*[:x-]?\s*(\d{2,})\b/i),
+    text.match(/\b(\d{2,})\s*(?:cards?|card lot)\b/i),
+    text.match(/\b(?:lot|bundle|set)\s*(?:of)?\s*(\d{2,})\b/i),
+  ];
+  for (const match of matches) {
+    const quantity = Number(match?.[1]);
+    if (Number.isInteger(quantity) && quantity > 1) return quantity;
+  }
+  return null;
+}
+
+function cardNumberGuess(value) {
+  const text = String(value || "");
+  return (
+    text.match(/(?:^|\s)#\s*([A-Z0-9][A-Z0-9-]{0,11})(?=\s|$|[,/])/i)?.[1] ||
+    null
+  );
+}
+
+export function analyzeDealHunterEbayListing({
+  title,
+  description,
+  raw,
+  family,
+} = {}) {
+  const combined = [title, description].filter(Boolean).join(" ");
+  const titleMatch = matchWatchedPerson(title, family?.watchedPerson);
+  const evidenceMatch = matchWatchedPerson(combined, family?.watchedPerson);
+  const categories = categoryNames(raw);
+  const lotSignal = Boolean(raw?.lotSize > 1 || LOT_OR_BUNDLE.test(combined));
+  const cardNumber = cardNumberGuess(title) || cardNumberGuess(description);
+  const categoryLooksLikeCard =
+    !categories.length || categories.some((name) => CARD_CATEGORY.test(name));
+
+  const mislistReasons = [];
+  if (evidenceMatch.matched && !titleMatch.matched) {
+    mislistReasons.push("watched_player_missing_from_title_but_supported_by_ebay_metadata");
+  }
+  if (!categoryLooksLikeCard) {
+    mislistReasons.push("possible_wrong_category_listing");
+  }
+  if (lotSignal) mislistReasons.push("lot_or_bundle_listing");
+  if (cardNumber && !titleMatch.matched) {
+    mislistReasons.push("card_number_or_underspecified_title_rescue");
+  }
+
+  return {
+    targetMatch: titleMatch.matched ? titleMatch : evidenceMatch,
+    targetMatchedInTitle: titleMatch.matched,
+    targetMatchedInMetadata: !titleMatch.matched && evidenceMatch.matched,
+    categories,
+    categoryLooksLikeCard,
+    lotSignal,
+    lotQuantityGuess: lotQuantityGuess(combined, raw),
+    cardNumberGuess: cardNumber,
+    mislistReasons,
+  };
 }
 
 export function parseDealHunterPlayers(
@@ -58,6 +203,8 @@ export function parseDealHunterPlayers(
 function wnbaFamilies() {
   return WNBA_PLAYERS.flatMap(({ player, team }) => {
     const id = slug(player);
+    const [firstName, ...surnameParts] = player.split(" ");
+    const surname = surnameParts.join(" ");
     return [
       {
         familyId: `wnba.${id}.broad-professional-rookies`,
@@ -85,6 +232,26 @@ function wnbaFamilies() {
         itemType: "professional_wnba_rookie_autograph_memorabilia",
         query: `${player} WNBA rookie autograph auto patch memorabilia`,
         required: true,
+      },
+      {
+        familyId: `wnba.${id}.first-name-rescue`,
+        scope: "wnba",
+        lane: "name_typo_and_underspecified_rescue",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${firstName} WNBA rookie card`,
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `wnba.${id}.surname-rescue`,
+        scope: "wnba",
+        lane: "name_typo_and_underspecified_rescue",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${surname} WNBA rookie card`,
+        required: true,
+        rescueMode: true,
       },
     ];
   });
@@ -216,24 +383,50 @@ export function buildDealHunterEbayQueryFamilies({
   throw new Error(`Unsupported Deal Hunter eBay scope: ${normalizedScope}`);
 }
 
-export function screenDealHunterEbayTitle({ title, family }) {
+export function screenDealHunterEbayTitle({
+  title,
+  description,
+  raw,
+  family,
+}) {
   const value = String(title || "").trim();
+  const evidenceText = [value, description].filter(Boolean).join(" ");
   const rejectionReasons = [];
   const reviewReasons = [];
+  const analysis = analyzeDealHunterEbayListing({
+    title: value,
+    description,
+    raw,
+    family,
+  });
 
   if (!value) rejectionReasons.push("missing_title");
-  if (PROHIBITED_LISTING.test(value)) {
+  if (PROHIBITED_LISTING.test(evidenceText)) {
     rejectionReasons.push("custom_reprint_digital_break_or_mystery");
   }
 
   if (family?.scope === "wnba") {
-    if (COLLEGE_OR_PRE_WNBA.test(value)) {
+    if (!analysis.targetMatch.matched) {
+      rejectionReasons.push("watched_player_not_matched");
+    } else if (!analysis.targetMatchedInTitle) {
+      reviewReasons.push("watched_player_supported_by_metadata_not_title_verify_image");
+    } else if (analysis.targetMatch.method === "fuzzy_name") {
+      reviewReasons.push("seller_name_typo_or_variant_detected_verify_image");
+    }
+
+    if (COLLEGE_OR_PRE_WNBA.test(evidenceText)) {
       rejectionReasons.push("college_or_pre_wnba");
     }
     if (EXPLICIT_BASE.test(value) && !PREMIUM_TIER.test(value)) {
       rejectionReasons.push("explicit_ordinary_base");
     } else if (!PREMIUM_TIER.test(value)) {
       reviewReasons.push("tier_not_proven_from_title_image_review_required");
+    }
+    if (analysis.lotSignal) {
+      reviewReasons.push("lot_or_bundle_unit_economics_review_required");
+    }
+    if (!analysis.categoryLooksLikeCard) {
+      reviewReasons.push("possible_wrong_category_listing_verify_item");
     }
   }
 
@@ -273,7 +466,8 @@ export function screenDealHunterEbayTitle({ title, family }) {
     accepted: rejectionReasons.length === 0,
     manualReviewRequired: reviewReasons.length > 0,
     rejectionReasons,
-    reviewReasons,
+    reviewReasons: Array.from(new Set(reviewReasons)),
+    analysis,
   };
 }
 
@@ -286,5 +480,5 @@ export function extractEbayItemId(value) {
   );
 }
 
-export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = 15;
+export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = 25;
 export const DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT = 8;

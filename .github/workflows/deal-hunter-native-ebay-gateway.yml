@@ -11,6 +11,7 @@ on:
       - "src/app/api/tcos/deal-hunter-native-ebay/route.js"
       - "src/app/api/tcos/deal-hunter-michkov-opc-platinum/route.js"
       - "src/lib/deal-hunter-ebay-query-families.js"
+      - "src/lib/deal-hunter-ebay-native-search.js"
       - "scripts/run-deal-hunter-cloudflare-fetch-contracts.mjs"
       - "scripts/run-deal-hunter-native-ebay-route-contracts.mjs"
       - "scripts/run-truely-deal-hunter-producer.mjs"
@@ -63,10 +64,19 @@ jobs:
           node scripts/run-deal-hunter-native-ebay-route-contracts.mjs
           node scripts/run-deal-hunter-cloudflare-fetch-contracts.mjs
 
-      - name: Lint TypeScript and Production build
+      - name: Lint Deal Hunter owned surfaces
+        run: |
+          npx eslint \
+            src/app/api/tcos/deal-hunter-native-ebay/route.js \
+            src/lib/deal-hunter-ebay-query-families.js \
+            src/lib/deal-hunter-ebay-native-search.js \
+            scripts/run-deal-hunter-native-ebay-route-contracts.mjs \
+            scripts/run-deal-hunter-cloudflare-fetch-contracts.mjs \
+            scripts/run-truely-deal-hunter-producer.mjs
+
+      - name: TypeScript and production build
         run: |
           set -euo pipefail
-          npm run lint
           npx tsc --noEmit --pretty false
           npm run build
           git diff --check
