@@ -1,6 +1,6 @@
 name: Cloudflare Emergency Storefront
 
-# Production outage recovery path: overwrite the existing production Worker in place.
+# Production outage recovery path: overwrite the existing production Worker in place. Trigger 2.
 on:
   push:
     branches: [main]
