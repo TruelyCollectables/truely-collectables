@@ -1,15 +1,8 @@
 name: Cloudflare Emergency Storefront
 
-# Production outage recovery path. The PR trigger is restricted to the one incident branch below
-# so we can retrieve the Actions run and logs through the GitHub connector during this outage.
+# Production outage recovery path: overwrite the live routed Worker in place.
 on:
   push:
-    branches: [main]
-    paths:
-      - ".github/workflows/cloudflare-emergency-storefront.yml"
-      - "cloudflare-emergency-storefront.ts"
-      - "wrangler.emergency.jsonc"
-  pull_request:
     branches: [main]
     paths:
       - ".github/workflows/cloudflare-emergency-storefront.yml"
@@ -26,7 +19,6 @@ concurrency:
 
 jobs:
   deploy-emergency-storefront:
-    if: github.event_name != 'pull_request' || github.head_ref == 'emergency-diagnostic-deploy'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
