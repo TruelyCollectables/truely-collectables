@@ -38,20 +38,36 @@ jobs:
         with:
           node-version: 22
 
+      - name: Validate producer contract on pull requests
+        if: github.event_name == 'pull_request'
+        run: |
+          node --check scripts/run-truely-deal-hunter-producer.mjs
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import fs from "node:fs";
+          const source = fs.readFileSync("scripts/run-truely-deal-hunter-producer.mjs", "utf8");
+          assert.match(source, /key: "wnba"[\s\S]*?expectedFamilyCount: 25/);
+          assert.match(source, /requiresSourceStatus: true/);
+          assert.match(source, /sourceStatus\.status !== "COMPLETE"/);
+          assert.match(source, /sourceStatus\.sort !== "newlyListed"/);
+          console.log("Producer PR contract: OK");
+          NODE
+
       - name: Fetch and validate all native marketplace feeds
         id: producer
+        if: github.event_name != 'pull_request'
         continue-on-error: true
         run: node scripts/run-truely-deal-hunter-producer.mjs
 
       - name: Build immutable sequence 14 handoff CSVs
-        if: steps.producer.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.producer.outcome == 'success'
         env:
           HANDOFF_RUN_ID: dh-20260731T184251Z-gha-recovery
           HANDOFF_SEQUENCE: "14"
         run: python scripts/build-truely-handoff-csv.py
 
       - name: Publish sequence 14 staging files
-        if: steps.producer.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.producer.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -75,7 +91,7 @@ jobs:
           fi
 
       - name: Upload authoritative producer artifact
-        if: always()
+        if: github.event_name != 'pull_request' && always()
         uses: actions/upload-artifact@v4
         with:
           name: truely-deal-hunter-producer-${{ github.run_id }}-${{ github.run_attempt }}
@@ -84,5 +100,5 @@ jobs:
           retention-days: 14
 
       - name: Enforce producer result
-        if: steps.producer.outcome != 'success'
+        if: github.event_name != 'pull_request' && steps.producer.outcome != 'success'
         run: exit 1
