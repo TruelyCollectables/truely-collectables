@@ -1,0 +1,4287 @@
+{
+  "schema": "tcos.hockeyChecklistReconcileReceipt.v2",
+  "source": "https://upperdeck.com/checklist-category/hockey/",
+  "boundary": "2021-07-01T00:00:00.000Z",
+  "latestExpected": "2026-27 MVP",
+  "categoryPages": [
+    {
+      "page": 1,
+      "url": "https://upperdeck.com/checklist-category/hockey/",
+      "entryCount": 13,
+      "eligibleCount": 13,
+      "newestPublishedAt": "2026-08-06T00:00:00.000Z",
+      "oldestPublishedAt": "2026-06-18T00:00:00.000Z"
+    },
+    {
+      "page": 2,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/2/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2026-05-20T00:00:00.000Z",
+      "oldestPublishedAt": "2026-03-25T00:00:00.000Z"
+    },
+    {
+      "page": 3,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/3/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2026-02-12T00:00:00.000Z",
+      "oldestPublishedAt": "2026-01-14T00:00:00.000Z"
+    },
+    {
+      "page": 4,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/4/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2026-01-12T00:00:00.000Z",
+      "oldestPublishedAt": "2025-10-23T00:00:00.000Z"
+    },
+    {
+      "page": 5,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/5/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2025-09-24T00:00:00.000Z",
+      "oldestPublishedAt": "2025-08-07T00:00:00.000Z"
+    },
+    {
+      "page": 6,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/6/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2025-07-07T00:00:00.000Z",
+      "oldestPublishedAt": "2025-05-08T00:00:00.000Z"
+    },
+    {
+      "page": 7,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/7/",
+      "entryCount": 10,
+      "eligibleCount": 9,
+      "newestPublishedAt": "2025-04-02T00:00:00.000Z",
+      "oldestPublishedAt": "2025-02-19T00:00:00.000Z"
+    },
+    {
+      "page": 8,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/8/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2025-01-27T00:00:00.000Z",
+      "oldestPublishedAt": "2024-12-18T00:00:00.000Z"
+    },
+    {
+      "page": 9,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/9/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2024-11-13T00:00:00.000Z",
+      "oldestPublishedAt": "2024-10-07T00:00:00.000Z"
+    },
+    {
+      "page": 10,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/10/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2024-08-28T00:00:00.000Z",
+      "oldestPublishedAt": "2024-06-26T00:00:00.000Z"
+    },
+    {
+      "page": 11,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/11/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2024-04-17T00:00:00.000Z",
+      "oldestPublishedAt": "2024-02-07T00:00:00.000Z"
+    },
+    {
+      "page": 12,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/12/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2023-12-15T00:00:00.000Z",
+      "oldestPublishedAt": "2023-10-25T00:00:00.000Z"
+    },
+    {
+      "page": 13,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/13/",
+      "entryCount": 10,
+      "eligibleCount": 10,
+      "newestPublishedAt": "2023-08-30T00:00:00.000Z",
+      "oldestPublishedAt": "2023-06-28T00:00:00.000Z"
+    },
+    {
+      "page": 14,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/14/",
+      "entryCount": 10,
+      "eligibleCount": 8,
+      "newestPublishedAt": "2023-05-25T00:00:00.000Z",
+      "oldestPublishedAt": "2023-03-08T00:00:00.000Z"
+    },
+    {
+      "page": 15,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/15/",
+      "entryCount": 10,
+      "eligibleCount": 8,
+      "newestPublishedAt": "2023-01-11T00:00:00.000Z",
+      "oldestPublishedAt": "2022-08-31T00:00:00.000Z"
+    },
+    {
+      "page": 16,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/16/",
+      "entryCount": 10,
+      "eligibleCount": 6,
+      "newestPublishedAt": "2022-06-29T00:00:00.000Z",
+      "oldestPublishedAt": "2022-03-30T00:00:00.000Z"
+    },
+    {
+      "page": 17,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/17/",
+      "entryCount": 10,
+      "eligibleCount": 3,
+      "newestPublishedAt": "2022-02-01T00:00:00.000Z",
+      "oldestPublishedAt": "2021-07-21T00:00:00.000Z"
+    },
+    {
+      "page": 18,
+      "url": "https://upperdeck.com/checklist-category/hockey/page/18/",
+      "entryCount": 10,
+      "eligibleCount": 0,
+      "newestPublishedAt": "2021-05-19T00:00:00.000Z",
+      "oldestPublishedAt": "2021-02-17T00:00:00.000Z"
+    }
+  ],
+  "candidateCount": 154,
+  "shardCount": 4,
+  "completedAt": "2026-08-19T23:52:53.684Z",
+  "status": "failed",
+  "completedCount": 154,
+  "counts": {
+    "imported": 8,
+    "failed": 141,
+    "quarantined": 5
+  },
+  "unresolvedCount": 146,
+  "unresolved": [
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-black-diamond-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2022-09-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-ice-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 Ice Hockey",
+      "errors": [
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        }
+      ],
+      "categoryPage": 13,
+      "publishedAt": "2023-08-02T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-o-pee-chee-checklist/",
+      "categoryPage": 16,
+      "publishedAt": "2022-03-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-o-pee-chee-platinum-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-10T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-premier-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 Premier Hockey",
+      "errors": [
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        }
+      ],
+      "categoryPage": 12,
+      "publishedAt": "2023-11-01T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-skybox-metal-universe-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2023-01-11T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-sp-authentic-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-05-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged cards chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-sp-game-used-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 SP Game Used Hockey",
+      "errors": [
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-ARI"
+        },
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-CBJ"
+        },
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-NYR"
+        },
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-VGK"
+        }
+      ],
+      "categoryPage": 15,
+      "publishedAt": "2023-01-11T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-sp-retail-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 SP Hockey",
+      "errors": [
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        }
+      ],
+      "categoryPage": 14,
+      "publishedAt": "2023-05-25T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-spx-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-04-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-stature-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-23T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-the-cup-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-02-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-ultimate-collection-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-10-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-upper-deck-extended-series-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 Upper Deck Extended Series Hockey",
+      "errors": [
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        }
+      ],
+      "categoryPage": 15,
+      "publishedAt": "2022-09-14T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-upper-deck-series-1-checklist/",
+      "categoryPage": 16,
+      "publishedAt": "2022-04-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-upper-deck-series-2-checklist/",
+      "categoryPage": 16,
+      "publishedAt": "2022-06-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-metal-universe-champions-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2022-12-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-allure-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-11-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-artifacts-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-03-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-black-diamond-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-clear-cut-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-03-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-credentials-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-02-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-ice-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-02-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-mvp-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2022-11-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-nhl-parkhurst-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-o-pee-chee-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-03-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-o-pee-chee-platinum-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-parkhurst-champions-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-premier-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-11-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: HTTP 503"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-skybox-metal-universe-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-sp-authentic-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-sp-game-used-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-sp-retail-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-spx-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-11-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-star-rookies-box-set-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-04-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-stature-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-synergy-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-16T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: HTTP 503"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-the-cup-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-trilogy-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-05-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-ultimate-collection-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-06-26T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-upper-deck-extended-series-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-06-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-upper-deck-series-1-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2023-01-11T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-upper-deck-series-2-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-04-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-allure-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-artifacts-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-black-diamond-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-clear-cut-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-27T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-credentials-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-engrained-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2024-12-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "HTTP 500 Internal Server Error fetching https://upperdeck.com/checklist/2023-24-engrained-checklist/"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-ice-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-mvp-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-23T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-nhl-o-pee-chee-platinum-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-o-pee-chee-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-03-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-parkhurst-champions-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-parkhurst-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-skybox-e-x-2000-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-skybox-metal-universe-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-authentic-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-11-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: <html>\r\n<head><title>413 Payload Too Large</title></head>\r\n<body>\r\n<center><h1>413 Payload Too Large</h1></center>\r\n<hr><center>cloudflare</center>\r\n</body>\r\n</html>\r\n"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-game-used-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-game-used-chl-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-retail-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-11-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-spx-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-synergy-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-07-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-the-cup-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-06-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-trilogy-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-07-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-ud-premier-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-ultimate-collection-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-ahl-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-extended-series-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-series-1-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-11-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-series-2-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-2025-the-cup-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2026-01-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-2025-ud-premier-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-11-05T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-2025-ultimate-collection-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-ahl-hockey-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-allure-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-02-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-artifacts-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2024-12-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-artifacts-hockey-redeemed-rookie-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-black-diamond-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-chl-hockey-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-clear-cut-hockey-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-credentials-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-07-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-nhl-mvp-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-o-pee-chee-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-02-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-o-pee-chee-platinum-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-07-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-parkhurst-champions-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-07-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-pwhl-hockey-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-sp-authentic-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-sp-game-used-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-sp-hockey-checklist-final/",
+      "categoryPage": 7,
+      "publishedAt": "2025-02-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-spx-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-star-rookies-box-set-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-03-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-stature-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-synergy-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-27T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-tim-hortons-hockey-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-16T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-ud-rookie-debut-checklist-e-pack/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-upper-deck-extended-series-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-06-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-upper-deck-ice/",
+      "categoryPage": 6,
+      "publishedAt": "2025-06-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-upper-deck-series-2-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-03-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-boston-bruins-centennial-checklist-hobby/",
+      "categoryPage": 8,
+      "publishedAt": "2024-12-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-team-canada-juniors-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-ud-pwhl-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-27T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-allure-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-artifacts-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-artifacts-rookies-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-black-diamond-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-12-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-chicago-blackhawks-100th-anniversary-set-checklist-retail/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-11T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-credentials-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-detroit-red-wings-centennial-set-checklist-hobby/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-detroit-red-wings-centennial-set-checklist-retail/",
+      "categoryPage": 4,
+      "publishedAt": "2025-11-05T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-fleer-ultra-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-nhl-star-rookies-box-set-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-03-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-o-pee-chee-platinum-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-skybox-metal-universe-hockey-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-sp-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-spx-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-tim-hortons-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-10-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ahl-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-06-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-chl-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-10T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-chl-game-used-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-06-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-clear-cut-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-08-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-flair-hockey-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-mvp-hockey-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-mvp-silver-collection-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-26T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-nhl-new-york-rangers-centennial-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2026-01-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-nhl-new-york-rangers-centennial-hobby-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-08-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-o-pee-chee-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-parkhurst-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-10T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-sp-authentic-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-sp-game-used-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ud-extended-series-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ud-pwhl-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ud-series-1-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-10-23T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-upper-deck-series-2-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-fall-expo-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-11-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-national-hockey-card-day-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-team-canada-juniors-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-western-canada-sports-collectors-convention-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-12-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-27-mvp-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-08-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-national-hockey-card-day-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-spring-expo-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-team-canada-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/chicago-blackhawks-100th-anniversary-set-checklist-hobby/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/engrained-icons-volume-i-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2026-01-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    }
+  ],
+  "results": [
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-allure-checklist/",
+      "status": "imported",
+      "release": "2021-22 Allure Hockey",
+      "counts": {
+        "sets": 24,
+        "cards": 1347,
+        "parallels": 70,
+        "identities": 3930
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 24,
+          "cards": 1347,
+          "parallels": 70,
+          "identities": 3930
+        },
+        "status": "live",
+        "releaseId": "bcd3e916-479f-4f0d-b1ab-df11bedefeba",
+        "versionId": "f2a9441c-340d-443d-b303-57ea37f5e901",
+        "idempotent": false,
+        "sourceFileId": "7a07d78a-e063-4574-b857-186a64ae9eeb"
+      },
+      "categoryPage": 16,
+      "publishedAt": "2022-05-11T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-artifacts-checklist/",
+      "status": "imported",
+      "release": "2021-22 Artifacts Hockey",
+      "counts": {
+        "sets": 47,
+        "cards": 976,
+        "parallels": 137,
+        "identities": 4817
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 47,
+          "cards": 976,
+          "parallels": 137,
+          "identities": 4817
+        },
+        "status": "live",
+        "releaseId": "99f3e327-8773-4d71-a177-6f720906f994",
+        "versionId": "96654cba-61e2-4e3a-a4b2-c52e1bf82d9e",
+        "idempotent": false,
+        "sourceFileId": "62f63bdd-7eca-42d4-8782-b303377c3f29"
+      },
+      "categoryPage": 15,
+      "publishedAt": "2022-12-14T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-black-diamond-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2022-09-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-credentials-checklist/",
+      "status": "imported",
+      "release": "2021-22 Credentials Hockey",
+      "counts": {
+        "sets": 35,
+        "cards": 995,
+        "parallels": 111,
+        "identities": 3794
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 35,
+          "cards": 995,
+          "parallels": 111,
+          "identities": 3794
+        },
+        "status": "live",
+        "releaseId": "e867dd7b-3178-460f-8c7e-3190dfc9c6b7",
+        "versionId": "356ed6a7-30a1-45c5-a1cb-93ae80fa8330",
+        "idempotent": false,
+        "sourceFileId": "37449f6b-39df-4b52-a33c-e70380c24200"
+      },
+      "categoryPage": 13,
+      "publishedAt": "2023-08-16T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-ice-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 Ice Hockey",
+      "errors": [
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,299'"
+        }
+      ],
+      "categoryPage": 13,
+      "publishedAt": "2023-08-02T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-mvp-checklist/",
+      "status": "imported",
+      "release": "2021-22 MVP Hockey",
+      "counts": {
+        "sets": 13,
+        "cards": 969,
+        "parallels": 30,
+        "identities": 2520
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 13,
+          "cards": 969,
+          "parallels": 30,
+          "identities": 2520
+        },
+        "status": "live",
+        "releaseId": "1fb84430-f18b-4113-be95-2e7ad711c7e0",
+        "versionId": "c78993d4-a24c-47a0-a094-729be36f6cc3",
+        "idempotent": false,
+        "sourceFileId": "1c1c01e5-8b21-41b6-a31e-2518599bcfbc"
+      },
+      "categoryPage": 17,
+      "publishedAt": "2022-02-01T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-o-pee-chee-checklist/",
+      "categoryPage": 16,
+      "publishedAt": "2022-03-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-o-pee-chee-platinum-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-10T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-parkhurst-checklist/",
+      "status": "imported",
+      "release": "2021-22 Parkhurst Hockey",
+      "counts": {
+        "sets": 43,
+        "cards": 809,
+        "parallels": 32,
+        "identities": 2839
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 43,
+          "cards": 809,
+          "parallels": 32,
+          "identities": 2839
+        },
+        "status": "live",
+        "releaseId": "24159167-a06d-4827-bc13-b57bddfc55b6",
+        "versionId": "8847a226-b248-4ff5-91a5-e6338e7aff58",
+        "idempotent": false,
+        "sourceFileId": "d22c9402-2d6f-49d9-9d40-a8f94f511dac"
+      },
+      "categoryPage": 16,
+      "publishedAt": "2022-06-22T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-premier-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 Premier Hockey",
+      "errors": [
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        },
+        {
+          "code": "card_identity_incomplete",
+          "severity": "error",
+          "message": "20th Anniversary Patch Black Parallel requires a card number and at least one player/subject"
+        }
+      ],
+      "categoryPage": 12,
+      "publishedAt": "2023-11-01T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-seattle-kraken-box-set-checklist/",
+      "status": "imported",
+      "release": "2021-22 Seattle Kraken Box Set",
+      "counts": {
+        "sets": 3,
+        "cards": 37,
+        "parallels": 11,
+        "identities": 163
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 3,
+          "cards": 37,
+          "parallels": 11,
+          "identities": 163
+        },
+        "status": "live",
+        "releaseId": "5af4fbb6-9f56-418c-89d7-3db69429c000",
+        "versionId": "e1d39657-bf10-4fb2-a8e0-75f8faf6dcf8",
+        "idempotent": false,
+        "sourceFileId": "d60480ec-ed9c-40f6-8bf7-0e9314f08cbe"
+      },
+      "categoryPage": 16,
+      "publishedAt": "2022-06-29T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-skybox-metal-universe-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2023-01-11T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-sp-authentic-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-05-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged cards chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-sp-game-used-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 SP Game Used Hockey",
+      "errors": [
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-ARI"
+        },
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-CBJ"
+        },
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-NYR"
+        },
+        {
+          "code": "duplicate_identity",
+          "severity": "error",
+          "message": "Duplicate Upper Deck identity for Tonight's Lineup #TL-VGK"
+        }
+      ],
+      "categoryPage": 15,
+      "publishedAt": "2023-01-11T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-sp-retail-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 SP Hockey",
+      "errors": [
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '1,199'"
+        }
+      ],
+      "categoryPage": 14,
+      "publishedAt": "2023-05-25T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-spx-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-04-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-stature-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-23T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-synergy-checklist/",
+      "status": "imported",
+      "release": "2021-22 Synergy Hockey",
+      "counts": {
+        "sets": 35,
+        "cards": 1266,
+        "parallels": 78,
+        "identities": 2454
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 35,
+          "cards": 1266,
+          "parallels": 78,
+          "identities": 2454
+        },
+        "status": "live",
+        "releaseId": "6090828c-53c1-4b24-ba5f-4ab1c16ebca6",
+        "versionId": "990aa235-4923-4e71-8456-64fefde2e95f",
+        "idempotent": false,
+        "sourceFileId": "52e74af1-a1ea-47fa-b322-0fcc4b8d5bcf"
+      },
+      "categoryPage": 17,
+      "publishedAt": "2022-02-01T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-the-cup-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-02-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-tim-hortons-team-canada-checklist/",
+      "status": "imported",
+      "release": "2021-22 Tim Horton’s Hockey",
+      "counts": {
+        "sets": 18,
+        "cards": 262,
+        "parallels": 0,
+        "identities": 262
+      },
+      "persistence": {
+        "ok": true,
+        "counts": {
+          "sets": 18,
+          "cards": 262,
+          "parallels": 0,
+          "identities": 262
+        },
+        "status": "live",
+        "releaseId": "89387894-facc-4988-af75-f668dd1c85dc",
+        "versionId": "98c355cc-85ec-405d-8a2f-e681ecf760d3",
+        "idempotent": false,
+        "sourceFileId": "830e6b62-b12a-4d55-b280-8484cc746500"
+      },
+      "categoryPage": 17,
+      "publishedAt": "2022-02-01T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-ultimate-collection-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-10-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-upper-deck-extended-series-checklist/",
+      "status": "quarantined",
+      "release": "2021-22 Upper Deck Extended Series Hockey",
+      "errors": [
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        },
+        {
+          "code": "serial_run_unparsed",
+          "severity": "error",
+          "message": "Could not parse Upper Deck serial run '2,999'"
+        }
+      ],
+      "categoryPage": 15,
+      "publishedAt": "2022-09-14T00:00:00.000Z"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-upper-deck-series-1-checklist/",
+      "categoryPage": 16,
+      "publishedAt": "2022-04-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-22-upper-deck-series-2-checklist/",
+      "categoryPage": 16,
+      "publishedAt": "2022-06-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2021-metal-universe-champions-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2022-12-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-allure-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-11-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Checklist Registry staged identities chunk failed: canceling statement due to statement timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-artifacts-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-03-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-black-diamond-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-clear-cut-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-03-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-credentials-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-02-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-ice-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-02-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-mvp-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2022-11-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-nhl-parkhurst-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-o-pee-chee-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-03-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-o-pee-chee-platinum-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-parkhurst-champions-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-premier-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-11-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: HTTP 503"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-skybox-metal-universe-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-sp-authentic-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-sp-game-used-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-sp-retail-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-spx-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-11-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-star-rookies-box-set-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-04-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-stature-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-synergy-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-16T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: HTTP 503"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-the-cup-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-trilogy-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-05-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-ultimate-collection-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-06-26T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-upper-deck-extended-series-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-06-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-upper-deck-series-1-checklist/",
+      "categoryPage": 15,
+      "publishedAt": "2023-01-11T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2022-23-upper-deck-series-2-checklist/",
+      "categoryPage": 14,
+      "publishedAt": "2023-04-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-allure-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-artifacts-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-12-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-black-diamond-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-clear-cut-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-27T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-credentials-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-engrained-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2024-12-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "HTTP 500 Internal Server Error fetching https://upperdeck.com/checklist/2023-24-engrained-checklist/"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-ice-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-mvp-checklist/",
+      "categoryPage": 13,
+      "publishedAt": "2023-08-23T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-nhl-o-pee-chee-platinum-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-o-pee-chee-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-03-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-parkhurst-champions-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-parkhurst-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-skybox-e-x-2000-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-skybox-metal-universe-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-authentic-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-11-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: <html>\r\n<head><title>413 Payload Too Large</title></head>\r\n<body>\r\n<center><h1>413 Payload Too Large</h1></center>\r\n<hr><center>cloudflare</center>\r\n</body>\r\n</html>\r\n"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-game-used-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-game-used-chl-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-sp-retail-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-11-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-spx-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-synergy-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-07-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-the-cup-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-06-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-trilogy-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-07-17T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-ud-premier-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-01T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-ultimate-collection-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-ahl-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-extended-series-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-series-1-checklist/",
+      "categoryPage": 12,
+      "publishedAt": "2023-11-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2023-24-upper-deck-series-2-checklist/",
+      "categoryPage": 11,
+      "publishedAt": "2024-04-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-2025-the-cup-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2026-01-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-2025-ud-premier-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-11-05T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-2025-ultimate-collection-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-ahl-hockey-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-allure-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-02-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-artifacts-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2024-12-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-artifacts-hockey-redeemed-rookie-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-black-diamond-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-chl-hockey-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-clear-cut-hockey-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-credentials-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-07-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-nhl-mvp-checklist/",
+      "categoryPage": 10,
+      "publishedAt": "2024-08-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-o-pee-chee-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-02-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-o-pee-chee-platinum-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-07-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-parkhurst-champions-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-07-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-pwhl-hockey-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-sp-authentic-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-13T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-sp-game-used-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-05-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-sp-hockey-checklist-final/",
+      "categoryPage": 7,
+      "publishedAt": "2025-02-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-spx-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-star-rookies-box-set-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-03-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-stature-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-synergy-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-27T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-tim-hortons-hockey-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-16T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-ud-rookie-debut-checklist-e-pack/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-upper-deck-extended-series-checklist/",
+      "categoryPage": 6,
+      "publishedAt": "2025-06-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-upper-deck-ice/",
+      "categoryPage": 6,
+      "publishedAt": "2025-06-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-25-upper-deck-series-2-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-03-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-boston-bruins-centennial-checklist-hobby/",
+      "categoryPage": 8,
+      "publishedAt": "2024-12-19T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-team-canada-juniors-checklist/",
+      "categoryPage": 9,
+      "publishedAt": "2024-10-30T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2024-ud-pwhl-checklist/",
+      "categoryPage": 8,
+      "publishedAt": "2025-01-27T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-allure-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-14T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-artifacts-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-artifacts-rookies-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-black-diamond-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-12-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-chicago-blackhawks-100th-anniversary-set-checklist-retail/",
+      "categoryPage": 5,
+      "publishedAt": "2025-09-11T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-credentials-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-detroit-red-wings-centennial-set-checklist-hobby/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-detroit-red-wings-centennial-set-checklist-retail/",
+      "categoryPage": 4,
+      "publishedAt": "2025-11-05T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-fleer-ultra-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-nhl-star-rookies-box-set-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-03-25T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-o-pee-chee-platinum-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-skybox-metal-universe-hockey-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-24T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-sp-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-spx-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-2026-tim-hortons-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-10-29T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ahl-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-06-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-chl-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-10T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-chl-game-used-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-06-18T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-clear-cut-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-08-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-flair-hockey-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-mvp-hockey-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-07T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-mvp-silver-collection-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-26T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-nhl-new-york-rangers-centennial-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2026-01-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-nhl-new-york-rangers-centennial-hobby-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-15T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-08-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-o-pee-chee-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-28T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-parkhurst-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-10T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-sp-authentic-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-09T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-sp-game-used-hockey-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ud-extended-series-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: The operation was aborted due to timeout"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ud-pwhl-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-ud-series-1-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-10-23T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-26-upper-deck-series-2-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-04-08T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: The connection to the database timed out"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-fall-expo-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-11-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-national-hockey-card-day-checklist/",
+      "categoryPage": 7,
+      "publishedAt": "2025-04-02T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-team-canada-juniors-checklist/",
+      "categoryPage": 5,
+      "publishedAt": "2025-08-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2025-western-canada-sports-collectors-convention-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2025-12-03T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-27-mvp-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-08-06T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Could not archive staged checklist source: Too many connections issued to the database"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-national-hockey-card-day-checklist/",
+      "categoryPage": 3,
+      "publishedAt": "2026-02-04T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-spring-expo-checklist/",
+      "categoryPage": 2,
+      "publishedAt": "2026-05-20T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: Upper Deck checklist table requires Set Name, Card, and Description/Player Name columns"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/2026-team-canada-checklist/",
+      "categoryPage": 1,
+      "publishedAt": "2026-07-22T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/chicago-blackhawks-100th-anniversary-set-checklist-hobby/",
+      "categoryPage": 3,
+      "publishedAt": "2026-01-21T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    },
+    {
+      "sourceUrl": "https://upperdeck.com/checklist/engrained-icons-volume-i-checklist/",
+      "categoryPage": 4,
+      "publishedAt": "2026-01-12T00:00:00.000Z",
+      "status": "failed",
+      "message": "Checklist Registry action failed: releaseYear or season is required"
+    }
+  ]
+}
