@@ -7,3 +7,4 @@ shard_count=4
 source_timeout_ms=75000
 source_attempts=2
 status_branch=ops/hockey-reconcile-status
+paused_for_storefront_incident=2026-08-18
