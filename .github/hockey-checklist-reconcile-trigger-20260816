@@ -1,7 +1,7 @@
-2026-08-19T15:58:00-06:00
+2026-08-19T16:00:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=15
-reason=resumable-staged-writer-with-exact-count-finalize-and-identity-repair
+retry=16
+reason=resume-staged-writer-after-parallel-configuration-uniqueness-repair
 expected_ingest_revision=2026-08-19-hockey-staged-v9
 benchmark=https://upperdeck.com/checklist/2021-22-sp-authentic-checklist/
 shard_count=4
