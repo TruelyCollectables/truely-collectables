@@ -1,3 +1,4 @@
+// Incident diagnostic trigger: this same-repository PR exists only to expose the Actions run/logs.
 const VERSION = "emergency-v1";
 
 const html = `<!doctype html>
