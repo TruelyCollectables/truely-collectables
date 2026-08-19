@@ -12,6 +12,7 @@ import { default as handler } from "./.open-next/worker.js";
  */
 const DEAL_HUNTER_TIME_ZONE = "America/Denver";
 const DEAL_HUNTER_HOURS = "7,11,15,19,21";
+const INCIDENT_DISABLE_SCHEDULED_JOBS = true;
 
 type CronJob = {
   path: string;
@@ -340,6 +341,11 @@ export default {
     env: WorkerEnv,
     _ctx: ExecutionContextLike,
   ) {
+    if (INCIDENT_DISABLE_SCHEDULED_JOBS) {
+      console.warn("Cloudflare scheduler paused during storefront database incident.");
+      return;
+    }
+
     const scheduledAt = new Date(controller.scheduledTime);
     const dueJobs = cronJobs.filter((job) =>
       cronMatches(job.schedule, scheduledAt, job.timeZone),
