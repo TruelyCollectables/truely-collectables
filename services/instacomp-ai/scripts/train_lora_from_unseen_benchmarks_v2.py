@@ -6,6 +6,8 @@ import sys
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
+import benchmark_lora_unseen_holdout_v8 as unseen_v8
 import train_lora_from_unseen_benchmarks as legacy
 from app.authoritative_registry_gateway import AuthoritativeRegistryChecklistGateway
 from app.models import ChecklistOutcome
@@ -14,6 +16,14 @@ SCHEMA = "tcos.instacomp-ai.unseen-miss-curriculum.v2"
 LIVE_REVALIDATION_CONCURRENCY = 6
 LIVE_REVALIDATION_HTTP_TIMEOUT_SECONDS = 10.0
 LIVE_REVALIDATION_ITEM_TIMEOUT_SECONDS = 25.0
+PLAYER_CARD_BOOTSTRAP_HTTP_TIMEOUT_SECONDS = 10.0
+PLAYER_CARD_BOOTSTRAP_ITEM_TIMEOUT_SECONDS = 14.0
+
+# V8 intentionally points the shared V6 fast-bootstrap helper at the indexed
+# player+card holdout route only when its runtime is installed. Curriculum V2
+# uses that same helper for one bounded recovery path without installing or
+# mutating the benchmark runtime itself.
+unseen_v8.v7.v6.FAST_ROUTE = unseen_v8.SCOPED_FAST_ROUTE
 
 
 def _local_receipt_without_contradiction(
@@ -44,6 +54,62 @@ def _local_receipt_without_contradiction(
     return actual_registry, actual_fingerprint
 
 
+def _accepted_expected_receipt(
+    result: Any,
+    diagnostics: dict[str, Any],
+    *,
+    expected_registry: str,
+    expected_fingerprint: str,
+) -> bool:
+    actual_registry = str(diagnostics.get("registry_identity_id") or "").strip()
+    actual_fingerprint = legacy._valid_sha(diagnostics.get("registry_fingerprint_sha256"))
+    return bool(
+        result.outcome == ChecklistOutcome.EXACT_MATCH
+        and diagnostics.get("registry_receipt_revalidation_attempted") is True
+        and diagnostics.get("registry_receipt_revalidation_accepted") is True
+        and legacy._norm(actual_registry) == legacy._norm(expected_registry)
+        and actual_fingerprint == expected_fingerprint
+    )
+
+
+async def _canonical_revalidate(
+    gateway: AuthoritativeRegistryChecklistGateway,
+    identity: Any,
+    *,
+    expected_registry: str,
+    expected_fingerprint: str,
+) -> tuple[Any, dict[str, Any]]:
+    return await asyncio.wait_for(
+        gateway.match_with_diagnostics(
+            identity,
+            registry_identity_id=expected_registry,
+            registry_fingerprint_sha256=expected_fingerprint,
+        ),
+        timeout=LIVE_REVALIDATION_ITEM_TIMEOUT_SECONDS,
+    )
+
+
+async def _player_card_bootstrap(
+    *,
+    row_id: str,
+    identity: Any,
+) -> tuple[Any | None, str]:
+    timeout = httpx.Timeout(PLAYER_CARD_BOOTSTRAP_HTTP_TIMEOUT_SECONDS)
+    limits = httpx.Limits(max_connections=1, max_keepalive_connections=1)
+    item = {
+        "row_id": row_id,
+        "identity": unseen_v8.canonical.legacy.v20.v19._identity_payload(identity),
+    }
+    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+        try:
+            return await asyncio.wait_for(
+                unseen_v8.v7.v6._fast_bootstrap_one(client, item, identity),
+                timeout=PLAYER_CARD_BOOTSTRAP_ITEM_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            return None, "bootstrap_item_timeout"
+
+
 async def _revalidate_one(
     *,
     row_id: str,
@@ -61,49 +127,103 @@ async def _revalidate_one(
 
     async with semaphore:
         try:
-            result, diagnostics = await asyncio.wait_for(
-                gateway.match_with_diagnostics(
-                    example.confirmed_identity,
-                    registry_identity_id=expected_registry,
-                    registry_fingerprint_sha256=expected_fingerprint,
+            direct_result, direct_diagnostics = await _canonical_revalidate(
+                gateway,
+                example.confirmed_identity,
+                expected_registry=expected_registry,
+                expected_fingerprint=expected_fingerprint,
+            )
+        except TimeoutError:
+            direct_result = SimpleNamespace(outcome=ChecklistOutcome.NOT_CONFIGURED)
+            direct_diagnostics = {
+                "registry_receipt_revalidation_attempted": False,
+                "registry_receipt_revalidation_accepted": False,
+                "registry_identity_id": None,
+                "registry_fingerprint_sha256": None,
+                "registry_attempts": 0,
+                "registry_transport_error": "curriculum_direct_revalidation_timeout",
+            }
+
+        if _accepted_expected_receipt(
+            direct_result,
+            direct_diagnostics,
+            expected_registry=expected_registry,
+            expected_fingerprint=expected_fingerprint,
+        ):
+            return {
+                "registry_identity_id": str(direct_diagnostics.get("registry_identity_id") or "").strip(),
+                "registry_fingerprint_sha256": legacy._valid_sha(
+                    direct_diagnostics.get("registry_fingerprint_sha256")
                 ),
-                timeout=LIVE_REVALIDATION_ITEM_TIMEOUT_SECONDS,
+                "registry_receipt_revalidation_attempted": True,
+                "registry_receipt_revalidation_accepted": True,
+                "registry_attempts": int(direct_diagnostics.get("registry_attempts") or 0),
+                "revalidation_path": "canonical_direct",
+            }
+
+        # Direct receipt revalidation can fail only because the trusted local row
+        # still carries stale/incomplete release coordinates that V8 repaired during
+        # the exam. Recover one current player+card identity exactly as V8 does, but
+        # never accept that bootstrap by itself.
+        bootstrap, bootstrap_reason = await _player_card_bootstrap(
+            row_id=row_id,
+            identity=example.confirmed_identity,
+        )
+        if bootstrap is None:
+            direct_status = str(getattr(direct_result.outcome, "value", direct_result.outcome))
+            raise RuntimeError(
+                f"Refusing unverifiable curriculum truth for {row_id}: canonical receipt revalidation "
+                f"was not accepted (outcome={direct_status}) and indexed player-card recovery failed "
+                f"reason={bootstrap_reason}"
+            )
+
+        if legacy._norm(bootstrap.registry_id) != legacy._norm(expected_registry):
+            raise RuntimeError(
+                f"Refusing stale curriculum truth for {row_id}: Registry UUID changed "
+                f"benchmark={expected_registry} current={bootstrap.registry_id}"
+            )
+        if bootstrap.fingerprint != expected_fingerprint:
+            raise RuntimeError(
+                f"Refusing stale curriculum truth for {row_id}: Registry fingerprint changed"
+            )
+
+        try:
+            retry_result, retry_diagnostics = await _canonical_revalidate(
+                gateway,
+                bootstrap.identity,
+                expected_registry=expected_registry,
+                expected_fingerprint=expected_fingerprint,
             )
         except TimeoutError as exc:
             raise RuntimeError(
-                f"Refusing unverifiable curriculum truth for {row_id}: current Registry receipt revalidation timed out"
+                f"Refusing unverifiable curriculum truth for {row_id}: canonical Registry receipt "
+                "revalidation timed out after indexed player-card recovery"
             ) from exc
 
-    actual_registry = str(diagnostics.get("registry_identity_id") or "").strip()
-    actual_fingerprint = legacy._valid_sha(diagnostics.get("registry_fingerprint_sha256"))
-    attempted = bool(diagnostics.get("registry_receipt_revalidation_attempted"))
-    accepted = bool(diagnostics.get("registry_receipt_revalidation_accepted"))
+        if not _accepted_expected_receipt(
+            retry_result,
+            retry_diagnostics,
+            expected_registry=expected_registry,
+            expected_fingerprint=expected_fingerprint,
+        ):
+            retry_status = str(getattr(retry_result.outcome, "value", retry_result.outcome))
+            raise RuntimeError(
+                f"Refusing unverifiable curriculum truth for {row_id}: indexed player-card recovery "
+                f"found the benchmark Registry identity but canonical receipt revalidation was not accepted "
+                f"(outcome={retry_status})"
+            )
 
-    if result.outcome != ChecklistOutcome.EXACT_MATCH:
-        raise RuntimeError(
-            f"Refusing unverifiable curriculum truth for {row_id}: current Registry outcome={result.outcome.value}"
-        )
-    if not attempted or not accepted:
-        raise RuntimeError(
-            f"Refusing unverifiable curriculum truth for {row_id}: current Registry did not accept the benchmark receipt"
-        )
-    if legacy._norm(actual_registry) != legacy._norm(expected_registry):
-        raise RuntimeError(
-            f"Refusing stale curriculum truth for {row_id}: Registry UUID changed "
-            f"benchmark={expected_registry} current={actual_registry}"
-        )
-    if actual_fingerprint != expected_fingerprint:
-        raise RuntimeError(
-            f"Refusing stale curriculum truth for {row_id}: Registry fingerprint changed"
-        )
-
-    return {
-        "registry_identity_id": actual_registry,
-        "registry_fingerprint_sha256": actual_fingerprint,
-        "registry_receipt_revalidation_attempted": attempted,
-        "registry_receipt_revalidation_accepted": accepted,
-        "registry_attempts": int(diagnostics.get("registry_attempts") or 0),
-    }
+        return {
+            "registry_identity_id": str(retry_diagnostics.get("registry_identity_id") or "").strip(),
+            "registry_fingerprint_sha256": legacy._valid_sha(
+                retry_diagnostics.get("registry_fingerprint_sha256")
+            ),
+            "registry_receipt_revalidation_attempted": True,
+            "registry_receipt_revalidation_accepted": True,
+            "registry_attempts": int(retry_diagnostics.get("registry_attempts") or 0),
+            "revalidation_path": "indexed_player_card_then_canonical",
+            "bootstrap_reason": bootstrap_reason,
+        }
 
 
 async def _revalidate_all(
@@ -196,6 +316,8 @@ def _verified_curriculum_examples(
                 "registry_receipt_revalidation_attempted": True,
                 "registry_receipt_revalidation_accepted": True,
                 "registry_attempts": current["registry_attempts"],
+                "registry_revalidation_path": current["revalidation_path"],
+                "registry_bootstrap_reason": current.get("bootstrap_reason"),
                 "source_benchmark": wanted["source_benchmark"],
             }
         )
@@ -245,9 +367,36 @@ def _self_test() -> int:
     else:
         raise AssertionError("fingerprint drift must fail closed")
 
+    accepted = SimpleNamespace(outcome=ChecklistOutcome.EXACT_MATCH)
+    assert _accepted_expected_receipt(
+        accepted,
+        {
+            "registry_receipt_revalidation_attempted": True,
+            "registry_receipt_revalidation_accepted": True,
+            "registry_identity_id": wanted["registry_identity_id"],
+            "registry_fingerprint_sha256": wanted["registry_fingerprint_sha256"],
+        },
+        expected_registry=wanted["registry_identity_id"],
+        expected_fingerprint=wanted["registry_fingerprint_sha256"],
+    )
+    assert not _accepted_expected_receipt(
+        accepted,
+        {
+            "registry_receipt_revalidation_attempted": True,
+            "registry_receipt_revalidation_accepted": False,
+            "registry_identity_id": wanted["registry_identity_id"],
+            "registry_fingerprint_sha256": wanted["registry_fingerprint_sha256"],
+        },
+        expected_registry=wanted["registry_identity_id"],
+        expected_fingerprint=wanted["registry_fingerprint_sha256"],
+    )
+
+    assert unseen_v8.v7.v6.FAST_ROUTE == unseen_v8.SCOPED_FAST_ROUTE
     assert LIVE_REVALIDATION_CONCURRENCY <= 6
     assert LIVE_REVALIDATION_HTTP_TIMEOUT_SECONDS < LIVE_REVALIDATION_ITEM_TIMEOUT_SECONDS
+    assert PLAYER_CARD_BOOTSTRAP_HTTP_TIMEOUT_SECONDS < PLAYER_CARD_BOOTSTRAP_ITEM_TIMEOUT_SECONDS
     print("PASS curriculum V2 accepts missing local receipts only through live current Registry revalidation")
+    print("PASS curriculum V2 mirrors V8 indexed player-card recovery but never accepts bootstrap without canonical revalidation")
     print("PASS curriculum V2 preserves hard fail-closed UUID/fingerprint contradiction checks")
     print("PASS curriculum V2 keeps Registry revalidation concurrency and time bounded")
     return 0
