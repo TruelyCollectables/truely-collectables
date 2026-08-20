@@ -1,10 +1,11 @@
-name: InstaComp Unseen V9 Outage + V8 Recovery Contract
+name: InstaComp Unseen V10 Live Preflight + V9 Outage Contract
 
 on:
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-unseen-v7-contract.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py"
@@ -17,6 +18,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-unseen-v7-contract.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py"
@@ -35,7 +37,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and self-test V9 five times
+      - name: Compile and self-test V10 five times
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
@@ -43,10 +45,11 @@ jobs:
           python -m py_compile \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py \
-            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           for pass in 1 2 3 4 5; do
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py --self-test
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py --self-test
           done
           grep -q 'PREFLIGHT_CONCURRENCY = 6' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           grep -q 'PREFLIGHT_ITEM_TIMEOUT_SECONDS = 25.0' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
@@ -58,7 +61,12 @@ jobs:
           grep -q 'BOOTSTRAP_OUTAGE_MIN_ATTEMPTS = 40' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
           grep -q 'BOOTSTRAP_OUTAGE_TRANSPORT_RATIO = 0.90' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
           grep -q 'UNSEEN REGISTRY OUTAGE CIRCUIT BREAKER' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
-          grep -q 'benchmark_lora_unseen_holdout_v9.py' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          grep -q 'LIVE_PREFLIGHT_REQUIRED_HEALTHY = 3' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
+          grep -q 'registry-holdout-lock-player-card' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
+          grep -q 'http_429' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
+          grep -q 'http_503' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
+          grep -q 'http_504' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
+          grep -q 'benchmark_lora_unseen_holdout_v10.py' services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
 
   macos:
     runs-on: macos-15
@@ -69,7 +77,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -r services/instacomp-ai/requirements.txt
-      - name: Compile and self-test V9 five times on macOS
+      - name: Compile and self-test V10 five times on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
@@ -77,16 +85,20 @@ jobs:
           python -m py_compile \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py \
-            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           for pass in 1 2 3 4 5; do
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py --self-test
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py --self-test
           done
           grep -q 'UNSEEN PREFLIGHT WATCHDOG' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           grep -q 'current_registry_receipt_revalidated_plus_v20_physical_witness' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           grep -q 'current_registry_bootstrap_receipt_revalidated_plus_v20_physical_witness' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
           grep -q 'RegistryOutageAbort' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
+          grep -q 'PASS UNSEEN REGISTRY LIVE PREFLIGHT' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
+          grep -q 'no unseen exam work will start' services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
           ! grep -Eq 'UPDATE[[:space:]]+training_examples|INSERT[[:space:]]+INTO[[:space:]]+training_examples|DELETE[[:space:]]+FROM[[:space:]]+training_examples' \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py \
-            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
