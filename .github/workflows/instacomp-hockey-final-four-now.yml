@@ -1,0 +1,155 @@
+name: InstaComp Hockey Final Four Now
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/hockey-final-four-now-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: instacomp-hockey-final-five-now-production
+  cancel-in-progress: true
+
+jobs:
+  finish-final-four:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      DOWNLOADED_CHECKLIST_CORPUS_ROOT: /home/runner/work/_temp/hockey-final-four/corpus
+      TOPPS_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/hockey-final-four/topps
+      TOPPS_HOCKEY_RECEIPT: /home/runner/work/_temp/hockey-final-four/topps-production.json
+      UPPER_DECK_SUPPLEMENT_RECEIPT: /home/runner/work/_temp/hockey-final-four/ice-production.json
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '4'
+      CHECKLIST_REGISTRY_SET_CHUNK: '50'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '50'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '50'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '100'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '4'
+      UPPER_DECK_SUPPLEMENT_DELAY_MS: '0'
+      UPPER_DECK_SUPPLEMENT_ATTEMPTS: '4'
+      STATUS_BRANCH: ops/hockey-final-four-status
+
+    steps:
+      - name: Checkout certified Hockey recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-target-checklists-20260816
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install deterministic PDF reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check pypdf
+          python3 -c 'import pypdf; print("pypdf ready")'
+
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Download immutable source corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-complete-31992954544
+          path: /home/runner/work/_temp/hockey-final-four/corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31992954544
+
+      - name: Prove immutable corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*' | wc -l | tr -d ' ')" = '192'
+
+      - name: Patch certified parser and Production transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+          python3 scripts/instacomp-target-checklists/patch-final-six-production.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts')
+          s=p.read_text()
+          s=s.replace('const targets = targetsFromReceipts();', "const targets = targetsFromReceipts().filter((target) => target.sourceUrl.includes('/2022-23-ice-checklist/'));")
+          s=s.replace('if (targets.length < 50) throw new Error(`Expected at least 50 downloaded Upper Deck HTML supplements, found ${targets.length}.`);', 'if (targets.length !== 1) throw new Error(`Expected exactly one 2022-23 Ice source, found ${targets.length}.`);')
+          p.write_text(s)
+          PY
+
+      - name: Stage official Topps Hockey sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
+          copy_pdf(){ local pattern="$1" dest="$2" src; src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"; test -n "$src"; cp "$src" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf"; python3 scripts/instacomp-target-checklists/pdf-to-layout-text.py "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; test -s "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; }
+          copy_pdf '*hockey_2021_topps_nhl-stickers.pdf' '2021-nhl-stickers'
+          copy_pdf '*hockey_2022-23_topps_nhl-sticker-album.pdf' '2022-23-nhl-sticker-album'
+          copy_pdf '*hockey_2022-23_topps_chrome-nhl-stickers.pdf' '2022-23-chrome-nhl-stickers'
+          copy_pdf '*hockey_2024-25_topps_nhl-sticker-collection.pdf' '2024-25-nhl-sticker-collection'
+          copy_pdf '*hockey_2025-26_topps_nhl-sticker-collection.pdf' '2025-26-nhl-sticker-collection'
+
+      - name: Finish official Topps Hockey
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts
+
+      - name: Finish 2022-23 Upper Deck Ice
+        run: node --import tsx scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts
+
+      - name: Build final-four receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/home/runner/work/_temp/hockey-final-four
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const root='/home/runner/work/_temp/hockey-final-four';
+          const read=(n)=>{try{return JSON.parse(fs.readFileSync(`${root}/${n}`,'utf8'))}catch{return null}};
+          const topps=read('topps-production.json');
+          const iceReceipt=read('ice-production.json');
+          const ice=Array.isArray(iceReceipt?.results)?iceReceipt.results[0]:null;
+          const wanted=new Set(['2021-nhl-stickers','2024-25-nhl-sticker-collection','2025-26-nhl-sticker-collection']);
+          const rows=Array.isArray(topps?.results)?topps.results.filter(r=>wanted.has(String(r?.key||''))):[];
+          const failures=[];
+          if(rows.length!==3||rows.some(r=>!['already_live','persisted'].includes(String(r?.status||'')))) failures.push('topps');
+          if(!ice||!['already_live','persisted'].includes(String(ice?.status||''))) failures.push('ice');
+          const receipt={schema:'tcos.hockeyFinalFourNow.v1',completedAt:new Date().toISOString(),runId:process.env.GITHUB_RUN_ID,triggerSha:process.env.GITHUB_SHA,toppsTargets:rows,ice,gate:{passed:failures.length===0,failures}};
+          fs.writeFileSync(`${root}/final-four-receipt.json`,JSON.stringify(receipt,null,2)+'\n');
+          console.log(JSON.stringify(receipt,null,2));
+          if(failures.length) process.exitCode=2;
+          NODE
+
+      - name: Publish final-four status receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/home/runner/work/_temp/hockey-final-four
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan final-four-status-tmp
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p data/ops
+          cp "$root/final-four-receipt.json" data/ops/hockey-final-four-latest.json 2>/dev/null || printf '%s\n' '{"gate":{"passed":false,"failures":["receipt_missing"]}}' > data/ops/hockey-final-four-latest.json
+          cp "$root/topps-production.json" data/ops/hockey-final-four-topps.json 2>/dev/null || true
+          cp "$root/ice-production.json" data/ops/hockey-final-four-ice.json 2>/dev/null || true
+          git add data/ops
+          git commit -m "ops(checklists): publish final-four hockey receipt [skip ci]"
+          git push --force origin "HEAD:${STATUS_BRANCH}"
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hockey-final-four" .env.local .env.production.local .vercel
