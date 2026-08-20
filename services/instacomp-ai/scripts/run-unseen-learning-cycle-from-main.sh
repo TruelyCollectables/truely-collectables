@@ -11,7 +11,7 @@ service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 service_python="$service_root/.venv/bin/python"
 benchmark_launcher="$service_root/scripts/run-unseen-holdout-benchmark-from-main.sh"
-curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v3.py"
+curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v4.py"
 resume_gate="$service_root/scripts/find_resumable_unseen_benchmark.py"
 inventory_sync="$service_root/scripts/sync_all_inventory_training_truth_guarded.py"
 finisher="$service_root/scripts/finish_deal_hunter_ai_learning.py"
@@ -75,8 +75,9 @@ export PYTHONPATH="$service_root:$service_root/scripts${PYTHONPATH:+:$PYTHONPATH
 "$service_python" "$resume_gate" --self-test
 
 echo "INFO Learning policy: never train on a partial benchmark; never rescore a previously used image as unseen."
-echo "INFO Misses are trainable only when current trusted truth still matches the benchmark Registry UUID + fingerprint."
-echo "INFO Unverifiable misses are quarantined; a real UUID/fingerprint contradiction still aborts the generation."
+echo "INFO Misses are trainable only after live current Registry truth is canonically revalidated."
+echo "INFO Historical benchmark UUID/fingerprint drift is quarantined only after a different current Registry identity is canonically revalidated."
+echo "INFO Contradictions inside one current Registry resolution remain fatal."
 echo "INFO A completed 100-card exam for the still-current certified adapter is resumed after downstream failure instead of rescanned."
 echo "INFO Every new adapter must pass locked validation and Frozen 10 -> 15 -> 25 before the next disjoint 100-card exam."
 
@@ -131,8 +132,8 @@ run_exam() {
 }
 
 # Reuse a complete clean benchmark only when its adapter SHA exactly matches the
-# current certified adapter. Curriculum V3 still revalidates each teachable miss
-# against the CURRENT Registry before it can enter the training dataset.
+# current certified adapter. Curriculum V4 revalidates each teachable miss against
+# the CURRENT Registry and quarantines superseded historical benchmark truth.
 resume_receipt="$("$service_python" "$resume_gate" "$completion_receipt" "$benchmark_dir")"
 if [[ -n "$resume_receipt" ]]; then
   echo "===== RESUME COMPLETED 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
