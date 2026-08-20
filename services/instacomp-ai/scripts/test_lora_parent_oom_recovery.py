@@ -39,7 +39,7 @@ def _base(output_path: Path, *, max_seq_length: int = 4096) -> list[str]:
     ]
 
 
-def _sigabrt_then_success() -> None:
+def _sigabrt_then_success_preserves_requested_seq() -> None:
     with tempfile.TemporaryDirectory() as raw:
         output = Path(raw) / "adapter" / "adapters.safetensors"
         output.parent.mkdir()
@@ -50,13 +50,13 @@ def _sigabrt_then_success() -> None:
             assert kwargs["check"] is False
             assert kwargs["env"][compat.WORKER_ENV] == "1"
             if len(calls) == 1:
-                assert _edge(command) == 384
-                assert _arg(command, "--max-seq-length") == "2048"
+                assert _edge(command) == 320
+                assert _arg(command, "--max-seq-length") == "4096"
                 output.write_bytes(b"partial-unsafe-weights")
                 return subprocess.CompletedProcess(command, -6)
             assert not output.exists(), "partial OOM weights must be deleted before retry"
-            assert _edge(command) == 320
-            assert _arg(command, "--max-seq-length") == "2048"
+            assert _edge(command) == 288
+            assert _arg(command, "--max-seq-length") == "4096"
             assert _arg(command, "--dataset") == "/trusted/curriculum"
             assert _arg(command, "--adapter-path") == "/certified/adapter"
             output.write_bytes(b"complete-safe-weights")
@@ -67,7 +67,7 @@ def _sigabrt_then_success() -> None:
         assert len(calls) == 2
 
 
-def _bounded_memory_ladder_keeps_sequence_cap_fixed() -> None:
+def _bounded_image_ladder_never_changes_sequence_cap() -> None:
     with tempfile.TemporaryDirectory() as raw:
         output = Path(raw) / "adapter" / "adapters.safetensors"
         output.parent.mkdir()
@@ -80,8 +80,25 @@ def _bounded_memory_ladder_keeps_sequence_cap_fixed() -> None:
 
         code = compat.supervise_training(_base(output), run_fn=always_oom, retry_delay_seconds=0)
         assert code == -6
-        assert calls == [(384, 2048), (320, 2048), (256, 2048)]
+        assert calls == [(320, 4096), (288, 4096), (256, 4096)]
         assert not output.exists(), "failed lowest-profile weights must be discarded"
+
+
+def _accepted_minimum_sequence_is_preserved() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        output = Path(raw) / "adapter" / "adapters.safetensors"
+        output.parent.mkdir()
+        seen: list[tuple[int, int]] = []
+
+        def success(command: list[str], **_kwargs):
+            seen.append((_edge(command), int(_arg(command, "--max-seq-length"))))
+            return subprocess.CompletedProcess(command, 0)
+
+        code = compat.supervise_training(
+            _base(output, max_seq_length=2048), run_fn=success, retry_delay_seconds=0
+        )
+        assert code == 0
+        assert seen == [(320, 2048)]
 
 
 def _unsafe_short_sequence_profile_is_rejected() -> None:
@@ -109,7 +126,7 @@ def _unsafe_short_sequence_profile_is_rejected() -> None:
         assert called is False
 
 
-def _python_observed_oom_is_also_retried() -> None:
+def _python_observed_oom_is_also_retried_without_seq_change() -> None:
     with tempfile.TemporaryDirectory() as raw:
         output = Path(raw) / "adapter" / "adapters.safetensors"
         output.parent.mkdir()
@@ -124,7 +141,7 @@ def _python_observed_oom_is_also_retried() -> None:
             _base(output), run_fn=worker_oom_then_success, retry_delay_seconds=0
         )
         assert code == 0
-        assert calls == [(384, 2048), (320, 2048)]
+        assert calls == [(320, 4096), (288, 4096)]
 
 
 def _non_oom_failure_is_not_retried() -> None:
@@ -143,16 +160,18 @@ def _non_oom_failure_is_not_retried() -> None:
 
 
 def main() -> int:
-    _sigabrt_then_success()
-    _bounded_memory_ladder_keeps_sequence_cap_fixed()
+    _sigabrt_then_success_preserves_requested_seq()
+    _bounded_image_ladder_never_changes_sequence_cap()
+    _accepted_minimum_sequence_is_preserved()
     _unsafe_short_sequence_profile_is_rejected()
-    _python_observed_oom_is_also_retried()
+    _python_observed_oom_is_also_retried_without_seq_change()
     _non_oom_failure_is_not_retried()
-    print("PASS compat parent survives Metal SIGABRT and retries a smaller image profile")
-    print("PASS partial OOM weights are discarded while dataset and certified resume adapter stay unchanged")
-    print("PASS memory ladder is bounded 384/2048 -> 320/2048 -> 256/2048")
+    print("PASS compat parent starts at 320 and survives Metal SIGABRT")
+    print("PASS exact requested 4096 multimodal sequence cap survives every OOM retry")
+    print("PASS image-only memory ladder is bounded 320/4096 -> 288/4096 -> 256/4096")
+    print("PASS explicit safe 2048 sequence cap is preserved, not rewritten")
     print("PASS unsafe multimodal max_seq_length below 2048 is rejected before MLX starts")
-    print("PASS Python-observed OOM exit is also recovered by the parent")
+    print("PASS partial OOM weights are discarded while dataset and certified resume adapter stay unchanged")
     print("PASS non-OOM training failures are never retried as memory failures")
     return 0
 
