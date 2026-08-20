@@ -13,12 +13,14 @@ on:
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
       - "services/instacomp-ai/app/**"
       - "src/app/api/instacomp/registry-holdout-lock/**"
       - "src/app/api/instacomp/registry-holdout-lock-fast/**"
+      - "src/app/api/instacomp/registry-holdout-lock-player-card/**"
       - "services/instacomp-ai/requirements.txt"
   push:
     branches: [main]
@@ -32,12 +34,14 @@ on:
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py"
       - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py"
       - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
       - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
       - "services/instacomp-ai/app/**"
       - "src/app/api/instacomp/registry-holdout-lock/**"
       - "src/app/api/instacomp/registry-holdout-lock-fast/**"
+      - "src/app/api/instacomp/registry-holdout-lock-player-card/**"
       - "services/instacomp-ai/requirements.txt"
   workflow_dispatch:
 
@@ -66,17 +70,18 @@ jobs:
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
-      - name: Run unseen V9 benchmark self-test five times
+      - name: Run unseen V10 benchmark self-test five times
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
           for pass in 1 2 3 4 5; do
-            echo "===== UNSEEN HOLDOUT V9 LINUX SELF-TEST ${pass}/5 ====="
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py --self-test
+            echo "===== UNSEEN HOLDOUT V10 LINUX SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py --self-test
           done
       - name: Prove no train or Frozen-25 leakage and no mutations
         run: |
@@ -87,6 +92,7 @@ jobs:
           v7=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           v8=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
           v9=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
+          v10=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
           launcher=services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           grep -q 'locked_validation_holdout' "$target"
           grep -q 'post_dataset_operator_confirmed' "$target"
@@ -114,10 +120,16 @@ jobs:
           grep -q 'BOOTSTRAP_OUTAGE_MIN_ATTEMPTS = 40' "$v9"
           grep -q 'BOOTSTRAP_OUTAGE_TRANSPORT_RATIO = 0.90' "$v9"
           grep -q 'UNSEEN REGISTRY OUTAGE CIRCUIT BREAKER' "$v9"
-          grep -q 'benchmark_lora_unseen_holdout_v9.py' "$launcher"
-          ! grep -Eq 'UPDATE[[:space:]]+training_examples|INSERT[[:space:]]+INTO[[:space:]]+training_examples|DELETE[[:space:]]+FROM[[:space:]]+training_examples' "$target" "$v4" "$v5" "$v6" "$v7" "$v8" "$v9"
+          grep -q 'LIVE_PREFLIGHT_REQUIRED_HEALTHY = 3' "$v10"
+          grep -q 'PASS UNSEEN REGISTRY LIVE PREFLIGHT' "$v10"
+          grep -q '_systemic_registry_failure' "$v10"
+          grep -q 'http_429' "$v10"
+          grep -q 'http_503' "$v10"
+          grep -q 'http_504' "$v10"
+          grep -q 'benchmark_lora_unseen_holdout_v10.py' "$launcher"
+          ! grep -Eq 'UPDATE[[:space:]]+training_examples|INSERT[[:space:]]+INTO[[:space:]]+training_examples|DELETE[[:space:]]+FROM[[:space:]]+training_examples' "$target" "$v4" "$v5" "$v6" "$v7" "$v8" "$v9" "$v10"
           ! grep -q 'enable-lora-candidate-macos.sh' "$launcher"
-          ! grep -q 'automatic_promotion' "$target" "$v4" "$v5" "$v6" "$v7" "$v8" "$v9"
+          ! grep -q 'automatic_promotion' "$target" "$v4" "$v5" "$v6" "$v7" "$v8" "$v9" "$v10"
 
   contract-macos:
     runs-on: macos-15
@@ -140,35 +152,41 @@ jobs:
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py \
             services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
             services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
           bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
-      - name: Run unseen V9 benchmark self-test five times on macOS
+      - name: Run unseen V10 benchmark self-test five times on macOS
         env:
           PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
         run: |
           set -euo pipefail
           for pass in 1 2 3 4 5; do
-            echo "===== UNSEEN HOLDOUT V9 MACOS SELF-TEST ${pass}/5 ====="
-            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py --self-test
+            echo "===== UNSEEN HOLDOUT V10 MACOS SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py --self-test
           done
-      - name: Prove launcher remains read-only and V9-gated
+      - name: Prove launcher remains read-only and V10-gated
         run: |
           launcher=services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
           v7=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v7.py
           v8=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v8.py
           v9=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v9.py
+          v10=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
           grep -q 'Live benchmark is read-only' "$launcher"
           grep -q "current trusted exact-ID, exact-image-hash training example" "$launcher"
           grep -q 'active Registry versions only' "$launcher"
           grep -q 'normal V20 Registry and physical revalidation' "$launcher"
           grep -q 'V8 may recover server input_incomplete only through one bounded fast Registry receipt' "$launcher"
-          grep -q 'V9 aborts fail-closed when the bootstrap sees a sustained systemic Registry transport outage' "$launcher"
+          grep -q 'V9 aborts fail-closed when bootstrap sees a sustained systemic Registry transport outage' "$launcher"
+          grep -q 'V10 performs three database-backed player/card Registry probes before any unseen exam work' "$launcher"
+          grep -q 'V10 also treats 429/5xx/52x overload responses as systemic Registry failures' "$launcher"
           grep -q 'Canonical Registry preflight is bounded' "$launcher"
           grep -q 'Current Registry UUID/fingerprint and physical evidence remain authoritative' "$launcher"
-          grep -q 'benchmark_lora_unseen_holdout_v9.py' "$launcher"
+          grep -q 'benchmark_lora_unseen_holdout_v10.py' "$launcher"
           grep -q 'registry_preflight_item_timeout' "$v7"
           grep -q 'UNSEEN PREFLIGHT WATCHDOG' "$v7"
           grep -q 'registry_bootstrap_receipt_revalidation_not_accepted' "$v8"
           grep -q 'RegistryOutageAbort' "$v9"
+          grep -q 'LIVE_PREFLIGHT_REQUIRED_HEALTHY = 3' "$v10"
+          grep -q 'no unseen exam work will start' "$v10"
           ! grep -q 'enable-lora-candidate-macos.sh' "$launcher"
