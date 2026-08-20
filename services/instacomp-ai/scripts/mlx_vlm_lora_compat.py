@@ -14,13 +14,13 @@ RESIZE_COMPAT_MODEL_TYPES = (
     "qwen3_vl",
     "qwen3_5",
 )
-# 512x512 + 3072 tokens exhausted Metal on the production Mac. Keep the
-# multimodal sequence cap at 2048 because mlx-vlm 0.6.8 truncates input_ids at
-# max_seq_length without rebuilding pixel_values/image_grid_thw; lowering the
-# sequence cap can therefore desynchronize Qwen image tokens and vision features.
-MAX_SAFE_IMAGE_EDGE = 384
-REQUIRED_MULTIMODAL_SEQ_LENGTH = 2048
-OOM_RETRY_IMAGE_EDGES = (320, 256)
+# The curriculum command intentionally requests max_seq_length=4096. mlx-vlm
+# 0.6.8 truncates input_ids at max_seq_length without rebuilding pixel_values
+# or image_grid_thw, so memory recovery must NEVER lower the requested
+# multimodal sequence cap. Reduce image resolution only.
+MAX_SAFE_IMAGE_EDGE = 320
+MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048
+OOM_RETRY_IMAGE_EDGES = (288, 256)
 OOM_EXIT_CODE = 86
 RETRYABLE_OOM_RETURN_CODES = {-6, 134, OOM_EXIT_CODE}
 WORKER_ENV = "INSTACOMP_MLX_LORA_WORKER"
@@ -89,7 +89,9 @@ def _effective_profile(argv: list[str]) -> tuple[int, int]:
         MAX_SAFE_IMAGE_EDGE,
     )
     edge = min(max(requested_resize), MAX_SAFE_IMAGE_EDGE)
-    return edge, REQUIRED_MULTIMODAL_SEQ_LENGTH
+    requested_seq = _requested_max_seq_length(argv)
+    seq = requested_seq if requested_seq is not None else MIN_SAFE_MULTIMODAL_SEQ_LENGTH
+    return edge, seq
 
 
 def apply_memory_safe_profile(argv: list[str]) -> tuple[list[str], tuple[int, int], tuple[int, int]]:
@@ -98,7 +100,8 @@ def apply_memory_safe_profile(argv: list[str]) -> tuple[list[str], tuple[int, in
         raise SystemExit("--image-resize-shape values must be at least 224")
 
     requested_seq = _requested_max_seq_length(argv)
-    if requested_seq is not None and requested_seq < REQUIRED_MULTIMODAL_SEQ_LENGTH:
+    safe_seq = requested_seq if requested_seq is not None else MIN_SAFE_MULTIMODAL_SEQ_LENGTH
+    if safe_seq < MIN_SAFE_MULTIMODAL_SEQ_LENGTH:
         raise SystemExit(
             "Refusing unsafe InstaComp multimodal max_seq_length below 2048: "
             "mlx-vlm 0.6.8 truncates input_ids without rebuilding vision tensors, "
@@ -113,21 +116,18 @@ def apply_memory_safe_profile(argv: list[str]) -> tuple[list[str], tuple[int, in
     else:
         updated[index + 1] = str(safe[0])
         updated[index + 2] = str(safe[1])
-    updated = _set_scalar_arg(
-        updated, "--max-seq-length", REQUIRED_MULTIMODAL_SEQ_LENGTH
-    )
+    updated = _set_scalar_arg(updated, "--max-seq-length", safe_seq)
     return updated, requested, safe
 
 
 def _next_lower_memory_argv(argv: list[str]) -> tuple[list[str], tuple[int, int]] | None:
-    current_edge, _current_seq = _effective_profile(argv)
+    current_edge, current_seq = _effective_profile(argv)
     for edge in OOM_RETRY_IMAGE_EDGES:
         if edge < current_edge:
             updated = _set_image_resize(argv, edge)
-            updated = _set_scalar_arg(
-                updated, "--max-seq-length", REQUIRED_MULTIMODAL_SEQ_LENGTH
-            )
-            return updated, (edge, REQUIRED_MULTIMODAL_SEQ_LENGTH)
+            # Preserve the exact caller-requested multimodal sequence cap.
+            updated = _set_scalar_arg(updated, "--max-seq-length", current_seq)
+            return updated, (edge, current_seq)
     return None
 
 
@@ -187,13 +187,13 @@ def _run_worker(argv: list[str]) -> int:
         print(
             "INSTACOMP MLX MEMORY PROFILE: clamped requested image resize "
             f"{requested[0]}x{requested[1]} to {safe[0]}x{safe[1]}; "
-            f"max_seq_length={safe_seq}.",
+            f"max_seq_length={safe_seq} preserved.",
             flush=True,
         )
     else:
         print(
             "INSTACOMP MLX MEMORY PROFILE: using image resize "
-            f"{safe[0]}x{safe[1]}; max_seq_length={safe_seq}.",
+            f"{safe[0]}x{safe[1]}; max_seq_length={safe_seq} preserved.",
             flush=True,
         )
 
@@ -234,13 +234,13 @@ def supervise_training(
             print(
                 "INSTACOMP MLX PARENT MEMORY PROFILE: clamped requested image resize "
                 f"{requested[0]}x{requested[1]} to {edge}x{edge}; "
-                f"max_seq_length={seq}.",
+                f"max_seq_length={seq} preserved.",
                 flush=True,
             )
         print(
             "INSTACOMP MLX PARENT SUPERVISOR: "
             f"attempt={attempt} image={edge}x{edge} max_seq_length={seq}; "
-            "trusted dataset and certified resume adapter unchanged.",
+            "trusted dataset, requested multimodal sequence cap, and certified resume adapter unchanged.",
             flush=True,
         )
         env = dict(os.environ)
@@ -260,7 +260,7 @@ def supervise_training(
         if retry is None:
             _clear_partial_output(command_argv)
             print(
-                "INSTACOMP MLX OOM: Metal exhausted every bounded certified memory profile; "
+                "INSTACOMP MLX OOM: Metal exhausted every bounded certified image profile; "
                 "partial weights discarded and training remains failed closed.",
                 file=sys.stderr,
                 flush=True,
@@ -273,7 +273,7 @@ def supervise_training(
             "INSTACOMP MLX PARENT OOM RECOVERY: training worker ended with "
             f"returncode={code}; discarded partial weights and restarting from the "
             f"same certified adapter at {next_edge}x{next_edge} "
-            f"max_seq_length={next_seq}; multimodal sequence cap remains fixed.",
+            f"with max_seq_length={next_seq} preserved exactly.",
             file=sys.stderr,
             flush=True,
         )

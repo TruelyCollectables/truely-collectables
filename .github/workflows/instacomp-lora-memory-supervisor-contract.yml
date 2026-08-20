@@ -41,25 +41,27 @@ jobs:
             echo "===== LORA OOM SUPERVISOR LINUX ${pass}/5 ====="
             python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
           done
-      - name: Prove bounded fail-closed multimodal memory contract
+      - name: Prove image-only OOM recovery preserves multimodal sequence geometry
         run: |
           compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
           test=services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
-          grep -q 'MAX_SAFE_IMAGE_EDGE = 384' "$compat"
-          grep -q 'REQUIRED_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
-          grep -q 'OOM_RETRY_IMAGE_EDGES = (320, 256)' "$compat"
-          ! grep -q '(320, 1536)' "$compat"
-          ! grep -q '(256, 1024)' "$compat"
+          grep -q 'MAX_SAFE_IMAGE_EDGE = 320' "$compat"
+          grep -q 'MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
+          grep -q 'OOM_RETRY_IMAGE_EDGES = (288, 256)' "$compat"
+          grep -q 'Preserve the exact caller-requested multimodal sequence cap' "$compat"
           grep -q 'Refusing unsafe InstaComp multimodal max_seq_length below 2048' "$compat"
           grep -q 'desynchronize Qwen image tokens and image features' "$compat"
           grep -q 'RETRYABLE_OOM_RETURN_CODES = {-6, 134, OOM_EXIT_CODE}' "$compat"
-          grep -q 'discarded partial weights' "$compat"
-          grep -q 'multimodal sequence cap remains fixed' "$compat"
-          grep -q 'trusted dataset and certified resume adapter unchanged' "$compat"
+          grep -q 'requested multimodal sequence cap' "$compat"
+          grep -q 'max_seq_length={next_seq} preserved exactly' "$compat"
           grep -q 'return subprocess.CompletedProcess(command, -6)' "$test"
-          grep -q '384/2048 -> 320/2048 -> 256/2048' "$test"
+          grep -q '320/4096 -> 288/4096 -> 256/4096' "$test"
+          grep -q 'exact requested 4096 multimodal sequence cap survives every OOM retry' "$test"
+          grep -q 'explicit safe 2048 sequence cap is preserved' "$test"
           grep -q 'unsafe multimodal max_seq_length below 2048 is rejected' "$test"
           grep -q 'non-OOM training failures are never retried' "$test"
+          ! grep -q '1536' "$compat"
+          ! grep -q '1024' "$compat"
 
   contract-macos:
     runs-on: macos-15
@@ -74,7 +76,7 @@ jobs:
           python -m py_compile \
             services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
             services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
-      - name: Repeat exact Metal and sequence-safety regression five times on macOS
+      - name: Repeat exact Metal and sequence-preservation regression five times on macOS
         env:
           PYTHONPATH: services/instacomp-ai/scripts
         run: |
@@ -83,7 +85,7 @@ jobs:
             echo "===== LORA OOM SUPERVISOR MAC ${pass}/5 ====="
             python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
           done
-      - name: Prove Mac launcher stays a parent and never lowers multimodal seq cap
+      - name: Prove Mac launcher never rewrites caller multimodal sequence cap
         run: |
           compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
           grep -q 'WORKER_ENV = "INSTACOMP_MLX_LORA_WORKER"' "$compat"
@@ -91,8 +93,10 @@ jobs:
           grep -q '_run_worker' "$compat"
           grep -q '_clear_partial_output' "$compat"
           grep -q 'PARENT OOM RECOVERY' "$compat"
-          grep -q 'REQUIRED_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
-          grep -q 'OOM_RETRY_IMAGE_EDGES = (320, 256)' "$compat"
+          grep -q 'MAX_SAFE_IMAGE_EDGE = 320' "$compat"
+          grep -q 'MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
+          grep -q 'OOM_RETRY_IMAGE_EDGES = (288, 256)' "$compat"
+          grep -q 'current_seq' "$compat"
           ! grep -q '1536' "$compat"
           ! grep -q '1024' "$compat"
-          grep -q 'Metal exhausted every bounded certified memory profile' "$compat"
+          grep -q 'Metal exhausted every bounded certified image profile' "$compat"
