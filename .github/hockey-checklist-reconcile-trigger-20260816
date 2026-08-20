@@ -1,8 +1,8 @@
 2026-08-20T09:12:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=18
-reason=full-production-replay-after-wnba-smoke-test-and-hockey-resolver-certification
-expected_ingest_revision=2026-08-19-hockey-staged-v9
+retry=19
+reason=replay-after-upper-deck-inscription-and-serial-normalization-repair
+expected_ingest_revision=2026-08-20-hockey-staged-v10
 benchmark=https://upperdeck.com/checklist/2021-22-sp-authentic-checklist/
 shard_count=4
 source_timeout_ms=75000
