@@ -8,6 +8,24 @@ from pathlib import Path
 import mlx_vlm_lora_compat as compat
 
 
+class _FakeScalar:
+    def __init__(self, value):
+        self.value = value
+
+    def item(self):
+        return self.value
+
+
+class _FakeMx:
+    def __init__(self):
+        self.calls: list[tuple[object, object, object, object]] = []
+        self.delegated_marker = "delegated"
+
+    def repeat(self, array, repeats, axis=None, *, stream=None):
+        self.calls.append((array, repeats, axis, stream))
+        return repeats
+
+
 def _arg(command: list[str], flag: str) -> str:
     index = command.index(flag)
     return command[index + 1]
@@ -37,6 +55,28 @@ def _base(output_path: Path, *, max_seq_length: int = 4096) -> list[str]:
         "--output-path",
         str(output_path),
     ]
+
+
+def _repeat_scalar_compat_is_narrow_and_idempotent() -> None:
+    fake_mx = _FakeMx()
+    proxy = compat._MxRepeatCompatProxy(fake_mx)
+
+    result = proxy.repeat("seq", _FakeScalar(2), axis=0)
+    assert result == 2
+    assert fake_mx.calls[-1] == ("seq", 2, 0, None)
+    assert isinstance(fake_mx.calls[-1][1], int)
+
+    result = proxy.repeat("seq", 3, stream="metal")
+    assert result == 3
+    assert fake_mx.calls[-1] == ("seq", 3, None, "metal")
+
+    non_integer_scalar = _FakeScalar(1.5)
+    result = proxy.repeat("seq", non_integer_scalar)
+    assert result is non_integer_scalar
+    assert fake_mx.calls[-1][1] is non_integer_scalar
+
+    assert proxy.delegated_marker == "delegated"
+    assert compat._wrap_mlx_repeat_scalar_count(proxy.repeat) is proxy.repeat
 
 
 def _sigabrt_then_success_preserves_requested_seq() -> None:
@@ -160,12 +200,15 @@ def _non_oom_failure_is_not_retried() -> None:
 
 
 def main() -> int:
+    _repeat_scalar_compat_is_narrow_and_idempotent()
     _sigabrt_then_success_preserves_requested_seq()
     _bounded_image_ladder_never_changes_sequence_cap()
     _accepted_minimum_sequence_is_preserved()
     _unsafe_short_sequence_profile_is_rejected()
     _python_observed_oom_is_also_retried_without_seq_change()
     _non_oom_failure_is_not_retried()
+    print("PASS Qwen3 scalar repeat shim converts only integer-like scalar counts")
+    print("PASS Qwen3 scalar repeat shim delegates every unrelated MLX attribute/call")
     print("PASS compat parent starts at 320 and survives Metal SIGABRT")
     print("PASS exact requested 4096 multimodal sequence cap survives every OOM retry")
     print("PASS image-only memory ladder is bounded 320/4096 -> 288/4096 -> 256/4096")
