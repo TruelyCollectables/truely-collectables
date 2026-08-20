@@ -6,7 +6,7 @@ import { parseUpperDeckHtmlChecklist } from "./upper-deck-html";
 
 export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_ID =
   "upper-deck-2025-26-normalized-html" as const;
-export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.1.0" as const;
+export const UPPER_DECK_2025_26_NORMALIZED_ADAPTER_VERSION = "1.2.0" as const;
 
 const KNOWN_PARALLEL_SUFFIXES = [
   "Printing Plates",
@@ -126,12 +126,25 @@ function replaceCells(row: string, replacements: Map<number, string>) {
 }
 
 function serialValue(value: string) {
-  const normalized = text(value);
+  const normalized = text(value).replace(/(\d),(?=\d{3}\b)/g, "$1");
   const oneOf = normalized.match(/^1\s+of\s+(\d{1,7})$/i);
   if (oneOf) return oneOf[1];
   const per = normalized.match(/^(\d{1,7})\s+per(?:\s+.*)?$/i);
   if (per) return per[1];
+  if (/^\d{1,7}$/.test(normalized)) return normalized;
   return value;
+}
+
+function subjectAndInscription(value: string) {
+  const normalized = text(value);
+  const match = normalized.match(
+    /^(.*?)\s*["“](\d{1,2}\s*\/\s*\d{1,2}\s*\/\s*\d{4})["”]\s*$/,
+  );
+  if (!match) return { subject: normalized, inscriptionDate: "" };
+  return {
+    subject: text(match[1]),
+    inscriptionDate: match[2].replace(/\s*\/\s*/g, " / "),
+  };
 }
 
 function ultimateCollectionSource(artifact: ChecklistSourceArtifact) {
@@ -201,7 +214,7 @@ function normalizeChecklistTable(table: string) {
     const row = parsed[index];
     const setName = row[setIndex]?.text || "";
     const cardNumber = row[cardIndex]?.text || "";
-    const subject = row[subjectIndex]?.text || "";
+    const { subject } = subjectAndInscription(row[subjectIndex]?.text || "");
     if (!setName || !cardNumber || !subject) continue;
     const key = `${parsedSetKey(setName)}:${comparable(cardNumber)}`;
     const signatures = owners.get(key) || new Set<string>();
@@ -232,11 +245,20 @@ function normalizeChecklistTable(table: string) {
       }
       const setName = rowCells[setIndex]?.text || "";
       const cardNumber = rowCells[cardIndex]?.text || "";
-      const subject = rowCells[subjectIndex]?.text || "";
+      const { subject, inscriptionDate } = subjectAndInscription(
+        rowCells[subjectIndex]?.text || "",
+      );
       const key = `${parsedSetKey(setName)}:${comparable(cardNumber)}`;
-      if (conflicts.has(key) && subject) {
+      if (inscriptionDate && subject) {
+        replacements.set(subjectIndex, subject);
+      }
+      if ((conflicts.has(key) || inscriptionDate) && subject) {
         const prior = spIndex < rowCells.length ? rowCells[spIndex]?.text || "" : "";
-        const variation = [prior, `Subject: ${subject}`].filter(Boolean).join("; ");
+        const variation = [
+          prior,
+          conflicts.has(key) ? `Subject: ${subject}` : "",
+          inscriptionDate ? `Inscription: ${inscriptionDate}` : "",
+        ].filter(Boolean).join("; ");
         if (spIndex < rowCells.length) replacements.set(spIndex, variation);
       }
     }
@@ -249,10 +271,14 @@ function normalizeChecklistTable(table: string) {
           ? (() => {
               const setName = rowCells[setIndex]?.text || "";
               const cardNumber = rowCells[cardIndex]?.text || "";
-              const subject = rowCells[subjectIndex]?.text || "";
-              return conflicts.has(`${parsedSetKey(setName)}:${comparable(cardNumber)}`) && subject
-                ? `Subject: ${subject}`
-                : "";
+              const { subject, inscriptionDate } = subjectAndInscription(
+                rowCells[subjectIndex]?.text || "",
+              );
+              const key = `${parsedSetKey(setName)}:${comparable(cardNumber)}`;
+              return [
+                conflicts.has(key) && subject ? `Subject: ${subject}` : "",
+                inscriptionDate ? `Inscription: ${inscriptionDate}` : "",
+              ].filter(Boolean).join("; ");
             })()
           : "";
       const cellTag = rowIndex === headerIndex ? "th" : "td";
