@@ -1,7 +1,7 @@
 2026-08-20T09:12:00-06:00
 scope=hockey-checklists-2021-plus-through-latest-published
-retry=19
-reason=replay-after-upper-deck-inscription-and-serial-normalization-repair
+retry=20
+reason=replay-with-v10-production-gate-and-upper-deck-normalizer-1-2-0
 expected_ingest_revision=2026-08-20-hockey-staged-v10
 benchmark=https://upperdeck.com/checklist/2021-22-sp-authentic-checklist/
 shard_count=4
