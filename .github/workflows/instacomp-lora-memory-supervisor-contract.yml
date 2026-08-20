@@ -106,10 +106,11 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import importlib.metadata
           import platform
-          import mlx_vlm
-          print(f"runtime_arch={platform.machine()} mlx_vlm={mlx_vlm.__version__}")
-          assert mlx_vlm.__version__ == "0.6.8"
+          version = importlib.metadata.version("mlx-vlm")
+          print(f"runtime_arch={platform.machine()} mlx_vlm={version}")
+          assert version == "0.6.8"
           PY
           for pass in 1 2 3; do
             echo "===== QWEN3 SCALAR REPEAT MAC ${pass}/3 ====="
