@@ -12,6 +12,7 @@ repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || tru
 service_python="$service_root/.venv/bin/python"
 benchmark_launcher="$service_root/scripts/run-unseen-holdout-benchmark-from-main.sh"
 curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v3.py"
+resume_gate="$service_root/scripts/find_resumable_unseen_benchmark.py"
 inventory_sync="$service_root/scripts/sync_all_inventory_training_truth_guarded.py"
 finisher="$service_root/scripts/finish_deal_hunter_ai_learning.py"
 staged="$service_root/scripts/run-staged-learning-from-main.sh"
@@ -36,7 +37,7 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]]; th
   exit 2
 fi
 [[ -x "$service_python" ]] || { echo "Missing service Python: $service_python" >&2; exit 2; }
-for required in "$benchmark_launcher" "$curriculum" "$inventory_sync" "$finisher" "$staged" "$enable_candidate"; do
+for required in "$benchmark_launcher" "$curriculum" "$resume_gate" "$inventory_sync" "$finisher" "$staged" "$enable_candidate"; do
   [[ -f "$required" ]] || { echo "Missing learning-cycle component: $required" >&2; exit 2; }
 done
 if ! [[ "$max_learning_rounds" =~ ^[0-9]+$ ]] || (( max_learning_rounds < 1 || max_learning_rounds > 5 )); then
@@ -71,6 +72,7 @@ export PYTHONPATH="$service_root:$service_root/scripts${PYTHONPATH:+:$PYTHONPATH
 
 "$service_python" "$service_root/scripts/benchmark_lora_unseen_holdout_v11.py" --self-test
 "$service_python" "$curriculum" --self-test
+"$service_python" "$resume_gate" --self-test
 
 echo "INFO Learning policy: never train on a partial benchmark; never rescore a previously used image as unseen."
 echo "INFO Misses are trainable only when current trusted truth still matches the benchmark Registry UUID + fingerprint."
@@ -101,55 +103,6 @@ else:
 PY
 }
 
-resumable_benchmark_receipt() {
-  "$service_python" - "$completion_receipt" "$benchmark_dir" <<'PY'
-import hashlib, json, sys
-from pathlib import Path
-
-completion_path = Path(sys.argv[1])
-benchmark_dir = Path(sys.argv[2])
-if not completion_path.is_file() or not benchmark_dir.is_dir():
-    print("")
-    raise SystemExit(0)
-try:
-    completion = json.loads(completion_path.read_text("utf-8"))
-except Exception:
-    print("")
-    raise SystemExit(0)
-adapter = Path(str(completion.get("adapter_directory") or "")).expanduser()
-weights = adapter / "adapters.safetensors"
-if not weights.is_file():
-    print("")
-    raise SystemExit(0)
-digest = hashlib.sha256()
-with weights.open("rb") as handle:
-    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-        digest.update(chunk)
-current_sha = digest.hexdigest()
-
-paths = sorted(benchmark_dir.glob("unseen-holdout-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-for path in paths:
-    try:
-        payload = json.loads(path.read_text("utf-8"))
-    except Exception:
-        continue
-    if payload.get("complete") is not True:
-        continue
-    if int(payload.get("target") or 0) != 100 or int(payload.get("tested") or 0) != 100:
-        continue
-    results = payload.get("results")
-    if not isinstance(results, list) or len(results) != 100:
-        continue
-    if payload.get("graduation_gate_passed") is True:
-        continue
-    if str(payload.get("adapter_weights_sha256") or "").strip().lower() != current_sha:
-        continue
-    print(path)
-    raise SystemExit(0)
-print("")
-PY
-}
-
 backup_known_good() {
   local dir="$1"
   mkdir -p "$dir"
@@ -177,10 +130,10 @@ run_exam() {
   bash "$benchmark_launcher" --target 100 --registry-call-budget 1500
 }
 
-# Reuse a complete clean benchmark when the previous attempt failed only after
-# the exam and rollback restored the same certified adapter. Curriculum V3 still
-# revalidates every teachable miss against the CURRENT Registry before training.
-resume_receipt="$(resumable_benchmark_receipt)"
+# Reuse a complete clean benchmark only when its adapter SHA exactly matches the
+# current certified adapter. Curriculum V3 still revalidates each teachable miss
+# against the CURRENT Registry before it can enter the training dataset.
+resume_receipt="$("$service_python" "$resume_gate" "$completion_receipt" "$benchmark_dir")"
 if [[ -n "$resume_receipt" ]]; then
   echo "===== RESUME COMPLETED 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
   echo "PASS resume gate matched current adapter to complete non-graduating receipt: $resume_receipt"
