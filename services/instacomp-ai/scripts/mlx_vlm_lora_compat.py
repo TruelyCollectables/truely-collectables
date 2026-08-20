@@ -6,6 +6,7 @@ import runpy
 import subprocess
 import sys
 import time
+from numbers import Integral
 from pathlib import Path
 from typing import Callable
 
@@ -146,6 +147,75 @@ def _clear_partial_output(argv: list[str]) -> None:
         output.unlink()
 
 
+def _normalize_mlx_repeat_count(repeats):
+    """Convert only scalar integer-like MLX counts to the Python int API expects."""
+    if isinstance(repeats, Integral):
+        return int(repeats)
+
+    item = getattr(repeats, "item", None)
+    if not callable(item):
+        return repeats
+
+    try:
+        scalar = item()
+    except Exception:
+        return repeats
+
+    return int(scalar) if isinstance(scalar, Integral) else repeats
+
+
+def _wrap_mlx_repeat_scalar_count(repeat_fn):
+    if getattr(repeat_fn, "_instacomp_qwen3_scalar_repeat_compat", False):
+        return repeat_fn
+
+    def repeat_compat(array, repeats, axis=None, *, stream=None):
+        normalized_repeats = _normalize_mlx_repeat_count(repeats)
+        if stream is None:
+            return repeat_fn(array, normalized_repeats, axis=axis)
+        return repeat_fn(array, normalized_repeats, axis=axis, stream=stream)
+
+    repeat_compat._instacomp_qwen3_scalar_repeat_compat = True
+    return repeat_compat
+
+
+class _MxRepeatCompatProxy:
+    """Delegate all MLX calls except scalar repeat-count normalization."""
+
+    def __init__(self, mx_module):
+        self._mx_module = mx_module
+        self.repeat = _wrap_mlx_repeat_scalar_count(mx_module.repeat)
+
+    def __getattr__(self, name):
+        return getattr(self._mx_module, name)
+
+
+def install_qwen3_vision_repeat_compatibility() -> bool:
+    """Patch only Qwen3-VL vision's local MLX namespace inside this worker.
+
+    mlx-vlm 0.6.8 calls ``mx.repeat(seq_len, grid_thw[i, 0])`` where the second
+    argument is an ``mlx.core.array`` scalar. Current MLX requires ``repeats``
+    to be a Python integer. The worker is process-isolated, so replacing the
+    qwen3_vl vision module's local ``mx`` reference is bounded to LoRA training.
+    """
+    from mlx_vlm.models.qwen3_vl import vision as vision_module
+
+    if isinstance(vision_module.mx, _MxRepeatCompatProxy):
+        return False
+    if not hasattr(vision_module.mx, "repeat"):
+        raise SystemExit(
+            "InstaComp Qwen3-VL repeat compatibility guard could not find mx.repeat. "
+            "Refusing to train against an unknown mlx-vlm/MLX layout."
+        )
+
+    vision_module.mx = _MxRepeatCompatProxy(vision_module.mx)
+    print(
+        "INSTACOMP MLX COMPAT: normalizing Qwen3-VL scalar mx.repeat counts "
+        "to Python int inside the isolated training worker.",
+        flush=True,
+    )
+    return True
+
+
 def install_resize_compatibility() -> tuple[str, ...]:
     from mlx_vlm.trainer import datasets as datasets_module
 
@@ -198,6 +268,7 @@ def _run_worker(argv: list[str]) -> int:
         )
 
     install_resize_compatibility()
+    install_qwen3_vision_repeat_compatibility()
     try:
         runpy.run_module("mlx_vlm.lora", run_name="__main__")
     except RuntimeError as exc:

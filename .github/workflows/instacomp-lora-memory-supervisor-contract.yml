@@ -5,14 +5,18 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-lora-memory-supervisor-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
       - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
       - "services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py"
   push:
     branches: [main]
     paths:
       - ".github/workflows/instacomp-lora-memory-supervisor-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
       - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
       - "services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py"
   workflow_dispatch:
 
 permissions:
@@ -31,7 +35,8 @@ jobs:
         run: |
           python -m py_compile \
             services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
-            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py
       - name: Repeat deterministic parent OOM regression five times
         env:
           PYTHONPATH: services/instacomp-ai/scripts
@@ -41,10 +46,11 @@ jobs:
             echo "===== LORA OOM SUPERVISOR LINUX ${pass}/5 ====="
             python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
           done
-      - name: Prove image-only OOM recovery preserves multimodal sequence geometry
+      - name: Prove image-only OOM and Qwen3 scalar-repeat compatibility contracts
         run: |
           compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
           test=services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          runtime_test=services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py
           grep -q 'MAX_SAFE_IMAGE_EDGE = 320' "$compat"
           grep -q 'MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
           grep -q 'OOM_RETRY_IMAGE_EDGES = (288, 256)' "$compat"
@@ -54,18 +60,23 @@ jobs:
           grep -q 'RETRYABLE_OOM_RETURN_CODES = {-6, 134, OOM_EXIT_CODE}' "$compat"
           grep -q 'requested multimodal sequence cap' "$compat"
           grep -q 'max_seq_length={next_seq} preserved exactly' "$compat"
+          grep -q 'install_qwen3_vision_repeat_compatibility' "$compat"
+          grep -q '_normalize_mlx_repeat_count' "$compat"
+          grep -q 'normalizing Qwen3-VL scalar mx.repeat counts' "$compat"
           grep -q 'return subprocess.CompletedProcess(command, -6)' "$test"
+          grep -q 'Qwen3 scalar repeat shim converts only integer-like scalar counts' "$test"
           grep -q '320/4096 -> 288/4096 -> 256/4096' "$test"
           grep -q 'exact requested 4096 multimodal sequence cap survives every OOM retry' "$test"
           grep -q 'explicit safe 2048 sequence cap is preserved' "$test"
           grep -q 'unsafe multimodal max_seq_length below 2048 is rejected' "$test"
           grep -q 'non-OOM training failures are never retried' "$test"
+          grep -q 'mx.array(2, dtype=mx.int32)' "$runtime_test"
           ! grep -q '1536' "$compat"
           ! grep -q '1024' "$compat"
 
   contract-macos:
     runs-on: macos-15
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -75,7 +86,8 @@ jobs:
         run: |
           python -m py_compile \
             services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
-            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py
       - name: Repeat exact Metal and sequence-preservation regression five times on macOS
         env:
           PYTHONPATH: services/instacomp-ai/scripts
@@ -85,7 +97,26 @@ jobs:
             echo "===== LORA OOM SUPERVISOR MAC ${pass}/5 ====="
             python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
           done
-      - name: Prove Mac launcher never rewrites caller multimodal sequence cap
+      - name: Install exact certified LoRA runtime
+        run: |
+          python -m pip install --disable-pip-version-check -r services/instacomp-ai/requirements-lora-runtime.txt
+      - name: Reproduce exact Qwen3-VL MLX scalar-repeat call three times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.metadata
+          import platform
+          version = importlib.metadata.version("mlx-vlm")
+          print(f"runtime_arch={platform.machine()} mlx_vlm={version}")
+          assert version == "0.6.8"
+          PY
+          for pass in 1 2 3; do
+            echo "===== QWEN3 SCALAR REPEAT MAC ${pass}/3 ====="
+            python services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py
+          done
+      - name: Prove Mac launcher preserves sequence cap and installs Qwen3 repeat compatibility
         run: |
           compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
           grep -q 'WORKER_ENV = "INSTACOMP_MLX_LORA_WORKER"' "$compat"
@@ -97,6 +128,8 @@ jobs:
           grep -q 'MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
           grep -q 'OOM_RETRY_IMAGE_EDGES = (288, 256)' "$compat"
           grep -q 'current_seq' "$compat"
+          grep -q 'install_qwen3_vision_repeat_compatibility()' "$compat"
+          grep -q '_MxRepeatCompatProxy' "$compat"
           ! grep -q '1536' "$compat"
           ! grep -q '1024' "$compat"
           grep -q 'Metal exhausted every bounded certified image profile' "$compat"
