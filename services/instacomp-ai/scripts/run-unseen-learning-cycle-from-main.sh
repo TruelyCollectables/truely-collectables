@@ -11,7 +11,7 @@ service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 service_python="$service_root/.venv/bin/python"
 benchmark_launcher="$service_root/scripts/run-unseen-holdout-benchmark-from-main.sh"
-curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v2.py"
+curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v3.py"
 inventory_sync="$service_root/scripts/sync_all_inventory_training_truth_guarded.py"
 finisher="$service_root/scripts/finish_deal_hunter_ai_learning.py"
 staged="$service_root/scripts/run-staged-learning-from-main.sh"
@@ -69,11 +69,13 @@ if [[ -f "$service_root/.env" ]]; then
 fi
 export PYTHONPATH="$service_root:$service_root/scripts${PYTHONPATH:+:$PYTHONPATH}"
 
-"$service_python" "$service_root/scripts/benchmark_lora_unseen_holdout.py" --self-test
+"$service_python" "$service_root/scripts/benchmark_lora_unseen_holdout_v11.py" --self-test
 "$service_python" "$curriculum" --self-test
 
 echo "INFO Learning policy: never train on a partial benchmark; never rescore a previously used image as unseen."
 echo "INFO Misses are trainable only when current trusted truth still matches the benchmark Registry UUID + fingerprint."
+echo "INFO Unverifiable misses are quarantined; a real UUID/fingerprint contradiction still aborts the generation."
+echo "INFO A completed 100-card exam for the still-current certified adapter is resumed after downstream failure instead of rescanned."
 echo "INFO Every new adapter must pass locked validation and Frozen 10 -> 15 -> 25 before the next disjoint 100-card exam."
 
 latest_benchmark_receipt() {
@@ -96,6 +98,55 @@ if not path.is_file():
 else:
     payload = json.loads(path.read_text("utf-8"))
     print(str(payload.get("adapter_directory") or ""))
+PY
+}
+
+resumable_benchmark_receipt() {
+  "$service_python" - "$completion_receipt" "$benchmark_dir" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+
+completion_path = Path(sys.argv[1])
+benchmark_dir = Path(sys.argv[2])
+if not completion_path.is_file() or not benchmark_dir.is_dir():
+    print("")
+    raise SystemExit(0)
+try:
+    completion = json.loads(completion_path.read_text("utf-8"))
+except Exception:
+    print("")
+    raise SystemExit(0)
+adapter = Path(str(completion.get("adapter_directory") or "")).expanduser()
+weights = adapter / "adapters.safetensors"
+if not weights.is_file():
+    print("")
+    raise SystemExit(0)
+digest = hashlib.sha256()
+with weights.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+current_sha = digest.hexdigest()
+
+paths = sorted(benchmark_dir.glob("unseen-holdout-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+for path in paths:
+    try:
+        payload = json.loads(path.read_text("utf-8"))
+    except Exception:
+        continue
+    if payload.get("complete") is not True:
+        continue
+    if int(payload.get("target") or 0) != 100 or int(payload.get("tested") or 0) != 100:
+        continue
+    results = payload.get("results")
+    if not isinstance(results, list) or len(results) != 100:
+        continue
+    if payload.get("graduation_gate_passed") is True:
+        continue
+    if str(payload.get("adapter_weights_sha256") or "").strip().lower() != current_sha:
+        continue
+    print(path)
+    raise SystemExit(0)
+print("")
 PY
 }
 
@@ -126,12 +177,22 @@ run_exam() {
   bash "$benchmark_launcher" --target 100 --registry-call-budget 1500
 }
 
-# The initial exam belongs entirely to the currently certified adapter.
-echo "===== UNSEEN 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
-set +e
-run_exam
-exam_code=$?
-set -e
+# Reuse a complete clean benchmark when the previous attempt failed only after
+# the exam and rollback restored the same certified adapter. Curriculum V3 still
+# revalidates every teachable miss against the CURRENT Registry before training.
+resume_receipt="$(resumable_benchmark_receipt)"
+if [[ -n "$resume_receipt" ]]; then
+  echo "===== RESUME COMPLETED 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
+  echo "PASS resume gate matched current adapter to complete non-graduating receipt: $resume_receipt"
+  echo "INFO No initial rescan will run; proceeding directly to Registry-revalidated learning."
+  exam_code=5
+else
+  echo "===== UNSEEN 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
+  set +e
+  run_exam
+  exam_code=$?
+  set -e
+fi
 
 if (( exam_code == 0 )); then
   echo "PASS current adapter already graduated the complete disjoint 100-card benchmark. No retraining performed."
@@ -193,7 +254,6 @@ for (( round=1; round<=max_learning_rounds; round++ )); do
     echo "STOP post-training 100-card exam did not complete cleanly (exit=$exam_code). Certified adapter remains intact; no further training allowed." >&2
     exit "$exam_code"
   fi
-
 done
 
 receipt="$(latest_benchmark_receipt)"
