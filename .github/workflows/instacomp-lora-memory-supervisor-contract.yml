@@ -1,0 +1,88 @@
+name: InstaComp LoRA Parent OOM Recovery Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-memory-supervisor-contract.yml"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-memory-supervisor-contract.yml"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile memory supervisor
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
+            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+      - name: Repeat deterministic parent OOM regression five times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== LORA OOM SUPERVISOR LINUX ${pass}/5 ====="
+            python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          done
+      - name: Prove bounded fail-closed memory contract
+        run: |
+          compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
+          test=services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          grep -q 'MAX_SAFE_IMAGE_EDGE = 384' "$compat"
+          grep -q 'SAFE_MAX_SEQ_LENGTH = 2048' "$compat"
+          grep -q '(320, 1536)' "$compat"
+          grep -q '(256, 1024)' "$compat"
+          grep -q 'RETRYABLE_OOM_RETURN_CODES = {-6, 134, OOM_EXIT_CODE}' "$compat"
+          grep -q 'discarded partial weights' "$compat"
+          grep -q 'trusted dataset and certified resume adapter unchanged' "$compat"
+          grep -q 'return subprocess.CompletedProcess(command, -6)' "$test"
+          grep -q 'non-OOM training failures are never retried' "$test"
+
+  contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile exact Mac memory supervisor
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
+            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+      - name: Repeat exact Metal abort regression five times on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== LORA OOM SUPERVISOR MAC ${pass}/5 ====="
+            python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          done
+      - name: Prove Mac launcher stays a parent around MLX worker
+        run: |
+          compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
+          grep -q 'WORKER_ENV = "INSTACOMP_MLX_LORA_WORKER"' "$compat"
+          grep -q 'supervise_training' "$compat"
+          grep -q '_run_worker' "$compat"
+          grep -q '_clear_partial_output' "$compat"
+          grep -q 'PARENT OOM RECOVERY' "$compat"
+          grep -q 'Metal exhausted every bounded certified memory profile' "$compat"
