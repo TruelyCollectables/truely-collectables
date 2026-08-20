@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import run_lora_training_checkpoint_safe as guard
+import mlx_vlm_lora_compat as compat
 
 
 def _arg(command: list[str], flag: str) -> str:
@@ -20,7 +20,6 @@ def _edge(command: list[str]) -> int:
 
 def _base(output_path: Path) -> list[str]:
     return [
-        "python",
         "/tmp/mlx_vlm_lora_compat.py",
         "--model-path",
         "model",
@@ -42,15 +41,14 @@ def _base(output_path: Path) -> list[str]:
 
 def _sigabrt_then_success() -> None:
     with tempfile.TemporaryDirectory() as raw:
-        root = Path(raw)
-        guard.STATUS_PATH = root / "status.json"
-        guard.PARENT_OOM_RETRY_DELAY_SECONDS = 0
-        output = root / "adapter" / "adapters.safetensors"
+        output = Path(raw) / "adapter" / "adapters.safetensors"
         output.parent.mkdir()
         calls: list[list[str]] = []
 
-        def fake_run(command: list[str], *_args, **_kwargs):
+        def fake_run(command: list[str], **kwargs):
             calls.append(list(command))
+            assert kwargs["check"] is False
+            assert kwargs["env"][compat.WORKER_ENV] == "1"
             if len(calls) == 1:
                 assert _edge(command) == 384
                 assert _arg(command, "--max-seq-length") == "2048"
@@ -64,55 +62,70 @@ def _sigabrt_then_success() -> None:
             output.write_bytes(b"complete-safe-weights")
             return subprocess.CompletedProcess(command, 0)
 
-        result = guard._run_training_supervised(_base(output), original_run=fake_run)
-        assert result.returncode == 0
+        code = compat.supervise_training(_base(output), run_fn=fake_run, retry_delay_seconds=0)
+        assert code == 0
         assert len(calls) == 2
 
 
 def _bounded_memory_ladder() -> None:
     with tempfile.TemporaryDirectory() as raw:
-        root = Path(raw)
-        guard.STATUS_PATH = root / "status.json"
-        guard.PARENT_OOM_RETRY_DELAY_SECONDS = 0
-        output = root / "adapter" / "adapters.safetensors"
+        output = Path(raw) / "adapter" / "adapters.safetensors"
         output.parent.mkdir()
         calls: list[tuple[int, int]] = []
 
-        def always_oom(command: list[str], *_args, **_kwargs):
+        def always_oom(command: list[str], **_kwargs):
             calls.append((_edge(command), int(_arg(command, "--max-seq-length"))))
             output.write_bytes(b"partial")
             return subprocess.CompletedProcess(command, -6)
 
-        result = guard._run_training_supervised(_base(output), original_run=always_oom)
-        assert result.returncode == -6
+        code = compat.supervise_training(_base(output), run_fn=always_oom, retry_delay_seconds=0)
+        assert code == -6
         assert calls == [(384, 2048), (320, 1536), (256, 1024)]
+        assert not output.exists(), "failed lowest-profile weights must be discarded"
+
+
+def _python_observed_oom_is_also_retried() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        output = Path(raw) / "adapter" / "adapters.safetensors"
+        output.parent.mkdir()
+        calls: list[int] = []
+
+        def worker_oom_then_success(command: list[str], **_kwargs):
+            calls.append(_edge(command))
+            code = compat.OOM_EXIT_CODE if len(calls) == 1 else 0
+            return subprocess.CompletedProcess(command, code)
+
+        code = compat.supervise_training(
+            _base(output), run_fn=worker_oom_then_success, retry_delay_seconds=0
+        )
+        assert code == 0
+        assert calls == [384, 320]
 
 
 def _non_oom_failure_is_not_retried() -> None:
     with tempfile.TemporaryDirectory() as raw:
-        root = Path(raw)
-        guard.STATUS_PATH = root / "status.json"
-        guard.PARENT_OOM_RETRY_DELAY_SECONDS = 0
-        output = root / "adapter" / "adapters.safetensors"
+        output = Path(raw) / "adapter" / "adapters.safetensors"
         output.parent.mkdir()
         calls: list[list[str]] = []
 
-        def fail(command: list[str], *_args, **_kwargs):
+        def fail(command: list[str], **_kwargs):
             calls.append(list(command))
             return subprocess.CompletedProcess(command, 2)
 
-        result = guard._run_training_supervised(_base(output), original_run=fail)
-        assert result.returncode == 2
+        code = compat.supervise_training(_base(output), run_fn=fail, retry_delay_seconds=0)
+        assert code == 2
         assert len(calls) == 1
 
 
 def main() -> int:
     _sigabrt_then_success()
     _bounded_memory_ladder()
+    _python_observed_oom_is_also_retried()
     _non_oom_failure_is_not_retried()
-    print("PASS parent survives Metal SIGABRT and retries a lower memory profile")
+    print("PASS compat parent survives Metal SIGABRT and retries a lower memory profile")
     print("PASS partial OOM weights are discarded while dataset and certified resume adapter stay unchanged")
     print("PASS memory ladder is bounded 384/2048 -> 320/1536 -> 256/1024")
+    print("PASS Python-observed OOM exit is also recovered by the parent")
     print("PASS non-OOM training failures are never retried as memory failures")
     return 0
 
