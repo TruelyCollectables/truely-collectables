@@ -101,7 +101,7 @@ jobs:
           if [[ "${hockey}" == "true" ]]; then
             echo "CHECKLIST_REGISTRY_ACTION_URL=https://truelycollectables.com/api/internal/checklist-registry/action-ingest-staged" >> "${GITHUB_ENV}"
             echo "CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS=75000" >> "${GITHUB_ENV}"
-            echo "CHECKLIST_REGISTRY_ACTION_MAX_ATTEMPTS=3" >> "${GITHUB_ENV}"
+            echo "CHECKLIST_REGISTRY_ACTION_MAX_ATTEMPTS=2" >> "${GITHUB_ENV}"
           fi
       - name: Wait for repaired Production checklist ingest
         if: ${{ env.HOCKEY_RECONCILE == 'true' }}
@@ -157,20 +157,16 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p .hockey-checklist-reconcile
-          pids=()
-          for shard in 0 1 2 3; do
-            (
-              export HOCKEY_CHECKLIST_SHARD_INDEX="${shard}"
-              export HOCKEY_CHECKLIST_OUTPUT=".hockey-checklist-reconcile/shard-${shard}.json"
-              unset HOCKEY_CHECKLIST_ONLY_URL
-              npx tsx scripts/reconcile-hockey-checklists-2021plus.ts > ".hockey-checklist-reconcile/shard-${shard}.log" 2>&1
-            ) &
-            pids+=("$!")
-          done
-
           shard_status=0
-          for pid in "${pids[@]}"; do
-            if ! wait "${pid}"; then
+
+          # Preserve deterministic four-way partitioning for receipts/resume, but run
+          # one writer at a time. Four concurrent staged writers saturated Production
+          # PostgREST/Postgres and starved read-only InstaComp Registry traffic.
+          for shard in 0 1 2 3; do
+            export HOCKEY_CHECKLIST_SHARD_INDEX="${shard}"
+            export HOCKEY_CHECKLIST_OUTPUT=".hockey-checklist-reconcile/shard-${shard}.json"
+            unset HOCKEY_CHECKLIST_ONLY_URL
+            if ! npx tsx scripts/reconcile-hockey-checklists-2021plus.ts > ".hockey-checklist-reconcile/shard-${shard}.log" 2>&1; then
               shard_status=1
             fi
           done
@@ -183,6 +179,10 @@ jobs:
 
           export HOCKEY_CHECKLIST_OUTPUT=".hockey-checklist-reconcile/receipt.json"
           npx tsx scripts/aggregate-hockey-checklist-reconcile.ts
+
+          if (( shard_status != 0 )); then
+            echo "One or more serialized hockey shards reported unresolved sources; aggregate receipt retained." >&2
+          fi
       - name: Discover, validate, and safely import
         if: ${{ env.HOCKEY_RECONCILE != 'true' }}
         run: npx tsx scripts/discover-and-import-checklists.ts
