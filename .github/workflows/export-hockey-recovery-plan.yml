@@ -1,0 +1,36 @@
+name: Export Hockey Recovery Plan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/hockey-recovery-export-trigger'
+      - 'scripts/export-hockey-recovery-plan.ts'
+      - '.github/workflows/export-hockey-recovery-plan.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Parse 2022-23 Ice with repaired serial normalization
+        env:
+          HOCKEY_RECOVERY_URL: https://upperdeck.com/checklist/2022-23-ice-checklist/
+          HOCKEY_RECOVERY_OUTPUT: .hockey-recovery/ice-2022-23-plan.json
+        run: npx tsx scripts/export-hockey-recovery-plan.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hockey-recovery-plan
+          path: .hockey-recovery/ice-2022-23-plan.json
+          retention-days: 7
+          if-no-files-found: error
