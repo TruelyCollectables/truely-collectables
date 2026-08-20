@@ -12,7 +12,7 @@ service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 expected_service_root="$repo_root/services/instacomp-ai"
 service_python="$service_root/.venv/bin/python"
-target="$service_root/scripts/benchmark_lora_unseen_holdout_v10.py"
+target="$service_root/scripts/benchmark_lora_unseen_holdout_v11.py"
 
 if [[ -z "$repo_root" || "$service_root" != "$expected_service_root" ]]; then
   echo "Refusing unseen benchmark: unexpected repository layout." >&2
@@ -90,6 +90,7 @@ echo "INFO V8 may recover server input_incomplete only through one bounded fast 
 echo "INFO V9 aborts fail-closed when bootstrap sees a sustained systemic Registry transport outage"
 echo "INFO V10 performs three database-backed player/card Registry probes before any unseen exam work"
 echo "INFO V10 also treats 429/5xx/52x overload responses as systemic Registry failures"
+echo "INFO V11 persists the exact exam-admitted identity in the read-only benchmark receipt for later curriculum revalidation"
 echo "INFO Canonical Registry preflight is bounded, parallel, progress-reporting, and wall-clock limited"
 echo "INFO Previously scored image rows are excluded from every later exam"
 echo "INFO Multiple unseen image pairs may share one Registry identity, capped at five images per exact identity"

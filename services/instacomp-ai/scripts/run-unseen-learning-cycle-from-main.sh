@@ -11,7 +11,8 @@ service_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(git -C "$service_root" rev-parse --show-toplevel 2>/dev/null || true)"
 service_python="$service_root/.venv/bin/python"
 benchmark_launcher="$service_root/scripts/run-unseen-holdout-benchmark-from-main.sh"
-curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v2.py"
+curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v3.py"
+resume_gate="$service_root/scripts/find_resumable_unseen_benchmark.py"
 inventory_sync="$service_root/scripts/sync_all_inventory_training_truth_guarded.py"
 finisher="$service_root/scripts/finish_deal_hunter_ai_learning.py"
 staged="$service_root/scripts/run-staged-learning-from-main.sh"
@@ -36,7 +37,7 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]]; th
   exit 2
 fi
 [[ -x "$service_python" ]] || { echo "Missing service Python: $service_python" >&2; exit 2; }
-for required in "$benchmark_launcher" "$curriculum" "$inventory_sync" "$finisher" "$staged" "$enable_candidate"; do
+for required in "$benchmark_launcher" "$curriculum" "$resume_gate" "$inventory_sync" "$finisher" "$staged" "$enable_candidate"; do
   [[ -f "$required" ]] || { echo "Missing learning-cycle component: $required" >&2; exit 2; }
 done
 if ! [[ "$max_learning_rounds" =~ ^[0-9]+$ ]] || (( max_learning_rounds < 1 || max_learning_rounds > 5 )); then
@@ -69,11 +70,14 @@ if [[ -f "$service_root/.env" ]]; then
 fi
 export PYTHONPATH="$service_root:$service_root/scripts${PYTHONPATH:+:$PYTHONPATH}"
 
-"$service_python" "$service_root/scripts/benchmark_lora_unseen_holdout.py" --self-test
+"$service_python" "$service_root/scripts/benchmark_lora_unseen_holdout_v11.py" --self-test
 "$service_python" "$curriculum" --self-test
+"$service_python" "$resume_gate" --self-test
 
 echo "INFO Learning policy: never train on a partial benchmark; never rescore a previously used image as unseen."
 echo "INFO Misses are trainable only when current trusted truth still matches the benchmark Registry UUID + fingerprint."
+echo "INFO Unverifiable misses are quarantined; a real UUID/fingerprint contradiction still aborts the generation."
+echo "INFO A completed 100-card exam for the still-current certified adapter is resumed after downstream failure instead of rescanned."
 echo "INFO Every new adapter must pass locked validation and Frozen 10 -> 15 -> 25 before the next disjoint 100-card exam."
 
 latest_benchmark_receipt() {
@@ -126,12 +130,22 @@ run_exam() {
   bash "$benchmark_launcher" --target 100 --registry-call-budget 1500
 }
 
-# The initial exam belongs entirely to the currently certified adapter.
-echo "===== UNSEEN 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
-set +e
-run_exam
-exam_code=$?
-set -e
+# Reuse a complete clean benchmark only when its adapter SHA exactly matches the
+# current certified adapter. Curriculum V3 still revalidates each teachable miss
+# against the CURRENT Registry before it can enter the training dataset.
+resume_receipt="$("$service_python" "$resume_gate" "$completion_receipt" "$benchmark_dir")"
+if [[ -n "$resume_receipt" ]]; then
+  echo "===== RESUME COMPLETED 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
+  echo "PASS resume gate matched current adapter to complete non-graduating receipt: $resume_receipt"
+  echo "INFO No initial rescan will run; proceeding directly to Registry-revalidated learning."
+  exam_code=5
+else
+  echo "===== UNSEEN 100-CARD EXAM: CURRENT CERTIFIED ADAPTER ====="
+  set +e
+  run_exam
+  exam_code=$?
+  set -e
+fi
 
 if (( exam_code == 0 )); then
   echo "PASS current adapter already graduated the complete disjoint 100-card benchmark. No retraining performed."
@@ -193,7 +207,6 @@ for (( round=1; round<=max_learning_rounds; round++ )); do
     echo "STOP post-training 100-card exam did not complete cleanly (exit=$exam_code). Certified adapter remains intact; no further training allowed." >&2
     exit "$exam_code"
   fi
-
 done
 
 receipt="$(latest_benchmark_receipt)"
