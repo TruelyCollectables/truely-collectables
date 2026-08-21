@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -43,6 +44,34 @@ FEEDS = (
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 
+# Signed prospect baseballs are intentionally handled differently from sports
+# cards. The user accepts raw/unauthenticated autographs when the physical ball
+# is an official MLB or MiLB baseball and the acquisition price is cheap enough
+# to justify authenticity risk. These candidates must never be forced through
+# the card Checklist Registry or discarded merely because no JSA/BAS/PSA/COA
+# accompanies the listing.
+SIGNED_BASEBALL_LANES = {
+    "signed_prospect_baseball",
+    "signed_prospect_baseball_mislist_rescue",
+}
+SIGNED_BASEBALL_MIN_PER_RUN = 5
+SIGNED_BASEBALL_REVIEW_MAX_DELIVERED_COST = 60.0
+SIGNED_BASEBALL_SIGNATURE_RE = re.compile(r"\b(signed|autograph(?:ed)?|auto)\b", re.I)
+SIGNED_BASEBALL_OFFICIAL_RE = re.compile(
+    r"\b(?:official\s+major\s+league\s+baseball|"
+    r"official\s+minor\s+league\s+baseball|"
+    r"official\s+ball\s+of\s+minor\s+league\s+baseball|"
+    r"oml(?:b)?|"
+    r"rawlings\s+official(?:\s+major|\s+minor)?\s+league\s+baseball|"
+    r"robert\s+d\.?\s+manfred|allan\s+h\.?\s+selig|bud\s+selig)\b",
+    re.I,
+)
+SIGNED_BASEBALL_AUTH_RE = re.compile(
+    r"\b(?:jsa|beckett|bas|psa|mlb\s+authenticated|fanatics\s+authentic|"
+    r"coa|certificate\s+of\s+authenticity|authenticated)\b",
+    re.I,
+)
+
 
 def _number(value: Any) -> float | None:
     if value is None or value == "":
@@ -52,6 +81,24 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def _is_signed_baseball_candidate(candidate: dict[str, Any]) -> bool:
+    return str(candidate.get("lane") or "").strip() in SIGNED_BASEBALL_LANES
+
+
+def _known_delivered_cost(candidate: dict[str, Any]) -> float | None:
+    parts = [
+        candidate.get("item_price"),
+        candidate.get("inbound_shipping"),
+        candidate.get("buyer_fees"),
+        candidate.get("tax"),
+    ]
+    known = [_number(value) for value in parts]
+    known = [value for value in known if value is not None]
+    if not known:
+        return None
+    return round(sum(known), 2)
 
 
 def candidate_key(candidate: dict[str, Any]) -> str:
@@ -405,7 +452,101 @@ class DealHunterScheduler:
         ]
         due.sort(key=priority)
         maximum = max(1, int(self.settings.deal_hunter_max_candidates_per_run))
-        return due[:maximum], max(0, len(candidates) - min(len(due), maximum))
+
+        # Signed baseballs used to compete with every card lane for the same 20
+        # slots, which could leave 100+ discovered balls completely unevaluated.
+        # Reserve a small guaranteed slice of each run for the cheapest/newest
+        # signed-ball candidates, then fill the remaining slots normally.
+        signed_due = [candidate for candidate in due if _is_signed_baseball_candidate(candidate)]
+        signed_quota = min(SIGNED_BASEBALL_MIN_PER_RUN, maximum, len(signed_due))
+        selected = signed_due[:signed_quota]
+        selected_keys = {candidate["candidate_key"] for candidate in selected}
+        for candidate in due:
+            if len(selected) >= maximum:
+                break
+            if candidate["candidate_key"] in selected_keys:
+                continue
+            selected.append(candidate)
+            selected_keys.add(candidate["candidate_key"])
+
+        return selected, max(0, len(candidates) - len(selected))
+
+    def _evaluate_signed_baseball(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        base = {**candidate, "actionable": False, "alertworthy": False}
+        title = str(candidate.get("title") or "")
+        delivered_cost = _known_delivered_cost(candidate)
+        signature_claimed = bool(SIGNED_BASEBALL_SIGNATURE_RE.search(title))
+        official_ball_claimed = bool(SIGNED_BASEBALL_OFFICIAL_RE.search(title))
+        authentication_claimed = bool(SIGNED_BASEBALL_AUTH_RE.search(title))
+        cheap_enough_for_review = (
+            delivered_cost is not None
+            and delivered_cost <= SIGNED_BASEBALL_REVIEW_MAX_DELIVERED_COST
+        )
+
+        identity = {
+            "type": "signed_prospect_baseball",
+            "watchedPerson": candidate.get("watched_person"),
+            "signatureClaimed": signature_claimed,
+            "officialMlbOrMilbBallClaimed": official_ball_claimed,
+            "authenticationClaimed": authentication_claimed,
+            "authenticationRequired": False,
+        }
+
+        if not signature_claimed:
+            return {
+                **base,
+                "status": "manual_review",
+                "identity": identity,
+                "delivered_cost": delivered_cost,
+                "deal_label": "SIGNED BALL — VERIFY AUTOGRAPH CLAIM",
+                "alertworthy": cheap_enough_for_review,
+                "error_code": "DEAL_HUNTER_SIGNED_BALL_SIGNATURE_REVIEW_REQUIRED",
+                "error_message": (
+                    "The signed-baseball lane requires a plausible autograph claim. "
+                    "Authentication/COA is optional, but the signature still must be verified from the listing photos."
+                ),
+            }
+
+        if not official_ball_claimed:
+            return {
+                **base,
+                "status": "manual_review",
+                "identity": identity,
+                "delivered_cost": delivered_cost,
+                "deal_label": "SIGNED BALL — VERIFY OFFICIAL MLB/MILB BALL",
+                "alertworthy": cheap_enough_for_review,
+                "error_code": "DEAL_HUNTER_OFFICIAL_BALL_REVIEW_REQUIRED",
+                "error_message": (
+                    "Authentication/COA is not required. Verify from the photos that the physical ball is an official "
+                    "Major League Baseball or official Minor League Baseball before buying."
+                ),
+            }
+
+        if authentication_claimed:
+            deal_label = "SIGNED OFFICIAL BALL — VALUE REVIEW"
+            error_code = "DEAL_HUNTER_SIGNED_BALL_VALUE_REVIEW"
+            reason = (
+                "Official MLB/MiLB ball evidence and an authentication claim are present. "
+                "Review the exact signature, seller, condition, delivered cost, and resale upside before buying."
+            )
+        else:
+            deal_label = "RAW OFFICIAL BALL — AUTHENTICATION UPSIDE"
+            error_code = "DEAL_HUNTER_RAW_SIGNED_BALL_REVIEW"
+            reason = (
+                "Raw/unauthenticated prospect autographs are allowed. The physical ball appears to be an official "
+                "MLB/MiLB ball from the listing title; verify that marking and the signature from photos. No COA is required."
+            )
+
+        return {
+            **base,
+            "status": "manual_review",
+            "identity": identity,
+            "delivered_cost": delivered_cost,
+            "deal_label": deal_label,
+            "alertworthy": cheap_enough_for_review,
+            "error_code": error_code,
+            "error_message": reason,
+        }
 
     async def _download_image(
         self, client: httpx.AsyncClient, url: str, label: str
@@ -428,6 +569,9 @@ class DealHunterScheduler:
         return content, content_type, f"{label.lower()}.{extension}"
 
     async def _evaluate(self, candidate: dict[str, Any], run_id: str) -> dict[str, Any]:
+        if _is_signed_baseball_candidate(candidate):
+            return self._evaluate_signed_baseball(candidate)
+
         base = {**candidate, "status": "failed", "actionable": False, "alertworthy": False}
         images = list(dict.fromkeys(candidate.get("image_urls") or []))
         if len(images) < 2:
