@@ -10,6 +10,7 @@ from numbers import Integral
 from pathlib import Path
 from typing import Callable
 
+from mlx_vlm_resume_freeze_compat import install_resume_adapter_freeze_compatibility
 from qwen3_multimodal_alignment_guard import (
     Qwen3MultimodalAlignmentError,
     install_alignment_guards,
@@ -281,6 +282,7 @@ def _run_worker(argv: list[str]) -> int:
     install_qwen3_vision_repeat_compatibility()
     install_profile_pixel_floor(profile_edge)
     install_alignment_guards()
+    install_resume_adapter_freeze_compatibility()
     try:
         runpy.run_module("mlx_vlm.lora", run_name="__main__")
     except Qwen3MultimodalAlignmentError as exc:
