@@ -11,10 +11,8 @@ _SIGNED_BASEBALL_LANES = {
     "signed_prospect_baseball_mislist_rescue",
 }
 _SIGNED_BALL_OBJECT = re.compile(
-    r"\b(?:signed|autographed|autograph(?:ed)?|auto(?:graphed)?)\s+"
-    r"(?:(?:official|major league|mlb)\s+)*baseball\b|"
-    r"\b(?:baseball|ball)\s+(?:signed|autographed|autograph(?:ed)?|auto(?:graphed)?)\b|"
-    r"\b(?:signed|autographed)\s+ball\b",
+    r"\b(?:signed|autographed|autograph(?:ed)?|auto(?:graphed)?)\b.{0,80}\b(?:baseball|ball)\b|"
+    r"\b(?:baseball|ball)\b.{0,80}\b(?:signed|autographed|autograph(?:ed)?|auto(?:graphed)?)\b",
     re.IGNORECASE,
 )
 _CARD_OBJECT = re.compile(r"\b(?:card|cards|rc)\b", re.IGNORECASE)
