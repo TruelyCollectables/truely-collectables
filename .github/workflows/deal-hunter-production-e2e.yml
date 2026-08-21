@@ -1,5 +1,4 @@
 name: Deal Hunter Production E2E
-# Normal production rerun after Mac feed-contract repair (2026-08-21).
 
 on:
   push:
