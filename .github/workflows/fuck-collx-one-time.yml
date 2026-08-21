@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - test/fuck-collx-20260821
+  pull_request:
+    branches:
+      - fix/mac-deal-hunter-contract-20260821
   workflow_dispatch:
 
 permissions:
