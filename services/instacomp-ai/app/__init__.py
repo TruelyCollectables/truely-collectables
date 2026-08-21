@@ -11,6 +11,7 @@ from . import verified_checklist_sources_modern_extra as _verified_checklist_sou
 from .authoritative_registry_gateway import install_authoritative_registry_gateway
 from .candidate_identity_guard import install_candidate_identity_guard
 from .card_number_evidence_guard import install_card_number_evidence_guard
+from .deal_hunter_runtime_guard import install_deal_hunter_runtime_guard
 from .deterministic_checklist_recovery import install_deterministic_checklist_recovery
 from .lora_candidate_runtime_v2 import install_lora_candidate_runtime
 from .models import LocalVisionEvidence, SideVisionEvidence
@@ -97,3 +98,4 @@ install_authoritative_registry_gateway()
 install_card_number_evidence_guard()
 install_candidate_identity_guard()
 install_lora_candidate_runtime()
+install_deal_hunter_runtime_guard()
