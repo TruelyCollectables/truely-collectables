@@ -8,6 +8,7 @@ import {
   buildInstaCompRegistryLockProbe,
   publicRegistryLockStatus,
 } from "../../../../lib/instacomp-registry-lock-request";
+import { shouldAcceptDirectRegistryRecovery } from "../../../../lib/instacomp-registry-direct-acceptance";
 import { resolveRegistryDirectExact } from "../../../../lib/instacomp-registry-direct-exact";
 import { requireInstaCompJobActor } from "../../../../lib/instacomp-job-server";
 import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
@@ -121,8 +122,13 @@ export async function POST(req: NextRequest) {
     // only one unique Registry fingerprint. It never uses listing-title claims.
     if (resolution.status !== "internal_exact_match") {
       const direct = await resolveRegistryDirectExact(probe);
-      if (direct?.status === "internal_exact_match" && direct.match) {
-        resolution = direct;
+      if (
+        shouldAcceptDirectRegistryRecovery({
+          probe,
+          resolution: direct,
+        })
+      ) {
+        resolution = direct!;
         directExactRecoveryAccepted = true;
       }
     }
