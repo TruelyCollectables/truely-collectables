@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 const DETAIL_CHUNK_SIZE = 100;
 const VERSION_FILTER_CHUNK_SIZE = 200;
 const MAX_ACTIVE_CARD_ROWS = 1500;
+const MAX_IDENTITY_RPC_CANDIDATES = 200;
 
 function record(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -123,6 +124,17 @@ function statusIsPositive(value: unknown, kind: "auto" | "relic") {
         !/\b(non memorabilia|non relic|no relic|none|false)\b/.test(normalized);
 }
 
+function canonicalField(canonicalKey: unknown, field: string) {
+  const prefix = `${field}=`;
+  return (
+    String(canonicalKey || "")
+      .split("|")
+      .find((part) => part.startsWith(prefix))
+      ?.slice(prefix.length)
+      .replace(/^∅$/, "") || ""
+  );
+}
+
 function uniqueStrings(values: unknown[]) {
   return Array.from(new Set(values.map((value) => String(value || "")).filter(Boolean)));
 }
@@ -153,6 +165,231 @@ function result(reason: string, extra: Record<string, unknown> = {}) {
   });
 }
 
+function identityRpcNotDeployed(error: any) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    /could not find the function|function .* does not exist/i.test(message)
+  );
+}
+
+async function resolveViaIdentityRpc(
+  client: any,
+  body: Record<string, unknown>,
+  player: string[],
+  cardNumber: string,
+): Promise<NextResponse | null> {
+  const rpc = await client.rpc("instacomp_holdout_identity_candidates", {
+    p_players: player,
+    p_card_number: cardNumber,
+    p_limit: MAX_IDENTITY_RPC_CANDIDATES + 1,
+  });
+
+  if (rpc.error) {
+    if (identityRpcNotDeployed(rpc.error)) return null;
+    return result(
+      `trusted_holdout_identity_rpc_failed:${String(rpc.error.code || "unknown")}`,
+      { resolverStatus: "lookup_unavailable", status: "lookup_unavailable" },
+    );
+  }
+
+  const rows = Array.isArray(rpc.data) ? rpc.data : [];
+  if (rows.length > MAX_IDENTITY_RPC_CANDIDATES) {
+    return result("trusted_holdout_identity_rpc_scope_exceeded_safe_bound", {
+      resolverStatus: "lookup_unavailable",
+      status: "lookup_unavailable",
+      candidateCount: rows.length,
+    });
+  }
+  if (!rows.length) {
+    return result("trusted_holdout_player_card_absent_from_active_registry_identity_index");
+  }
+
+  const targetYear = yearStart(body.year);
+  const targetBrand = normalizedText(body.brand || body.manufacturer);
+  const targetSetTokens = evidenceTextIsUncertain(body.setName)
+    ? []
+    : meaningfulTokens(body.setName);
+  const targetTeam = normalizedText(body.team);
+  const targetSport = normalizedText(body.sport);
+  const targetLeague = normalizedText(body.league);
+  const targetVariation = normalizedText(body.variation);
+  const targetParallelRaw = evidenceTextIsUncertain(body.parallel)
+    ? ""
+    : normalizedText(body.parallel);
+  const targetParallel = parallelSignature(targetParallelRaw);
+  const targetSerialRun = String(body.serialNumber || "").match(/\/(\d{1,7})\b/)?.[1] || null;
+  const targetAuto = body.isAuto === true;
+  const targetRelic = body.isRelic === true;
+
+  const strictMatches = new Map<string, any>();
+  const relaxedMatches = new Map<string, any>();
+
+  for (const row of rows) {
+    const canonicalKey = String(row?.canonical_key || "");
+    const registryPlayers = normalizedSubjects(canonicalField(canonicalKey, "players"));
+    if (!subjectsMatch(player, registryPlayers)) continue;
+    if (normalizedCardNumber(canonicalField(canonicalKey, "card_number")) !== cardNumber) continue;
+
+    const releaseYear =
+      canonicalField(canonicalKey, "release_year") || canonicalField(canonicalKey, "season") || null;
+    const manufacturer = canonicalField(canonicalKey, "manufacturer") || null;
+    const rawBrand = canonicalField(canonicalKey, "brand") || null;
+    const product = canonicalField(canonicalKey, "product") || null;
+    const rawSetName = canonicalField(canonicalKey, "set") || null;
+    const brand = rawBrand || manufacturer || product || null;
+    const setName = rawSetName || product || null;
+    const sport = canonicalField(canonicalKey, "sport") || null;
+    const league = canonicalField(canonicalKey, "league") || null;
+    const teams = normalizedSubjects(canonicalField(canonicalKey, "teams"));
+
+    if (!yearStart(releaseYear) || !brand || !meaningfulTokens(setName).length) continue;
+    if (targetSport && normalizedText(sport) !== targetSport) continue;
+    if (targetLeague && normalizedText(league) !== targetLeague) continue;
+    if (targetTeam && !teams.some((team) => normalizedText(team) === targetTeam)) continue;
+
+    const releaseEvidenceMatches = (() => {
+      if (targetYear && yearStart(releaseYear) !== targetYear) return false;
+      if (
+        targetBrand &&
+        !normalizedText([manufacturer, rawBrand, product, rawSetName].filter(Boolean).join(" ")).includes(targetBrand)
+      ) {
+        return false;
+      }
+      if (targetSetTokens.length) {
+        const registrySetTokens = new Set(
+          meaningfulTokens([rawBrand, product, rawSetName].filter(Boolean).join(" ")),
+        );
+        if (!targetSetTokens.every((token) => registrySetTokens.has(token))) return false;
+      }
+      return true;
+    })();
+
+    const identityId = String(row?.identity_id || "").trim();
+    const fingerprint = String(row?.fingerprint_sha256 || "").trim().toLowerCase();
+    if (!identityId || !fingerprint) continue;
+
+    const parallelName = canonicalField(canonicalKey, "parallel") || "Base";
+    const serialText = canonicalField(canonicalKey, "serial_run");
+    const serialRun = Number(serialText || 0) || null;
+    if (targetSerialRun) {
+      if (serialRun !== Number(targetSerialRun)) continue;
+      if (!targetParallelRaw || targetParallel === "base") continue;
+      if (parallelSignature(parallelName) !== targetParallel) continue;
+    } else {
+      if (serialRun) continue;
+      if (targetParallelRaw) {
+        if (targetParallel === "base") {
+          if (!isBaseParallel(parallelName)) continue;
+        } else if (parallelSignature(parallelName) !== targetParallel) {
+          continue;
+        }
+      } else if (!isBaseParallel(parallelName)) {
+        continue;
+      }
+    }
+
+    const variationRaw = row?.variation || canonicalField(canonicalKey, "variation") || null;
+    const variation = normalizedText(variationRaw);
+    if (targetVariation && variation !== targetVariation) continue;
+    const registryAuto = statusIsPositive(
+      row?.autograph_status || canonicalField(canonicalKey, "autograph"),
+      "auto",
+    );
+    const registryRelic = statusIsPositive(
+      row?.memorabilia_status || canonicalField(canonicalKey, "memorabilia"),
+      "relic",
+    );
+    if (registryAuto !== targetAuto || registryRelic !== targetRelic) continue;
+
+    const candidate = {
+      identityId,
+      fingerprintSha256: fingerprint,
+      manufacturer,
+      brand,
+      player: registryPlayers.join(" / "),
+      year: releaseYear,
+      setName,
+      cardNumber: canonicalField(canonicalKey, "card_number") || null,
+      parallel: parallelName,
+      variation: variationRaw,
+      serialRun,
+      team: teams.join(" / ") || null,
+      sport,
+      league,
+      isAuto: registryAuto,
+      isRelic: registryRelic,
+    };
+    relaxedMatches.set(fingerprint, candidate);
+    if (releaseEvidenceMatches) strictMatches.set(fingerprint, candidate);
+  }
+
+  let match: any | null = null;
+  let bootstrapMode: "strict_release_evidence" | "unique_identity_release_recovery" | null = null;
+  if (strictMatches.size === 1) {
+    match = [...strictMatches.values()][0];
+    bootstrapMode = "strict_release_evidence";
+  } else if (strictMatches.size === 0 && relaxedMatches.size === 1) {
+    match = [...relaxedMatches.values()][0];
+    bootstrapMode = "unique_identity_release_recovery";
+  }
+
+  if (!match) {
+    return result(
+      strictMatches.size > 1
+        ? "trusted_holdout_registry_identity_ambiguous_under_available_release_truth"
+        : relaxedMatches.size > 1
+          ? "trusted_holdout_registry_identity_ambiguous_after_release_coordinate_recovery"
+          : "trusted_holdout_registry_no_identity_matches_player_card_variant_truth",
+      {
+        candidateCount: Math.max(strictMatches.size, relaxedMatches.size),
+        strictCandidateCount: strictMatches.size,
+        relaxedCandidateCount: relaxedMatches.size,
+      },
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    resolver: "trustedHoldoutRegistryBootstrapFast",
+    resolverStatus: "internal_exact_match",
+    status: "exact_match",
+    reasons: [
+      bootstrapMode === "strict_release_evidence"
+        ? "trusted_holdout_available_operator_truth_resolved_one_unique_active_registry_identity"
+        : "trusted_holdout_stale_release_coordinates_recovered_one_unique_active_registry_identity",
+      "bootstrap_identity_requires_normal_v20_registry_and_physical_revalidation_before_benchmark_admission",
+    ],
+    bootstrapMode,
+    candidateCount: 1,
+    strictCandidateCount: strictMatches.size,
+    relaxedCandidateCount: relaxedMatches.size,
+    registryIdentityId: match.identityId,
+    identityId: match.identityId,
+    registryFingerprintSha256: match.fingerprintSha256,
+    fingerprintSha256: match.fingerprintSha256,
+    lockedFields: {
+      sport: match.sport || null,
+      league: match.league || null,
+      year: match.year || null,
+      manufacturer: match.manufacturer || null,
+      brand: match.brand || null,
+      setName: match.setName || null,
+      player: match.player || null,
+      team: match.team || null,
+      cardNumber: match.cardNumber || null,
+      parallel: match.parallel || null,
+      variation: match.variation || null,
+      serialRun: match.serialRun || null,
+      isAuto: match.isAuto,
+      isRelic: match.isRelic,
+    },
+    identificationPath: "trusted_holdout_identity_rpc_bootstrap_pending_v20_revalidation",
+  });
+}
+
 async function chunkedInSelect(params: {
   client: any;
   table: string;
@@ -175,8 +412,7 @@ async function chunkedInSelect(params: {
 }
 
 async function activeCardsForNumber(client: any, cardNumber: string) {
-  // Card number is the left-most column of checklist_cards_instacomp_number_lookup_idx.
-  // Query it first so one holdout request never enumerates every active Registry version.
+  // Legacy fallback only. The indexed identity RPC is authoritative when deployed.
   const cardQuery = await client
     .from("checklist_cards")
     .select(
@@ -252,6 +488,9 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = serviceClient();
+    const rpcResolution = await resolveViaIdentityRpc(supabase, body, player, cardNumber);
+    if (rpcResolution) return rpcResolution;
+
     const cardResult = await activeCardsForNumber(supabase, cardNumber);
     if (cardResult.error) {
       return result(`trusted_holdout_active_card_lookup_failed:${String(cardResult.error.code || "unknown")}`, {
