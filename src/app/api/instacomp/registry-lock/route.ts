@@ -9,7 +9,7 @@ import {
   publicRegistryLockStatus,
 } from "../../../../lib/instacomp-registry-lock-request";
 import { shouldAcceptDirectRegistryRecovery } from "../../../../lib/instacomp-registry-direct-acceptance";
-import { resolveRegistryDirectExact } from "../../../../lib/instacomp-registry-direct-exact";
+import { resolveRegistryDirectExactReleaseFirst } from "../../../../lib/instacomp-registry-direct-exact-release-first";
 import { requireInstaCompJobActor } from "../../../../lib/instacomp-job-server";
 import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
 import { isValidInstaCompSentinelArchiveRequest } from "../../../../lib/instacomp-sentinel-auth";
@@ -116,12 +116,13 @@ export async function POST(req: NextRequest) {
 
     // The broad resolver intentionally begins at bounded release/set coverage,
     // but a year with thousands of checklist sets can still exhaust that scope
-    // before a clean exact card is examined. A second fail-closed path starts at
-    // the indexed exact card number (or an internally verified physical-number
-    // alias), then proves year + player + product/set + variant facts and accepts
-    // only one unique Registry fingerprint. It never uses listing-title claims.
+    // before a clean exact card is examined. The direct fallback now narrows
+    // year + manufacturer/brand to a small release family FIRST, then loads only
+    // active versions for those releases before exact card-number lookup. This
+    // avoids oversized global version-id fanout while preserving the same unique
+    // fingerprint and visible-evidence acceptance rules.
     if (resolution.status !== "internal_exact_match") {
-      const direct = await resolveRegistryDirectExact(probe);
+      const direct = await resolveRegistryDirectExactReleaseFirst(probe);
       if (
         shouldAcceptDirectRegistryRecovery({
           probe,
