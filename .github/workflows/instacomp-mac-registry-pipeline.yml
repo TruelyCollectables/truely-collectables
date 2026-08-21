@@ -11,6 +11,7 @@ on:
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
+      - "scripts/run-instacomp-registry-release-first-regressions.ts"
       - "supabase/migrations/*checklist_card_number_aliases.sql"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
   push:
@@ -23,6 +24,7 @@ on:
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
+      - "scripts/run-instacomp-registry-release-first-regressions.ts"
       - "supabase/migrations/*checklist_card_number_aliases.sql"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
 
@@ -55,6 +57,8 @@ jobs:
         run: node --import tsx scripts/run-instacomp-checklist-unthrottled-service-simulations.ts
       - name: Prove direct exact Registry recovery stays fail closed
         run: node --import tsx scripts/run-instacomp-registry-direct-exact-regressions.ts
+      - name: Prove release-first Registry narrowing avoids global version fanout
+        run: node --import tsx scripts/run-instacomp-registry-release-first-regressions.ts
       - name: Typecheck Next.js bridge
         run: npx tsc --noEmit
 
