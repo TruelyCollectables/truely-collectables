@@ -105,8 +105,8 @@ def _real_pinned_batcher_preserves_late_vision_after_guard() -> None:
     assert int(np.sum(batch_ids == VISION_START_TOKEN_ID)) == 1
     assert int(np.sum(batch_ids == VISION_END_TOKEN_ID)) == 1
     assert int(np.sum(batch_completion)) == 500
-    assert tuple(batch["pixel_values"].shape) == (560, 1536)
-    assert tuple(batch["image_grid_thw"].shape) == (2, 3)
+    assert guard._pixel_patch_rows(batch["pixel_values"]) == 560
+    assert guard._grid_patch_count(batch["image_grid_thw"]) == 560
     guard.validate_alignment(dataset, batch, stage="pinned_collated_reproduction")
 
 
@@ -142,7 +142,7 @@ def main() -> int:
     _real_pinned_batcher_preserves_late_vision_after_guard()
     _real_model_merge_guard_catches_exact_failure_class()
     print("PASS pinned mlx-vlm 0.6.8 lower profile produces fewer real Qwen3 visual patches")
-    print("PASS pinned mlx-vlm 0.6.8 late image tokens survive the exact 4096 batcher with full completion and vision tensors")
+    print("PASS pinned mlx-vlm 0.6.8 late image tokens survive the exact 4096 batcher with full completion and 560 vision patches")
     print("PASS pinned Qwen3 model merge mismatch is intercepted before masked_scatter broadcast failure")
     return 0
 
