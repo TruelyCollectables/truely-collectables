@@ -41,6 +41,35 @@ function normalized(value: unknown) {
     .trim();
 }
 
+function visibleLeagueProductHints(body: Record<string, unknown>) {
+  const visible = normalized(body.registryVisibleText ?? body.ocrText);
+  if (!visible) {
+    return { productLine: null, sport: null, league: null };
+  }
+
+  if (/\bwnba\b/.test(visible)) {
+    let productLine: string | null = null;
+    if (/\bdonruss\b/.test(visible)) productLine = "Panini Donruss WNBA";
+    else if (/\bselect\b/.test(visible)) productLine = "Panini Select WNBA";
+    else if (/\bpriz(?:m|ms|sm|sms)\b|\bprism\b/.test(visible)) {
+      productLine = "Panini Prizm WNBA";
+    }
+    return { productLine, sport: "Basketball", league: "WNBA" };
+  }
+
+  if (/\bnba\b/.test(visible)) {
+    return { productLine: null, sport: "Basketball", league: "NBA" };
+  }
+  if (/\bnhl\b/.test(visible)) {
+    return { productLine: null, sport: "Hockey", league: "NHL" };
+  }
+  if (/\bmlb\b/.test(visible)) {
+    return { productLine: null, sport: "Baseball", league: "MLB" };
+  }
+
+  return { productLine: null, sport: null, league: null };
+}
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -88,10 +117,28 @@ function trustedProductLineFallback(
   return visibleBrand;
 }
 
-function registrySetName(body: Record<string, unknown>, visibleBrand: string | null) {
+function registrySetName(
+  body: Record<string, unknown>,
+  visibleBrand: string | null,
+  visibleProductLine: string | null,
+) {
   const rawSetName = text(body.setName ?? body.set_name ?? body.subset, 180);
-  if (!rawSetName) return visibleBrand;
+  if (!rawSetName) return visibleProductLine || visibleBrand;
+
   const setName = normalized(rawSetName);
+  const visibleProduct = normalized(visibleProductLine);
+  if (visibleProduct) {
+    const marker = ["donruss", "select", "prizm"].find((token) =>
+      visibleProduct.includes(token),
+    );
+    if (marker && !setName.includes(marker)) {
+      // Exact printed product/league text is a stronger boundary than a generic
+      // local-memory subset label such as "Base Red" or "Base Set - Concourse".
+      // This is still evidence-only; Registry must exact-lock one fingerprint.
+      return visibleProductLine;
+    }
+  }
+
   const ocr = normalized(body.registryVisibleText ?? body.ocrText);
   const parallel = normalized(body.parallel);
   const brand = normalized(visibleBrand);
@@ -113,23 +160,24 @@ function registrySetName(body: Record<string, unknown>, visibleBrand: string | n
 export function buildInstaCompRegistryLockProbe(body: Record<string, unknown>) {
   const manufacturer = text(body.manufacturer, 120);
   const visibleBrand = text(body.brand, 160);
-  // Brand/product-line evidence is more specific than manufacturer.  A real
+  // Brand/product-line evidence is more specific than manufacturer. A real
   // candidate can legitimately contain manufacturer="Panini" and
-  // brand="Panini Prizm WNBA".  Collapsing that to "Panini" explodes a Base
+  // brand="Panini Prizm WNBA". Collapsing that to "Panini" explodes a Base
   // lookup across unrelated Panini releases and prevents otherwise-safe bounded
-  // card-number recovery.  Keep the visible brand when present; manufacturer is
+  // card-number recovery. Keep the visible brand when present; manufacturer is
   // only the fallback when the reader has no brand/product-line evidence.
   const registryBrand = visibleBrand || manufacturer;
   const visibleText = text(body.registryVisibleText ?? body.ocrText, 12_000);
+  const visibleHints = visibleLeagueProductHints(body);
   return {
     year: text(body.year, 20),
     brand: registryBrand,
-    setName: registrySetName(body, visibleBrand),
+    setName: registrySetName(body, visibleBrand, visibleHints.productLine),
     cardNumber: text(body.cardNumber ?? body.card_number, 80),
     player: text(body.player, 240),
     team: text(body.team, 180),
-    sport: text(body.sport, 120),
-    league: text(body.league, 120),
+    sport: text(body.sport, 120) || visibleHints.sport,
+    league: text(body.league, 120) || visibleHints.league,
     languageCode: text(body.languageCode ?? body.language_code, 40),
     configurationExclusivity: text(
       body.configurationExclusivity ?? body.configuration_exclusivity,

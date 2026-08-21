@@ -7,11 +7,15 @@ on:
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-checklist-rate-limit-policy.ts"
       - "src/lib/instacomp-registry-direct-*.ts"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/lib/deal-hunter-listing-registry-guard.ts"
       - "src/app/api/instacomp/checklist-lookup/route.ts"
       - "src/app/api/instacomp/registry-lock/route.ts"
+      - "src/app/api/instacomp/deal-hunter/evaluate/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
       - "scripts/run-instacomp-registry-release-first-regressions.ts"
+      - "scripts/run-deal-hunter-registry-context-regressions.ts"
       - "supabase/migrations/*checklist_card_number_aliases.sql"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
   push:
@@ -20,11 +24,15 @@ on:
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-checklist-rate-limit-policy.ts"
       - "src/lib/instacomp-registry-direct-*.ts"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/lib/deal-hunter-listing-registry-guard.ts"
       - "src/app/api/instacomp/checklist-lookup/route.ts"
       - "src/app/api/instacomp/registry-lock/route.ts"
+      - "src/app/api/instacomp/deal-hunter/evaluate/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
       - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
       - "scripts/run-instacomp-registry-release-first-regressions.ts"
+      - "scripts/run-deal-hunter-registry-context-regressions.ts"
       - "supabase/migrations/*checklist_card_number_aliases.sql"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
 
@@ -59,6 +67,8 @@ jobs:
         run: node --import tsx scripts/run-instacomp-registry-direct-exact-regressions.ts
       - name: Prove release-first Registry narrowing avoids global version fanout
         run: node --import tsx scripts/run-instacomp-registry-release-first-regressions.ts
+      - name: Prove Deal Hunter rejects Registry/listing contradictions
+        run: node --import tsx scripts/run-deal-hunter-registry-context-regressions.ts
       - name: Typecheck Next.js bridge
         run: npx tsc --noEmit
 

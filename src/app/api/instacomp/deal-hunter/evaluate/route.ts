@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runDealHunterCore } from "./multi-provider-core";
+import { dealHunterListingRegistryConflict } from "../../../../../lib/deal-hunter-listing-registry-guard";
 import {
   persistExactCardMarketHistory,
   type ExactMarketTargetListing,
@@ -34,6 +35,95 @@ async function listingFromClone(request: Request) {
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
+function listingConflictResponse(
+  payload: Record<string, any>,
+  scan: Record<string, any>,
+  reason: string,
+) {
+  const originalAi = (scan.ai || {}) as Record<string, any>;
+  const originalRegistry = (scan.checklistRegistry || {}) as Record<string, any>;
+  const originalExactMarket = (scan.exactMarket || {}) as Record<string, any>;
+  const rejectedIdentityId =
+    originalAi.internalChecklistIdentityId || originalRegistry.identityId || null;
+  const rejectedFingerprint =
+    originalAi.internalChecklistFingerprintSha256 ||
+    originalRegistry.fingerprintSha256 ||
+    null;
+
+  const ai = {
+    ...originalAi,
+    internalRejectedRegistryIdentityId: rejectedIdentityId,
+    internalRejectedRegistryFingerprintSha256: rejectedFingerprint,
+    internalChecklistIdentityId: null,
+    internalChecklistFingerprintSha256: null,
+    internalChecklistOutcome: "listing_identity_conflict",
+    internalChecklistReasons: [
+      ...(Array.isArray(originalAi.internalChecklistReasons)
+        ? originalAi.internalChecklistReasons
+        : []),
+      `deal_hunter_listing_identity_conflict:${reason}`,
+    ],
+  };
+
+  const safeScan = {
+    ...scan,
+    ai,
+    checklistRegistry: {
+      ...originalRegistry,
+      matched: false,
+      identityConfirmed: false,
+      identityId: null,
+      fingerprintSha256: null,
+      status: "listing_identity_conflict",
+      reasons: [
+        ...(Array.isArray(originalRegistry.reasons) ? originalRegistry.reasons : []),
+        reason,
+      ],
+    },
+    exactMarket: {
+      ...originalExactMarket,
+      status: "identity_incomplete",
+      rejectedQuery: originalExactMarket.query || null,
+      query: null,
+      queries: [],
+      sold: [],
+      active: [],
+      soldCount: 0,
+      activeCount: 0,
+      pricingEligibleSoldCount: 0,
+      pricingEligibleActiveCount: 0,
+      trustedSuggestedPrice: null,
+    },
+    soldComps: [],
+    activeComps: [],
+  };
+
+  return NextResponse.json(
+    {
+      ...payload,
+      evaluation: {
+        ...(payload.evaluation || {}),
+        status: "identity_review",
+        soldCount: 0,
+        conservativeResale: null,
+        expectedNetProfit: null,
+        roiPercent: null,
+        dealLabel: "SUPPRESSED — LISTING / REGISTRY IDENTITY CONFLICT",
+        actionable: false,
+        alertworthy: false,
+        reason,
+        errorCode: "DEAL_HUNTER_LISTING_IDENTITY_CONFLICT",
+      },
+      scan: safeScan,
+      marketHistory: {
+        status: "skipped",
+        reason: "listing_registry_identity_conflict",
+      },
+    },
+    { headers: { "Cache-Control": "no-store, max-age=0" } },
+  );
+}
+
 export async function POST(request: NextRequest) {
   const contentType = String(request.headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("application/json")) {
@@ -52,6 +142,11 @@ export async function POST(request: NextRequest) {
     if (!listing) throw new Error("Deal Hunter history wrapper could not recover listingJson.");
 
     const scan = payload.scan as Record<string, any>;
+    const conflict = dealHunterListingRegistryConflict(listing, scan);
+    if (conflict) {
+      return listingConflictResponse(payload, scan, conflict);
+    }
+
     const registry = (scan.checklistRegistry || null) as InstaCompRegistryTruth | null;
     const ai = (scan.ai || {}) as InstaCompAiResult;
     const exactMarket = (scan.exactMarket || {}) as Record<string, any>;
