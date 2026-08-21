@@ -1,0 +1,158 @@
+name: fuck CollX — One-Time Deal Hunter Test
+
+on:
+  push:
+    branches:
+      - test/fuck-collx-20260821
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify-expanded-mac-contract:
+    name: fuck CollX — Expanded Feed Certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install InstaComp AI dependencies
+        working-directory: services/instacomp-ai
+        run: pip install -r requirements.txt
+
+      - name: Compile Deal Hunter scheduler
+        working-directory: services/instacomp-ai
+        run: python -m py_compile app/deal_hunter.py app/deal_hunter_routes.py app/deal_hunter_store.py app/config.py app/settings_routes.py
+
+      - name: Run Deal Hunter scheduler tests
+        working-directory: services/instacomp-ai
+        run: pytest -q tests/test_deal_hunter_scheduler.py
+
+      - name: Prove expansion-safe contract behavior
+        working-directory: services/instacomp-ai
+        run: |
+          python - <<'PY'
+          from app.deal_hunter import validate_feed
+
+          def payload(count, success=None, coverage=None, failed=0):
+              success = count if success is None else success
+              coverage = count if coverage is None else coverage
+              return {
+                  "schema": "TCOS_NATIVE_EBAY_FEED_V1",
+                  "ok": True,
+                  "nativeEbayUsed": True,
+                  "tokenMode": "client_credentials",
+                  "queryFamilyCount": count,
+                  "successfulQueryCount": success,
+                  "failedQueryCount": failed,
+                  "sourceCoverage": [
+                      {"familyId": f"family-{i}", "status": "COMPLETE"}
+                      for i in range(coverage)
+                  ],
+              }
+
+          for key, actual, floor in [
+              ("wnba", 33, 15),
+              ("baseball_prospects", 12, 10),
+              ("signed_baseballs", 10, 5),
+          ]:
+              validate_feed(payload(actual), key, floor)
+              print(f"PASS expanded contract: {key} actual={actual} floor={floor}")
+
+          for description, broken in [
+              ("below floor", payload(14)),
+              ("success mismatch", payload(15, success=14)),
+              ("coverage mismatch", payload(15, coverage=14)),
+              ("failed query", payload(15, failed=1)),
+          ]:
+              try:
+                  validate_feed(broken, "negative_test", 15)
+              except ValueError:
+                  print(f"PASS fail-closed guard: {description}")
+              else:
+                  raise SystemExit(f"FAIL guard accepted invalid feed: {description}")
+          PY
+
+      - name: Audit live production Deal Hunter feeds
+        working-directory: services/instacomp-ai
+        run: |
+          python - <<'PY'
+          import json
+          import httpx
+          from app.deal_hunter import validate_feed
+
+          base = "https://truelycollectables.com"
+          feeds = [
+              ("wnba", "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=wnba", 15),
+              ("ivan_demidov", "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=ivan_demidov", 3),
+              ("matvei_michkov_young_guns", "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=matvei_michkov_young_guns", 8),
+              ("matvei_michkov_opc_platinum", "/api/tcos/deal-hunter-michkov-opc-platinum?perQuery=20", 10),
+              ("baseball_prospects", "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=baseball_prospects", 10),
+              ("signed_baseballs", "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=signed_baseballs", 5),
+          ]
+
+          report = []
+          with httpx.Client(timeout=300.0, follow_redirects=True) as client:
+              for key, path, floor in feeds:
+                  response = client.get(base + path, headers={"Accept": "application/json", "User-Agent": "fuck-CollX-one-time-cert/1.0"})
+                  response.raise_for_status()
+                  data = response.json()
+                  validate_feed(data, key, floor)
+                  report.append({
+                      "key": key,
+                      "status": "COMPLETE",
+                      "actual_family_count": int(data.get("queryFamilyCount", 0)),
+                      "minimum_family_count": floor,
+                      "result_count": len(data.get("results") or []),
+                  })
+          print(json.dumps(report, indent=2))
+          PY
+
+  production-deal-hunter:
+    name: TCOS Deal Hunter — Production Run
+    needs: certify-expanded-mac-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROFIT_HUNTER_SECRET: ${{ secrets.PROFIT_HUNTER_RUN_SECRET || secrets.MARKET_INTEL_INGEST_SECRET || secrets.CRON_SECRET }}
+    steps:
+      - name: Require production runner secret
+        run: |
+          if [ -z "$PROFIT_HUNTER_SECRET" ]; then
+            echo "No authorized Deal Hunter production-run secret is configured."
+            exit 1
+          fi
+
+      - name: Run complete Deal Hunter under normal production name
+        run: |
+          set -euo pipefail
+          body="$(curl --fail-with-body --silent --show-error \
+            --max-time 300 \
+            -H "Accept: application/json" \
+            -H "x-market-intel-key: $PROFIT_HUNTER_SECRET" \
+            "https://truelycollectables.com/api/cron/profit-hunter?force=1&perQuery=20")"
+          python - "$body" <<'PY'
+          import json, sys
+          data = json.loads(sys.argv[1])
+          safe = {
+              "ok": data.get("ok"),
+              "code": data.get("code"),
+              "runId": data.get("runId") or data.get("run_id"),
+              "executionPath": data.get("executionPath"),
+              "discovery": data.get("discovery") or data.get("discoveryCount"),
+              "evaluated": data.get("evaluated") or data.get("evaluatedCount"),
+              "actionable": data.get("actionable") or data.get("actionableCount"),
+              "failure": data.get("failure") or data.get("failureCount"),
+              "schedule": data.get("schedule"),
+          }
+          print(json.dumps(safe, indent=2))
+          if data.get("ok") is not True:
+              raise SystemExit("Production Deal Hunter returned ok != true")
+          PY
