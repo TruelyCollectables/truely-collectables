@@ -10,6 +10,12 @@ from numbers import Integral
 from pathlib import Path
 from typing import Callable
 
+from qwen3_multimodal_alignment_guard import (
+    Qwen3MultimodalAlignmentError,
+    install_alignment_guards,
+    install_profile_pixel_floor,
+)
+
 
 RESIZE_COMPAT_MODEL_TYPES = (
     "qwen3_vl",
@@ -23,7 +29,11 @@ MAX_SAFE_IMAGE_EDGE = 320
 MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048
 OOM_RETRY_IMAGE_EDGES = (288, 256)
 OOM_EXIT_CODE = 86
+MULTIMODAL_ALIGNMENT_EXIT_CODE = 87
 RETRYABLE_OOM_RETURN_CODES = {-6, 134, OOM_EXIT_CODE}
+RETRYABLE_PROFILE_RETURN_CODES = RETRYABLE_OOM_RETURN_CODES | {
+    MULTIMODAL_ALIGNMENT_EXIT_CODE
+}
 WORKER_ENV = "INSTACOMP_MLX_LORA_WORKER"
 PARENT_OOM_RETRY_DELAY_SECONDS = 2.0
 
@@ -252,7 +262,7 @@ def _is_metal_out_of_memory(exc: BaseException) -> bool:
 def _run_worker(argv: list[str]) -> int:
     safe_argv, requested, safe = apply_memory_safe_profile(argv)
     sys.argv[:] = safe_argv
-    _edge, safe_seq = _effective_profile(sys.argv)
+    profile_edge, safe_seq = _effective_profile(sys.argv)
     if requested != safe:
         print(
             "INSTACOMP MLX MEMORY PROFILE: clamped requested image resize "
@@ -269,8 +279,18 @@ def _run_worker(argv: list[str]) -> int:
 
     install_resize_compatibility()
     install_qwen3_vision_repeat_compatibility()
+    install_profile_pixel_floor(profile_edge)
+    install_alignment_guards()
     try:
         runpy.run_module("mlx_vlm.lora", run_name="__main__")
+    except Qwen3MultimodalAlignmentError as exc:
+        print(
+            "INSTACOMP QWEN3 ALIGNMENT: bounded profile is incompatible with this multimodal batch; "
+            f"no unsafe tensor coercion was attempted: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return MULTIMODAL_ALIGNMENT_EXIT_CODE
     except RuntimeError as exc:
         if not _is_metal_out_of_memory(exc):
             raise
@@ -324,30 +344,47 @@ def supervise_training(
         code = int(result.returncode)
         if code == 0:
             return 0
-        if code not in RETRYABLE_OOM_RETURN_CODES:
+        if code not in RETRYABLE_PROFILE_RETURN_CODES:
             return code
 
         retry = _next_lower_memory_argv(command_argv)
         if retry is None:
             _clear_partial_output(command_argv)
-            print(
-                "INSTACOMP MLX OOM: Metal exhausted every bounded certified image profile; "
-                "partial weights discarded and training remains failed closed.",
-                file=sys.stderr,
-                flush=True,
-            )
+            if code == MULTIMODAL_ALIGNMENT_EXIT_CODE:
+                print(
+                    "INSTACOMP QWEN3 ALIGNMENT: every bounded certified image profile failed multimodal alignment; "
+                    "partial weights discarded and training remains failed closed.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print(
+                    "INSTACOMP MLX OOM: Metal exhausted every bounded certified image profile; "
+                    "partial weights discarded and training remains failed closed.",
+                    file=sys.stderr,
+                    flush=True,
+                )
             return code
 
         retry_argv, (next_edge, next_seq) = retry
         _clear_partial_output(command_argv)
-        print(
-            "INSTACOMP MLX PARENT OOM RECOVERY: training worker ended with "
-            f"returncode={code}; discarded partial weights and restarting from the "
-            f"same certified adapter at {next_edge}x{next_edge} "
-            f"with max_seq_length={next_seq} preserved exactly.",
-            file=sys.stderr,
-            flush=True,
-        )
+        if code == MULTIMODAL_ALIGNMENT_EXIT_CODE:
+            print(
+                "INSTACOMP QWEN3 PARENT ALIGNMENT RECOVERY: worker detected a fail-fast text/grid/pixel/vision mismatch; "
+                "discarded partial weights and restarting from the same certified adapter at "
+                f"{next_edge}x{next_edge} with max_seq_length={next_seq} preserved exactly.",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(
+                "INSTACOMP MLX PARENT OOM RECOVERY: training worker ended with "
+                f"returncode={code}; discarded partial weights and restarting from the "
+                f"same certified adapter at {next_edge}x{next_edge} "
+                f"with max_seq_length={next_seq} preserved exactly.",
+                file=sys.stderr,
+                flush=True,
+            )
         if retry_delay_seconds > 0:
             time.sleep(retry_delay_seconds)
         command_argv = retry_argv
