@@ -8,6 +8,7 @@ import {
   buildInstaCompRegistryLockProbe,
   publicRegistryLockStatus,
 } from "../../../../lib/instacomp-registry-lock-request";
+import { resolveRegistryDirectExact } from "../../../../lib/instacomp-registry-direct-exact";
 import { requireInstaCompJobActor } from "../../../../lib/instacomp-job-server";
 import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
 import { isValidInstaCompSentinelArchiveRequest } from "../../../../lib/instacomp-sentinel-auth";
@@ -84,6 +85,7 @@ export async function POST(req: NextRequest) {
 
     let receiptRevalidationAttempted = false;
     let receiptRevalidationAccepted = false;
+    let directExactRecoveryAccepted = false;
     let resolution = null as Awaited<ReturnType<typeof resolveChecklistRegistry>> | null;
 
     // Locked validation/training rows can already carry a prior Registry UUID +
@@ -109,6 +111,20 @@ export async function POST(req: NextRequest) {
       resolution = await resolveChecklistRegistry(probe, {
         evidenceTrusted: false,
       });
+    }
+
+    // The broad resolver intentionally begins at bounded release/set coverage,
+    // but a year with thousands of checklist sets can still exhaust that scope
+    // before a clean exact card is examined. A second fail-closed path starts at
+    // the indexed exact card number (or an internally verified physical-number
+    // alias), then proves year + player + product/set + variant facts and accepts
+    // only one unique Registry fingerprint. It never uses listing-title claims.
+    if (resolution.status !== "internal_exact_match") {
+      const direct = await resolveRegistryDirectExact(probe);
+      if (direct?.status === "internal_exact_match" && direct.match) {
+        resolution = direct;
+        directExactRecoveryAccepted = true;
+      }
     }
 
     // OCR/VLM readers occasionally drop one leading digit from a printed card
@@ -180,11 +196,14 @@ export async function POST(req: NextRequest) {
       fingerprintSha256: match?.fingerprintSha256 || null,
       receiptRevalidationAttempted,
       receiptRevalidationAccepted,
+      directExactRecoveryAccepted,
       lockedFields,
       identificationPath: match
         ? receiptRevalidationAccepted
           ? "authoritative_registry_receipt_revalidated"
-          : "authoritative_registry_exact_lock"
+          : directExactRecoveryAccepted
+            ? "authoritative_registry_bounded_direct_exact"
+            : "authoritative_registry_exact_lock"
         : "review_required",
     });
   } catch (error) {
