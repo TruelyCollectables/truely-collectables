@@ -6,18 +6,24 @@ on:
       - "services/instacomp-ai/**"
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-checklist-rate-limit-policy.ts"
+      - "src/lib/instacomp-registry-direct-*.ts"
       - "src/app/api/instacomp/checklist-lookup/route.ts"
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
+      - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
+      - "supabase/migrations/*checklist_card_number_aliases.sql"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
   push:
     paths:
       - "services/instacomp-ai/**"
       - "src/lib/instacomp-ai-local.ts"
       - "src/lib/instacomp-checklist-rate-limit-policy.ts"
+      - "src/lib/instacomp-registry-direct-*.ts"
       - "src/app/api/instacomp/checklist-lookup/route.ts"
       - "src/app/api/instacomp/registry-lock/route.ts"
       - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
+      - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
+      - "supabase/migrations/*checklist_card_number_aliases.sql"
       - ".github/workflows/instacomp-mac-registry-pipeline.yml"
 
 jobs:
@@ -47,6 +53,8 @@ jobs:
       - run: npm ci
       - name: Prove trusted service-token Registry traffic is unthrottled
         run: node --import tsx scripts/run-instacomp-checklist-unthrottled-service-simulations.ts
+      - name: Prove direct exact Registry recovery stays fail closed
+        run: node --import tsx scripts/run-instacomp-registry-direct-exact-regressions.ts
       - name: Typecheck Next.js bridge
         run: npx tsc --noEmit
 
@@ -74,6 +82,7 @@ jobs:
           python -m pytest -q \
             services/instacomp-ai/tests/test_serial_evidence_guard.py \
             services/instacomp-ai/tests/test_authoritative_registry_gateway_retry.py \
+            services/instacomp-ai/tests/test_authoritative_registry_print_run.py \
             services/instacomp-ai/tests/test_deterministic_checklist_recovery.py
 
       - name: Prove Registry authority through staged v11 v10 v9 source contract
