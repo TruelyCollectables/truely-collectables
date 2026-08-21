@@ -10,6 +10,9 @@ import qwen3_multimodal_alignment_guard as guard
 
 
 IMAGE_TOKEN_ID = 151655
+VIDEO_TOKEN_ID = 151656
+VISION_START_TOKEN_ID = 151652
+VISION_END_TOKEN_ID = 151653
 
 
 class _FakeArray:
@@ -27,7 +30,9 @@ class _ImageProcessor:
 
 class _Processor:
     image_token_id = IMAGE_TOKEN_ID
-    video_token_id = 151656
+    video_token_id = VIDEO_TOKEN_ID
+    vision_start_token_id = VISION_START_TOKEN_ID
+    vision_end_token_id = VISION_END_TOKEN_ID
     image_processor = _ImageProcessor()
     video_processor = _ImageProcessor()
 
@@ -106,6 +111,63 @@ def _four_way_alignment_contract() -> None:
             raise AssertionError("mismatched Qwen3 multimodal geometry must fail before model update")
 
 
+def _overlength_window_preserves_late_vision_and_completion() -> None:
+    # Reproduce the Aug. 20 run: upstream mlx-vlm's naive first-4096 slice would
+    # contain zero image pads even though complete grid/pixel tensors survive.
+    seq_len = 5000
+    ids = [7] * seq_len
+    ids[4299] = VISION_START_TOKEN_ID
+    ids[4300:4440] = [IMAGE_TOKEN_ID] * 140
+    ids[4440] = VISION_END_TOKEN_ID
+    completion = [0] * seq_len
+    completion[4500:] = [1] * 500
+    payload = {
+        "input_ids": _FakeArray([ids], shape=(1, seq_len)),
+        "attention_mask": _FakeArray([[1] * seq_len], shape=(1, seq_len)),
+        "completion_mask": _FakeArray([completion], shape=(1, seq_len)),
+        "image_grid_thw": _FakeArray(
+            [[1, 14, 20], [1, 14, 20]], shape=(2, 3)
+        ),
+        "pixel_values": _FakeArray(shape=(560, 1536)),
+    }
+    assert guard._visual_token_count(ids[:4096], IMAGE_TOKEN_ID) == 0
+    guard.validate_alignment(_Dataset(), payload, stage="raw_unit")
+    start, end = guard.sequence_window_plan(
+        _Dataset(), payload, max_seq_length=4096
+    )
+    assert end - start <= 4096
+    fitted_ids = ids[start:end]
+    fitted_completion = completion[start:end]
+    assert guard._visual_token_count(fitted_ids, IMAGE_TOKEN_ID) == 140
+    assert sum(fitted_completion) == 500
+    assert fitted_ids.count(VISION_START_TOKEN_ID) == 1
+    assert fitted_ids.count(VISION_END_TOKEN_ID) == 1
+
+
+def _unfittable_media_plus_completion_fails_closed() -> None:
+    seq_len = 9000
+    ids = [7] * seq_len
+    ids[100] = VISION_START_TOKEN_ID
+    ids[101:241] = [IMAGE_TOKEN_ID] * 140
+    ids[241] = VISION_END_TOKEN_ID
+    completion = [0] * seq_len
+    completion[8500:] = [1] * 500
+    payload = {
+        "input_ids": _FakeArray([ids], shape=(1, seq_len)),
+        "completion_mask": _FakeArray([completion], shape=(1, seq_len)),
+        "image_grid_thw": _FakeArray(
+            [[1, 14, 20], [1, 14, 20]], shape=(2, 3)
+        ),
+        "pixel_values": _FakeArray(shape=(560, 1536)),
+    }
+    try:
+        guard.sequence_window_plan(_Dataset(), payload, max_seq_length=4096)
+    except guard.Qwen3MultimodalAlignmentError as exc:
+        assert "cannot fit all media tokens and supervised completion" in str(exc)
+    else:
+        raise AssertionError("unfittable vision+completion span must fail closed")
+
+
 def _lower_profile_can_escape_checkpoint_min_pixel_floor() -> None:
     card = _FakeArray(shape=(3, 183, 256))
     rounded_area = guard._rounded_area_without_minimum_upscale(card, factor=32)
@@ -162,10 +224,14 @@ def _persistent_alignment_failure_is_bounded_and_fails_closed() -> None:
 
 def main() -> int:
     _four_way_alignment_contract()
+    _overlength_window_preserves_late_vision_and_completion()
+    _unfittable_media_plus_completion_fails_closed()
     _lower_profile_can_escape_checkpoint_min_pixel_floor()
     _alignment_failure_retries_image_only_and_preserves_4096()
     _persistent_alignment_failure_is_bounded_and_fails_closed()
     print("PASS Qwen3 alignment guard compares text tokens, grid patches, and pixel patches before model update")
+    print("PASS Qwen3 overlength sequence fit preserves late vision tokens and the full supervised completion inside 4096")
+    print("PASS Qwen3 sequence fit fails closed when media plus supervised completion cannot fit one contiguous window")
     print("PASS lower Qwen3 retry profiles can bypass the checkpoint 65536 min-pixel upscale floor")
     print("PASS alignment recovery uses 320/4096 -> 288/4096 -> 256/4096 only")
     print("PASS alignment retries discard partial weights and preserve dataset plus certified resume adapter")

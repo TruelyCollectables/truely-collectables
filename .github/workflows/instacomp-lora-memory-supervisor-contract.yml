@@ -84,15 +84,19 @@ jobs:
           grep -q 'install_qwen3_vision_repeat_compatibility' "$compat"
           grep -q 'install_alignment_guards' "$compat"
           grep -q 'install_profile_pixel_floor' "$compat"
-          grep -q 'validating text tokens, grid geometry, pixel patches, and model features' "$guard"
+          grep -q 'sequence-cap windows' "$guard"
+          grep -q 'upstream mlx-vlm truncation neutralized before collation' "$guard"
           grep -q 'before masked scatter' "$guard"
           grep -q 'checkpoint min_pixels floor' "$guard"
           grep -q 'return subprocess.CompletedProcess(command, -6)' "$test"
           grep -q 'Qwen3 scalar repeat shim converts only integer-like scalar counts' "$test"
           grep -q '320/4096 -> 288/4096 -> 256/4096' "$test"
+          grep -q 'overlength sequence fit preserves late vision tokens' "$alignment_test"
+          grep -q 'sequence fit fails closed when media plus supervised completion cannot fit' "$alignment_test"
           grep -q 'alignment recovery uses 320/4096 -> 288/4096 -> 256/4096 only' "$alignment_test"
           grep -q 'persistent multimodal mismatch fails closed' "$alignment_test"
           grep -q 'mx.array(2, dtype=mx.int32)' "$runtime_test"
+          grep -q 'late image tokens survive the exact 4096 batcher' "$alignment_runtime"
           grep -q 'lower profile produces fewer real Qwen3 visual patches' "$alignment_runtime"
           ! grep -q '1536' "$compat"
           ! grep -q '1024' "$compat"
@@ -157,6 +161,7 @@ jobs:
         run: |
           compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
           guard=services/instacomp-ai/scripts/qwen3_multimodal_alignment_guard.py
+          alignment_runtime=services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py
           grep -q 'WORKER_ENV = "INSTACOMP_MLX_LORA_WORKER"' "$compat"
           grep -q 'supervise_training' "$compat"
           grep -q '_run_worker' "$compat"
@@ -172,6 +177,9 @@ jobs:
           grep -q 'install_alignment_guards()' "$compat"
           grep -q '_MxRepeatCompatProxy' "$compat"
           grep -q 'Qwen3MultimodalAlignmentError' "$guard"
+          grep -q 'SEQUENCE_WINDOW_PREFIX_CONTEXT = 16' "$guard"
+          grep -q 'upstream mlx-vlm truncation neutralized before collation' "$guard"
+          grep -q 'late image tokens survive the exact 4096 batcher' "$alignment_runtime"
           ! grep -q '1536' "$compat"
           ! grep -q '1024' "$compat"
           grep -q 'every bounded certified image profile' "$compat"
