@@ -1,0 +1,269 @@
+name: One-time Deal Hunter WNBA and Compton repair
+
+on:
+  push:
+    branches:
+      - fix/deal-hunter-wnba-compton
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/deal-hunter-wnba-compton
+
+      - name: Patch Deal Hunter source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          qf = Path('src/lib/deal-hunter-ebay-query-families.js')
+          text = qf.read_text()
+
+          old_players = '''const WNBA_PLAYERS = Object.freeze([\n  { player: "Caitlin Clark", team: "Indiana Fever" },\n  { player: "Paige Bueckers", team: "Dallas Wings" },\n  { player: "Dominique Malonga", team: "Seattle Storm" },\n  { player: "Sonia Citron", team: "Washington Mystics" },\n  { player: "Kiki Iriafen", team: "Washington Mystics" },\n]);'''
+          new_players = '''const WNBA_PLAYERS = Object.freeze([\n  { player: "Caitlin Clark", team: "Indiana Fever" },\n  { player: "Paige Bueckers", team: "Dallas Wings" },\n  { player: "Dominique Malonga", team: "Seattle Storm" },\n  { player: "Sonia Citron", team: "Washington Mystics" },\n  { player: "Kiki Iriafen", team: "Washington Mystics" },\n  { player: "Aneesah Morrow", team: "Connecticut Sun", autoSingleOrLotOnly: true },\n  { player: "Sarah Ashlee Barker", team: "Los Angeles Sparks", autoSingleOrLotOnly: true },\n]);'''
+          if old_players not in text:
+              raise SystemExit('WNBA_PLAYERS block not found')
+          text = text.replace(old_players, new_players, 1)
+
+          old_prospects = '''export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([\n  "Jesus Made",\n  "Leo De Vries",\n  "Josue De Paula",\n  "George Lombard Jr",\n  "Franklin Arias",\n]);'''
+          new_prospects = '''export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([\n  "Jesus Made",\n  "Leo De Vries",\n  "Josue De Paula",\n  "George Lombard Jr",\n  "Franklin Arias",\n  "Brandon Compton",\n]);'''
+          if old_prospects not in text:
+              raise SystemExit('DEFAULT_BASEBALL_PROSPECTS block not found')
+          text = text.replace(old_prospects, new_prospects, 1)
+
+          start = text.index('function wnbaFamilies() {')
+          end = text.index('\nfunction ivanFamilies() {', start)
+          new_wnba = r'''function wnbaFamilies() {
+  return WNBA_PLAYERS.flatMap(({ player, team, autoSingleOrLotOnly = false }) => {
+    const id = slug(player);
+    const [firstName, ...surnameParts] = player.split(" ");
+    const surname = surnameParts.join(" ");
+
+    if (autoSingleOrLotOnly) {
+      return [
+        {
+          familyId: `wnba.${id}.autograph-memorabilia`,
+          scope: "wnba",
+          lane: "autograph_memorabilia",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_autograph_memorabilia",
+          query: `${player} WNBA rookie autograph auto patch memorabilia`,
+          required: true,
+        },
+        {
+          familyId: `wnba.${id}.rookie-lots`,
+          scope: "wnba",
+          lane: "rookie_lots",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_lot",
+          query: `${player} WNBA rookie card lot bundle`,
+          required: true,
+        },
+        {
+          familyId: `wnba.${id}.first-name-auto-rescue`,
+          scope: "wnba",
+          lane: "name_typo_and_underspecified_rescue",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_autograph_memorabilia",
+          query: `${firstName} WNBA rookie autograph`,
+          required: true,
+          rescueMode: true,
+        },
+        {
+          familyId: `wnba.${id}.surname-auto-rescue`,
+          scope: "wnba",
+          lane: "name_typo_and_underspecified_rescue",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_autograph_memorabilia",
+          query: `${surname} WNBA rookie autograph`,
+          required: true,
+          rescueMode: true,
+        },
+      ];
+    }
+
+    return [
+      {
+        familyId: `wnba.${id}.broad-professional-rookies`,
+        scope: "wnba",
+        lane: "broad_professional_rookies",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${player} ${team} WNBA rookie card`,
+        required: true,
+      },
+      {
+        familyId: `wnba.${id}.silver-color-numbered-ssp`,
+        scope: "wnba",
+        lane: "silver_color_numbered_ssp",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_parallel",
+        query: `${player} WNBA rookie silver color numbered SSP`,
+        required: true,
+      },
+      {
+        familyId: `wnba.${id}.autograph-memorabilia`,
+        scope: "wnba",
+        lane: "autograph_memorabilia",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_autograph_memorabilia",
+        query: `${player} WNBA rookie autograph auto patch memorabilia`,
+        required: true,
+      },
+      {
+        familyId: `wnba.${id}.first-name-rescue`,
+        scope: "wnba",
+        lane: "name_typo_and_underspecified_rescue",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${firstName} WNBA rookie card`,
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `wnba.${id}.surname-rescue`,
+        scope: "wnba",
+        lane: "name_typo_and_underspecified_rescue",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${surname} WNBA rookie card`,
+        required: true,
+        rescueMode: true,
+      },
+    ];
+  });
+}
+'''
+          text = text[:start] + new_wnba + text[end:]
+
+          start = text.index('function signedBaseballFamilies(players) {')
+          end = text.index('\nexport function buildDealHunterEbayQueryFamilies', start)
+          new_signed = r'''function signedBaseballFamilies(players) {
+  return players.flatMap((player) => {
+    const id = slug(player);
+    const base = [
+      {
+        familyId: `signed-baseball.${id}`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: `${player} signed baseball autograph`,
+        required: true,
+      },
+    ];
+
+    if (player !== "Brandon Compton") return base;
+
+    return [
+      ...base,
+      {
+        familyId: `signed-baseball.${id}.autographed-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Brandon Compton autographed baseball",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.surname-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Compton signed baseball Marlins",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.initial-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "B Compton signed baseball Marlins",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.signed-ball-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Brandon Compton signed ball",
+        required: true,
+        rescueMode: true,
+      },
+    ];
+  });
+}
+'''
+          text = text[:start] + new_signed + text[end:]
+
+          text = text.replace(
+              'export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = 25;',
+              'export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = wnbaFamilies().length;',
+              1,
+          )
+          qf.write_text(text)
+
+          ph = Path('src/lib/profit-hunter-server-run.js')
+          p = ph.read_text()
+          replacements = {
+              'const EXPECTED_WNBA_FAMILIES = 15;': 'const EXPECTED_WNBA_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "wnba" }).length;',
+              'const EXPECTED_PROSPECT_FAMILIES = DEFAULT_BASEBALL_PROSPECTS.length * 2;': 'const EXPECTED_PROSPECT_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "baseball_prospects", players: DEFAULT_BASEBALL_PROSPECTS }).length;',
+              'const EXPECTED_SIGNED_BASEBALL_FAMILIES = DEFAULT_BASEBALL_PROSPECTS.length;': 'const EXPECTED_SIGNED_BASEBALL_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "signed_baseballs", players: DEFAULT_BASEBALL_PROSPECTS }).length;',
+          }
+          for old, new in replacements.items():
+              if old not in p:
+                  raise SystemExit(f'Profit Hunter contract line not found: {old}')
+              p = p.replace(old, new, 1)
+          ph.write_text(p)
+          PY
+
+      - name: Verify Deal Hunter family coverage
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import {
+            buildDealHunterEbayQueryFamilies,
+            DEFAULT_BASEBALL_PROSPECTS,
+          } from './src/lib/deal-hunter-ebay-query-families.js';
+
+          const wnba = buildDealHunterEbayQueryFamilies({ scope: 'wnba' });
+          const prospects = buildDealHunterEbayQueryFamilies({ scope: 'baseball_prospects' });
+          const balls = buildDealHunterEbayQueryFamilies({ scope: 'signed_baseballs' });
+          const morrow = wnba.filter((x) => x.watchedPerson === 'Aneesah Morrow');
+          const barker = wnba.filter((x) => x.watchedPerson === 'Sarah Ashlee Barker');
+          const comptonProspects = prospects.filter((x) => x.watchedPerson === 'Brandon Compton');
+          const comptonBalls = balls.filter((x) => x.watchedPerson === 'Brandon Compton');
+
+          if (wnba.length !== 33) throw new Error(`Expected 33 WNBA families, got ${wnba.length}`);
+          if (morrow.length !== 4 || barker.length !== 4) throw new Error('Morrow/Barker special families missing');
+          if (morrow.some((x) => x.lane === 'silver_color_numbered_ssp') || barker.some((x) => x.lane === 'silver_color_numbered_ssp')) throw new Error('Morrow/Barker singles rule violated');
+          if (!DEFAULT_BASEBALL_PROSPECTS.includes('Brandon Compton')) throw new Error('Brandon Compton missing from prospect defaults');
+          if (comptonProspects.length !== 2) throw new Error(`Expected 2 Compton card families, got ${comptonProspects.length}`);
+          if (comptonBalls.length !== 5) throw new Error(`Expected 5 Compton signed-ball families, got ${comptonBalls.length}`);
+          console.log(JSON.stringify({ wnba: wnba.length, prospects: prospects.length, signedBaseballs: balls.length, morrow: morrow.length, barker: barker.length, comptonProspects: comptonProspects.length, comptonBalls: comptonBalls.length }));
+          NODE
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          rm .github/workflows/one-time-deal-hunter-wnba-compton.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/deal-hunter-ebay-query-families.js src/lib/profit-hunter-server-run.js .github/workflows/one-time-deal-hunter-wnba-compton.yml
+          git commit -m "Fix Deal Hunter WNBA contract and add Brandon Compton"
+          git push origin HEAD:fix/deal-hunter-wnba-compton
