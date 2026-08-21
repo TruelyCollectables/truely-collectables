@@ -1,0 +1,72 @@
+name: Trigger one-time Deal Hunter repair on PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.head_ref == 'fix/deal-hunter-wnba-compton'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/deal-hunter-wnba-compton
+
+      - name: Run embedded repair patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/one-time-deal-hunter-wnba-compton.yml').read_text().splitlines()
+          collecting = False
+          run_seen = False
+          block = []
+          for line in source:
+              if line == '      - name: Patch Deal Hunter source':
+                  collecting = True
+                  continue
+              if collecting and line.startswith('      - name:'):
+                  break
+              if collecting and line == '        run: |':
+                  run_seen = True
+                  continue
+              if collecting and run_seen:
+                  block.append(line[10:] if line.startswith('          ') else line)
+          if not block:
+              raise SystemExit('Embedded patch block not found')
+          Path('/tmp/deal-hunter-patch.sh').write_text('\n'.join(block) + '\n')
+          PY
+          bash /tmp/deal-hunter-patch.sh
+
+      - name: Verify repaired family coverage
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { buildDealHunterEbayQueryFamilies, DEFAULT_BASEBALL_PROSPECTS } from './src/lib/deal-hunter-ebay-query-families.js';
+          const wnba = buildDealHunterEbayQueryFamilies({ scope: 'wnba' });
+          const prospects = buildDealHunterEbayQueryFamilies({ scope: 'baseball_prospects' });
+          const balls = buildDealHunterEbayQueryFamilies({ scope: 'signed_baseballs' });
+          if (wnba.length !== 33) throw new Error(`Expected 33 WNBA families, got ${wnba.length}`);
+          if (wnba.filter((x) => x.watchedPerson === 'Aneesah Morrow').length !== 4) throw new Error('Morrow families missing');
+          if (wnba.filter((x) => x.watchedPerson === 'Sarah Ashlee Barker').length !== 4) throw new Error('Barker families missing');
+          if (!DEFAULT_BASEBALL_PROSPECTS.includes('Brandon Compton')) throw new Error('Compton prospect missing');
+          if (prospects.filter((x) => x.watchedPerson === 'Brandon Compton').length !== 2) throw new Error('Compton prospect families missing');
+          if (balls.filter((x) => x.watchedPerson === 'Brandon Compton').length !== 5) throw new Error('Compton ball rescue families missing');
+          console.log(JSON.stringify({wnba: wnba.length, prospects: prospects.length, signedBaseballs: balls.length}));
+          NODE
+
+      - name: Commit repaired source to feature branch
+        shell: bash
+        run: |
+          rm .github/workflows/one-time-deal-hunter-wnba-compton.yml
+          rm .github/workflows/one-time-deal-hunter-pr-trigger.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix Deal Hunter WNBA contract and add Brandon Compton"
+          git push origin HEAD:fix/deal-hunter-wnba-compton
