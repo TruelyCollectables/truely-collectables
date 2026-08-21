@@ -28,6 +28,7 @@ export type ExactMarketTargetListing = {
 };
 
 export type ExactMarketObservation = {
+  id?: string;
   registry_identity_id: string;
   observation_fingerprint: string;
   observation_kind: ExactMarketObservationKind;
@@ -163,8 +164,10 @@ export function buildDealHunterTargetObservation(params: {
     ((itemPrice || 0) + (shipping || 0) + (buyerFees || 0) + (tax || 0)).toFixed(2),
   );
   const marketplace = String(target.marketplace || "Unknown").trim() || "Unknown";
-  const listingId = String(target.listingItemId || "").trim() || listingItemIdFromUrl(target.listingUrl);
-  const observedAt = dateValue(target.observedAt || params.observedAt) || new Date().toISOString();
+  const listingId =
+    String(target.listingItemId || "").trim() || listingItemIdFromUrl(target.listingUrl);
+  const observedAt =
+    dateValue(target.observedAt || params.observedAt) || new Date().toISOString();
   return {
     registry_identity_id: params.registryIdentityId,
     observation_fingerprint: observationFingerprint([
@@ -210,13 +213,31 @@ function median(values: number[]) {
     : Number(((sorted[middle - 1] + sorted[middle]) / 2).toFixed(2));
 }
 
+export function filterRetractedMarketObservations<T extends { id?: unknown }>(
+  observations: T[],
+  retractedObservationIds: Iterable<string>,
+) {
+  const retracted = new Set(
+    [...retractedObservationIds].map((value) => String(value || "").trim()).filter(Boolean),
+  );
+  if (!retracted.size) return observations;
+  return observations.filter((row) => !retracted.has(String(row.id || "").trim()));
+}
+
 export function calculateExactCardMarketTrend(
-  observations: Array<Pick<ExactMarketObservation, "observation_kind" | "delivered_price" | "effective_at" | "observed_at">>,
+  observations: Array<
+    Pick<
+      ExactMarketObservation,
+      "observation_kind" | "delivered_price" | "effective_at" | "observed_at"
+    >
+  >,
 ) {
   const sold = observations
     .filter((row) => row.observation_kind === "SOLD" && row.delivered_price !== null)
     .sort((a, b) =>
-      String(a.effective_at || a.observed_at).localeCompare(String(b.effective_at || b.observed_at)),
+      String(a.effective_at || a.observed_at).localeCompare(
+        String(b.effective_at || b.observed_at),
+      ),
     );
   const asks = observations
     .filter((row) => row.observation_kind === "ASK" && row.delivered_price !== null)
@@ -233,7 +254,9 @@ export function calculateExactCardMarketTrend(
     earlyMedian = median(soldValues.slice(0, split));
     recentMedian = median(soldValues.slice(split));
     if (earlyMedian && recentMedian !== null) {
-      percentChange = Number((((recentMedian - earlyMedian) / earlyMedian) * 100).toFixed(2));
+      percentChange = Number(
+        (((recentMedian - earlyMedian) / earlyMedian) * 100).toFixed(2),
+      );
       direction = percentChange > 10 ? "RISING" : percentChange < -10 ? "FALLING" : "STABLE";
     }
   }
@@ -242,7 +265,9 @@ export function calculateExactCardMarketTrend(
     soldObservationCount: soldValues.length,
     askObservationCount: askValues.length,
     soldMedianAllTime: median(soldValues),
-    latestSoldDeliveredPrice: soldValues.length ? soldValues[soldValues.length - 1] : null,
+    latestSoldDeliveredPrice: soldValues.length
+      ? soldValues[soldValues.length - 1]
+      : null,
     latestAskDeliveredPrice: askValues.length ? askValues[askValues.length - 1] : null,
     earlySoldMedian: earlyMedian,
     recentSoldMedian: recentMedian,
@@ -266,7 +291,8 @@ export async function persistExactCardMarketHistory(params: {
   if (!params.registry?.matched || !identityId || !fingerprint) {
     return {
       status: "blocked" as const,
-      reason: "Canonical Checklist Registry identity ID and fingerprint are required before market history can be trusted.",
+      reason:
+        "Canonical Checklist Registry identity ID and fingerprint are required before market history can be trusted.",
       inserted: 0,
       duplicates: 0,
     };
@@ -276,15 +302,24 @@ export async function persistExactCardMarketHistory(params: {
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
   ).trim();
   if (!url || !key) {
-    return { status: "skipped" as const, reason: "Supabase is not configured.", inserted: 0, duplicates: 0 };
+    return {
+      status: "skipped" as const,
+      reason: "Supabase is not configured.",
+      inserted: 0,
+      duplicates: 0,
+    };
   }
-  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const supabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
   const { data: existingIdentity, error: identityReadError } = await supabase
     .from("tcos_card_market_identities")
     .select("registry_fingerprint_sha256")
     .eq("registry_identity_id", identityId)
     .maybeSingle();
-  if (identityReadError) throw new Error(`Market identity read failed: ${identityReadError.message}`);
+  if (identityReadError) {
+    throw new Error(`Market identity read failed: ${identityReadError.message}`);
+  }
   if (
     existingIdentity?.registry_fingerprint_sha256 &&
     existingIdentity.registry_fingerprint_sha256 !== fingerprint
@@ -292,47 +327,78 @@ export async function persistExactCardMarketHistory(params: {
     throw new Error("Registry identity fingerprint changed; market history write was blocked.");
   }
   const now = dateValue(params.observedAt) || new Date().toISOString();
-  const { error: identityWriteError } = await supabase.from("tcos_card_market_identities").upsert(
-    {
-      registry_identity_id: identityId,
-      registry_fingerprint_sha256: fingerprint,
-      identity_json: params.ai,
-      verification_source: "checklist_registry",
-      last_seen_at: now,
-    },
-    { onConflict: "registry_identity_id" },
-  );
-  if (identityWriteError) throw new Error(`Market identity write failed: ${identityWriteError.message}`);
+  const { error: identityWriteError } = await supabase
+    .from("tcos_card_market_identities")
+    .upsert(
+      {
+        registry_identity_id: identityId,
+        registry_fingerprint_sha256: fingerprint,
+        identity_json: params.ai,
+        verification_source: "checklist_registry",
+        last_seen_at: now,
+      },
+      { onConflict: "registry_identity_id" },
+    );
+  if (identityWriteError) {
+    throw new Error(`Market identity write failed: ${identityWriteError.message}`);
+  }
   const rows = [
     ...(params.targetListing
-      ? [buildDealHunterTargetObservation({
-          registryIdentityId: identityId,
-          target: params.targetListing,
-          observedAt: now,
-          scanId: params.scanId,
-        })]
+      ? [
+          buildDealHunterTargetObservation({
+            registryIdentityId: identityId,
+            target: params.targetListing,
+            observedAt: now,
+            scanId: params.scanId,
+          }),
+        ]
       : []),
     ...params.sold.map((comp) =>
-      buildExactMarketObservation({ registryIdentityId: identityId, kind: "SOLD", comp, observedAt: now, scanId: params.scanId }),
+      buildExactMarketObservation({
+        registryIdentityId: identityId,
+        kind: "SOLD",
+        comp,
+        observedAt: now,
+        scanId: params.scanId,
+      }),
     ),
     ...params.active.map((comp) =>
-      buildExactMarketObservation({ registryIdentityId: identityId, kind: "ASK", comp, observedAt: now, scanId: params.scanId }),
+      buildExactMarketObservation({
+        registryIdentityId: identityId,
+        kind: "ASK",
+        comp,
+        observedAt: now,
+        scanId: params.scanId,
+      }),
     ),
   ];
   if (!rows.length) {
-    return { status: "saved" as const, reason: "Identity retained; no exact market rows were available.", inserted: 0, duplicates: 0 };
+    return {
+      status: "saved" as const,
+      reason: "Identity retained; no exact market rows were available.",
+      inserted: 0,
+      duplicates: 0,
+    };
   }
   const fingerprints = rows.map((row) => row.observation_fingerprint);
   const { data: existingRows, error: existingError } = await supabase
     .from("tcos_card_market_observations")
     .select("observation_fingerprint")
     .in("observation_fingerprint", fingerprints);
-  if (existingError) throw new Error(`Market observation dedupe failed: ${existingError.message}`);
-  const existing = new Set((existingRows || []).map((row) => String(row.observation_fingerprint)));
+  if (existingError) {
+    throw new Error(`Market observation dedupe failed: ${existingError.message}`);
+  }
+  const existing = new Set(
+    (existingRows || []).map((row) => String(row.observation_fingerprint)),
+  );
   const fresh = rows.filter((row) => !existing.has(row.observation_fingerprint));
   if (fresh.length) {
-    const { error: insertError } = await supabase.from("tcos_card_market_observations").insert(fresh);
-    if (insertError) throw new Error(`Market observation insert failed: ${insertError.message}`);
+    const { error: insertError } = await supabase
+      .from("tcos_card_market_observations")
+      .insert(fresh);
+    if (insertError) {
+      throw new Error(`Market observation insert failed: ${insertError.message}`);
+    }
   }
   return {
     status: "saved" as const,
@@ -350,22 +416,49 @@ export async function loadExactCardMarketHistory(registryIdentityId: string) {
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
   ).trim();
   if (!url || !key) throw new Error("Supabase is not configured.");
-  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const supabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
   const { data: identity, error: identityError } = await supabase
     .from("tcos_card_market_identities")
     .select("*")
     .eq("registry_identity_id", registryIdentityId)
     .maybeSingle();
   if (identityError) throw new Error(identityError.message);
+
   const { data: observations, error: observationsError } = await supabase
     .from("tcos_card_market_observations")
     .select("*")
     .eq("registry_identity_id", registryIdentityId)
     .order("observed_at", { ascending: true });
   if (observationsError) throw new Error(observationsError.message);
+
+  const allObservations = (observations || []) as ExactMarketObservation[];
+  const observationIds = allObservations
+    .map((row) => String(row.id || "").trim())
+    .filter(Boolean);
+  let retractedObservationIds: string[] = [];
+  if (observationIds.length) {
+    const { data: retractions, error: retractionsError } = await supabase
+      .from("tcos_card_market_observation_retractions")
+      .select("observation_id")
+      .in("observation_id", observationIds);
+    if (retractionsError) {
+      throw new Error(`Market observation retraction read failed: ${retractionsError.message}`);
+    }
+    retractedObservationIds = (retractions || [])
+      .map((row) => String(row.observation_id || "").trim())
+      .filter(Boolean);
+  }
+
+  const trustedObservations = filterRetractedMarketObservations(
+    allObservations,
+    retractedObservationIds,
+  );
   return {
     identity,
-    observations: observations || [],
-    trend: calculateExactCardMarketTrend((observations || []) as ExactMarketObservation[]),
+    observations: trustedObservations,
+    retractedObservationCount: allObservations.length - trustedObservations.length,
+    trend: calculateExactCardMarketTrend(trustedObservations),
   };
 }
