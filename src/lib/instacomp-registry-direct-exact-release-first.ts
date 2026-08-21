@@ -95,6 +95,60 @@ function grouped(rows: any[]) {
   return map;
 }
 
+function rowPlayers(row: DirectRegistryCardRow) {
+  return (row.players || [])
+    .map((link) => String(link?.player?.canonical_name || "").trim())
+    .filter(Boolean);
+}
+
+function rowTeams(row: DirectRegistryCardRow) {
+  return (row.teams || [])
+    .map((link) => String(link?.team?.canonical_name || "").trim())
+    .filter(Boolean);
+}
+
+export function chooseReleaseFirstRegistryExactMatch(
+  probe: Record<string, any>,
+  rows: DirectRegistryCardRow[],
+) {
+  const direct = chooseDirectRegistryExactMatch(probe, rows);
+  if (direct) {
+    return { match: direct, playerRecovered: false };
+  }
+
+  const observedPlayer = normalizedText(probe.player);
+  const observedPlayerIsRegistryTeam = Boolean(
+    observedPlayer &&
+      rows.some((row) =>
+        rowTeams(row).some((team) => normalizedText(team) === observedPlayer),
+      ),
+  );
+
+  // A non-empty person-shaped OCR value that is neither the canonical player
+  // nor a Registry team remains a hard mismatch. We only soften evidence that
+  // is truly missing or demonstrably a team-name false positive.
+  if (observedPlayer && !observedPlayerIsRegistryTeam) return null;
+
+  const candidatePlayers = unique(rows.flatMap((row) => rowPlayers(row)));
+  if (!candidatePlayers.length) return null;
+
+  const recovered = new Map<string, NonNullable<typeof direct>>();
+  for (const player of candidatePlayers) {
+    const candidate = chooseDirectRegistryExactMatch(
+      { ...probe, player },
+      rows,
+    );
+    if (!candidate?.fingerprintSha256) continue;
+    recovered.set(candidate.fingerprintSha256, candidate);
+  }
+
+  if (recovered.size !== 1) return null;
+  return {
+    match: [...recovered.values()][0],
+    playerRecovered: true,
+  };
+}
+
 export async function resolveRegistryDirectExactReleaseFirst(
   probe: Record<string, any>,
 ): Promise<ChecklistRegistryLookupResult | null> {
@@ -105,7 +159,6 @@ export async function resolveRegistryDirectExactReleaseFirst(
     !supabase ||
     !targetYear ||
     !cardNumber ||
-    !normalizedText(probe.player) ||
     !normalizedText(probe.brand)
   ) {
     return null;
@@ -241,13 +294,17 @@ export async function resolveRegistryDirectExactReleaseFirst(
     observed_alias: observedAliasByCard.get(String(card.id)) || null,
   }));
 
-  const match = chooseDirectRegistryExactMatch(probe, rows);
-  if (!match) return null;
+  const chosen = chooseReleaseFirstRegistryExactMatch(probe, rows);
+  if (!chosen) return null;
 
   return {
     status: "internal_exact_match",
-    match,
-    reasons: ["release_first_bounded_direct_registry_exact_recovery"],
+    match: chosen.match,
+    reasons: [
+      chosen.playerRecovered
+        ? "release_first_unique_fingerprint_player_recovery"
+        : "release_first_bounded_direct_registry_exact_recovery",
+    ],
     candidateCount: 1,
     coveredReleaseIds: unique(
       cards.map((card: any) => card.release_id),
