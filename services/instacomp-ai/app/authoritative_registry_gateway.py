@@ -8,6 +8,7 @@ import httpx
 from . import checklist as checklist_module
 from .checklist import _bounded_ocr, _registry_base_url, _registry_headers, _text
 from .models import CardIdentity, ChecklistOutcome, ChecklistResult
+from .visible_identity_hint_guard import registry_product_line_hint_from_text
 
 
 class AuthoritativeRegistryChecklistGateway:
@@ -91,11 +92,18 @@ class AuthoritativeRegistryChecklistGateway:
             )
             return result, diagnostics
 
+        bounded_ocr = _bounded_ocr(ocr_text)
+        registry_set_hint = identity.set_name or registry_product_line_hint_from_text(
+            bounded_ocr
+        )
         payload: dict[str, Any] = {
             "year": identity.year,
             "manufacturer": identity.manufacturer,
             "brand": identity.brand,
-            "setName": identity.set_name,
+            # Product-line OCR is query evidence only. It is never persisted as
+            # local CardIdentity.set_name and cannot authorize pricing without a
+            # unique current Registry UUID + fingerprint response.
+            "setName": registry_set_hint,
             "subset": identity.subset,
             "cardNumber": identity.card_number,
             "player": identity.player,
@@ -107,7 +115,7 @@ class AuthoritativeRegistryChecklistGateway:
             "isRelic": identity.memorabilia,
             "parallel": identity.parallel,
             "variation": identity.variation,
-            "ocrText": _bounded_ocr(ocr_text),
+            "ocrText": bounded_ocr,
         }
         if registry_identity_id and registry_fingerprint_sha256:
             payload["registryIdentityId"] = str(registry_identity_id).strip()
