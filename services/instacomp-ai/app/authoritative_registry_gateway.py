@@ -214,6 +214,20 @@ class AuthoritativeRegistryChecklistGateway:
 
         if status == "exact_match" and registry_identity_id and registry_fingerprint:
             locked = data.get("lockedFields") or {}
+            locked_serial_run_raw = locked.get("serialRun") or locked.get("serial_run")
+            try:
+                locked_serial_run = (
+                    int(locked_serial_run_raw) if locked_serial_run_raw else None
+                )
+            except (TypeError, ValueError):
+                locked_serial_run = None
+            # A card can visibly say "1 of 15219" as a product print run without
+            # being a serial-numbered parallel. Once Registry exact-locks an
+            # identity with no serial run, discard the provisional OCR serial so
+            # sold-comp search cannot accidentally add /15219 to the exact query.
+            locked_serial_number = (
+                identity.serial_number if locked_serial_run is not None else None
+            )
             canonical = CardIdentity(
                 sport=_text(locked.get("sport")) or identity.sport,
                 league=_text(locked.get("league")) or identity.league,
@@ -234,13 +248,13 @@ class AuthoritativeRegistryChecklistGateway:
                 or identity.card_number,
                 parallel=_text(locked.get("parallel")) or identity.parallel,
                 variation=_text(locked.get("variation")) or identity.variation,
-                serial_number=identity.serial_number,
-                serial_run=identity.serial_run,
+                serial_number=locked_serial_number,
+                serial_run=locked_serial_run,
                 rookie=identity.rookie,
-                autograph=identity.autograph,
+                autograph=bool(locked.get("isAuto")) if locked.get("isAuto") is not None else identity.autograph,
                 inscription=identity.inscription,
                 inscription_text=identity.inscription_text,
-                memorabilia=identity.memorabilia,
+                memorabilia=bool(locked.get("isRelic")) if locked.get("isRelic") is not None else identity.memorabilia,
                 memorabilia_type=identity.memorabilia_type,
             )
             result = ChecklistResult(
