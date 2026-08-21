@@ -17,10 +17,7 @@ _SIGNED_BALL_OBJECT = re.compile(
     r"\b(?:signed|autographed)\s+ball\b",
     re.IGNORECASE,
 )
-_CARD_OBJECT = re.compile(
-    r"\b(?:card|cards|rc|bowman|topps|chrome|panini|donruss|leaf)\b",
-    re.IGNORECASE,
-)
+_CARD_OBJECT = re.compile(r"\b(?:card|cards|rc)\b", re.IGNORECASE)
 
 
 def normalize_ebay_image_url(value: Any) -> str | None:
@@ -75,9 +72,9 @@ def is_real_signed_baseball_candidate(candidate: dict[str, Any]) -> bool:
     title = str(candidate.get("title") or "").strip()
     if not title:
         return False
-    # A title explicitly describing a trading card is not a baseball, even if it
-    # contains the words "signed baseball card". Deal Hunter's signed-ball lane
-    # must fail closed on card-product language.
+    # An explicit trading-card object is never a signed baseball, even if a
+    # seller writes "signed baseball card". Brand/prospect words alone are not
+    # disqualifying when the title clearly identifies a physical signed ball.
     if _CARD_OBJECT.search(title):
         return False
     return bool(_SIGNED_BALL_OBJECT.search(title))
