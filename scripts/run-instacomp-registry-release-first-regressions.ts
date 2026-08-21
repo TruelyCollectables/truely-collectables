@@ -115,6 +115,49 @@ assert.equal(kikiRecovered.playerRecovered, true);
 assert.equal(kikiRecovered.match.player, "Kiki Iriafen");
 assert.equal(kikiRecovered.match.parallel, "Prizms Silver");
 
+const uniquePlayerlessRows: DirectRegistryCardRow[] = [
+  {
+    id: "unique-300",
+    card_number: "300",
+    set: { name: "Base" },
+    release: {
+      product_name: "2025 Panini Prizm WNBA",
+      release_year: "2025",
+      manufacturer: { name: "Panini" },
+      brand: { name: "Prizm" },
+      sport: { name: "Basketball" },
+      league: { name: "WNBA" },
+    },
+    players: [{ player: { canonical_name: "Unique Player" } }],
+    teams: [{ team: { canonical_name: "Unique Team" } }],
+    identities: [
+      {
+        id: "66666666-6666-4666-8666-666666666666",
+        fingerprint_sha256: fingerprint("f"),
+        autograph_status: "non-auto",
+        memorabilia_status: "non-memorabilia",
+        parallel: { name: "Base", serial_run: null },
+      },
+    ],
+  },
+];
+const uniquePlayerless = chooseReleaseFirstRegistryExactMatch(
+  {
+    year: "2025",
+    brand: "Prizm",
+    setName: "Prizm",
+    cardNumber: "300",
+    player: null,
+    parallel: null,
+    isAuto: false,
+    isRelic: false,
+  },
+  uniquePlayerlessRows,
+);
+assert.ok(uniquePlayerless, "missing player may recover when only one Registry fingerprint exists");
+assert.equal(uniquePlayerless.playerRecovered, true);
+assert.equal(uniquePlayerless.match.player, "Unique Player");
+
 const soniaRows: DirectRegistryCardRow[] = [
   {
     id: "sonia-148",
@@ -149,23 +192,23 @@ const soniaRows: DirectRegistryCardRow[] = [
   },
 ];
 
-const soniaRecovered = chooseReleaseFirstRegistryExactMatch(
-  {
-    year: "2025",
-    brand: "Prizm",
-    setName: "Prizm",
-    cardNumber: "148",
-    player: null,
-    parallel: "Base",
-    isAuto: false,
-    isRelic: false,
-  },
-  soniaRows,
+assert.equal(
+  chooseReleaseFirstRegistryExactMatch(
+    {
+      year: "2025",
+      brand: "Prizm",
+      setName: "Prizm",
+      cardNumber: "148",
+      player: null,
+      parallel: "Base",
+      isAuto: false,
+      isRelic: false,
+    },
+    soniaRows,
+  ),
+  null,
+  "missing player plus default Base evidence must remain blocked when an unnumbered parallel is also possible",
 );
-assert.ok(soniaRecovered, "missing player OCR may recover only through one unique fingerprint");
-assert.equal(soniaRecovered.playerRecovered, true);
-assert.equal(soniaRecovered.match.player, "Sonia Citron");
-assert.equal(soniaRecovered.match.parallel, "Base");
 
 assert.equal(
   chooseReleaseFirstRegistryExactMatch(
@@ -184,10 +227,10 @@ assert.equal(
 );
 
 const ambiguousRows: DirectRegistryCardRow[] = [
-  ...soniaRows,
+  ...uniquePlayerlessRows,
   {
-    ...soniaRows[0],
-    id: "other-148",
+    ...uniquePlayerlessRows[0],
+    id: "other-300",
     players: [{ player: { canonical_name: "Another Player" } }],
     teams: [{ team: { canonical_name: "Another Team" } }],
     identities: [
@@ -207,9 +250,9 @@ assert.equal(
       year: "2025",
       brand: "Prizm",
       setName: "Prizm",
-      cardNumber: "148",
+      cardNumber: "300",
       player: null,
-      parallel: "Base",
+      parallel: null,
     },
     ambiguousRows,
   ),
@@ -218,5 +261,5 @@ assert.equal(
 );
 
 console.log(
-  "PASS release-first Registry narrowing avoids global fanout and safely recovers missing/team-name player OCR only when one fingerprint remains",
+  "PASS release-first Registry narrowing avoids global fanout; team-name OCR can recover through a specific variant, while Base/missing-player ambiguity stays blocked",
 );
