@@ -15,12 +15,12 @@ import { createSupabaseServerClient } from "./supabase-server";
 
 const MOUNTAIN_TIME_ZONE = "America/Denver";
 const PROFIT_HUNTER_HOURS = Object.freeze([7, 9, 11, 13, 15, 17, 19, 21]);
-const EXPECTED_WNBA_FAMILIES = 15;
+const EXPECTED_WNBA_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "wnba" }).length;
 const EXPECTED_MICHKOV_YOUNG_GUNS_FAMILIES = 8;
 const EXPECTED_MICHKOV_OPC_FAMILIES = 10;
 const EXPECTED_IVAN_FAMILIES = 3;
-const EXPECTED_PROSPECT_FAMILIES = DEFAULT_BASEBALL_PROSPECTS.length * 2;
-const EXPECTED_SIGNED_BASEBALL_FAMILIES = DEFAULT_BASEBALL_PROSPECTS.length;
+const EXPECTED_PROSPECT_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "baseball_prospects", players: DEFAULT_BASEBALL_PROSPECTS }).length;
+const EXPECTED_SIGNED_BASEBALL_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "signed_baseballs", players: DEFAULT_BASEBALL_PROSPECTS }).length;
 const EXPECTED_TOTAL_FAMILIES =
   EXPECTED_WNBA_FAMILIES +
   EXPECTED_MICHKOV_YOUNG_GUNS_FAMILIES +

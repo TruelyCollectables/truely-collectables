@@ -6,6 +6,8 @@ const WNBA_PLAYERS = Object.freeze([
   { player: "Dominique Malonga", team: "Seattle Storm" },
   { player: "Sonia Citron", team: "Washington Mystics" },
   { player: "Kiki Iriafen", team: "Washington Mystics" },
+  { player: "Aneesah Morrow", team: "Connecticut Sun", autoSingleOrLotOnly: true },
+  { player: "Sarah Ashlee Barker", team: "Los Angeles Sparks", autoSingleOrLotOnly: true },
 ]);
 
 export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([
@@ -14,6 +16,7 @@ export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([
   "Josue De Paula",
   "George Lombard Jr",
   "Franklin Arias",
+  "Brandon Compton",
 ]);
 
 const COLLEGE_OR_PRE_WNBA =
@@ -201,10 +204,54 @@ export function parseDealHunterPlayers(
 }
 
 function wnbaFamilies() {
-  return WNBA_PLAYERS.flatMap(({ player, team }) => {
+  return WNBA_PLAYERS.flatMap(({ player, team, autoSingleOrLotOnly = false }) => {
     const id = slug(player);
     const [firstName, ...surnameParts] = player.split(" ");
     const surname = surnameParts.join(" ");
+
+    if (autoSingleOrLotOnly) {
+      return [
+        {
+familyId: `wnba.${id}.autograph-memorabilia`,
+scope: "wnba",
+lane: "autograph_memorabilia",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_autograph_memorabilia",
+query: `${player} WNBA rookie autograph auto patch memorabilia`,
+required: true,
+        },
+        {
+familyId: `wnba.${id}.rookie-lots`,
+scope: "wnba",
+lane: "rookie_lots",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_lot",
+query: `${player} WNBA rookie card lot bundle`,
+required: true,
+        },
+        {
+familyId: `wnba.${id}.first-name-auto-rescue`,
+scope: "wnba",
+lane: "name_typo_and_underspecified_rescue",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_autograph_memorabilia",
+query: `${firstName} WNBA rookie autograph`,
+required: true,
+rescueMode: true,
+        },
+        {
+familyId: `wnba.${id}.surname-auto-rescue`,
+scope: "wnba",
+lane: "name_typo_and_underspecified_rescue",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_autograph_memorabilia",
+query: `${surname} WNBA rookie autograph`,
+required: true,
+rescueMode: true,
+        },
+      ];
+    }
+
     return [
       {
         familyId: `wnba.${id}.broad-professional-rookies`,
@@ -339,15 +386,66 @@ function prospectFamilies(players) {
 }
 
 function signedBaseballFamilies(players) {
-  return players.map((player) => ({
-    familyId: `signed-baseball.${slug(player)}`,
-    scope: "signed_baseballs",
-    lane: "signed_prospect_baseball",
-    watchedPerson: player,
-    itemType: "signed_prospect_baseball",
-    query: `${player} signed baseball autograph`,
-    required: true,
-  }));
+  return players.flatMap((player) => {
+    const id = slug(player);
+    const base = [
+      {
+        familyId: `signed-baseball.${id}`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: `${player} signed baseball autograph`,
+        required: true,
+      },
+    ];
+
+    if (player !== "Brandon Compton") return base;
+
+    return [
+      ...base,
+      {
+        familyId: `signed-baseball.${id}.autographed-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Brandon Compton autographed baseball",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.surname-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Compton signed baseball Marlins",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.initial-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "B Compton signed baseball Marlins",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.signed-ball-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Brandon Compton signed ball",
+        required: true,
+        rescueMode: true,
+      },
+    ];
+  });
 }
 
 export function buildDealHunterEbayQueryFamilies({
@@ -480,5 +578,5 @@ export function extractEbayItemId(value) {
   );
 }
 
-export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = 25;
+export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = wnbaFamilies().length;
 export const DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT = 8;
