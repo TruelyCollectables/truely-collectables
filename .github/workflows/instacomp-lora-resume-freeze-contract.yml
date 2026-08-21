@@ -1,0 +1,85 @@
+name: InstaComp LoRA Resume Freeze Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-resume-freeze-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat_base.py"
+      - "services/instacomp-ai/scripts/test_mlx_resume_freeze_runtime.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-resume-freeze-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat_base.py"
+      - "services/instacomp-ai/scripts/test_mlx_resume_freeze_runtime.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile resume-freeze launcher
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
+            services/instacomp-ai/scripts/mlx_vlm_lora_compat_base.py \
+            services/instacomp-ai/scripts/test_mlx_resume_freeze_runtime.py
+      - name: Prove fail-closed source contract
+        run: |
+          compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
+          grep -q 'install_resume_adapter_freeze_compatibility' "$compat"
+          grep -q 'trainer_utils.freeze_model(model)' "$compat"
+          grep -q 'non-LoRA trainable tensors' "$compat"
+          grep -q 'MAX_RESUME_TRAINABLE_PARAMS = 64_000_000' "$compat"
+          grep -q 'LoRA-only=true' "$compat"
+          grep -q 'every child' "$compat"
+
+  contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install exact certified LoRA runtime
+        run: |
+          python -m pip install --disable-pip-version-check -r services/instacomp-ai/requirements-lora-runtime.txt
+      - name: Verify exact runtime and reproduce resume defect three times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.metadata
+          import platform
+          version = importlib.metadata.version("mlx-vlm")
+          print(f"runtime_arch={platform.machine()} mlx_vlm={version}")
+          assert platform.machine() == "arm64"
+          assert version == "0.6.8"
+          PY
+          for pass in 1 2 3; do
+            echo "===== RESUME FREEZE MAC ${pass}/3 ====="
+            python services/instacomp-ai/scripts/test_mlx_resume_freeze_runtime.py
+          done
+      - name: Re-run existing parent and Qwen compatibility contracts
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          python services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py
+          python services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py
+          python services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py
