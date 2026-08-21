@@ -58,6 +58,15 @@ def test_signed_baseball_lane_keeps_real_signed_ball():
     )
 
 
+def test_signed_baseball_lane_keeps_real_ball_with_brand_context():
+    assert is_real_signed_baseball_candidate(
+        {
+            "lane": "signed_prospect_baseball",
+            "title": "Bowman Prospect Brandon Compton Signed Official MLB Baseball JSA",
+        }
+    )
+
+
 def test_installed_normalizer_drops_card_from_signed_ball_lane():
     normalized = normalize_candidate(
         {
