@@ -1,5 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
-import type { ChecklistRegistryLookupResult } from "./instacomp-learning-server";
+import type {
+  ChecklistRegistryLookupResult,
+  RegistryMatch,
+} from "./instacomp-learning-server";
 import {
   chooseDirectRegistryExactMatch,
   type DirectRegistryCardRow,
@@ -132,7 +135,7 @@ export function chooseReleaseFirstRegistryExactMatch(
   const candidatePlayers = unique(rows.flatMap((row) => rowPlayers(row)));
   if (!candidatePlayers.length) return null;
 
-  const recovered = new Map<string, NonNullable<typeof direct>>();
+  const recovered = new Map<string, RegistryMatch>();
   for (const player of candidatePlayers) {
     const candidate = chooseDirectRegistryExactMatch(
       { ...probe, player },
