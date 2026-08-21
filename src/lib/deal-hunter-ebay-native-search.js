@@ -17,6 +17,56 @@ function validIsoOrNull(value) {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
+function normalizeEbayImageUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if (!/(^|\.)ebayimg\.com$/i.test(url.hostname)) return text;
+    url.pathname = url.pathname.replace(
+      /\/s-l\d+(?=\.[a-z0-9]+$)/i,
+      "/s-l1600",
+    );
+    return url.toString();
+  } catch {
+    return text;
+  }
+}
+
+function ebayImageIdentity(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if (!/(^|\.)ebayimg\.com$/i.test(url.hostname)) return text;
+    return `${url.hostname}${url.pathname.replace(
+      /\/s-l\d+(?=\.[a-z0-9]+$)/i,
+      "/s-lSIZE",
+    )}`;
+  } catch {
+    return text;
+  }
+}
+
+function preferredListingImages(item) {
+  const ordered = [
+    item.image?.imageUrl,
+    ...(item.additionalImages || []).map((image) => image?.imageUrl),
+    ...(item.thumbnailImages || []).map((image) => image?.imageUrl),
+  ];
+  const seen = new Set();
+  const result = [];
+  for (const raw of ordered) {
+    const normalized = normalizeEbayImageUrl(raw);
+    const identity = ebayImageIdentity(normalized);
+    if (!normalized || !identity || seen.has(identity)) continue;
+    seen.add(identity);
+    result.push(normalized);
+    if (result.length >= 12) break;
+  }
+  return result;
+}
+
 export function buildDealHunterEbaySearchUrl({
   query,
   maxResults = 20,
@@ -38,11 +88,7 @@ export function buildDealHunterEbaySearchUrl({
 }
 
 function normalizeResult(item) {
-  const imageUrls = [
-    item.image?.imageUrl,
-    ...(item.thumbnailImages || []).map((image) => image?.imageUrl),
-    ...(item.additionalImages || []).map((image) => image?.imageUrl),
-  ].filter(Boolean);
+  const imageUrls = preferredListingImages(item);
   const discoveredAt = validIsoOrNull(
     item.itemOriginDate || item.itemCreationDate,
   );
