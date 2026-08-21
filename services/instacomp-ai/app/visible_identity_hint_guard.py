@@ -59,19 +59,14 @@ def _normalized_words(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
 
-def visible_product_line_hint(observations: Iterable[OCRObservation]) -> str | None:
-    """Return a conservative product-line witness from text printed on the card.
+def registry_product_line_hint_from_text(value: object) -> str | None:
+    """Return a conservative Registry query hint from bounded visible text.
 
-    This value is only a Registry query hint. It never authorizes identity or
-    pricing by itself; the central Registry must still return one exact UUID and
-    fingerprint across player, card number, product/set, parallel and serial
-    evidence.
+    This is deliberately NOT written into CardIdentity.set_name. Product-line OCR
+    is candidate evidence only; the central Registry must still resolve one exact
+    current UUID + fingerprint before identity or pricing becomes trusted.
     """
-    text = " ".join(
-        _normalized_words(observation.text)
-        for observation in observations
-        if observation.text
-    )
+    text = _normalized_words(value)
     if not text:
         return None
 
@@ -99,6 +94,15 @@ def visible_product_line_hint(observations: Iterable[OCRObservation]) -> str | N
         if pattern.search(text):
             return label
     return None
+
+
+def visible_product_line_hint(observations: Iterable[OCRObservation]) -> str | None:
+    text = " ".join(
+        str(observation.text or "")
+        for observation in observations
+        if observation.text
+    )
+    return registry_product_line_hint_from_text(text)
 
 
 def visible_player_hint(observations: Iterable[OCRObservation]) -> str | None:
@@ -137,13 +141,12 @@ def install_visible_identity_hint_guard() -> None:
         values = base.model_dump()
 
         player = visible_player_hint(observations)
-        product_line = visible_product_line_hint(observations)
         card_number = module._card_number_hint(_normalized_observations(observations))
 
         if not values.get("player") and player:
             values["player"] = player
-        if not values.get("set_name") and product_line:
-            values["set_name"] = product_line
+        # Keep local set_name untouched. Product-line OCR is passed separately as
+        # a Registry-only query hint by AuthoritativeRegistryChecklistGateway.
         if not values.get("card_number") and card_number:
             values["card_number"] = card_number
 
