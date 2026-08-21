@@ -6,6 +6,15 @@ from typing import Any
 
 SUPPORTED_MODEL_TYPES = {"qwen3_vl", "qwen3_5"}
 BASELINE_PROFILE_EDGE = 320
+SEQUENCE_WINDOW_PREFIX_CONTEXT = 16
+SEQUENCE_WINDOW_KEYS = (
+    "input_ids",
+    "attention_mask",
+    "completion_mask",
+    "mm_token_type_ids",
+    "token_type_ids",
+    "position_ids",
+)
 
 
 class Qwen3MultimodalAlignmentError(RuntimeError):
@@ -218,6 +227,196 @@ def validate_alignment(dataset: Any, payload: dict[str, Any], *, stage: str) -> 
             )
 
 
+def _sequence_length(value: Any) -> int:
+    shape = _shape(value)
+    if len(shape) == 1:
+        return int(shape[0])
+    if len(shape) == 2 and shape[0] == 1:
+        return int(shape[1])
+    values = list(_flatten(value))
+    return len(values)
+
+
+def _matching_token_positions(input_ids: Any, token_ids: set[int]) -> list[int]:
+    positions: list[int] = []
+    for index, value in enumerate(_flatten(input_ids)):
+        try:
+            if int(value) in token_ids:
+                positions.append(index)
+        except (TypeError, ValueError):
+            continue
+    return positions
+
+
+def _completion_positions(completion_mask: Any) -> list[int]:
+    if completion_mask is None:
+        return []
+    positions: list[int] = []
+    for index, value in enumerate(_flatten(completion_mask)):
+        try:
+            if int(value) != 0:
+                positions.append(index)
+        except (TypeError, ValueError):
+            continue
+    return positions
+
+
+def sequence_window_plan(
+    dataset: Any,
+    payload: dict[str, Any],
+    *,
+    max_seq_length: int,
+) -> tuple[int, int]:
+    """Choose one contiguous safe window that keeps all media and supervised output.
+
+    mlx-vlm 0.6.8 truncates input_ids in the batcher without trimming or rebuilding
+    image_grid_thw/pixel_values. For an overlength Qwen row that can leave zero
+    image tokens paired with complete vision tensors. We fit the raw, already
+    validated row before upstream collation so the upstream first-N slice becomes
+    a no-op. The selected window must retain every vision wrapper/pad token and,
+    when present, every supervised completion token.
+    """
+    input_ids = payload.get("input_ids")
+    if input_ids is None:
+        raise Qwen3MultimodalAlignmentError("Qwen3 sequence fit received no input_ids.")
+    seq_len = _sequence_length(input_ids)
+    if seq_len <= max_seq_length:
+        return 0, seq_len
+    if max_seq_length <= 0:
+        raise Qwen3MultimodalAlignmentError(
+            f"Qwen3 sequence fit received invalid max_seq_length={max_seq_length}."
+        )
+
+    processor = _processor(dataset)
+    media_token_ids = {
+        token_id
+        for token_id in (
+            _token_id(processor, "image_token_id"),
+            _token_id(processor, "video_token_id"),
+            _token_id(processor, "vision_start_token_id"),
+            _token_id(processor, "vision_end_token_id"),
+        )
+        if token_id is not None
+    }
+    media_positions = _matching_token_positions(input_ids, media_token_ids)
+    media_present = any(
+        payload.get(key) is not None
+        for key in ("image_grid_thw", "pixel_values", "video_grid_thw", "pixel_values_videos")
+    )
+    if media_present and not media_positions:
+        raise Qwen3MultimodalAlignmentError(
+            "Qwen3 overlength raw row contains vision tensors but no media tokens; refusing unsafe sequence fit."
+        )
+
+    completion_positions = _completion_positions(payload.get("completion_mask"))
+    required_start = min(media_positions) if media_positions else max(0, seq_len - max_seq_length)
+    required_end = (
+        max(completion_positions) + 1
+        if completion_positions
+        else seq_len
+    )
+    if media_positions:
+        required_end = max(required_end, max(media_positions) + 1)
+    required_start = max(0, required_start - SEQUENCE_WINDOW_PREFIX_CONTEXT)
+
+    if required_end - required_start > max_seq_length:
+        raise Qwen3MultimodalAlignmentError(
+            "Qwen3 overlength row cannot fit all media tokens and supervised completion inside "
+            f"max_seq_length={max_seq_length}: required_span={required_end - required_start} "
+            f"sequence_length={seq_len}."
+        )
+
+    # Prefer a suffix so the full assistant answer/EOS survives. If the suffix
+    # would cut the media block, anchor immediately before the media instead.
+    start = max(0, seq_len - max_seq_length)
+    if start > required_start:
+        start = required_start
+    end = min(seq_len, start + max_seq_length)
+    if end < required_end:
+        end = required_end
+        start = max(0, end - max_seq_length)
+    if start > required_start or end < required_end or end - start > max_seq_length:
+        raise Qwen3MultimodalAlignmentError(
+            "Qwen3 sequence window planner could not preserve the required multimodal/supervised span."
+        )
+
+    return int(start), int(end)
+
+
+def _slice_sequence_value(value: Any, *, start: int, end: int, seq_len: int) -> Any:
+    if value is None:
+        return None
+    shape = _shape(value)
+    if len(shape) == 1 and shape[0] == seq_len:
+        return value[start:end]
+    if len(shape) >= 2 and shape[-1] == seq_len:
+        return value[..., start:end]
+    if len(shape) == 2 and shape[0] == seq_len:
+        return value[start:end, ...]
+    return value
+
+
+def fit_sequence_window(
+    dataset: Any,
+    payload: dict[str, Any],
+    *,
+    max_seq_length: int,
+) -> dict[str, Any]:
+    if _model_type(dataset) not in SUPPORTED_MODEL_TYPES:
+        return payload
+    seq_len = _sequence_length(payload.get("input_ids"))
+    start, end = sequence_window_plan(
+        dataset,
+        payload,
+        max_seq_length=max_seq_length,
+    )
+    if start == 0 and end == seq_len:
+        return payload
+
+    fitted = dict(payload)
+    for key in SEQUENCE_WINDOW_KEYS:
+        if key in fitted:
+            fitted[key] = _slice_sequence_value(
+                fitted[key],
+                start=start,
+                end=end,
+                seq_len=seq_len,
+            )
+    validate_alignment(
+        dataset,
+        fitted,
+        stage=f"sequence_window:max_seq_length={max_seq_length}",
+    )
+    completion_tokens = len(_completion_positions(fitted.get("completion_mask")))
+    snapshot = alignment_snapshot(dataset, fitted)
+    visual_tokens = snapshot["image"]["tokens"] + snapshot["video"]["tokens"]
+    print(
+        "INSTACOMP QWEN3 SEQUENCE FIT: upstream mlx-vlm truncation neutralized before collation; "
+        f"original_tokens={seq_len} fitted_tokens={end - start} window={start}:{end} "
+        f"visual_tokens={visual_tokens} supervised_completion_tokens={completion_tokens} "
+        f"max_seq_length={max_seq_length}.",
+        flush=True,
+    )
+    return fitted
+
+
+class _SequenceWindowDataset:
+    def __init__(self, dataset: Any, max_seq_length: int):
+        self._dataset = dataset
+        self._max_seq_length = int(max_seq_length)
+
+    def __len__(self):
+        return len(self._dataset)
+
+    def __getitem__(self, index):
+        item = self._dataset[index]
+        return fit_sequence_window(
+            self._dataset,
+            item,
+            max_seq_length=self._max_seq_length,
+        )
+
+
 def _rounded_area_without_minimum_upscale(image: Any, *, factor: int) -> int:
     shape = _shape(image)
     if len(shape) != 3:
@@ -274,7 +473,7 @@ def install_profile_pixel_floor(profile_edge: int) -> bool:
 
 
 def install_alignment_guards() -> tuple[bool, bool, bool]:
-    """Install raw-dataset, collated-batch, and model-merge fail-fast checks."""
+    """Install raw-dataset, sequence-safe collated-batch, and model-merge checks."""
     from mlx_vlm.models.qwen3_vl import qwen3_vl as model_module
     from mlx_vlm.trainer import datasets as datasets_module
     from mlx_vlm.trainer import sft_trainer as trainer_module
@@ -301,7 +500,20 @@ def install_alignment_guards() -> tuple[bool, bool, bool]:
                 if "max_seq_length" in kwargs
                 else (args[2] if len(args) > 2 else None)
             )
-            for batch in original_iterate(*args, **kwargs):
+            if max_seq_length is None:
+                raise Qwen3MultimodalAlignmentError(
+                    "Qwen3 guarded batch iteration requires max_seq_length."
+                )
+            safe_dataset = _SequenceWindowDataset(dataset, int(max_seq_length))
+            call_args = list(args)
+            call_kwargs = dict(kwargs)
+            if "dataset" in call_kwargs:
+                call_kwargs["dataset"] = safe_dataset
+            elif call_args:
+                call_args[0] = safe_dataset
+            else:
+                call_kwargs["dataset"] = safe_dataset
+            for batch in original_iterate(*call_args, **call_kwargs):
                 validate_alignment(
                     dataset,
                     batch,
@@ -345,7 +557,7 @@ def install_alignment_guards() -> tuple[bool, bool, bool]:
         merge_installed = True
 
     print(
-        "INSTACOMP QWEN3 ALIGNMENT GUARD: validating text tokens, grid geometry, pixel patches, and model features before every update.",
+        "INSTACOMP QWEN3 ALIGNMENT GUARD: validating raw rows, sequence-cap windows, grid geometry, pixel patches, and model features before every update.",
         flush=True,
     )
     return process_installed, iterate_installed, merge_installed
