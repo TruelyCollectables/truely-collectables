@@ -12,6 +12,9 @@ import httpx
 from .deal_hunter_store import DealHunterStore, utc_now
 
 
+# The third value is a safety floor, not an exact family count. New query
+# families may be added by the production feed without requiring a Mac release,
+# but a feed that unexpectedly shrinks below its certified baseline still fails.
 FEEDS = (
     ("wnba", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=wnba", 15),
     ("ivan_demidov", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=ivan_demidov", 3),
@@ -85,7 +88,7 @@ def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_feed(payload: dict[str, Any], key: str, expected_families: int) -> None:
+def validate_feed(payload: dict[str, Any], key: str, minimum_families: int) -> None:
     errors = []
     if payload.get("schema") != "TCOS_NATIVE_EBAY_FEED_V1":
         errors.append(f"schema={payload.get('schema')}")
@@ -98,15 +101,21 @@ def validate_feed(payload: dict[str, Any], key: str, expected_families: int) -> 
     family_count = int(payload.get("queryFamilyCount", -1))
     success_count = int(payload.get("successfulQueryCount", -1))
     failed_count = int(payload.get("failedQueryCount", -1))
-    if family_count != expected_families:
-        errors.append(f"queryFamilyCount={family_count}; expected={expected_families}")
-    if success_count != expected_families:
-        errors.append(f"successfulQueryCount={success_count}; expected={expected_families}")
+    if family_count < minimum_families:
+        errors.append(
+            f"queryFamilyCount={family_count}; minimum_expected={minimum_families}"
+        )
+    if success_count != family_count:
+        errors.append(
+            f"successfulQueryCount={success_count}; queryFamilyCount={family_count}"
+        )
     if failed_count != 0:
         errors.append(f"failedQueryCount={failed_count}")
     coverage = payload.get("sourceCoverage") or []
-    if len(coverage) != expected_families:
-        errors.append(f"sourceCoverage={len(coverage)}; expected={expected_families}")
+    if len(coverage) != family_count:
+        errors.append(
+            f"sourceCoverage={len(coverage)}; queryFamilyCount={family_count}"
+        )
     incomplete = [row.get("familyId") for row in coverage if row.get("status") != "COMPLETE"]
     if incomplete:
         errors.append(f"incomplete={incomplete}")
@@ -269,15 +278,15 @@ class DealHunterScheduler:
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             tasks = []
-            for key, path, expected in FEEDS:
+            for key, path, minimum_families in FEEDS:
                 url = site + path.format(per_query=int(self.settings.deal_hunter_per_query))
-                tasks.append(self._fetch_feed(client, key, url, expected))
+                tasks.append(self._fetch_feed(client, key, url, minimum_families))
             outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
         failures = []
         healthy_feed_count = 0
         for index, outcome in enumerate(outcomes):
-            feed_key, _path, expected_families = FEEDS[index]
+            feed_key, _path, minimum_families = FEEDS[index]
             if isinstance(outcome, Exception):
                 error = str(outcome)[:1000]
                 failures.append(f"{feed_key}: {error}")
@@ -285,7 +294,7 @@ class DealHunterScheduler:
                     {
                         "key": feed_key,
                         "status": "FAILED",
-                        "query_family_count": expected_families,
+                        "minimum_query_family_count": minimum_families,
                         "result_count": 0,
                         "error": error,
                     }
@@ -336,7 +345,7 @@ class DealHunterScheduler:
         client: httpx.AsyncClient,
         key: str,
         url: str,
-        expected: int,
+        minimum_families: int,
     ) -> dict[str, Any]:
         started = utc_now()
         response = await client.get(
@@ -348,12 +357,14 @@ class DealHunterScheduler:
         )
         response.raise_for_status()
         payload = response.json()
-        validate_feed(payload, key, expected)
+        validate_feed(payload, key, minimum_families)
+        family_count = int(payload.get("queryFamilyCount", 0))
         return {
             "coverage": {
                 "key": key,
                 "status": "COMPLETE",
-                "query_family_count": expected,
+                "query_family_count": family_count,
+                "minimum_query_family_count": minimum_families,
                 "result_count": len(payload.get("results") or []),
                 "duration_ms": int((utc_now() - started).total_seconds() * 1000),
             },
