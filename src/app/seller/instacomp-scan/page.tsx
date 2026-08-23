@@ -130,7 +130,7 @@ export default function InstaCompScanPage() {
       setStage(
         "Orienting images, reading core identity, then matching color, pattern, and serial",
       );
-      const response = await fetch("/api/account/seller/instacomp-scan/intake", {
+      const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body,
