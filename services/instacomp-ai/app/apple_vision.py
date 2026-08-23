@@ -216,6 +216,12 @@ class AppleVisionOCR:
         return cls._image_frame_rotation_choices(content)
 
     @staticmethod
+    def _ambiguous_rotation_fallback(*, side: str, rotations: tuple[int, ...]) -> tuple[int, str]:
+        if side == "front" and 0 in rotations and 180 in rotations:
+            return 180, "front_portrait_scanner_fallback:rotate_180"
+        return 0, f"{side}_ambiguous_fallback:keep_0"
+
+    @staticmethod
     def _orientation_score(
         observations: list[OCRObservation],
         *,
@@ -331,9 +337,14 @@ class AppleVisionOCR:
         candidates.sort(key=lambda candidate: (-candidate[1], candidate[0]))
         best_rotation, best_score, best_observations = candidates[0]
         second_score = candidates[1][1]
+        fallback_rotation, fallback_evidence = self._ambiguous_rotation_fallback(
+            side=side,
+            rotations=rotations,
+        )
         if best_score <= 0:
-            return 0, 0.0, [
+            return fallback_rotation, 0.0, [
                 *[f"{side}:{value}" for value in geometry_evidence],
+                f"{side}:{fallback_evidence}",
                 f"{side}:no_readable_text_for_orientation",
             ]
 
@@ -349,8 +360,10 @@ class AppleVisionOCR:
             if decisive
             else max(0.0, min(0.54, margin / 0.04 * 0.54))
         )
-        applied_rotation = best_rotation if decisive or 0 not in rotations else 0
+        applied_rotation = best_rotation if decisive or 0 not in rotations else fallback_rotation
         evidence = [f"{side}:{value}" for value in geometry_evidence]
+        if not decisive and 0 in rotations:
+            evidence.append(f"{side}:{fallback_evidence}")
         evidence.extend(
             observation.text[:80]
             for observation in best_observations
