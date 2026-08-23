@@ -102,6 +102,34 @@ for (const existingPath of [
   read(existingPath);
 }
 
+const sellerScanner = read("src/app/seller/instacomp-scan/page.tsx");
+requireText(
+  sellerScanner,
+  'import KingmakerInstaCompQueue from "../../kingmaker/KingmakerInstaCompQueue";',
+  "KINGMAKER Scan Cards multi-card entrypoint",
+);
+requireText(
+  sellerScanner,
+  "<KingmakerInstaCompQueue />",
+  "KINGMAKER Scan Cards multi-card entrypoint",
+);
+requireText(
+  sellerScanner,
+  "one review item cannot stop the rest of the batch",
+  "KINGMAKER Scan Cards isolated batch failures",
+);
+
+const batchQueue = read("src/app/kingmaker/KingmakerInstaCompQueue.tsx");
+for (const required of [
+  "Drag + drop front/back image pairs",
+  "multiple",
+  "pairInstaCompDropFiles",
+  "runInstaCompBatchQueue",
+  "duplicate file",
+]) {
+  requireText(batchQueue, required, "KINGMAKER multi-card batch intake");
+}
+
 const shell = read("src/app/kingmaker/KingmakerShell.tsx");
 for (const route of [
   "/kingmaker/scan",

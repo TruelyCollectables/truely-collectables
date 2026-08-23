@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { getFreshAccountSession } from "../../account/account-session";
+import KingmakerInstaCompQueue from "../../kingmaker/KingmakerInstaCompQueue";
 
 type ScannerResult = {
   success: boolean;
@@ -210,14 +211,30 @@ export default function InstaCompScanPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 text-white">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">
+          KINGMAKER Multi-Card Intake
+        </p>
+        <h1 className="mt-2 text-4xl font-black tracking-tight">
+          Drop a full batch of card fronts and backs
+        </h1>
+        <p className="mt-3 max-w-4xl text-base leading-7 text-slate-300">
+          Choose or drag all images at once. Named front/back files pair automatically;
+          ordinary camera files pair in order as front, back, front, back. Every card is
+          saved independently, so one review item cannot stop the rest of the batch.
+        </p>
+      </div>
+
+      <KingmakerInstaCompQueue />
+
+      <div className="mb-6 mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-slate-700 pt-8">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">
-            InstaComp Exact Scanner
+            Single-card guided scanner
           </p>
-          <h1 className="text-3xl font-black">
+          <h2 className="text-3xl font-black">
             Front + Back → Core Identity → Color + Pattern + Serial → Checklist
-          </h1>
+          </h2>
           <p className="mt-2 max-w-4xl text-sm text-slate-300">
             Images are oriented from printed writing. The scanner first reads year,
             set, player, and card number, then distinguishes exact treatments such
