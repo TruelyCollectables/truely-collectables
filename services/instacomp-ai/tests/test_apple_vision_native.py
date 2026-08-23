@@ -40,6 +40,24 @@ def test_back_orientation_score_prefers_legal_footer_and_top_card_number() -> No
     ) > AppleVisionOCR._orientation_score(upside_down, side="back")
 
 
+def test_front_orientation_score_prefers_set_markers_above_player_label() -> None:
+    upright = [
+        observation("ALL-AMERICAN", 0.90),
+        observation("ROOKIE RC", 0.82),
+        observation("JACY SHELDON", 0.08),
+    ]
+    upside_down = [
+        observation("JACY SHELDON", 0.89),
+        observation("ROOKIE RC", 0.15),
+        observation("ALL-AMERICAN", 0.06),
+    ]
+
+    assert AppleVisionOCR._orientation_score(
+        upright,
+        side="front",
+    ) > AppleVisionOCR._orientation_score(upside_down, side="front")
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="Apple Vision requires macOS")
 def test_native_apple_vision_helper_compiles_and_reads_card_text(tmp_path: Path) -> None:
     service_root = Path(__file__).resolve().parents[1]
