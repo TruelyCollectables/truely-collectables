@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
-import InstaCompBatchLiveScanner from "./InstaCompBatchLiveScanner";
+import InstaCompScanner from "./InstaCompScanner";
 
 export const dynamic = "force-dynamic";
 
@@ -74,10 +74,10 @@ export default async function InstaCompAdminPage() {
       }}
     >
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ marginBottom: 4 }}>InstaComp™ Live Batch Scan Lab</h1>
+        <h1 style={{ marginBottom: 4 }}>InstaComp™ Production Test Lab</h1>
         <p style={{ marginTop: 0, color: "#555" }}>
-          Drag in many real front/back card images, verify every pair, and run the
-          real identity and strict exact-market pipeline for each card.
+          Real front/back batch intake, InstaComp™ identity and learning, market comps,
+          pricing controls, review tools, and draft-listing handoff.
         </p>
         <Link
           href="/instacomp-test/surprise"
@@ -96,7 +96,7 @@ export default async function InstaCompAdminPage() {
         </Link>
       </div>
 
-      <InstaCompBatchLiveScanner />
+      <InstaCompScanner />
 
       <section
         style={{
