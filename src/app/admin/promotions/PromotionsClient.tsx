@@ -34,9 +34,10 @@ export default function PromotionsClient() {
 
   async function createPromotion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setBusy(true);
     setMessage("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       const response = await fetch("/api/admin/promotions", {
         method: "POST",
@@ -50,7 +51,7 @@ export default function PromotionsClient() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Coupon could not be created.");
       setMessage("Coupon created and ready for Stripe Checkout.");
-      event.currentTarget.reset();
+      formElement.reset();
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
