@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -125,7 +126,11 @@ class AppleVisionOCR:
             return output.getvalue()
 
     @staticmethod
-    def _orientation_score(observations: list[OCRObservation]) -> float:
+    def _orientation_score(
+        observations: list[OCRObservation],
+        *,
+        side: str,
+    ) -> float:
         score = 0.0
         for observation in observations:
             compact = "".join(character for character in observation.text if character.isalnum())
@@ -133,6 +138,35 @@ class AppleVisionOCR:
                 continue
             score += max(0.0, observation.confidence) * min(24, len(compact))
             score += min(2.0, observation.box.width * 4.0)
+
+            # Vision can read text upside down, so raw OCR quantity alone cannot
+            # distinguish 0° from 180°. Card backs provide a deterministic
+            # layout witness: legal/licensing copy belongs at the bottom and the
+            # printed card number normally belongs near the top. Weight those
+            # positions heavily enough to break an otherwise rotation-invariant
+            # OCR tie without applying the heuristic to card fronts.
+            if side == "back":
+                normalized_text = " ".join(observation.text.casefold().split())
+                center_y = observation.box.y + observation.box.height / 2
+                legal_footer = any(
+                    marker in normalized_text
+                    for marker in (
+                        "©",
+                        "panini america",
+                        "officially licensed",
+                        "trademark",
+                        "all rights reserved",
+                        "printed in",
+                        "made in",
+                    )
+                )
+                if legal_footer:
+                    score += 36.0 * (0.5 - center_y)
+                if re.search(
+                    r"\b(?:no\.?|card\s*(?:no\.?|#))\s*[a-z0-9-]+",
+                    normalized_text,
+                ):
+                    score += 12.0 * (center_y - 0.5)
         return score
 
     def detect_upright_rotation(
@@ -150,7 +184,11 @@ class AppleVisionOCR:
             rotated = self._clockwise_rotated_bytes(image_bytes, rotation)
             observations, _errors = self.recognize(rotated, side=side)
             candidates.append(
-                (rotation, self._orientation_score(observations), observations)
+                (
+                    rotation,
+                    self._orientation_score(observations, side=side),
+                    observations,
+                )
             )
 
         candidates.sort(key=lambda candidate: (-candidate[1], candidate[0]))
