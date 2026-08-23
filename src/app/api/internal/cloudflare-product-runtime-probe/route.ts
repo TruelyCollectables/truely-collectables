@@ -7,6 +7,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type CloudflareFetchGlobal = typeof globalThis & {
+  __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
+};
+
 type ProbeResult = {
   name: string;
   ok: boolean;
@@ -39,7 +43,8 @@ async function timed(
 }
 
 export async function GET() {
-  const nativeFetch = globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
+  const nativeFetch = (globalThis as CloudflareFetchGlobal)
+    .__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
   if (!nativeFetch) {
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
