@@ -72,7 +72,8 @@ for (const required of [
   "job?.error",
   "Blank no longer means Base.",
   "No Base or look-alike parallel was substituted.",
-  "orientation verified at intake",
+  "orientation verified from Mac archive",
+  "orientation review required",
   '"/api/account/seller/inventory/instacomp-bulk-edit"',
   "applyBulkPricing",
   "Select all",
@@ -81,6 +82,26 @@ for (const required of [
   "never auto-published",
 ]) {
   requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
+}
+
+const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.ts");
+for (const required of [
+  "fetchInstaCompAiLocalScanImage",
+  "canonicalImagesRecovered: true",
+  "completedMacOrientation(scan)",
+  "frontFile: finalFrontFile",
+  "previousFrontImageUrl: pair.front.url",
+  'imageOrientationPersisted: finalOrientation.status === "completed"',
+]) {
+  requireText(exactScan, required, "Mac-canonical orientation handoff");
+}
+const activationFirewall = read("src/lib/inventory-activation.ts");
+for (const required of [
+  "instacomp_orientation_review_required",
+  'imageOrientation.status === "completed"',
+  "instaComp.imagePersistenceVerified === true",
+]) {
+  requireText(activationFirewall, required, "orientation publication firewall");
 }
 for (const forbidden of [
   "failed: 100",

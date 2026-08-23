@@ -13,9 +13,10 @@ type StoredImageRow = {
   is_primary: boolean | null;
 };
 
-type OrientationReceipt = {
+export type InstaCompImageOrientationReceipt = {
   status: string;
   model: string | null;
+  source?: string | null;
   frontRotation: number;
   backRotation: number;
   frontConfidence: number;
@@ -176,7 +177,7 @@ export async function persistNormalizedInstaCompImagePair(params: {
   title: string;
   frontFile: File;
   backFile: File;
-  orientation: OrientationReceipt;
+  orientation: InstaCompImageOrientationReceipt;
   previousFrontImageUrl?: string | null;
   previousBackImageUrl?: string | null;
 }) {
