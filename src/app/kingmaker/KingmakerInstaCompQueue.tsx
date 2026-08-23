@@ -101,7 +101,7 @@ function identityRows(result: IntakeResult | null) {
 
 function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
-  if (card.status === "working") return "InstaComp AI identifying + exact comping";
+  if (card.status === "working") return "Orienting with Mac archive + exact comping";
   if (card.status === "pending") return "Exact identity + InstaComp pricing complete";
   if (card.status === "review") return "Saved to Pending — review required";
   return "Stopped safely";
@@ -370,6 +370,12 @@ export default function KingmakerInstaCompQueue() {
       <div className="mt-5 space-y-4">
         {cards.map((card) => {
           const basePrice = suggestedPrice(card.result);
+          const normalizedFront = card.result?.normalizedImages?.frontImageUrl || null;
+          const normalizedBack = card.result?.normalizedImages?.backImageUrl || null;
+          const showNormalizedImages = Boolean(normalizedFront && normalizedBack);
+          const displayImages = showNormalizedImages
+            ? [normalizedFront, normalizedBack]
+            : [null, null];
           const choices = basePrice
             ? [
                 ["InstaComp", basePrice, "instacomp"],
@@ -390,13 +396,19 @@ export default function KingmakerInstaCompQueue() {
               </div>
               <div className="grid gap-4 p-4 lg:grid-cols-[260px_1fr]">
                 <div className="grid grid-cols-2 gap-2">
-                  {[card.frontPreview, card.backPreview].map((url, index) => (
+                  {displayImages.map((url, index) => (
                     <div key={index} className="flex min-h-40 items-center justify-center overflow-hidden rounded-xl bg-slate-950 p-2">
                       {url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={url} alt={index === 0 ? "Card front" : "Card back"} className="max-h-52 max-w-full object-contain" />
                       ) : (
-                        <span className="text-xs font-black text-red-300">BACK MISSING</span>
+                        <span className="px-3 text-center text-xs font-black uppercase tracking-wide text-amber-200">
+                          {card.status === "error"
+                            ? "Orientation not saved"
+                            : index === 0
+                              ? "Front orienting"
+                              : "Back orienting"}
+                        </span>
                       )}
                     </div>
                   ))}

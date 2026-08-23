@@ -4,8 +4,6 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../lib/account-auth";
-import type { InstaCompOrientationDecision } from "../../../../lib/instacomp-image-orientation";
-import { persistNormalizedInstaCompImagePair } from "../../../../lib/instacomp-normalized-image-storage";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { POST as runVerifiedPricing } from "../../account/seller/inventory/instacomp-verified/route";
@@ -48,21 +46,6 @@ function forwardedHeaders(request: NextRequest, contentType?: string) {
   if (contentType) headers.set("content-type", contentType);
   return headers;
 }
-
-const PROVISIONAL_ORIENTATION: InstaCompOrientationDecision = {
-  status: "not_configured",
-  model: null,
-  frontRotation: 0,
-  backRotation: 0,
-  frontConfidence: 0,
-  backConfidence: 0,
-  frontEvidenceText: [],
-  backEvidenceText: [],
-  backStandalonePrizm: null,
-  backDesignationConfidence: 0,
-  reason:
-    "Original front and back were preserved before the exact automatic orientation and identity pass.",
-};
 
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
@@ -168,16 +151,6 @@ export async function POST(request: NextRequest) {
       .single();
     if (insertError) throw insertError;
     inventoryItemId = String(inserted.id);
-
-    await persistNormalizedInstaCompImagePair({
-      supabase,
-      storeId,
-      inventoryItemId,
-      title: inserted.title,
-      frontFile: front,
-      backFile: back,
-      orientation: PROVISIONAL_ORIENTATION,
-    });
 
     const exactForm = new FormData();
     exactForm.set("inventoryItemId", inventoryItemId);

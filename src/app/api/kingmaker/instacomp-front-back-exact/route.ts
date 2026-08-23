@@ -602,7 +602,17 @@ export async function POST(request: NextRequest) {
       .order("sort_order", { ascending: true });
     if (imageError) throw imageError;
     const pair = selectedPair((rows || []) as ImageRow[]);
-    if (!pair.front?.url || !pair.back?.url || pair.front.url === pair.back.url) {
+    const providedFront = multipart ? value("frontImage") : null;
+    const providedBack = multipart ? value("backImage") : null;
+    const hasProvidedPair =
+      providedFront instanceof File &&
+      providedFront.size > 0 &&
+      providedBack instanceof File &&
+      providedBack.size > 0;
+    if (
+      !hasProvidedPair &&
+      (!pair.front?.url || !pair.back?.url || pair.front.url === pair.back.url)
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -617,21 +627,13 @@ export async function POST(request: NextRequest) {
 
     let frontFile: File;
     let backFile: File;
-    if (multipart) {
-      const providedFront = value("frontImage");
-      const providedBack = value("backImage");
-      frontFile =
-        providedFront instanceof File
-          ? validateFile(providedFront, "front")
-          : await downloadImage(pair.front.url, "front");
-      backFile =
-        providedBack instanceof File
-          ? validateFile(providedBack, "back")
-          : await downloadImage(pair.back.url, "back");
+    if (hasProvidedPair) {
+      frontFile = validateFile(providedFront, "front");
+      backFile = validateFile(providedBack, "back");
     } else {
       [frontFile, backFile] = await Promise.all([
-        downloadImage(pair.front.url, "front"),
-        downloadImage(pair.back.url, "back"),
+        downloadImage(pair.front!.url, "front"),
+        downloadImage(pair.back!.url, "back"),
       ]);
     }
 
@@ -778,8 +780,8 @@ export async function POST(request: NextRequest) {
       frontFile: finalFrontFile,
       backFile: finalBackFile,
       orientation: finalOrientation,
-      previousFrontImageUrl: pair.front.url,
-      previousBackImageUrl: pair.back.url,
+      previousFrontImageUrl: pair.front?.url || null,
+      previousBackImageUrl: pair.back?.url || null,
     });
 
     const checkedAt = new Date().toISOString();

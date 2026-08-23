@@ -85,12 +85,27 @@ requireText(
   'from "../instacomp-front-back-exact/route"',
   "Fresh scanner intake must use the repaired exact route.",
 );
+forbidText(
+  intake,
+  "persistNormalizedInstaCompImagePair",
+  "Fresh scanner intake must not store provisional raw images before the Mac-normalized exact pass.",
+);
+requireText(
+  intake,
+  'exactForm.set("frontImage", front)',
+  "Fresh scanner intake must hand original uploads directly to the exact Mac-normalized route.",
+);
 
 const batchQueue = read("src/app/kingmaker/KingmakerInstaCompQueue.tsx");
 requireText(
   batchQueue,
   'fetch("/api/kingmaker/instacomp-scan-intake-v2"',
   "Multi-card upload must call the full exact InstaComp pipeline directly.",
+);
+requireText(
+  batchQueue,
+  "Front orienting",
+  "Multi-card upload must not display raw browser previews as finished card images.",
 );
 
 const sellerScanner = read("src/app/seller/instacomp-scan/page.tsx");
