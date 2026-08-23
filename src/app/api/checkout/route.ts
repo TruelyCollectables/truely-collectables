@@ -50,6 +50,12 @@ import {
   reserveCheckoutInventory,
 } from "../../../lib/checkout-inventory-reservations";
 import { getStripePaymentRuntime } from "../../../lib/live-payment-launch";
+import {
+  listingPromotionFromMetadata,
+  normalizeListingCouponCode,
+  resolveCartListingCoupon,
+  roundedMoney,
+} from "../../../lib/listing-promotions";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +101,15 @@ export async function POST(request: Request) {
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
     const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
     const checkoutAttemptId = String(body.checkoutAttemptId || "");
+    const submittedCoupon = String(body.couponCode || "").trim();
+    const couponCode = normalizeListingCouponCode(submittedCoupon);
+
+    if (submittedCoupon && !couponCode) {
+      return NextResponse.json(
+        { error: "Coupon code format is invalid", retryable: false },
+        { status: 400 },
+      );
+    }
 
     if (!isCheckoutAttemptId(checkoutAttemptId)) {
       return NextResponse.json(
@@ -155,18 +170,46 @@ export async function POST(request: Request) {
       throw inventoryMetadataResult.error;
     }
 
-    const freeShippingProductIds = new Set(
-      (inventoryMetadataResult.data || [])
-        .filter((item: any) => item?.metadata?.tcos_promo?.free_shipping === true)
-        .map((item: any) => Number(item.legacy_product_id)),
+    const promotionByProductId = new Map(
+      (inventoryMetadataResult.data || []).map((item: any) => [
+        Number(item.legacy_product_id),
+        listingPromotionFromMetadata(item.metadata),
+      ]),
     );
-    const freeShippingPromoApplies =
+    const automaticFreeShippingProductIds = new Set(
+      [...promotionByProductId.entries()]
+        .filter(([, promotion]) => promotion.automaticFreeShipping)
+        .map(([productId]) => productId),
+    );
+    const automaticFreeShippingApplies =
       cart.length > 0 &&
-      cart.every((item) => freeShippingProductIds.has(item.id));
+      cart.every((item) => automaticFreeShippingProductIds.has(item.id));
+    const couponDecision = resolveCartListingCoupon({
+      couponCode,
+      productIds: cart.map((item) => item.id),
+      promotionByProductId,
+    });
+    const discountCouponProductIds = couponDecision.discountProductIds;
+    const discountCouponApplies = couponDecision.discountApplies;
+    const freeShippingCouponApplies = couponDecision.freeShippingApplies;
+
+    if (!couponDecision.valid) {
+      return NextResponse.json(
+        {
+          error: couponDecision.error,
+          retryable: false,
+        },
+        { status: 400 },
+      );
+    }
+
+    const freeShippingPromoApplies =
+      automaticFreeShippingApplies || freeShippingCouponApplies;
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     let subtotal = 0;
     let itemCount = 0;
+    let couponDiscountTotal = 0;
 
     for (const cartItem of cart) {
       const product = inventoryItems.find(
@@ -180,9 +223,20 @@ export async function POST(request: Request) {
         );
       }
 
-      const price = Number(product.price);
+      const normalPrice = Number(product.price);
+      const promotion = promotionByProductId.get(cartItem.id);
+      const couponPercent =
+        couponCode &&
+        promotion?.discountCouponCode === couponCode &&
+        discountCouponProductIds.has(cartItem.id)
+          ? promotion.discountCouponPercent
+          : 0;
+      const price = couponPercent > 0
+        ? Math.max(0.01, roundedMoney(normalPrice * (1 - couponPercent / 100)))
+        : normalPrice;
 
       subtotal += price * cartItem.quantity;
+      couponDiscountTotal += (normalPrice - price) * cartItem.quantity;
       itemCount += cartItem.quantity;
 
       lineItems.push({
@@ -194,6 +248,8 @@ export async function POST(request: Request) {
             metadata: {
               legacy_product_id: String(product.legacyProductId),
               sku: product.sku || "",
+              coupon_code: couponPercent > 0 ? couponCode || "" : "",
+              coupon_discount_percent: String(couponPercent || 0),
             },
           },
           unit_amount: Math.round(price * 100),
@@ -286,6 +342,10 @@ export async function POST(request: Request) {
       shipping_amount: shippingAmount.toFixed(2),
       shipping_policy_reason: shippingPolicy.reason || "",
       free_shipping_promo_applied: freeShippingPromoApplies ? "true" : "false",
+      coupon_code: couponCode || "",
+      coupon_discount_total: roundedMoney(couponDiscountTotal).toFixed(2),
+      discount_coupon_applied: discountCouponApplies ? "true" : "false",
+      free_shipping_coupon_applied: freeShippingCouponApplies ? "true" : "false",
       base_shipping_amount: baseShippingAmount.toFixed(2),
       standard_envelope_estimated_oz: String(
         shippingPolicy.standardEnvelope.estimatedOunces,

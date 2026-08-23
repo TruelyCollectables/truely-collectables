@@ -42,6 +42,11 @@ export type InstaCompAiLocalScan = {
   back_reference_sha256?: string | null;
   front_perceptual_hash?: string | null;
   back_perceptual_hash?: string | null;
+  image_orientation?: {
+    source?: string;
+    front_rotation?: number;
+    back_rotation?: number;
+  } | null;
   pricing_allowed: boolean;
   learning_allowed: boolean;
   trusted_identity?: Record<string, unknown> | null;
@@ -431,11 +436,19 @@ export async function analyzeWithInstaCompAiLocal(params: {
     conflicts?: string[];
   } | null;
   timeoutMs?: number;
+  frontRotation?: 0 | 90 | 180 | 270 | null;
+  backRotation?: 0 | 90 | 180 | 270 | null;
 }): Promise<InstaCompAiLocalScan> {
   const body = new FormData();
   body.append("front", params.front, "front.jpg");
   if (params.back) body.append("back", params.back, "back.jpg");
   if (params.cardUuid) body.append("card_uuid", safeCardUuid(params.cardUuid));
+  if (params.frontRotation !== null && params.frontRotation !== undefined) {
+    body.append("front_rotation", String(params.frontRotation));
+  }
+  if (params.backRotation !== null && params.backRotation !== undefined) {
+    body.append("back_rotation", String(params.backRotation));
+  }
   if (params.printedEvidence?.text) {
     body.append(
       "printed_evidence_json",
@@ -489,6 +502,42 @@ export async function analyzeWithInstaCompAiLocal(params: {
     );
   }
   return scan;
+}
+
+export async function fetchInstaCompAiLocalScanImage(params: {
+  scanId: string;
+  side: "front" | "back";
+  timeoutMs?: number;
+}) {
+  const scanId = safeScanId(params.scanId);
+  const response = await fetch(
+    `${baseUrl()}/v1/scans/${encodeURIComponent(scanId)}/images/${params.side}`,
+    {
+      method: "GET",
+      headers: requestHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(params.timeoutMs ?? 30_000),
+    },
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `InstaComp Mac image archive returned HTTP ${response.status}${
+        detail ? `: ${detail.slice(0, 240)}` : ""
+      }.`,
+    );
+  }
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.startsWith("image/")) {
+    throw new Error("InstaComp Mac image archive returned a non-image response.");
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length < 1_000 || bytes.length > 20 * 1024 * 1024) {
+    throw new Error("InstaComp Mac image archive returned an invalid image size.");
+  }
+  return new File([bytes], `${scanId}-${params.side}-upright.jpg`, {
+    type: "image/jpeg",
+  });
 }
 
 export async function analyzeWithInstaCompAiLocalSecondary(params: {

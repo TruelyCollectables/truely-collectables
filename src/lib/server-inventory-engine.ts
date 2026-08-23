@@ -19,6 +19,7 @@ import {
 } from "./storefront-taxonomy";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
+import { listingPromotionFromMetadata } from "./listing-promotions";
 
 const PUBLIC_PRODUCT_PAGE_SIZE = 1000;
 const PUBLIC_PRODUCT_MAX_PAGES = 20;
@@ -34,7 +35,7 @@ const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
 // v2 adds physical-stock deduplication via card_uuid. Do not reuse a v1 edge
 // snapshot that may contain both CollX provenance and eBay representations of
 // the same owned card.
-const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v2";
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v3";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
@@ -245,7 +246,10 @@ function dedupeSharedPhysicalInventory(items: UniversalInventoryItem[]) {
   return [...ungrouped, ...byCardUuid.values()];
 }
 
-function mapPublicProductRow(product: any): UniversalInventoryItem {
+function mapPublicProductRow(
+  product: any,
+  promotionMetadata?: Record<string, unknown> | null,
+): UniversalInventoryItem {
   const title = String(product.title || "Untitled");
   const description = product.description ? String(product.description) : null;
   const classification = classifyStorefrontItem({
@@ -277,6 +281,14 @@ function mapPublicProductRow(product: any): UniversalInventoryItem {
     status: safeNumber(product.quantity) > 0 ? "active" : "sold",
     source: "products",
     authenticity: extractAuthenticityProfile(null),
+    promotion: (() => {
+      const promotion = listingPromotionFromMetadata(promotionMetadata);
+      return {
+        onSale: promotion.onSale,
+        originalPrice: promotion.originalPrice,
+        discountPercent: promotion.discountPercent,
+      };
+    })(),
   };
 }
 
@@ -315,6 +327,33 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       this.publicProductsPromise = this.readPublicProductsUncached();
     }
     return this.publicProductsPromise;
+  }
+
+  private async readPublicPromotionMetadata(productIds: number[]) {
+    const metadataByProductId = new Map<number, Record<string, unknown>>();
+    for (let index = 0; index < productIds.length; index += 500) {
+      const batch = productIds.slice(index, index + 500);
+      if (!batch.length) continue;
+      const { data, error } = await this.publicDatabase
+        .from("inventory_items")
+        .select("legacy_product_id,metadata")
+        .eq("store_id", this.publicStoreId)
+        .in("legacy_product_id", batch)
+        .range(0, 4999)
+        .abortSignal(AbortSignal.timeout(PUBLIC_PRODUCT_QUERY_TIMEOUT_MS));
+      if (error) throw error;
+      for (const row of data || []) {
+        const id = Number(row.legacy_product_id);
+        if (!Number.isInteger(id) || id <= 0) continue;
+        metadataByProductId.set(
+          id,
+          row.metadata && typeof row.metadata === "object"
+            ? (row.metadata as Record<string, unknown>)
+            : {},
+        );
+      }
+    }
+    return metadataByProductId;
   }
 
   private async readPublicProductsUncached() {
@@ -375,9 +414,17 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
 
           try {
             const products = await this.readPublicProducts();
+            const promotionMetadata = await this.readPublicPromotionMetadata(
+              products.map((product) => Number(product.id)),
+            );
             const catalog = dedupeSharedPhysicalInventory(
               products
-                .map(mapPublicProductRow)
+                .map((product) =>
+                  mapPublicProductRow(
+                    product,
+                    promotionMetadata.get(Number(product.id)) || null,
+                  ),
+                )
                 .map(enforceStrictStorefrontFeatures)
                 .filter(
                   (item) =>

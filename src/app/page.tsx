@@ -125,6 +125,7 @@ export default async function Home() {
                       <CardImage card={card} sizes="220px" />
                     </div>
                     <div className="px-1 pb-1 pt-3">
+                      {card.promotion?.onSale ? <span className="bg-red-700 px-2 py-1 text-[10px] font-black text-white">ON SALE</span> : null}
                       <p className="line-clamp-2 min-h-9 text-xs font-black leading-[1.15]">
                         {card.title}
                       </p>
@@ -187,6 +188,7 @@ export default async function Home() {
                     <CardImage card={card} sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw" />
                   </div>
                   <div className="p-3">
+                    {card.promotion?.onSale ? <span className="bg-red-700 px-2 py-1 text-[10px] font-black text-white">ON SALE · {card.promotion.discountPercent}% OFF</span> : null}
                     <p className="text-[11px] font-black uppercase tracking-[0.14em] text-blue-700">
                       {card.storefrontSection || "Collectible"}
                     </p>

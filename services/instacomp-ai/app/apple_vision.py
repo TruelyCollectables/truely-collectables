@@ -104,6 +104,73 @@ class AppleVisionOCR:
         )
         return observations, errors
 
+    @staticmethod
+    def _clockwise_rotated_bytes(content: bytes, rotation: int) -> bytes:
+        from io import BytesIO
+
+        with Image.open(BytesIO(content)) as opened:
+            image = ImageOps.exif_transpose(opened).convert("RGB")
+            if rotation:
+                image = image.rotate(-rotation, expand=True)
+            image.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            image.save(
+                output,
+                format="JPEG",
+                quality=92,
+                optimize=True,
+                progressive=False,
+                subsampling=0,
+            )
+            return output.getvalue()
+
+    @staticmethod
+    def _orientation_score(observations: list[OCRObservation]) -> float:
+        score = 0.0
+        for observation in observations:
+            compact = "".join(character for character in observation.text if character.isalnum())
+            if len(compact) < 2:
+                continue
+            score += max(0.0, observation.confidence) * min(24, len(compact))
+            score += min(2.0, observation.box.width * 4.0)
+        return score
+
+    def detect_upright_rotation(
+        self,
+        image_bytes: bytes,
+        *,
+        side: str,
+    ) -> tuple[int, float, list[str]]:
+        """Return the clockwise text correction selected from four OCR witnesses."""
+        if not self.supported:
+            return 0, 0.0, [f"{side}:apple_vision_unavailable"]
+
+        candidates: list[tuple[int, float, list[OCRObservation]]] = []
+        for rotation in (0, 90, 180, 270):
+            rotated = self._clockwise_rotated_bytes(image_bytes, rotation)
+            observations, _errors = self.recognize(rotated, side=side)
+            candidates.append(
+                (rotation, self._orientation_score(observations), observations)
+            )
+
+        candidates.sort(key=lambda candidate: (-candidate[1], candidate[0]))
+        best_rotation, best_score, best_observations = candidates[0]
+        second_score = candidates[1][1]
+        if best_score <= 0:
+            return 0, 0.0, [f"{side}:no_readable_text_for_orientation"]
+
+        margin = max(0.0, (best_score - second_score) / max(1.0, best_score))
+        confidence = max(0.0, min(0.99, 0.55 + margin))
+        # Close OCR scores are ambiguous on art-heavy cards. Preserve the
+        # submitted direction instead of applying a low-evidence correction.
+        applied_rotation = best_rotation if best_rotation == 0 or margin >= 0.04 else 0
+        evidence = [
+            observation.text[:80]
+            for observation in best_observations
+            if observation.text.strip()
+        ][:6]
+        return applied_rotation, confidence, evidence
+
     def _ensure_binary(self) -> None:
         if not self.supported:
             raise RuntimeError("Apple Vision OCR is only available on macOS")

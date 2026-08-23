@@ -70,6 +70,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
   const [buyerProtection, setBuyerProtection] =
     useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [couponCode, setCouponCode] = useState("");
 
   function saveCart(updatedCart: CartItem[]) {
     setCart(updatedCart);
@@ -388,6 +389,20 @@ export default function CartClient(props: { storeDisplayName: string }) {
               </div>
             </div>
 
+            <label className="mt-6 block text-sm font-black">
+              Coupon code
+              <input
+                value={couponCode}
+                onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                placeholder="Enter code"
+                maxLength={32}
+                className="mt-2 min-h-12 w-full rounded border border-neutral-300 px-3 uppercase"
+              />
+              <span className="mt-1 block text-xs font-semibold text-neutral-500">
+                Eligible card discounts and free shipping are verified before payment.
+              </span>
+            </label>
+
             <label className="mt-6 flex min-h-12 items-start gap-3 rounded border p-4 text-sm leading-6">
               <input
                 type="checkbox"
@@ -419,6 +434,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 termsAccepted={termsAccepted}
                 buyerProtection={resolvedBuyerProtection}
                 buyerProtectionAvailable={buyerProtectionAvailable}
+                couponCode={couponCode}
               />
 
               <button

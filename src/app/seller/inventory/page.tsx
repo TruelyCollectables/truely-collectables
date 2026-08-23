@@ -85,6 +85,15 @@ type SellerInventoryItem = {
     listingPriceSource: string | null;
     hasBackImage: boolean;
   };
+  promotion: {
+    onSale: boolean;
+    originalPrice: number | null;
+    discountPercent: number;
+    automaticFreeShipping: boolean;
+    discountCouponCode: string | null;
+    discountCouponPercent: number;
+    freeShippingCouponCode: string | null;
+  };
   activationReadiness: {
     ready: boolean;
     blockers: string[];
@@ -717,6 +726,11 @@ export default function SellerInventoryPage() {
     string[]
   >([]);
   const [bulkAction, setBulkAction] = useState<BulkInventoryAction | null>(null);
+  const [commerceAction, setCommerceAction] = useState<string | null>(null);
+  const [saleDiscountPercent, setSaleDiscountPercent] = useState("10");
+  const [discountCouponCode, setDiscountCouponCode] = useState("");
+  const [discountCouponPercent, setDiscountCouponPercent] = useState("10");
+  const [freeShippingCouponCode, setFreeShippingCouponCode] = useState("");
   const [lastBulkInventoryAction, setLastBulkInventoryAction] =
     useState<BulkInventoryAction | null>(null);
   const [lastBulkInventorySuccesses, setLastBulkInventorySuccesses] = useState<
@@ -1853,6 +1867,56 @@ export default function SellerInventoryPage() {
     }
   }
 
+  async function runBulkCommerceAction(action: string) {
+    if (!session?.access_token || selectedInventoryItemIds.length === 0) return;
+    setCommerceAction(action);
+    setNotice("");
+    setError("");
+    try {
+      const response = await fetch(
+        "/api/account/seller/inventory/instacomp-bulk-commerce",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action,
+            inventoryItemIds: selectedInventoryItemIds,
+            discountPercent:
+              action === "set-discount-coupon"
+                ? Number(discountCouponPercent)
+                : Number(saleDiscountPercent),
+            couponCode: action === "set-free-shipping-coupon"
+              ? freeShippingCouponCode
+              : discountCouponCode,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Could not update the selected promotions.");
+      }
+      const failedCount = Number(data.failedCount || 0);
+      const firstFailure = Array.isArray(data.results)
+        ? data.results.find((result: BulkInventoryResult) => !result.success)
+        : null;
+      setNotice(
+        `${data.updatedCount} selected listing${data.updatedCount === 1 ? "" : "s"} updated${
+          failedCount
+            ? `; ${failedCount} skipped${firstFailure?.message ? `: ${firstFailure.message}` : "."}`
+            : "."
+        }`,
+      );
+      await loadInventory(session.access_token, { silent: true });
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not update the selected promotions.");
+    } finally {
+      setCommerceAction(null);
+    }
+  }
+
   if (!authChecked) {
     return (
       <main className="min-h-screen bg-[#f4f1ea] p-6 text-neutral-950">
@@ -2309,6 +2373,96 @@ export default function SellerInventoryPage() {
                       ? "Archiving..."
                       : `Archive Eligible (${selectedArchivableInventoryItemIds.length})`}
                   </button>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-md border-2 border-amber-300 bg-amber-50 p-3">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-950">
+                  Selected-card sales and coupons
+                </p>
+                <p className="mt-1 text-xs font-semibold text-amber-900">
+                  Sale pricing, percentage coupons, and free-shipping coupons are independent. Apply only the benefits each selected card should receive.
+                </p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                  <div className="rounded border border-amber-200 bg-white p-3">
+                    <label className="text-xs font-black">
+                      ON SALE discount (1–25%)
+                      <input
+                        type="number"
+                        min="1"
+                        max="25"
+                        step="1"
+                        value={saleDiscountPercent}
+                        onChange={(event) => setSaleDiscountPercent(event.target.value)}
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3"
+                      />
+                    </label>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={!selectedInventoryItemIds.length || commerceAction !== null}
+                        onClick={() => void runBulkCommerceAction("apply-sale")}
+                        className="rounded bg-red-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                      >
+                        Put Selected ON SALE
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedInventoryItemIds.length || commerceAction !== null}
+                        onClick={() => void runBulkCommerceAction("clear-sale")}
+                        className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50"
+                      >
+                        End Sale
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-amber-200 bg-white p-3">
+                    <label className="text-xs font-black">
+                      Percentage coupon code
+                      <input
+                        value={discountCouponCode}
+                        onChange={(event) => setDiscountCouponCode(event.target.value.toUpperCase())}
+                        placeholder="CARD-DEAL"
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3 uppercase"
+                      />
+                    </label>
+                    <label className="mt-2 block text-xs font-black">
+                      Coupon discount (1–25%)
+                      <input
+                        type="number"
+                        min="1"
+                        max="25"
+                        step="1"
+                        value={discountCouponPercent}
+                        onChange={(event) => setDiscountCouponPercent(event.target.value)}
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3"
+                      />
+                    </label>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("set-discount-coupon")} className="rounded bg-violet-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Add Selected</button>
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("clear-discount-coupon")} className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50">Remove</button>
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-amber-200 bg-white p-3">
+                    <label className="text-xs font-black">
+                      Free-shipping coupon code
+                      <input
+                        value={freeShippingCouponCode}
+                        onChange={(event) => setFreeShippingCouponCode(event.target.value.toUpperCase())}
+                        placeholder="SHIP-FREE"
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3 uppercase"
+                      />
+                    </label>
+                    <p className="mt-2 text-xs font-semibold text-neutral-600">
+                      Keep this separate from the percentage coupon when a card should receive only one benefit.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("set-free-shipping-coupon")} className="rounded bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Add Selected</button>
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("clear-free-shipping-coupon")} className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50">Remove</button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2941,6 +3095,21 @@ export default function SellerInventoryPage() {
                       >
                         {inventorySourceLabel(item)}
                       </span>
+                      {item.promotion?.onSale ? (
+                        <span className="rounded border border-red-300 bg-red-700 px-2 py-1 text-[11px] font-black text-white">
+                          ON SALE · {item.promotion.discountPercent}% OFF
+                        </span>
+                      ) : null}
+                      {item.promotion?.discountCouponCode ? (
+                        <span className="rounded border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-black text-violet-900">
+                          {item.promotion.discountCouponCode} · {item.promotion.discountCouponPercent}%
+                        </span>
+                      ) : null}
+                      {item.promotion?.freeShippingCouponCode ? (
+                        <span className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-black text-emerald-900">
+                          {item.promotion.freeShippingCouponCode} · FREE SHIPPING
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 

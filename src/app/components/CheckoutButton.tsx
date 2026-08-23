@@ -19,11 +19,13 @@ function checkoutAttemptFor(
   cart: unknown,
   shippingMethod: ShippingMethod,
   buyerProtection: BuyerProtectionCheckoutChoice,
+  couponCode: string,
 ) {
   const signature = JSON.stringify({
     cart,
     shippingMethod,
     buyerProtection,
+    couponCode,
     tosVersion: TERMS_OF_SERVICE_VERSION,
   });
 
@@ -66,11 +68,13 @@ export default function CheckoutButton({
   termsAccepted,
   buyerProtection,
   buyerProtectionAvailable,
+  couponCode = "",
 }: {
   shippingMethod?: ShippingMethod;
   termsAccepted: boolean;
   buyerProtection: BuyerProtectionCheckoutChoice;
   buyerProtectionAvailable: boolean;
+  couponCode?: string;
 }) {
   const [loading, setLoading] = useState(false);
   const inFlightRef = useRef(false);
@@ -113,6 +117,7 @@ export default function CheckoutButton({
         cart,
         shippingMethod,
         buyerProtection,
+        couponCode.trim().toUpperCase(),
       );
 
       const response = await fetch("/api/checkout", {
@@ -135,6 +140,7 @@ export default function CheckoutButton({
           tosAccepted: termsAccepted,
           tosVersion: TERMS_OF_SERVICE_VERSION,
           checkoutAttemptId: checkoutAttempt.id,
+          couponCode: couponCode.trim().toUpperCase(),
         }),
       });
 

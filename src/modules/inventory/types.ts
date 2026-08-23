@@ -89,6 +89,11 @@ export type UniversalInventoryItem = {
   status: InventoryStatus;
   source: "inventory_items" | "products";
   authenticity: AuthenticityProfile;
+  promotion?: {
+    onSale: boolean;
+    originalPrice: number | null;
+    discountPercent: number;
+  };
   soldAt?: string | null;
   soldPrice?: number | null;
   soldSource?: string | null;

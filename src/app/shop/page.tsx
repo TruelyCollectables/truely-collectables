@@ -478,6 +478,11 @@ export default async function Shop({
               </Link>
 
               <div className="p-4">
+                {product.promotion?.onSale ? (
+                  <span className="inline-flex rounded bg-red-700 px-2 py-1 text-xs font-black text-white">
+                    ON SALE · {product.promotion.discountPercent}% OFF
+                  </span>
+                ) : null}
                 <p className="text-xs font-black uppercase tracking-[0.12em] text-blue-700">
                   {product.storefrontSection}
                 </p>
@@ -490,9 +495,16 @@ export default async function Shop({
                 <FeatureBadges product={product} />
 
                 <div className="mt-4 flex items-center justify-between gap-3">
-                  <p className="text-2xl font-black">
-                    ${Number(product.price).toFixed(2)}
-                  </p>
+                  <div>
+                    {product.promotion?.onSale && product.promotion.originalPrice ? (
+                      <p className="text-sm font-bold text-neutral-500 line-through">
+                        ${Number(product.promotion.originalPrice).toFixed(2)}
+                      </p>
+                    ) : null}
+                    <p className={`text-2xl font-black ${product.promotion?.onSale ? "text-red-700" : ""}`}>
+                      ${Number(product.price).toFixed(2)}
+                    </p>
+                  </div>
                   <p className="rounded bg-neutral-100 px-2 py-1 text-xs font-bold text-neutral-600">
                     Qty {product.quantity}
                   </p>
