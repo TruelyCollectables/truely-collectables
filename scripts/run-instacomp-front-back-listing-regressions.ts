@@ -32,11 +32,16 @@ assert(
 );
 assert(
   intakeSource.includes("const scan = await analyzeWithInstaCompAiLocal({") &&
-    intakeSource.includes("front: normalizedSides.frontFile") &&
-    intakeSource.includes("back: normalizedSides.backFile") &&
-    intakeSource.includes("frontRotation:") &&
-    intakeSource.includes("backRotation:"),
-  "Listing intake is not sending both required images to the Mac service.",
+    intakeSource.includes("front: frontFile") &&
+    intakeSource.includes("back: backFile") &&
+    intakeSource.includes("frontRotation: null") &&
+    intakeSource.includes("backRotation: null"),
+  "Listing intake is not sending original front/back images to the Mac service.",
+);
+assert(
+  intakeSource.includes('code: "IMAGE_ORIENTATION_REVIEW_REQUIRED"') &&
+    intakeSource.includes("macImageOrientation.status !== \"completed\""),
+  "Listing intake does not hold cards without decisive Mac orientation evidence.",
 );
 assert(
   scannerSource.includes("disabled={busy || !front || !back}"),
