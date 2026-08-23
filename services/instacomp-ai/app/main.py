@@ -79,22 +79,43 @@ async def _validate_upright_scan_image(
     requested_rotation: int | None = None,
 ):
     rotation = requested_rotation if requested_rotation in {0, 90, 180, 270} else None
+    confidence = 1.0 if rotation is not None else 0.0
+    evidence = [f"{side}:accepted_web_orientation"] if rotation is not None else []
+    status = "completed" if rotation is not None else "review_required"
+    source = "web_openai_orientation" if rotation is not None else "mac_apple_vision_ocr"
     if rotation is None:
         try:
-            rotation, _confidence, _evidence = await asyncio.to_thread(
+            rotation, confidence, evidence = await asyncio.to_thread(
                 image_orientation_reader.detect_upright_rotation,
                 content,
                 side=side,
             )
-        except Exception:
+            status = (
+                "completed"
+                if confidence >= 0.55 and any(value.strip() for value in evidence)
+                else "review_required"
+            )
+        except Exception as exc:
             # Orientation is a presentation correction, not an identity authority.
             # EXIF normalization and the unchanged source archive still proceed when
             # the local OCR witness is unavailable.
             rotation = 0
-    return validate_and_normalize_image(
-        content,
-        settings.max_image_bytes,
-        rotation=rotation,
+            confidence = 0.0
+            evidence = [f"{side}:orientation_failed:{type(exc).__name__.lower()}"]
+            status = "error"
+    return (
+        validate_and_normalize_image(
+            content,
+            settings.max_image_bytes,
+            rotation=rotation,
+        ),
+        {
+            "status": status,
+            "source": source,
+            "rotation": int(rotation or 0),
+            "confidence": round(float(confidence), 6),
+            "evidence": [str(value)[:120] for value in evidence[:8]],
+        },
     )
 
 
@@ -532,19 +553,13 @@ async def analyze_scan(
     back_content = await back.read() if back else None
     if len(front_content) + len(back_content or b"") > settings.max_total_image_bytes:
         raise HTTPException(status_code=413, detail="Combined images are too large")
-    orientation_source = (
-        "web_openai_orientation"
-        if front_rotation in {0, 90, 180, 270}
-        or back_rotation in {0, 90, 180, 270}
-        else "mac_apple_vision_ocr"
-    )
     try:
-        front_image = await _validate_upright_scan_image(
+        front_image, front_orientation = await _validate_upright_scan_image(
             front_content,
             side="front",
             requested_rotation=front_rotation,
         )
-        back_image = (
+        back_result = (
             await _validate_upright_scan_image(
                 back_content,
                 side="back",
@@ -553,8 +568,43 @@ async def analyze_scan(
             if back_content
             else None
         )
+        back_image = back_result[0] if back_result else None
+        back_orientation = back_result[1] if back_result else {
+            "status": "completed",
+            "source": "none",
+            "rotation": 0,
+            "confidence": 1.0,
+            "evidence": [],
+        }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    orientation_status = (
+        "completed"
+        if front_orientation["status"] == "completed"
+        and back_orientation["status"] == "completed"
+        else "review_required"
+    )
+    orientation_sources = {
+        str(front_orientation["source"]),
+        str(back_orientation["source"]),
+    } - {"none"}
+    orientation_receipt = {
+        "status": orientation_status,
+        "source": (
+            next(iter(orientation_sources))
+            if len(orientation_sources) == 1
+            else "web_openai_plus_mac_apple_vision"
+        ),
+        "front_source": front_orientation["source"],
+        "back_source": back_orientation["source"],
+        "front_rotation": front_image.rotation_applied,
+        "back_rotation": back_image.rotation_applied if back_image else 0,
+        "front_confidence": front_orientation["confidence"],
+        "back_confidence": back_orientation["confidence"],
+        "front_evidence": front_orientation["evidence"],
+        "back_evidence": back_orientation["evidence"],
+    }
 
     persist_image(front_image, image_store_path, "front")
     if back_image:
@@ -638,11 +688,7 @@ async def analyze_scan(
             back_perceptual_hash=(
                 back_image.perceptual_hash if back_image else None
             ),
-            image_orientation={
-                "source": orientation_source,
-                "front_rotation": front_image.rotation_applied,
-                "back_rotation": back_image.rotation_applied if back_image else 0,
-            },
+            image_orientation=orientation_receipt,
             back_evidence=_trusted_memory_back_evidence(
                 image_memory,
                 back_image is not None,
@@ -733,11 +779,7 @@ async def analyze_scan(
             back_perceptual_hash=(
                 back_image.perceptual_hash if back_image else None
             ),
-            image_orientation={
-                "source": orientation_source,
-                "front_rotation": front_image.rotation_applied,
-                "back_rotation": back_image.rotation_applied if back_image else 0,
-            },
+            image_orientation=orientation_receipt,
             back_evidence=[],
             memory_matches=[],
             local_suggestion=None,
@@ -927,11 +969,7 @@ async def analyze_scan(
         ),
         front_perceptual_hash=front_image.perceptual_hash,
         back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
-        image_orientation={
-            "source": orientation_source,
-            "front_rotation": front_image.rotation_applied,
-            "back_rotation": back_image.rotation_applied if back_image else 0,
-        },
+        image_orientation=orientation_receipt,
         back_evidence=suggestion_back_evidence,
         memory_matches=memory_matches,
         local_suggestion=suggestion,

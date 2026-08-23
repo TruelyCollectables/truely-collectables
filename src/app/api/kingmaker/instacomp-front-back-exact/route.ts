@@ -45,6 +45,7 @@ type MacReceipt = {
   scanId: string | null;
   status: string | null;
   checklistOutcome: string | null;
+  attempts: number;
   canonicalImagesRecovered: boolean;
   imageOrientation: InstaCompAiLocalScan["image_orientation"];
   error: string | null;
@@ -81,31 +82,101 @@ function normalized(value: unknown) {
     .trim();
 }
 
-function quarterTurn(value: unknown) {
+function quarterTurn(value: unknown): 0 | 90 | 180 | 270 {
   const rotation = ((Math.round(Number(value) || 0) % 360) + 360) % 360;
-  return rotation === 90 || rotation === 180 || rotation === 270 ? rotation : 0;
+  return rotation === 90 || rotation === 180 || rotation === 270
+    ? rotation
+    : 0;
+}
+
+function confidence(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0;
+}
+
+function evidence(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => text(entry, 120))
+        .filter((entry): entry is string => Boolean(entry))
+        .slice(0, 8)
+    : [];
 }
 
 function completedMacOrientation(
   scan: InstaCompAiLocalScan,
+  webOrientation: InstaCompImageOrientationReceipt,
 ): InstaCompImageOrientationReceipt {
-  const source =
-    text(scan.image_orientation?.source, 120) || "mac_local_orientation";
+  const receipt = scan.image_orientation || {};
+  const source = text(receipt.source, 120) || "mac_local_orientation";
+  const frontSource = text(receipt.front_source, 120) || source;
+  const backSource = text(receipt.back_source, 120) || source;
+  const frontFromWeb = frontSource === "web_openai_orientation";
+  const backFromWeb = backSource === "web_openai_orientation";
+  const frontConfidence = frontFromWeb
+    ? confidence(webOrientation.frontConfidence)
+    : confidence(receipt.front_confidence);
+  const backConfidence = backFromWeb
+    ? confidence(webOrientation.backConfidence)
+    : confidence(receipt.back_confidence);
+  const frontEvidenceText = frontFromWeb
+    ? evidence(webOrientation.frontEvidenceText)
+    : evidence(receipt.front_evidence);
+  const backEvidenceText = backFromWeb
+    ? evidence(webOrientation.backEvidenceText)
+    : evidence(receipt.back_evidence);
+  const scanCompleted = text(receipt.status, 80) === "completed";
+  const completed =
+    scanCompleted &&
+    frontConfidence >= MINIMUM_MAC_ORIENTATION_CONFIDENCE &&
+    backConfidence >= MINIMUM_MAC_ORIENTATION_CONFIDENCE &&
+    frontEvidenceText.length > 0 &&
+    backEvidenceText.length > 0;
   return {
-    status: "completed",
+    status: completed ? "completed" : "review_required",
     model: source,
     source,
-    frontRotation: quarterTurn(scan.image_orientation?.front_rotation),
-    backRotation: quarterTurn(scan.image_orientation?.back_rotation),
-    frontConfidence: 0,
-    backConfidence: 0,
-    frontEvidenceText: [],
-    backEvidenceText: [],
+    frontRotation: quarterTurn(receipt.front_rotation),
+    backRotation: quarterTurn(receipt.back_rotation),
+    frontConfidence,
+    backConfidence,
+    frontEvidenceText,
+    backEvidenceText,
     backStandalonePrizm: null,
     backDesignationConfidence: 0,
-    reason:
-      "The Mac normalized and archived both card sides; the website fetched those canonical pixels and verified the stored pair.",
+    reason: completed
+      ? "The Mac normalized and archived both card sides; the website fetched those canonical pixels and verified the stored pair."
+      : "The Mac archive did not return decisive orientation evidence for both card sides, so this card is held outside Pending Listings.",
   };
+}
+
+const MINIMUM_MAC_ORIENTATION_CONFIDENCE = 0.55;
+
+function trustedWebRotation(
+  orientation: InstaCompImageOrientationReceipt,
+  side: "front" | "back",
+) {
+  if (orientation.status !== "completed") return null;
+  const sideConfidence =
+    side === "front" ? orientation.frontConfidence : orientation.backConfidence;
+  const sideEvidence =
+    side === "front"
+      ? orientation.frontEvidenceText
+      : orientation.backEvidenceText;
+  if (
+    confidence(sideConfidence) < MINIMUM_MAC_ORIENTATION_CONFIDENCE ||
+    evidence(sideEvidence).length === 0
+  ) {
+    return null;
+  }
+  return side === "front"
+    ? quarterTurn(orientation.frontRotation)
+    : quarterTurn(orientation.backRotation);
+}
+
+async function dataUrl(file: File) {
+  const type = file.type || "image/jpeg";
+  return `data:${type};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`;
 }
 
 function validateFile(file: File, side: "front" | "back") {
@@ -339,41 +410,35 @@ function candidateAi(
 async function archiveWithMacBestEffort(params: {
   frontFile: File;
   backFile: File;
-  core: InstaCompCoreVisualEvidence;
-  serialNumber: string | null;
+  webOrientation: InstaCompImageOrientationReceipt;
 }): Promise<MacArchiveResult> {
-  const printedText = [
-    params.core.year ? `YEAR: ${params.core.year}` : null,
-    params.core.manufacturer
-      ? `MANUFACTURER: ${params.core.manufacturer}`
-      : null,
-    params.core.product ? `PRODUCT: ${params.core.product}` : null,
-    params.core.setName ? `SET: ${params.core.setName}` : null,
-    params.core.player ? `PLAYER: ${params.core.player}` : null,
-    params.core.cardNumber ? `CARD NO: ${params.core.cardNumber}` : null,
-    params.core.team ? `TEAM: ${params.core.team}` : null,
-    params.core.league ? `LEAGUE: ${params.core.league}` : null,
-    ...params.core.frontVisibleText.map((value) => `FRONT: ${value}`),
-    ...params.core.backVisibleText.map((value) => `BACK: ${value}`),
-  ]
-    .filter(Boolean)
-    .join("\n")
-    .slice(0, 12_000);
-
   let scan: InstaCompAiLocalScan | null = null;
+  let attempts = 0;
+  let lastError: unknown = null;
   try {
-    scan = await analyzeWithInstaCompAiLocal({
-      front: params.frontFile,
-      back: params.backFile,
-      printedEvidence: {
-        provider: "kingmaker_core_visual_evidence",
-        text: printedText,
-        serialNumber: params.serialNumber,
-        checkedImages: 2,
-        conflicts: [],
-      },
-      timeoutMs: 60_000,
-    });
+    const deadline = Date.now() + 225_000;
+    for (const requestedTimeout of [150_000, 75_000]) {
+      attempts += 1;
+      try {
+        scan = await analyzeWithInstaCompAiLocal({
+          // Always send the untouched upload. The Mac applies the chosen
+          // quarter-turn exactly once and archives the canonical pixels.
+          front: params.frontFile,
+          back: params.backFile,
+          frontRotation: trustedWebRotation(params.webOrientation, "front"),
+          backRotation: trustedWebRotation(params.webOrientation, "back"),
+          timeoutMs: Math.max(
+            5_000,
+            Math.min(requestedTimeout, deadline - Date.now()),
+          ),
+        });
+        break;
+      } catch (error) {
+        lastError = error;
+        if (Date.now() >= deadline - 5_000) break;
+      }
+    }
+    if (!scan) throw lastError || new Error("Mac archive did not respond.");
     const scanId = text(scan.scan_id, 100);
     if (!scanId) throw new Error("Mac archive returned no scan ID.");
     const [frontFile, backFile] = await Promise.all([
@@ -385,13 +450,14 @@ async function archiveWithMacBestEffort(params: {
         scanId,
         status: text(scan.status, 100),
         checklistOutcome: text(scan.checklist?.outcome, 120),
+        attempts,
         canonicalImagesRecovered: true,
         imageOrientation: scan.image_orientation || null,
         error: null,
       },
       frontFile,
       backFile,
-      orientation: completedMacOrientation(scan),
+      orientation: completedMacOrientation(scan, params.webOrientation),
     };
   } catch (error) {
     return {
@@ -399,6 +465,7 @@ async function archiveWithMacBestEffort(params: {
         scanId: text(scan?.scan_id, 100),
         status: text(scan?.status, 100),
         checklistOutcome: text(scan?.checklist?.outcome, 120),
+        attempts,
         canonicalImagesRecovered: false,
         imageOrientation: scan?.image_orientation || null,
         error: text(
@@ -604,9 +671,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const macArchive = await archiveWithMacBestEffort({
+      frontFile,
+      backFile,
+      webOrientation: normalizedSides.orientation,
+    });
+    const macReceipt = macArchive.receipt;
+    if (
+      !macArchive.frontFile ||
+      !macArchive.backFile ||
+      !macArchive.orientation ||
+      macArchive.orientation.status !== "completed"
+    ) {
+      throw new Error(
+        macReceipt.error ||
+          macArchive.orientation?.reason ||
+          "Automatic card orientation could not be verified. The card was held outside Pending Listings for an automatic retry.",
+      );
+    }
+
+    const finalFrontFile = macArchive.frontFile;
+    const finalBackFile = macArchive.backFile;
+    const finalOrientation = macArchive.orientation;
+    const [finalFrontSha256, finalBackSha256, finalFrontDataUrl, finalBackDataUrl] =
+      await Promise.all([
+        digest(finalFrontFile),
+        digest(finalBackFile),
+        dataUrl(finalFrontFile),
+        dataUrl(finalBackFile),
+      ]);
+    if (finalFrontSha256 === finalBackSha256) {
+      throw new Error("Mac archive returned identical front and back images.");
+    }
+
     const core = await readInstaCompCoreVisualEvidence({
-      frontDataUrl: normalizedSides.frontDataUrl,
-      backDataUrl: normalizedSides.backDataUrl,
+      frontDataUrl: finalFrontDataUrl,
+      backDataUrl: finalBackDataUrl,
     });
     const coreMissing = [
       ["year", core.year],
@@ -652,8 +752,8 @@ export async function POST(request: NextRequest) {
     const productFilter = filterCandidatesByProduct(rawCandidates, core);
     const candidates = productFilter.candidates;
     const parallelDecision = await resolveChecklistParallelFromVision({
-      frontDataUrl: normalizedSides.frontDataUrl,
-      backDataUrl: normalizedSides.backDataUrl,
+      frontDataUrl: finalFrontDataUrl,
+      backDataUrl: finalBackDataUrl,
       candidates,
     });
     const selected = candidates.find(
@@ -680,37 +780,6 @@ export async function POST(request: NextRequest) {
           coreVisualConfidence: core.confidence,
           parallelVisualFeatures: parallelDecision.features,
         };
-
-    const macArchive = await archiveWithMacBestEffort({
-      frontFile: normalizedSides.frontFile,
-      backFile: normalizedSides.backFile,
-      core,
-      serialNumber: parallelDecision.features.serialStampText,
-    });
-    const macReceipt = macArchive.receipt;
-    let finalOrientation: InstaCompImageOrientationReceipt =
-      normalizedSides.orientation;
-    let finalFrontSha256 = frontSha256;
-    let finalBackSha256 = backSha256;
-    let finalFrontFile = normalizedSides.frontFile;
-    let finalBackFile = normalizedSides.backFile;
-
-    if (
-      macArchive.frontFile &&
-      macArchive.backFile &&
-      macArchive.orientation
-    ) {
-      [finalFrontSha256, finalBackSha256] = await Promise.all([
-        digest(macArchive.frontFile),
-        digest(macArchive.backFile),
-      ]);
-      if (finalFrontSha256 === finalBackSha256) {
-        throw new Error("Mac archive returned identical front and back images.");
-      }
-      finalFrontFile = macArchive.frontFile;
-      finalBackFile = macArchive.backFile;
-      finalOrientation = macArchive.orientation;
-    }
 
     const storedImages = await persistNormalizedInstaCompImagePair({
       supabase,
