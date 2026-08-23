@@ -307,7 +307,7 @@ export default function InstaCompScanPage() {
               onClick={() => void scan()}
               className="rounded-xl bg-emerald-400 px-5 py-3 font-black text-black disabled:opacity-40"
             >
-              {busy ? "Scanning…" : "Identify Exact Card"}
+              {busy ? "Scanning…" : "Identify + price card"}
             </button>
             <button
               disabled={busy}
