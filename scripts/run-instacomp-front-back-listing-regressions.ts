@@ -31,7 +31,11 @@ assert(
   "Listing intake does not require a complete front/back scan receipt.",
 );
 assert(
-  intakeSource.includes("const scan = await analyzeWithInstaCompAiLocal({ front, back });"),
+  intakeSource.includes("const scan = await analyzeWithInstaCompAiLocal({") &&
+    intakeSource.includes("front: normalizedSides.frontFile") &&
+    intakeSource.includes("back: normalizedSides.backFile") &&
+    intakeSource.includes("frontRotation:") &&
+    intakeSource.includes("backRotation:"),
   "Listing intake is not sending both required images to the Mac service.",
 );
 assert(

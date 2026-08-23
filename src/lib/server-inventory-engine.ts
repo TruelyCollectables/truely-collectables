@@ -504,15 +504,19 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     // Product pages use the same resilient public snapshot as /shop. Checkout
     // remains authoritative and validates live inventory before money moves.
     const catalog = await this.readPublicCatalog();
-    return (
-      catalog.find((item) => item.legacyProductId === legacyProductId) || null
-    );
+    const item =
+      catalog.find((candidate) => candidate.legacyProductId === legacyProductId) ||
+      null;
+    return item && isPublicStorefrontItem(item) ? item : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
     const requested = new Set(legacyProductIds);
     const catalog = await this.readPublicCatalog();
-    return catalog.filter((item) => requested.has(item.legacyProductId));
+    const items = catalog.filter((item) =>
+      requested.has(item.legacyProductId),
+    );
+    return items.filter(isPublicStorefrontItem);
   }
 }
 
