@@ -72,8 +72,10 @@ for (const required of [
   "job?.error",
   "Blank no longer means Base.",
   "No Base or look-alike parallel was substituted.",
-  "rotatedImageFile",
-  '"/api/account/seller/inventory/instacomp-image-rotate"',
+  "orientation verified at intake",
+  '"/api/account/seller/inventory/instacomp-bulk-edit"',
+  "applyBulkPricing",
+  "Select all",
   "Retry This Card",
   "Replace Manual Identity with AI",
   "never auto-published",
@@ -82,6 +84,9 @@ for (const required of [
 }
 for (const forbidden of [
   "failed: 100",
+  "rotatedImageFile",
+  "Rotate 90°",
+  '"/api/account/seller/inventory/instacomp-image-rotate"',
 ]) {
   rejectText(auditedPending, forbidden, "audited KINGMAKER Pending Listings");
 }
@@ -100,7 +105,7 @@ for (const existingPath of [
 const shell = read("src/app/kingmaker/KingmakerShell.tsx");
 for (const route of [
   "/kingmaker/scan",
-  "/kingmaker/pending",
+  "/kingmaker/listings",
   "/kingmaker/inventory",
   "/kingmaker/intelligence",
   "/kingmaker/sourcing",

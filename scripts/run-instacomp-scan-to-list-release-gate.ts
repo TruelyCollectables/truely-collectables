@@ -355,6 +355,10 @@ const kingmakerEditRoute = readFileSync(
   "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts",
   "utf8",
 );
+const kingmakerBulkEditRoute = readFileSync(
+  "src/app/api/account/seller/inventory/instacomp-bulk-edit/route.ts",
+  "utf8",
+);
 
 for (const required of [
   "buildInstaCompListingOutput",
@@ -419,9 +423,10 @@ requireText(
   "KINGMAKER scanner no longer wraps the canonical seller scanner",
 );
 for (const required of [
-  "rotatedImageFile",
-  'formData.set("frontImage", frontImage)',
-  'formData.set("backImage", backImage)',
+  "orientation verified at intake",
+  '"/api/account/seller/inventory/instacomp-bulk-edit"',
+  "applyBulkPricing",
+  "Select all",
   "Retry This Card",
   "Replace Manual Identity with AI",
   "job?.error",
@@ -430,6 +435,25 @@ for (const required of [
     kingmakerPending,
     required,
     `KINGMAKER audited Pending Listings is missing ${required}`,
+  );
+}
+for (const forbidden of ["rotatedImageFile", "Rotate 90°", "instacomp-image-rotate"]) {
+  assert(
+    !kingmakerPending.includes(forbidden),
+    `KINGMAKER Master Listings restored forbidden rotation contract: ${forbidden}`,
+  );
+}
+for (const required of [
+  '.eq("status", "draft")',
+  "updatedCount",
+  "published: false",
+  "category",
+  "condition",
+]) {
+  requireText(
+    kingmakerBulkEditRoute,
+    required,
+    `KINGMAKER bulk edit route is missing ${required}`,
   );
 }
 assert(
