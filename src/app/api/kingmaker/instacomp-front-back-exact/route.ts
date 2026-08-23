@@ -338,6 +338,20 @@ function cleanSetName(candidate: InstaCompChecklistCandidate) {
   return setName.replace(new RegExp(`^${manufacturer}\\s+`, "i"), "").trim();
 }
 
+function titleSetName(
+  candidate: InstaCompChecklistCandidate,
+  core: InstaCompCoreVisualEvidence,
+) {
+  const setName = cleanSetName(candidate) || core.setName || core.product;
+  if (normalized(setName) !== "base") return setName;
+  const brand = text(candidate.brand, 120);
+  if (brand && normalized(brand) !== normalized(candidate.manufacturer)) {
+    return brand;
+  }
+  const coreSet = text(core.setName || core.product, 160);
+  return coreSet && normalized(coreSet) !== "base" ? coreSet : null;
+}
+
 function canonicalTitle(params: {
   candidate: InstaCompChecklistCandidate;
   core: InstaCompCoreVisualEvidence;
@@ -345,7 +359,7 @@ function canonicalTitle(params: {
   return [
     params.candidate.year || params.core.year,
     params.candidate.manufacturer || params.core.manufacturer,
-    cleanSetName(params.candidate) || params.core.setName || params.core.product,
+    titleSetName(params.candidate, params.core),
     params.candidate.cardNumber ? `#${params.candidate.cardNumber}` : null,
     params.candidate.player || params.core.player,
     params.candidate.parallel || "Base",

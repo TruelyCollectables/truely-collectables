@@ -48,16 +48,16 @@ def test_back_orientation_score_prefers_legal_footer_and_top_card_number() -> No
     ) > AppleVisionOCR._orientation_score(upside_down, side="back")
 
 
-def test_front_orientation_score_prefers_set_markers_above_player_label() -> None:
+def test_front_orientation_score_prefers_player_label_over_rookie_artwork() -> None:
     upright = [
-        observation("ALL-AMERICAN", 0.90),
-        observation("ROOKIE RC", 0.82),
-        observation("JACY SHELDON", 0.08),
+        observation("AJSA SIVKA", 0.88),
+        observation("DONRUSS", 0.80),
+        observation("CHICAGO", 0.45),
     ]
     upside_down = [
-        observation("JACY SHELDON", 0.89),
-        observation("ROOKIE RC", 0.15),
-        observation("ALL-AMERICAN", 0.06),
+        observation("RATED", 0.88),
+        observation("ROOKIE", 0.84),
+        observation("DONRUSS", 0.15),
     ]
 
     assert AppleVisionOCR._orientation_score(
@@ -150,7 +150,7 @@ def test_detect_rotation_does_not_allow_sideways_ocr_to_win(
     assert any("force_portrait" in value for value in evidence)
 
 
-def test_ambiguous_front_portrait_scan_falls_back_to_scanner_flip(
+def test_ambiguous_front_portrait_scan_keeps_existing_orientation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -186,12 +186,57 @@ def test_ambiguous_front_portrait_scan_falls_back_to_scanner_flip(
         side="front",
     )
 
-    assert rotation == 180
+    assert rotation == 0
     assert confidence < 0.55
-    assert any("front_portrait_scanner_fallback" in value for value in evidence)
+    assert any("front_ambiguous_fallback:keep_0" in value for value in evidence)
 
 
-def test_no_text_front_portrait_scan_falls_back_to_scanner_flip(
+def test_front_portrait_preserves_source_over_moderate_ocr_flip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reader = AppleVisionOCR(Path("."), tmp_path)
+
+    monkeypatch.setattr(AppleVisionOCR, "supported", property(lambda self: True))
+    monkeypatch.setattr(
+        AppleVisionOCR,
+        "_clockwise_rotated_bytes",
+        staticmethod(lambda content, rotation: str(rotation).encode()),
+    )
+
+    def recognize(self: AppleVisionOCR, image_bytes: bytes, *, side: str):
+        rotation = int(image_bytes.decode())
+        return (
+            [
+                OCRObservation(
+                    text=f"ROTATION {rotation}",
+                    confidence=1.0,
+                    box=OCRBox(x=0.1, y=0.1, width=0.8, height=0.03),
+                    side=side,
+                    source="test",
+                )
+            ],
+            [],
+        )
+
+    def score(observations: list[OCRObservation], *, side: str) -> float:
+        text = observations[0].text
+        return 120.0 if text == "ROTATION 180" else 100.0
+
+    monkeypatch.setattr(AppleVisionOCR, "recognize", recognize)
+    monkeypatch.setattr(AppleVisionOCR, "_orientation_score", staticmethod(score))
+
+    rotation, confidence, evidence = reader.detect_upright_rotation(
+        jpeg(600, 900),
+        side="front",
+    )
+
+    assert rotation == 0
+    assert confidence >= 0.55
+    assert any("front_portrait_source_preserved_over_ocr_flip" in value for value in evidence)
+
+
+def test_no_text_front_portrait_scan_keeps_existing_orientation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -210,9 +255,9 @@ def test_no_text_front_portrait_scan_falls_back_to_scanner_flip(
         side="front",
     )
 
-    assert rotation == 180
+    assert rotation == 0
     assert confidence == 0.0
-    assert any("front_portrait_scanner_fallback" in value for value in evidence)
+    assert any("front_ambiguous_fallback:keep_0" in value for value in evidence)
 
 
 def test_ambiguous_back_portrait_scan_keeps_existing_fallback(
