@@ -132,6 +132,14 @@ function displayPattern(value: string | null) {
   return value ? value.replace(/_/g, " ") : "—";
 }
 
+function parallelLabel(card: PendingCard, job?: JobStatus) {
+  const explicit =
+    job?.selectedParallel ||
+    card.instaComp.identity?.parallel ||
+    null;
+  return explicit?.trim() || "Parallel review required";
+}
+
 function money(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0
@@ -190,7 +198,7 @@ function initialEdit(card: PendingCard): EditState {
     player: identity.player || "",
     team: identity.team || "",
     cardNumber: identity.cardNumber || "",
-    parallel: identity.parallel || "Base",
+    parallel: identity.parallel || "",
     variation: identity.variation || "",
     printRun: identity.serialNumber || card.instaComp.serialNumber || "",
     isRookie: identity.isRookie === true,
@@ -683,7 +691,7 @@ export default function KingmakerPendingPage() {
                   {error ? <div className="mt-3 rounded-lg border-2 border-red-700 bg-red-50 p-3 font-bold text-red-900">{error}{job?.errorCode ? ` · ${job.errorCode}` : ""}</div> : null}
 
                   <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Parallel</span><p>{job?.selectedParallel || card.instaComp.identity?.parallel || "Base"}</p></div>
+                    <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Parallel</span><p>{parallelLabel(card, job)}</p></div>
                     <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Visible pattern</span><p>{displayPattern(job?.visualPattern || null)}</p></div>
                     <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Serial</span><p>{job?.visualSerial || card.instaComp.serialNumber || "None seen"}</p></div>
                     <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Exact sold comps</span><p>{card.instaComp.reliableSoldCompCount || 0}</p></div>

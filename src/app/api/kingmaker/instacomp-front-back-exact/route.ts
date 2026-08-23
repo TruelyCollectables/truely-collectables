@@ -152,28 +152,6 @@ function completedMacOrientation(
 
 const MINIMUM_MAC_ORIENTATION_CONFIDENCE = 0.55;
 
-function trustedWebRotation(
-  orientation: InstaCompImageOrientationReceipt,
-  side: "front" | "back",
-) {
-  if (orientation.status !== "completed") return null;
-  const sideConfidence =
-    side === "front" ? orientation.frontConfidence : orientation.backConfidence;
-  const sideEvidence =
-    side === "front"
-      ? orientation.frontEvidenceText
-      : orientation.backEvidenceText;
-  if (
-    confidence(sideConfidence) < MINIMUM_MAC_ORIENTATION_CONFIDENCE ||
-    evidence(sideEvidence).length === 0
-  ) {
-    return null;
-  }
-  return side === "front"
-    ? quarterTurn(orientation.frontRotation)
-    : quarterTurn(orientation.backRotation);
-}
-
 async function dataUrl(file: File) {
   const type = file.type || "image/jpeg";
   return `data:${type};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`;
@@ -423,10 +401,12 @@ async function archiveWithMacBestEffort(params: {
         scan = await analyzeWithInstaCompAiLocal({
           // Always send the untouched upload. The Mac applies the chosen
           // quarter-turn exactly once and archives the canonical pixels.
+          // Web orientation is retained as diagnostics only; the Mac must
+          // independently prove the final angle before Pending Listings.
           front: params.frontFile,
           back: params.backFile,
-          frontRotation: trustedWebRotation(params.webOrientation, "front"),
-          backRotation: trustedWebRotation(params.webOrientation, "back"),
+          frontRotation: null,
+          backRotation: null,
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
