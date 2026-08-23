@@ -294,10 +294,10 @@ export default function KingmakerInstaCompQueue() {
           </p>
         </div>
         <Link
-          href="/kingmaker/pending"
+          href="/kingmaker/listings"
           className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:border-emerald-400"
         >
-          Open Pending Listings
+          Open Master Listings
         </Link>
       </div>
 
@@ -443,10 +443,10 @@ export default function KingmakerInstaCompQueue() {
                   ) : null}
                   {card.result?.inventoryItemId ? (
                     <Link
-                      href="/kingmaker/pending"
+                      href="/kingmaker/listings"
                       className="mt-3 inline-flex rounded-xl bg-white px-4 py-2 text-sm font-black text-slate-950"
                     >
-                      Review in Pending →
+                      Review in Master Listings →
                     </Link>
                   ) : null}
                 </div>

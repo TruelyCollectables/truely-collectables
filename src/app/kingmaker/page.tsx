@@ -5,14 +5,14 @@ const workflow = [
   ["1", "Drop front + back", "KINGMAKER sends one card pair into the real InstaComp intake."],
   ["2", "InstaComp AI identifies", "Internal visual intelligence + Checklist Registry lock the exact card identity."],
   ["3", "Exact comps + price", "Approved external market evidence is used only after identity is locked."],
-  ["4", "Pending review", "Edit any wrong field, verify images, choose the listing price, and keep publication blocked."],
+  ["4", "Master listing review", "Edit any wrong field, verify images, choose the listing price, and keep publication blocked."],
   ["5", "Approve + learn", "Your final confirmed identity is stored as trusted InstaComp AI teacher truth."],
 ] as const;
 
 const queues = [
   {
-    href: "/kingmaker/pending",
-    title: "Pending",
+    href: "/kingmaker/listings",
+    title: "Master Listings",
     description: "Correct identity, review images and comps, choose price, and finish the listing.",
   },
   {
@@ -45,7 +45,7 @@ export default function KingmakerHomePage() {
           </h1>
           <p className="mt-4 max-w-4xl text-lg leading-8 text-slate-300">
             Scan once here. InstaComp AI identifies the card in-house, the Registry locks identity,
-            the comp engine establishes value, and KINGMAKER carries the same physical card into Pending,
+            the comp engine establishes value, and KINGMAKER carries the same physical card into Master Listings,
             listing review, publication, and trusted learning.
           </p>
         </section>

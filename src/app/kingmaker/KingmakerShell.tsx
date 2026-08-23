@@ -11,7 +11,7 @@ import {
 const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
   { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
-  { href: "/kingmaker/pending", label: "Pending Listings", exact: false },
+  { href: "/kingmaker/listings", label: "Master Listings", exact: false },
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
   { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
   { href: "/kingmaker/sourcing", label: "Sourcing", exact: false },
