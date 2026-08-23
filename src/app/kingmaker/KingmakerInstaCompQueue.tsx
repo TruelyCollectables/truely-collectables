@@ -13,9 +13,14 @@ type IntakeResult = {
   success?: boolean;
   code?: string;
   error?: string;
+  stage?: string;
+  identityComplete?: boolean;
   cardUuid?: string | null;
   inventoryItemId?: string | null;
   title?: string | null;
+  ai?: Record<string, unknown> | null;
+  checklistDecision?: Record<string, unknown> | null;
+  parallelDecision?: Record<string, unknown> | null;
   pricingSucceeded?: boolean;
   scan?: {
     scan_id?: string | null;
@@ -79,22 +84,25 @@ function money(value: number) {
 }
 
 function identityRows(result: IntakeResult | null) {
-  const identity = result?.scan?.trusted_identity || {};
+  const identity = result?.ai || result?.scan?.trusted_identity || {};
   return [
     ["Year", identity.year],
     ["Product", identity.manufacturer || identity.brand],
-    ["Set / Insert", identity.set_name],
-    ["Player", identity.player],
-    ["Card #", identity.card_number],
-    ["Parallel", identity.parallel || "Base"],
-    ["Serial", identity.serial_number],
+    ["Set / Insert", identity.setName || identity.set_name],
+    ["Player", identity.player || identity.playerName],
+    ["Card #", identity.cardNumber || identity.card_number],
+    [
+      "Parallel",
+      identity.checklistParallel || identity.parallelName || identity.parallel,
+    ],
+    ["Serial", identity.serialNumber || identity.serial_number || identity.printRun],
   ].filter(([, value]) => value !== null && value !== undefined && value !== "");
 }
 
 function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
   if (card.status === "working") return "InstaComp AI identifying + exact comping";
-  if (card.status === "pending") return "Pending Listing created";
+  if (card.status === "pending") return "Exact identity + InstaComp pricing complete";
   if (card.status === "review") return "Saved to Pending — review required";
   return "Stopped safely";
 }
@@ -142,7 +150,7 @@ export default function KingmakerInstaCompQueue() {
       const body = new FormData();
       body.append("front", card.front, card.front.name);
       body.append("back", card.back, card.back.name);
-      const response = await fetch("/api/account/seller/instacomp-scan/intake", {
+      const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body,
@@ -163,7 +171,12 @@ export default function KingmakerInstaCompQueue() {
       }
 
       patch(card.id, {
-        status: result.success === true && result.pricingSucceeded !== false ? "pending" : "review",
+        status:
+          result.success === true &&
+          result.identityComplete === true &&
+          result.pricingSucceeded !== false
+            ? "pending"
+            : "review",
         result,
         durationMs: Date.now() - startedAt,
         frontPreview: result.normalizedImages?.frontImageUrl || card.frontPreview,

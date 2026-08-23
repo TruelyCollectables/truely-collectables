@@ -35,6 +35,9 @@ for (const required of [
   "resolveChecklistParallelFromVision",
   "year_product_player_card_then_color_pattern_serial",
   "archiveWithMacBestEffort",
+  "cardUuid: selectedRegistryIdentityId",
+  "registryFingerprintSha256: selectedRegistryFingerprintSha256",
+  "pricingGroupKey:",
   "status: identityComplete ? 200 : 202",
 ]) {
   requireText(exact, required, `Exact route is missing: ${required}`);
@@ -81,6 +84,20 @@ requireText(
   intake,
   'from "../instacomp-front-back-exact/route"',
   "Fresh scanner intake must use the repaired exact route.",
+);
+
+const batchQueue = read("src/app/kingmaker/KingmakerInstaCompQueue.tsx");
+requireText(
+  batchQueue,
+  'fetch("/api/kingmaker/instacomp-scan-intake-v2"',
+  "Multi-card upload must call the full exact InstaComp pipeline directly.",
+);
+
+const sellerScanner = read("src/app/seller/instacomp-scan/page.tsx");
+requireText(
+  sellerScanner,
+  'fetch("/api/kingmaker/instacomp-scan-intake-v2"',
+  "Single-card upload must call the full exact InstaComp pipeline directly.",
 );
 
 const config = read("next.config.ts");

@@ -82,6 +82,15 @@ function normalized(value: unknown) {
     .trim();
 }
 
+function validUuid(value: unknown) {
+  const normalizedUuid = String(value ?? "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    normalizedUuid,
+  )
+    ? normalizedUuid
+    : null;
+}
+
 function quarterTurn(value: unknown): 0 | 90 | 180 | 270 {
   const rotation = ((Math.round(Number(value) || 0) % 360) + 360) % 360;
   return rotation === 90 || rotation === 180 || rotation === 270
@@ -777,6 +786,11 @@ export async function POST(request: NextRequest) {
     const collectibleAsset = record(metadata.collectible_asset);
     const selectedParallel = selected?.parallel || null;
     const selectedIsBase = normalized(selectedParallel) === "base";
+    const selectedRegistryIdentityId = validUuid(selected?.identityId);
+    const selectedRegistryFingerprintSha256 = text(
+      selected?.fingerprintSha256,
+      80,
+    );
     const nextTitle = selected
       ? canonicalTitle({ candidate: selected, core })
       : reviewTitle(core, String(item.title || ""));
@@ -810,6 +824,16 @@ export async function POST(request: NextRequest) {
         backImageUrl: storedImages.backImageUrl,
         frontSha256: finalFrontSha256,
         backSha256: finalBackSha256,
+        cardUuid:
+          selectedRegistryIdentityId ||
+          text(previousInstaComp.cardUuid, 80) ||
+          null,
+        registryIdentityId: selectedRegistryIdentityId,
+        registryFingerprintSha256: selectedRegistryFingerprintSha256,
+        pricingGroupKey:
+          selectedRegistryFingerprintSha256 ||
+          text(previousInstaComp.pricingGroupKey, 120) ||
+          null,
         checklistDecision: {
           status: broadDecision.status,
           reasons: broadDecision.reasons,
@@ -820,6 +844,45 @@ export async function POST(request: NextRequest) {
           productFamilies: productFilter.requestedFamilies,
           productFilterApplied: productFilter.filterApplied,
         },
+        checklistIdentity: selected
+          ? {
+              status: "identified",
+              source: "checklist_registry",
+              aiIdentificationRequired: false,
+              registryIdentityId: selectedRegistryIdentityId,
+              registryFingerprintSha256: selectedRegistryFingerprintSha256,
+              lockedFields: {
+                year: selected.year,
+                manufacturer: selected.manufacturer,
+                brand: selected.brand || null,
+                product: selected.product || null,
+                setName: selected.setName || null,
+                cardNumber: selected.cardNumber,
+                player: selected.player,
+                team: selected.team || null,
+                sport: selected.sport || null,
+                league: selected.league || null,
+                parallel: selected.parallel || "Base",
+                variation: selected.variation || null,
+                serialRun: selected.serialRun ?? null,
+                isAuto: selected.isAuto,
+                isRelic: selected.isRelic,
+              },
+              reasons: [
+                "exact_visual_checklist_identity_locked_before_marketplace_pricing",
+              ],
+              checkedAt,
+            }
+          : {
+              ...record(previousInstaComp.checklistIdentity),
+              status: "review_required",
+              source: "checklist_registry",
+              aiIdentificationRequired: true,
+              registryIdentityId: null,
+              registryFingerprintSha256: null,
+              reasons: broadDecision.reasons,
+              checkedAt,
+            },
         parallelDecision,
         parallelVisualFeatures: parallelDecision.features,
         identitySource: selected
@@ -857,13 +920,18 @@ export async function POST(request: NextRequest) {
       },
     };
 
+    const updatePayload: JsonRecord = {
+      title: nextTitle,
+      metadata: nextMetadata,
+      updated_at: checkedAt,
+    };
+    if (selectedRegistryIdentityId) {
+      updatePayload.card_uuid = selectedRegistryIdentityId;
+    }
+
     const { error: updateError } = await supabase
       .from("inventory_items")
-      .update({
-        title: nextTitle,
-        metadata: nextMetadata,
-        updated_at: checkedAt,
-      })
+      .update(updatePayload)
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
       .eq("status", "draft");
@@ -880,6 +948,9 @@ export async function POST(request: NextRequest) {
               ? "parallel_review"
               : "checklist_lookup",
         identityComplete,
+        cardUuid: selectedRegistryIdentityId,
+        registryIdentityId: selectedRegistryIdentityId,
+        registryFingerprintSha256: selectedRegistryFingerprintSha256,
         title: nextTitle,
         ai: resolvedAi,
         coreVisualEvidence: core,

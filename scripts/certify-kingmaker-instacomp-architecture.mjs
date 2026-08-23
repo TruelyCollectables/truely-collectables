@@ -153,6 +153,7 @@ for (const required of [
   "multiple",
   "pairInstaCompDropFiles",
   "runInstaCompBatchQueue",
+  'fetch("/api/kingmaker/instacomp-scan-intake-v2"',
   "duplicate file",
 ]) {
   requireText(batchQueue, required, "KINGMAKER multi-card batch intake");
