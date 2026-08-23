@@ -150,6 +150,109 @@ def test_detect_rotation_does_not_allow_sideways_ocr_to_win(
     assert any("force_portrait" in value for value in evidence)
 
 
+def test_ambiguous_front_portrait_scan_falls_back_to_scanner_flip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reader = AppleVisionOCR(Path("."), tmp_path)
+
+    monkeypatch.setattr(AppleVisionOCR, "supported", property(lambda self: True))
+    monkeypatch.setattr(
+        AppleVisionOCR,
+        "_clockwise_rotated_bytes",
+        staticmethod(lambda content, rotation: str(rotation).encode()),
+    )
+
+    def recognize(self: AppleVisionOCR, image_bytes: bytes, *, side: str):
+        rotation = int(image_bytes.decode())
+        confidence_by_rotation = {0: 0.80, 180: 0.79}
+        return (
+            [
+                OCRObservation(
+                    text="BLAKE WESLEY",
+                    confidence=confidence_by_rotation[rotation],
+                    box=OCRBox(x=0.1, y=0.1, width=0.8, height=0.03),
+                    side=side,
+                    source="test",
+                )
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(AppleVisionOCR, "recognize", recognize)
+
+    rotation, confidence, evidence = reader.detect_upright_rotation(
+        jpeg(600, 900),
+        side="front",
+    )
+
+    assert rotation == 180
+    assert confidence < 0.55
+    assert any("front_portrait_scanner_fallback" in value for value in evidence)
+
+
+def test_no_text_front_portrait_scan_falls_back_to_scanner_flip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reader = AppleVisionOCR(Path("."), tmp_path)
+
+    monkeypatch.setattr(AppleVisionOCR, "supported", property(lambda self: True))
+    monkeypatch.setattr(
+        AppleVisionOCR,
+        "_clockwise_rotated_bytes",
+        staticmethod(lambda content, rotation: str(rotation).encode()),
+    )
+    monkeypatch.setattr(AppleVisionOCR, "recognize", lambda self, image_bytes, *, side: ([], []))
+
+    rotation, confidence, evidence = reader.detect_upright_rotation(
+        jpeg(600, 900),
+        side="front",
+    )
+
+    assert rotation == 180
+    assert confidence == 0.0
+    assert any("front_portrait_scanner_fallback" in value for value in evidence)
+
+
+def test_ambiguous_back_portrait_scan_keeps_existing_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reader = AppleVisionOCR(Path("."), tmp_path)
+
+    monkeypatch.setattr(AppleVisionOCR, "supported", property(lambda self: True))
+    monkeypatch.setattr(
+        AppleVisionOCR,
+        "_clockwise_rotated_bytes",
+        staticmethod(lambda content, rotation: str(rotation).encode()),
+    )
+
+    def recognize(self: AppleVisionOCR, image_bytes: bytes, *, side: str):
+        return (
+            [
+                OCRObservation(
+                    text="OFFICIALLY LICENSED",
+                    confidence=0.8,
+                    box=OCRBox(x=0.1, y=0.1, width=0.8, height=0.03),
+                    side=side,
+                    source="test",
+                )
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(AppleVisionOCR, "recognize", recognize)
+
+    rotation, _confidence, evidence = reader.detect_upright_rotation(
+        jpeg(600, 900),
+        side="back",
+    )
+
+    assert rotation == 0
+    assert not any("front_portrait_scanner_fallback" in value for value in evidence)
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="Apple Vision requires macOS")
 def test_native_apple_vision_helper_compiles_and_reads_card_text(tmp_path: Path) -> None:
     service_root = Path(__file__).resolve().parents[1]
