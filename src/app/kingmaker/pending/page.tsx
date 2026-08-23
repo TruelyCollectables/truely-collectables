@@ -176,41 +176,6 @@ function initialEdit(card: PendingCard): EditState {
   };
 }
 
-async function fileFromUrl(url: string, name: string) {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Could not read stored ${name} image for rotation.`);
-  const blob = await response.blob();
-  return new File([blob], `${name}.${blob.type.includes("png") ? "png" : "jpg"}`, {
-    type: blob.type || "image/jpeg",
-  });
-}
-
-async function rotatedImageFile(file: File, name: string) {
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.height;
-  canvas.height = bitmap.width;
-  const context = canvas.getContext("2d", { alpha: false });
-  if (!context) {
-    bitmap.close();
-    throw new Error("Browser image rotation is unavailable.");
-  }
-  context.fillStyle = "#fff";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.translate(canvas.width / 2, canvas.height / 2);
-  context.rotate(Math.PI / 2);
-  context.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
-  bitmap.close();
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (value) => (value ? resolve(value) : reject(new Error("Image rotation failed."))),
-      "image/jpeg",
-      0.94,
-    );
-  });
-  return new File([blob], `${name}-rotated.jpg`, { type: "image/jpeg" });
-}
-
 function Field({
   label,
   value,
@@ -242,6 +207,9 @@ export default function KingmakerPendingPage() {
   const [localError, setLocalError] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, EditState>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkCondition, setBulkCondition] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState("");
@@ -263,6 +231,10 @@ export default function KingmakerPendingPage() {
       if (!statusResponse.ok) throw new Error(statusData.error || "Could not load card job status.");
       setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
       setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
+      setSelectedIds((current) => {
+        const available = new Set((Array.isArray(cardsData.items) ? cardsData.items : []).map((card: PendingCard) => card.inventoryItemId));
+        return new Set([...current].filter((id) => available.has(id)));
+      });
     } catch (error) {
       setCards([]);
       setJobs({});
@@ -360,39 +332,72 @@ export default function KingmakerPendingPage() {
     }
   }
 
-  async function rotateImage(card: PendingCard, side: "front" | "back") {
-    if (!card.frontImageUrl || !card.backImageUrl) return;
-    setBusyId(card.inventoryItemId);
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function applyBulkEdits() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) return;
+    if (!bulkCategory.trim() && !bulkCondition.trim()) {
+      setPageError("Choose a category or condition to apply to the selected cards.");
+      return;
+    }
+    setBusyId("bulk");
     setPageError("");
     setNotice("");
     try {
-      const [frontOriginal, backOriginal] = await Promise.all([
-        fileFromUrl(card.frontImageUrl, "front"),
-        fileFromUrl(card.backImageUrl, "back"),
-      ]);
-      const [frontImage, backImage] = await Promise.all([
-        side === "front"
-          ? rotatedImageFile(frontOriginal, "front")
-          : Promise.resolve(frontOriginal),
-        side === "back"
-          ? rotatedImageFile(backOriginal, "back")
-          : Promise.resolve(backOriginal),
-      ]);
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      const formData = new FormData();
-      formData.set("inventoryItemId", card.inventoryItemId);
-      formData.set("rotatedSide", side);
-      formData.set("frontImage", frontImage);
-      formData.set("backImage", backImage);
-      const response = await fetch("/api/account/seller/inventory/instacomp-image-rotate", {
+      const response = await fetch("/api/account/seller/inventory/instacomp-bulk-edit", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: formData,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          inventoryItemIds: selected.map((card) => card.inventoryItemId),
+          category: bulkCategory.trim() || undefined,
+          condition: bulkCondition.trim() || undefined,
+        }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not rotate stored card image.");
-      setNotice(`${side === "front" ? "Front" : "Back"} rotated 90° clockwise and saved to the Pending draft.`);
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Bulk edit failed.");
+      setNotice(`${data.updatedCount} selected card${data.updatedCount === 1 ? "" : "s"} updated and saved.`);
+      await load();
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function applyBulkPricing(multiplier: number, source: string) {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    const priceable = selected.filter((card) => Number(card.instaComp.suggestedPrice || 0) > 0);
+    if (!priceable.length) {
+      setPageError("None of the selected cards has an accepted InstaComp comp price yet.");
+      return;
+    }
+    setBusyId("bulk");
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      await Promise.all(priceable.map(async (card) => {
+        const price = Math.round(Number(card.instaComp.suggestedPrice) * multiplier * 100) / 100;
+        const response = await fetch("/api/account/seller/instacomp-scan/price", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ inventoryItemId: card.inventoryItemId, price, source }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(`${card.title}: ${data.error || "bulk price failed"}`);
+      }));
+      setNotice(`Comp-based prices saved for ${priceable.length} selected card${priceable.length === 1 ? "" : "s"}.`);
       await load();
     } catch (error) {
       setPageError(message(error));
@@ -453,11 +458,11 @@ export default function KingmakerPendingPage() {
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">KINGMAKER / Pending</p>
-            <h1 className="mt-1 text-3xl font-black">Review the finished InstaComp work</h1>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">KINGMAKER / Master Listings</p>
+            <h1 className="mt-1 text-3xl font-black">Master listing workspace</h1>
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
-              Automatic text orientation should keep both sides upright. If it misses, rotate the stored draft here.
-              Every identity and listing field remains editable before approval. Nothing publishes automatically.
+              Uploaded fronts and backs are normalized automatically, then InstaComp verifies identity and gathers exact comps.
+              Edit one card or select many for bulk listing updates. Nothing publishes automatically.
             </p>
           </div>
           <button
@@ -475,9 +480,35 @@ export default function KingmakerPendingPage() {
 
         {!loading && !cards.length ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
-            <p className="text-xl font-black">No Pending InstaComp cards</p>
+            <p className="text-xl font-black">No master listing drafts</p>
             <p className="mt-2 text-neutral-600">Drop the next front/back pair on the KINGMAKER home page.</p>
           </div>
+        ) : null}
+
+        {cards.length ? (
+          <section className="mt-6 rounded-2xl border-2 border-neutral-900 bg-white p-4 shadow-[5px_5px_0_#111]" aria-label="Bulk listing tools">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black">Bulk edit</h2>
+                <p className="text-sm font-semibold text-neutral-600">{selectedIds.size} of {cards.length} selected</p>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSelectedIds(new Set(cards.map((card) => card.inventoryItemId)))} className="rounded-lg border-2 border-neutral-900 px-3 py-2 text-sm font-black">Select all</button>
+                <button type="button" onClick={() => setSelectedIds(new Set())} className="rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-black">Clear</button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+              <Field label="Category (optional)" value={bulkCategory} onChange={setBulkCategory} placeholder="Trading Card Singles" />
+              <Field label="Condition (optional)" value={bulkCondition} onChange={setBulkCondition} placeholder="Ungraded" />
+              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkEdits()} className="self-end rounded-xl bg-amber-600 px-5 py-3 font-black text-white disabled:opacity-40">Apply fields</button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
+              <span className="mr-2 text-sm font-black">Bulk comp pricing:</span>
+              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkPricing(1, "bulk_instacomp")} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">InstaComp</button>
+              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkPricing(1.05, "bulk_instacomp_plus_5")} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">+5%</button>
+              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkPricing(1.1, "bulk_instacomp_plus_10")} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">+10%</button>
+            </div>
+          </section>
         ) : null}
 
         <section className="mt-6 space-y-6">
@@ -511,11 +542,14 @@ export default function KingmakerPendingPage() {
             return (
               <article key={card.inventoryItemId} className="overflow-hidden rounded-2xl border-2 border-neutral-900 bg-white shadow-[6px_6px_0_#111]">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-neutral-900 bg-neutral-950 px-4 py-3 text-white">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <input type="checkbox" aria-label={`Select ${card.title}`} checked={selectedIds.has(card.inventoryItemId)} onChange={() => toggleSelected(card.inventoryItemId)} className="mt-1 h-5 w-5 accent-emerald-400" />
+                    <div className="min-w-0">
                     <h2 className="font-black">{card.title}</h2>
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
                     </p>
+                    </div>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
                     {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
@@ -574,19 +608,7 @@ export default function KingmakerPendingPage() {
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                   {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => (
                     <figure key={side} className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
-                      <figcaption className="mb-2 flex items-center justify-between gap-2 text-xs font-black uppercase tracking-wider">
-                        <span>Card {side} · auto-oriented</span>
-                        {url ? (
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => void rotateImage(card, side)}
-                            className="rounded-lg bg-neutral-800 px-3 py-2 normal-case tracking-normal text-white disabled:opacity-40"
-                          >
-                            Rotate 90° ↻
-                          </button>
-                        ) : null}
-                      </figcaption>
+                      <figcaption className="mb-2 text-xs font-black uppercase tracking-wider">Card {side} · orientation verified at intake</figcaption>
                       <div className="flex h-80 items-center justify-center overflow-hidden rounded-lg bg-white">
                         {url ? (
                           // eslint-disable-next-line @next/next/no-img-element
