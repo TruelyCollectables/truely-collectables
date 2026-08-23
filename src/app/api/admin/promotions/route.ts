@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
 import { hasValidAdminRequest } from "../../../../lib/admin-request-auth";
 import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -9,6 +8,35 @@ import {
 } from "../../../../lib/store-promotions";
 
 export const dynamic = "force-dynamic";
+
+type StripeObject = {
+  id: string;
+  livemode?: boolean;
+};
+
+async function stripeRequest(
+  secretKey: string,
+  path: string,
+  fields: Record<string, string | number | boolean>,
+  idempotencyKey?: string,
+  method: "POST" | "DELETE" = "POST",
+) {
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(fields)) body.set(key, String(value));
+  const response = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+    },
+    body,
+    signal: AbortSignal.timeout(15_000),
+  });
+  const payload = await response.json() as StripeObject & { error?: { message?: string } };
+  if (!response.ok) throw new Error(payload.error?.message || `Stripe request failed (${response.status}).`);
+  return payload;
+}
 
 async function adminOnly(request: Request) {
   if (await hasValidAdminRequest(request)) return null;
@@ -42,37 +70,30 @@ export async function POST(request: Request) {
     if (!runtime.allowed || !runtime.stripeKey) {
       return NextResponse.json({ error: runtime.reason }, { status: 503 });
     }
-    const stripe = new Stripe(runtime.stripeKey, {
-      timeout: 15_000,
-      maxNetworkRetries: 1,
-    });
     const idempotencyStem = `${storeId}_${input.code.toLowerCase()}_${input.percentOff}`;
-    const coupon = await stripe.coupons.create(
-      {
-        name: `${input.code} - ${input.percentOff}% off`,
-        percent_off: input.percentOff,
-        duration: "once",
-        metadata: { store_id: storeId, managed_by: "tcos_admin" },
-      },
-      { idempotencyKey: `tcos_coupon_${idempotencyStem}` },
-    );
+    const coupon = await stripeRequest(runtime.stripeKey, "coupons", {
+      name: `${input.code} - ${input.percentOff}% off`,
+      percent_off: input.percentOff,
+      duration: "once",
+      "metadata[store_id]": storeId,
+      "metadata[managed_by]": "tcos_admin",
+    }, `tcos_coupon_${idempotencyStem}`);
 
-    let promotionCode: Stripe.PromotionCode;
+    let promotionCode: StripeObject;
     try {
-      promotionCode = await stripe.promotionCodes.create(
-        {
-          promotion: { type: "coupon", coupon: coupon.id },
-          code: input.code,
-          active: true,
-          ...(input.maxRedemptions ? { max_redemptions: input.maxRedemptions } : {}),
-          ...(input.expiresAt ? { expires_at: Math.floor(input.expiresAt.getTime() / 1000) } : {}),
-          restrictions: { first_time_transaction: firstOrderOnly },
-          metadata: { store_id: storeId, managed_by: "tcos_admin" },
-        },
-        { idempotencyKey: `tcos_promotion_${idempotencyStem}_${firstOrderOnly}` },
-      );
+      promotionCode = await stripeRequest(runtime.stripeKey, "promotion_codes", {
+        "promotion[type]": "coupon",
+        "promotion[coupon]": coupon.id,
+        code: input.code,
+        active: true,
+        ...(input.maxRedemptions ? { max_redemptions: input.maxRedemptions } : {}),
+        ...(input.expiresAt ? { expires_at: Math.floor(input.expiresAt.getTime() / 1000) } : {}),
+        "restrictions[first_time_transaction]": firstOrderOnly,
+        "metadata[store_id]": storeId,
+        "metadata[managed_by]": "tcos_admin",
+      }, `tcos_promotion_${idempotencyStem}_${firstOrderOnly}`);
     } catch (error) {
-      await stripe.coupons.del(coupon.id).catch(() => undefined);
+      await stripeRequest(runtime.stripeKey, `coupons/${coupon.id}`, {}, undefined, "DELETE").catch(() => undefined);
       throw error;
     }
 
@@ -93,7 +114,7 @@ export async function POST(request: Request) {
       .select("*")
       .single();
     if (insertError || !promotion) {
-      await stripe.promotionCodes.update(promotionCode.id, { active: false }).catch(() => undefined);
+      await stripeRequest(runtime.stripeKey, `promotion_codes/${promotionCode.id}`, { active: false }).catch(() => undefined);
       throw insertError || new Error("Promotion record was not saved.");
     }
 
@@ -128,8 +149,7 @@ export async function PATCH(request: Request) {
       if (!runtime.allowed || !runtime.stripeKey) {
         return NextResponse.json({ error: runtime.reason }, { status: 503 });
       }
-      const stripe = new Stripe(runtime.stripeKey);
-      await stripe.promotionCodes.update(promotion.stripe_promotion_code_id, { active });
+      await stripeRequest(runtime.stripeKey, `promotion_codes/${promotion.stripe_promotion_code_id}`, { active });
       const { error: updateError } = await supabase
         .from("store_promotions")
         .update({ active, updated_at: new Date().toISOString() })
