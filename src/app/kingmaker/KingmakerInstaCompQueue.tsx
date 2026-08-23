@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { getFreshAccountSession } from "../account/account-session";
+import {
+  instaCompDropFileSignature,
+  pairInstaCompDropFiles,
+  runInstaCompBatchQueue,
+} from "../../lib/instacomp-batch-drop";
 
 type IntakeResult = {
   success?: boolean;
@@ -33,7 +38,7 @@ type QueueStatus = "queued" | "working" | "pending" | "review" | "error";
 
 type QueueCard = {
   id: string;
-  front: File;
+  front: File | null;
   back: File | null;
   frontPreview: string;
   backPreview: string | null;
@@ -45,49 +50,6 @@ type QueueCard = {
 };
 
 const CONCURRENCY = 2;
-
-function sideFromName(name: string): "front" | "back" | null {
-  const lower = name.toLowerCase();
-  if (/(?:^|[-_ .])(front|obverse|obv)(?:$|[-_ .])/.test(lower)) return "front";
-  if (/(?:^|[-_ .])(back|reverse|rev)(?:$|[-_ .])/.test(lower)) return "back";
-  return null;
-}
-
-function pairKey(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/\.[a-z0-9]+$/i, "")
-    .replace(/(?:^|[-_ .])(front|obverse|obv|back|reverse|rev)(?:$|[-_ .])/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function pairFiles(files: File[]) {
-  const named = new Map<string, { front?: File; back?: File }>();
-  const loose: File[] = [];
-
-  for (const file of files) {
-    const side = sideFromName(file.name);
-    if (!side) {
-      loose.push(file);
-      continue;
-    }
-    const key = pairKey(file.name) || file.name;
-    const row = named.get(key) || {};
-    row[side] = file;
-    named.set(key, row);
-  }
-
-  const pairs: Array<{ front: File; back: File | null }> = [];
-  for (const row of named.values()) {
-    if (row.front) pairs.push({ front: row.front, back: row.back || null });
-    else if (row.back) loose.push(row.back);
-  }
-  for (let index = 0; index < loose.length; index += 2) {
-    pairs.push({ front: loose[index], back: loose[index + 1] || null });
-  }
-  return pairs;
-}
 
 function numberFrom(value: unknown): number | null {
   const parsed = Number(value);
@@ -142,7 +104,9 @@ export default function KingmakerInstaCompQueue() {
   const [dragging, setDragging] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [pageError, setPageError] = useState("");
+  const [pageNotice, setPageNotice] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const acceptedSignatures = useRef<Set<string>>(new Set());
 
   const totals = useMemo(
     () => ({
@@ -162,10 +126,10 @@ export default function KingmakerInstaCompQueue() {
   }
 
   async function processCard(card: QueueCard) {
-    if (!card.back) {
+    if (!card.front || !card.back) {
       patch(card.id, {
         status: "error",
-        error: "Back image missing. Front and back are required before a Pending Listing is created.",
+        error: `${card.front ? "Back" : "Front"} image missing. Front and back are required before a Pending Listing is created.`,
       });
       return;
     }
@@ -216,9 +180,11 @@ export default function KingmakerInstaCompQueue() {
   }
 
   async function runQueue(queue: QueueCard[]) {
-    for (let index = 0; index < queue.length; index += CONCURRENCY) {
-      await Promise.all(queue.slice(index, index + CONCURRENCY).map(processCard));
-    }
+    await runInstaCompBatchQueue({
+      items: queue,
+      concurrency: CONCURRENCY,
+      worker: processCard,
+    });
   }
 
   async function acceptFiles(value: FileList | File[]) {
@@ -226,21 +192,34 @@ export default function KingmakerInstaCompQueue() {
     if (!files.length) return;
     setPreparing(true);
     setPageError("");
+    setPageNotice("");
     try {
-      const pairs = pairFiles(files);
-      const prepared = pairs.map((pair) => ({
+      const pairing = pairInstaCompDropFiles(files, acceptedSignatures.current);
+      files.forEach((file) => acceptedSignatures.current.add(instaCompDropFileSignature(file)));
+      if (!pairing.pairs.length) {
+        setPageError("No new card images were added. Choose JPEG, PNG, or WebP fronts and backs.");
+        return;
+      }
+      const prepared = pairing.pairs.map((pair) => ({
         id: crypto.randomUUID(),
         front: pair.front,
         back: pair.back,
-        frontPreview: URL.createObjectURL(pair.front),
+        frontPreview: pair.front ? URL.createObjectURL(pair.front) : "",
         backPreview: pair.back ? URL.createObjectURL(pair.back) : null,
         status: "queued" as const,
         result: null,
-        error: pair.back ? null : "Back image missing.",
+        error: !pair.front
+          ? "Front image missing."
+          : pair.back
+            ? null
+            : "Back image missing.",
         durationMs: null,
         savingPrice: false,
       }));
       setCards((current) => [...prepared, ...current]);
+      setPageNotice(
+        `${prepared.length} card${prepared.length === 1 ? "" : "s"} queued from ${files.length - pairing.duplicateCount} image${files.length - pairing.duplicateCount === 1 ? "" : "s"}.${pairing.duplicateCount ? ` ${pairing.duplicateCount} duplicate file${pairing.duplicateCount === 1 ? " was" : "s were"} ignored.` : ""}`,
+      );
       void runQueue(prepared);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not prepare dropped images.");
@@ -359,6 +338,12 @@ export default function KingmakerInstaCompQueue() {
         </div>
       ) : null}
 
+      {pageNotice ? (
+        <div className="mt-4 rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 font-bold text-emerald-100" role="status">
+          {pageNotice}
+        </div>
+      ) : null}
+
       {cards.length ? (
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Metric label="Cards" value={totals.total} />
@@ -383,7 +368,7 @@ export default function KingmakerInstaCompQueue() {
             <article key={card.id} className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900/80">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 px-4 py-3">
                 <div>
-                  <p className="font-black">{card.result?.title || card.front.name}</p>
+                  <p className="font-black">{card.result?.title || card.front?.name || card.back?.name || "Unpaired card images"}</p>
                   <p className="mt-1 text-xs font-semibold text-slate-400">{statusText(card)}</p>
                 </div>
                 <div className="text-right text-xs font-bold text-slate-400">
