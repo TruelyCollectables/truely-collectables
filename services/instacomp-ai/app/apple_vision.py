@@ -126,6 +126,96 @@ class AppleVisionOCR:
             return output.getvalue()
 
     @staticmethod
+    def _image_frame_rotation_choices(content: bytes) -> tuple[tuple[int, ...], list[str]]:
+        from io import BytesIO
+
+        with Image.open(BytesIO(content)) as opened:
+            try:
+                image = ImageOps.exif_transpose(opened)
+            except Exception:
+                image = opened.copy()
+            width = int(image.width)
+            height = int(image.height)
+
+        longer = max(width, height)
+        shorter = max(1, min(width, height))
+        aspect = longer / shorter
+        if aspect < 1.08:
+            return (0, 90, 180, 270), [
+                f"image_frame_unclear:{width}x{height}:aspect_{aspect:.2f}"
+            ]
+        if width > height:
+            return (90, 270), [f"image_frame_landscape:{width}x{height}:force_portrait"]
+        return (0, 180), [f"image_frame_portrait:{width}x{height}:allow_flip_only"]
+
+    @staticmethod
+    def _card_frame_rotation_choices(content: bytes) -> tuple[tuple[int, ...], list[str]] | None:
+        """Use the detected physical card rectangle as a hard sideways gate.
+
+        OCR is still responsible for deciding which end is up, but OCR should
+        not be allowed to keep a standard portrait card sideways just because
+        Apple Vision managed to read a few rotated words.
+        """
+        try:
+            import cv2
+            import numpy as np
+            from io import BytesIO
+
+            with Image.open(BytesIO(content)) as opened:
+                image = ImageOps.exif_transpose(opened).convert("RGB")
+                image.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
+                rgb = np.array(image)
+
+            gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+            gray = cv2.GaussianBlur(gray, (5, 5), 0)
+            edges = cv2.Canny(gray, 40, 130)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+            edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            image_area = float(rgb.shape[0] * rgb.shape[1])
+            best: tuple[float, float, float, float] | None = None
+            for contour in contours:
+                area = float(cv2.contourArea(contour))
+                if area < image_area * 0.08 or area > image_area * 0.98:
+                    continue
+                rect = cv2.minAreaRect(contour)
+                rect_width, rect_height = float(rect[1][0]), float(rect[1][1])
+                if rect_width <= 0 or rect_height <= 0:
+                    continue
+                long_side = max(rect_width, rect_height)
+                short_side = max(1.0, min(rect_width, rect_height))
+                aspect = long_side / short_side
+                if aspect < 1.18 or aspect > 1.85:
+                    continue
+                fill = area / max(1.0, rect_width * rect_height)
+                if fill < 0.55:
+                    continue
+                score = area * min(1.0, fill)
+                if best is None or score > best[0]:
+                    best = (score, rect_width, rect_height, aspect)
+
+            if best is None:
+                return None
+
+            _, rect_width, rect_height, aspect = best
+            if rect_width > rect_height:
+                return (90, 270), [
+                    f"card_frame_landscape:{rect_width:.0f}x{rect_height:.0f}:aspect_{aspect:.2f}:force_portrait"
+                ]
+            return (0, 180), [
+                f"card_frame_portrait:{rect_width:.0f}x{rect_height:.0f}:aspect_{aspect:.2f}:allow_flip_only"
+            ]
+        except Exception:
+            return None
+
+    @classmethod
+    def _geometry_rotation_choices(cls, content: bytes) -> tuple[tuple[int, ...], list[str]]:
+        card_frame = cls._card_frame_rotation_choices(content)
+        if card_frame is not None:
+            return card_frame
+        return cls._image_frame_rotation_choices(content)
+
+    @staticmethod
     def _orientation_score(
         observations: list[OCRObservation],
         *,
@@ -214,12 +304,20 @@ class AppleVisionOCR:
         *,
         side: str,
     ) -> tuple[int, float, list[str]]:
-        """Return the clockwise text correction selected from four OCR witnesses."""
+        """Return the clockwise text correction selected from geometry-gated OCR."""
         if not self.supported:
             return 0, 0.0, [f"{side}:apple_vision_unavailable"]
 
+        try:
+            rotations, geometry_evidence = self._geometry_rotation_choices(image_bytes)
+        except Exception as exc:
+            rotations = (0, 90, 180, 270)
+            geometry_evidence = [
+                f"geometry_gate_failed:{type(exc).__name__.lower()}:all_rotations"
+            ]
+
         candidates: list[tuple[int, float, list[OCRObservation]]] = []
-        for rotation in (0, 90, 180, 270):
+        for rotation in rotations:
             rotated = self._clockwise_rotated_bytes(image_bytes, rotation)
             observations, _errors = self.recognize(rotated, side=side)
             candidates.append(
@@ -234,7 +332,10 @@ class AppleVisionOCR:
         best_rotation, best_score, best_observations = candidates[0]
         second_score = candidates[1][1]
         if best_score <= 0:
-            return 0, 0.0, [f"{side}:no_readable_text_for_orientation"]
+            return 0, 0.0, [
+                *[f"{side}:{value}" for value in geometry_evidence],
+                f"{side}:no_readable_text_for_orientation",
+            ]
 
         margin = max(0.0, (best_score - second_score) / max(1.0, best_score))
         # A close score is ambiguous even when the winning candidate is 0°.
@@ -248,12 +349,14 @@ class AppleVisionOCR:
             if decisive
             else max(0.0, min(0.54, margin / 0.04 * 0.54))
         )
-        applied_rotation = best_rotation if decisive else 0
-        evidence = [
+        applied_rotation = best_rotation if decisive or 0 not in rotations else 0
+        evidence = [f"{side}:{value}" for value in geometry_evidence]
+        evidence.extend(
             observation.text[:80]
             for observation in best_observations
             if observation.text.strip()
-        ][:6]
+        )
+        evidence = evidence[:6]
         return applied_rotation, confidence, evidence
 
     def _ensure_binary(self) -> None:
