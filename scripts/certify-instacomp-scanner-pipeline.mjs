@@ -37,7 +37,7 @@ for (const field of ["year", "manufacturer", "cardNumber", "player"]) {
 
 requireText(page, 'capture="environment"', "Scanner UI must support mobile camera capture.");
 requireText(page, "Identify + price card", "Scanner UI must expose the complete action.");
-requireText(page, 'href="/seller/instacomp-pending"', "Scanner UI must hand off to Pending Listings.");
+requireText(page, 'href="/kingmaker/pending"', "Scanner UI must hand off to KINGMAKER Pending Listings.");
 requireText(page, 'label: "+5%"', "Scanner UI must offer the +5% price choice.");
 requireText(page, 'label: "+10%"', "Scanner UI must offer the +10% price choice.");
 requireText(page, "/api/account/seller/instacomp-scan/price", "Scanner UI must persist selected pricing.");
