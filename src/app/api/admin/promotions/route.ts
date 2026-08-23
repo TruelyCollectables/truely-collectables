@@ -31,7 +31,6 @@ async function stripeRequest(
       ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body,
-    signal: AbortSignal.timeout(15_000),
   });
   const payload = await response.json() as StripeObject & { error?: { message?: string } };
   if (!response.ok) throw new Error(payload.error?.message || `Stripe request failed (${response.status}).`);
