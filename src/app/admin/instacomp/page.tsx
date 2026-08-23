@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import AppetizerAutoScanner from "./AppetizerAutoScanner";
 import DuckAiWitness from "./DuckAiWitness";
 import InstaCompAdminFrame from "./InstaCompAdminFrame";
 import InstaCompScanner from "./InstaCompScanner";
@@ -81,7 +82,7 @@ export default async function InstaCompAdminPage({
     <InstaCompAdminFrame
       eyebrow="Admin scan workbench"
       title="InstaComp™ Scan Lab"
-      description="Identify cards with AI, verify the exact card identity, remove bad rows, merge duplicate quantities, refresh comps, and turn clean scan results into priced Truely Collectables listing drafts. Duck.ai is available below as a free manual council witness."
+      description="For the 25–30 card appetizer, drop already-upright front/back scans into the green auto-run lane and InstaComp starts immediately. The full manual workbench remains below for deeper review and correction."
       notice={
         openedFromSellerEbayStaging ? (
           <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
@@ -114,19 +115,20 @@ export default async function InstaCompAdminPage({
         ) : null
       }
     >
+      <AppetizerAutoScanner />
+
       <section className="mb-7 overflow-hidden rounded-3xl border border-cyan-200 bg-gradient-to-br from-neutral-950 via-neutral-900 to-cyan-950 text-white shadow-lg">
         <div className="grid gap-5 p-6 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
-              InstaComp 2.0 is ready
+              Full workbench
             </p>
             <h2 className="mt-2 text-3xl font-black tracking-tight">
-              Turn every scan into a money decision.
+              Manual review and correction tools stay below.
             </h2>
             <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-300">
-              The new one-card workbench adds buy targets, actual profit and ROI,
-              market heat, liquidity, risk, trend direction, and raw-versus-graded
-              evidence without hiding the comps behind the answer.
+              Use this after the appetizer run when a card needs a deeper identity review,
+              correction, draft action, or pricing investigation.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
