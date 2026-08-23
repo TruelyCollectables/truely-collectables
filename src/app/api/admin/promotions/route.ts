@@ -42,25 +42,35 @@ export async function POST(request: Request) {
     if (!runtime.allowed || !runtime.stripeKey) {
       return NextResponse.json({ error: runtime.reason }, { status: 503 });
     }
-    const stripe = new Stripe(runtime.stripeKey);
-    const coupon = await stripe.coupons.create({
-      name: `${input.code} - ${input.percentOff}% off`,
-      percent_off: input.percentOff,
-      duration: "once",
-      metadata: { store_id: storeId, managed_by: "tcos_admin" },
+    const stripe = new Stripe(runtime.stripeKey, {
+      timeout: 15_000,
+      maxNetworkRetries: 1,
     });
+    const idempotencyStem = `${storeId}_${input.code.toLowerCase()}_${input.percentOff}`;
+    const coupon = await stripe.coupons.create(
+      {
+        name: `${input.code} - ${input.percentOff}% off`,
+        percent_off: input.percentOff,
+        duration: "once",
+        metadata: { store_id: storeId, managed_by: "tcos_admin" },
+      },
+      { idempotencyKey: `tcos_coupon_${idempotencyStem}` },
+    );
 
     let promotionCode: Stripe.PromotionCode;
     try {
-      promotionCode = await stripe.promotionCodes.create({
-        promotion: { type: "coupon", coupon: coupon.id },
-        code: input.code,
-        active: true,
-        ...(input.maxRedemptions ? { max_redemptions: input.maxRedemptions } : {}),
-        ...(input.expiresAt ? { expires_at: Math.floor(input.expiresAt.getTime() / 1000) } : {}),
-        restrictions: { first_time_transaction: firstOrderOnly },
-        metadata: { store_id: storeId, managed_by: "tcos_admin" },
-      });
+      promotionCode = await stripe.promotionCodes.create(
+        {
+          promotion: { type: "coupon", coupon: coupon.id },
+          code: input.code,
+          active: true,
+          ...(input.maxRedemptions ? { max_redemptions: input.maxRedemptions } : {}),
+          ...(input.expiresAt ? { expires_at: Math.floor(input.expiresAt.getTime() / 1000) } : {}),
+          restrictions: { first_time_transaction: firstOrderOnly },
+          metadata: { store_id: storeId, managed_by: "tcos_admin" },
+        },
+        { idempotencyKey: `tcos_promotion_${idempotencyStem}_${firstOrderOnly}` },
+      );
     } catch (error) {
       await stripe.coupons.del(coupon.id).catch(() => undefined);
       throw error;
