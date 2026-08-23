@@ -70,6 +70,7 @@ export type InstaCompAiLocalScan = {
   checklist: {
     outcome: string;
     identity_id?: string | null;
+    identity?: Record<string, unknown> | null;
     source_receipts?: string[];
     reasons?: string[];
   };

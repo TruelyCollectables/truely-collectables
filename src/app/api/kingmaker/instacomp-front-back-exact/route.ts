@@ -45,6 +45,13 @@ type MacReceipt = {
   scanId: string | null;
   status: string | null;
   checklistOutcome: string | null;
+  registryIdentityId: string | null;
+  registryFingerprintSha256: string | null;
+  checklistIdentity: JsonRecord | null;
+  checklistReasons: string[];
+  pricingAllowed: boolean;
+  learningAllowed: boolean;
+  matchSource: string | null;
   attempts: number;
   canonicalImagesRecovered: boolean;
   imageOrientation: InstaCompAiLocalScan["image_orientation"];
@@ -110,6 +117,22 @@ function evidence(value: unknown) {
         .filter((entry): entry is string => Boolean(entry))
         .slice(0, 8)
     : [];
+}
+
+function textList(value: unknown, limit = 20) {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => text(entry, 240))
+        .filter((entry): entry is string => Boolean(entry))
+        .slice(0, limit)
+    : [];
+}
+
+function registryFingerprintFromReceipts(value: unknown) {
+  const receipt = textList(value, 20).find((entry) =>
+    entry.startsWith("registry_fingerprint:"),
+  );
+  return text(receipt?.slice("registry_fingerprint:".length), 80);
 }
 
 function completedMacOrientation(
@@ -394,6 +417,103 @@ function candidateAi(
   };
 }
 
+function integerOrNull(value: unknown) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function booleanValue(value: unknown) {
+  return value === true || String(value || "").toLowerCase() === "true";
+}
+
+function macTrustedCandidate(
+  receipt: MacReceipt,
+): InstaCompChecklistCandidate | null {
+  if (receipt.pricingAllowed !== true) return null;
+  const identityId = validUuid(receipt.registryIdentityId);
+  const fingerprintSha256 = text(receipt.registryFingerprintSha256, 80);
+  const identity = record(receipt.checklistIdentity);
+  const year = text(identity.year, 20);
+  const manufacturer = text(identity.manufacturer, 120);
+  const cardNumber = text(identity.card_number ?? identity.cardNumber, 80);
+  const player = text(identity.player, 200);
+  if (!identityId || !fingerprintSha256 || !year || !manufacturer || !cardNumber || !player) {
+    return null;
+  }
+  return {
+    identityId,
+    fingerprintSha256,
+    year,
+    manufacturer,
+    brand: text(identity.brand, 120) || manufacturer,
+    product: text(identity.product ?? identity.set_name ?? identity.setName, 200),
+    setName: text(identity.set_name ?? identity.setName ?? identity.product, 200),
+    cardNumber,
+    player,
+    serialRun: integerOrNull(identity.serial_run ?? identity.serialRun),
+    isAuto: booleanValue(identity.autograph ?? identity.isAuto),
+    isRelic: booleanValue(identity.memorabilia ?? identity.isRelic),
+    parallel: text(identity.parallel, 160) || "Base",
+    variation: text(identity.variation, 160),
+    team: text(identity.team, 160),
+    sport: text(identity.sport, 100),
+    league: text(identity.league, 100),
+  };
+}
+
+function macCoreEvidence(
+  candidate: InstaCompChecklistCandidate,
+  receipt: MacReceipt,
+): InstaCompCoreVisualEvidence {
+  const identity = record(receipt.checklistIdentity);
+  return {
+    status: "completed",
+    model: "mac_instacomp_ai_registry",
+    year: candidate.year,
+    manufacturer: candidate.manufacturer,
+    product: candidate.product || candidate.setName || null,
+    setName: candidate.setName || candidate.product || null,
+    player: candidate.player,
+    cardNumber: candidate.cardNumber,
+    team: candidate.team || null,
+    sport: candidate.sport || null,
+    league: candidate.league || null,
+    rookie: typeof identity.rookie === "boolean" ? identity.rookie : null,
+    frontVisibleText: evidence(receipt.imageOrientation?.front_evidence),
+    backVisibleText: evidence(receipt.imageOrientation?.back_evidence),
+    confidence: 0.99,
+    reason:
+      "Mac InstaComp AI returned a complete trusted Checklist Registry identity receipt.",
+  };
+}
+
+function macParallelDecision(candidate: InstaCompChecklistCandidate) {
+  const serialRun = candidate.serialRun || null;
+  const parallel = candidate.parallel || "Base";
+  return {
+    status: "resolved" as const,
+    selectedParallel: parallel,
+    selectedIdentityId: candidate.identityId,
+    confidence: 0.99,
+    evidence:
+      "Mac InstaComp AI supplied a trusted exact Registry identity; no second visual parallel vote was required.",
+    candidateParallels: [parallel],
+    features: {
+      dominantColor: null,
+      pattern: "uncertain" as const,
+      serialStampPresent: serialRun ? true : null,
+      serialStampText: serialRun ? `/${serialRun}` : null,
+      serialRun,
+      autographPresent: candidate.isAuto,
+      relicPresent: candidate.isRelic,
+      confidence: 0.99,
+      evidence: ["mac_trusted_registry_identity"],
+    },
+    matchedIdentityIds: [candidate.identityId],
+    rejectionReasons: {},
+  };
+}
+
 async function archiveWithMacBestEffort(params: {
   frontFile: File;
   backFile: File;
@@ -439,6 +559,15 @@ async function archiveWithMacBestEffort(params: {
         scanId,
         status: text(scan.status, 100),
         checklistOutcome: text(scan.checklist?.outcome, 120),
+        registryIdentityId: validUuid(scan.checklist?.identity_id),
+        registryFingerprintSha256: registryFingerprintFromReceipts(
+          scan.checklist?.source_receipts,
+        ),
+        checklistIdentity: record(scan.checklist?.identity),
+        checklistReasons: textList(scan.checklist?.reasons, 20),
+        pricingAllowed: scan.pricing_allowed === true,
+        learningAllowed: scan.learning_allowed === true,
+        matchSource: text(scan.match_source, 100),
         attempts,
         canonicalImagesRecovered: true,
         imageOrientation: scan.image_orientation || null,
@@ -454,6 +583,15 @@ async function archiveWithMacBestEffort(params: {
         scanId: text(scan?.scan_id, 100),
         status: text(scan?.status, 100),
         checklistOutcome: text(scan?.checklist?.outcome, 120),
+        registryIdentityId: validUuid(scan?.checklist?.identity_id),
+        registryFingerprintSha256: registryFingerprintFromReceipts(
+          scan?.checklist?.source_receipts,
+        ),
+        checklistIdentity: record(scan?.checklist?.identity),
+        checklistReasons: textList(scan?.checklist?.reasons, 20),
+        pricingAllowed: scan?.pricing_allowed === true,
+        learningAllowed: scan?.learning_allowed === true,
+        matchSource: text(scan?.match_source, 100),
         attempts,
         canonicalImagesRecovered: false,
         imageOrientation: scan?.image_orientation || null,
@@ -695,10 +833,13 @@ export async function POST(request: NextRequest) {
       throw new Error("Mac archive returned identical front and back images.");
     }
 
-    const core = await readInstaCompCoreVisualEvidence({
-      frontDataUrl: finalFrontDataUrl,
-      backDataUrl: finalBackDataUrl,
-    });
+    const macCandidate = macTrustedCandidate(macReceipt);
+    const core = macCandidate
+      ? macCoreEvidence(macCandidate, macReceipt)
+      : await readInstaCompCoreVisualEvidence({
+          frontDataUrl: finalFrontDataUrl,
+          backDataUrl: finalBackDataUrl,
+        });
     const coreMissing = [
       ["year", core.year],
       ["manufacturer", core.manufacturer],
@@ -708,45 +849,58 @@ export async function POST(request: NextRequest) {
       .filter(([, fieldValue]) => !fieldValue)
       .map(([field]) => field);
 
-    const broadDecision = coreMissing.length
+    const broadDecision = macCandidate
       ? {
+          status: "exact_match" as const,
+          aiRequired: false,
+          match: macCandidate,
+          candidates: [macCandidate],
+          reasons: [
+            "mac_local_trusted_registry_exact_match",
+            ...macReceipt.checklistReasons,
+          ],
+        }
+      : coreMissing.length
+        ? {
           status: "input_incomplete" as const,
           aiRequired: true,
           match: null,
           candidates: [] as InstaCompChecklistCandidate[],
           reasons: coreMissing.map((field) => `missing_${field}`),
         }
-      : await resolveInstaCompChecklistFirstFromRegistry({
-          year: core.year,
-          manufacturer: core.manufacturer,
-          cardNumber: core.cardNumber,
-          player: core.player,
-          serialNumber: null,
-          isAuto: null,
-          isRelic: null,
-          parallel: null,
-          variation: null,
-          ocrText: [
-            core.product,
-            core.setName,
-            ...core.frontVisibleText,
-            ...core.backVisibleText,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .slice(0, 12_000),
-        });
+        : await resolveInstaCompChecklistFirstFromRegistry({
+            year: core.year,
+            manufacturer: core.manufacturer,
+            cardNumber: core.cardNumber,
+            player: core.player,
+            serialNumber: null,
+            isAuto: null,
+            isRelic: null,
+            parallel: null,
+            variation: null,
+            ocrText: [
+              core.product,
+              core.setName,
+              ...core.frontVisibleText,
+              ...core.backVisibleText,
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .slice(0, 12_000),
+          });
 
     const rawCandidates = broadDecision.match
       ? [broadDecision.match]
       : broadDecision.candidates;
     const productFilter = filterCandidatesByProduct(rawCandidates, core);
     const candidates = productFilter.candidates;
-    const parallelDecision = await resolveChecklistParallelFromVision({
-      frontDataUrl: finalFrontDataUrl,
-      backDataUrl: finalBackDataUrl,
-      candidates,
-    });
+    const parallelDecision = macCandidate
+      ? macParallelDecision(macCandidate)
+      : await resolveChecklistParallelFromVision({
+          frontDataUrl: finalFrontDataUrl,
+          backDataUrl: finalBackDataUrl,
+          candidates,
+        });
     const selected = candidates.find(
       (candidate) =>
         candidate.identityId === parallelDecision.selectedIdentityId,
