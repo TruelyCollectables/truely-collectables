@@ -161,11 +161,17 @@ function selectedPair(rows: ImageRow[]) {
 
 async function downloadImage(url: string, side: "front" | "back") {
   const response = await fetch(assertSafeInstaCompRemoteImageUrl(url), {
-    redirect: "error",
+    // Cloudflare Workers supports follow/manual, but rejects the Fetch-standard
+    // `error` mode at runtime. Manual still fails closed because every redirect
+    // response is rejected before any bytes are accepted.
+    redirect: "manual",
     cache: "no-store",
     signal: AbortSignal.timeout(30_000),
     headers: { "User-Agent": "TCOS-InstaComp-FirstTimeIdentity/1.0" },
   });
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(`${side} image redirect was blocked.`);
+  }
   if (!response.ok) {
     throw new Error(`${side} image returned HTTP ${response.status}.`);
   }

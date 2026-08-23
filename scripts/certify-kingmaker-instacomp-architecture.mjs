@@ -91,6 +91,8 @@ for (const required of [
   "completedMacOrientation(scan)",
   "frontFile: finalFrontFile",
   "previousFrontImageUrl: pair.front.url",
+  'redirect: "manual"',
+  "image redirect was blocked",
   'imageOrientationPersisted: finalOrientation.status === "completed"',
 ]) {
   requireText(exactScan, required, "Mac-canonical orientation handoff");
