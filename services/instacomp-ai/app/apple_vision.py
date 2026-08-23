@@ -167,6 +167,34 @@ class AppleVisionOCR:
                     normalized_text,
                 ):
                     score += 12.0 * (center_y - 0.5)
+            elif side == "front":
+                normalized_text = " ".join(observation.text.casefold().split())
+                center_y = observation.box.y + observation.box.height / 2
+                strong_top_anchor = re.search(
+                    r"\b(?:rc|rookie|all-american|draft\s+picks?)\b",
+                    normalized_text,
+                )
+                product_top_anchor = re.search(
+                    r"\b(?:topps|bowman|panini|prizm|select|donruss|upper\s+deck)\b",
+                    normalized_text,
+                )
+                if strong_top_anchor:
+                    score += 24.0 * (center_y - 0.5)
+                elif product_top_anchor:
+                    score += 10.0 * (center_y - 0.5)
+
+                words = re.findall(r"[a-z]+", normalized_text)
+                likely_player_label = (
+                    2 <= len(words) <= 4
+                    and 5 <= len(normalized_text) <= 32
+                    and observation.text.upper() == observation.text
+                    and not strong_top_anchor
+                    and not product_top_anchor
+                    and observation.confidence >= 0.7
+                    and observation.box.width >= 0.18
+                )
+                if likely_player_label:
+                    score += 8.0 * (0.5 - center_y)
         return score
 
     def detect_upright_rotation(
