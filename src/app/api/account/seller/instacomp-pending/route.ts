@@ -5,6 +5,10 @@ import {
 import { getInventoryActivationBlockers } from "../../../../../lib/inventory-activation";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import {
+  instaCompPricingGroupKey,
+  summarizeInstaCompPricingGroup,
+} from "../../../../../lib/instacomp-pricing-group";
 
 export const dynamic = "force-dynamic";
 
@@ -168,7 +172,7 @@ export async function GET(request: Request) {
     let inventoryQuery = supabase
       .from("inventory_items")
       .select(
-        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
+        "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
       )
       .eq("store_id", storeId)
       .eq("status", "draft")
@@ -186,6 +190,35 @@ export async function GET(request: Request) {
       const instaComp = recordValue(metadata.instacomp);
       return Boolean(textValue(instaComp.source) || textValue(instaComp.scanId));
     });
+
+    const pricingGroupKeys = Array.from(
+      new Set(
+        rows
+          .map((row: any) => instaCompPricingGroupKey(row.metadata))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+    let allOwnedRowsQuery = supabase
+      .from("inventory_items")
+      .select("id,legacy_product_id,status,quantity,price,card_uuid,metadata,title")
+      .eq("store_id", storeId)
+      .range(0, 4999);
+    allOwnedRowsQuery = isStoreOwnerAccount
+      ? allOwnedRowsQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
+      : allOwnedRowsQuery.eq("seller_account_id", account.id);
+    const { data: allOwnedRows, error: allOwnedRowsError } =
+      pricingGroupKeys.length > 0
+        ? await allOwnedRowsQuery
+        : { data: [], error: null };
+    if (allOwnedRowsError) throw allOwnedRowsError;
+    const pricingGroups = new Map<string, any[]>();
+    for (const ownedRow of allOwnedRows || []) {
+      const key = instaCompPricingGroupKey(ownedRow.metadata);
+      if (!key || !pricingGroupKeys.includes(key)) continue;
+      const current = pricingGroups.get(key) || [];
+      current.push(ownedRow);
+      pricingGroups.set(key, current);
+    }
 
     const itemIds = rows.map((row: any) => String(row.id));
     const { data: storedImages, error: imageError } =
@@ -220,7 +253,7 @@ export async function GET(request: Request) {
         ? { data: [], error: null }
         : await supabase
             .from("products")
-            .select("id,image_url")
+            .select("id,card_uuid,image_url,price,quantity,archived_at")
             .eq("store_id", storeId)
             .in("id", productIds);
     if (productError) throw productError;
@@ -238,6 +271,10 @@ export async function GET(request: Request) {
       const sellerReview = recordValue(metadata.seller_review);
       const sourceLinks = recordValue(instaComp.sourceLinks);
       const pricingAnalysis = recordValue(instaComp.pricingAnalysis);
+      const pricingGroupKey = instaCompPricingGroupKey(metadata);
+      const pricingGroupRows = pricingGroupKey
+        ? pricingGroups.get(pricingGroupKey) || []
+        : [];
       const product = row.legacy_product_id
         ? productMap.get(row.legacy_product_id)
         : null;
@@ -333,9 +370,15 @@ export async function GET(request: Request) {
           scanId: textValue(instaComp.scanId),
           humanVerified: instaComp.humanVerified === true,
           cardUuid:
+            textValue(row.card_uuid) ||
+            textValue(product?.card_uuid) ||
             textValue(instaComp.cardUuid) ||
             textValue(ai.internalCardUuid) ||
             null,
+          pricingGroupKey,
+          duplicateGroup: pricingGroupKey
+            ? summarizeInstaCompPricingGroup(pricingGroupRows)
+            : null,
           identity: {
             sport: textValue(ai.sport),
             league: textValue(ai.league),

@@ -5,6 +5,7 @@ import {
 } from "../../../../../../lib/account-auth";
 import {
   analyzeWithInstaCompAiLocal,
+  fetchInstaCompAiLocalScanImage,
   type InstaCompAiLocalScan,
 } from "../../../../../../lib/instacomp-ai-local";
 import { buildInstaCompChannelDraft } from "../../../../../../lib/instacomp-channel-draft";
@@ -14,7 +15,10 @@ import {
   type InstaCompAiInscriptionFields,
 } from "../../../../../../lib/instacomp-listing-output";
 import type { InstaCompAiResult } from "../../../../../../lib/instacomp";
-import { normalizeInstaCompSideImages } from "../../../../../../lib/instacomp-image-orientation";
+import {
+  normalizeInstaCompRotation,
+  normalizeInstaCompSideImages,
+} from "../../../../../../lib/instacomp-image-orientation";
 import { persistNormalizedInstaCompImagePair } from "../../../../../../lib/instacomp-normalized-image-storage";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
@@ -349,7 +353,34 @@ export async function POST(request: NextRequest) {
     const scan = await analyzeWithInstaCompAiLocal({
       front: normalizedSides.frontFile,
       back: normalizedSides.backFile,
+      frontRotation:
+        normalizedSides.orientation.status === "completed"
+          ? normalizedSides.orientation.frontRotation
+          : null,
+      backRotation:
+        normalizedSides.orientation.status === "completed"
+          ? normalizedSides.orientation.backRotation
+          : null,
     });
+    const macImageOrientation = {
+      status: "completed" as const,
+      model: text(scan.image_orientation?.source, 100) || "mac_apple_vision_ocr",
+      frontRotation: normalizeInstaCompRotation(
+        scan.image_orientation?.front_rotation,
+      ),
+      backRotation: normalizeInstaCompRotation(
+        scan.image_orientation?.back_rotation,
+      ),
+      frontConfidence: 1,
+      backConfidence: 1,
+      frontEvidenceText: [],
+      backEvidenceText: [],
+      backStandalonePrizm: normalizedSides.orientation.backStandalonePrizm,
+      backDesignationConfidence:
+        normalizedSides.orientation.backDesignationConfidence,
+      reason:
+        "The Mac normalized each archived side with EXIF plus Apple Vision text-orientation evidence before website storage.",
+    };
     const cardUuid = physicalCardUuid(scan);
     if (!cardUuid) {
       return NextResponse.json(
@@ -453,6 +484,35 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
+    const { data: physicalMatches, error: physicalMatchError } = await supabase
+      .from("inventory_items")
+      .select("id,title,status,legacy_product_id")
+      .eq("store_id", storeId)
+      .eq("seller_account_id", account.id)
+      .eq("card_uuid", cardUuid)
+      .limit(1);
+    if (physicalMatchError && !isMissingCardUuidColumn(physicalMatchError)) {
+      throw physicalMatchError;
+    }
+    const physicalDuplicate = physicalMatches?.[0] || null;
+    if (physicalDuplicate) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "DUPLICATE_PHYSICAL_CARD",
+          error:
+            "This physical card UUID is already in inventory. Its existing listing was kept instead of creating a duplicate.",
+          duplicate: {
+            inventoryItemId: physicalDuplicate.id,
+            legacyProductId: physicalDuplicate.legacy_product_id,
+            title: physicalDuplicate.title,
+            status: physicalDuplicate.status,
+          },
+          scan,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const { data: existingRows, error: duplicateError } = await supabase
       .from("inventory_items")
       .select("id,title,status,metadata")
@@ -478,6 +538,34 @@ export async function POST(request: NextRequest) {
         { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
+
+    const { data: ownedInventoryRows, error: groupReadError } = await supabase
+      .from("inventory_items")
+      .select("id,legacy_product_id,status,quantity,price,metadata")
+      .eq("store_id", storeId)
+      .eq("seller_account_id", account.id)
+      .range(0, 4999);
+    if (groupReadError) throw groupReadError;
+    const exactIdentityMatches = (ownedInventoryRows || []).filter((candidate) => {
+      const candidateInstaComp = recordValue(recordValue(candidate.metadata).instacomp);
+      const checklistIdentity = recordValue(candidateInstaComp.checklistIdentity);
+      const candidateChannelDraft = recordValue(candidateInstaComp.channelDraft);
+      return (
+        text(checklistIdentity.registryFingerprintSha256, 128) === registryFingerprint ||
+        text(candidateChannelDraft.registryFingerprintSha256, 128) === registryFingerprint
+      );
+    });
+    const activeGroupPrices = Array.from(
+      new Set(
+        exactIdentityMatches
+          .filter((candidate) => candidate.status === "active")
+          .map((candidate) => Number(candidate.price || 0))
+          .filter((candidatePrice) => candidatePrice > 0)
+          .map((candidatePrice) => Math.round(candidatePrice * 100) / 100),
+      ),
+    );
+    const inheritedGroupPrice =
+      activeGroupPrices.length === 1 ? activeGroupPrices[0] : 0;
 
     const grading = localGradingEvidence(scan);
     const listingOutput = buildInstaCompListingOutput({
@@ -516,12 +604,33 @@ export async function POST(request: NextRequest) {
         imageRequirement: "front_and_back_required_for_listing",
         humanVerified: false,
         pricingStatus: "not_run",
+        listingPrice: inheritedGroupPrice || null,
+        listingPriceSource: inheritedGroupPrice
+          ? "existing_active_exact_card_group"
+          : null,
         publicationStatus: listingOutput.publicationStatus,
         publicationReviewReasons: listingOutput.publicationReviewReasons,
         listingOutput,
         channelDraft,
         scanReceipt: scan,
-        imageOrientation: normalizedSides.orientation,
+        imageOrientation: macImageOrientation,
+        pricingGroupKey: registryFingerprint,
+        duplicateGroup: {
+          registryFingerprintSha256: registryFingerprint,
+          existingRowCount: exactIdentityMatches.length,
+          existingQuantity: exactIdentityMatches.reduce(
+            (sum, candidate) => sum + Math.max(0, Number(candidate.quantity || 0)),
+            0,
+          ),
+          existingActiveCount: exactIdentityMatches.filter(
+            (candidate) => candidate.status === "active",
+          ).length,
+          existingProductIds: exactIdentityMatches
+            .map((candidate) => candidate.legacy_product_id)
+            .filter(Boolean),
+          detectedAt: checkedAt,
+          pricingTogether: true,
+        },
         identityRuleApplied: forcedBaseFromBack
           ? "wnba_back_without_standalone_prizm_forced_base"
           : null,
@@ -562,6 +671,14 @@ export async function POST(request: NextRequest) {
       seller_review: { identity_confirmed: false },
     };
 
+    // The website stores the Mac-normalized archive, not the Worker upload.
+    // Fetch it before creating a database row so a tunnel/archive failure cannot
+    // leave another image-less Pending draft behind.
+    const [uprightFrontFile, uprightBackFile] = await Promise.all([
+      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "front" }),
+      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "back" }),
+    ]);
+
     const inventoryInsert = {
       store_id: storeId,
       seller_account_id: account.id,
@@ -571,7 +688,7 @@ export async function POST(request: NextRequest) {
       condition: grading.condition,
       status: "draft",
       quantity: 1,
-      price: 0,
+      price: inheritedGroupPrice,
       metadata,
     };
     let { data: inserted, error: insertError } = await supabase
@@ -600,9 +717,9 @@ export async function POST(request: NextRequest) {
       storeId,
       inventoryItemId: inserted.id,
       title: inserted.title,
-      frontFile: normalizedSides.frontFile,
-      backFile: normalizedSides.backFile,
-      orientation: normalizedSides.orientation,
+      frontFile: uprightFrontFile,
+      backFile: uprightBackFile,
+      orientation: macImageOrientation,
     });
 
     const requestId = `scan-${scan.scan_id}`;

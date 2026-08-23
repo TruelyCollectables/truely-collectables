@@ -20,6 +20,10 @@ import {
   STANDARD_ENVELOPE_MAX_SUBTOTAL,
   type ShippingMethod,
 } from "../../../../../lib/shipping";
+import {
+  listingPromotionFromMetadata,
+  type ListingPromotion,
+} from "../../../../../lib/listing-promotions";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -96,6 +100,7 @@ type SellerInventoryResponseItem = {
     listingPriceSource: string | null;
     hasBackImage: boolean;
   };
+  promotion: ListingPromotion;
   activationReadiness: {
     ready: boolean;
     blockers: InventoryActivationBlocker[];
@@ -257,6 +262,7 @@ function mapInventoryItem(
       item.metadata,
     ),
     instaComp: instacompSummary(item.metadata),
+    promotion: listingPromotionFromMetadata(item.metadata),
     activationReadiness: {
       ready: shouldEvaluateReadiness
         ? blockers.length === 0

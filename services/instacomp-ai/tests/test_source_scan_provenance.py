@@ -80,3 +80,29 @@ def test_repeated_persist_does_not_rewrite_source_scan(tmp_path: Path) -> None:
 
     assert source_path.read_bytes() == before == source
     assert source_path.stat().st_mtime_ns == before_mtime
+
+
+def test_clockwise_orientation_is_applied_only_to_archived_derivatives(
+    tmp_path: Path,
+) -> None:
+    source = _png_bytes((1200, 800))
+    image = validate_and_normalize_image(
+        source,
+        max_bytes=20 * 1024 * 1024,
+        rotation=90,
+    )
+
+    assert image.rotation_applied == 90
+    assert image.height > image.width
+    assert image.source_content == source
+
+    persist_image(image, tmp_path, "front")
+    manifest = json.loads(
+        persisted_image_manifest_path(
+            tmp_path,
+            image.sha256,
+            "front",
+        ).read_text("utf-8")
+    )
+    assert manifest["normalized"]["clockwise_rotation_applied"] == 90
+    assert manifest["source"]["byte_for_byte_preserved"] is True

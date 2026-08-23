@@ -24,6 +24,7 @@ class ValidatedImage:
     width: int
     height: int
     extension: str
+    rotation_applied: int
     # Untouched user-owned source upload. This is never used as an identity
     # authority, but it preserves every original pixel/byte for future mining.
     source_content: bytes
@@ -61,7 +62,12 @@ def perceptual_hash_distance(left: str | None, right: str | None) -> int | None:
         return None
 
 
-def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedImage:
+def validate_and_normalize_image(
+    content: bytes,
+    max_bytes: int,
+    *,
+    rotation: int = 0,
+) -> ValidatedImage:
     if not content:
         raise ValueError("Image is empty")
     if len(content) > max_bytes:
@@ -93,6 +99,14 @@ def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedIma
                 source = ImageOps.exif_transpose(source)
             except Exception:
                 source = source.copy()
+
+            normalized_rotation = int(rotation) % 360
+            if normalized_rotation not in {0, 90, 180, 270}:
+                raise ValueError("Image rotation must be 0, 90, 180, or 270 degrees")
+            if normalized_rotation:
+                # Pillow rotates counter-clockwise; the scanner decision is the
+                # clockwise correction required to make printed card text upright.
+                source = source.rotate(-normalized_rotation, expand=True)
 
             if source.width < 200 or source.height < 200:
                 raise ValueError("Image is too small for reliable card identification")
@@ -136,6 +150,7 @@ def validate_and_normalize_image(content: bytes, max_bytes: int) -> ValidatedIma
                 width=normalized_image.width,
                 height=normalized_image.height,
                 extension="jpg",
+                rotation_applied=normalized_rotation,
                 source_content=content,
                 source_sha256=source_sha256,
                 source_media_type=source_media_type,
@@ -252,6 +267,7 @@ def persist_image(image: ValidatedImage, root: Path, side: str) -> Path:
             "height": image.height,
             "bytes": len(image.content),
             "path": str(target),
+            "clockwise_rotation_applied": image.rotation_applied,
         },
         "source": {
             "sha256": image.source_sha256,

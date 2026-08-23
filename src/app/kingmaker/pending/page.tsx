@@ -48,6 +48,14 @@ type PendingCard = {
   activationReadiness?: { ready?: boolean; blockers?: string[] } | null;
   instaComp: {
     cardUuid?: string | null;
+    pricingGroupKey?: string | null;
+    duplicateGroup?: {
+      totalRows: number;
+      totalQuantity: number;
+      pendingRows: number;
+      activeRows: number;
+      listedProductIds: number[];
+    } | null;
     pricingStatus: string;
     serialNumber?: string | null;
     suggestedPrice?: number | null;
@@ -120,6 +128,15 @@ function money(value: unknown) {
   return Number.isFinite(number) && number > 0
     ? number.toLocaleString("en-US", { style: "currency", currency: "USD" })
     : "—";
+}
+
+const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
+
+function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
+  const suggested = Number(value);
+  return Number.isFinite(suggested) && suggested > 0
+    ? Math.max(0.01, Math.round(suggested * (1 + adjustmentPercent / 100) * 100) / 100)
+    : null;
 }
 
 function serialRunLabel(value: string) {
@@ -319,11 +336,13 @@ export default function KingmakerPendingPage() {
           "content-type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ inventoryItemId: card.inventoryItemId, price, source }),
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId, price, source, applyGroup: true }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not save listing price.");
-      setNotice(`${money(price)} saved as the Pending Listing price.`);
+      setNotice(
+        `${money(price)} saved${Number(data.updatedCount || 1) > 1 ? ` across ${data.updatedCount} exact-card matches` : ""}.`,
+      );
       await load();
     } catch (error) {
       setPageError(message(error));
@@ -374,9 +393,16 @@ export default function KingmakerPendingPage() {
     }
   }
 
-  async function applyBulkPricing(multiplier: number, source: string) {
+  async function applyBulkPricing(adjustmentPercent: number) {
     const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
-    const priceable = selected.filter((card) => Number(card.instaComp.suggestedPrice || 0) > 0);
+    const seenGroups = new Set<string>();
+    const priceable = selected.filter((card) => {
+      if (Number(card.instaComp.suggestedPrice || 0) <= 0) return false;
+      const key = card.instaComp.pricingGroupKey || card.inventoryItemId;
+      if (seenGroups.has(key)) return false;
+      seenGroups.add(key);
+      return true;
+    });
     if (!priceable.length) {
       setPageError("None of the selected cards has an accepted InstaComp comp price yet.");
       return;
@@ -388,16 +414,22 @@ export default function KingmakerPendingPage() {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
       await Promise.all(priceable.map(async (card) => {
-        const price = Math.round(Number(card.instaComp.suggestedPrice) * multiplier * 100) / 100;
+        const price = compAdjustedPrice(card.instaComp.suggestedPrice, adjustmentPercent);
+        if (!price) throw new Error(`${card.title}: InstaComp price is unavailable.`);
         const response = await fetch("/api/account/seller/instacomp-scan/price", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ inventoryItemId: card.inventoryItemId, price, source }),
+          body: JSON.stringify({
+            inventoryItemId: card.inventoryItemId,
+            price,
+            source: `bulk_instacomp_${adjustmentPercent >= 0 ? "plus" : "minus"}_${Math.abs(adjustmentPercent)}`,
+            applyGroup: true,
+          }),
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(`${card.title}: ${data.error || "bulk price failed"}`);
       }));
-      setNotice(`Comp-based prices saved for ${priceable.length} selected card${priceable.length === 1 ? "" : "s"}.`);
+      setNotice(`Comp-based prices saved for ${priceable.length} selected exact-card group${priceable.length === 1 ? "" : "s"}.`);
       await load();
     } catch (error) {
       setPageError(message(error));
@@ -504,9 +536,17 @@ export default function KingmakerPendingPage() {
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
               <span className="mr-2 text-sm font-black">Bulk comp pricing:</span>
-              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkPricing(1, "bulk_instacomp")} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">InstaComp</button>
-              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkPricing(1.05, "bulk_instacomp_plus_5")} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">+5%</button>
-              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkPricing(1.1, "bulk_instacomp_plus_10")} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">+10%</button>
+              {COMP_ADJUSTMENTS.map((adjustment) => (
+                <button
+                  key={adjustment}
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void applyBulkPricing(adjustment)}
+                  className={`rounded-lg px-3 py-2 text-sm font-black text-white disabled:opacity-40 ${adjustment < 0 ? "bg-sky-700" : adjustment > 0 ? "bg-emerald-700" : "bg-neutral-950"}`}
+                >
+                  {adjustment === 0 ? "InstaComp" : `${adjustment > 0 ? "+" : ""}${adjustment}%`}
+                </button>
+              ))}
             </div>
           </section>
         ) : null}
@@ -532,11 +572,11 @@ export default function KingmakerPendingPage() {
             const activeCompetition = card.instaComp.activeCompetition || [];
             const suggested = Number(card.instaComp.suggestedPrice || 0);
             const priceChoices = suggested > 0
-              ? [
-                  ["InstaComp", suggested, "instacomp"],
-                  ["+5%", Math.round(suggested * 1.05 * 100) / 100, "instacomp_plus_5"],
-                  ["+10%", Math.round(suggested * 1.1 * 100) / 100, "instacomp_plus_10"],
-                ] as const
+              ? COMP_ADJUSTMENTS.map((adjustment) => ({
+                  label: adjustment === 0 ? "InstaComp" : `${adjustment > 0 ? "+" : ""}${adjustment}%`,
+                  value: compAdjustedPrice(suggested, adjustment) as number,
+                  source: `instacomp_${adjustment >= 0 ? "plus" : "minus"}_${Math.abs(adjustment)}`,
+                }))
               : [];
 
             return (
@@ -549,6 +589,11 @@ export default function KingmakerPendingPage() {
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
                     </p>
+                    {card.instaComp.duplicateGroup && card.instaComp.duplicateGroup.totalRows > 1 ? (
+                      <p className="mt-1 text-xs font-black text-amber-300">
+                        EXACT-CARD GROUP · {card.instaComp.duplicateGroup.totalQuantity} copies · {card.instaComp.duplicateGroup.activeRows} active · priced together
+                      </p>
+                    ) : null}
                     </div>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
@@ -628,8 +673,8 @@ export default function KingmakerPendingPage() {
                         <p className="font-black">Exact-comp pricing</p>
                         <p className="text-sm font-semibold text-neutral-600">Current draft price: {money(card.price || card.instaComp.listingPrice)}</p>
                       </div>
-                      <div className="grid min-w-[300px] flex-1 gap-2 sm:grid-cols-3 lg:max-w-2xl">
-                        {priceChoices.map(([label, value, source]) => (
+                      <div className="grid min-w-[300px] flex-1 gap-2 sm:grid-cols-4 lg:max-w-4xl">
+                        {priceChoices.map(({ label, value, source }) => (
                           <button
                             key={source}
                             type="button"

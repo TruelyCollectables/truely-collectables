@@ -40,23 +40,6 @@ function runningOnCloudflareWorker() {
     .__TRUELY_CLOUDFLARE_NATIVE_FETCH__ === "function";
 }
 
-function cloudflarePassThroughOrientation(): InstaCompOrientationDecision {
-  return {
-    status: "completed",
-    model: null,
-    frontRotation: 0,
-    backRotation: 0,
-    frontConfidence: 1,
-    backConfidence: 1,
-    frontEvidenceText: [],
-    backEvidenceText: [],
-    backStandalonePrizm: null,
-    backDesignationConfidence: 0,
-    reason:
-      "Cloudflare Worker runtime preserves validated original image bytes and bypasses native Sharp preprocessing; downstream InstaComp visual identity still evaluates both sides.",
-  };
-}
-
 export function normalizeInstaCompRotation(value: unknown): InstaCompRotation {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
@@ -294,12 +277,13 @@ export async function normalizeInstaCompSideImages(params: {
     ? await readValidatedInstaCompImage(params.backImage, "Back image")
     : null;
 
-  const orientation = runningOnCloudflareWorker()
-    ? cloudflarePassThroughOrientation()
-    : await detectInstaCompSideOrientations({
-        frontDataUrl: front.dataUrl,
-        backDataUrl: back?.dataUrl || null,
-      });
+  // Cloudflare cannot run Sharp, but it can and must still obtain the rotation
+  // decision. Listing intake forwards that decision to the Mac, which applies
+  // it to the archived pixels before the website stores either side.
+  const orientation = await detectInstaCompSideOrientations({
+    frontDataUrl: front.dataUrl,
+    backDataUrl: back?.dataUrl || null,
+  });
 
   const [frontBytes, backBytes] = await Promise.all([
     rotateInstaCompImageBytes({

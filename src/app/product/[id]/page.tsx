@@ -252,12 +252,23 @@ export default async function ProductPage({
               {product.title}
             </h1>
 
+            {product.promotion?.onSale ? (
+              <span className="mt-4 inline-flex rounded bg-red-700 px-3 py-2 text-sm font-black text-white">
+                ON SALE · {product.promotion.discountPercent}% OFF
+              </span>
+            ) : null}
+
             <p className="mt-4 text-neutral-600">
               {[product.sport, product.player].filter(Boolean).join(" - ") ||
                 "Collectable"}
             </p>
 
-            <p className="mt-5 text-5xl font-black">
+            {product.promotion?.onSale && product.promotion.originalPrice ? (
+              <p className="mt-5 text-xl font-bold text-neutral-500 line-through">
+                ${Number(product.promotion.originalPrice).toFixed(2)}
+              </p>
+            ) : null}
+            <p className={`${product.promotion?.onSale ? "mt-1 text-red-700" : "mt-5"} text-5xl font-black`}>
               ${Number(product.price).toFixed(2)}
             </p>
           </section>

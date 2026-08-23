@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
@@ -9,6 +11,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import FileResponse
 
 from .backup_routes import build_backup_router
+from .apple_vision import AppleVisionOCR
 from .checklist import checklist_gateway
 from .cockpit_routes import build_cockpit_router
 from .config import settings
@@ -47,6 +50,10 @@ training_export_path = settings.resolve_local_path(settings.training_export_path
 store = MemoryStore(database_path)
 store.initialize()
 reader = OllamaReader(settings)
+image_orientation_reader = AppleVisionOCR(
+    Path(settings.service_root),
+    database_path.parent,
+)
 
 app = FastAPI(
     title=settings.app_name,
@@ -63,6 +70,32 @@ def require_api_key(
 ) -> None:
     if settings.api_key and x_instacomp_ai_key != settings.api_key:
         raise HTTPException(status_code=401, detail="Invalid InstaComp AI key")
+
+
+async def _validate_upright_scan_image(
+    content: bytes,
+    *,
+    side: str,
+    requested_rotation: int | None = None,
+):
+    rotation = requested_rotation if requested_rotation in {0, 90, 180, 270} else None
+    if rotation is None:
+        try:
+            rotation, _confidence, _evidence = await asyncio.to_thread(
+                image_orientation_reader.detect_upright_rotation,
+                content,
+                side=side,
+            )
+        except Exception:
+            # Orientation is a presentation correction, not an identity authority.
+            # EXIF normalization and the unchanged source archive still proceed when
+            # the local OCR witness is unavailable.
+            rotation = 0
+    return validate_and_normalize_image(
+        content,
+        settings.max_image_bytes,
+        rotation=rotation,
+    )
 
 
 app.include_router(build_settings_router(require_api_key))
@@ -492,20 +525,30 @@ async def analyze_scan(
     back: UploadFile | None = File(default=None),
     printed_evidence_json: str | None = Form(default=None),
     card_uuid: str | None = Form(default=None),
+    front_rotation: int | None = Form(default=None),
+    back_rotation: int | None = Form(default=None),
 ) -> AnalyzeResponse:
     front_content = await front.read()
     back_content = await back.read() if back else None
     if len(front_content) + len(back_content or b"") > settings.max_total_image_bytes:
         raise HTTPException(status_code=413, detail="Combined images are too large")
+    orientation_source = (
+        "web_openai_orientation"
+        if front_rotation in {0, 90, 180, 270}
+        or back_rotation in {0, 90, 180, 270}
+        else "mac_apple_vision_ocr"
+    )
     try:
-        front_image = validate_and_normalize_image(
+        front_image = await _validate_upright_scan_image(
             front_content,
-            settings.max_image_bytes,
+            side="front",
+            requested_rotation=front_rotation,
         )
         back_image = (
-            validate_and_normalize_image(
+            await _validate_upright_scan_image(
                 back_content,
-                settings.max_image_bytes,
+                side="back",
+                requested_rotation=back_rotation,
             )
             if back_content
             else None
@@ -595,6 +638,11 @@ async def analyze_scan(
             back_perceptual_hash=(
                 back_image.perceptual_hash if back_image else None
             ),
+            image_orientation={
+                "source": orientation_source,
+                "front_rotation": front_image.rotation_applied,
+                "back_rotation": back_image.rotation_applied if back_image else 0,
+            },
             back_evidence=_trusted_memory_back_evidence(
                 image_memory,
                 back_image is not None,
@@ -685,6 +733,11 @@ async def analyze_scan(
             back_perceptual_hash=(
                 back_image.perceptual_hash if back_image else None
             ),
+            image_orientation={
+                "source": orientation_source,
+                "front_rotation": front_image.rotation_applied,
+                "back_rotation": back_image.rotation_applied if back_image else 0,
+            },
             back_evidence=[],
             memory_matches=[],
             local_suggestion=None,
@@ -874,6 +927,11 @@ async def analyze_scan(
         ),
         front_perceptual_hash=front_image.perceptual_hash,
         back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
+        image_orientation={
+            "source": orientation_source,
+            "front_rotation": front_image.rotation_applied,
+            "back_rotation": back_image.rotation_applied if back_image else 0,
+        },
         back_evidence=suggestion_back_evidence,
         memory_matches=memory_matches,
         local_suggestion=suggestion,
