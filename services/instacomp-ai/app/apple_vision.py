@@ -209,7 +209,11 @@ class AppleVisionOCR:
             return None
 
     @classmethod
-    def _geometry_rotation_choices(cls, content: bytes) -> tuple[tuple[int, ...], list[str]]:
+    def _geometry_rotation_choices(
+        cls, content: bytes, *, side: str
+    ) -> tuple[tuple[int, ...], list[str]]:
+        if side == "front":
+            return cls._image_frame_rotation_choices(content)
         card_frame = cls._card_frame_rotation_choices(content)
         if card_frame is not None:
             return card_frame
@@ -217,8 +221,6 @@ class AppleVisionOCR:
 
     @staticmethod
     def _ambiguous_rotation_fallback(*, side: str, rotations: tuple[int, ...]) -> tuple[int, str]:
-        if side == "front" and 0 in rotations and 180 in rotations:
-            return 180, "front_portrait_scanner_fallback:rotate_180"
         return 0, f"{side}_ambiguous_fallback:keep_0"
 
     @staticmethod
@@ -276,7 +278,6 @@ class AppleVisionOCR:
                     score += 12.0 * (center_y - 0.5)
             elif side == "front":
                 normalized_text = " ".join(observation.text.casefold().split())
-                center_y = observation.box.y + observation.box.height / 2
                 strong_top_anchor = re.search(
                     r"\b(?:rc|rookie|all-american|draft\s+picks?)\b",
                     normalized_text,
@@ -285,10 +286,6 @@ class AppleVisionOCR:
                     r"\b(?:topps|bowman|panini|prizm|select|donruss|upper\s+deck)\b",
                     normalized_text,
                 )
-                if strong_top_anchor:
-                    score += 24.0 * (center_y - 0.5)
-                elif product_top_anchor:
-                    score += 10.0 * (center_y - 0.5)
 
                 words = re.findall(r"[a-z]+", normalized_text)
                 likely_player_label = (
@@ -301,7 +298,7 @@ class AppleVisionOCR:
                     and observation.box.width >= 0.18
                 )
                 if likely_player_label:
-                    score += 8.0 * (0.5 - center_y)
+                    score += 36.0
         return score
 
     def detect_upright_rotation(
@@ -315,7 +312,10 @@ class AppleVisionOCR:
             return 0, 0.0, [f"{side}:apple_vision_unavailable"]
 
         try:
-            rotations, geometry_evidence = self._geometry_rotation_choices(image_bytes)
+            rotations, geometry_evidence = self._geometry_rotation_choices(
+                image_bytes,
+                side=side,
+            )
         except Exception as exc:
             rotations = (0, 90, 180, 270)
             geometry_evidence = [
@@ -337,6 +337,31 @@ class AppleVisionOCR:
         candidates.sort(key=lambda candidate: (-candidate[1], candidate[0]))
         best_rotation, best_score, best_observations = candidates[0]
         second_score = candidates[1][1]
+        if side == "front" and set(rotations) == {0, 180} and best_rotation == 180:
+            zero_candidate = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate[0] == 0 and candidate[1] > 0
+                ),
+                None,
+            )
+            if zero_candidate is not None:
+                _zero_rotation, zero_score, zero_observations = zero_candidate
+                flip_margin = (best_score - zero_score) / max(1.0, best_score)
+                if flip_margin < 0.35:
+                    evidence = [
+                        f"{side}:{value}" for value in geometry_evidence
+                    ]
+                    evidence.append(
+                        f"{side}:front_portrait_source_preserved_over_ocr_flip:margin_{flip_margin:.3f}"
+                    )
+                    evidence.extend(
+                        observation.text[:80]
+                        for observation in zero_observations
+                        if observation.text.strip()
+                    )
+                    return 0, 0.99, evidence[:6]
         fallback_rotation, fallback_evidence = self._ambiguous_rotation_fallback(
             side=side,
             rotations=rotations,
