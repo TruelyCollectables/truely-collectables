@@ -110,6 +110,7 @@ type EditState = {
 };
 
 type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
+type PendingQueue = "listings" | "verification";
 
 function message(error: unknown) {
   return error instanceof Error ? error.message : "The operation failed.";
@@ -219,6 +220,8 @@ function Field({
 
 export default function KingmakerPendingPage() {
   const [cards, setCards] = useState<PendingCard[]>([]);
+  const [queue, setQueue] = useState<PendingQueue>("listings");
+  const [queueCounts, setQueueCounts] = useState({ listings: 0, verification: 0 });
   const [jobs, setJobs] = useState<Record<string, JobStatus>>({});
   const [localStage, setLocalStage] = useState<Record<string, LocalStage>>({});
   const [localError, setLocalError] = useState<Record<string, string>>({});
@@ -240,13 +243,17 @@ export default function KingmakerPendingPage() {
       if (!session?.access_token) throw new Error("Seller login is required.");
       const headers = { Authorization: `Bearer ${session.access_token}` };
       const [cardsResponse, statusResponse] = await Promise.all([
-        fetch("/api/account/seller/instacomp-pending", { headers, cache: "no-store" }),
+        fetch(`/api/account/seller/instacomp-pending?queue=${queue}`, { headers, cache: "no-store" }),
         fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
       ]);
       const [cardsData, statusData] = await Promise.all([cardsResponse.json(), statusResponse.json()]);
       if (!cardsResponse.ok) throw new Error(cardsData.error || "Could not load pending cards.");
       if (!statusResponse.ok) throw new Error(statusData.error || "Could not load card job status.");
       setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
+      setQueueCounts({
+        listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
+        verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
+      });
       setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
       setSelectedIds((current) => {
         const available = new Set((Array.isArray(cardsData.items) ? cardsData.items : []).map((card: PendingCard) => card.inventoryItemId));
@@ -254,12 +261,13 @@ export default function KingmakerPendingPage() {
       });
     } catch (error) {
       setCards([]);
+      setQueueCounts({ listings: 0, verification: 0 });
       setJobs({});
       setPageError(message(error));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [queue]);
 
   useEffect(() => {
     void load();
@@ -491,10 +499,13 @@ export default function KingmakerPendingPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">KINGMAKER / Master Listings</p>
-            <h1 className="mt-1 text-3xl font-black">Master listing workspace</h1>
+            <h1 className="mt-1 text-3xl font-black">
+              {queue === "verification" ? "Pending verification" : "Master listing workspace"}
+            </h1>
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
-              Uploaded fronts and backs are normalized automatically, then InstaComp verifies identity and gathers exact comps.
-              Edit one card or select many for bulk listing updates. Nothing publishes automatically.
+              {queue === "verification"
+                ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify, price, or return them to listings."
+                : "Uploaded fronts and backs are normalized automatically, then InstaComp verifies identity and gathers exact comps. Edit one card or select many for bulk listing updates. Nothing publishes automatically."}
             </p>
           </div>
           <button
@@ -507,13 +518,44 @@ export default function KingmakerPendingPage() {
           </button>
         </div>
 
+        <nav className="mt-5 flex flex-wrap gap-2" aria-label="Master listing queues">
+          {([
+            ["listings", "Pending Listings", queueCounts.listings],
+            ["verification", "Pending Verification", queueCounts.verification],
+          ] as const).map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                setSelectedIds(new Set());
+                setEditingId(null);
+                setQueue(value);
+              }}
+              aria-pressed={queue === value}
+              className={`rounded-xl border-2 px-4 py-3 font-black ${
+                queue === value
+                  ? "border-neutral-950 bg-neutral-950 text-white"
+                  : "border-neutral-400 bg-white text-neutral-950"
+              }`}
+            >
+              {label} · {count}
+            </button>
+          ))}
+        </nav>
+
         {pageError ? <div className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 p-4 font-bold text-red-900">{pageError}</div> : null}
         {notice ? <div className="mt-5 rounded-xl border-2 border-emerald-700 bg-emerald-50 p-4 font-bold text-emerald-900">{notice}</div> : null}
 
         {!loading && !cards.length ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
-            <p className="text-xl font-black">No master listing drafts</p>
-            <p className="mt-2 text-neutral-600">Drop the next front/back pair on the KINGMAKER home page.</p>
+            <p className="text-xl font-black">
+              {queue === "verification" ? "No cards pending verification" : "No master listing drafts"}
+            </p>
+            <p className="mt-2 text-neutral-600">
+              {queue === "verification"
+                ? "Held cards will remain available here without crowding the new-listing queue."
+                : "Drop the next front/back pair on the KINGMAKER home page."}
+            </p>
           </div>
         ) : null}
 
@@ -596,9 +638,16 @@ export default function KingmakerPendingPage() {
                     ) : null}
                     </div>
                   </div>
-                  <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
-                    {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {queue === "verification" ? (
+                      <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
+                        PENDING VERIFICATION
+                      </span>
+                    ) : null}
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
+                      {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="border-b-2 border-neutral-900 p-4">

@@ -9,6 +9,10 @@ import {
   instaCompPricingGroupKey,
   summarizeInstaCompPricingGroup,
 } from "../../../../../lib/instacomp-pricing-group";
+import {
+  instaCompPendingQueueFromMetadata,
+  type InstaCompPendingQueue,
+} from "../../../../../lib/instacomp-pending-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +24,44 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+const PENDING_INVENTORY_COLUMNS =
+  "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at";
+
+async function readOwnedInventoryPages(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  storeId: string;
+  accountId: string;
+  ownerAccount: boolean;
+  columns: string;
+  draftOnly?: boolean;
+}) {
+  const rows: any[] = [];
+
+  for (let from = 0; ; from += 1000) {
+    let query = params.supabase
+      .from("inventory_items")
+      .select(params.columns)
+      .eq("store_id", params.storeId);
+
+    if (params.draftOnly) query = query.eq("status", "draft");
+
+    query = params.ownerAccount
+      ? query.or(
+          `seller_account_id.eq.${params.accountId},seller_account_id.is.null`,
+        )
+      : query.eq("seller_account_id", params.accountId);
+
+    const { data, error } = await query
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < 1000) return rows;
+  }
 }
 
 function optionalPrice(value: unknown) {
@@ -168,28 +210,35 @@ export async function GET(request: Request) {
     const isStoreOwnerAccount =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-
-    let inventoryQuery = supabase
-      .from("inventory_items")
-      .select(
-        "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
-      )
-      .eq("store_id", storeId)
-      .eq("status", "draft")
-      .order("created_at", { ascending: true });
-
-    inventoryQuery = isStoreOwnerAccount
-      ? inventoryQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : inventoryQuery.eq("seller_account_id", account.id);
-
-    const { data: inventoryRows, error: inventoryError } = await inventoryQuery;
-    if (inventoryError) throw inventoryError;
-
-    const rows = (inventoryRows || []).filter((row: any) => {
+    const requestedQueue = new URL(request.url).searchParams.get("queue");
+    const queue: InstaCompPendingQueue =
+      requestedQueue === "verification" ? "verification" : "listings";
+    const inventoryRows = await readOwnedInventoryPages({
+      supabase,
+      storeId,
+      accountId: account.id,
+      ownerAccount: isStoreOwnerAccount,
+      columns: PENDING_INVENTORY_COLUMNS,
+      draftOnly: true,
+    });
+    const instaCompRows = inventoryRows.filter((row: any) => {
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
       return Boolean(textValue(instaComp.source) || textValue(instaComp.scanId));
     });
+    const queueCounts = {
+      listings: instaCompRows.filter(
+        (row: any) =>
+          instaCompPendingQueueFromMetadata(row.metadata) === "listings",
+      ).length,
+      verification: instaCompRows.filter(
+        (row: any) =>
+          instaCompPendingQueueFromMetadata(row.metadata) === "verification",
+      ).length,
+    };
+    const rows = instaCompRows.filter(
+      (row: any) => instaCompPendingQueueFromMetadata(row.metadata) === queue,
+    );
 
     const pricingGroupKeys = Array.from(
       new Set(
@@ -198,19 +247,17 @@ export async function GET(request: Request) {
           .filter((value): value is string => Boolean(value)),
       ),
     );
-    let allOwnedRowsQuery = supabase
-      .from("inventory_items")
-      .select("id,legacy_product_id,status,quantity,price,card_uuid,metadata,title")
-      .eq("store_id", storeId)
-      .range(0, 4999);
-    allOwnedRowsQuery = isStoreOwnerAccount
-      ? allOwnedRowsQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : allOwnedRowsQuery.eq("seller_account_id", account.id);
-    const { data: allOwnedRows, error: allOwnedRowsError } =
+    const allOwnedRows =
       pricingGroupKeys.length > 0
-        ? await allOwnedRowsQuery
-        : { data: [], error: null };
-    if (allOwnedRowsError) throw allOwnedRowsError;
+        ? await readOwnedInventoryPages({
+            supabase,
+            storeId,
+            accountId: account.id,
+            ownerAccount: isStoreOwnerAccount,
+            columns:
+              "id,legacy_product_id,status,quantity,price,card_uuid,metadata,title,created_at",
+          })
+        : [];
     const pricingGroups = new Map<string, any[]>();
     for (const ownedRow of allOwnedRows || []) {
       const key = instaCompPricingGroupKey(ownedRow.metadata);
@@ -478,6 +525,8 @@ export async function GET(request: Request) {
       {
         items,
         count: items.length,
+        queue,
+        queueCounts,
         imageAudit: {
           itemCount: items.length,
           withStoredBackImage: items.filter(
