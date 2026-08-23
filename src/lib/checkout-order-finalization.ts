@@ -40,6 +40,26 @@ export async function finalizeCheckoutOrder(params: {
   const shippingCountry = shipping?.country || null;
   const shippingAllowed = isAllowedShippingCountry(shippingCountry);
   const total = Number(session.amount_total || 0) / 100;
+  const discountAmount = Number(session.total_details?.amount_discount || 0) / 100;
+  const discount = session.discounts?.[0];
+  const promotionCodeId =
+    typeof discount?.promotion_code === "string"
+      ? discount.promotion_code
+      : discount?.promotion_code?.id || null;
+  let discountCode: string | null = null;
+  if (promotionCodeId) {
+    try {
+      const promotionCode = await stripe.promotionCodes.retrieve(promotionCodeId);
+      discountCode = promotionCode.code || null;
+      await supabase
+        .from("store_promotions")
+        .update({ times_redeemed: promotionCode.times_redeemed, updated_at: new Date().toISOString() })
+        .eq("store_id", storeId)
+        .eq("stripe_promotion_code_id", promotionCodeId);
+    } catch (promotionError) {
+      console.error("Promotion redemption could not be synchronized", promotionError);
+    }
+  }
   const taxAmount = Number(session.total_details?.amount_tax || 0) / 100;
   const selectedShipping = await selectedCheckoutShipping({
     stripe,
@@ -124,6 +144,8 @@ export async function finalizeCheckoutOrder(params: {
     shipping_name: shippingName,
     shipping_amount: shippingAmount,
     subtotal,
+    discount_amount: discountAmount,
+    discount_code: discountCode,
     tax_amount: taxAmount,
     item_count: itemCount || normalizedItemCount,
     fulfillment_status: shippingAllowed ? "ready_to_ship" : "shipping_review",
