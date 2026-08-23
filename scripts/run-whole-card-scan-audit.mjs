@@ -15,6 +15,10 @@ const orientation = fs.readFileSync(
   "src/lib/instacomp-image-orientation.ts",
   "utf8",
 );
+const orientationSharp = fs.readFileSync(
+  "src/lib/instacomp-image-orientation-sharp.ts",
+  "utf8",
+);
 
 const ratioMatch = policy.match(/CARD_SCAN_FRAME_RATIO\s*=\s*([0-9.]+)/);
 const minimumMatch = policy.match(
@@ -66,7 +70,8 @@ const checks = [
   ],
   [
     "server-side InstaComp normalization extends the image canvas",
-    orientation.includes("cardScanFrameInsets") && orientation.includes(".extend({"),
+    orientationSharp.includes("cardScanFrameInsets") &&
+      orientationSharp.includes(".extend({"),
   ],
   [
     "normalized InstaComp files are marked as whole-card images",
