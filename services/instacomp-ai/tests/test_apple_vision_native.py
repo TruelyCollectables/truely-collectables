@@ -7,6 +7,37 @@ import pytest
 
 from app.apple_vision import AppleVisionOCR
 from app.local_vision import synthetic_text_image
+from app.models import OCRBox, OCRObservation
+
+
+def observation(text: str, y: float) -> OCRObservation:
+    return OCRObservation(
+        text=text,
+        confidence=1.0,
+        box=OCRBox(x=0.1, y=y, width=0.8, height=0.03),
+        side="back",
+        source="test",
+    )
+
+
+def test_back_orientation_score_prefers_legal_footer_and_top_card_number() -> None:
+    upright = [
+        observation("No. 16", 0.90),
+        observation("JACY SHELDON", 0.75),
+        observation("Officially Licensed Product of the WNBPA © 2024", 0.05),
+        observation("The collegiate indicia are trademarks", 0.02),
+    ]
+    upside_down = [
+        observation("The collegiate indicia are trademarks", 0.95),
+        observation("Officially Licensed Product of the WNBPA © 2024", 0.91),
+        observation("JACY SHELDON", 0.20),
+        observation("No. 16", 0.06),
+    ]
+
+    assert AppleVisionOCR._orientation_score(
+        upright,
+        side="back",
+    ) > AppleVisionOCR._orientation_score(upside_down, side="back")
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Apple Vision requires macOS")
