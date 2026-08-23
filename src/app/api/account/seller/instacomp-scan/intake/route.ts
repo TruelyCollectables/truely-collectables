@@ -19,7 +19,10 @@ import {
   normalizeInstaCompRotation,
   normalizeInstaCompSideImages,
 } from "../../../../../../lib/instacomp-image-orientation";
-import { persistNormalizedInstaCompImagePair } from "../../../../../../lib/instacomp-normalized-image-storage";
+import {
+  persistNormalizedInstaCompImagePair,
+  type InstaCompImageOrientationReceipt,
+} from "../../../../../../lib/instacomp-normalized-image-storage";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { POST as runVerifiedPricing } from "../../inventory/instacomp-verified/route";
@@ -55,6 +58,45 @@ function boundedConfidence(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(1, parsed));
+}
+
+function macOrientationReceipt(
+  scan: InstaCompAiLocalScan,
+  webOrientation: {
+    backStandalonePrizm?: boolean | null;
+    backDesignationConfidence?: number;
+  },
+): InstaCompImageOrientationReceipt {
+  const receipt = scan.image_orientation || {};
+  const frontConfidence = boundedConfidence(receipt.front_confidence);
+  const backConfidence = boundedConfidence(receipt.back_confidence);
+  const frontEvidenceText = textList(receipt.front_evidence, 8);
+  const backEvidenceText = textList(receipt.back_evidence, 8);
+  const completed =
+    text(receipt.status, 80) === "completed" &&
+    frontConfidence >= 0.55 &&
+    backConfidence >= 0.55 &&
+    frontEvidenceText.length > 0 &&
+    backEvidenceText.length > 0;
+
+  return {
+    status: completed ? "completed" : "review_required",
+    model: text(receipt.source, 100) || "mac_apple_vision_ocr",
+    source: text(receipt.source, 100) || "mac_apple_vision_ocr",
+    frontRotation: normalizeInstaCompRotation(receipt.front_rotation),
+    backRotation: normalizeInstaCompRotation(receipt.back_rotation),
+    frontConfidence,
+    backConfidence,
+    frontEvidenceText,
+    backEvidenceText,
+    backStandalonePrizm: webOrientation.backStandalonePrizm ?? null,
+    backDesignationConfidence: boundedConfidence(
+      webOrientation.backDesignationConfidence,
+    ),
+    reason: completed
+      ? "The Mac normalized each archived side with Apple Vision text-orientation evidence before website storage."
+      : "The Mac did not return decisive orientation evidence for both sides, so this card is held outside listing intake.",
+  };
 }
 
 function booleanEvidence(value: unknown): boolean | null {
@@ -351,36 +393,26 @@ export async function POST(request: NextRequest) {
       throw new Error("Back image normalization did not return an image.");
     }
     const scan = await analyzeWithInstaCompAiLocal({
-      front: normalizedSides.frontFile,
-      back: normalizedSides.backFile,
-      frontRotation:
-        normalizedSides.orientation.status === "completed"
-          ? normalizedSides.orientation.frontRotation
-          : null,
-      backRotation:
-        normalizedSides.orientation.status === "completed"
-          ? normalizedSides.orientation.backRotation
-          : null,
+      front: frontFile,
+      back: backFile,
+      frontRotation: null,
+      backRotation: null,
     });
-    const macImageOrientation = {
-      status: "completed" as const,
-      model: text(scan.image_orientation?.source, 100) || "mac_apple_vision_ocr",
-      frontRotation: normalizeInstaCompRotation(
-        scan.image_orientation?.front_rotation,
-      ),
-      backRotation: normalizeInstaCompRotation(
-        scan.image_orientation?.back_rotation,
-      ),
-      frontConfidence: 1,
-      backConfidence: 1,
-      frontEvidenceText: [],
-      backEvidenceText: [],
-      backStandalonePrizm: normalizedSides.orientation.backStandalonePrizm,
-      backDesignationConfidence:
-        normalizedSides.orientation.backDesignationConfidence,
-      reason:
-        "The Mac normalized each archived side with EXIF plus Apple Vision text-orientation evidence before website storage.",
-    };
+    const macImageOrientation = macOrientationReceipt(
+      scan,
+      normalizedSides.orientation,
+    );
+    if (macImageOrientation.status !== "completed") {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "IMAGE_ORIENTATION_REVIEW_REQUIRED",
+          error: macImageOrientation.reason,
+          scan,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const cardUuid = physicalCardUuid(scan);
     if (!cardUuid) {
       return NextResponse.json(

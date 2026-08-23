@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.apple_vision import AppleVisionOCR
+from app.local_vision import synthetic_text_image
 
 
 def _force_supported(monkeypatch, ocr: AppleVisionOCR) -> None:
@@ -52,3 +55,31 @@ def test_unexpected_variant_failure_does_not_abort_other_witness_variants(
     assert calls == [b"one", b"two"]
     assert observations == []
     assert errors == ["back:original:apple_vision_failed:runtimeerror"]
+
+
+@pytest.mark.asyncio
+async def test_web_rotation_is_only_a_hint(monkeypatch) -> None:
+    from app import main
+
+    def detect_upright_rotation(_content: bytes, *, side: str):
+        assert side == "back"
+        return 90, 0.81, ["NO. 66", "ELIZABETH KITLEY"]
+
+    monkeypatch.setattr(
+        main.image_orientation_reader,
+        "detect_upright_rotation",
+        detect_upright_rotation,
+    )
+
+    image, receipt = await main._validate_upright_scan_image(
+        synthetic_text_image("ELIZABETH KITLEY NO. 66"),
+        side="back",
+        requested_rotation=180,
+    )
+
+    assert image.rotation_applied == 90
+    assert receipt["status"] == "completed"
+    assert receipt["source"] == "mac_apple_vision_ocr"
+    assert receipt["rotation"] == 90
+    assert receipt["confidence"] == 0.81
+    assert receipt["evidence"][0] == "back:web_orientation_hint:180"
