@@ -312,6 +312,7 @@ export async function GET(request: Request) {
     const items = rows.map((row: any) => {
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
+      const imageOrientation = recordValue(instaComp.imageOrientation);
       const ai = recordValue(instaComp.ai);
       const collectibleAsset = recordValue(metadata.collectible_asset);
       const graderVerification = recordValue(metadata.grader_verification);
@@ -458,6 +459,19 @@ export async function GET(request: Request) {
           },
           serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
           hasBackImage,
+          imageOrientation: {
+            verified:
+              imageOrientation.status === "completed" &&
+              instaComp.imageOrientationPersisted === true &&
+              instaComp.imagePersistenceVerified === true,
+            status: textValue(imageOrientation.status),
+            source:
+              textValue(imageOrientation.source) ||
+              textValue(imageOrientation.model),
+            frontRotation: Number(imageOrientation.frontRotation || 0),
+            backRotation: Number(imageOrientation.backRotation || 0),
+            reason: textValue(imageOrientation.reason),
+          },
           backImageSource: storedPair.hasStoredBackImage
             ? "inventory_images"
             : metadataBackUrl

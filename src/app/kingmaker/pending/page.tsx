@@ -61,6 +61,14 @@ type PendingCard = {
     suggestedPrice?: number | null;
     listingPrice?: number | null;
     reliableSoldCompCount?: number;
+    imageOrientation?: {
+      verified: boolean;
+      status?: string | null;
+      source?: string | null;
+      frontRotation?: number;
+      backRotation?: number;
+      reason?: string | null;
+    } | null;
     soldCompEvidence?: CompEvidence[];
     activeCompetition?: CompEvidence[];
     identity?: CardIdentity | null;
@@ -700,19 +708,24 @@ export default function KingmakerPendingPage() {
                 ) : null}
 
                 <div className="grid gap-4 p-4 md:grid-cols-2">
-                  {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => (
-                    <figure key={side} className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
-                      <figcaption className="mb-2 text-xs font-black uppercase tracking-wider">Card {side} · orientation verified at intake</figcaption>
-                      <div className="flex h-80 items-center justify-center overflow-hidden rounded-lg bg-white">
-                        {url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={url} alt={`${card.title} ${side}`} className="max-h-full max-w-full object-contain" />
-                        ) : (
-                          <div className="font-black text-red-800">{side.toUpperCase()} MISSING</div>
-                        )}
-                      </div>
-                    </figure>
-                  ))}
+                  {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => {
+                    const orientationVerified = card.instaComp.imageOrientation?.verified === true;
+                    return (
+                      <figure key={side} className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
+                        <figcaption className={`mb-2 text-xs font-black uppercase tracking-wider ${orientationVerified ? "text-emerald-800" : "text-red-800"}`}>
+                          Card {side} · {orientationVerified ? "orientation verified from Mac archive" : "orientation review required"}
+                        </figcaption>
+                        <div className="flex h-80 items-center justify-center overflow-hidden rounded-lg bg-white">
+                          {url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={url} alt={`${card.title} ${side}`} className="max-h-full max-w-full object-contain" />
+                          ) : (
+                            <div className="font-black text-red-800">{side.toUpperCase()} MISSING</div>
+                          )}
+                        </div>
+                      </figure>
+                    );
+                  })}
                 </div>
 
                 {priceChoices.length ? (

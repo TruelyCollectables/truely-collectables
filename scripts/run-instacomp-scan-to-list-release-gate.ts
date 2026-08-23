@@ -225,6 +225,48 @@ assert(
   "unreadable listing evidence did not block publication",
 );
 
+const orientationReviewBlockers = getInventoryActivationBlockers({
+  sku: "TEST-SIDEWAYS",
+  price: 25,
+  quantity: 1,
+  imageUrl: "https://example.com/card.jpg",
+  title: "2025 Panini Example #1",
+  category: "Trading Card Singles",
+  metadata: {
+    instacomp: {
+      source: "kingmaker_first_time_visual_checklist",
+      imageOrientation: { status: "error" },
+      imageOrientationPersisted: false,
+      imagePersistenceVerified: true,
+    },
+  },
+});
+assert(
+  orientationReviewBlockers.includes("instacomp_orientation_review_required"),
+  "an unverified card orientation did not block publication",
+);
+
+const verifiedOrientationBlockers = getInventoryActivationBlockers({
+  sku: "TEST-UPRIGHT",
+  price: 25,
+  quantity: 1,
+  imageUrl: "https://example.com/card.jpg",
+  title: "2025 Panini Example #1",
+  category: "Trading Card Singles",
+  metadata: {
+    instacomp: {
+      source: "kingmaker_first_time_visual_checklist",
+      imageOrientation: { status: "completed" },
+      imageOrientationPersisted: true,
+      imagePersistenceVerified: true,
+    },
+  },
+});
+assert(
+  !verifiedOrientationBlockers.includes("instacomp_orientation_review_required"),
+  "a read-back-verified upright card remained blocked",
+);
+
 const gradedBlockers = getInventoryActivationBlockers({
   sku: "TEST-GRADED",
   price: 100,
@@ -423,7 +465,8 @@ requireText(
   "KINGMAKER scanner no longer wraps the canonical seller scanner",
 );
 for (const required of [
-  "orientation verified at intake",
+  "orientation verified from Mac archive",
+  "orientation review required",
   '"/api/account/seller/inventory/instacomp-bulk-edit"',
   "applyBulkPricing",
   "Select all",

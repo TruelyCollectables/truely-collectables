@@ -16,6 +16,7 @@ export type InventoryActivationBlocker =
   | "missing_provenance_evidence"
   | "grader_verification_required"
   | "grader_verification_conflict"
+  | "instacomp_orientation_review_required"
   | "instacomp_listing_review_required";
 
 function cleanText(value: string | null | undefined) {
@@ -78,6 +79,7 @@ export function getInventoryActivationBlockers(params: {
   const authenticity = extractAuthenticityProfile(params.metadata);
   const collectibleAsset = recordValue(metadata.collectible_asset);
   const instaComp = recordValue(metadata.instacomp);
+  const imageOrientation = recordValue(instaComp.imageOrientation);
   const checklistIdentity = recordValue(instaComp.checklistIdentity);
   const listingOutput = recordValue(instaComp.listingOutput);
   const verifiedReference = recordValue(metadata.verified_reference);
@@ -91,6 +93,17 @@ export function getInventoryActivationBlockers(params: {
   const requiresFrontBackListing =
     cleanText(params.category)?.toLowerCase() === "trading card singles" &&
     cleanText(String(instaComp.source || "")) === "mac_registry_scanner";
+  const requiresOrientationVerification =
+    cleanText(params.category)?.toLowerCase() === "trading card singles" &&
+    Boolean(
+      cleanText(String(instaComp.source || "")) ||
+        cleanText(String(instaComp.scanId || "")),
+    );
+  const orientationVerified = Boolean(
+    imageOrientation.status === "completed" &&
+      instaComp.imageOrientationPersisted === true &&
+      instaComp.imagePersistenceVerified === true,
+  );
   const hasBackImageReceipt = Boolean(
     instaComp.hasBackImage === true &&
       cleanText(String(instaComp.backSha256 || "")),
@@ -145,6 +158,9 @@ export function getInventoryActivationBlockers(params: {
   }
   if (requiresFrontBackListing && !hasPermanentCardUuid) {
     blockers.push("missing_card_uuid");
+  }
+  if (requiresOrientationVerification && !orientationVerified) {
+    blockers.push("instacomp_orientation_review_required");
   }
   if (publicationStatus === "review_required") {
     blockers.push("instacomp_listing_review_required");

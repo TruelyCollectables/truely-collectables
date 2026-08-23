@@ -6,6 +6,7 @@ import {
 } from "../../../../lib/account-auth";
 import {
   analyzeWithInstaCompAiLocal,
+  fetchInstaCompAiLocalScanImage,
   type InstaCompAiLocalScan,
 } from "../../../../lib/instacomp-ai-local";
 import type { InstaCompChecklistCandidate } from "../../../../lib/instacomp-checklist-first";
@@ -16,7 +17,10 @@ import {
   type InstaCompCoreVisualEvidence,
 } from "../../../../lib/instacomp-core-visual-evidence";
 import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
-import { persistNormalizedInstaCompImagePair } from "../../../../lib/instacomp-normalized-image-storage";
+import {
+  persistNormalizedInstaCompImagePair,
+  type InstaCompImageOrientationReceipt,
+} from "../../../../lib/instacomp-normalized-image-storage";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../lib/instacomp-provider-safety";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -41,7 +45,16 @@ type MacReceipt = {
   scanId: string | null;
   status: string | null;
   checklistOutcome: string | null;
+  canonicalImagesRecovered: boolean;
+  imageOrientation: InstaCompAiLocalScan["image_orientation"];
   error: string | null;
+};
+
+type MacArchiveResult = {
+  receipt: MacReceipt;
+  frontFile: File | null;
+  backFile: File | null;
+  orientation: InstaCompImageOrientationReceipt | null;
 };
 
 function record(value: unknown): JsonRecord {
@@ -66,6 +79,33 @@ function normalized(value: unknown) {
     .replace(/[^\p{L}\p{N}/]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function quarterTurn(value: unknown) {
+  const rotation = ((Math.round(Number(value) || 0) % 360) + 360) % 360;
+  return rotation === 90 || rotation === 180 || rotation === 270 ? rotation : 0;
+}
+
+function completedMacOrientation(
+  scan: InstaCompAiLocalScan,
+): InstaCompImageOrientationReceipt {
+  const source =
+    text(scan.image_orientation?.source, 120) || "mac_local_orientation";
+  return {
+    status: "completed",
+    model: source,
+    source,
+    frontRotation: quarterTurn(scan.image_orientation?.front_rotation),
+    backRotation: quarterTurn(scan.image_orientation?.back_rotation),
+    frontConfidence: 0,
+    backConfidence: 0,
+    frontEvidenceText: [],
+    backEvidenceText: [],
+    backStandalonePrizm: null,
+    backDesignationConfidence: 0,
+    reason:
+      "The Mac normalized and archived both card sides; the website fetched those canonical pixels and verified the stored pair.",
+  };
 }
 
 function validateFile(file: File, side: "front" | "back") {
@@ -295,7 +335,7 @@ async function archiveWithMacBestEffort(params: {
   backFile: File;
   core: InstaCompCoreVisualEvidence;
   serialNumber: string | null;
-}): Promise<MacReceipt> {
+}): Promise<MacArchiveResult> {
   const printedText = [
     params.core.year ? `YEAR: ${params.core.year}` : null,
     params.core.manufacturer
@@ -314,8 +354,9 @@ async function archiveWithMacBestEffort(params: {
     .join("\n")
     .slice(0, 12_000);
 
+  let scan: InstaCompAiLocalScan | null = null;
   try {
-    const scan: InstaCompAiLocalScan = await analyzeWithInstaCompAiLocal({
+    scan = await analyzeWithInstaCompAiLocal({
       front: params.frontFile,
       back: params.backFile,
       printedEvidence: {
@@ -327,21 +368,41 @@ async function archiveWithMacBestEffort(params: {
       },
       timeoutMs: 60_000,
     });
+    const scanId = text(scan.scan_id, 100);
+    if (!scanId) throw new Error("Mac archive returned no scan ID.");
+    const [frontFile, backFile] = await Promise.all([
+      fetchInstaCompAiLocalScanImage({ scanId, side: "front" }),
+      fetchInstaCompAiLocalScanImage({ scanId, side: "back" }),
+    ]);
     return {
-      scanId: text(scan.scan_id, 100),
-      status: text(scan.status, 100),
-      checklistOutcome: text(scan.checklist?.outcome, 120),
-      error: null,
+      receipt: {
+        scanId,
+        status: text(scan.status, 100),
+        checklistOutcome: text(scan.checklist?.outcome, 120),
+        canonicalImagesRecovered: true,
+        imageOrientation: scan.image_orientation || null,
+        error: null,
+      },
+      frontFile,
+      backFile,
+      orientation: completedMacOrientation(scan),
     };
   } catch (error) {
     return {
-      scanId: null,
-      status: null,
-      checklistOutcome: null,
-      error: text(
-        error instanceof Error ? error.message : "Mac archive failed.",
-        500,
-      ),
+      receipt: {
+        scanId: text(scan?.scan_id, 100),
+        status: text(scan?.status, 100),
+        checklistOutcome: text(scan?.checklist?.outcome, 120),
+        canonicalImagesRecovered: false,
+        imageOrientation: scan?.image_orientation || null,
+        error: text(
+          error instanceof Error ? error.message : "Mac archive failed.",
+          500,
+        ),
+      },
+      frontFile: null,
+      backFile: null,
+      orientation: null,
     };
   }
 }
@@ -537,18 +598,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const storedImages = await persistNormalizedInstaCompImagePair({
-      supabase,
-      storeId,
-      inventoryItemId,
-      title: item.title || "Card",
-      frontFile: normalizedSides.frontFile,
-      backFile: normalizedSides.backFile,
-      orientation: normalizedSides.orientation,
-      previousFrontImageUrl: pair.front.url,
-      previousBackImageUrl: pair.back.url,
-    });
-
     const core = await readInstaCompCoreVisualEvidence({
       frontDataUrl: normalizedSides.frontDataUrl,
       backDataUrl: normalizedSides.backDataUrl,
@@ -626,11 +675,47 @@ export async function POST(request: NextRequest) {
           parallelVisualFeatures: parallelDecision.features,
         };
 
-    const macReceipt = await archiveWithMacBestEffort({
+    const macArchive = await archiveWithMacBestEffort({
       frontFile: normalizedSides.frontFile,
       backFile: normalizedSides.backFile,
       core,
       serialNumber: parallelDecision.features.serialStampText,
+    });
+    const macReceipt = macArchive.receipt;
+    let finalOrientation: InstaCompImageOrientationReceipt =
+      normalizedSides.orientation;
+    let finalFrontSha256 = frontSha256;
+    let finalBackSha256 = backSha256;
+    let finalFrontFile = normalizedSides.frontFile;
+    let finalBackFile = normalizedSides.backFile;
+
+    if (
+      macArchive.frontFile &&
+      macArchive.backFile &&
+      macArchive.orientation
+    ) {
+      [finalFrontSha256, finalBackSha256] = await Promise.all([
+        digest(macArchive.frontFile),
+        digest(macArchive.backFile),
+      ]);
+      if (finalFrontSha256 === finalBackSha256) {
+        throw new Error("Mac archive returned identical front and back images.");
+      }
+      finalFrontFile = macArchive.frontFile;
+      finalBackFile = macArchive.backFile;
+      finalOrientation = macArchive.orientation;
+    }
+
+    const storedImages = await persistNormalizedInstaCompImagePair({
+      supabase,
+      storeId,
+      inventoryItemId,
+      title: item.title || "Card",
+      frontFile: finalFrontFile,
+      backFile: finalBackFile,
+      orientation: finalOrientation,
+      previousFrontImageUrl: pair.front.url,
+      previousBackImageUrl: pair.back.url,
     });
 
     const checkedAt = new Date().toISOString();
@@ -662,13 +747,14 @@ export async function POST(request: NextRequest) {
         macReceipt,
         ai: resolvedAi,
         coreVisualEvidence: core,
-        imageOrientation: normalizedSides.orientation,
-        imageOrientationPersisted: true,
+        imageOrientation: finalOrientation,
+        imageOrientationNormalizedAt: checkedAt,
+        imageOrientationPersisted: finalOrientation.status === "completed",
         imagePersistenceVerified: storedImages.verified === true,
         frontImageUrl: storedImages.frontImageUrl,
         backImageUrl: storedImages.backImageUrl,
-        frontSha256,
-        backSha256,
+        frontSha256: finalFrontSha256,
+        backSha256: finalBackSha256,
         checklistDecision: {
           status: broadDecision.status,
           reasons: broadDecision.reasons,
@@ -750,7 +836,7 @@ export async function POST(request: NextRequest) {
         },
         parallelDecision,
         macReceipt,
-        imageOrientation: normalizedSides.orientation,
+        imageOrientation: finalOrientation,
         normalizedImages: storedImages,
         pricingStatus: identityComplete
           ? "identity_complete_pricing_pending"
