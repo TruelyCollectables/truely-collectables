@@ -212,8 +212,6 @@ class AppleVisionOCR:
     def _geometry_rotation_choices(
         cls, content: bytes, *, side: str
     ) -> tuple[tuple[int, ...], list[str]]:
-        if side == "front":
-            return cls._image_frame_rotation_choices(content)
         card_frame = cls._card_frame_rotation_choices(content)
         if card_frame is not None:
             return card_frame
@@ -311,16 +309,40 @@ class AppleVisionOCR:
         if not self.supported:
             return 0, 0.0, [f"{side}:apple_vision_unavailable"]
 
-        try:
-            rotations, geometry_evidence = self._geometry_rotation_choices(
-                image_bytes,
-                side=side,
-            )
-        except Exception as exc:
+        if side == "front":
             rotations = (0, 90, 180, 270)
-            geometry_evidence = [
-                f"geometry_gate_failed:{type(exc).__name__.lower()}:all_rotations"
-            ]
+            geometry_evidence: list[str] = []
+            try:
+                _image_rotations, image_evidence = self._image_frame_rotation_choices(
+                    image_bytes
+                )
+                geometry_evidence.extend(image_evidence)
+            except Exception as exc:
+                geometry_evidence.append(
+                    f"image_geometry_failed:{type(exc).__name__.lower()}"
+                )
+            try:
+                card_frame = self._card_frame_rotation_choices(image_bytes)
+                if card_frame is not None:
+                    _card_rotations, card_evidence = card_frame
+                    geometry_evidence.extend(card_evidence)
+            except Exception as exc:
+                geometry_evidence.append(
+                    f"card_geometry_failed:{type(exc).__name__.lower()}"
+                )
+            if not geometry_evidence:
+                geometry_evidence = ["front_geometry_all_rotations"]
+        else:
+            try:
+                rotations, geometry_evidence = self._geometry_rotation_choices(
+                    image_bytes,
+                    side=side,
+                )
+            except Exception as exc:
+                rotations = (0, 90, 180, 270)
+                geometry_evidence = [
+                    f"geometry_gate_failed:{type(exc).__name__.lower()}:all_rotations"
+                ]
 
         candidates: list[tuple[int, float, list[OCRObservation]]] = []
         for rotation in rotations:
@@ -334,34 +356,58 @@ class AppleVisionOCR:
                 )
             )
 
+        if side == "front":
+            by_rotation = {
+                rotation: (score, observations)
+                for rotation, score, observations in candidates
+            }
+            side_rotation, side_score, side_observations = max(
+                (
+                    (rotation, *by_rotation[rotation])
+                    for rotation in (90, 270)
+                    if rotation in by_rotation
+                ),
+                key=lambda candidate: (candidate[1], -candidate[0]),
+            )
+            portrait_score = max(
+                by_rotation.get(0, (0.0, []))[0],
+                by_rotation.get(180, (0.0, []))[0],
+            )
+            if side_score >= max(40.0, portrait_score * 1.25):
+                confidence = max(
+                    0.55,
+                    min(
+                        0.99,
+                        0.55
+                        + (side_score - portrait_score) / max(1.0, side_score),
+                    ),
+                )
+                evidence = [f"{side}:{value}" for value in geometry_evidence]
+                evidence.append(
+                    f"{side}:front_sideways_rotation:{side_rotation}:score_{side_score:.2f}:portrait_{portrait_score:.2f}"
+                )
+                evidence.extend(
+                    observation.text[:80]
+                    for observation in side_observations
+                    if observation.text.strip()
+                )
+                return side_rotation, confidence, evidence[:6]
+
+            zero_score, zero_observations = by_rotation.get(0, (0.0, []))
+            evidence = [f"{side}:{value}" for value in geometry_evidence]
+            evidence.append(
+                f"{side}:front_source_preserved:no_180_auto_flip:score_0_{zero_score:.2f}:side_{side_score:.2f}:portrait_{portrait_score:.2f}"
+            )
+            evidence.extend(
+                observation.text[:80]
+                for observation in zero_observations
+                if observation.text.strip()
+            )
+            return 0, 0.99, evidence[:6]
+
         candidates.sort(key=lambda candidate: (-candidate[1], candidate[0]))
         best_rotation, best_score, best_observations = candidates[0]
         second_score = candidates[1][1]
-        if side == "front" and set(rotations) == {0, 180} and best_rotation == 180:
-            zero_candidate = next(
-                (
-                    candidate
-                    for candidate in candidates
-                    if candidate[0] == 0 and candidate[1] > 0
-                ),
-                None,
-            )
-            if zero_candidate is not None:
-                _zero_rotation, zero_score, zero_observations = zero_candidate
-                flip_margin = (best_score - zero_score) / max(1.0, best_score)
-                if flip_margin < 0.35:
-                    evidence = [
-                        f"{side}:{value}" for value in geometry_evidence
-                    ]
-                    evidence.append(
-                        f"{side}:front_portrait_source_preserved_over_ocr_flip:margin_{flip_margin:.3f}"
-                    )
-                    evidence.extend(
-                        observation.text[:80]
-                        for observation in zero_observations
-                        if observation.text.strip()
-                    )
-                    return 0, 0.99, evidence[:6]
         fallback_rotation, fallback_evidence = self._ambiguous_rotation_fallback(
             side=side,
             rotations=rotations,

@@ -123,16 +123,23 @@ def test_detect_rotation_does_not_allow_sideways_ocr_to_win(
     def recognize(self: AppleVisionOCR, image_bytes: bytes, *, side: str):
         rotation = int(image_bytes.decode())
         seen_rotations.append(rotation)
-        confidence_by_rotation = {0: 1.0, 90: 0.80, 180: 0.50, 270: 0.55}
+        confidence_by_rotation = {0: 0.20, 90: 1.0, 180: 0.10, 270: 0.70}
+        count_by_rotation = {0: 1, 90: 3, 180: 1, 270: 2}
         return (
             [
                 OCRObservation(
-                    text="CARDTEXT",
+                    text=f"CARDTEXT {index}",
                     confidence=confidence_by_rotation[rotation],
-                    box=OCRBox(x=0.1, y=0.1, width=0.8, height=0.03),
+                    box=OCRBox(
+                        x=0.1,
+                        y=0.1 + index * 0.06,
+                        width=0.8,
+                        height=0.03,
+                    ),
                     side=side,
                     source="test",
                 )
+                for index in range(count_by_rotation[rotation])
             ],
             [],
         )
@@ -144,10 +151,10 @@ def test_detect_rotation_does_not_allow_sideways_ocr_to_win(
         side="front",
     )
 
-    assert seen_rotations == [90, 270]
+    assert seen_rotations == [0, 90, 180, 270]
     assert rotation == 90
     assert confidence >= 0.55
-    assert any("force_portrait" in value for value in evidence)
+    assert any("front_sideways_rotation" in value for value in evidence)
 
 
 def test_ambiguous_front_portrait_scan_keeps_existing_orientation(
@@ -165,7 +172,7 @@ def test_ambiguous_front_portrait_scan_keeps_existing_orientation(
 
     def recognize(self: AppleVisionOCR, image_bytes: bytes, *, side: str):
         rotation = int(image_bytes.decode())
-        confidence_by_rotation = {0: 0.80, 180: 0.79}
+        confidence_by_rotation = {0: 0.80, 90: 0.10, 180: 0.79, 270: 0.10}
         return (
             [
                 OCRObservation(
@@ -187,11 +194,11 @@ def test_ambiguous_front_portrait_scan_keeps_existing_orientation(
     )
 
     assert rotation == 0
-    assert confidence < 0.55
-    assert any("front_ambiguous_fallback:keep_0" in value for value in evidence)
+    assert confidence >= 0.55
+    assert any("front_source_preserved" in value for value in evidence)
 
 
-def test_front_portrait_preserves_source_over_moderate_ocr_flip(
+def test_front_portrait_preserves_source_before_running_ocr_flip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -219,12 +226,7 @@ def test_front_portrait_preserves_source_over_moderate_ocr_flip(
             [],
         )
 
-    def score(observations: list[OCRObservation], *, side: str) -> float:
-        text = observations[0].text
-        return 120.0 if text == "ROTATION 180" else 100.0
-
     monkeypatch.setattr(AppleVisionOCR, "recognize", recognize)
-    monkeypatch.setattr(AppleVisionOCR, "_orientation_score", staticmethod(score))
 
     rotation, confidence, evidence = reader.detect_upright_rotation(
         jpeg(600, 900),
@@ -233,7 +235,7 @@ def test_front_portrait_preserves_source_over_moderate_ocr_flip(
 
     assert rotation == 0
     assert confidence >= 0.55
-    assert any("front_portrait_source_preserved_over_ocr_flip" in value for value in evidence)
+    assert any("front_source_preserved" in value for value in evidence)
 
 
 def test_no_text_front_portrait_scan_keeps_existing_orientation(
@@ -256,8 +258,8 @@ def test_no_text_front_portrait_scan_keeps_existing_orientation(
     )
 
     assert rotation == 0
-    assert confidence == 0.0
-    assert any("front_ambiguous_fallback:keep_0" in value for value in evidence)
+    assert confidence >= 0.55
+    assert any("front_source_preserved" in value for value in evidence)
 
 
 def test_ambiguous_back_portrait_scan_keeps_existing_fallback(
