@@ -4,6 +4,10 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type CloudflareFetchGlobal = typeof globalThis & {
+  __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
+};
+
 const TIMEOUT_MS = 6_000;
 
 type Probe = {
@@ -45,7 +49,8 @@ function restHeaders(key: string) {
 }
 
 export async function GET() {
-  const nativeFetch = globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
+  const nativeFetch = (globalThis as CloudflareFetchGlobal)
+    .__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
   const base = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim().replace(/\/$/, "");
   const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 
