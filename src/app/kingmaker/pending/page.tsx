@@ -715,7 +715,7 @@ export default function KingmakerPendingPage() {
                         <figcaption className={`mb-2 text-xs font-black uppercase tracking-wider ${orientationVerified ? "text-emerald-800" : "text-red-800"}`}>
                           Card {side} · {orientationVerified ? "orientation verified from Mac archive" : "orientation review required"}
                         </figcaption>
-                        <div className="flex h-80 items-center justify-center overflow-hidden rounded-lg bg-white">
+                        <div className="mx-auto flex h-80 w-full max-w-80 items-center justify-center overflow-hidden rounded-lg bg-white">
                           {url ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={url} alt={`${card.title} ${side}`} className="max-h-full max-w-full object-contain" />

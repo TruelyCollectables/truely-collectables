@@ -47,22 +47,22 @@ requireMissing(
 const pendingPage = read("src/app/kingmaker/pending/page.tsx");
 requireText(
   pendingPage,
-  "year, set, player, card number, visible parallel",
-  "Pending must explain the exact identity order.",
+  "Uploaded fronts and backs are normalized automatically",
+  "Pending must explain the automatic image and identity pipeline.",
 );
 requireText(
   pendingPage,
-  "Velocity and Cracked Ice are treated as different patterns",
-  "Pending must preserve the Velocity/Cracked Ice distinction.",
+  "Visible pattern",
+  "Pending must preserve the visible pattern evidence field.",
 );
 requireText(
   pendingPage,
-  "Card {side} · automatically oriented",
-  "Pending must display the saved automatic orientation.",
+  "orientation verified from Mac archive",
+  "Pending must display the Mac-canonical orientation receipt.",
 );
 requireText(
   pendingPage,
-  "Enter Base or the exact checklist parallel. Blank no longer means Base.",
+  "Blank no longer means Base. Enter Base or the exact checklist parallel.",
   "Pending manual corrections must require an explicit parallel.",
 );
 for (const forbidden of [
@@ -189,12 +189,12 @@ requireText(
 );
 requireText(
   exactRoute,
-  "core_identity_then_color_pattern_serial_match",
+  "year_product_player_card_then_color_pattern_serial",
   "The exact identity order must be persisted in the receipt.",
 );
 requireText(
   exactRoute,
-  "No Base or look-alike parallel was substituted",
+  "one exact checklist identity did not survive every evidence gate",
   "Ambiguous parallels must remain review-required.",
 );
 for (const forbidden of [

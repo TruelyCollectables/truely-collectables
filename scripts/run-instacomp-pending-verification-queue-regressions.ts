@@ -4,25 +4,52 @@ import {
   instaCompPendingQueueFromMetadata,
 } from "../src/lib/instacomp-pending-queue";
 
-assert.equal(instaCompPendingQueueFromMetadata(null), "listings");
+const verifiedOrientation = {
+  instacomp: {
+    imageOrientation: { status: "completed" },
+    imageOrientationPersisted: true,
+    imagePersistenceVerified: true,
+  },
+};
+
+assert.equal(instaCompPendingQueueFromMetadata(null), "verification");
 assert.equal(
-  instaCompPendingQueueFromMetadata({ listingWorkflow: { queue: "pending_listings" } }),
+  instaCompPendingQueueFromMetadata({
+    ...verifiedOrientation,
+    listingWorkflow: { queue: "pending_listings" },
+  }),
   "listings",
 );
 assert.equal(
   instaCompPendingQueueFromMetadata({
+    listingWorkflow: { queue: "pending_listings" },
+    instacomp: {
+      imageOrientation: { status: "review_required" },
+      imageOrientationPersisted: false,
+      imagePersistenceVerified: true,
+    },
+  }),
+  "verification",
+);
+assert.equal(
+  instaCompPendingQueueFromMetadata({
+    ...verifiedOrientation,
     listingWorkflow: { queue: "pending_verification" },
   }),
   "verification",
 );
 assert.equal(
   instaCompPendingQueueFromMetadata({
+    ...verifiedOrientation,
     listing_workflow: { queue: "pending_verification" },
   }),
   "verification",
 );
 assert.equal(
-  instaCompPendingQueueFromMetadata({ pending_verification: { status: "pending" } }),
+  instaCompPendingQueueFromMetadata({
+    ...verifiedOrientation,
+    pending_verification: { status: "pending" },
+  }),
   "verification",
 );
 

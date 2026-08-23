@@ -88,7 +88,10 @@ const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.t
 for (const required of [
   "fetchInstaCompAiLocalScanImage",
   "canonicalImagesRecovered: true",
-  "completedMacOrientation(scan)",
+  "completedMacOrientation(scan, params.webOrientation)",
+  "trustedWebRotation(params.webOrientation",
+  "macArchive.orientation.status !== \"completed\"",
+  "frontDataUrl: finalFrontDataUrl",
   "frontFile: finalFrontFile",
   "previousFrontImageUrl: pair.front.url",
   'redirect: "manual"',

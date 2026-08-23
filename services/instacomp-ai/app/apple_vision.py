@@ -136,7 +136,18 @@ class AppleVisionOCR:
             compact = "".join(character for character in observation.text if character.isalnum())
             if len(compact) < 2:
                 continue
-            score += max(0.0, observation.confidence) * min(24, len(compact))
+            line_aspect = observation.box.width / max(0.005, observation.box.height)
+            legibility = max(0.0, observation.confidence) * min(24, len(compact))
+            # Vision can sometimes transcribe a 90° text column, which made a
+            # sideways card look deceptively readable. Real upright card text
+            # has a horizontal baseline: its bounding box is wider than it is
+            # tall. Down-weight tall OCR boxes before semantic anchors are
+            # considered, while retaining a small score for narrow labels.
+            if line_aspect < 1.0:
+                legibility *= max(0.1, line_aspect)
+            elif line_aspect >= 1.5:
+                legibility += min(4.0, (line_aspect - 1.0) * 0.75)
+            score += legibility
             score += min(2.0, observation.box.width * 4.0)
 
             # Vision can read text upside down, so raw OCR quantity alone cannot
@@ -226,10 +237,18 @@ class AppleVisionOCR:
             return 0, 0.0, [f"{side}:no_readable_text_for_orientation"]
 
         margin = max(0.0, (best_score - second_score) / max(1.0, best_score))
-        confidence = max(0.0, min(0.99, 0.55 + margin))
-        # Close OCR scores are ambiguous on art-heavy cards. Preserve the
-        # submitted direction instead of applying a low-evidence correction.
-        applied_rotation = best_rotation if best_rotation == 0 or margin >= 0.04 else 0
+        # A close score is ambiguous even when the winning candidate is 0°.
+        # Reporting those ties as completed previously let an unchanged,
+        # potentially upside-down upload reach the listing workspace. Keep the
+        # pixels unchanged, but return sub-threshold confidence so the caller
+        # can retry or hold the card outside Pending Listings.
+        decisive = margin >= 0.04
+        confidence = (
+            max(0.55, min(0.99, 0.55 + margin))
+            if decisive
+            else max(0.0, min(0.54, margin / 0.04 * 0.54))
+        )
+        applied_rotation = best_rotation if decisive else 0
         evidence = [
             observation.text[:80]
             for observation in best_observations

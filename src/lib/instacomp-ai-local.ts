@@ -43,9 +43,16 @@ export type InstaCompAiLocalScan = {
   front_perceptual_hash?: string | null;
   back_perceptual_hash?: string | null;
   image_orientation?: {
+    status?: string;
     source?: string;
+    front_source?: string;
+    back_source?: string;
     front_rotation?: number;
     back_rotation?: number;
+    front_confidence?: number;
+    back_confidence?: number;
+    front_evidence?: string[];
+    back_evidence?: string[];
   } | null;
   pricing_allowed: boolean;
   learning_allowed: boolean;

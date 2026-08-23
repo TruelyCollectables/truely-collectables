@@ -58,6 +58,32 @@ def test_front_orientation_score_prefers_set_markers_above_player_label() -> Non
     ) > AppleVisionOCR._orientation_score(upside_down, side="front")
 
 
+def test_orientation_score_rejects_vertical_ocr_boxes() -> None:
+    horizontal = [
+        OCRObservation(
+            text="KIKI RICE",
+            confidence=1.0,
+            box=OCRBox(x=0.1, y=0.1, width=0.3, height=0.03),
+            side="front",
+            source="test",
+        )
+    ]
+    vertical = [
+        OCRObservation(
+            text="KIKI RICE",
+            confidence=1.0,
+            box=OCRBox(x=0.1, y=0.1, width=0.03, height=0.3),
+            side="front",
+            source="test",
+        )
+    ]
+
+    assert AppleVisionOCR._orientation_score(
+        horizontal,
+        side="front",
+    ) > AppleVisionOCR._orientation_score(vertical, side="front")
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="Apple Vision requires macOS")
 def test_native_apple_vision_helper_compiles_and_reads_card_text(tmp_path: Path) -> None:
     service_root = Path(__file__).resolve().parents[1]
