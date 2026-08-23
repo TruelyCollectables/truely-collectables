@@ -1,5 +1,9 @@
 export type ClientIdentityRisk = "verified" | "unchecked" | "blocked";
 
+type CloudflareFetchGlobal = typeof globalThis & {
+  __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
+};
+
 export type ClientIdentity = {
   ipAddress: string | null;
   userAgent: string | null;
@@ -154,7 +158,7 @@ export async function getClientIdentity(request: Request): Promise<ClientIdentit
   }
 
   const isCloudflareRuntime = Boolean(
-    globalThis.__TRUELY_CLOUDFLARE_NATIVE_FETCH__ ||
+    (globalThis as CloudflareFetchGlobal).__TRUELY_CLOUDFLARE_NATIVE_FETCH__ ||
       request.headers.get("cf-ray") ||
       request.headers.get("cf-connecting-ip"),
   );
