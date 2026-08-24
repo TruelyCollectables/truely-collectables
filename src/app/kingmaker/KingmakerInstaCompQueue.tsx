@@ -83,18 +83,25 @@ function money(value: number) {
   }).format(value);
 }
 
+function isBase(value: unknown) {
+  return typeof value === "string" && /^base$/i.test(value.trim());
+}
+
 function identityRows(result: IntakeResult | null) {
   const identity = result?.ai || result?.scan?.trusted_identity || {};
+  const parallel =
+    identity.checklistParallel || identity.parallelName || identity.parallel;
+  const setName = identity.setName || identity.set_name;
+  const displaySetName = isBase(setName) && parallel && !isBase(parallel)
+    ? null
+    : setName;
   return [
     ["Year", identity.year],
     ["Product", identity.manufacturer || identity.brand],
-    ["Set / Insert", identity.setName || identity.set_name],
+    ["Set / Insert", displaySetName],
     ["Player", identity.player || identity.playerName],
     ["Card #", identity.cardNumber || identity.card_number],
-    [
-      "Parallel",
-      identity.checklistParallel || identity.parallelName || identity.parallel,
-    ],
+    ["Parallel", parallel],
     ["Serial", identity.serialNumber || identity.serial_number || identity.printRun],
   ].filter(([, value]) => value !== null && value !== undefined && value !== "");
 }
