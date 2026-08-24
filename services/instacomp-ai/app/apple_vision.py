@@ -299,6 +299,43 @@ class AppleVisionOCR:
                     score += 36.0
         return score
 
+    @staticmethod
+    def _front_layout_score(observations: list[OCRObservation]) -> float:
+        """Return position-only evidence that a front candidate is upright.
+
+        This deliberately ignores raw OCR volume. It exists to decide the
+        dangerous 0° vs 180° case, where Vision may transcribe both directions.
+        """
+        score = 0.0
+        for observation in observations:
+            normalized_text = " ".join(observation.text.casefold().split())
+            words = re.findall(r"[a-z]+", normalized_text)
+            center_y = observation.box.y + observation.box.height / 2
+            strong_top_anchor = re.search(
+                r"\b(?:rc|rookie|all-american|draft\s+picks?)\b",
+                normalized_text,
+            )
+            product_top_anchor = re.search(
+                r"\b(?:topps|bowman|panini|prizm|select|donruss|upper\s+deck)\b",
+                normalized_text,
+            )
+            likely_player_label = (
+                2 <= len(words) <= 4
+                and 5 <= len(normalized_text) <= 32
+                and observation.text.upper() == observation.text
+                and not strong_top_anchor
+                and not product_top_anchor
+                and observation.confidence >= 0.7
+                and observation.box.width >= 0.18
+            )
+            if likely_player_label:
+                score += max(-18.0, min(26.0, 52.0 * (center_y - 0.58)))
+            if strong_top_anchor:
+                score += max(-10.0, min(18.0, 36.0 * (0.50 - center_y)))
+            if product_top_anchor:
+                score += max(-5.0, min(8.0, 16.0 * (0.50 - center_y)))
+        return score
+
     def detect_upright_rotation(
         self,
         image_bytes: bytes,
@@ -373,6 +410,10 @@ class AppleVisionOCR:
                 by_rotation.get(0, (0.0, []))[0],
                 by_rotation.get(180, (0.0, []))[0],
             )
+            zero_score, zero_observations = by_rotation.get(0, (0.0, []))
+            flip_score, flip_observations = by_rotation.get(180, (0.0, []))
+            zero_layout = self._front_layout_score(zero_observations)
+            flip_layout = self._front_layout_score(flip_observations)
             if side_score >= max(40.0, portrait_score * 1.25):
                 confidence = max(
                     0.55,
@@ -393,17 +434,24 @@ class AppleVisionOCR:
                 )
                 return side_rotation, confidence, evidence[:6]
 
-            zero_score, zero_observations = by_rotation.get(0, (0.0, []))
+            if zero_score <= 0 and zero_layout <= 0:
+                evidence = [f"{side}:{value}" for value in geometry_evidence]
+                evidence.append(
+                    f"{side}:front_review_required:no_upright_text:score_0_{zero_score:.2f}:score_180_{flip_score:.2f}:layout_0_{zero_layout:.2f}:layout_180_{flip_layout:.2f}"
+                )
+                return 0, 0.0, evidence[:6]
+
+            confidence = 0.99 if zero_score >= 12.0 or zero_layout > 0 else 0.54
             evidence = [f"{side}:{value}" for value in geometry_evidence]
             evidence.append(
-                f"{side}:front_source_preserved:no_180_auto_flip:score_0_{zero_score:.2f}:side_{side_score:.2f}:portrait_{portrait_score:.2f}"
+                f"{side}:front_source_preserved:layout_guarded:score_0_{zero_score:.2f}:score_180_{flip_score:.2f}:layout_0_{zero_layout:.2f}:layout_180_{flip_layout:.2f}:side_{side_score:.2f}"
             )
             evidence.extend(
                 observation.text[:80]
                 for observation in zero_observations
                 if observation.text.strip()
             )
-            return 0, 0.99, evidence[:6]
+            return 0, confidence, evidence[:6]
 
         candidates.sort(key=lambda candidate: (-candidate[1], candidate[0]))
         best_rotation, best_score, best_observations = candidates[0]
