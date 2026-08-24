@@ -57,6 +57,35 @@ def test_unexpected_variant_failure_does_not_abort_other_witness_variants(
     assert errors == ["back:original:apple_vision_failed:runtimeerror"]
 
 
+def test_geometry_disagreement_tests_all_rotations(monkeypatch, tmp_path: Path) -> None:
+    ocr = AppleVisionOCR(tmp_path, tmp_path)
+    monkeypatch.setattr(
+        AppleVisionOCR,
+        "_image_frame_rotation_choices",
+        staticmethod(
+            lambda _content: (
+                (90, 270),
+                ["image_frame_landscape:1090x770:force_portrait"],
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        AppleVisionOCR,
+        "_card_frame_rotation_choices",
+        staticmethod(
+            lambda _content: (
+                (0, 180),
+                ["card_frame_portrait:759x1054:allow_flip_only"],
+            )
+        ),
+    )
+
+    rotations, evidence = ocr._geometry_rotation_choices(b"image", side="back")
+
+    assert rotations == (0, 90, 180, 270)
+    assert "back_geometry_disagreement:test_all_rotations" in evidence
+
+
 @pytest.mark.asyncio
 async def test_web_rotation_is_only_a_hint(monkeypatch) -> None:
     from app import main

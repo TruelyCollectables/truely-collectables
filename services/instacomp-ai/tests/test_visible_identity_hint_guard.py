@@ -70,7 +70,7 @@ def test_visible_wnba_select_identity_hints_keep_set_soft_for_registry():
     assert identity.card_number == "91"
     assert registry_product_line_hint_from_text(
         "2025 PANINI - WNBA SELECT BASKETBALL"
-    ) == "Select"
+    ) == "Panini Select WNBA"
 
 
 def test_visible_monopoly_prizm_product_line_keeps_both_release_tokens():
@@ -135,6 +135,61 @@ def test_front_only_player_like_text_is_not_promoted_when_back_disagrees():
     assert identity.card_number == "5"
 
 
+def test_repeated_player_name_outranks_front_sponsor_text():
+    front = side(
+        "front",
+        [
+            obs("ROOKIE", "front", width=0.14, height=0.05),
+            obs("UCLA Health", "front", confidence=1.0, width=0.62, height=0.12),
+            obs("SARAH ASHLEE BARKER", "front", confidence=0.96, width=0.50, height=0.08),
+        ],
+    )
+    back = side(
+        "back",
+        [
+            obs("No. 66", "back", y=0.82, width=0.18),
+            obs("SARAH ASHLEE BARKER", "back", width=0.46),
+            obs("2025 PANINI - WNBA SELECT BASKETBALL", "back", width=0.80),
+        ],
+    )
+
+    identity = local_vision.build_identity_hints(
+        front=front,
+        back=back,
+        serial=SerialEvidence(stamp_present=False),
+    )
+
+    assert identity.player == "SARAH ASHLEE BARKER"
+    assert identity.card_number == "66"
+
+
+def test_repeated_accented_player_name_is_promoted_with_ascii_front_variant():
+    front = side(
+        "front",
+        [
+            obs("AJSA SIVKA", "front", confidence=0.97, width=0.42, height=0.08),
+            obs("CHICAGO SKY", "front", confidence=1.0, width=0.62, height=0.12),
+        ],
+    )
+    back = side(
+        "back",
+        [
+            obs("AJŠA SIVKA • CHICAGO", "back", width=0.50),
+            obs("No. 93", "back", y=0.82, width=0.18),
+            obs("2025 PANINI - WNBA DONRUSS BASKETBALL", "back", width=0.80),
+        ],
+    )
+
+    identity = local_vision.build_identity_hints(
+        front=front,
+        back=back,
+        serial=SerialEvidence(stamp_present=False),
+    )
+
+    assert identity.player == "AJSA SIVKA"
+    assert identity.card_number == "93"
+
+
 class _CaptureRegistryClient:
     last_json = None
 
@@ -186,5 +241,5 @@ async def test_registry_gateway_uses_product_line_as_request_hint_only(monkeypat
     )
 
     assert identity.set_name is None
-    assert _CaptureRegistryClient.last_json["setName"] == "Select"
+    assert _CaptureRegistryClient.last_json["setName"] == "Panini Select WNBA"
     assert _CaptureRegistryClient.last_json["player"] == "KIKI IRIAFEN"

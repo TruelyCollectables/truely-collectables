@@ -212,10 +212,18 @@ class AppleVisionOCR:
     def _geometry_rotation_choices(
         cls, content: bytes, *, side: str
     ) -> tuple[tuple[int, ...], list[str]]:
+        image_rotations, image_evidence = cls._image_frame_rotation_choices(content)
         card_frame = cls._card_frame_rotation_choices(content)
         if card_frame is not None:
-            return card_frame
-        return cls._image_frame_rotation_choices(content)
+            card_rotations, card_evidence = card_frame
+            if set(image_rotations) != set(card_rotations):
+                return (0, 90, 180, 270), [
+                    *image_evidence,
+                    *card_evidence,
+                    f"{side}_geometry_disagreement:test_all_rotations",
+                ]
+            return card_rotations, [*image_evidence, *card_evidence]
+        return image_rotations, image_evidence
 
     @staticmethod
     def _ambiguous_rotation_fallback(*, side: str, rotations: tuple[int, ...]) -> tuple[int, str]:
