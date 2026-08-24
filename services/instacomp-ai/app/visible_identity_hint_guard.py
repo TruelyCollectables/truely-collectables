@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Iterable
 
 from . import local_vision as module
@@ -56,7 +57,37 @@ def _normalized_observations(
 
 
 def _normalized_words(value: object) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    ascii_text = (
+        unicodedata.normalize("NFKD", str(value or ""))
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    return re.sub(r"[^a-z0-9]+", " ", ascii_text.lower()).strip()
+
+
+def _front_player_candidates(
+    observations: Iterable[OCRObservation],
+) -> list[tuple[float, str, str]]:
+    candidates: list[tuple[float, str, str]] = []
+    for observation in observations:
+        if observation.side != "front":
+            continue
+        cleaned = re.sub(r"[^A-Za-zÀ-ÖØ-öø-ÿ .'-]+", " ", observation.text)
+        cleaned = " ".join(cleaned.split()).strip(" .-")
+        words = cleaned.split()
+        if not 2 <= len(words) <= 5:
+            continue
+        lowered_words = {word.lower().strip(".'-") for word in words}
+        if lowered_words & module.PLAYER_STOPWORDS:
+            continue
+        if any(len(word) < 2 for word in words):
+            continue
+        normalized = _normalized_words(cleaned)
+        if not normalized:
+            continue
+        score = observation.confidence * (0.7 + min(0.3, observation.box.height * 5))
+        candidates.append((score, cleaned, normalized))
+    return candidates
 
 
 def registry_product_line_hint_from_text(value: object) -> str | None:
@@ -70,13 +101,22 @@ def registry_product_line_hint_from_text(value: object) -> str | None:
     if not text:
         return None
 
+    monopoly = re.compile(
+        r"(?:\bprizm\b.*\bmonopoly\b|\bmonopoly\b.*\bprizm\b)"
+    )
+    if monopoly.search(text):
+        return "Prizm Monopoly"
+    if "wnba" in text.split():
+        if re.search(r"\bdonruss\b", text):
+            return "Panini Donruss WNBA"
+        if re.search(r"\bselect\b", text):
+            return "Panini Select WNBA"
+        if re.search(r"\bpriz(?:m|ms|sm|sms)\b|\bprism\b", text):
+            return "Panini Prizm WNBA"
+
     patterns: tuple[tuple[re.Pattern[str], str], ...] = (
         (re.compile(r"\bbowman\s+chrome\b"), "Bowman Chrome"),
         (re.compile(r"\btopps\s+chrome\b"), "Topps Chrome"),
-        (
-            re.compile(r"(?:\bprizm\b.*\bmonopoly\b|\bmonopoly\b.*\bprizm\b)"),
-            "Prizm Monopoly",
-        ),
         (re.compile(r"\bselect\b"), "Select"),
         (re.compile(r"\bpriz(?:m|ms|sm|sms)\b"), "Prizm"),
         (re.compile(r"\bpanini\s+instant\b|\binstant\s+wnba\b"), "Panini Instant"),
@@ -107,20 +147,28 @@ def visible_product_line_hint(observations: Iterable[OCRObservation]) -> str | N
 
 def visible_player_hint(observations: Iterable[OCRObservation]) -> str | None:
     values = list(observations)
-    candidate = module._player_hint(values)
-    if not candidate:
-        return None
 
     # When a back image exists, require the same name to be visibly repeated on
     # the back. This rejects common front-only team/slogan typography while still
     # recovering normal card layouts where the player name is printed both sides.
+    # Do this before choosing the highest-score candidate so sponsor text such as
+    # "UCLA Health" cannot outrank the real player and make us throw away a good
+    # repeated name.
     back_text = _normalized_words(
         " ".join(value.text for value in values if value.side == "back")
     )
+    candidates = _front_player_candidates(values)
     if back_text:
-        player = _normalized_words(candidate)
-        if not player or f" {player} " not in f" {back_text} ":
-            return None
+        repeated = [
+            (score + 2.0, candidate)
+            for score, candidate, normalized in candidates
+            if f" {normalized} " in f" {back_text} "
+        ]
+        if repeated:
+            return max(repeated, key=lambda value: value[0])[1]
+        return None
+
+    candidate = module._player_hint(values)
     return candidate
 
 
