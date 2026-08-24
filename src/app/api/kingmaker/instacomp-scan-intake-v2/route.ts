@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
       .select("id,title,status")
       .eq("store_id", storeId)
       .eq("seller_account_id", account.id)
+      .neq("status", "archived")
       .contains("metadata", { instacomp: { imagePairSha256 } })
       .limit(1);
     if (duplicateError) throw duplicateError;
