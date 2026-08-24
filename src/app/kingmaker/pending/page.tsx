@@ -491,8 +491,30 @@ export default function KingmakerPendingPage() {
         throw new Error([data.error || "Exact front-and-back scan failed.", data.code, data.stage].filter(Boolean).join(" · "));
       }
       if (data.identityComplete === true) {
+        const pricingResponse = await fetch("/api/account/seller/inventory/instacomp-verified", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            inventoryItemId: card.inventoryItemId,
+            aiCouncilTier: "adaptive",
+            requestId: `kingmaker-pending-${card.inventoryItemId}-${Date.now()}`,
+          }),
+          cache: "no-store",
+        });
+        const pricingData = await pricingResponse.json().catch(() => ({}));
+        const pricingPayload = pricingData?.payload || pricingData;
         setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "complete" }));
-        setNotice(`${data.title || card.title}: exact checklist identity resolved.`);
+        if (pricingResponse.ok && pricingPayload?.success !== false) {
+          setNotice(`${data.title || card.title}: exact checklist identity resolved and InstaComp pricing ran.`);
+        } else {
+          setLocalError((current) => ({
+            ...current,
+            [card.inventoryItemId]:
+              pricingPayload?.error ||
+              "Exact identity resolved, but InstaComp pricing still needs retry.",
+          }));
+          setNotice(`${data.title || card.title}: exact checklist identity resolved; pricing needs retry.`);
+        }
       } else {
         setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "review" }));
         setLocalError((current) => ({

@@ -88,7 +88,13 @@ function checklistInput(metadata: JsonRecord) {
     team: textValue(ai.team, ai.teamName, card.team, verified.team),
     sport: textValue(ai.sport, card.sport, verified.sport),
     league: textValue(ai.league, card.league, verified.league),
-    parallel: textValue(ai.parallel, card.parallel, verified.parallel),
+    parallel: textValue(
+      ai.checklistParallel,
+      ai.parallelName,
+      ai.parallel,
+      card.parallel,
+      verified.parallel,
+    ),
     variation: textValue(ai.variation, card.variation, verified.variation),
     serialRun: positiveInteger(
       ai.serialRun,
@@ -111,6 +117,63 @@ function checklistInput(metadata: JsonRecord) {
       card.isRelic,
       verified.isRelic,
     ),
+  };
+}
+
+function trustedScannerIdentity(metadata: JsonRecord) {
+  const instaComp = recordValue(metadata.instacomp);
+  if (instaComp.identityComplete !== true) return null;
+
+  const ai = recordValue(instaComp.ai);
+  const registryIdentityId = textValue(
+    ai.checklistIdentityId,
+    instaComp.cardUuid,
+  );
+  const registryFingerprintSha256 = textValue(
+    ai.checklistFingerprintSha256,
+    ai.registryFingerprintSha256,
+  );
+  const year = textValue(ai.year, ai.season);
+  const manufacturer = textValue(ai.manufacturer, ai.manufacturerName);
+  const cardNumber = textValue(ai.cardNumber, ai.card_number);
+  const player = textValue(ai.player, ai.playerName, ai.subject);
+  const parallel = textValue(ai.checklistParallel, ai.parallelName, ai.parallel);
+
+  if (
+    !registryIdentityId ||
+    !registryFingerprintSha256 ||
+    !year ||
+    !manufacturer ||
+    !cardNumber ||
+    !player
+  ) {
+    return null;
+  }
+
+  return {
+    status: "identified" as const,
+    source: "checklist_registry" as const,
+    aiIdentificationRequired: false,
+    registryIdentityId,
+    registryFingerprintSha256,
+    lockedFields: {
+      year,
+      manufacturer,
+      brand: textValue(ai.brand),
+      product: textValue(ai.product, ai.productName),
+      setName: textValue(ai.setName, ai.set_name, ai.set),
+      cardNumber,
+      player,
+      team: textValue(ai.team, ai.teamName),
+      sport: textValue(ai.sport),
+      league: textValue(ai.league),
+      parallel: parallel || "Base",
+      variation: textValue(ai.variation),
+      serialRun: positiveInteger(ai.serialRun, ai.printRun),
+      isAuto: booleanValue(ai.isAuto, ai.autograph, ai.autographStatus),
+      isRelic: booleanValue(ai.isRelic, ai.memorabilia, ai.memorabiliaStatus),
+    },
+    reasons: ["pending_listing_identity_reused_trusted_scanner_registry_receipt"],
   };
 }
 
@@ -154,9 +217,13 @@ export async function POST(request: Request) {
 
     const metadata = recordValue(row.metadata);
     const input = checklistInput(metadata);
-    const decision = await resolveInstaCompChecklistFirstFromRegistry(input);
-    const identity = buildPendingListingIdentity({ input, decision });
     const instaComp = recordValue(metadata.instacomp);
+    const identity =
+      trustedScannerIdentity(metadata) ||
+      buildPendingListingIdentity({
+        input,
+        decision: await resolveInstaCompChecklistFirstFromRegistry(input),
+      });
 
     const nextMetadata = {
       ...metadata,
