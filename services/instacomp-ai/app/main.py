@@ -687,7 +687,8 @@ async def analyze_scan(
             learning_allowed=False,
             next_action=(
                 "Orientation is not proven. Review the images before allowing "
-                "Checklist identity, comps, pricing, or AI learning."
+                "Checklist identity, comps, pricing, or AI learning. Preserve "
+                "this scan as a hard training example."
             ),
         )
 
