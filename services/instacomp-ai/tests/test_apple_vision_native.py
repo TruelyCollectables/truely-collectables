@@ -238,6 +238,53 @@ def test_front_portrait_preserves_source_before_running_ocr_flip(
     assert any("front_source_preserved" in value for value in evidence)
 
 
+def test_front_portrait_never_auto_applies_180_flip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reader = AppleVisionOCR(Path("."), tmp_path)
+
+    monkeypatch.setattr(AppleVisionOCR, "supported", property(lambda self: True))
+    monkeypatch.setattr(
+        AppleVisionOCR,
+        "_clockwise_rotated_bytes",
+        staticmethod(lambda content, rotation: str(rotation).encode()),
+    )
+
+    def recognize(self: AppleVisionOCR, image_bytes: bytes, *, side: str):
+        rotation = int(image_bytes.decode())
+        y_by_rotation = {0: 0.08, 90: 0.48, 180: 0.82, 270: 0.48}
+        confidence_by_rotation = {0: 0.90, 90: 0.20, 180: 0.90, 270: 0.20}
+        return (
+            [
+                OCRObservation(
+                    text="AJSA SIVKA",
+                    confidence=confidence_by_rotation[rotation],
+                    box=OCRBox(
+                        x=0.1,
+                        y=y_by_rotation[rotation],
+                        width=0.55,
+                        height=0.05,
+                    ),
+                    side=side,
+                    source="test",
+                )
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(AppleVisionOCR, "recognize", recognize)
+
+    rotation, confidence, evidence = reader.detect_upright_rotation(
+        jpeg(600, 900),
+        side="front",
+    )
+
+    assert rotation == 0
+    assert confidence >= 0.55
+    assert any("front_source_preserved" in value for value in evidence)
+
+
 def test_no_text_front_portrait_scan_keeps_existing_orientation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -258,8 +305,8 @@ def test_no_text_front_portrait_scan_keeps_existing_orientation(
     )
 
     assert rotation == 0
-    assert confidence >= 0.55
-    assert any("front_source_preserved" in value for value in evidence)
+    assert confidence < 0.55
+    assert any("front_review_required" in value for value in evidence)
 
 
 def test_ambiguous_back_portrait_scan_keeps_existing_fallback(

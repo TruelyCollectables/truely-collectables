@@ -628,6 +628,69 @@ async def analyze_scan(
     printed_identity = identity_from_printed_evidence(printed_evidence)
     printed_text = printed_evidence.text if printed_evidence else None
 
+    if orientation_status != "completed":
+        local_vision = await analyze_local_vision(
+            front_image.content,
+            back_image.content if back_image else None,
+            settings,
+        )
+        checklist_result = ChecklistResult(
+            outcome=ChecklistOutcome.INPUT_INCOMPLETE,
+            reasons=[
+                "Image orientation was not proven for both sides; identity, pricing, and learning are blocked until review."
+            ],
+            source_receipts=[
+                f"orientation_status:{orientation_status}",
+                f"front_orientation:{front_orientation['status']}:{front_image.rotation_applied}",
+                f"back_orientation:{back_orientation['status']}:{back_image.rotation_applied if back_image else 0}",
+            ],
+        )
+        _save_scan(
+            scan_id=scan_id,
+            card_uuid=physical_card_uuid,
+            created_at=created_at,
+            front_image=front_image,
+            back_image=back_image,
+            combined_hash=combined_hash,
+            suggestion=None,
+            local_vision=local_vision,
+            checklist_result=checklist_result,
+            status="needs_review",
+        )
+        return AnalyzeResponse(
+            scan_id=scan_id,
+            card_uuid=physical_card_uuid,
+            created_at=created_at,
+            status="needs_review",
+            front_sha256=front_image.sha256,
+            back_sha256=back_image.sha256 if back_image else None,
+            image_pair_sha256=combined_hash,
+            front_reference_sha256=front_image.reference_sha256,
+            back_reference_sha256=(
+                back_image.reference_sha256 if back_image else None
+            ),
+            front_perceptual_hash=front_image.perceptual_hash,
+            back_perceptual_hash=(
+                back_image.perceptual_hash if back_image else None
+            ),
+            image_orientation=orientation_receipt,
+            back_evidence=[],
+            memory_matches=[],
+            local_suggestion=None,
+            local_vision=local_vision,
+            checklist=checklist_result,
+            trusted_identity=None,
+            match_source="none",
+            visual_match_score=None,
+            canonical_filename=None,
+            pricing_allowed=False,
+            learning_allowed=False,
+            next_action=(
+                "Orientation is not proven. Review the images before allowing "
+                "Checklist identity, comps, pricing, or AI learning."
+            ),
+        )
+
     # PRIMARY ENGINE: exact and near-visual trusted InstaComp memory. This path
     # does not call Ollama or OpenAI.
     image_memory = store.find_trusted_image_match(
