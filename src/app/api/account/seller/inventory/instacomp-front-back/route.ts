@@ -8,6 +8,7 @@ import { assertSafeInstaCompRemoteImageUrl } from "../../../../../../lib/instaco
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { getInstaCompServiceToken } from "../../../../../../lib/tcos-profit-hunter-secrets";
+import { POST as runKingmakerExactFrontBack } from "../../../../kingmaker/instacomp-front-back-exact/route";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
 
 export const runtime = "nodejs";
@@ -142,6 +143,11 @@ async function digest(file: File) {
 }
 
 export async function POST(request: NextRequest) {
+  return runKingmakerExactFrontBack(request);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function legacyGenericFrontBackScan(request: NextRequest) {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
   let inventoryItemId = "";
