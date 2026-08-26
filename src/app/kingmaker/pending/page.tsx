@@ -462,6 +462,47 @@ export default function KingmakerPendingPage() {
     }
   }
 
+  async function deleteSelectedCards() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) {
+      setPageError("Select at least one draft to delete.");
+      return;
+    }
+    const confirmDelete = window.confirm(
+      `Delete ${selected.length} pending draft${selected.length === 1 ? "" : "s"}? This will remove them from the queue but keep learning history intact.`,
+    );
+    if (!confirmDelete) return;
+
+    setBusyId("bulk");
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/admin/card-listing-queue", {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          inventoryItemIds: selected.map((card) => card.inventoryItemId),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Delete failed.");
+      }
+      setSelectedIds(new Set());
+      setNotice(data.message || `${selected.length} selected draft${selected.length === 1 ? "" : "s"} deleted.`);
+      await load();
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function runExactIdentity(card: PendingCard) {
     const job = jobs[card.inventoryItemId];
     if (!hasValidPair(card)) {
@@ -607,6 +648,14 @@ export default function KingmakerPendingPage() {
               <div className="flex gap-2">
                 <button type="button" onClick={() => setSelectedIds(new Set(cards.map((card) => card.inventoryItemId)))} className="rounded-lg border-2 border-neutral-900 px-3 py-2 text-sm font-black">Select all</button>
                 <button type="button" onClick={() => setSelectedIds(new Set())} className="rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-black">Clear</button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void deleteSelectedCards()}
+                  className="rounded-lg border-2 border-red-700 bg-red-600 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Delete selected
+                </button>
               </div>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
