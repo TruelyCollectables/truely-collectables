@@ -66,10 +66,13 @@ export function isInstaCompPricingEligibleComp(comp: InstaCompComp) {
   // provider explicitly says shipping was not captured, the row is evidence
   // of identity/competition only and cannot enter the trusted price model.
   const flags = (comp.flags || []).map((flag) => normalizedTitle(flag));
+  const manual130PointRealizedPrice = clean(comp.source)
+    .toLowerCase()
+    .startsWith("130point_manual_screenshot_");
   if (
-    comp.priceIncludesShipping === false ||
-    flags.includes("shipping not reported") ||
-    flags.includes("shipping unknown")
+    (comp.priceIncludesShipping === false && !manual130PointRealizedPrice) ||
+    (flags.includes("shipping not reported") && !manual130PointRealizedPrice) ||
+    (flags.includes("shipping unknown") && !manual130PointRealizedPrice)
   ) {
     return false;
   }

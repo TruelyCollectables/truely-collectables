@@ -74,7 +74,13 @@ export function trustedHistoricalSoldPricing(params: {
     .filter((row) => row.observation_kind === "SOLD")
     .map((row) => {
       const comp = sourceComp(row);
-      const delivered = Number(row.delivered_price);
+      const manual130PointRealizedPrice = String(comp?.source || "")
+        .trim()
+        .toLowerCase()
+        .startsWith("130point_manual_screenshot_");
+      const delivered = manual130PointRealizedPrice
+        ? Number(row.item_price ?? comp?.price)
+        : Number(row.delivered_price);
       const effectiveMs = isoTime(row.effective_at || row.observed_at);
       const matchScore = Number(row.match_score);
       if (!comp || !isInstaCompPricingEligibleComp(comp)) return null;
