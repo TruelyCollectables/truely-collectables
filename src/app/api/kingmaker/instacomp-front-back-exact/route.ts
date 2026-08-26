@@ -504,6 +504,7 @@ function macCoreEvidence(
 function macParallelDecision(candidate: InstaCompChecklistCandidate) {
   const serialRun = candidate.serialRun || null;
   const parallel = candidate.parallel || "Base";
+  const matchedIdentityIds = candidate.identityId ? [candidate.identityId] : [];
   return {
     status: "resolved" as const,
     selectedParallel: parallel,
@@ -523,7 +524,7 @@ function macParallelDecision(candidate: InstaCompChecklistCandidate) {
       confidence: 0.99,
       evidence: ["mac_trusted_registry_identity"],
     },
-    matchedIdentityIds: [candidate.identityId],
+    matchedIdentityIds,
     rejectionReasons: {},
   };
 }

@@ -458,7 +458,6 @@ export async function GET(request: Request) {
               textValue(collectibleAsset.memorabilia_type),
           },
           serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
-          imageOrientation: recordValue(instaComp.imageOrientation),
           hasBackImage,
           imageOrientation: {
             verified:
