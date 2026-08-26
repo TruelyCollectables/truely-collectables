@@ -144,7 +144,9 @@ async function loadReviewRows() {
 
   if (inventoryResult.error) throw inventoryResult.error;
 
-  const visibleIds = (inventoryResult.data ?? []).map((item) => item.id);
+  const visibleIds = ((inventoryResult.data ?? []) as InventoryRow[]).map(
+    (item) => item.id,
+  );
   const ebayAttributeResult =
     visibleIds.length > 0
       ? await supabase

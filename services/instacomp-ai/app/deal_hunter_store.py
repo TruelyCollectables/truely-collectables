@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,8 +26,26 @@ class DealHunterStore:
     @contextmanager
     def connection(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
+        connection = None
+        last_error = None
+        for attempt in range(6):
+            try:
+                connection = sqlite3.connect(self.path, timeout=30)
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA busy_timeout=30000")
+                connection.execute("PRAGMA foreign_keys=ON")
+                connection.execute("PRAGMA synchronous=NORMAL")
+                break
+            except sqlite3.OperationalError as exc:
+                last_error = exc
+                if connection is not None:
+                    connection.close()
+                    connection = None
+                if attempt >= 5:
+                    raise
+                time.sleep(min(2.0, 0.15 * (2 ** attempt)))
+        if connection is None:
+            raise last_error or sqlite3.OperationalError("Deal Hunter database connection failed")
         try:
             yield connection
             connection.commit()
@@ -118,6 +137,36 @@ class DealHunterStore:
                     evaluation_count INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS deal_hunter_market_observations (
+                    observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    candidate_key TEXT NOT NULL,
+                    observation_kind TEXT NOT NULL DEFAULT 'ASK',
+                    observed_at TEXT NOT NULL,
+                    lane TEXT,
+                    watched_person TEXT,
+                    marketplace TEXT,
+                    listing_item_id TEXT,
+                    listing_url TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    seller_name TEXT,
+                    item_price REAL,
+                    inbound_shipping REAL,
+                    buyer_fees REAL,
+                    tax REAL,
+                    image_urls_json TEXT NOT NULL DEFAULT '[]',
+                    query_family_ids_json TEXT NOT NULL DEFAULT '[]',
+                    preliminary_risks_json TEXT NOT NULL DEFAULT '[]',
+                    manual_review_required INTEGER NOT NULL DEFAULT 0,
+                    source_payload_json TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY(run_id) REFERENCES deal_hunter_runs(run_id),
+                    UNIQUE(run_id, candidate_key)
+                );
+                CREATE INDEX IF NOT EXISTS deal_hunter_market_observations_key_idx
+                    ON deal_hunter_market_observations(candidate_key, observed_at DESC);
+                CREATE INDEX IF NOT EXISTS deal_hunter_market_observations_run_idx
+                    ON deal_hunter_market_observations(run_id, observed_at);
                 """
             )
             now = iso(utc_now())
@@ -129,6 +178,33 @@ class DealHunterStore:
                 """,
                 (now,),
             )
+
+    def recover_interrupted_runs(self) -> int:
+        """Fail closed any run stranded by a prior local service restart."""
+        now = iso(utc_now())
+        with self.connection() as db:
+            cursor = db.execute(
+                """
+                UPDATE deal_hunter_runs
+                SET status = 'failed', completed_at = COALESCE(completed_at, ?),
+                    failure_count = CASE WHEN failure_count < 1 THEN 1 ELSE failure_count END,
+                    error_message = COALESCE(error_message, 'Interrupted by local service restart before completion')
+                WHERE status = 'running'
+                """,
+                (now,),
+            )
+            db.execute(
+                """
+                UPDATE deal_hunter_scheduler_state
+                SET running = 0, active_run_id = NULL,
+                    last_status = CASE WHEN running = 1 THEN 'failed' ELSE last_status END,
+                    last_error = CASE WHEN running = 1 THEN 'Interrupted by local service restart before completion' ELSE last_error END,
+                    updated_at = ?
+                WHERE singleton_id = 1
+                """,
+                (now,),
+            )
+            return int(cursor.rowcount or 0)
 
     def configure(self, *, enabled: bool, interval_minutes: int) -> None:
         self.initialize()
@@ -230,6 +306,41 @@ class DealHunterStore:
                     run_id,
                 ),
             )
+
+    def save_market_observations(self, run_id: str, candidates: Iterable[dict[str, Any]]) -> int:
+        """Append one raw ASK observation per discovered listing for this run."""
+        rows = []
+        observed_at = iso(utc_now())
+        for candidate in candidates:
+            candidate_key = str(candidate.get('candidate_key') or '').strip()
+            listing_url = str(candidate.get('listing_url') or '').strip()
+            if not candidate_key or not listing_url:
+                continue
+            rows.append((run_id, candidate_key, observed_at, candidate.get('lane'),
+                candidate.get('watched_person'), candidate.get('marketplace'),
+                candidate.get('listing_item_id'), listing_url,
+                candidate.get('title') or 'Untitled listing', candidate.get('seller_name'),
+                candidate.get('item_price'), candidate.get('inbound_shipping'),
+                candidate.get('buyer_fees'), candidate.get('tax'),
+                json.dumps(candidate.get('image_urls') or []),
+                json.dumps(candidate.get('query_family_ids') or []),
+                json.dumps(candidate.get('preliminary_risks') or []),
+                int(bool(candidate.get('manual_review_required'))),
+                json.dumps(candidate, sort_keys=True)))
+        if not rows:
+            return 0
+        with self.connection() as db:
+            before = db.total_changes
+            db.executemany(
+                """
+                INSERT OR IGNORE INTO deal_hunter_market_observations (
+                    run_id, candidate_key, observed_at, lane, watched_person, marketplace,
+                    listing_item_id, listing_url, title, seller_name, item_price,
+                    inbound_shipping, buyer_fees, tax, image_urls_json, query_family_ids_json,
+                    preliminary_risks_json, manual_review_required, source_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, rows)
+            return int(db.total_changes - before)
 
     def save_candidate(self, run_id: str, candidate: dict[str, Any]) -> None:
         now = iso(utc_now())

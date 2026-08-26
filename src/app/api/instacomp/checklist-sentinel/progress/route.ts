@@ -46,6 +46,25 @@ function sanitizedTargets(raw: unknown) {
   };
 }
 
+function sanitizedTraining(raw: unknown) {
+  const training = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return {
+    state: String(training.state || "unknown"),
+    requested_iters: finiteNumber(training.requested_iters),
+    completed_iters: finiteNumber(training.completed_iters),
+    remaining_iters: finiteNumber(training.remaining_iters),
+    progress_percent: finiteNumber(training.progress_percent),
+    learning_percent: training.learning_percent === null || training.learning_percent === undefined
+      ? null
+      : finiteNumber(training.learning_percent),
+    cpu_percent: training.cpu_percent === null || training.cpu_percent === undefined
+      ? null
+      : finiteNumber(training.cpu_percent),
+    output_bundle: training.output_bundle ? String(training.output_bundle) : null,
+    updated_at_epoch: training.updated_at_epoch ? finiteNumber(training.updated_at_epoch) : null,
+  };
+}
+
 async function fetchMacJson(
   baseUrl: string,
   key: string,
@@ -177,6 +196,7 @@ export async function GET() {
           heartbeatAt: latestJob.heartbeat_at ? String(latestJob.heartbeat_at) : null,
         },
         targets: sanitizedTargets(status.targets),
+        training: sanitizedTraining((status as Record<string, unknown>).training),
         freezeStale: Boolean(freezeProtection.stale),
       });
     }
@@ -215,6 +235,7 @@ export async function GET() {
           heartbeatAt: null,
         },
         targets: sanitizedTargets(targetsRead.payload.counts),
+        training: sanitizedTraining(null),
         freezeStale: null,
       });
     }

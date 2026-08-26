@@ -39,6 +39,11 @@ FEEDS = (
         "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=signed_baseballs",
         5,
     ),
+    (
+        "music_comedy_autographs",
+        "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=music_comedy_autographs",
+        8,
+    ),
 )
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -191,6 +196,7 @@ class DealHunterScheduler:
 
     async def start(self) -> None:
         self.store.initialize()
+        self.store.recover_interrupted_runs()
         self.store.configure(
             enabled=self.enabled,
             interval_minutes=max(15, int(self.settings.deal_hunter_interval_minutes)),
@@ -266,6 +272,7 @@ class DealHunterScheduler:
                 candidates, coverage = await self._discover()
                 counts["discovery"] = len(candidates)
                 summary["feed_coverage"] = coverage
+                summary["market_observations_saved"] = self.store.save_market_observations(run_id, candidates)
                 selected, deferred = self._select_for_evaluation(candidates)
                 summary["selected_for_evaluation"] = len(selected)
                 summary["deferred_by_cooldown_or_capacity"] = deferred

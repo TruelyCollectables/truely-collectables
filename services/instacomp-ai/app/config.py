@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     # Mac-owned Deal Hunter scheduler. The existing LaunchAgent keeps the
     # InstaComp service alive; this scheduler owns discovery cadence, durable
     # run state, exact-card evaluation, and market-history handoff.
+    deal_hunter_database_path: Path = Path("./data/deal_hunter.sqlite3")
     deal_hunter_enabled: bool = True
     deal_hunter_run_on_startup: bool = True
     deal_hunter_startup_delay_seconds: int = 45

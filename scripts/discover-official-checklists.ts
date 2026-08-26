@@ -168,6 +168,8 @@ function enqueueWordPressPagination(config: Config, page: string, body: string, 
 }
 
 async function discover(config: Config) {
+  const configuredPageLimit = Number(process.env.OFFICIAL_DISCOVERY_PAGE_LIMIT || config.maxPages);
+  const pageLimit = Math.max(config.startUrls.length, Math.min(config.maxPages, Number.isFinite(configuredPageLimit) ? configuredPageLimit : config.maxPages));
   const seedFile = resolve(process.cwd(), config.seedPath);
   const existing = JSON.parse(readFileSync(seedFile, "utf8")) as Seed[];
   const byUrl = new Map(existing.map((seed) => [seed.url, seed]));
@@ -176,7 +178,7 @@ async function discover(config: Config) {
   const pageFailures: Array<{ url: string; error: string; startPage: boolean }> = [];
   let newFiles = 0;
 
-  while (queue.length && seenPages.size < config.maxPages) {
+  while (queue.length && seenPages.size < pageLimit) {
     const page = queue.shift()!;
     if (seenPages.has(page)) continue;
     seenPages.add(page);
@@ -217,7 +219,7 @@ async function discover(config: Config) {
 
   const seeds = [...byUrl.values()].sort((a, b) => `${a.year}|${a.title}`.localeCompare(`${b.year}|${b.title}`));
   writeFileSync(seedFile, JSON.stringify(seeds, null, 2) + "\n");
-  const hitPageLimit = seenPages.size >= config.maxPages && queue.length > 0;
+  const hitPageLimit = seenPages.size >= pageLimit && queue.length > 0;
   const successfulStartPages = config.startUrls.length - pageFailures.filter((failure) => failure.startPage).length;
   const catalogScanComplete = queue.length === 0 && !hitPageLimit && pageFailures.length === 0 && seenPages.size > 0;
   const discoveryStatus = catalogScanComplete ? "catalog-scan-complete" : successfulStartPages > 0 ? "still-discovering" : "discovery-blocked";
@@ -227,7 +229,7 @@ async function discover(config: Config) {
     startUrls: config.startUrls,
     pagesScanned: seenPages.size,
     pagesRemaining: queue.length,
-    pageLimit: config.maxPages,
+    pageLimit,
     hitPageLimit,
     successfulStartPages,
     catalogScanComplete,
@@ -240,8 +242,15 @@ async function discover(config: Config) {
 }
 
 async function main() {
+  const requested = new Set(
+    String(process.env.OFFICIAL_DISCOVERY_MANUFACTURERS || '')
+      .split(',').map((value) => value.trim().toLowerCase()).filter(Boolean),
+  );
+  const selected = requested.size
+    ? configs.filter((config) => requested.has(config.name.toLowerCase()))
+    : configs;
   const reports = [];
-  for (const config of configs) reports.push(await discover(config));
+  for (const config of selected) reports.push(await discover(config));
   const output = { schema: "tcos.checklistDiscoveryReport.v3", generatedAt: new Date().toISOString(), manufacturers: reports };
   const dir = resolve(process.cwd(), ".checklist-discovery");
   mkdirSync(dir, { recursive: true });

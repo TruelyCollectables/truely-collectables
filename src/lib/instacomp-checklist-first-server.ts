@@ -79,6 +79,28 @@ function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
     const player = playerNames(card);
     const identities = Array.isArray(card.identities) ? card.identities : [];
 
+    if (!identities.length) {
+      candidates.push({
+        identityId: null,
+        fingerprintSha256: null,
+        year: release.release_year || release.season || null,
+        manufacturer: release.manufacturer?.name || null,
+        brand: release.brand?.name || null,
+        product: release.product_name || null,
+        setName: card.set?.name || release.product_name || null,
+        cardNumber: card.card_number || null,
+        player: player || null,
+        serialRun: null,
+        isAuto: statusIsPositive(card.autograph_status, "auto"),
+        isRelic: statusIsPositive(card.memorabilia_status, "relic"),
+        parallel: null,
+        variation: card.variation || null,
+        team: firstTeam(card),
+        sport: release.sport?.name || null,
+      });
+      continue;
+    }
+
     for (const identity of identities) {
       const parallel = identity.parallel || {};
       const candidate = {

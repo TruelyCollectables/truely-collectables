@@ -129,23 +129,22 @@ async function saveIpInvestigation(formData: FormData) {
 
   const now = new Date().toISOString();
 
-  const { error: investigationSaveError } = await supabase
+  const investigationRow = {
+    store_id: getActiveStoreId(),
+    ip_address: ipAddress,
+    status: status as SecurityIpInvestigation["status"],
+    severity: severity as SecurityIpInvestigation["severity"],
+    notes: notes || null,
+    updated_at: now,
+    last_reviewed_at: now,
+    resolved_at: status === "resolved" ? now : null,
+  };
+
+  const adminSupabase = supabase as any;
+
+  const { error: investigationSaveError } = await adminSupabase
     .from("security_ip_investigations")
-    .upsert(
-      {
-        store_id: getActiveStoreId(),
-        ip_address: ipAddress,
-        status,
-        severity,
-        notes: notes || null,
-        updated_at: now,
-        last_reviewed_at: now,
-        resolved_at: status === "resolved" ? now : null,
-      },
-      {
-        onConflict: "store_id,ip_address",
-      },
-    );
+    .upsert([investigationRow], { onConflict: "store_id,ip_address" });
 
   if (investigationSaveError) {
     console.error(

@@ -14,7 +14,7 @@ export type InstaCompChecklistLookupInput = {
 };
 
 export type InstaCompChecklistCandidate = {
-  identityId: string;
+  identityId: string | null;
   fingerprintSha256?: string | null;
   year: string | null;
   manufacturer: string | null;

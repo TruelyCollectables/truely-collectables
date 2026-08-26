@@ -139,6 +139,15 @@ async function fetchBytes(url) {
   };
 }
 
+export async function downloadRawSource(url, fallbackName = "checklist") {
+  const downloaded = await fetchBytes(url);
+  return {
+    ...downloaded,
+    filename: cleanFilename(downloaded.finalUrl, fallbackName),
+    selectedUrl: url,
+  };
+}
+
 function linkedChecklistCandidates(html, baseUrl) {
   const candidates = [];
   for (const match of String(html || "").matchAll(
@@ -171,27 +180,93 @@ function workbookToText(bytes, mime, filename) {
   const python = String.raw`
 import sys
 path, mime = sys.argv[1], sys.argv[2]
+
+def clean(v):
+    return '' if v is None else str(v).strip()
+
+def key(v):
+    return ''.join(ch.lower() for ch in clean(v) if ch.isalnum())
+
+def pick(headers, aliases):
+    for alias in aliases:
+        if alias in headers:
+            return headers.index(alias)
+    return None
+
+def emit_sheet(sheet_name, matrix):
+    if not matrix:
+        return []
+    header_at = None
+    headers = None
+    for i, row in enumerate(matrix[:40]):
+        ks = [key(v) for v in row]
+        has_subject = any(x in ks for x in ('description','name','player','playername','subject','carddescription'))
+        has_structure = any(x in ks for x in ('card','cardno','cardnumber','no','number','set','setname','subset'))
+        if has_subject and has_structure:
+            header_at, headers = i, ks
+            break
+    if header_at is None:
+        out = ['## ' + sheet_name]
+        for row in matrix:
+            vals = [clean(v) for v in row if clean(v)]
+            if vals: out.append(' | '.join(vals))
+        return out
+
+    subject_i = pick(headers, ('description','name','player','playername','subject','carddescription'))
+    card_i = pick(headers, ('card','cardno','cardnumber','no','number'))
+    subset_i = pick(headers, ('subset','insert','insertset','subsetname'))
+    set_i = pick(headers, ('setname','set'))
+    team_i = pick(headers, ('team','teamname'))
+    city_i = pick(headers, ('teamcity','city'))
+    rookie_i = pick(headers, ('rookie','rc'))
+    auto_i = pick(headers, ('auto','autograph'))
+    mem_i = pick(headers, ('mem','memorabilia','relic'))
+    serial_i = pick(headers, ('d','numbered','numberedto','serial','serialnumber','printnumber'))
+
+    out, current = [], None
+    for row in matrix[header_at+1:]:
+        vals = [clean(v) for v in row]
+        def at(idx): return vals[idx] if idx is not None and idx < len(vals) else ''
+        subject = at(subject_i)
+        if not subject or key(subject) in ('description','name','player','playername','subject'):
+            continue
+        section = at(subset_i) or at(set_i) or sheet_name or 'Base Set'
+        if at(auto_i).lower() not in ('','no','n','false','0') and 'auto' not in section.lower() and 'signature' not in section.lower():
+            section += ' Autographs'
+        if at(mem_i).lower() not in ('','no','n','false','0') and not any(x in section.lower() for x in ('relic','memorabilia','patch')):
+            section += ' Memorabilia'
+        serial = at(serial_i).replace(',', '')
+        section_label = section
+        if serial.isdigit() and any(x in section.lower() for x in ('parallel','prizm','refractor')):
+            section_label += ' /' + serial
+        if section_label != current:
+            out.append('## ' + section_label)
+            current = section_label
+        card = at(card_i) or 'NNO'
+        if at(rookie_i).lower() not in ('','no','n','false','0') and not subject.upper().endswith(' RC'):
+            subject += ' RC'
+        team_parts = [x for x in (at(city_i), at(team_i)) if x and x.upper() != 'TBD']
+        team = ' '.join(team_parts)
+        out.append(' | '.join([card, subject] + ([team] if team else [])))
+    return out
+
 rows = []
 if path.lower().endswith('.xlsx') or 'openxmlformats' in mime:
     import openpyxl
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     for ws in wb.worksheets:
-        rows.append('## ' + ws.title)
-        for row in ws.iter_rows(values_only=True):
-            vals = [str(v).strip() for v in row if v is not None and str(v).strip()]
-            if vals: rows.append(' | '.join(vals))
+        matrix = [list(row) for row in ws.iter_rows(values_only=True)]
+        rows.extend(emit_sheet(ws.title, matrix))
 else:
     import xlrd
     wb = xlrd.open_workbook(path)
     for ws in wb.sheets():
-        rows.append('## ' + ws.name)
-        for r in range(ws.nrows):
-            vals = [str(ws.cell_value(r, c)).strip() for c in range(ws.ncols) if str(ws.cell_value(r, c)).strip()]
-            if vals: rows.append(' | '.join(vals))
+        matrix = [[ws.cell_value(r, c) for c in range(ws.ncols)] for r in range(ws.nrows)]
+        rows.extend(emit_sheet(ws.name, matrix))
 print('\n'.join(rows))
 `;
   try {
-    return execFileSync("python3", ["-c", python, inputPath, mime], {
+    return execFileSync(resolve(process.cwd(), ".checklist-runtime/venv/bin/python"), ["-c", python, inputPath, mime], {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
       timeout: 180_000,
@@ -208,7 +283,7 @@ function extractText(downloaded, filename) {
     const inputPath = resolve(TEMP_ROOT, `${sha256(downloaded.bytes).slice(0, 12)}.pdf`);
     writeFileSync(inputPath, downloaded.bytes);
     try {
-      return execFileSync("pdftotext", ["-layout", "-nopgbrk", inputPath, "-"], {
+      return execFileSync("/opt/homebrew/bin/pdftotext", ["-layout", "-nopgbrk", inputPath, "-"], {
         encoding: "utf8",
         maxBuffer: 64 * 1024 * 1024,
         timeout: 180_000,
@@ -237,7 +312,7 @@ function extractText(downloaded, filename) {
 function inferSetType(name) {
   const value = normalized(name).toLowerCase();
   if (!value || /^(base|base set|base cards)$/.test(value)) return "base";
-  if (/autograph|signature|signed/.test(value)) return "autograph";
+  if (/autograph|\bauto(?:s)?\b|signature|signed/.test(value)) return "autograph";
   if (/relic|memorabilia|patch|swatch|jersey/.test(value)) return "memorabilia";
   if (/insert|subset|rookie|prospect|variation|short print|sp\b/.test(value)) return "insert";
   return "other";
@@ -248,6 +323,7 @@ function normalizeSetName(value) {
     .replace(/^#+\s*/, "")
     .replace(/\s+(?:card )?checklist$/i, "")
     .replace(/^checklist\s*[-:]?\s*/i, "")
+    .replace(/\s+\d{1,5}\s+cards?$/i, "")
     .trim();
   if (!name || /^(checklist|base|base cards|base set)$/i.test(name) || name.length > 160) {
     return "Base Set";
@@ -264,7 +340,7 @@ function isHeading(line) {
   if (line.length > 140 || line.includes(" | ")) return false;
   return /^(?:BASE|BASE SET|BASE CARDS|INSERTS?|AUTOGRAPHS?|MEMORABILIA|RELICS?|PARALLELS?|VARIATIONS?|SHORT PRINTS?|SP|ROOKIES?|PROSPECTS?|GIMMICKS?)(?:\s+CHECKLIST)?$/i.test(line) ||
     (/^[A-Z0-9][A-Z0-9 &'®™./()+:#-]{3,}$/.test(line) &&
-      /(?:CHECKLIST|AUTOGRAPH|RELIC|MEMORABILIA|INSERT|PARALLEL|BASE|ROOKIE|PROSPECT|VARIATION|SHORT PRINT)/i.test(line));
+      /(?:CHECKLIST|AUTOGRAPH|AUTO|RELIC|MEMORABILIA|INSERT|PARALLEL|BASE|ROOKIE|PROSPECT|VARIATION|SHORT PRINT)/i.test(line));
 }
 
 function isChecklistAnchor(value) {
@@ -282,7 +358,7 @@ function isTeamChecklistHeading(value) {
 }
 
 function isMajorSection(value) {
-  return /^(?:base(?: set| cards)?|autographs?|signatures?|inserts?|parallels?|relics?|memorabilia|variations?|short prints?|sps?|rookies?|prospects?|gimmicks?)(?:\s+checklist)?$/i.test(headingText(value));
+  return /^(?:base(?: set| cards)?|autographs?|autos?|signatures?|inserts?|parallels?|relics?|memorabilia|variations?|short prints?|sps?|rookies?|prospects?|gimmicks?)(?:\s+checklist)?$/i.test(headingText(value));
 }
 
 function isGenericChildSection(value) {
@@ -375,12 +451,18 @@ function parseSerialRun(value) {
 function parseParallelLine(line, setName) {
   const text = normalized(line).replace(/^[-•*]+\s*/, "");
   if (!text || text.length > 160 || looksLikeCardNumber(text.split(/\s+/)[0])) return null;
-  if (!/(?:refractor|prizm|parallel|foil|wave|velocity|ice|scope|disco|mosaic|shimmer|cracked|sapphire|gold|silver|bronze|red|blue|green|orange|purple|black|white|pink|aqua|superfractor|printing plate)/i.test(text)) {
+  if (text.includes(" | ")) {
+    const explicitVariant = /\b(?:parallel|refractor|prizm|foil|wave|velocity|ice|scope|disco|mosaic|shimmer|cracked|sapphire|superfractor|printing plate)\b/i.test(text);
+    if (!explicitVariant && parseSerialRun(text) == null) return null;
+  }
+  if (!/\b(?:refractor|prizm|parallel|foil|wave|velocity|ice|scope|disco|mosaic|shimmer|cracked|sapphire|gold|silver|bronze|red|blue|green|orange|purple|black|white|pink|aqua|superfractor|printing plate)\b/i.test(text)) {
     return null;
   }
-  const serialRun = parseSerialRun(text);
+  const withoutOdds = text.replace(/\s*\(\s*1\s*:\s*[\d,]+\s*\)\s*$/i, "").trim();
+  const serialRun = parseSerialRun(withoutOdds);
   const name = normalized(
-    text
+    withoutOdds
+      .replace(/\s+1\s*\/\s*1\s*$/i, "")
       .replace(/\s*[-–—:(]*\s*(?:#?\s*)?\/\d{1,7}\)?\s*$/i, "")
       .replace(
         /\s*[-–—:(]*\s*(?:numbered|serial(?:ly)? numbered|limited)\s+(?:to|#?\s*)\s*\d{1,7}\)?\s*$/i,
@@ -401,6 +483,137 @@ function parseParallelLine(line, setName) {
   };
 }
 
+function cardMemberKey(card) {
+  const subject = [...(card.players || [])]
+    .map((value) => normalized(value).toLowerCase())
+    .sort()
+    .join("+");
+  return `${normalized(card.cardNumber).toLowerCase()}::${subject}`;
+}
+
+function findCaseInsensitive(values, target) {
+  const key = normalized(target).toLowerCase();
+  return values.find((value) => normalized(value).toLowerCase() === key) || null;
+}
+
+function stripSerialSuffix(value) {
+  const raw = normalized(value);
+  const serialRun = parseSerialRun(raw);
+  return {
+    name: raw.replace(/\s*\/\d{1,7}\s*$/i, "").trim(),
+    serialRun,
+  };
+}
+
+function variantDescriptor(setName, universe) {
+  const { name: raw, serialRun } = stripSerialSuffix(normalizeSetName(setName));
+  const prizm = raw.match(/^(.*?)\s+Prizms(?:\s+(.+))?$/i);
+  if (prizm?.[1]) {
+    const parentSetName = normalizeSetName(prizm[1]);
+    const suffix = normalized(prizm[2] || "");
+    return {
+      parentSetName,
+      parallelName: suffix ? `${suffix} Prizm` : "Prizm",
+      serialRun,
+    };
+  }
+
+  const explicit = raw.match(/^(.*?)\s+Parallel(?:\s+[-–—]\s+(.+))?$/i);
+  if (!explicit?.[1]) return null;
+  const variantPrefix = normalized(explicit[1]);
+  const suffix = normalized(explicit[2] || "");
+  const nonVariants = universe.filter((value) => {
+    const clean = stripSerialSuffix(normalizeSetName(value)).name;
+    return !/\bParallel\b/i.test(clean) && !/\bPrizms\b/i.test(clean);
+  });
+  const candidates = [];
+  for (const candidate of nonVariants) {
+    const clean = stripSerialSuffix(normalizeSetName(candidate)).name;
+    let core = clean;
+    if (suffix) {
+      const suffixRe = new RegExp(`\\s+[-–—]\\s+${suffix.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`, "i");
+      if (!suffixRe.test(clean)) continue;
+      core = clean.replace(suffixRe, "").trim();
+    }
+    const a = variantPrefix.toLowerCase();
+    const b = core.toLowerCase();
+    if (a === b || a.startsWith(`${b} `)) candidates.push({ candidate: clean, core });
+  }
+  candidates.sort((a, b) => b.core.length - a.core.length);
+  let parentSetName = candidates[0]?.candidate || null;
+  let parallelName = candidates[0]
+    ? normalized(variantPrefix.slice(candidates[0].core.length))
+    : "";
+  if (!parentSetName) {
+    const fallback = suffix
+      ? findCaseInsensitive(nonVariants.map(normalizeSetName), `Base Set - ${suffix}`)
+      : findCaseInsensitive(nonVariants.map(normalizeSetName), "Base Set");
+    if (!fallback) return null;
+    parentSetName = fallback;
+    parallelName = variantPrefix;
+  }
+  parallelName = normalized(parallelName).replace(/^[-–—:]+\s*/, "");
+  if (!parallelName) parallelName = variantPrefix;
+  return { parentSetName, parallelName, serialRun };
+}
+
+function collapseVariantSets(cards, parallels) {
+  const universe = [...new Set(cards.map((card) => normalizeSetName(card.setName)))];
+  const descriptors = new Map(
+    universe.map((name) => [name, variantDescriptor(name, universe)]),
+  );
+  const merged = new Map();
+  const variantRows = new Map();
+
+  function mergeCard(card, setName, baseIdentity) {
+    const normalizedCard = { ...card, setName, baseIdentity };
+    const key = `${setName.toLowerCase()}::${cardMemberKey(normalizedCard)}`;
+    const prior = merged.get(key);
+    if (!prior) {
+      merged.set(key, normalizedCard);
+      return normalizedCard;
+    }
+    prior.baseIdentity = prior.baseIdentity || baseIdentity;
+    prior.teams = [...new Set([...(prior.teams || []), ...(normalizedCard.teams || [])])];
+    prior.rookieDesignation = prior.rookieDesignation || normalizedCard.rookieDesignation;
+    prior.firstBowmanDesignation = prior.firstBowmanDesignation || normalizedCard.firstBowmanDesignation;
+    if (normalizedCard.autographStatus === "autograph") prior.autographStatus = "autograph";
+    if (normalizedCard.memorabiliaStatus === "memorabilia") prior.memorabiliaStatus = "memorabilia";
+    return prior;
+  }
+
+  for (const card of cards) {
+    const originalSet = normalizeSetName(card.setName);
+    const descriptor = descriptors.get(originalSet);
+    if (!descriptor) {
+      mergeCard(card, originalSet, true);
+      continue;
+    }
+    const parent = normalizeSetName(descriptor.parentSetName);
+    const mergedCard = mergeCard(card, parent, false);
+    const pkey = `${parent.toLowerCase()}::${descriptor.parallelName.toLowerCase()}::${descriptor.serialRun || ""}`;
+    let row = variantRows.get(pkey);
+    if (!row) {
+      row = {
+        setName: parent,
+        name: descriptor.parallelName,
+        serialRun: descriptor.serialRun,
+        configurationExclusivity: null,
+        appliesToAllCards: false,
+        memberKeys: new Set(),
+      };
+      variantRows.set(pkey, row);
+    }
+    row.memberKeys.add(cardMemberKey(mergedCard));
+  }
+
+  const derived = [...variantRows.values()].map((row) => ({
+    ...row,
+    memberKeys: [...row.memberKeys],
+  }));
+  return { cards: [...merged.values()], parallels: [...parallels, ...derived] };
+}
+
 export function parseChecklist(entry, text) {
   const lines = String(text || "")
     .split(/\r?\n/)
@@ -413,12 +626,15 @@ export function parseChecklist(entry, text) {
   const headings = lines.filter(isHeading);
   const hasChecklistAnchor = headings.some(isChecklistAnchor);
   const hasCardSections = headings.some(
-    (line) => isMajorSection(line) || /\b(?:autograph|insert|relic|memorabilia|parallel|variation|short print|rookie|prospect)\b/i.test(headingText(line)),
+    (line) => isMajorSection(line) || /\b(?:autograph|auto|insert|relic|memorabilia|parallel|variation|short print|rookie|prospect)\b/i.test(headingText(line)),
   );
 
+  const unsafeSectionWideParallels = /not all cards have every parallel|full breakdown of the parallels for each individual card|master card list[^\n]{0,120}parallel/i.test(String(text || ""));
   let inChecklist = !hasChecklistAnchor && !hasCardSections;
   let setName = "Base Set";
   let majorParent = "Base Set";
+  let parallelMode = false;
+  let parallelSetName = null;
   let nnoCounter = 0;
   let observedChecklistRows = 0;
 
@@ -426,6 +642,8 @@ export function parseChecklist(entry, text) {
     const line = lines[index];
     if (isHeading(line)) {
       const heading = headingText(line);
+      parallelMode = false;
+      parallelSetName = null;
 
       if (isMetadataHeading(heading)) {
         inChecklist = false;
@@ -451,7 +669,7 @@ export function parseChecklist(entry, text) {
 
       const checklistish =
         isMajorSection(heading) ||
-        /\b(?:checklist|autograph|signature|insert|relic|memorabilia|parallel|variation|short print|rookie|prospect|gimmick)\b/i.test(heading);
+        /\b(?:checklist|autograph|auto|signature|insert|relic|memorabilia|parallel|variation|short print|rookie|prospect|gimmick)\b/i.test(heading);
       if (checklistish || inChecklist) {
         inChecklist = true;
         if (isGenericChildSection(heading) && majorParent) {
@@ -466,8 +684,30 @@ export function parseChecklist(entry, text) {
 
     if (!inChecklist) continue;
 
+    const parallelHeader = line.match(/^(?:parallels?|versions?)\s*:?\s*(.*)$/i);
+    if (parallelHeader) {
+      parallelMode = !unsafeSectionWideParallels;
+      parallelSetName = setName;
+      const inline = normalized(parallelHeader[1] || "");
+      if (parallelMode && inline) {
+        const parallel = parseParallelLine(inline, parallelSetName || setName);
+        if (parallel) { parallel.appliesToAllCards = true; parallels.push(parallel); }
+      }
+      continue;
+    }
+    if (parallelMode) {
+      const parallel = parseParallelLine(line, parallelSetName || setName);
+      if (parallel) {
+        parallel.appliesToAllCards = true;
+        parallels.push(parallel);
+        continue;
+      }
+    }
+
     const card = parseCardLine(line);
     if (card) {
+      parallelMode = false;
+      parallelSetName = null;
       let cardNumber = normalized(card.cardNumber);
       if (/^(?:NNO|NO#)$/i.test(cardNumber)) cardNumber = `NNO-${++nnoCounter}`;
       const variationMatch = card.subject.match(
@@ -481,7 +721,7 @@ export function parseChecklist(entry, text) {
       );
       if (!players.length) continue;
       const setText = normalized(setName).toLowerCase();
-      const hasAutograph = /autograph|signature|signed/.test(setText);
+      const hasAutograph = /autograph|\bauto(?:s)?\b|signature|signed/.test(setText);
       const hasMemorabilia = /relic|memorabilia|patch|swatch|jersey/.test(setText);
       cards.push({
         setName,
@@ -510,6 +750,10 @@ export function parseChecklist(entry, text) {
     }
   }
 
+  const collapsed = collapseVariantSets(cards, parallels);
+  cards.splice(0, cards.length, ...collapsed.cards);
+  parallels.splice(0, parallels.length, ...collapsed.parallels);
+
   const deduped = [];
   const exact = new Set();
   const byNumber = new Map();
@@ -523,26 +767,62 @@ export function parseChecklist(entry, text) {
     if (exact.has(exactKey)) continue;
     exact.add(exactKey);
     const prior = byNumber.get(numberKey);
-    if (prior && prior.subject !== subject) {
-      const sameVariation = normalized(prior.card.variation || "") === normalized(card.variation || "");
-      if (sameVariation && explicitlyMultiSubjectSet(card.setName)) {
-        prior.card.players = [...new Set([...prior.card.players, ...card.players])];
-        prior.card.teams = [...new Set([...prior.card.teams, ...card.teams])];
-        prior.card.rookieDesignation = prior.card.rookieDesignation || card.rookieDesignation;
-        prior.card.firstBowmanDesignation = prior.card.firstBowmanDesignation || card.firstBowmanDesignation;
-        if (card.autographStatus === "autograph") prior.card.autographStatus = "autograph";
-        if (card.memorabiliaStatus === "memorabilia") prior.card.memorabiliaStatus = "memorabilia";
-        prior.card.sourceNotes = normalized(`${prior.card.sourceNotes}; ${card.sourceNotes}; source-proven multi-subject card`);
-        prior.subject = prior.card.players.map((value) => value.toLowerCase()).sort().join("+");
-        continue;
-      }
-      errors.push({
-        code: "reference_card_number_subject_conflict",
-        severity: "error",
-        message: `${card.setName} #${card.cardNumber} maps to conflicting subjects.`,
-      });
-      continue;
+if (prior && prior.subject !== subject) {
+  const sameVariation =
+    normalized(prior.card.variation || "") ===
+    normalized(card.variation || "");
+
+  const mergedSubjects = [
+    ...new Set([
+      ...prior.card.players,
+      ...card.players,
+    ]),
+  ];
+
+  if (sameVariation || mergedSubjects.length <= 2) {
+    prior.card.players = mergedSubjects;
+
+    prior.card.teams = [
+      ...new Set([
+        ...prior.card.teams,
+        ...card.teams,
+      ]),
+    ];
+
+    prior.card.rookieDesignation =
+      prior.card.rookieDesignation || card.rookieDesignation;
+
+    prior.card.firstBowmanDesignation =
+      prior.card.firstBowmanDesignation || card.firstBowmanDesignation;
+
+    if (card.autographStatus === "autograph") {
+      prior.card.autographStatus = "autograph";
     }
+
+    if (card.memorabiliaStatus === "memorabilia") {
+      prior.card.memorabiliaStatus = "memorabilia";
+    }
+
+    prior.card.sourceNotes = normalized(
+      `${prior.card.sourceNotes}; ${card.sourceNotes}; merged same-number checklist subjects`
+    );
+
+    prior.subject = prior.card.players
+      .map((value) => value.toLowerCase())
+      .sort()
+      .join("+");
+
+    continue;
+  }
+
+  errors.push({
+    code: "reference_card_number_subject_conflict",
+    severity: "error",
+    message: `${card.setName} #${card.cardNumber} maps to conflicting subjects.`,
+  });
+
+  continue;
+}
     byNumber.set(numberKey, { subject, card });
     deduped.push(card);
   }
@@ -571,13 +851,36 @@ export function parseChecklist(entry, text) {
   }
 
   const uniqueParallels = [];
-  const parallelKeys = new Set();
+  const parallelByKey = new Map();
   for (const parallel of parallels) {
-    const key = `${parallel.setName.toLowerCase()}::${parallel.name.toLowerCase()}::${parallel.serialRun || ""}`;
-    if (!parallelKeys.has(key)) {
-      parallelKeys.add(key);
-      uniqueParallels.push(parallel);
+    const key = `${normalized(parallel.setName).toLowerCase()}::${normalized(parallel.name).toLowerCase()}::${parallel.serialRun || ""}`;
+    const prior = parallelByKey.get(key);
+    if (!prior) {
+      const copy = {
+        ...parallel,
+        memberKeys: Array.isArray(parallel.memberKeys) ? [...new Set(parallel.memberKeys)] : [],
+      };
+      parallelByKey.set(key, copy);
+      uniqueParallels.push(copy);
+      continue;
     }
+    const priorConfig = normalized(prior.configurationExclusivity || "").toLowerCase();
+    const nextConfig = normalized(parallel.configurationExclusivity || "").toLowerCase();
+    if (priorConfig && nextConfig && priorConfig !== nextConfig) {
+      errors.push({
+        code: "reference_parallel_configuration_conflict",
+        severity: "error",
+        message: `${parallel.name} on ${parallel.setName} has conflicting configuration evidence: ${prior.configurationExclusivity} vs ${parallel.configurationExclusivity}.`,
+      });
+    }
+    if (!prior.configurationExclusivity && parallel.configurationExclusivity) {
+      prior.configurationExclusivity = parallel.configurationExclusivity;
+    }
+    prior.appliesToAllCards = Boolean(prior.appliesToAllCards || parallel.appliesToAllCards);
+    prior.memberKeys = [...new Set([
+      ...(Array.isArray(prior.memberKeys) ? prior.memberKeys : []),
+      ...(Array.isArray(parallel.memberKeys) ? parallel.memberKeys : []),
+    ])];
   }
   return { cards: deduped, parallels: uniqueParallels, warnings, errors };
 }
@@ -603,6 +906,9 @@ function betterCandidate(next, current, minimum) {
   const currentErrors = errorCount(current.parsed);
   if (nextErrors !== currentErrors) return nextErrors < currentErrors;
   if (nextPasses && currentPasses) {
+    const nextHasParallels = (next.parsed.parallels || []).length > 0;
+    const currentHasParallels = (current.parsed.parallels || []).length > 0;
+    if (nextHasParallels !== currentHasParallels) return nextHasParallels;
     const nextPriority = structuredPriority(next.source.mimeType);
     const currentPriority = structuredPriority(current.source.mimeType);
     if (nextPriority !== currentPriority) return nextPriority < currentPriority;

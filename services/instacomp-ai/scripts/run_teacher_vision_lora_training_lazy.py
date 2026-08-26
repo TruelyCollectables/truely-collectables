@@ -92,6 +92,51 @@ COMPACT_TEACHER_OUTPUT_SCHEMA = {
 }
 
 
+QWEN_MICRO_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "supports_canonical_truth": {"type": "boolean"},
+        "evidence": {"type": "string", "maxLength": 64},
+        "student_miss": {"type": "string", "maxLength": 64},
+    },
+    "required": [
+        "supports_canonical_truth",
+        "evidence",
+        "student_miss",
+    ],
+    "additionalProperties": False,
+}
+
+
+def _qwen_micro_prompt(example: TrainingExample) -> str:
+    payload = {
+        "task": (
+            "Inspect the attached card images and return a tiny teaching record "
+            "about the already-reviewed canonical identity."
+        ),
+        "canonical_truth": example.confirmed_identity.model_dump(mode="json"),
+        "correction_fields": list(example.correction_fields),
+        "rules": [
+            "Do not change canonical identity.",
+            "Return JSON only.",
+            "Return exactly three keys.",
+            "evidence must be six words or fewer.",
+            "student_miss must be six words or fewer.",
+            "No arrays.",
+            "No nested objects.",
+            "No markdown.",
+            "No explanation.",
+            "Close the JSON object immediately.",
+        ],
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
 def _compact_prompt(example: TrainingExample, *, retry: bool) -> str:
     suffix = (
         "\nOUTPUT SIZE CONTRACT: Return JSON only. Keep every array to at most 3 short visible-evidence "
@@ -115,22 +160,33 @@ class CompactRetryOllamaVisionTeacher(tvt.OllamaVisionTeacher):
             base64.b64encode(Path(image["path"]).read_bytes()).decode("ascii")
             for image in images
         ]
+        qwen_micro = retry and self.model.startswith("qwen2.5vl")
         payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "user",
-                    "content": _compact_prompt(example, retry=retry),
+                    "content": (
+                        _qwen_micro_prompt(example)
+                        if qwen_micro
+                        else _compact_prompt(example, retry=retry)
+                    ),
                     "images": encoded,
                 }
             ],
             "stream": False,
-            "format": COMPACT_TEACHER_OUTPUT_SCHEMA,
+            "format": (
+                QWEN_MICRO_OUTPUT_SCHEMA
+                if qwen_micro
+                else COMPACT_TEACHER_OUTPUT_SCHEMA
+            ),
             "keep_alive": self.settings.teacher_vision_keep_alive,
             "options": {
                 "temperature": 0.0,
                 "num_ctx": 8192,
-                "num_predict": 1536 if retry else 1280,
+                "num_predict": (
+                    384 if qwen_micro else (1536 if retry else 1280)
+                ),
                 "seed": 0,
             },
         }
@@ -162,6 +218,33 @@ class CompactRetryOllamaVisionTeacher(tvt.OllamaVisionTeacher):
                     raise json.JSONDecodeError("Teacher JSON root is not an object", raw_content, 0)
                 if done_reason == "length":
                     raise json.JSONDecodeError("Teacher JSON hit generation length limit", raw_content, len(raw_content))
+                if retry and self.model.startswith("qwen2.5vl"):
+                    evidence = str(
+                        parsed_value.get("evidence") or ""
+                    ).strip()
+                    student_miss = str(
+                        parsed_value.get("student_miss") or ""
+                    ).strip()
+
+                    parsed_value = {
+                        "supports_canonical_truth": bool(
+                            parsed_value.get("supports_canonical_truth")
+                        ),
+                        "front_visible_text": [],
+                        "back_visible_text": [],
+                        "logos": [],
+                        "colors": [],
+                        "foil_or_pattern": [],
+                        "serial_evidence": [],
+                        "positive_cues": [evidence] if evidence else [],
+                        "negative_cues": [],
+                        "student_miss_explanation": (
+                            [student_miss] if student_miss else []
+                        ),
+                        "field_lessons": {},
+                        "uncertainty": [],
+                    }
+
                 parsed = parsed_value
                 break
             except json.JSONDecodeError as exc:

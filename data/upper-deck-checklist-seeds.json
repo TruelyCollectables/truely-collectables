@@ -1,1 +1,807 @@
-[]
+[
+  {
+    "title": "2018 19 chronology checklist",
+    "year": "2018-19",
+    "url": "https://upperdeck.com/checklist/2018-19-chronology-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2018-19-parkhurst-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2018 19 clear cut checklist",
+    "year": "2018-19",
+    "url": "https://upperdeck.com/checklist/2018-19-clear-cut-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2018-19-parkhurst-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2018 19 parkhurst checklist",
+    "year": "2018-19",
+    "url": "https://upperdeck.com/checklist/2018-19-parkhurst-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-parkhurst-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2018 19 sp checklist",
+    "year": "2018-19",
+    "url": "https://upperdeck.com/checklist/2018-19-sp-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2018-19-parkhurst-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2018 goodwin champions checklist",
+    "year": "2018",
+    "url": "https://upperdeck.com/checklist/2018-goodwin-champions-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-goodwin-champions-checklist/",
+    "sport": "Multi-Sport"
+  },
+  {
+    "title": "2021 22 parkhurst checklist",
+    "year": "2021-22",
+    "url": "https://upperdeck.com/checklist/2021-22-parkhurst-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-parkhurst-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2021 artifacts golf checklist",
+    "year": "2021",
+    "url": "https://upperdeck.com/checklist/2021-artifacts-golf-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-artifacts-golf-checklist/",
+    "sport": "Golf"
+  },
+  {
+    "title": "2021 sp authentic golf checklist",
+    "year": "2021",
+    "url": "https://upperdeck.com/checklist/2021-sp-authentic-golf-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2021-artifacts-golf-checklist/",
+    "sport": "Golf"
+  },
+  {
+    "title": "2021 upper deck aew checklist",
+    "year": "2021",
+    "url": "https://upperdeck.com/checklist/2021-upper-deck-aew-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2023-upper-deck-aew-checklist/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "2022 allure aew checklist",
+    "year": "2022",
+    "url": "https://upperdeck.com/checklist/2022-allure-aew-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-aew-checklist/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "2022 goodwin champions checklist",
+    "year": "2022",
+    "url": "https://upperdeck.com/checklist/2022-goodwin-champions-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-goodwin-champions-checklist/",
+    "sport": "Multi-Sport"
+  },
+  {
+    "title": "2022 skybox metal universe aew checklist",
+    "year": "2022",
+    "url": "https://upperdeck.com/checklist/2022-skybox-metal-universe-aew-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2022-upper-deck-aew-checklist/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "2022 upper deck aew checklist",
+    "year": "2022",
+    "url": "https://upperdeck.com/checklist/2022-upper-deck-aew-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-aew-checklist/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "Upper Deck WandaVision Checklist FINAL 1 18 2023",
+    "year": "2023-01",
+    "url": "https://upperdeck.com/wp-content/uploads/2023/01/Upper-Deck-WandaVision-Checklist-FINAL-1-18-2023.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "Marvel Studios Upper Deck Loki Season 1 Checklist FINAL 9 7 2023",
+    "year": "2023-09",
+    "url": "https://upperdeck.com/wp-content/uploads/2023/09/Marvel-Studios-Upper-Deck-Loki-Season-1-Checklist-FINAL-9-7-2023.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap.xml",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2023 24 dc annual checklist",
+    "year": "2023-24",
+    "url": "https://upperdeck.com/checklist/2023-24-dc-annual-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2024-25-dc-annual/",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2023 24 parkhurst champions checklist",
+    "year": "2023-24",
+    "url": "https://upperdeck.com/checklist/2023-24-parkhurst-champions-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2021-22-parkhurst-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2023 24 sp game used chl checklist",
+    "year": "2023-24",
+    "url": "https://upperdeck.com/checklist/2023-24-sp-game-used-chl-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-chl-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2023 24 sp retail checklist",
+    "year": "2023-24",
+    "url": "https://upperdeck.com/checklist/2023-24-sp-retail-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2023-24-sp-game-used-chl-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2023 upper deck aew checklist",
+    "year": "2023",
+    "url": "https://upperdeck.com/checklist/2023-upper-deck-aew-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-aew-checklist/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "Upper Deck Marvel Studios Series 2 Cinematic Checklist FINAL 11 20 2024",
+    "year": "2024-11",
+    "url": "https://upperdeck.com/wp-content/uploads/2024/11/Upper-Deck-Marvel-Studios-Series-2-Cinematic-Checklist-FINAL-11-20-2024.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap.xml",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2024 25 ahl hockey checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-ahl-hockey-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-ahl-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2024 25 artifacts checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-artifacts-checklist/",
+    "sourcePage": "https://upperdeck.com/product/2025-26-upper-deck-artifacts-hockey-cards-blaster/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2024 25 credentials checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-credentials-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-2026-credentials-checklist/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2024 25 dc annual",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-dc-annual/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2024 25 skybox metal universe checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-skybox-metal-universe-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-2026-skybox-metal-universe-hockey-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2024 25 sp game used checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-sp-game-used-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2023-24-sp-game-used-chl-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2024 25 ud series 1 hockey checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2024 25 upper deck extended series checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-upper-deck-extended-series-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2024 25 upper deck series 2 checklist",
+    "year": "2024-25",
+    "url": "https://upperdeck.com/checklist/2024-25-upper-deck-series-2-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2024 2025 ud premier checklist",
+    "year": "2024",
+    "url": "https://upperdeck.com/checklist/2024-2025-ud-premier-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2024 2025 ultimate collection checklist",
+    "year": "2024",
+    "url": "https://upperdeck.com/checklist/2024-2025-ultimate-collection-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2024 Fleer Ultra Matriarchs Of Marvel Checklist FINAL 12 23 2024",
+    "year": "2025-06",
+    "url": "https://upperdeck.com/wp-content/uploads/2025/06/2024-Fleer-Ultra-Matriarchs-Of-Marvel-Checklist-FINAL-12-23-2024.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap.xml",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2024 Marvel Masterpieces Nahuel Grego Checklist FINAL 12 27 2024",
+    "year": "2025-06",
+    "url": "https://upperdeck.com/wp-content/uploads/2025/06/2024-Marvel-Masterpieces-Nahuel-Grego-Checklist-FINAL-12-27-2024.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap.xml",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2025 AEW SP Game Used Checklist FINAL",
+    "year": "2025-11",
+    "url": "https://upperdeck.com/wp-content/uploads/2025/11/2025-AEW-SP-Game-Used-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "2024 ud pwhl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2024-ud-pwhl-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-ud-pwhl-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 2026 sp hockey checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-2026-sp-hockey-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-sp-authentic-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 ahl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-ahl-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 chl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-chl-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 chl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-chl-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 chl game used checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-chl-game-used-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 clear cut checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-clear-cut-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 26 clear cut checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-clear-cut-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 flair hockey checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-flair-hockey-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/page/2/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 flair hockey checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-flair-hockey-checklist",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-flair-hockey-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 fleer ultra pwhl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-fleer-ultra-pwhl-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 fleer ultra pwhl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-fleer-ultra-pwhl-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 nhl new york rangers centennial checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-nhl-new-york-rangers-centennial-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 nhl new york rangers centennial hobby checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-nhl-new-york-rangers-centennial-hobby-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 nhl ultimate collection checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 nhl ultimate collection checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 o pee chee checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-o-pee-chee-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-2026-o-pee-chee-platinum-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 parkhurst checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-parkhurst-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 parkhurst checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-parkhurst-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 premier checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-premier-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 26 premier checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-premier-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 sp authentic checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-sp-authentic-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 26 sp game used hockey checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-sp-game-used-hockey-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-sp-authentic-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 ud extended series checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-ud-extended-series-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-ud-pwhl-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 ud pwhl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-ud-pwhl-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 ud pwhl checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-ud-pwhl-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 upper deck series 2 checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-26-upper-deck-series-2-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/3/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 aew sp game used checklist",
+    "year": "2025-26",
+    "url": "https://upperdeck.com/checklist/2025-aew-sp-game-used-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-26-chl-game-used-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 2026 allure hockey checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-allure-hockey-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-allure-golf-checklist/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 2026 artifacts checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-artifacts-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 2026 artifacts rookies checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-artifacts-rookies-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2025-2026-artifacts-checklist/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 2026 credentials checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-credentials-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 2026 detroit red wings centennial set checklist hobby",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-detroit-red-wings-centennial-set-checklist-hobby/",
+    "sourcePage": "https://upperdeck.com/checklists/3/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 2026 fleer ultra checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-fleer-ultra-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-fleer-ultra-golf/",
+    "sport": "Golf"
+  },
+  {
+    "title": "2025 2026 nhl star rookies box set checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-nhl-star-rookies-box-set-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/3/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 2026 o pee chee platinum checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-o-pee-chee-platinum-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 2026 skybox metal universe hockey checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-skybox-metal-universe-hockey-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 2026 spx checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-2026-spx-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 aew wrestling checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-aew-wrestling-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2022-allure-aew-checklist/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "2025 fall expo checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-fall-expo-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-spring-expo-checklist/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 goodwin champions checklist",
+    "year": "2025",
+    "url": "https://upperdeck.com/checklist/2025-goodwin-champions-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-goodwin-champions-checklist/",
+    "sport": "Multi-Sport"
+  },
+  {
+    "title": "2025 2026 Detroit Red Wings Centennial Set Checklist FINAL",
+    "year": "2026-01",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/01/2025-2026-Detroit-Red-Wings-Centennial-Set-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 2026 SP Hockey Checklist FINAL100",
+    "year": "2026-02",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/02/2025-2026-SP-Hockey-Checklist-FINAL100.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2026 Allure Golf Checklist FINAL",
+    "year": "2026-03",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/03/2026-Allure-Golf-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Golf"
+  },
+  {
+    "title": "Copy of Batman The Animated Series Checklist FINAL",
+    "year": "2026-03",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/03/Copy-of-Batman-The-Animated-Series-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2024 25 DC Annual Checklist FINAL 1",
+    "year": "2026-05",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/05/2024-25-DC-Annual-Checklist-FINAL-1.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2025 2026 O Pee Chee Platinum Checklist FINAL",
+    "year": "2026-05",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/05/2025-2026-O-Pee-Chee-Platinum-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2025 26 AHL Checklist FINAL",
+    "year": "2026-05",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/05/2025-26-AHL-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2025 26 UD PWHL Checklist FINAL",
+    "year": "2026-07",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/07/2025-26-UD-PWHL-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2026 27 MVP Checklist FINAL",
+    "year": "2026-07",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/07/2026-27-MVP-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "Copy of 2026 Upper Deck NSCC Checklist FINAL",
+    "year": "2026-07",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/07/Copy-of-2026-Upper-Deck-NSCC-Checklist-FINAL.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "Copy of 2026 Upper Deck NSCC Checklist FINAL 1",
+    "year": "2026-07",
+    "url": "https://upperdeck.com/wp-content/uploads/2026/07/Copy-of-2026-Upper-Deck-NSCC-Checklist-FINAL-1.csv",
+    "sourcePage": "https://upperdeck.com/post-sitemap3.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2026 27 mvp checklist",
+    "year": "2026-27",
+    "url": "https://upperdeck.com/checklist/2026-27-mvp-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2026 27 mvp checklist",
+    "year": "2026-27",
+    "url": "https://upperdeck.com/checklist/2026-27-mvp-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2026 aew allure checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-aew-allure-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "2026 aew checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-aew-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Wrestling"
+  },
+  {
+    "title": "2026 allure golf checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-allure-golf-checklist/",
+    "sourcePage": "https://upperdeck.com/checklist/2026-artifacts-golf-checklist/",
+    "sport": "Golf"
+  },
+  {
+    "title": "2026 artifacts golf checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-artifacts-golf-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Golf"
+  },
+  {
+    "title": "2026 fleer ultra golf",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-fleer-ultra-golf/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Golf"
+  },
+  {
+    "title": "2026 goodwin champions checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-goodwin-champions-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Multi-Sport"
+  },
+  {
+    "title": "2026 national hockey card day checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-national-hockey-card-day-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/3/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2026 sdcc absolute checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-sdcc-absolute-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "2026 spring expo checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-spring-expo-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2026 team canada checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-team-canada-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2026 team canada checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-team-canada-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2026 team canada juniors checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-team-canada-juniors-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2026 team canada juniors checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-team-canada-juniors-checklist/?utm_source=rss&",
+    "sourcePage": "https://upperdeck.com/checklist-category/hockey/feed/",
+    "sport": "Hockey"
+  },
+  {
+    "title": "2026 tim hortons harry potter checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-tim-hortons-harry-potter-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2026 ud cfl checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-ud-cfl-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "2026 upper deck golf checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-upper-deck-golf-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/3/",
+    "sport": "Golf"
+  },
+  {
+    "title": "2026 upper deck nscc checklist",
+    "year": "2026",
+    "url": "https://upperdeck.com/checklist/2026-upper-deck-nscc-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "batman the animated series checklist",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist/batman-the-animated-series-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/3/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "checklist brand sitemap",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist-brand-sitemap.xml",
+    "sourcePage": "https://upperdeck.com/wp-sitemap.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "checklist category sitemap",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist-category-sitemap.xml",
+    "sourcePage": "https://upperdeck.com/wp-sitemap.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "checklist license sitemap",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist-license-sitemap.xml",
+    "sourcePage": "https://upperdeck.com/wp-sitemap.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "checklist sitemap",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist-sitemap.xml",
+    "sourcePage": "https://upperdeck.com/wp-sitemap.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "checklist year sitemap",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist-year-sitemap.xml",
+    "sourcePage": "https://upperdeck.com/wp-sitemap.xml",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "fleer ultra superman checklist",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist/fleer-ultra-superman-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/2/",
+    "sport": "Miscellaneous"
+  },
+  {
+    "title": "upper deck inspirations the world of dc checklist",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist/upper-deck-inspirations-the-world-of-dc-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/",
+    "sport": "Entertainment"
+  },
+  {
+    "title": "upper deck world of sports volume ii checklist",
+    "year": "Unknown",
+    "url": "https://upperdeck.com/checklist/upper-deck-world-of-sports-volume-ii-checklist/",
+    "sourcePage": "https://upperdeck.com/checklists/3/",
+    "sport": "Miscellaneous"
+  }
+]

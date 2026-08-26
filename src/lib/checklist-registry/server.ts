@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { beckettReferenceHtmlChecklistAdapter } from "./beckett-reference-html";
 import { paniniStructuredChecklistAdapter } from "./panini-structured";
 import { pokemonJapaneseHistoricalReconciledAdapter } from "./pokemon-japanese-historical-reconciled";
 import { pokemonJapaneseIncompleteReconciledAdapter } from "./pokemon-japanese-incomplete-reconciled";
@@ -29,6 +30,7 @@ import { upperDeckTeamCanadaOfficialHtmlChecklistAdapter } from "./upper-deck-te
 import { upperDeckTimHortonsOfficialHtmlChecklistAdapter } from "./upper-deck-tim-hortons-official-html";
 
 const CHECKLIST_ADAPTERS: ChecklistSourceAdapter[] = [
+  beckettReferenceHtmlChecklistAdapter,
   pokemonJapaneseMPReconciledAdapter,
   pokemonJapaneseVariantReconciledAdapter,
   pokemonJapaneseHistoricalReconciledAdapter,

@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -278,6 +279,49 @@ def main() -> int:
     if args.mine_only:
         return 0
 
+    # Hard pre-training gate: LoRA may start only when the complete configured
+    # teacher set is accounted for and the combined dataset reports no missing
+    # teacher receipts. This is independent of the miner's failure counter.
+    if not args.allow_partial_teachers:
+        expected_receipts = int(mining.get("expected_receipts") or 0)
+        completed_receipts = (
+            int(mining.get("generated") or 0)
+            + int(mining.get("cached") or 0)
+        )
+        failed_receipts = int(mining.get("failed") or 0)
+        missing_teacher_receipts = int(
+            manifest.get("missing_teacher_receipts") or 0
+        )
+
+        manifest_models = set(manifest.get("teacher_models") or [])
+        configured_models = set(teacher_models)
+
+        if (
+            failed_receipts != 0
+            or expected_receipts <= 0
+            or completed_receipts != expected_receipts
+            or missing_teacher_receipts != 0
+            or manifest_models != configured_models
+        ):
+            raise SystemExit(
+                "STRICT TEACHER TRAINING GATE BLOCKED LoRA: "
+                f"failed={failed_receipts}, "
+                f"completed={completed_receipts}, "
+                f"expected={expected_receipts}, "
+                f"missing_teacher_receipts={missing_teacher_receipts}, "
+                f"configured_models={sorted(configured_models)}, "
+                f"manifest_models={sorted(manifest_models)}. "
+                "Teacher receipts remain cached; LoRA was not started."
+            )
+
+        print(
+            "STRICT TEACHER TRAINING GATE PASSED "
+            f"completed={completed_receipts}/{expected_receipts} "
+            f"missing_teacher_receipts={missing_teacher_receipts} "
+            f"models={','.join(sorted(configured_models))}",
+            flush=True,
+        )
+
     adapter_root = settings.resolve_local_path("./data/training/adapters")
     adapter_root.mkdir(parents=True, exist_ok=True)
     resume_adapter_input = args.resume_adapter.expanduser().resolve() if args.resume_adapter else None
@@ -289,6 +333,25 @@ def main() -> int:
     dataset_path = Path(manifest["destination"])
     adapter_bundle = adapter_root / f"instacomp-{dataset_path.name}"
     adapter_path = adapter_bundle / "adapters.safetensors"
+
+    # MLX-VLM 0.6.8 resume writes adapter weights to the new output path but
+    # does not recreate adapter_config.json there. Seed the known-good config
+    # from the validated resume bundle before training starts so every resumed
+    # checkpoint/output remains a complete recoverable adapter bundle.
+    adapter_bundle.mkdir(parents=True, exist_ok=True)
+    if resume_bundle is not None:
+        resume_config = resume_bundle / "adapter_config.json"
+        output_config = adapter_bundle / "adapter_config.json"
+        if not resume_config.is_file():
+            raise SystemExit(
+                f"Resume bundle lost adapter_config.json: {resume_config}"
+            )
+        shutil.copy2(resume_config, output_config)
+        print(
+            f"RESUME ADAPTER CONFIG SEEDED {output_config}",
+            flush=True,
+        )
+
     resize_shape = (
         settings.teacher_vision_image_max_edge,
         settings.teacher_vision_image_max_edge,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
@@ -669,6 +670,7 @@ class ChecklistSentinel:
     def status(self) -> dict[str, Any]:
         latest = self.store.latest_job()
         counts = self.store.target_counts()
+        training = self._training_status()
         running = bool(latest and latest.get("status") == "running")
         heartbeat = latest.get("heartbeat_at") if latest else None
         stale = False
@@ -698,7 +700,82 @@ class ChecklistSentinel:
             },
             "targets": counts,
             "latest_job": latest,
+            "training": training,
             "download_root": str(self.download_root),
             "registry_import_configured": bool(self.registry_import_url),
             "target_feed_configured": bool(self.target_url),
         }
+
+    def _training_status(self) -> dict[str, Any]:
+        status_path = self.service_root / "data" / "training" / "lora-training-status.json"
+        progress_path = self.service_root / "data" / "logs" / "lora-safe2048-supervised-progress.txt"
+        payload: dict[str, Any] = {
+            "state": "unknown",
+            "requested_iters": None,
+            "completed_iters": None,
+            "remaining_iters": None,
+            "progress_percent": 0.0,
+            "learning_percent": None,
+            "cpu_percent": None,
+            "output_bundle": None,
+            "updated_at_epoch": None,
+        }
+
+        if status_path.is_file():
+            try:
+                raw = json.loads(status_path.read_text("utf-8"))
+                if isinstance(raw, dict):
+                    payload["state"] = str(raw.get("state") or payload["state"])
+                    payload["requested_iters"] = raw.get("requested_iters")
+                    payload["completed_iters"] = raw.get("completed_iters")
+                    payload["remaining_iters"] = raw.get("remaining_iters")
+                    payload["output_bundle"] = raw.get("output_bundle")
+                    payload["updated_at_epoch"] = raw.get("updated_at_epoch")
+                    requested = int(raw.get("requested_iters") or 0)
+                    completed = int(raw.get("completed_iters") or 0)
+                    if requested > 0:
+                        payload["progress_percent"] = round(
+                            max(0.0, min(100.0, completed * 100.0 / requested)),
+                            1,
+                        )
+            except Exception:
+                pass
+
+        if progress_path.is_file():
+            try:
+                progress_value = int(progress_path.read_text("utf-8").strip().splitlines()[-1])
+                payload["learning_percent"] = max(0, min(100, progress_value))
+                if payload["progress_percent"] == 0.0 and progress_value > 0:
+                    payload["progress_percent"] = float(min(100, progress_value))
+            except Exception:
+                pass
+
+        cpu_percent: float | None = None
+        try:
+            result = subprocess.run(
+                [
+                    "/bin/ps",
+                    "-axo",
+                    "pcpu=,command=",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout:
+                best = 0.0
+                for line in result.stdout.splitlines():
+                    if "mlx_vlm.lora" not in line and "run_safe2048_supervised_runner.sh" not in line:
+                        continue
+                    head, _, _cmd = line.strip().partition(" ")
+                    try:
+                        best = max(best, float(head))
+                    except ValueError:
+                        continue
+                if best > 0:
+                    cpu_percent = round(best, 1)
+        except Exception:
+            pass
+
+        payload["cpu_percent"] = cpu_percent
+        return payload

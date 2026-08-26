@@ -10,6 +10,8 @@ import sys
 import time
 from pathlib import Path
 
+import safetensors.numpy as st
+
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = SERVICE_ROOT / "scripts" / "run_lora_training.py"
 COMPAT_LAUNCHER = SERVICE_ROOT / "scripts" / "mlx_vlm_lora_compat.py"
@@ -141,10 +143,46 @@ def _checkpoint_is_valid(bundle: Path) -> bool:
     )
 
 
+def _checkpoint_is_loadable(bundle: Path) -> bool:
+    weights = bundle / "adapters.safetensors"
+    if not _checkpoint_is_valid(bundle):
+        return False
+    try:
+        st.load_file(str(weights))
+    except Exception:
+        return False
+    return True
+
+
 def _checkpoint_was_written(bundle: Path, started_at: float) -> bool:
     if not _checkpoint_is_valid(bundle):
         return False
     return (bundle / "adapters.safetensors").stat().st_mtime >= started_at - 2.0
+
+
+def _iter_resume_candidates(adapter_root: Path):
+    seen: set[Path] = set()
+    paths = [
+        adapter_root / "adapter_config.json",
+        *sorted((adapter_root / "resume-bundles").glob("*/adapter_config.json"), reverse=True),
+        *sorted(adapter_root.glob("instacomp-*/adapter_config.json"), reverse=True),
+    ]
+    for config in paths:
+        try:
+            bundle = config.parent.resolve()
+        except OSError:
+            continue
+        if bundle in seen:
+            continue
+        seen.add(bundle)
+        yield bundle
+
+
+def _find_loadable_resume_bundle(adapter_root: Path) -> Path | None:
+    for bundle in _iter_resume_candidates(adapter_root):
+        if _checkpoint_is_loadable(bundle):
+            return bundle
+    return None
 
 
 def _is_training_command(command) -> bool:
@@ -383,7 +421,22 @@ def main() -> int:
                 Path(resume_adapter).expanduser().resolve(),
                 adapter_root=Path(adapter_root),
             )
-        return original_prepare(resume_adapter, adapter_root=adapter_root)
+        bundle = original_prepare(resume_adapter, adapter_root=adapter_root)
+        if bundle is not None and not _checkpoint_is_loadable(bundle):
+            print(
+                f"Discarding unreadable resume bundle: {bundle}",
+                flush=True,
+            )
+            bundle = None
+        if bundle is None:
+            fallback = _find_loadable_resume_bundle(Path(adapter_root))
+            if fallback is not None:
+                print(
+                    f"Falling back to validated LoRA resume bundle: {fallback}",
+                    flush=True,
+                )
+                bundle = fallback
+        return bundle
 
     def build_lora_command(**kwargs):
         resume_adapter = kwargs.get("resume_adapter")

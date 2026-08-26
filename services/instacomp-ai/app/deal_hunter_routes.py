@@ -8,7 +8,7 @@ from .deal_hunter_store import DealHunterStore
 from .deal_hunter_targeted import ALLOWED_TARGET_LANES, run_targeted_lane
 
 
-_store = DealHunterStore(settings.resolve_local_path(settings.database_path))
+_store = DealHunterStore(settings.resolve_local_path(settings.deal_hunter_database_path))
 _scheduler = DealHunterScheduler(settings, _store)
 
 

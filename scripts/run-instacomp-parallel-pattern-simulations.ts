@@ -6,7 +6,7 @@ import {
 import type { InstaCompChecklistCandidate } from "../src/lib/instacomp-checklist-first";
 
 function candidate(params: {
-  identityId: string;
+  identityId: string | null;
   parallel: string | null;
   serialRun?: number | null;
 }): InstaCompChecklistCandidate {
@@ -168,6 +168,25 @@ const wnbaCandidates = [
   assert.equal(result.selectedIdentityId, null);
 }
 
+{
+  const provisional = candidate({ identityId: null, parallel: null });
+  const result = resolveChecklistParallelFromVisualFeatures({
+    candidates: [provisional],
+    features: features({
+      dominantColor: null,
+      pattern: "base",
+      serialStampPresent: false,
+      confidence: 0.99,
+      evidence: ["The card-level checklist row exists, but no permanent identity UUID is attached."],
+    }),
+  });
+  assert.equal(result.status, "ambiguous");
+  assert.equal(result.selectedIdentityId, null);
+  assert.deepEqual(result.matchedIdentityIds, []);
+  assert.match(result.evidence, /permanent Registry identity UUID is missing/i);
+  assert.deepEqual(result.candidateParallels, ["Base"]);
+}
+
 console.log(
-  "Exact parallel simulations passed: Velocity, Cracked Ice, Green Prizm, Base, serial run, and uncertainty gates.",
+  "Exact parallel simulations passed: Velocity, Cracked Ice, Green Prizm, Base, serial run, uncertainty gates, and missing-UUID fail-closed handling.",
 );
