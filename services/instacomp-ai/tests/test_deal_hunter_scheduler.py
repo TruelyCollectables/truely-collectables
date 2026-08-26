@@ -236,3 +236,167 @@ async def test_run_preserves_start_based_next_run_for_overdue_catchup(tmp_path: 
     assert result["status"] == "completed"
     assert next_run_calls == 1
     assert state["next_run_at"] == scheduled_next.isoformat()
+
+@pytest.mark.asyncio
+async def test_run_bridges_local_alertworthy_candidate_to_central_delivery(tmp_path: Path):
+    settings = SimpleNamespace(
+        deal_hunter_enabled=True,
+        deal_hunter_interval_minutes=60,
+        deal_hunter_candidate_cooldown_hours=6,
+        deal_hunter_max_candidates_per_run=20,
+    )
+    store = DealHunterStore(tmp_path / "deal-hunter.sqlite3")
+    store.initialize()
+    scheduler = DealHunterScheduler(settings, store)
+
+    candidate = {
+        "candidate_key": "ebay:local-review-1",
+        "listing_url": "https://www.ebay.com/itm/local-review-1",
+        "title": "Local review candidate",
+        "marketplace": "eBay",
+        "item_price": 10.0,
+        "image_urls": ["https://img.test/front.jpg"],
+    }
+    evaluated = {
+        **candidate,
+        "status": "manual_review",
+        "deal_label": "MANUAL REVIEW REQUIRED — BACK IMAGE MISSING",
+        "actionable": False,
+        "alertworthy": True,
+        "error_code": "DEAL_HUNTER_BACK_IMAGE_MISSING",
+        "error_message": "The marketplace feed did not expose two distinct listing images.",
+    }
+    published: list[tuple[str, str]] = []
+
+    async def discover():
+        return [candidate], []
+
+    async def evaluate(_candidate, _run_id):
+        return evaluated
+
+    async def publish_candidate(run_id, result):
+        published.append((run_id, result["candidate_key"]))
+        return {
+            "ok": True,
+            "persistence": {"delivery": {"status": "sent", "id": "email-test"}},
+        }
+
+    async def publish_summary(_run_id, _status, _counts, _summary):
+        return None
+
+    scheduler._discover = discover  # type: ignore[method-assign]
+    scheduler._evaluate = evaluate  # type: ignore[method-assign]
+    scheduler._publish_candidate_alert = publish_candidate  # type: ignore[method-assign]
+    scheduler._publish_run_summary = publish_summary  # type: ignore[method-assign]
+
+    result = await scheduler.run_now(trigger="manual")
+
+    assert result["status"] == "completed"
+    assert len(published) == 1
+    assert published[0][1] == "ebay:local-review-1"
+    assert result["alert_delivery"] == {
+        "attempted": 1,
+        "sent": 1,
+        "duplicate_suppressed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_does_not_bridge_candidate_already_delivered_by_central_evaluation(tmp_path: Path):
+    settings = SimpleNamespace(
+        deal_hunter_enabled=True,
+        deal_hunter_interval_minutes=60,
+        deal_hunter_candidate_cooldown_hours=6,
+        deal_hunter_max_candidates_per_run=20,
+    )
+    store = DealHunterStore(tmp_path / "deal-hunter.sqlite3")
+    store.initialize()
+    scheduler = DealHunterScheduler(settings, store)
+
+    candidate = {
+        "candidate_key": "ebay:central-1",
+        "listing_url": "https://www.ebay.com/itm/central-1",
+        "title": "Central candidate",
+        "marketplace": "eBay",
+        "item_price": 10.0,
+        "image_urls": ["front", "back"],
+    }
+    evaluated = {
+        **candidate,
+        "status": "completed",
+        "deal_label": "MUST BUY",
+        "actionable": True,
+        "alertworthy": True,
+        "central_delivery_handled": True,
+    }
+
+    async def discover():
+        return [candidate], []
+
+    async def evaluate(_candidate, _run_id):
+        return evaluated
+
+    async def should_not_publish(_run_id, _result):
+        raise AssertionError("central-delivered candidate must not be re-published")
+
+    async def publish_summary(_run_id, _status, _counts, _summary):
+        return None
+
+    scheduler._discover = discover  # type: ignore[method-assign]
+    scheduler._evaluate = evaluate  # type: ignore[method-assign]
+    scheduler._publish_candidate_alert = should_not_publish  # type: ignore[method-assign]
+    scheduler._publish_run_summary = publish_summary  # type: ignore[method-assign]
+
+    result = await scheduler.run_now(trigger="manual")
+    assert result["actionable"] == 1
+    assert result["alert_delivery"]["attempted"] == 0
+
+
+def test_public_marketplace_feed_contract_is_accepted():
+    payload = {
+        "schema": "TCOS_PUBLIC_MARKETPLACE_FEED_V1",
+        "ok": True,
+        "publicWebSearchUsed": True,
+        "providerMode": "openai_web_search",
+        "queryFamilyCount": 2,
+        "successfulQueryCount": 2,
+        "failedQueryCount": 0,
+        "sourceCoverage": [
+            {"familyId": "mercari", "status": "COMPLETE"},
+            {"familyId": "poshmark", "status": "COMPLETE"},
+        ],
+        "results": [],
+    }
+    validate_feed(payload, "shoe_deals", 2)
+
+
+def test_candidate_key_is_marketplace_aware():
+    assert candidate_key({"listingItemId": "m123", "marketplace": "Mercari"}) == "mercari:m123"
+    assert candidate_key({"listingItemId": "123", "marketplace": "eBay"}) == "ebay:123"
+
+
+def test_shoe_evaluation_enforces_saved_intake_limits(tmp_path: Path):
+    scheduler = DealHunterScheduler(SimpleNamespace(), DealHunterStore(tmp_path / "deal-hunter.sqlite3"))
+    base = {
+        "candidate_key": "mercari:m123",
+        "listing_url": "https://www.mercari.com/us/item/m123/",
+        "marketplace": "Mercari",
+        "lane": "shoe_deal",
+        "title": "New Adidas men's size 10",
+        "item_price": 20.0,
+        "inbound_shipping": 5.0,
+    }
+    good = scheduler._evaluate_shoe(base)
+    assert good["alertworthy"] is True
+    assert good["status"] == "manual_review"
+
+    overpriced = scheduler._evaluate_shoe({**base, "item_price": 26.0})
+    assert overpriced["alertworthy"] is False
+    assert overpriced["error_code"] == "DEAL_HUNTER_SHOE_PRICE_LIMIT"
+
+    high_shipping = scheduler._evaluate_shoe({**base, "inbound_shipping": 16.0})
+    assert high_shipping["alertworthy"] is False
+    assert high_shipping["error_code"] == "DEAL_HUNTER_SHOE_SHIPPING_LIMIT"

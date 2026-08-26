@@ -44,6 +44,16 @@ FEEDS = (
         "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=music_comedy_autographs",
         8,
     ),
+    (
+        "demidov_public_marketplaces",
+        "/api/tcos/deal-hunter-public-marketplaces?perQuery={per_query}&scope=demidov_public_marketplaces",
+        2,
+    ),
+    (
+        "shoe_deals",
+        "/api/tcos/deal-hunter-public-marketplaces?perQuery={per_query}&scope=shoe_deals",
+        2,
+    ),
 )
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -61,6 +71,10 @@ SIGNED_BASEBALL_LANES = {
 }
 SIGNED_BASEBALL_MIN_PER_RUN = 5
 SIGNED_BASEBALL_REVIEW_MAX_DELIVERED_COST = 60.0
+PUBLIC_MARKETPLACE_MIN_PER_RUN = 8
+SHOE_DEAL_LANES = {"shoe_deal"}
+SHOE_MAX_ITEM_PRICE = 25.0
+SHOE_MAX_SHIPPING = 15.0
 SIGNED_BASEBALL_SIGNATURE_RE = re.compile(r"\b(signed|autograph(?:ed)?|auto)\b", re.I)
 SIGNED_BASEBALL_OFFICIAL_RE = re.compile(
     r"\b(?:official\s+major\s+league\s+baseball|"
@@ -92,6 +106,14 @@ def _is_signed_baseball_candidate(candidate: dict[str, Any]) -> bool:
     return str(candidate.get("lane") or "").strip() in SIGNED_BASEBALL_LANES
 
 
+def _is_shoe_candidate(candidate: dict[str, Any]) -> bool:
+    return str(candidate.get("lane") or "").strip() in SHOE_DEAL_LANES
+
+
+def _is_public_marketplace_candidate(candidate: dict[str, Any]) -> bool:
+    return str(candidate.get("marketplace") or "").strip().lower() in {"mercari", "poshmark"}
+
+
 def _known_delivered_cost(candidate: dict[str, Any]) -> float | None:
     parts = [
         candidate.get("item_price"),
@@ -109,7 +131,8 @@ def _known_delivered_cost(candidate: dict[str, Any]) -> float | None:
 def candidate_key(candidate: dict[str, Any]) -> str:
     direct = str(candidate.get("listingItemId") or "").strip()
     if direct:
-        return f"ebay:{direct}"
+        marketplace = re.sub(r"[^a-z0-9]+", "-", str(candidate.get("marketplace") or "eBay").strip().lower()).strip("-") or "marketplace"
+        return f"{marketplace}:{direct}"
     url = str(candidate.get("listingUrl") or "").strip()
     return "url:" + hashlib.sha256(url.encode("utf-8")).hexdigest()
 
@@ -142,14 +165,21 @@ def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
 def validate_feed(payload: dict[str, Any], key: str, minimum_families: int) -> None:
     errors = []
-    if payload.get("schema") != "TCOS_NATIVE_EBAY_FEED_V1":
-        errors.append(f"schema={payload.get('schema')}")
+    schema = payload.get("schema")
+    if schema == "TCOS_NATIVE_EBAY_FEED_V1":
+        if payload.get("nativeEbayUsed") is not True:
+            errors.append("nativeEbayUsed=false")
+        if payload.get("tokenMode") != "client_credentials":
+            errors.append(f"tokenMode={payload.get('tokenMode')}")
+    elif schema == "TCOS_PUBLIC_MARKETPLACE_FEED_V1":
+        if payload.get("publicWebSearchUsed") is not True:
+            errors.append("publicWebSearchUsed=false")
+        if payload.get("providerMode") != "openai_web_search":
+            errors.append(f"providerMode={payload.get('providerMode')}")
+    else:
+        errors.append(f"schema={schema}")
     if payload.get("ok") is not True:
         errors.append(f"ok={payload.get('ok')}")
-    if payload.get("nativeEbayUsed") is not True:
-        errors.append("nativeEbayUsed=false")
-    if payload.get("tokenMode") != "client_credentials":
-        errors.append(f"tokenMode={payload.get('tokenMode')}")
     family_count = int(payload.get("queryFamilyCount", -1))
     success_count = int(payload.get("successfulQueryCount", -1))
     failed_count = int(payload.get("failedQueryCount", -1))
@@ -277,8 +307,39 @@ class DealHunterScheduler:
                 summary["selected_for_evaluation"] = len(selected)
                 summary["deferred_by_cooldown_or_capacity"] = deferred
 
-                for candidate in selected:
-                    result = await self._evaluate(candidate, run_id)
+                alert_delivery = {
+                    "attempted": 0,
+                    "sent": 0,
+                    "duplicate_suppressed": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "errors": [],
+                }
+                concurrency = max(1, min(8, int(getattr(self.settings, "deal_hunter_evaluation_concurrency", 4))))
+                gate = asyncio.Semaphore(concurrency)
+
+                async def evaluate_one(candidate: dict[str, Any]) -> dict[str, Any]:
+                    async with gate:
+                        return await self._evaluate(candidate, run_id)
+
+                evaluated_results = await asyncio.gather(
+                    *(evaluate_one(candidate) for candidate in selected),
+                    return_exceptions=True,
+                )
+                summary["evaluation_concurrency"] = concurrency
+
+                for candidate, outcome in zip(selected, evaluated_results):
+                    if isinstance(outcome, Exception):
+                        result = {
+                            **candidate,
+                            "status": "failed",
+                            "actionable": False,
+                            "alertworthy": False,
+                            "error_code": "DEAL_HUNTER_EVALUATION_TASK_FAILED",
+                            "error_message": str(outcome)[:2000],
+                        }
+                    else:
+                        result = outcome
                     self.store.save_candidate(run_id, result)
                     counts["evaluated"] += 1
                     counts["actionable"] += int(bool(result.get("actionable")))
@@ -287,6 +348,30 @@ class DealHunterScheduler:
                     )
                     counts["failure"] += int(result.get("status") == "failed")
 
+                    # Fully evaluated card candidates are persisted and alerted by
+                    # the central evaluate endpoint during _evaluate(). Local-only
+                    # outcomes (missing-back-image reviews and signed-baseball
+                    # reviews) never touched that endpoint, so they previously
+                    # vanished into SQLite even when alertworthy=True. Bridge those
+                    # local outcomes into the same central persistence/email path.
+                    if bool(result.get("alertworthy")) and not bool(
+                        result.get("central_delivery_handled")
+                    ):
+                        alert_delivery["attempted"] += 1
+                        try:
+                            receipt = await self._publish_candidate_alert(run_id, result)
+                            delivery = (receipt.get("persistence") or {}).get("delivery") or {}
+                            delivery_status = str(delivery.get("status") or "skipped")
+                            if delivery_status in alert_delivery:
+                                alert_delivery[delivery_status] += 1
+                            else:
+                                alert_delivery["skipped"] += 1
+                        except Exception as alert_error:
+                            alert_delivery["failed"] += 1
+                            if len(alert_delivery["errors"]) < 10:
+                                alert_delivery["errors"].append(str(alert_error)[:1000])
+
+                summary["alert_delivery"] = alert_delivery
                 summary.update(counts)
                 summary["completed_at"] = utc_now().isoformat()
                 await self._publish_run_summary(run_id, status, counts, summary)
@@ -464,10 +549,19 @@ class DealHunterScheduler:
         # slots, which could leave 100+ discovered balls completely unevaluated.
         # Reserve a small guaranteed slice of each run for the cheapest/newest
         # signed-ball candidates, then fill the remaining slots normally.
-        signed_due = [candidate for candidate in due if _is_signed_baseball_candidate(candidate)]
-        signed_quota = min(SIGNED_BASEBALL_MIN_PER_RUN, maximum, len(signed_due))
-        selected = signed_due[:signed_quota]
+        public_due = [candidate for candidate in due if _is_public_marketplace_candidate(candidate)]
+        public_quota = min(PUBLIC_MARKETPLACE_MIN_PER_RUN, maximum, len(public_due))
+        selected = public_due[:public_quota]
         selected_keys = {candidate["candidate_key"] for candidate in selected}
+
+        signed_due = [candidate for candidate in due if _is_signed_baseball_candidate(candidate)]
+        signed_quota = min(SIGNED_BASEBALL_MIN_PER_RUN, max(0, maximum - len(selected)), len(signed_due))
+        for candidate in signed_due[:signed_quota]:
+            if candidate["candidate_key"] in selected_keys:
+                continue
+            selected.append(candidate)
+            selected_keys.add(candidate["candidate_key"])
+
         for candidate in due:
             if len(selected) >= maximum:
                 break
@@ -477,6 +571,43 @@ class DealHunterScheduler:
             selected_keys.add(candidate["candidate_key"])
 
         return selected, max(0, len(candidates) - len(selected))
+
+    def _evaluate_shoe(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        base = {**candidate, "actionable": False, "alertworthy": False}
+        item_price = _number(candidate.get("item_price"))
+        shipping = _number(candidate.get("inbound_shipping"))
+        delivered_cost = _known_delivered_cost(candidate)
+        if item_price is None or item_price > SHOE_MAX_ITEM_PRICE:
+            return {
+                **base,
+                "status": "completed",
+                "delivered_cost": delivered_cost,
+                "deal_label": "SHOE PASS — OVER ACQUISITION LIMIT",
+                "error_code": "DEAL_HUNTER_SHOE_PRICE_LIMIT",
+                "error_message": "Shoe Deal Watch requires an item price of $25 or less.",
+            }
+        if shipping is not None and shipping > SHOE_MAX_SHIPPING:
+            return {
+                **base,
+                "status": "completed",
+                "delivered_cost": delivered_cost,
+                "deal_label": "SHOE PASS — SHIPPING TOO HIGH",
+                "error_code": "DEAL_HUNTER_SHOE_SHIPPING_LIMIT",
+                "error_message": "Known shipping exceeds the $15 reasonable-shipping ceiling.",
+            }
+        return {
+            **base,
+            "status": "manual_review",
+            "delivered_cost": delivered_cost,
+            "deal_label": "SHOE DEAL — REVIEW FLIP ECONOMICS",
+            "alertworthy": True,
+            "error_code": "DEAL_HUNTER_SHOE_FLIP_REVIEW",
+            "error_message": (
+                "Public listing passed the saved Shoe Deal Watch intake rules: new adult New Balance, Adidas, "
+                "or Timberland Pro, item price at or below $25, and no excessive known shipping. Verify the "
+                "listing is still available, size/condition, seller quality, and resale margin before buying."
+            ),
+        }
 
     def _evaluate_signed_baseball(self, candidate: dict[str, Any]) -> dict[str, Any]:
         base = {**candidate, "actionable": False, "alertworthy": False}
@@ -576,6 +707,8 @@ class DealHunterScheduler:
         return content, content_type, f"{label.lower()}.{extension}"
 
     async def _evaluate(self, candidate: dict[str, Any], run_id: str) -> dict[str, Any]:
+        if _is_shoe_candidate(candidate):
+            return self._evaluate_shoe(candidate)
         if _is_signed_baseball_candidate(candidate):
             return self._evaluate_signed_baseball(candidate)
 
@@ -645,6 +778,7 @@ class DealHunterScheduler:
                 return {
                     **base,
                     "status": str(evaluation.get("status") or "completed"),
+                    "central_delivery_handled": True,
                     "identity": payload.get("scan", {}).get("ai"),
                     "exact_market": payload.get("scan", {}).get("exactMarket"),
                     "delivered_cost": _number(evaluation.get("deliveredCost")),
@@ -663,6 +797,78 @@ class DealHunterScheduler:
                 "error_code": "DEAL_HUNTER_EVALUATION_FAILED",
                 "error_message": str(exc)[:2000],
             }
+
+    async def _publish_candidate_alert(
+        self, run_id: str, result: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not self.settings.api_key:
+            raise RuntimeError(
+                "INSTACOMP_AI_API_KEY is required for Deal Hunter alert delivery."
+            )
+
+        exact_market = result.get("exact_market") or {}
+        sold_count = int(
+            exact_market.get("pricingEligibleSoldCount")
+            or exact_market.get("soldCount")
+            or 0
+        )
+        payload = {
+            "kind": "candidate_alert",
+            "listing": {
+                "runId": run_id,
+                "candidateKey": result.get("candidate_key"),
+                "lane": result.get("lane"),
+                "watchedPerson": result.get("watched_person"),
+                "marketplace": result.get("marketplace"),
+                "listingItemId": result.get("listing_item_id"),
+                "listingUrl": result.get("listing_url"),
+                "title": result.get("title"),
+                "sellerName": result.get("seller_name"),
+                "itemPrice": result.get("item_price"),
+                "inboundShipping": result.get("inbound_shipping"),
+                "buyerFees": result.get("buyer_fees"),
+                "tax": result.get("tax"),
+                "imageUrls": result.get("image_urls") or [],
+                "manualReviewRequired": result.get("manual_review_required"),
+                "preliminaryRisks": result.get("preliminary_risks") or [],
+                "queryFamilyIds": result.get("query_family_ids") or [],
+            },
+            "evaluation": {
+                "status": result.get("status") or "manual_review",
+                "soldCount": sold_count,
+                "deliveredCost": result.get("delivered_cost"),
+                "conservativeResale": result.get("conservative_resale"),
+                "expectedNetProfit": result.get("expected_net_profit"),
+                "roiPercent": result.get("roi_percent"),
+                "dealLabel": result.get("deal_label") or "DEAL HUNTER REVIEW",
+                "actionable": bool(result.get("actionable")),
+                "alertworthy": bool(result.get("alertworthy")),
+                "reason": result.get("error_message") or "Mac Deal Hunter flagged this listing for review.",
+                "errorCode": result.get("error_code"),
+            },
+            "identity": result.get("identity") or {},
+            "exactMarket": exact_market,
+        }
+        timeout = httpx.Timeout(
+            min(float(self.settings.deal_hunter_request_timeout_seconds), 60.0)
+        )
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.post(
+                str(self.settings.deal_hunter_site_url).rstrip("/")
+                + "/api/instacomp/deal-hunter/evaluate",
+                headers={
+                    "X-InstaComp-AI-Key": str(self.settings.api_key),
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json=payload,
+            )
+            body = response.json()
+            if not response.is_success or body.get("ok") is not True:
+                raise RuntimeError(
+                    str(body.get("error") or f"HTTP {response.status_code}")
+                )
+            return body
 
     async def _publish_run_summary(
         self,
