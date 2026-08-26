@@ -40,7 +40,9 @@ const GROQ_MODEL = String(
 ).trim();
 const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 8;
-const TEACHER_MARKET_DOMAINS = ["ebay.com", "130point.com", "psacard.com"];
+// 130point is intentionally excluded from automated teacher browsing.
+// TCOS uses 130point only through the manual screenshot-verification workflow until authorized access exists.
+const TEACHER_MARKET_DOMAINS = ["ebay.com", "psacard.com"];
 
 export type TeacherName =
   | "gemini"

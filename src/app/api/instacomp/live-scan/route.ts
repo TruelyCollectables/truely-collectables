@@ -9,8 +9,10 @@ import { verifyInstaCompCompetitionImages } from "../../../../lib/instacomp-comp
 import { sanitizeInstaCompProviderError } from "../../../../lib/instacomp-provider-safety";
 import { loadExactCardMarketHistory } from "../../../../lib/instacomp-market-history";
 import { trustedHistoricalSoldPricing } from "../../../../lib/deal-hunter-trusted-sold-history";
+import { upsert130PointVerificationQueue } from "../../../../lib/instacomp-130point-verification";
 import type {
   InstaCompAiResult,
+  InstaCompComp,
   InstaCompProviderResult,
 } from "../../../../lib/instacomp";
 import {
@@ -131,14 +133,6 @@ function providerAfterVisualReview(params: {
 
 
 
-function settledMessage(value: PromiseSettledResult<unknown>) {
-  if (value.status === "fulfilled") return null;
-  return sanitizeInstaCompProviderError(
-    value.reason instanceof Error
-      ? value.reason.message
-      : String(value.reason || "Provider request failed."),
-  );
-}
 
 function soldStats(summary: ReturnType<typeof mergeExactMarketSources>) {
   return {
@@ -230,6 +224,49 @@ function runtimeConfiguration() {
       Boolean(String(process.env.EBAY_CLIENT_SECRET || "").trim()),
     supabase: Boolean(SUPABASE_URL && SUPABASE_KEY),
   };
+}
+
+async function plan130PointVerification(params: {
+  registryIdentityId: string | null;
+  registryFingerprintSha256: string | null;
+  ai: InstaCompAiResult;
+  sold: InstaCompComp[];
+  fallbackQuery: string;
+}) {
+  if (!params.registryIdentityId || !params.registryFingerprintSha256) {
+    return {
+      status: "skipped" as const,
+      needed: false,
+      searchUrl: null,
+      reasons: ["Canonical Registry identity is required before 130point verification can be queued."],
+    };
+  }
+  try {
+    const queue = await upsert130PointVerificationQueue({
+      registryIdentityId: params.registryIdentityId,
+      registryFingerprintSha256: params.registryFingerprintSha256,
+      ai: params.ai,
+      sold: params.sold,
+      fallbackQuery: params.fallbackQuery,
+    });
+    return {
+      status: queue.status,
+      needed: queue.status === "pending" || queue.status === "error",
+      searchUrl: queue.searchUrl,
+      query: queue.query,
+      reasons: queue.reasons,
+      pricingEligibleSoldCount: queue.pricingEligibleSoldCount,
+      newestSoldAt: queue.newestSoldAt,
+      completedAt: queue.completedAt || null,
+    };
+  } catch (error) {
+    return {
+      status: "error" as const,
+      needed: false,
+      searchUrl: null,
+      reasons: [sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error))],
+    };
+  }
 }
 
 async function authorizeLiveScan(request: NextRequest) {
@@ -484,6 +521,17 @@ export async function POST(request: NextRequest) {
           activeAverage: null,
           activeHigh: null,
         };
+        const historicalSoldComps = (history.observations || [])
+          .filter((row) => row.observation_kind === "SOLD")
+          .map((row) => row.source_payload as unknown as InstaCompComp)
+          .filter((row) => row && typeof row === "object" && Number.isFinite(Number(row.price)));
+        const point130Verification = await plan130PointVerification({
+          registryIdentityId: memoryRegistryIdentityId,
+          registryFingerprintSha256: memoryRegistryFingerprintSha256,
+          ai,
+          sold: historicalSoldComps,
+          fallbackQuery: exactTitle,
+        });
         const persistence = await persistExactMarketSummary({
           scanId: base.scanId ? String(base.scanId) : null,
           cardUuid,
@@ -502,6 +550,7 @@ export async function POST(request: NextRequest) {
             pricingEligibleActiveCount: 0,
             trustedSuggestedPrice: historical.medianDeliveredPrice,
             pricing: memoryPricing,
+            point130Verification,
             sold: [],
             active: activeProvider.results.slice(0, 25),
             historicalSoldMemory: {
@@ -545,6 +594,7 @@ export async function POST(request: NextRequest) {
             pricingEligibleActiveCount: 0,
             trustedSuggestedPrice: historical.medianDeliveredPrice,
             pricing: memoryPricing,
+            point130Verification,
             sold: [],
             active: activeProvider.results,
             providerMessages: [
@@ -593,6 +643,7 @@ export async function POST(request: NextRequest) {
               serpApiCalls: 0,
               memoryRegistryIdentityId,
               memoryRegistryFingerprintSha256,
+              point130Verification,
             },
             persistence,
             durationMs: Date.now() - startedAt,
@@ -779,6 +830,17 @@ export async function POST(request: NextRequest) {
     serp?.sold.searchUrl ||
     openAi?.sold.searchUrl ||
     (base.links?.ebaySoldUrl ? String(base.links.ebaySoldUrl) : null);
+  const registryReceipt = ((base as any).checklistRegistry || {}) as Record<string, any>;
+  const registryIdentityId = String(registryReceipt.identityId || "").trim() || null;
+  const registryFingerprintSha256 =
+    String(registryReceipt.fingerprintSha256 || "").trim() || null;
+  const point130Verification = await plan130PointVerification({
+    registryIdentityId,
+    registryFingerprintSha256,
+    ai,
+    sold: summary.sold,
+    fallbackQuery: exactTitle,
+  });
   const exactMarketEvidence = {
     status: summary.status,
     query: exactTitle,
@@ -789,6 +851,7 @@ export async function POST(request: NextRequest) {
     pricingEligibleActiveCount: summary.pricing.activeCount,
     trustedSuggestedPrice: summary.trustedSuggestedPrice,
     pricing: summary.pricing,
+    point130Verification,
     sold: summary.sold.slice(0, 25),
     active: summary.active.slice(0, 25),
     teacherConsensus: teacher
@@ -826,10 +889,6 @@ export async function POST(request: NextRequest) {
     exactMarketEvidence,
   });
 
-  const registryReceipt = ((base as any).checklistRegistry || {}) as Record<string, any>;
-  const registryIdentityId = String(registryReceipt.identityId || "").trim() || null;
-  const registryFingerprintSha256 =
-    String(registryReceipt.fingerprintSha256 || "").trim() || null;
   const teacherTrusted = Boolean(
     teacher &&
       teacherSource.sold.results.length > 0 &&
@@ -913,6 +972,7 @@ export async function POST(request: NextRequest) {
       pricingEligibleActiveCount: summary.pricing.activeCount,
       trustedSuggestedPrice: summary.trustedSuggestedPrice,
       pricing: summary.pricing,
+      point130Verification,
       sold: summary.sold,
       active: summary.active,
       providerMessages,
@@ -950,6 +1010,7 @@ export async function POST(request: NextRequest) {
         status: summary.status,
         soldCount: summary.sold.length,
         activeCount: summary.active.length,
+        point130Verification,
         teachers: teacher
           ? {
               configuredTeachers: teacher.configuredTeachers,

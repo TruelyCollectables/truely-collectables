@@ -144,6 +144,12 @@ export default async function InstaCompAdminPage({
             >
               Open Phone Scanner
             </Link>
+            <Link
+              href="/admin/instacomp/130point-verification"
+              className="rounded-2xl border border-emerald-300/30 bg-emerald-400/15 px-5 py-3 text-center text-sm font-black text-emerald-100 hover:bg-emerald-400/25"
+            >
+              130point Verification Queue
+            </Link>
           </div>
         </div>
       </section>

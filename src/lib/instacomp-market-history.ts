@@ -91,8 +91,13 @@ function deliveredPrice(comp: InstaCompComp) {
   const price = money(comp.price);
   const item = money(comp.itemPrice);
   const shipping = money(comp.shippingPrice);
+  const manual130PointRealizedPrice = String(comp.source || "")
+    .trim()
+    .toLowerCase()
+    .startsWith("130point_manual_screenshot_");
   if (comp.priceIncludesShipping && price !== null) return price;
-  if (item !== null) return Number((item + (shipping || 0)).toFixed(2));
+  if (manual130PointRealizedPrice && shipping === null) return null;
+  if (item !== null && shipping !== null) return Number((item + shipping).toFixed(2));
   return price;
 }
 
