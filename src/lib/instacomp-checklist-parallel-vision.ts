@@ -99,12 +99,35 @@ function parseJsonObject(value: string) {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
+function candidateKey(candidate: InstaCompChecklistCandidate) {
+  return (
+    candidate.identityId ||
+    candidate.fingerprintSha256 ||
+    [
+      candidate.year,
+      candidate.manufacturer,
+      candidate.product,
+      candidate.setName,
+      candidate.cardNumber,
+      candidate.player,
+      candidate.parallel || "Base",
+      candidate.variation,
+      candidate.serialRun,
+      candidate.isAuto ? "auto" : "non-auto",
+      candidate.isRelic ? "relic" : "non-relic",
+    ]
+      .map((value) => normalized(value))
+      .join("|")
+  );
+}
+
 function uniqueCandidates(candidates: InstaCompChecklistCandidate[]) {
-  const byIdentity = new Map<string, InstaCompChecklistCandidate>();
+  const byKey = new Map<string, InstaCompChecklistCandidate>();
   for (const candidate of candidates) {
-    if (candidate.identityId) byIdentity.set(candidate.identityId, candidate);
+    const key = candidateKey(candidate);
+    if (key) byKey.set(key, candidate);
   }
-  return [...byIdentity.values()];
+  return [...byKey.values()];
 }
 
 function candidateLabels(candidates: InstaCompChecklistCandidate[]) {

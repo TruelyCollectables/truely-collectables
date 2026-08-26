@@ -1,7 +1,7 @@
 {
   "schema": "tcos.overnightChecklistHarvestState.v1",
   "createdAt": "2026-08-17T03:53:03.295Z",
-  "updatedAt": "2026-08-17T03:54:13.439Z",
+  "updatedAt": "2026-08-24T03:49:03.776Z",
   "scope": {
     "hockeyBoundary": "2021-07-01T00:00:00Z",
     "hockeyThroughCurrent": true,
@@ -269,10 +269,19 @@
       "authority": "official_manufacturer",
       "priority": 10,
       "sourceClass": "direct",
-      "status": "pending",
-      "attempts": 0,
-      "lastAttemptAt": null,
-      "nextAttemptAt": null
+      "status": "downloaded",
+      "attempts": 1,
+      "lastAttemptAt": "2026-08-24T03:49:03.287Z",
+      "nextAttemptAt": null,
+      "downloadedAt": "2026-08-24T03:49:03.776Z",
+      "lastError": null,
+      "finalUrl": "https://cdn.prod.website-files.com/6185749e80385c9daf8ddaf3/6413320c760607c2daf89414_2021-22_Leaf_Lumber_Hockey_CL_F.xlsx",
+      "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "bytes": 30629,
+      "sha256": "b7d231d83fc0ffadd1cf263fa008455d8c78ec0045ce54011f33c85de68ab561",
+      "rawFilename": "2021-22-leaf-lumber.xlsx",
+      "runId": null,
+      "artifactName": "overnight-checklist-source-local"
     },
     {
       "id": "2022-leaf-art-of-hockey",
@@ -3504,17 +3513,18 @@
       "nextAttemptAt": null
     }
   ],
-  "lastFetchAt": null,
+  "lastFetchAt": "2026-08-24T03:49:03.287Z",
   "globalPauseUntil": null,
   "summary": {
     "totalTargets": 177,
     "counts": {
-      "pending": 125,
+      "pending": 124,
+      "downloaded": 1,
       "covered_artifact": 8,
       "covered_production": 44
     },
-    "remainingDownloadCount": 125,
-    "downloadedCount": 0,
+    "remainingDownloadCount": 124,
+    "downloadedCount": 1,
     "coveredProductionCount": 44,
     "coveredArtifactCount": 8
   }

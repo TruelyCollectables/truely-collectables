@@ -35,6 +35,14 @@ const MICHKOV_NAME_OR_MISSPELLING =
 const MICHKOV_CANONICAL_NAME = /\bmatvei\s+michkov\b/i;
 const YOUNG_GUNS_SIGNAL = /\b(young guns?|yg)\b/i;
 const UPPER_DECK_SIGNAL = /\bupper deck\b|\bud\b/i;
+const MUSIC_COMEDY_AUTOGRAPH_FORMAT =
+  /\b(poster|11x17|11 x 17|11x18|11 x 18|print|tour print|show print|concert poster|gig poster|cd|cd cover|album|album cover|lp|vinyl|record|record jacket|sleeve|booklet|insert|setlist)\b/i;
+const MUSIC_COMEDY_DIRECT_SOURCE =
+  /\b(artist direct|from (?:the )?(?:artist|band|comedian)|official store|official merch|merch table|merch booth|vip|meet and greet|m&g|signed at|purchased at|tour merch|concert merch|show merch|venue|coa from artist)\b/i;
+const MUSIC_COMEDY_AUTHENTICATOR =
+  /\b(jsa|beckett|bas|psa|coa|certificate of authenticity)\b/i;
+const MUSIC_COMEDY_UNWANTED_FORMAT =
+  /\b(guitar pick|pickguard|drumstick|drum stick|shirt|t-shirt|tee shirt|hat|cap|funko|photo card|trading card|index card|cut signature|preprint|printed signature)\b/i;
 
 function slug(value) {
   return String(value || "")
@@ -448,6 +456,31 @@ function signedBaseballFamilies(players) {
   });
 }
 
+function musicComedyAutographFamilies() {
+  const definitions = [
+    ["country.artist-direct-posters", "country music signed poster artist direct", "Country Music", "music_signed_poster"],
+    ["country.signed-cd-album", "country music signed CD album cover official store", "Country Music", "music_signed_album_cover"],
+    ["metal.unsigned-posters", "metal band signed poster merch table", "Metal", "music_signed_poster"],
+    ["metal.signed-cd-vinyl", "metal band signed CD vinyl album cover", "Metal", "music_signed_album_cover"],
+    ["rock.artist-direct-posters", "rock band signed poster artist direct tour merch", "Rock", "music_signed_poster"],
+    ["classic-rock.album-covers", "classic rock signed album cover vinyl LP", "Classic Rock", "music_signed_album_cover"],
+    ["comedian.11x17-11x18", "comedian signed 11x17 11x18 poster", "Comedians", "comedy_signed_poster"],
+    ["comedian.show-posters", "stand up comedian signed show poster merch", "Comedians", "comedy_signed_poster"],
+  ];
+
+  return definitions.map(([id, query, watchedPerson, lane]) => ({
+    familyId: `music-comedy-autograph.${id}`,
+    scope: "music_comedy_autographs",
+    lane,
+    watchedPerson,
+    itemType: lane,
+    query,
+    maxItemPrice: 60,
+    maxKnownDeliveredCost: 75,
+    required: true,
+  }));
+}
+
 export function buildDealHunterEbayQueryFamilies({
   scope = "wnba",
   players = DEFAULT_BASEBALL_PROSPECTS,
@@ -469,6 +502,9 @@ export function buildDealHunterEbayQueryFamilies({
   if (normalizedScope === "signed_baseballs") {
     return signedBaseballFamilies(prospectPlayers);
   }
+  if (normalizedScope === "music_comedy_autographs") {
+    return musicComedyAutographFamilies();
+  }
   if (normalizedScope === "all") {
     return [
       ...wnbaFamilies(),
@@ -476,6 +512,7 @@ export function buildDealHunterEbayQueryFamilies({
       ...michkovYoungGunsFamilies(),
       ...prospectFamilies(prospectPlayers),
       ...signedBaseballFamilies(prospectPlayers),
+      ...musicComedyAutographFamilies(),
     ];
   }
   throw new Error(`Unsupported Deal Hunter eBay scope: ${normalizedScope}`);
@@ -558,6 +595,24 @@ export function screenDealHunterEbayTitle({
     !/\b(signed|autograph|auto)\b/i.test(value)
   ) {
     rejectionReasons.push("signature_not_claimed");
+  }
+
+  if (family?.scope === "music_comedy_autographs") {
+    if (!/\b(signed|autograph(?:ed)?|auto)\b/i.test(value)) {
+      rejectionReasons.push("signature_not_claimed");
+    }
+    if (!MUSIC_COMEDY_AUTOGRAPH_FORMAT.test(evidenceText)) {
+      rejectionReasons.push("wanted_format_not_claimed");
+    }
+    if (MUSIC_COMEDY_UNWANTED_FORMAT.test(evidenceText)) {
+      rejectionReasons.push("unwanted_format");
+    }
+    if (!MUSIC_COMEDY_DIRECT_SOURCE.test(evidenceText)) {
+      reviewReasons.push("artist_direct_or_event_purchase_not_proven");
+    }
+    if (MUSIC_COMEDY_AUTHENTICATOR.test(evidenceText)) {
+      reviewReasons.push("authenticated_listing_allowed_but_not_operator_preference");
+    }
   }
 
   return {

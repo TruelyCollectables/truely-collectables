@@ -266,12 +266,35 @@ function profileCompatible(
   return { compatible: reasons.length === 0, reasons };
 }
 
+function candidateKey(candidate: InstaCompChecklistCandidate) {
+  return (
+    candidate.identityId ||
+    candidate.fingerprintSha256 ||
+    [
+      candidate.year,
+      candidate.manufacturer,
+      candidate.product,
+      candidate.setName,
+      candidate.cardNumber,
+      candidate.player,
+      candidate.parallel || "Base",
+      candidate.variation,
+      candidate.serialRun,
+      candidate.isAuto ? "auto" : "non-auto",
+      candidate.isRelic ? "relic" : "non-relic",
+    ]
+      .map((value) => normalized(value))
+      .join("|")
+  );
+}
+
 function uniqueCandidates(candidates: InstaCompChecklistCandidate[]) {
-  const byId = new Map<string, InstaCompChecklistCandidate>();
+  const byKey = new Map<string, InstaCompChecklistCandidate>();
   for (const candidate of candidates) {
-    if (candidate.identityId) byId.set(candidate.identityId, candidate);
+    const key = candidateKey(candidate);
+    if (key) byKey.set(key, candidate);
   }
-  return [...byId.values()];
+  return [...byKey.values()];
 }
 
 export function resolveChecklistParallelFromVisualFeatures(params: {
@@ -296,12 +319,16 @@ export function resolveChecklistParallelFromVisualFeatures(params: {
     const candidateProfile = profile(candidate);
     const result = profileCompatible(candidateProfile, features);
     if (result.compatible) matched.push(candidateProfile);
-    else rejectionReasons[candidate.identityId] = result.reasons;
+    else rejectionReasons[candidate.identityId || candidateKey(candidate)] = result.reasons;
   }
 
   const selected = matched.length === 1 ? matched[0] : null;
   const requiredConfidence = selected?.isBase ? 0.92 : 0.82;
-  const resolved = Boolean(selected && features.confidence >= requiredConfidence);
+  const resolved = Boolean(
+    selected &&
+      selected.candidate.identityId &&
+      features.confidence >= requiredConfidence,
+  );
   const featureSummary = [
     `color=${features.dominantColor || "none"}`,
     `pattern=${features.pattern}`,
@@ -318,10 +345,14 @@ export function resolveChecklistParallelFromVisualFeatures(params: {
     confidence: features.confidence,
     evidence: resolved
       ? `Visible feature match resolved ${selected?.label}. ${featureSummary}. ${features.evidence.join(" ")}`.trim()
-      : `No single checklist identity passed the strict visible-feature gate. ${featureSummary}. ${features.evidence.join(" ")}`.trim(),
+      : selected && !selected.candidate.identityId
+        ? `The checklist card matched the visible features, but its permanent Registry identity UUID is missing. Exact identity remains unresolved until the Registry row is repaired. ${featureSummary}. ${features.evidence.join(" ")}`.trim()
+        : `No single checklist identity passed the strict visible-feature gate. ${featureSummary}. ${features.evidence.join(" ")}`.trim(),
     candidateParallels,
     features,
-    matchedIdentityIds: matched.map((entry) => entry.candidate.identityId),
+    matchedIdentityIds: matched
+      .map((entry) => entry.candidate.identityId)
+      .filter((value): value is string => Boolean(value)),
     rejectionReasons,
   };
 }

@@ -39,6 +39,17 @@ type SentinelStatus = {
   };
   targets?: { pending?: number; total?: number; [key: string]: number | undefined };
   latest_job?: Job | null;
+  training?: {
+    state?: string;
+    requested_iters?: number;
+    completed_iters?: number;
+    remaining_iters?: number;
+    progress_percent?: number;
+    learning_percent?: number | null;
+    cpu_percent?: number | null;
+    output_bundle?: string | null;
+    updated_at_epoch?: number | null;
+  };
   registry_import_configured?: boolean;
   target_feed_configured?: boolean;
 };
@@ -172,6 +183,9 @@ export default function ChecklistSentinelAdminPage() {
     () => findings.filter((row) => String(row.status || "") === "lead_only").length,
     [findings],
   );
+  const training = status?.training || null;
+  const learningPercent = number(training?.learning_percent ?? training?.progress_percent ?? 0);
+  const cpuPercent = training?.cpu_percent == null ? null : Math.max(0, Math.min(100, number(training.cpu_percent)));
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-8 text-white sm:px-8">
@@ -203,6 +217,51 @@ export default function ChecklistSentinelAdminPage() {
           <Metric label="Current batch" value={`${batchProgress.toFixed(1)}%`} />
           <Metric label="Found" value={number(job?.found_count)} />
           <Metric label="Archived" value={Math.max(number(job?.imported_count), archived)} />
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+            <h2 className="text-xl font-black">AI training</h2>
+            <p className="mt-1 text-sm text-neutral-400">
+              {training?.state || "Unknown"}{training?.output_bundle ? ` · ${training.output_bundle}` : ""}
+            </p>
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between text-sm font-bold">
+                <span>Learning progress</span>
+                <span>{learningPercent.toFixed(1)}%</span>
+              </div>
+              <div className="h-4 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-fuchsia-400 transition-all" style={{ width: `${learningPercent}%` }} />
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <Metric label="Requested iters" value={number(training?.requested_iters)} />
+              <Metric label="Completed iters" value={number(training?.completed_iters)} />
+            </div>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+            <h2 className="text-xl font-black">Training CPU</h2>
+            <p className="mt-1 text-sm text-neutral-400">
+              Live CPU usage for the active LoRA runner on the Mac.
+            </p>
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between text-sm font-bold">
+                <span>CPU utilization</span>
+                <span>{cpuPercent == null ? "Not running" : `${cpuPercent.toFixed(1)}%`}</span>
+              </div>
+              <div className="h-4 overflow-hidden rounded-full bg-white/10" aria-label="Training CPU utilization">
+                <div
+                  className="h-full rounded-full bg-emerald-400 transition-all"
+                  style={{ width: `${cpuPercent ?? 0}%` }}
+                />
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-neutral-300">
+              {cpuPercent == null
+                ? "No active LoRA process is visible right now, so the bar is intentionally empty."
+                : "If this bar freezes while the learning bar is flat, the runner is probably stuck and needs a restart."}
+            </div>
+          </div>
         </section>
 
         <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">

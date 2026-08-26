@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { normalizeInscribedSubjects } from "./inscriptions";
+import { normalizeInscribedSubjects } from "./inscriptions.ts";
 
 export const CHECKLIST_IDENTITY_SCHEMA = "tcos.checklist.identity.v1" as const;
 export const INSTACOMP_COMP_IDENTITY_SCHEMA =

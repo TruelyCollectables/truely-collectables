@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.deal_hunter import (
+    FEEDS,
     DealHunterScheduler,
     candidate_key,
     normalize_candidate,
@@ -111,6 +112,31 @@ def test_store_preserves_runs_candidates_and_cooldown(tmp_path: Path):
         cooldown_hours=6,
     )
 
+    store.create_run('run-2', 'manual')
+    observed = {
+        'candidate_key': 'ebay:123',
+        'listing_url': 'https://www.ebay.com/itm/123',
+        'title': 'Test card',
+        'marketplace': 'eBay',
+        'item_price': 9.0,
+        'image_urls': ['a', 'b'],
+        'query_family_ids': ['family-1'],
+    }
+    assert store.save_market_observations('run-1', [observed]) == 1
+    assert store.save_market_observations('run-1', [observed]) == 0
+    observed['item_price'] = 8.0
+    assert store.save_market_observations('run-2', [observed]) == 1
+    with store.connection() as db:
+        rows = db.execute(
+            'SELECT run_id, item_price FROM deal_hunter_market_observations '
+            'WHERE candidate_key = ? ORDER BY observation_id',
+            ('ebay:123',),
+        ).fetchall()
+    assert [(row['run_id'], row['item_price']) for row in rows] == [
+        ('run-1', 9.0),
+        ('run-2', 8.0),
+    ]
+
 @pytest.mark.asyncio
 async def test_discovery_isolates_one_failed_feed_and_keeps_hunting(tmp_path: Path):
     settings = SimpleNamespace(
@@ -148,12 +174,12 @@ async def test_discovery_isolates_one_failed_feed_and_keeps_hunting(tmp_path: Pa
     scheduler._fetch_feed = fake_fetch_feed  # type: ignore[method-assign]
     candidates, coverage = await scheduler._discover()
 
-    assert len(candidates) == 5
+    assert len(candidates) == len(FEEDS) - 1
     failed = [row for row in coverage if row["status"] == "FAILED"]
     assert len(failed) == 1
     assert failed[0]["key"] == "wnba"
     assert "simulated WNBA feed outage" in failed[0]["error"]
-    assert len([row for row in coverage if row["status"] == "COMPLETE"]) == 5
+    assert len([row for row in coverage if row["status"] == "COMPLETE"]) == len(FEEDS) - 1
 
 
 @pytest.mark.asyncio

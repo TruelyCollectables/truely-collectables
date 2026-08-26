@@ -19,6 +19,7 @@ const SCOPES = new Set([
   "matvei_michkov_young_guns",
   "baseball_prospects",
   "signed_baseballs",
+  "music_comedy_autographs",
   "all",
 ]);
 
@@ -263,6 +264,28 @@ export async function GET(request) {
           for (const reason of screening.rejectionReasons) {
             rejectionCounts[reason] = Number(rejectionCounts[reason] || 0) + 1;
           }
+          continue;
+        }
+        const itemPrice = Number(entry.askingPrice);
+        const shipping = Number(entry.shipping);
+        const knownDeliveredCost =
+          Number.isFinite(itemPrice) && Number.isFinite(shipping)
+            ? itemPrice + shipping
+            : null;
+        if (
+          Number.isFinite(itemPrice) &&
+          Number.isFinite(Number(family.maxItemPrice)) &&
+          itemPrice > Number(family.maxItemPrice)
+        ) {
+          rejectionCounts.price_above_lane_deal_cap = Number(rejectionCounts.price_above_lane_deal_cap || 0) + 1;
+          continue;
+        }
+        if (
+          knownDeliveredCost != null &&
+          Number.isFinite(Number(family.maxKnownDeliveredCost)) &&
+          knownDeliveredCost > Number(family.maxKnownDeliveredCost)
+        ) {
+          rejectionCounts.delivered_cost_above_lane_deal_cap = Number(rejectionCounts.delivered_cost_above_lane_deal_cap || 0) + 1;
           continue;
         }
         accepted.push(safeListing(entry, family, screening));
