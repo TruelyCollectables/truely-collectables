@@ -288,6 +288,73 @@ async function sendAlertEmail(params: {
   return { status: "sent", id: (payload as any)?.id || null };
 }
 
+function bridgedCandidateEvaluation(
+  listing: Record<string, any>,
+  raw: Record<string, any>,
+): ReturnType<typeof economics> {
+  const itemPrice = numberValue(listing.itemPrice) || 0;
+  const inboundShipping = numberValue(listing.inboundShipping) || 0;
+  const buyerFees = numberValue(listing.buyerFees) || 0;
+  const explicitTax = numberValue(listing.tax);
+  const estimatedTaxRate = boundedRate("DEAL_HUNTER_ESTIMATED_TAX_RATE", 0.09);
+  const fallbackTax = explicitTax ?? (itemPrice + inboundShipping) * estimatedTaxRate;
+  const fallbackDeliveredCost = itemPrice + inboundShipping + buyerFees + fallbackTax;
+  const deliveredCost = numberValue(raw.deliveredCost) ?? fallbackDeliveredCost;
+
+  return {
+    status: text(raw.status, 80) || "manual_review",
+    soldCount: Math.max(0, Number(raw.soldCount || 0)),
+    deliveredCost: Number(deliveredCost.toFixed(2)),
+    conservativeResale: numberValue(raw.conservativeResale),
+    expectedNetProfit: numberValue(raw.expectedNetProfit),
+    roiPercent: numberValue(raw.roiPercent),
+    dealLabel: text(raw.dealLabel, 500) || "DEAL HUNTER REVIEW",
+    actionable: raw.actionable === true,
+    alertworthy: raw.alertworthy === true,
+    reason:
+      text(raw.reason, 4000) ||
+      "Mac Deal Hunter flagged this listing for operator review.",
+    errorCode: text(raw.errorCode, 300),
+    assumptions: {
+      taxEstimated: explicitTax === null,
+      estimatedTaxRate,
+      sellingFeeRate: boundedRate("DEAL_HUNTER_SELLING_FEE_RATE", 0.1325),
+      orderFee: boundedMoney("DEAL_HUNTER_ORDER_FEE", 0.4),
+      outboundShipping: boundedMoney("DEAL_HUNTER_OUTBOUND_SHIPPING", 0.78),
+      supplies: boundedMoney("DEAL_HUNTER_SUPPLIES", 0.25),
+      returnReserveRate: boundedRate("DEAL_HUNTER_RETURN_RESERVE_RATE", 0.02),
+    },
+  };
+}
+
+async function persistBridgedCandidateAlert(body: Record<string, any>) {
+  const listing = (body.listing || {}) as Record<string, any>;
+  const candidateKey = text(listing.candidateKey, 300);
+  const listingUrl = text(listing.listingUrl, 2000);
+  if (!candidateKey || !listingUrl) {
+    throw new Error("candidate_alert requires listing.candidateKey and listing.listingUrl.");
+  }
+  const evaluation = bridgedCandidateEvaluation(
+    listing,
+    (body.evaluation || {}) as Record<string, any>,
+  );
+  if (!evaluation.alertworthy) {
+    throw new Error("candidate_alert requires evaluation.alertworthy=true.");
+  }
+  const scan = {
+    ai: body.identity || {},
+    exactMarket: body.exactMarket || {},
+  };
+  const persistence = await persistEvaluation({ listing, scan, evaluation });
+  return {
+    ok: true,
+    kind: "candidate_alert",
+    runId: text(listing.runId, 100),
+    candidateKey,
+    persistence,
+  };
+}
+
 async function persistEvaluation(params: {
   listing: Record<string, any>;
   scan: Record<string, any>;
@@ -378,10 +445,13 @@ export async function POST(request: NextRequest) {
   if (contentType.includes("application/json")) {
     try {
       const body = (await request.json()) as Record<string, any>;
-      if (body.kind !== "run_complete") {
-        return json({ ok: false, error: "Unsupported Deal Hunter message kind." }, 400);
+      if (body.kind === "run_complete") {
+        return json(await persistRunSummary(body));
       }
-      return json(await persistRunSummary(body));
+      if (body.kind === "candidate_alert") {
+        return json(await persistBridgedCandidateAlert(body));
+      }
+      return json({ ok: false, error: "Unsupported Deal Hunter message kind." }, 400);
     } catch (error) {
       return json(
         { ok: false, error: error instanceof Error ? error.message : String(error) },
