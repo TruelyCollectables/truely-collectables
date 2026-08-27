@@ -49,6 +49,7 @@ type SentinelStatus = {
     cpu_percent?: number | null;
     output_bundle?: string | null;
     updated_at_epoch?: number | null;
+    reason?: string | null;
   };
   registry_import_configured?: boolean;
   target_feed_configured?: boolean;
@@ -59,6 +60,40 @@ type ProxyPayload = {
   data?: SentinelStatus | Record<string, unknown>;
   error?: string;
   code?: string;
+};
+
+type ProgressPayload = {
+  ok?: boolean;
+  degraded?: boolean;
+  job?: {
+    status?: string;
+    trigger?: string;
+    currentTarget?: string | null;
+    processed?: number;
+    total?: number;
+    percent?: number;
+    found?: number;
+    downloaded?: number;
+    imported?: number;
+    failed?: number;
+    heartbeatAt?: string | null;
+  };
+  targets?: {
+    pending?: number;
+    total?: number;
+  };
+  training?: {
+    state?: string;
+    requested_iters?: number;
+    completed_iters?: number;
+    remaining_iters?: number;
+    progress_percent?: number;
+    learning_percent?: number | null;
+    cpu_percent?: number | null;
+    output_bundle?: string | null;
+    updated_at_epoch?: number | null;
+  };
+  freezeStale?: boolean | null;
 };
 
 function number(value: unknown) {
@@ -112,15 +147,50 @@ export default function ChecklistSentinelAdminPage() {
         fetch("/api/instacomp/checklist-sentinel?view=downloads", { cache: "no-store" }),
         fetch("/api/instacomp/checklist-sentinel?view=findings", { cache: "no-store" }),
       ]);
-      const [statusPayload, downloadsPayload, findingsPayload] = (await Promise.all([
+      const [progressResponse, statusPayload, downloadsPayload, findingsPayload] = (await Promise.all([
+        fetch("/api/instacomp/checklist-sentinel/progress", { cache: "no-store" }),
         statusResponse.json(),
         downloadsResponse.json(),
         findingsResponse.json(),
-      ])) as ProxyPayload[];
-      if (!statusResponse.ok || !statusPayload.ok) {
+      ])) as [Response, ProxyPayload, ProxyPayload, ProxyPayload];
+      let progressPayload: ProgressPayload | null = null;
+      if (progressResponse.ok) {
+        progressPayload = (await progressResponse.json().catch(() => null)) as ProgressPayload | null;
+      }
+      if (statusResponse.ok && statusPayload.ok) {
+        setStatus(statusPayload.data as SentinelStatus);
+      } else if (progressPayload?.ok) {
+        const fallbackJob = progressPayload.job || {};
+        const fallbackTraining = progressPayload.training || {};
+        setStatus({
+          enabled: true,
+          latest_job: {
+            status: fallbackJob.status,
+            trigger: fallbackJob.trigger,
+            current_target_key: fallbackJob.currentTarget,
+            processed_targets: fallbackJob.processed,
+            total_targets: fallbackJob.total,
+            progress_percent: fallbackJob.percent,
+            found_count: fallbackJob.found,
+            downloaded_count: fallbackJob.downloaded,
+            imported_count: fallbackJob.imported,
+            failed_count: fallbackJob.failed,
+            heartbeat_at: fallbackJob.heartbeatAt,
+          },
+          targets: {
+            pending: progressPayload.targets?.pending,
+            total: progressPayload.targets?.total,
+          },
+          training: fallbackTraining,
+          freeze_protection: {
+            stale: progressPayload.freezeStale ?? undefined,
+          },
+          registry_import_configured: true,
+          target_feed_configured: true,
+        });
+      } else {
         throw new Error(statusPayload.error || "Sentinel status could not be loaded.");
       }
-      setStatus(statusPayload.data as SentinelStatus);
       const downloadData = downloadsPayload.data as { downloads?: Record<string, unknown>[] } | undefined;
       const findingData = findingsPayload.data as { findings?: Record<string, unknown>[] } | undefined;
       setDownloads(Array.isArray(downloadData?.downloads) ? downloadData.downloads : []);
@@ -186,6 +256,7 @@ export default function ChecklistSentinelAdminPage() {
   const training = status?.training || null;
   const learningPercent = number(training?.learning_percent ?? training?.progress_percent ?? 0);
   const cpuPercent = training?.cpu_percent == null ? null : Math.max(0, Math.min(100, number(training.cpu_percent)));
+  const trainingReason = training?.reason ? String(training.reason) : null;
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-8 text-white sm:px-8">
@@ -223,8 +294,23 @@ export default function ChecklistSentinelAdminPage() {
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
             <h2 className="text-xl font-black">AI training</h2>
             <p className="mt-1 text-sm text-neutral-400">
-              {training?.state || "Unknown"}{training?.output_bundle ? ` · ${training.output_bundle}` : ""}
+              Status: <span className="font-semibold text-white">{training?.state || "Unknown"}</span>
             </p>
+            {training?.output_bundle ? (
+              <p className="mt-1 break-all text-xs text-neutral-500">
+                Adapter bundle: {training.output_bundle}
+              </p>
+            ) : null}
+            {training?.state === "trained" ? (
+              <div className="mt-3 rounded-2xl border border-emerald-300/30 bg-emerald-400/10 p-3 text-sm font-semibold text-emerald-100">
+                LoRA training finished successfully and the adapter bundle is ready.
+              </div>
+            ) : null}
+            {trainingReason ? (
+              <div className="mt-3 rounded-2xl border border-amber-300/30 bg-amber-400/10 p-3 text-sm font-semibold text-amber-100">
+                LoRA training is blocked on this machine: {trainingReason}
+              </div>
+            ) : null}
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between text-sm font-bold">
                 <span>Learning progress</span>

@@ -62,6 +62,7 @@ function sanitizedTraining(raw: unknown) {
       : finiteNumber(training.cpu_percent),
     output_bundle: training.output_bundle ? String(training.output_bundle) : null,
     updated_at_epoch: training.updated_at_epoch ? finiteNumber(training.updated_at_epoch) : null,
+    reason: training.reason ? String(training.reason) : null,
   };
 }
 
