@@ -88,6 +88,10 @@ function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
         brand: release.brand?.name || null,
         product: release.product_name || null,
         setName: card.set?.name || release.product_name || null,
+        subset:
+          card.set?.name && card.set?.name !== release.product_name
+            ? card.set.name
+            : null,
         cardNumber: card.card_number || null,
         player: player || null,
         serialRun: null,
@@ -110,6 +114,10 @@ function toCandidates(rows: any[]): InstaCompChecklistCandidate[] {
         brand: release.brand?.name || null,
         product: release.product_name || null,
         setName: card.set?.name || release.product_name || null,
+        subset:
+          card.set?.name && card.set?.name !== release.product_name
+            ? card.set.name
+            : null,
         cardNumber: card.card_number || null,
         player: player || null,
         serialRun:

@@ -21,6 +21,7 @@ export type InstaCompChecklistCandidate = {
   brand?: string | null;
   product?: string | null;
   setName?: string | null;
+  subset?: string | null;
   cardNumber: string | null;
   player: string | null;
   serialRun?: number | null;
@@ -146,7 +147,11 @@ function setMatches(
   if (!target) return false;
 
   const candidateSet = normalizedText(candidate.setName);
-  return Boolean(candidateSet && candidateSet === target);
+  const candidateSubset = normalizedText(candidate.subset);
+  return Boolean(
+    (candidateSet && candidateSet === target) ||
+      (candidateSubset && candidateSubset === target),
+  );
 }
 
 function optionalTextMatches(input: unknown, candidate: unknown) {
