@@ -35,6 +35,14 @@ export async function GET() {
     "https://api.ebay.com/oauth/api_scope/sell.inventory",
     "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
   ].join(" ");
+  const state = createAdminMarketplaceOAuthState({
+    storeId,
+    provider: "ebay",
+  });
+  const authBase =
+    storeSettings.ebayEnvironment === "sandbox"
+      ? "https://auth.sandbox.ebay.com/oauth2/authorize"
+      : "https://auth.ebay.com/oauth2/authorize";
 
   const url =
     `${authBase}?client_id=${clientId}` +
