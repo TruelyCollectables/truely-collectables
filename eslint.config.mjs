@@ -22,6 +22,7 @@ const eslintConfig = defineConfig([
     ".next/**",
     ".next-*/**",
     ".codex-run/**",
+    ".pokemon-work/**",
     "private/tmp/**",
     "TCOS_BACKUP/**",
     "out/**",

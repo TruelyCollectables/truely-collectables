@@ -29,6 +29,7 @@ export async function GET() {
   }
 
   const redirectUri = "Truely_Collecta-TruelyCo-Truely-kmpcb";
+
   const scope = [
     "https://api.ebay.com/oauth/api_scope",
     "https://api.ebay.com/oauth/api_scope/sell.inventory",
@@ -42,6 +43,7 @@ export async function GET() {
     storeSettings.ebayEnvironment === "sandbox"
       ? "https://auth.sandbox.ebay.com/oauth2/authorize"
       : "https://auth.ebay.com/oauth2/authorize";
+
   const url =
     `${authBase}?client_id=${clientId}` +
     `&response_type=code` +

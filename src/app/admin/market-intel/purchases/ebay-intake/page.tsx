@@ -68,7 +68,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 px-6 py-6">
         {addedCount > 0 ? (
           <Notice>
             Added {addedCount} eBay purchase {addedCount === 1 ? "item" : "items"}
@@ -88,7 +88,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         {query?.error ? <Notice error>{query.error}</Notice> : null}
 
         {query?.reconnect ? (
-          <section className="rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm ring-1 ring-amber-950/5">
+          <section className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-amber-950">
             <h2 className="text-2xl font-black">Reconnect the eBay buying account</h2>
             <p className="mt-2 font-semibold leading-6">
               The saved eBay authorization does not include buyer-order access yet. Reconnect
@@ -97,7 +97,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             </p>
             <Link
               href={adminHref("/api/ebay/auth")}
-              className="mt-4 inline-flex rounded-xl bg-black px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800"
+              className="mt-4 inline-flex rounded-md bg-black px-4 py-3 font-black text-white"
             >
               Connect / Reconnect eBay
             </Link>
@@ -105,7 +105,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         ) : null}
 
         {loadError ? (
-          <section className="rounded-3xl border border-rose-300 bg-rose-50 p-6 text-rose-950 shadow-sm ring-1 ring-rose-950/5">
+          <section className="rounded-xl border border-rose-300 bg-rose-50 p-6 text-rose-950">
             <h2 className="text-2xl font-black">Purchase Inbox database setup required</h2>
             <p className="mt-2 font-semibold">{loadError}</p>
             <p className="mt-3 text-sm font-bold">
@@ -116,7 +116,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           </section>
         ) : null}
 
-        <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950 shadow-sm ring-1 ring-cyan-950/5">
+        <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950">
           <h2 className="text-2xl font-black">One link for a private eBay order</h2>
           <p className="mt-2 font-semibold leading-6">
             Paste an <code>order.ebay.com/ord/show?orderId=...</code> link or the order number.
@@ -197,11 +197,11 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             <Field name="buyerFees" label="Buyer fees — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <Field name="otherCost" label="Other cost — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <AdminSubmitButton
-              className="rounded-xl bg-lime-700 px-4 py-3 font-black text-white shadow-sm transition hover:bg-lime-800 md:col-span-2 xl:col-span-3"
+              className="rounded-md bg-lime-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-3"
+              title="Import the eBay purchase into the inbox only; exact-card review and ledger recording happen after this step."
               pendingChildren="Importing eBay purchase..."
               disabled={Boolean(loadError)}
               disabledReason={loadError ? "Install the Purchase Inbox database migration first." : undefined}
-              title="Import the eBay order into Purchase Inbox only; exact-card review and ledger recording happen after this step."
             >
               Import eBay Purchase
             </AdminSubmitButton>
@@ -467,8 +467,8 @@ function Notice({ children, error = false }: { children: React.ReactNode; error?
     <div
       className={
         error
-          ? "rounded-3xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950 shadow-sm ring-1 ring-rose-950/5"
-          : "rounded-3xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950 shadow-sm ring-1 ring-emerald-950/5"
+          ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"
+          : "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"
       }
     >
       {children}

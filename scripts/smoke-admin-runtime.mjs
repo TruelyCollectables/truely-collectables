@@ -44,6 +44,11 @@ const smokeRoutes = [
     expectedText: "Admin products",
   },
   {
+    path: "/admin/products/[id]",
+    auth: true,
+    expectedText: "Product",
+  },
+  {
     path: "/admin/products/new",
     auth: true,
     expectedText: "List Cards",
@@ -62,6 +67,16 @@ const smokeRoutes = [
     path: "/admin/orders",
     auth: true,
     expectedText: "Orders",
+  },
+  {
+    path: "/admin/orders/[id]",
+    auth: true,
+    expectedText: "Order",
+  },
+  {
+    path: "/admin/orders/[id]/packing-slip",
+    auth: true,
+    expectedText: "Packing Slip",
   },
   {
     path: "/admin/order-notifications",
@@ -99,6 +114,11 @@ const smokeRoutes = [
     expectedText: "Market Intel",
   },
   {
+    path: "/admin/promotions",
+    auth: true,
+    expectedText: "Coupons",
+  },
+  {
     path: "/admin/market-intel/kingmaker",
     auth: true,
     expectedText: "Capital Intelligence Command",
@@ -129,6 +149,16 @@ const smokeRoutes = [
     expectedText: "Live Shipping",
   },
   {
+    path: "/admin/shipping/shipstation-test",
+    auth: true,
+    expectedText: "ShipStation",
+  },
+  {
+    path: "/admin/shipping/test-shipment",
+    auth: true,
+    expectedText: "Test Shipment",
+  },
+  {
     path: "/admin/settings",
     auth: true,
     expectedText: "Settings",
@@ -137,6 +167,11 @@ const smokeRoutes = [
     path: "/admin/security",
     auth: true,
     expectedText: "Security",
+  },
+  {
+    path: "/admin/security/ip/[ip]",
+    auth: true,
+    expectedText: "IP",
   },
   {
     path: "/admin/accounts",
@@ -192,6 +227,21 @@ const smokeRoutes = [
     path: "/admin/instacomp",
     auth: true,
     expectedText: "InstaComp™ Scan Lab",
+  },
+  {
+    path: "/admin/market-intel/comps/[id]",
+    auth: true,
+    expectedText: "Sold Comp",
+  },
+  {
+    path: "/admin/market-intel/purchases/[id]",
+    auth: true,
+    expectedText: "Purchase",
+  },
+  {
+    path: "/admin/market-intel/purchases/[id]/edit",
+    auth: true,
+    expectedText: "Edit Purchase",
   },
   {
     path: "/admin/instacomp/pricing",
@@ -337,6 +387,11 @@ const smokeRoutes = [
     path: "/admin/market-intel/deal-hunter",
     auth: true,
     expectedText: "InstaComp AI Deal Hunter",
+  },
+  {
+    path: "/admin/market-intel/deal-hunter/price-insights",
+    auth: true,
+    expectedText: "Price Insights",
   },
   {
     path: "/admin/market-intel/growth-specs",

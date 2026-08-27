@@ -65,10 +65,6 @@ export default function ControlledTestShipment() {
   const [machinable, setMachinable] = useState(false);
   const [confirmCharge, setConfirmCharge] = useState(false);
 
-  useEffect(() => {
-    void loadStatus();
-  }, []);
-
   const fingerprint = useMemo(() => JSON.stringify(address), [address]);
   const quoteStillMatches = Boolean(quote && quoteFingerprint === fingerprint);
 
@@ -80,6 +76,13 @@ export default function ControlledTestShipment() {
     const data = await response.json().catch(() => ({}));
     setStatus(data);
   }
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadStatus();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   function change<K extends keyof Address>(key: K, value: Address[K]) {
     setAddress((old) => ({ ...old, [key]: value }));

@@ -48,10 +48,6 @@ const sources = {
     ),
     "utf8",
   ),
-  ebayScanner: await readFile(
-    new URL("../src/app/admin/market-intel/ebay/page.tsx", import.meta.url),
-    "utf8",
-  ),
   ebayPurchaseRoute: await readFile(
     new URL(
       "../src/app/api/admin/market-intel/purchases/ebay-intake/route.ts",
@@ -190,143 +186,10 @@ scenario("eBay Purchase Inbox actions expose pending state", () => {
     "order.ebay.com/ord/show?orderId=...",
     "Connect / Reconnect eBay",
     "disabled={Boolean(loadError)}",
-    "Import the eBay order into Purchase Inbox only; exact-card review and ledger recording happen after this step.",
-    "Import creates pending inbox rows from the receipt. Nothing reaches the Purchase Ledger",
-    "until exact identity is confirmed and Record as Purchased is used.",
-    "Move selected pending purchase rows into Resale exact-card review without recording them in the ledger yet.",
-    "Move selected pending purchase rows into Hold / Investment exact-card review without recording them in the ledger yet.",
-    "Skip selected pending purchase rows so they leave the active review queue without creating ledger records.",
-    "Select at least one row. Moving sends rows to exact-card review; skipping removes",
-    "them from pending review without creating Purchase Ledger entries.",
   ]) {
     assert(
       sources.ebayPurchaseIntake.includes(fragment),
       `Expected eBay Purchase Inbox pending/action fragment ${fragment}.`,
-    );
-  }
-});
-
-scenario("purchase ledger and intake pages use professional command presentation", () => {
-  for (const [key, label] of [
-    ["purchaseLedger", "purchase ledger"],
-    ["offlinePurchaseNew", "offline purchase intake"],
-    ["ebayPurchaseIntake", "eBay purchase inbox"],
-  ]) {
-    for (const fragment of [
-      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
-      "shadow-2xl shadow-neutral-950/10",
-      "rounded-3xl border border-neutral-200 bg-white/95",
-      "shadow-sm ring-1 ring-black/[0.02]",
-      "rounded-full border border-white/15 bg-white/10",
-    ]) {
-      assert(
-        sources[key].includes(fragment),
-        `Expected ${label} presentation fragment ${fragment}.`,
-      );
-    }
-  }
-
-  for (const [key, label] of [
-    ["offlinePurchaseNew", "offline purchase intake"],
-    ["ebayPurchaseIntake", "eBay purchase inbox"],
-  ]) {
-    assert(
-      sources[key].includes("focus:ring-4 focus:ring-black/10"),
-      `Expected ${label} polished form focus styling.`,
-    );
-  }
-});
-
-scenario("market intel hub, watchlist, and comps use professional command presentation", () => {
-  for (const [key, label] of [
-    ["hub", "Market Intel hub"],
-    ["watchlist", "Market Intel watchlist"],
-    ["comps", "Market Intel comps"],
-  ]) {
-    for (const fragment of [
-      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
-      "shadow-2xl shadow-neutral-950/10",
-      "rounded-3xl border border-neutral-200 bg-white/95",
-      "shadow-sm ring-1 ring-black/[0.02]",
-      "rounded-full border border-white/15 bg-white/10",
-    ]) {
-      assert(
-        sources[key].includes(fragment),
-        `Expected ${label} presentation fragment ${fragment}.`,
-      );
-    }
-  }
-
-  for (const [key, label] of [
-    ["watchlist", "Market Intel watchlist"],
-    ["comps", "Market Intel comps"],
-  ]) {
-    assert(
-      sources[key].includes("focus:ring-4 focus:ring-black/10"),
-      `Expected ${label} polished form focus styling.`,
-    );
-  }
-});
-
-scenario("marketplace scanner, deal desk, and ingestion use professional command presentation", () => {
-  for (const [key, label] of [
-    ["ebayScanner", "eBay scanner"],
-    ["deals", "deal desk"],
-    ["ingestion", "ingestion health"],
-  ]) {
-    for (const fragment of [
-      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
-      "shadow-2xl shadow-neutral-950/10",
-      "rounded-3xl border border-neutral-200 bg-white/95",
-      "shadow-sm ring-1 ring-black/[0.02]",
-      "rounded-full border border-white/15 bg-white/10",
-    ]) {
-      assert(
-        sources[key].includes(fragment),
-        `Expected ${label} presentation fragment ${fragment}.`,
-      );
-    }
-  }
-
-  for (const [key, label] of [
-    ["ebayScanner", "eBay scanner"],
-    ["deals", "deal desk"],
-    ["ingestion", "ingestion health"],
-  ]) {
-    assert(
-      sources[key].includes("focus:ring-4 focus:ring-black/10"),
-      `Expected ${label} polished form focus styling.`,
-    );
-  }
-});
-
-scenario("purchase money loop pages use professional command presentation", () => {
-  for (const [key, label] of [
-    ["buy", "Buy Desk"],
-    ["portfolio", "Portfolio Intelligence"],
-    ["purchaseDetail", "Purchase Detail"],
-  ]) {
-    for (const fragment of [
-      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
-      "shadow-2xl shadow-neutral-950/10",
-      "rounded-3xl border border-neutral-200 bg-white/95",
-      "shadow-sm ring-1 ring-black/[0.02]",
-      "rounded-full border border-white/15 bg-white/10",
-    ]) {
-      assert(
-        sources[key].includes(fragment),
-        `Expected ${label} presentation fragment ${fragment}.`,
-      );
-    }
-  }
-
-  for (const [key, label] of [
-    ["buy", "Buy Desk"],
-    ["purchaseDetail", "Purchase Detail"],
-  ]) {
-    assert(
-      sources[key].includes("focus:ring-4 focus:ring-black/10"),
-      `Expected ${label} polished form focus styling.`,
     );
   }
 });

@@ -16,6 +16,9 @@ concurrency:
 env:
   WORK_BRANCH: market-intel-work
   NODE_VERSION: "24"
+  NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: build-placeholder-service-role-key
 
 jobs:
   release:
