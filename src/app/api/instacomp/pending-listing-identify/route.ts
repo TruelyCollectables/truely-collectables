@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
     const input: InstaCompChecklistLookupInput = {
       year: text((body as any).year),
       manufacturer: text((body as any).manufacturer),
+      brand: text((body as any).brand),
+      setName: text((body as any).setName ?? (body as any).set_name),
       cardNumber: text((body as any).cardNumber),
       player: text((body as any).player),
       serialNumber: text((body as any).serialNumber),
