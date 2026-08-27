@@ -212,6 +212,25 @@ function broadReviewCandidates(params: {
   });
 }
 
+function fallbackReviewCandidates(params: {
+  input: InstaCompChecklistLookupInput;
+  candidates: InstaCompChecklistCandidate[];
+}) {
+  const targetYear = yearStart(params.input.year);
+  const targetManufacturer = normalizedText(params.input.manufacturer);
+  const targetCardNumber = normalizedCardNumber(params.input.cardNumber);
+
+  return params.candidates.filter((candidate) => {
+    const sameYear = !targetYear || yearStart(candidate.year) === targetYear;
+    const sameManufacturer =
+      !targetManufacturer || manufacturerMatches(params.input, candidate);
+    const sameCardNumber =
+      !targetCardNumber ||
+      normalizedCardNumber(candidate.cardNumber) === targetCardNumber;
+    return sameYear && sameManufacturer && sameCardNumber;
+  });
+}
+
 export function resolveInstaCompChecklistFirst(params: {
   input: InstaCompChecklistLookupInput;
   candidates: InstaCompChecklistCandidate[];
@@ -250,6 +269,13 @@ export function resolveInstaCompChecklistFirst(params: {
   );
 
   if (!coreMatches.length) {
+    const relaxedCandidates = fallbackReviewCandidates(params);
+    if (relaxedCandidates.length) {
+      return reviewForProductAmbiguity(
+        relaxedCandidates,
+        "core_player_match_missing_but_backside_card_number_is_present",
+      );
+    }
     const reviewCandidates = broadReviewCandidates(params);
     if (reviewCandidates.length) {
       return reviewForProductAmbiguity(
