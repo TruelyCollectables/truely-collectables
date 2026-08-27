@@ -190,6 +190,28 @@ function reviewForProductAmbiguity(
   };
 }
 
+function broadReviewCandidates(params: {
+  input: InstaCompChecklistLookupInput;
+  candidates: InstaCompChecklistCandidate[];
+}) {
+  const { input } = params;
+  const targetYear = yearStart(input.year);
+  const targetManufacturer = normalizedText(input.manufacturer);
+  const targetBrand = normalizedText(input.brand);
+  const targetSet = normalizedSetName(input.setName);
+
+  return params.candidates.filter((candidate) => {
+    const sameYear = !targetYear || yearStart(candidate.year) === targetYear;
+    const sameManufacturer =
+      !targetManufacturer || manufacturerMatches(input, candidate);
+    const sameBrand =
+      !targetBrand || brandMatches(input, candidate) || !candidate.brand;
+    const sameSet =
+      !targetSet || setMatches(input, candidate) || !candidate.setName;
+    return sameYear && sameManufacturer && sameBrand && sameSet;
+  });
+}
+
 export function resolveInstaCompChecklistFirst(params: {
   input: InstaCompChecklistLookupInput;
   candidates: InstaCompChecklistCandidate[];
@@ -228,6 +250,13 @@ export function resolveInstaCompChecklistFirst(params: {
   );
 
   if (!coreMatches.length) {
+    const reviewCandidates = broadReviewCandidates(params);
+    if (reviewCandidates.length) {
+      return reviewForProductAmbiguity(
+        reviewCandidates,
+        "broad_registry_candidates_available_for_review",
+      );
+    }
     return {
       status: "not_found",
       aiRequired: true,
