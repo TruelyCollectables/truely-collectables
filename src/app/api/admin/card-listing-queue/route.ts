@@ -1,9 +1,15 @@
 import { NextRequest } from "next/server";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import { adminMutationSecurityDecision } from "../../../../lib/admin-request-security";
+import {
+  ADMIN_SESSION_COOKIE_NAMES,
+  isValidAdminSessionValue,
+} from "../../../../lib/admin-session";
 import { POST as runInstaCompFast } from "../../instacomp/scan-fast/route";
 import { buildCardListingTitle } from "../../../../lib/card-listing-title";
 import { handleGuardedDualMarketplaceGet } from "../../../../lib/dual-marketplace-admin-route-guard";
 import { evaluateInstaCompListingGate } from "../../../../lib/instacomp-listing-gate";
+import { isStoreOwnerSellerAccount } from "../../../../lib/seller-inventory-access";
 import {
   pendingImportIdentityCorrection,
   shouldApplyPendingImportIdentityCorrection,
@@ -27,6 +33,10 @@ const BLOCKED_DELETE_STATUSES = new Set([
   "active",
   "publishing",
   "reconciliation_required",
+]);
+const OWNER_EMAILS = new Set([
+  "sales@truelycollectables.com",
+  "sales@trulycollectables.com",
 ]);
 
 type UnknownRecord = Record<string, unknown>;
@@ -113,14 +123,50 @@ function enrichQueueRow(row: UnknownRecord, metadata: UnknownRecord) {
 
 async function requireAdmin(request: Request) {
   const actor = await requireInstaCompJobActor(request);
-  if (actor.type !== "admin") {
-    throw new InstaCompJobServerError(
-      "TCOS listing queue actions are owner/admin only.",
-      403,
-      "INSTACOMP_ADMIN_REQUIRED",
-    );
+  if (actor.type === "admin") {
+    return actor;
   }
-  return actor;
+
+  const cookieHeader = request.headers.get("cookie") || "";
+  for (const cookieName of ADMIN_SESSION_COOKIE_NAMES) {
+    const cookiePrefix = `${cookieName}=`;
+    for (const part of cookieHeader.split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed.startsWith(cookiePrefix)) continue;
+      const rawValue = trimmed.slice(cookiePrefix.length);
+      const sessionValue = (() => {
+        try {
+          return decodeURIComponent(rawValue);
+        } catch {
+          return rawValue;
+        }
+      })();
+      if (await isValidAdminSessionValue(sessionValue)) {
+        return {
+          type: "admin" as const,
+          storeId: actor.storeId,
+          sellerAccountId: null,
+        };
+      }
+    }
+  }
+
+  const account = await getAuthenticatedAccountFromRequest(request);
+  const isOwner = Boolean(account?.email && isStoreOwnerSellerAccount(account.email));
+
+  if (isOwner) {
+    return {
+      type: "admin" as const,
+      storeId: actor.storeId,
+      sellerAccountId: null,
+    };
+  }
+
+  throw new InstaCompJobServerError(
+    "TCOS listing queue actions are owner/admin only.",
+    403,
+    "INSTACOMP_ADMIN_REQUIRED",
+  );
 }
 
 async function applyKnownPendingImportCorrection(params: {
