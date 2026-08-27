@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-POLICY_VERSION = "2026-08-07.2"
+POLICY_VERSION = "2026-08-27.3"
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,9 @@ DEFAULT_DEAL_HUNTER_LESSONS = (
     DealHunterLesson("confidence_fail_closed", "confidence", "Lower confidence when images are missing, tiny, duplicated, obstructed or ambiguous; never promote MUST BUY from uncertain identity or economics.", "Fail closed instead of manufacturing precision."),
     DealHunterLesson("profit_after_exit_costs", "economics", "Calculate expected profit after acquisition cost, resale fees, order fees, outbound shipping, supplies and return reserve.", "Gross spread is not profit."),
     DealHunterLesson("shipping_can_be_diluted", "economics", "Prefer free/combined shipping when otherwise equal, but let complete lot economics decide whether shipping is acceptable.", "Shipping should be modeled, not ignored or treated as an absolute ban."),
+    DealHunterLesson("shoe_watch_under_30", "shoes", "For the Shoe Deal Watch, consider only new adult New Balance, Adidas, or Timberland Pro footwear priced at $30.00 or less before shipping; $30.01 and above is outside the saved acquisition rule.", "The operator explicitly raised the shoe acquisition ceiling to $30 inclusive."),
+    DealHunterLesson("shoe_shipping_guard", "shoes", "Reject shoe candidates with known inbound shipping above $15 and treat unknown shipping as review-required rather than free.", "Shipping can erase the resale spread on low-cost footwear."),
+    DealHunterLesson("shoe_feedback_memory", "learning", "Use trusted operator BUY/PASS/TOO_MUCH/TOO_MUCH_SHIPPING/BAD_CONDITION outcomes as shoe deal-decision memory. Machine observations may supply context but may not count as trusted preference labels.", "The local AI should improve deal judgment from operator outcomes without self-training on its own guesses."),
     DealHunterLesson("feedback_is_training_signal", "learning", "Persist operator BUY, PASS, TOO MUCH, TOO MUCH SHIPPING, WRONG IDENTITY, WRONG PARALLEL, HIDDEN GEM and related outcomes as decision-learning events without converting unverified marketplace guesses into card-identity truth.", "Marketplace judgment and visual identity labels require separate trust semantics."),
 )
 
@@ -146,3 +149,88 @@ def load_decision_lessons(path: Path) -> list[dict[str, Any]]:
         db.row_factory = sqlite3.Row
         rows = db.execute("SELECT lesson_key, category, rule_text, rationale, trusted, verification_source, policy_version, updated_at FROM deal_hunter_learning_lessons WHERE trusted=1 ORDER BY lesson_key").fetchall()
     return [dict(row) for row in rows]
+
+
+SHOE_POSITIVE_FEEDBACK = {"BUY", "HIDDEN_GEM"}
+SHOE_NEGATIVE_FEEDBACK = {
+    "PASS", "TOO_MUCH", "TOO_MUCH_SHIPPING", "PASS_TOO_MUCH_SHIPPING",
+    "BAD_CONDITION", "NOT_AVAILABLE", "VARIANT_PRICE_WRONG",
+}
+
+
+def load_decision_learning_events(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
+    initialize_decision_learning(path)
+    with sqlite3.connect(path, timeout=30) as db:
+        db.row_factory = sqlite3.Row
+        rows = db.execute(
+            "SELECT candidate_key, event_type, trusted, payload_json, created_at "
+            "FROM deal_hunter_learning_events ORDER BY id DESC LIMIT ?",
+            (max(1, min(int(limit), 5000)),),
+        ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        result.append({
+            "candidate_key": row["candidate_key"],
+            "event_type": row["event_type"],
+            "trusted": bool(row["trusted"]),
+            "payload": payload if isinstance(payload, dict) else {},
+            "created_at": row["created_at"],
+        })
+    return result
+
+
+def _shoe_brand(value: Any) -> str | None:
+    text = str(value or "").lower()
+    if "new balance" in text:
+        return "New Balance"
+    if "timberland pro" in text:
+        return "Timberland Pro"
+    if "adidas" in text:
+        return "Adidas"
+    return None
+
+
+def shoe_decision_memory(path: Path, candidate: dict[str, Any], *, limit: int = 500) -> dict[str, Any]:
+    brand = _shoe_brand(candidate.get("title"))
+    positives = 0
+    negatives = 0
+    matched: list[dict[str, Any]] = []
+    for row in load_decision_learning_events(path, limit=limit):
+        payload = row.get("payload") or {}
+        lane = str(payload.get("lane") or payload.get("item_type") or "").strip().lower()
+        if lane not in {"shoe_deal", "new_adult_shoes"}:
+            continue
+        event_brand = _shoe_brand(payload.get("title") or payload.get("brand"))
+        if brand and event_brand and brand != event_brand:
+            continue
+        event_type = str(row.get("event_type") or "").upper()
+        if row.get("trusted") is True:
+            if event_type in SHOE_POSITIVE_FEEDBACK:
+                positives += 1
+            elif event_type in SHOE_NEGATIVE_FEEDBACK:
+                negatives += 1
+        if len(matched) < 8:
+            matched.append({
+                "event_type": event_type,
+                "trusted": bool(row.get("trusted")),
+                "brand": event_brand,
+                "item_price": payload.get("item_price", payload.get("itemPrice")),
+                "shipping": payload.get("shipping", payload.get("inbound_shipping")),
+                "created_at": row.get("created_at"),
+            })
+    trusted_total = positives + negatives
+    learned_bias = 0.0 if trusted_total == 0 else round((positives - negatives) / trusted_total, 3)
+    return {
+        "schema_version": "tcos.instacomp-ai.shoe-decision-memory.v1",
+        "brand": brand,
+        "trusted_positive": positives,
+        "trusted_negative": negatives,
+        "trusted_total": trusted_total,
+        "learned_bias": learned_bias,
+        "recent_matching_events": matched,
+        "identity_training_mutated": False,
+    }

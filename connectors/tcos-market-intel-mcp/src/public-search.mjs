@@ -77,6 +77,7 @@ const normalizePublicResult = (entry, sourceFallback = "public_web") => ({
   imageUrls: Array.isArray(entry.image_urls) ? entry.image_urls : Array.isArray(entry.imageUrls) ? entry.imageUrls : [],
   identity: entry.identity || {},
   certificationNumber: entry.certification_number || entry.certificationNumber || null,
+  conditionText: entry.condition_text || entry.conditionText || entry.condition || null,
   manualReviewRequired: Boolean(entry.manual_review_required ?? entry.manualReviewRequired),
   verificationNotes: entry.verification_notes || entry.verificationNotes || null,
   rawPayload: entry.raw_payload || entry.rawPayload || entry,
@@ -211,6 +212,114 @@ Return JSON only as an array with at most ${Math.max(1, Math.min(maxResults, 50)
       .filter((sale) => sale.exactMatch && sale.url && sale.soldAt && Number.isFinite(sale.totalPrice) && sale.totalPrice > 0)
       .slice(0, maxResults);
     return { configured: true, sales, warnings: sales.length ? [] : ["No verified exact completed sales were returned"] };
+  }
+}
+
+
+
+const poshmarkSlug = (title) =>
+  String(title || "listing")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120) || "listing";
+
+export class PoshmarkPublicSearchAdapter {
+  get name() {
+    return "poshmark_public_vm_rest";
+  }
+
+  get configured() {
+    return true;
+  }
+
+  async search(request) {
+    const count = Math.max(1, Math.min(request.maxResults || 20, 48));
+    const envelope = JSON.stringify({ query: String(request.query || "").trim(), count, experience: "all", sort_by: "price_asc" });
+    const url = new URL("https://poshmark.com/vm-rest/posts");
+    url.searchParams.set("request", envelope);
+    const response = await fetch(url, {
+      headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 TCOS-Deal-Hunter/1.0" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`Poshmark public search failed (HTTP ${response.status}).`);
+    const posts = Array.isArray(payload?.data) ? payload.data : [];
+    const results = posts
+      .filter((post) => String(post?.inventory?.status || "").toLowerCase() === "available")
+      .map((post) => {
+        const id = String(post?.id || "").trim();
+        const title = String(post?.title || "Untitled Poshmark listing").trim();
+        const pictures = [post?.cover_shot?.url, post?.picture_url, ...(Array.isArray(post?.pictures) ? post.pictures.map((picture) => picture?.url || picture?.large_url || picture?.small_url) : [])].filter(Boolean);
+        const condition = String(post?.condition || "").trim();
+        const brand = String(post?.brand || "").trim();
+        const size = String(post?.size || "").trim();
+        return normalizePublicResult({
+          source: "Poshmark",
+          url: id ? `https://poshmark.com/listing/${poshmarkSlug(title)}-${id}` : null,
+          discovered_at: post?.first_available_at || post?.first_published_at || post?.created_at || null,
+          seller_name: post?.creator_username || post?.creator?.username || null,
+          title,
+          description: [post?.description, brand && `Brand: ${brand}`, size && `Size: ${size}`, condition && `Condition: ${condition}`].filter(Boolean).join(" | "),
+          asking_price: post?.price_amount?.val ?? post?.price,
+          shipping: null,
+          condition_text: condition,
+          image_urls: pictures,
+          manual_review_required: true,
+          verification_notes: "Poshmark public JSON confirms the listing is available; verify current shipping/discount and final checkout total before buying.",
+          raw_payload: post,
+        }, "Poshmark");
+      })
+      .filter((entry) => entry.url);
+    return {
+      source: this.name,
+      configured: true,
+      results: results.slice(0, count),
+      warnings: [],
+      diagnostics: { endpoint: "poshmark_vm_rest_posts", publicJson: true },
+    };
+  }
+}
+
+export class GeminiPublicSearchAdapter {
+  get name() {
+    return "gemini_google_search";
+  }
+
+  get configured() {
+    return Boolean(config.geminiApiKey);
+  }
+
+  async search(request) {
+    if (!this.configured) {
+      return { source: this.name, configured: false, results: [], warnings: ["GEMINI_API_KEY is not configured"] };
+    }
+    const maxResults = Math.max(1, Math.min(request.maxResults || config.searchMaxResults, config.searchMaxResults));
+    const freshnessDays = Math.max(1, Math.min(90, Number(request.filters?.freshnessDays ?? request.freshnessDays ?? config.searchFreshnessDays)));
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiSearchModel)}:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: buildPublicSearchPrompt({ ...request, maxResults, freshnessDays }) }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.1 },
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(`Gemini public search failed: ${payload?.error?.message || response.statusText || response.status}`);
+    }
+    const text = (payload?.candidates?.[0]?.content?.parts || []).map((part) => part?.text || "").join("\n");
+    const parsed = extractJson(text);
+    const array = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.results) ? parsed.results : [];
+    return {
+      source: this.name,
+      configured: true,
+      results: array.slice(0, maxResults).map((entry) => normalizePublicResult(entry, this.name)).filter((entry) => entry.url),
+      warnings: array.length ? [] : ["Gemini Google Search returned no parseable direct listings"],
+      diagnostics: { model: config.geminiSearchModel, googleSearchGrounding: true },
+    };
   }
 }
 
@@ -438,6 +547,8 @@ export class XRecentSearchAdapter {
 
 export class PublicSearchService {
   constructor() {
+    this.poshmark = new PoshmarkPublicSearchAdapter();
+    this.gemini = new GeminiPublicSearchAdapter();
     this.openAi = new OpenAiPublicSearchAdapter();
     this.ebay = new EbayBrowseAdapter();
     this.x = new XRecentSearchAdapter();
@@ -445,6 +556,9 @@ export class PublicSearchService {
 
   status() {
     return {
+      poshmarkPublicApi: this.poshmark.configured,
+      geminiPublicWeb: this.gemini.configured,
+      geminiSearchModel: this.gemini.configured ? config.geminiSearchModel : null,
       openAiPublicWeb: this.openAi.configured,
       ebayBrowse: this.ebay.configured,
       ebayBrowseDetails: this.ebay.status(),
@@ -454,7 +568,9 @@ export class PublicSearchService {
       maxResults: config.searchMaxResults,
       privateFacebookGroups: false,
       notes: [
+        "Poshmark shoe discovery uses its public vm-rest JSON endpoint and does not consume AI credits.",
         "eBay native discovery requests newly listed inventory and scans deeper than the displayed result count.",
+        "Gemini Google Search is the primary public-web discovery provider; OpenAI is fallback-only when Gemini is unavailable or returns no usable direct listings.",
         "Public web discovery searches multiple legitimate marketplaces and direct public seller/listing pages.",
         "Private Facebook groups and login-restricted content are never accessed automatically.",
         "Public sources without native APIs are discovered through public web search or manual URL/screenshot intake.",
@@ -468,8 +584,27 @@ export class PublicSearchService {
     const includesSource = (name) => !sourceNames.length || sourceNames.some((source) => source.includes(name));
 
     if ((includesSource("marketplace") || includesSource("ebay")) && this.ebay.configured) jobs.push(this.ebay.search(request));
+    if (includesSource("poshmark") && this.poshmark.configured) jobs.push(this.poshmark.search(request));
     if ((includesSource("social") || includesSource("x") || includesSource("twitter")) && this.x.configured) jobs.push(this.x.search(request));
-    if (this.openAi.configured) jobs.push(this.openAi.search(request));
+    const publicWebSearch = async () => {
+      const warnings = [];
+      let lastEmpty = null;
+      for (const adapter of [this.gemini, this.openAi]) {
+        if (!adapter.configured) continue;
+        try {
+          const result = await adapter.search(request);
+          if (result.results?.length) return { ...result, warnings: [...warnings, ...(result.warnings || [])] };
+          lastEmpty = result;
+          warnings.push(...(result.warnings || []));
+        } catch (error) {
+          warnings.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+      if (lastEmpty) return { ...lastEmpty, warnings };
+      return { source: "public_web_fallback", configured: false, results: [], warnings };
+    };
+    const onlyPoshmark = sourceNames.length > 0 && sourceNames.every((source) => source.includes("poshmark"));
+    if (!onlyPoshmark && (this.gemini.configured || this.openAi.configured)) jobs.push(publicWebSearch());
 
     if (!jobs.length) {
       return {

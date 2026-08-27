@@ -9,6 +9,7 @@ from app.deal_hunter_learning import (
     decision_learning_manifest,
     initialize_decision_learning,
     load_decision_lessons,
+    shoe_decision_memory,
     record_decision_learning_event,
     shipping_share,
     total_acquisition_cost,
@@ -43,6 +44,19 @@ class DealHunterDecisionLearningTests(unittest.TestCase):
             self.assertEqual(row[0], "PASS_TOO_MUCH_SHIPPING")
             self.assertEqual(row[1], 1)
             self.assertIn('"shipping": 6', row[2])
+
+    def test_shoe_feedback_memory_uses_trusted_operator_outcomes_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "instacomp.sqlite3"
+            candidate = {"title": "New Adidas men's size 10", "lane": "shoe_deal"}
+            record_decision_learning_event(path, candidate_key="mercari:1", event_type="BUY", payload={"lane": "shoe_deal", "title": "New Adidas Ultraboost"}, trusted=True)
+            record_decision_learning_event(path, candidate_key="mercari:2", event_type="HIDDEN_GEM", payload={"lane": "shoe_deal", "title": "New Adidas Forum"}, trusted=True)
+            record_decision_learning_event(path, candidate_key="mercari:3", event_type="PASS", payload={"lane": "shoe_deal", "title": "New Adidas Rivalry"}, trusted=False)
+            memory = shoe_decision_memory(path, candidate)
+            self.assertEqual(memory["trusted_positive"], 2)
+            self.assertEqual(memory["trusted_negative"], 0)
+            self.assertEqual(memory["learned_bias"], 1.0)
+            self.assertFalse(memory["identity_training_mutated"])
 
 
 if __name__ == "__main__":

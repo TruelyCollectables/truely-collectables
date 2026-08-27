@@ -72,6 +72,9 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
         run: |
           set -euo pipefail
@@ -106,6 +109,9 @@ jobs:
             NEXT_PUBLIC_SUPABASE_ANON_KEY: publicKey.value,
             SUPABASE_SERVICE_ROLE_KEY: serverKey.value,
             OPENAI_API_KEY: String(process.env.OPENAI_API_KEY || '').trim(),
+            GEMINI_API_KEY: String(process.env.GEMINI_API_KEY || '').trim(),
+            GOOGLE_GEMINI_API_KEY: String(process.env.GOOGLE_GEMINI_API_KEY || '').trim(),
+            GROQ_API_KEY: String(process.env.GROQ_API_KEY || '').trim(),
             TCOS_CRON_SECRET: String(process.env.TCOS_CRON_SECRET || '').trim(),
             NEXT_PUBLIC_SITE_URL: 'https://truelycollectables.com',
             SITE_URL: 'https://truelycollectables.com',

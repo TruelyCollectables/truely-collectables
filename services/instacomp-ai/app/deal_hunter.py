@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import httpx
 
+from .deal_hunter_learning import record_decision_learning_event, shoe_decision_memory
 from .deal_hunter_store import DealHunterStore, utc_now
 
 
@@ -573,42 +574,88 @@ class DealHunterScheduler:
 
         return selected, max(0, len(candidates) - len(selected))
 
+    def _decision_learning_path(self):
+        resolver = getattr(self.settings, "resolve_local_path", None)
+        database_path = getattr(self.settings, "database_path", None)
+        if callable(resolver) and database_path is not None:
+            return resolver(database_path)
+        return self.store.path
+
     def _evaluate_shoe(self, candidate: dict[str, Any]) -> dict[str, Any]:
         base = {**candidate, "actionable": False, "alertworthy": False}
         item_price = _number(candidate.get("item_price"))
         shipping = _number(candidate.get("inbound_shipping"))
         delivered_cost = _known_delivered_cost(candidate)
+        learning_path = self._decision_learning_path()
+        memory = shoe_decision_memory(learning_path, candidate)
+
         if item_price is None or item_price > SHOE_MAX_ITEM_PRICE:
-            return {
+            result = {
                 **base,
                 "status": "completed",
                 "delivered_cost": delivered_cost,
                 "deal_label": "SHOE PASS — OVER ACQUISITION LIMIT",
                 "error_code": "DEAL_HUNTER_SHOE_PRICE_LIMIT",
                 "error_message": "Shoe Deal Watch requires an item price of $30 or less.",
+                "decision_learning": memory,
             }
-        if shipping is not None and shipping > SHOE_MAX_SHIPPING:
-            return {
+        elif shipping is not None and shipping > SHOE_MAX_SHIPPING:
+            result = {
                 **base,
                 "status": "completed",
                 "delivered_cost": delivered_cost,
                 "deal_label": "SHOE PASS — SHIPPING TOO HIGH",
                 "error_code": "DEAL_HUNTER_SHOE_SHIPPING_LIMIT",
                 "error_message": "Known shipping exceeds the $15 reasonable-shipping ceiling.",
+                "decision_learning": memory,
             }
-        return {
-            **base,
-            "status": "manual_review",
-            "delivered_cost": delivered_cost,
-            "deal_label": "SHOE DEAL — REVIEW FLIP ECONOMICS",
-            "alertworthy": True,
-            "error_code": "DEAL_HUNTER_SHOE_FLIP_REVIEW",
-            "error_message": (
-                "Public listing passed the saved Shoe Deal Watch intake rules: new adult New Balance, Adidas, "
-                "or Timberland Pro, item price at or below $30, and no excessive known shipping. Verify the "
-                "listing is still available, size/condition, seller quality, and resale margin before buying."
-            ),
-        }
+        else:
+            learned_bias = float(memory.get("learned_bias") or 0.0)
+            trusted_total = int(memory.get("trusted_total") or 0)
+            if trusted_total >= 2 and learned_bias >= 0.5:
+                deal_label = "SHOE DEAL — LEARNED POSITIVE PATTERN"
+            elif trusted_total >= 2 and learned_bias <= -0.5:
+                deal_label = "SHOE DEAL — LEARNED CAUTION / REVIEW"
+            else:
+                deal_label = "SHOE DEAL — REVIEW FLIP ECONOMICS"
+            result = {
+                **base,
+                "status": "manual_review",
+                "delivered_cost": delivered_cost,
+                "deal_label": deal_label,
+                "alertworthy": True,
+                "error_code": "DEAL_HUNTER_SHOE_FLIP_REVIEW",
+                "error_message": (
+                    "Public listing passed the saved Shoe Deal Watch intake rules: new adult New Balance, Adidas, "
+                    "or Timberland Pro, item price at or below $30, and no excessive known shipping. InstaComp "
+                    "decision memory is attached; verify availability, size/condition, seller quality, and resale margin before buying."
+                ),
+                "decision_learning": memory,
+            }
+
+        try:
+            record_decision_learning_event(
+                learning_path,
+                event_type="SHOE_CANDIDATE_OBSERVED",
+                candidate_key=str(candidate.get("candidate_key") or "").strip() or None,
+                payload={
+                    "lane": "shoe_deal",
+                    "item_type": "new_adult_shoes",
+                    "title": candidate.get("title"),
+                    "brand": memory.get("brand"),
+                    "marketplace": candidate.get("marketplace"),
+                    "item_price": item_price,
+                    "shipping": shipping,
+                    "delivered_cost": delivered_cost,
+                    "deal_label": result.get("deal_label"),
+                    "learned_bias": memory.get("learned_bias"),
+                },
+                trusted=False,
+            )
+        except Exception:
+            # Learning telemetry must never make Deal Hunter lose a valid candidate.
+            pass
+        return result
 
     def _evaluate_signed_baseball(self, candidate: dict[str, Any]) -> dict[str, Any]:
         base = {**candidate, "actionable": False, "alertworthy": False}

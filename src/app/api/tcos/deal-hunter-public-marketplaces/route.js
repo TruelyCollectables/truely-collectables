@@ -22,8 +22,14 @@ const FAMILIES = Object.freeze({
     { familyId: "shoe-deal.mercari", sources: ["Mercari"],
       query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots at or below $30 currently for sale on Mercari",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
-    { familyId: "shoe-deal.poshmark", sources: ["Poshmark"],
-      query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots at or below $30 currently for sale on Poshmark",
+    { familyId: "shoe-deal.poshmark-adidas", sources: ["Poshmark"],
+      query: "adidas shoes sneakers",
+      lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
+    { familyId: "shoe-deal.poshmark-new-balance", sources: ["Poshmark"],
+      query: "new balance shoes sneakers",
+      lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
+    { familyId: "shoe-deal.poshmark-timberland-pro", sources: ["Poshmark"],
+      query: "timberland pro boots shoes",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
   ],
 });
@@ -82,6 +88,7 @@ function safeListing(entry, family) {
   if (family.itemType === "new_adult_shoes") {
     const brand = shoeBrand(evidence);
     if (!brand || !SHOE_NEW.test(evidence) || SHOE_USED.test(evidence) || SHOE_KIDS.test(evidence)) return null;
+    if (marketplace === "Poshmark" && String(entry.conditionText || "").toLowerCase() !== "nwt") return null;
     if (itemPrice === null || itemPrice > 30) return null;
     if (shipping !== null && shipping > 15) return null;
     if (!/\b(?:men(?:'s)?|women(?:'s)?|adult|size\s*(?:[5-9]|1[0-9])(?:\.5)?\b)\b/i.test(evidence)) {
@@ -141,7 +148,7 @@ export async function GET(request) {
   }
 
   const providerStatus = publicSearchService.status();
-  if (!providerStatus.openAiPublicWeb) {
+  if (!providerStatus.poshmarkPublicApi && !providerStatus.geminiPublicWeb && !providerStatus.openAiPublicWeb) {
     return Response.json({
       ok: false,
       schema: "TCOS_PUBLIC_MARKETPLACE_FEED_V1",
@@ -209,7 +216,7 @@ export async function GET(request) {
     generatedAt: new Date().toISOString(),
     scope,
     marketplace: "Mercari + Poshmark",
-    providerMode: "openai_web_search",
+    providerMode: providerStatus.geminiPublicWeb ? "gemini_google_search_primary" : "openai_web_search_fallback",
     publicWebSearchUsed: successfulQueryCount > 0,
     queryFamilyCount: families.length,
     successfulQueryCount,
