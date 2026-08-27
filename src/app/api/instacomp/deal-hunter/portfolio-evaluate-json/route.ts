@@ -185,8 +185,8 @@ export async function POST(request: NextRequest) {
 
   let runDealHunterCore: (request: NextRequest) => Promise<Response>;
   try {
-    const module = await import("../evaluate/core");
-    runDealHunterCore = module.POST;
+    const coreModule = await import("../evaluate/core");
+    runDealHunterCore = coreModule.POST;
   } catch (error) {
     return json(
       {
@@ -243,8 +243,8 @@ export async function POST(request: NextRequest) {
 
   let persistExactCardMarketHistory: any;
   try {
-    const module = await import("../../../../../lib/instacomp-market-history");
-    persistExactCardMarketHistory = module.persistExactCardMarketHistory;
+    const historyModule = await import("../../../../../lib/instacomp-market-history");
+    persistExactCardMarketHistory = historyModule.persistExactCardMarketHistory;
   } catch (error) {
     return json(
       {

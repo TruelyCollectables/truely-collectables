@@ -232,7 +232,7 @@ export async function resolveRegistryDirectExactReleaseFirst(
     }
   }
 
-  let cards = [...(directResult.data || [])] as any[];
+  const cards = [...(directResult.data || [])] as any[];
   const directIds = new Set(cards.map((row: any) => String(row.id)));
   aliasCardIds = unique(aliasCardIds).filter((id) => !directIds.has(id));
 
