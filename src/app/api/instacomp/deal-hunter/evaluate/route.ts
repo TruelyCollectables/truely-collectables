@@ -132,9 +132,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const coreResponse = await runDealHunterCore(
-    replayDealHunterMultipartRequest(request, multipartInput),
-  );
+  let coreResponse: Response;
+  try {
+    coreResponse = await runDealHunterCore(
+      replayDealHunterMultipartRequest(request, multipartInput),
+    );
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        stage: "deal_hunter_core_dispatch",
+        error: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      },
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
+  }
   if (!coreResponse.ok) return coreResponse;
 
   const payload = (await coreResponse.clone().json()) as Record<string, any>;
