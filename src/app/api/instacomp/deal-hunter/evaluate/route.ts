@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runDealHunterCore } from "./multi-provider-core";
+import { persistRunSummary } from "./core";
 import { dealHunterListingRegistryConflict } from "../../../../../lib/deal-hunter-listing-registry-guard";
 import {
   persistExactCardMarketHistory,
@@ -127,6 +128,16 @@ function listingConflictResponse(
 export async function POST(request: NextRequest) {
   const contentType = String(request.headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("application/json")) {
+    try {
+      const body = (await request.clone().json()) as Record<string, any>;
+      if (body?.kind === "run_complete") {
+        const result = await persistRunSummary(body);
+        return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } });
+      }
+    } catch {
+      // Fall through to the standard evaluator for malformed JSON; the core
+      // handler will return the canonical request error.
+    }
     return runDealHunterCore(request);
   }
 

@@ -214,7 +214,7 @@ async function applyTrustedHistoricalSoldFallback(scan: Record<string, any>) {
   }
 }
 
-async function persistRunSummary(body: Record<string, any>) {
+export async function persistRunSummary(body: Record<string, any>) {
   const runId = text(body.runId, 100);
   if (!runId) throw new Error("runId is required.");
   const counts = (body.counts || {}) as Record<string, unknown>;
