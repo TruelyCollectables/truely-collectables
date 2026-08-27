@@ -68,7 +68,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 px-6 py-6">
         {addedCount > 0 ? (
           <Notice>
             Added {addedCount} eBay purchase {addedCount === 1 ? "item" : "items"}
@@ -198,6 +198,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             <Field name="otherCost" label="Other cost — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <AdminSubmitButton
               className="rounded-md bg-lime-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-3"
+              title="Import the eBay purchase into the inbox only; exact-card review and ledger recording happen after this step."
               pendingChildren="Importing eBay purchase..."
               disabled={Boolean(loadError)}
               disabledReason={loadError ? "Install the Purchase Inbox database migration first." : undefined}

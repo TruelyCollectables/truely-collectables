@@ -32,6 +32,7 @@ const operatorCards = [
 
 const quickLinks = [
   { href: "/admin/instacomp/mobile", label: "Mobile Scanner" },
+  { href: "/admin/instacomp/pricing", label: "Pricing" },
   { href: "/admin", label: "Command Center" },
   { href: "/admin/products", label: "Products" },
   { href: "/admin/ebay/duplicates", label: "Duplicate Finder" },

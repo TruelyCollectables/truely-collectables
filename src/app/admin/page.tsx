@@ -38,6 +38,11 @@ const systemTools = [
     description: "Checklist discovery, recovery, and Registry coverage controls.",
   },
   {
+    href: "/admin/instacomp/pricing",
+    title: "InstaComp Pricing",
+    description: "Pricing workbench, receipt review, coverage, and profile controls.",
+  },
+  {
     href: "/admin/production-smoke",
     title: "Production Smoke",
     description: "Run the production-health workbench when something needs diagnosis.",

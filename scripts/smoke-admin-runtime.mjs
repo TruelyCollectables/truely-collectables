@@ -339,6 +339,11 @@ const smokeRoutes = [
     expectedText: "InstaComp AI Deal Hunter",
   },
   {
+    path: "/admin/market-intel/deal-hunter/price-insights",
+    auth: true,
+    expectedText: "Price Insights",
+  },
+  {
     path: "/admin/market-intel/growth-specs",
     auth: true,
     expectedText: "Growth Spec Lab™",

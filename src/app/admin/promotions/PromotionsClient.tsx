@@ -20,7 +20,7 @@ export default function PromotionsClient() {
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     const response = await fetch("/api/admin/promotions", { cache: "no-store" });
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Promotions could not be loaded.");
     setPromotions(data.promotions || []);
   }, []);
@@ -48,7 +48,7 @@ export default function PromotionsClient() {
           maxRedemptions: form.get("maxRedemptions"), expiresAt: form.get("expiresAt"),
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Coupon could not be created.");
       setMessage("Coupon created and ready for Stripe Checkout.");
       formElement.reset();
@@ -65,7 +65,7 @@ export default function PromotionsClient() {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, ...body }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Coupon could not be updated.");
       setMessage("Promotion updated."); await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
@@ -86,7 +86,7 @@ export default function PromotionsClient() {
         <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
         <label className="font-bold">Expiration (optional)<input name="expiresAt" type="datetime-local" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
         <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" defaultChecked className="h-5 w-5" />First successful order only</label>
-        <button disabled={busy} className="min-h-12 rounded bg-neutral-950 px-5 font-black text-white disabled:opacity-50">{busy ? "Working..." : "Create coupon"}</button>
+        <button type="submit" disabled={busy} className="min-h-12 rounded bg-neutral-950 px-5 font-black text-white disabled:opacity-50">{busy ? "Working..." : "Create coupon"}</button>
       </form>
 
       <section className="mt-8 space-y-4">
@@ -97,7 +97,7 @@ export default function PromotionsClient() {
               <span className={`rounded-full px-3 py-1 text-sm font-black ${promotion.active ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200"}`}>{promotion.active ? "ACTIVE" : "INACTIVE"}</span>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
-              <button disabled={busy} onClick={() => action(promotion.id, { action: "set-active", active: !promotion.active })} className="min-h-11 rounded border px-4 font-bold">{promotion.active ? "Deactivate" : "Activate"}</button>
+              <button type="button" disabled={busy} onClick={() => action(promotion.id, { action: "set-active", active: !promotion.active })} className="min-h-11 rounded border px-4 font-bold">{promotion.active ? "Deactivate" : "Activate"}</button>
             </div>
           </article>
         ))}
