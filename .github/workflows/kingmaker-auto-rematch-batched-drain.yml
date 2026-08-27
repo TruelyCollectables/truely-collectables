@@ -1,0 +1,190 @@
+name: KINGMAKER Auto Rematch Batched Drain
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804024500_batch_kingmaker_auto_rematch_drain.sql"
+      - "scripts/run-kingmaker-beckett-rematch-drain.mjs"
+      - ".github/workflows/kingmaker-auto-rematch-batched-drain.yml"
+      - ".github/workflows/kingmaker-beckett-rematch-drain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-batched-rematch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_rematch_batch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_rematch_batch_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_rematch_batch_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      BECKETT_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+      AUTO_REMATCH_MIGRATION: supabase/migrations/20260804011500_kingmaker_auto_rematch_after_checklists.sql
+      AUTO_REMATCH_TRIGGER_FIX: supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql
+      MATCHER_RESULTS_FIX: supabase/migrations/20260804014500_fix_kingmaker_auto_rematch_matcher_results.sql
+      RELEASE_SCOPE_FIX: supabase/migrations/20260804022000_scope_kingmaker_auto_rematch_candidates.sql
+      BATCHED_DRAIN_MIGRATION: supabase/migrations/20260804024500_batch_kingmaker_auto_rematch_drain.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply foundations and rematch migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$BECKETT_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_TRIGGER_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$MATCHER_RESULTS_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$RELEASE_SCOPE_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$BATCHED_DRAIN_MIGRATION"
+
+      - name: Reapply batched migration to prove idempotence
+        run: psql -v ON_ERROR_STOP=1 --file "$BATCHED_DRAIN_MIGRATION"
+
+      - name: Verify bounded functions and privilege boundaries
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            batch_definition text;
+            wrapper_definition text;
+            drain_definition text;
+            trigger_definition text;
+          begin
+            select pg_get_functiondef(
+              'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)'::regprocedure
+            ) into batch_definition;
+            select pg_get_functiondef(
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)'::regprocedure
+            ) into wrapper_definition;
+            select pg_get_functiondef(
+              'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)'::regprocedure
+            ) into drain_definition;
+            select pg_get_functiondef(
+              'public.tcos_trigger_kingmaker_beckett_rematch()'::regprocedure
+            ) into trigger_definition;
+
+            if position('LIMIT EFFECTIVE_BATCH_SIZE' in upper(batch_definition)) = 0 then
+              raise exception 'Batch function does not enforce the requested bound.';
+            end if;
+            if position('lastChecklistRematchVersionId' in batch_definition) = 0 then
+              raise exception 'Batch function does not persist checklist-version attempts.';
+            end if;
+            if position('tcos_match_kingmaker_price_entry_ids' in batch_definition) = 0 then
+              raise exception 'Batch function does not use the candidate-ID matcher.';
+            end if;
+            if position('tcos_rematch_kingmaker_price_entries_for_release_batch' in wrapper_definition) = 0 then
+              raise exception 'Compatibility wrapper does not delegate to bounded rematching.';
+            end if;
+            if position('tcos_rematch_kingmaker_price_entries_for_release_batch' in drain_definition) = 0 then
+              raise exception 'Drain RPC does not delegate to bounded rematching.';
+            end if;
+            if position('tcos_rematch_kingmaker_price_entries_for_release_batch' in trigger_definition) = 0 then
+              raise exception 'Checklist activation trigger does not use bounded rematching.';
+            end if;
+
+            if not has_function_privilege(
+              'service_role',
+              'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)',
+              'execute'
+            ) or not has_function_privilege(
+              'service_role',
+              'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)',
+              'execute'
+            ) then
+              raise exception 'Service role cannot execute the batched rematch functions.';
+            end if;
+
+            if has_function_privilege(
+              'anon',
+              'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)',
+              'execute'
+            ) or has_function_privilege(
+              'authenticated',
+              'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)',
+              'execute'
+            ) or has_function_privilege(
+              'anon',
+              'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)',
+              'execute'
+            ) or has_function_privilege(
+              'authenticated',
+              'public.tcos_drain_kingmaker_price_rematch_batch(integer,text)',
+              'execute'
+            ) then
+              raise exception 'Public roles can execute a batched rematch function.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Run unmatched-to-exact activation regression
+        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-checklist-auto-rematch-regressions.sql
+
+      - name: Verify idle drain and bounded argument handling
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            idle_result jsonb;
+          begin
+            select public.tcos_drain_kingmaker_price_rematch_batch(
+              500,
+              'ci_idle_check'
+            ) into idle_result;
+
+            if idle_result ->> 'drain_status' <> 'idle'
+               or (idle_result ->> 'processed_entries')::integer <> 0
+               or (idle_result ->> 'has_more')::boolean then
+              raise exception 'Empty rematch drain was not idle: %', idle_result;
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Validate permanent drain runner syntax
+        run: node --check scripts/run-kingmaker-beckett-rematch-drain.mjs

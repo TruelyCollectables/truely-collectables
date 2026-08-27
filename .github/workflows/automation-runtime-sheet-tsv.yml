@@ -1,0 +1,108 @@
+name: Build Automation Runtime Sheet TSV
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-runtime-sheet-tsv.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build handoff TSV files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, hashlib, re
+          RUN_ID='dh-20260730T170046Z-7d4c2a91'
+          SEQ=4
+          with open('tmp/automation-runtime-results.json') as f: raw=json.load(f)
+          observed=raw.get('fetchedAt') or '2026-07-30T17:05:44Z'
+          def clean(v):
+            if v is None: return ''
+            if isinstance(v,bool): return 'TRUE' if v else 'FALSE'
+            if isinstance(v,(int,float)): return str(v)
+            s=str(v).replace('\t',' ').replace('\r',' ').replace('\n',' ').strip()
+            if s[:1] in ('=','+','-','@'): s="'"+s
+            return s
+          def js(v): return json.dumps(v,separators=(',',':'),ensure_ascii=False)
+          endpoint_labels={
+            'wnba':'WNBA',
+            'ivan_demidov':'IVAN DEMIDOV',
+            'matvei_michkov_young_guns':'MATVEI MICHKOV YOUNG GUNS',
+            'matvei_michkov_opc_platinum':'MATVEI MICHKOV OPC PLATINUM',
+            'baseball_prospects':'BASEBALL PROSPECTS',
+            'signed_baseballs':'SIGNED PROSPECT BASEBALLS',
+          }
+          merged={}
+          coverage=[]
+          for ep,obj in raw.get('endpoints',{}).items():
+            d=obj.get('data') or {}
+            deployment=d.get('deployment') or {}
+            for c in d.get('sourceCoverage') or []:
+              notes={'endpoint':ep,'familyId':c.get('familyId'),'warnings':c.get('warnings') or [],'rejectionCounts':c.get('rejectionCounts') or {},'durationMs':c.get('durationMs'),'deployment':deployment,'searchEngine':d.get('searchEngine'),'tokenMode':d.get('tokenMode')}
+              coverage.append([RUN_ID,SEQ,'eBay Native Browse',endpoint_labels.get(ep,ep)+' / '+str(c.get('familyId') or c.get('lane') or ''),c.get('status') or 'UNKNOWN',c.get('query') or '',c.get('rawResultCount') or 0,c.get('acceptedResultCount') or 0,0,js(notes)])
+            for c in d.get('results') or []:
+              key=str(c.get('listingItemId') or c.get('listingUrl') or c.get('candidateId') or '')
+              if not key: continue
+              if key not in merged:
+                merged[key]={'endpointSet':set([ep]),**c}
+              else:
+                m=merged[key]
+                m['endpointSet'].add(ep)
+                m['queryFamilyIds']=sorted(set((m.get('queryFamilyIds') or [])+(c.get('queryFamilyIds') or [])))
+                m['imageUrls']=list(dict.fromkeys((m.get('imageUrls') or [])+(c.get('imageUrls') or [])))
+                m['preliminaryRisks']=sorted(set((m.get('preliminaryRisks') or [])+(c.get('preliminaryRisks') or [])))
+                m['lanes']=sorted(set((m.get('lanes') or [m.get('lane')])+(c.get('lanes') or [c.get('lane')])))
+                m['watchedPersons']=sorted(set((m.get('watchedPersons') or [m.get('watchedPerson')])+(c.get('watchedPersons') or [c.get('watchedPerson')])))
+          rows=[]
+          ids=[]
+          for key,c in sorted(merged.items(),key=lambda kv:(sorted(kv[1]['endpointSet'])[0],str(kv[1].get('watchedPerson') or ''),str(kv[1].get('listingItemId') or kv[1].get('listingUrl') or ''))):
+            eps=sorted(c.pop('endpointSet'))
+            digest=hashlib.sha1(('|'.join(eps)+'|'+key).encode()).hexdigest()[:18]
+            cid='cand-s4-ebay-'+digest
+            ids.append(cid)
+            imgs=c.get('imageUrls') or []
+            watched=', '.join(c.get('watchedPersons') or ([c.get('watchedPerson')] if c.get('watchedPerson') else []))
+            lanes=', '.join(c.get('lanes') or ([c.get('lane')] if c.get('lane') else []))
+            endpoint_lane=' + '.join(endpoint_labels.get(e,e) for e in eps)
+            item_price=c.get('itemPrice')
+            shipping=c.get('inboundShipping')
+            seller_claim={'title':c.get('title'),'preliminaryScopeStatus':c.get('preliminaryScopeStatus'),'queryFamilyIds':c.get('queryFamilyIds') or [],'preliminaryRisks':c.get('preliminaryRisks') or []}
+            verified={'status':'UNVERIFIED','verification':'native-browse-title-and-marketplace-images-only','frontVerified':False,'backVerified':False}
+            physical='ebay|'+str(c.get('sellerName') or 'unknown')+'|'+str(c.get('listingItemId') or c.get('listingUrl') or digest)
+            suppress=['front_and_back_identity_not_verified','exact_parallel_or_variation_not_verified','instacomp_exact_market_not_completed','identical_completed_sales_not_loaded','full_delivered_acquisition_cost_not_proven','owned_copy_exclusion_not_proven']
+            suppress.extend(c.get('preliminaryRisks') or [])
+            reduced={'endpoints':eps,'candidateId':c.get('candidateId'),'listingItemId':c.get('listingItemId'),'queryFamilyIds':c.get('queryFamilyIds') or [],'buyingOptions':c.get('buyingOptions') or [],'condition':c.get('condition'),'itemCreationDate':c.get('itemCreationDate'),'itemEndDate':c.get('itemEndDate'),'imageUrls':imgs[:12],'preliminaryScopeStatus':c.get('preliminaryScopeStatus'),'preliminaryRisks':c.get('preliminaryRisks') or []}
+            row=['']*77
+            vals={0:cid,1:RUN_ID,2:SEQ,3:observed,4:endpoint_lane+' / '+lanes,5:watched,6:c.get('itemType'),7:'eBay',8:c.get('sellerName'),10:c.get('listingItemId'),11:c.get('listingUrl'),12:'LIVE',13:c.get('title'),14:js(seller_claim),15:js(verified),16:'preliminary|'+digest,17:physical,18:(imgs[0] if imgs else ''),19:(imgs[1] if len(imgs)>1 else ''),20:False,21:False,22:False,23:False,24:'{}',35:'UNASSESSED',36:js(c.get('preliminaryRisks') or []),37:item_price,38:shipping,55:'INSUFFICIENT',72:'MANUAL REVIEW / UNPRICED',73:False,74:False,75:js(sorted(set(suppress))),76:js(reduced)}
+            for i,v in vals.items(): row[i]=v
+            rows.append(row)
+          with open('tmp/automation-runtime-candidates.tsv','w',newline='') as f:
+            for row in rows: f.write('\t'.join(clean(v) for v in row)+'\n')
+          with open('tmp/automation-runtime-coverage.tsv','w',newline='') as f:
+            for row in coverage: f.write('\t'.join(clean(v) for v in row)+'\n')
+          covkeys=[r[2]+'|'+r[3] for r in coverage]
+          summary={'runId':RUN_ID,'sequence':SEQ,'observedAt':observed,'candidateRows':len(rows),'coverageRows':len(coverage),'manualReviewRows':len(rows),'actionableRows':0,'suppressedRows':len(rows),'candidateIds':ids,'coverageKeys':covkeys}
+          summary['checksum']=hashlib.sha256((RUN_ID+'|'+str(SEQ)+'|'+str(len(rows))+'|'+str(len(coverage))+'|'+'|'.join(ids)+'|'+'|'.join(covkeys)).encode()).hexdigest()
+          with open('tmp/automation-runtime-sheet-summary.json','w') as f: json.dump(summary,f,indent=2)
+          PY
+      - name: Commit handoff TSV files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/automation-runtime-candidates.tsv tmp/automation-runtime-coverage.tsv tmp/automation-runtime-sheet-summary.json
+          git commit -m 'Build automation runtime sheet handoff rows' || exit 0
+          git push origin HEAD:main

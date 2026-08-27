@@ -12,6 +12,10 @@ const duplicateFinderSource = await readFile(
   new URL("../src/app/admin/ebay/duplicates/EbayDuplicateFinderClient.tsx", import.meta.url),
   "utf8",
 );
+const duplicatePageSource = await readFile(
+  new URL("../src/app/admin/ebay/duplicates/page.tsx", import.meta.url),
+  "utf8",
+);
 const duplicateRouteSource = await readFile(
   new URL("../src/app/api/admin/ebay-duplicates/route.ts", import.meta.url),
   "utf8",
@@ -92,6 +96,19 @@ await scenario("plans multi-row duplicate quantity merge", () => {
   assert(plan.duplicateQuantity === 4, "Duplicate quantities should be summed");
   assert(plan.mergedQuantity === 6, "Keeper should become 2 + 1 + 3 = 6");
   assert(plan.archivedDuplicateCount === 2, "Two duplicate rows should be archived");
+});
+
+await scenario("plans selected quantity two plus one duplicate merge", () => {
+  const plan = planEbayDuplicateQuantityMerge({
+    keeperProductId: 200,
+    keeperQuantity: 2,
+    duplicateRows: [{ productId: 201, quantity: 1 }],
+  });
+
+  assert(plan.previousKeeperQuantity === 2, "Keeper quantity should remain 2");
+  assert(plan.duplicateQuantity === 1, "Selected duplicate quantity should be 1");
+  assert(plan.mergedQuantity === 3, "Keeper should become quantity 2 + 1 = 3");
+  assert(plan.archivedDuplicateCount === 1, "Only the selected duplicate should archive");
 });
 
 await scenario("filters keeper and duplicate duplicate IDs from merge plan", () => {
@@ -188,25 +205,61 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     "function setActiveDuplicateAction(action: DuplicateAction)",
     "function duplicateActionBlockedReason(action: string)",
     "function showDuplicateActionBlocked(action: string)",
+    "function duplicateRowLabel(row: DuplicateRow | null | undefined)",
+    "function duplicateRowScope(row: DuplicateRow | null | undefined)",
     "Finish the current duplicate cleanup action before ${action}.",
     "Duplicate scan is already running.",
     "showNotice",
     "showError",
     "clearMessages",
     "Previewing merge...",
-    "Merging now: keeper quantity",
+    "Previewing merge for ${actionLabel}: ${duplicateScope} into keeper ${keeperScope}...",
+    "Merging ${actionLabel} now: keeper ${keeperScope} will change from quantity",
+    "duplicate quantity ${preview.duplicateQuantity} will be archived to 0.",
     "Previewing end/archive",
+    "Previewing end/archive for duplicate ${duplicateScope}...",
     "That row is marked as the keeper",
-    "Ending now: product",
+    "Ending now: duplicate ${duplicateScope} will move from quantity",
+    "const mergeActionTitle",
+    "const selectedMergeTitle",
+    "const endSelectedTitle",
+    "Merge ${allDuplicateRows.length} duplicate row",
+    "into keeper ${keeperScope}; keeper becomes quantity ${mergedQuantity}.",
+    "Duplicate merge plan",
+    "Merge Selected Only archives the highlighted duplicate.",
+    "Merge All archives every non-keeper row.",
+    "The selected",
+    "End Selected Only.",
+    "#{keeperRow.productId} quantity {keeperRow.quantity}",
+    "{allDuplicateRows.length} row",
+    "{duplicateQuantity}",
+    "Selected duplicate quantity {selectedDuplicateQuantity}",
+    "keeper quantity {mergedQuantity}",
+    "Selected merge quantity {selectedMergedQuantity}",
+    "async function mergeSelectedDuplicate(group: DuplicateGroup)",
+    "mode: \"selected\"",
+    "action: \"merge-duplicate\"",
+    "confirm: \"MERGE_DUPLICATE\"",
+    "Merge selected duplicate ${duplicateScope} into keeper ${keeperScope}; keeper becomes quantity ${selectedMergedQuantity}. Other duplicate rows stay active.",
+    "Merge Selected → quantity",
+    "Merge Selected Only",
+    "Previewing selected merge...",
+    "Merging selected...",
+    "End/archive selected duplicate ${duplicateScope}; this leaves keeper ${keeperScope} untouched.",
+    "Keep ${rowScope} as the survivor for this duplicate group.",
+    "Select ${rowScope} as the duplicate to end or merge.",
+    "Preview and end/archive duplicate ${rowScope}; quantity will become 0 after confirmation.",
     "dryRun: true",
     'aria-live={tone === "info" ? "polite" : "assertive"}',
     'role={tone === "error" ? "alert" : "status"}',
     'aria-busy={loading}',
     "aria-disabled={loading || Boolean(workingAction)}",
-    "aria-busy={groupMerging}",
+    "aria-busy={groupMergingSelected}",
+    "aria-busy={groupMergingAll}",
     'aria-busy={groupWorking && workingAction?.kind === "end"}',
     "aria-busy={rowEnding}",
     "aria-disabled={mergeUnavailable}",
+    "aria-disabled={selectedMergeUnavailable}",
     "aria-disabled={endSelectedUnavailable}",
     "aria-disabled={selectDuplicateUnavailable}",
     "aria-disabled={endRowUnavailable}",
@@ -221,6 +274,7 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     "loadGroups({ preserveMessages: true, allowDuringAction: true })",
     "reconcileEbayDuplicateKeeperSelection",
     "reconcileEbayDuplicateRowSelection",
+    "function selectedKeeperProductIdForGroup(group: DuplicateGroup)",
   ]) {
     assert(
       duplicateFinderSource.includes(fragment),
@@ -229,15 +283,61 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
   }
 });
 
+await scenario("duplicate finder actions use immediate keeper selection", () => {
+  const helperIndex = duplicateFinderSource.indexOf(
+    "function selectedKeeperProductIdForGroup(group: DuplicateGroup)",
+  );
+  const chooseDuplicateIndex = duplicateFinderSource.indexOf(
+    "const keeperProductId = selectedKeeperProductIdForGroup(group);",
+  );
+  const mergeGroupIndex = duplicateFinderSource.indexOf(
+    "async function mergeGroup(group: DuplicateGroup)",
+  );
+  const endDuplicateIndex = duplicateFinderSource.indexOf(
+    "async function endDuplicate(group: DuplicateGroup, duplicateProductId: number)",
+  );
+
+  assert(helperIndex > 0, "Expected duplicate finder to centralize selected keeper lookup.");
+  assert(
+    duplicateFinderSource.includes("keepersRef.current[group.key] ||"),
+    "Expected selected keeper lookup to prefer the immediate keeper ref.",
+  );
+  assert(
+    chooseDuplicateIndex > helperIndex,
+    "Expected duplicate-row selection to use the immediate selected keeper.",
+  );
+  assert(
+    duplicateFinderSource.indexOf(
+      "const keeperProductId = selectedKeeperProductIdForGroup(group);",
+      mergeGroupIndex,
+    ) > mergeGroupIndex,
+    "Expected merge action to use the immediate selected keeper.",
+  );
+  assert(
+    duplicateFinderSource.indexOf(
+      "const keeperProductId = selectedKeeperProductIdForGroup(group);",
+      endDuplicateIndex,
+    ) > endDuplicateIndex,
+    "Expected end/archive action to use the immediate selected keeper.",
+  );
+});
+
 await scenario("duplicate cleanup keeps eBay provider failures operator-readable", () => {
   for (const fragment of [
+    "const EBAY_DUPLICATE_PROVIDER_TIMEOUT_MS",
+    "function fetchEbayJsonWithTimeout",
+    "const controller = new AbortController()",
+    "signal: controller.signal",
+    "function ebayProviderTimeoutMessage",
+    "eBay provider request timed out while",
+    "Local TCOS cleanup can continue; refresh eBay sync or retry provider cleanup after the eBay connection responds.",
     "function ebayProviderFailureMessage",
     "eBay did not withdraw the duplicate offer.",
     "Local TCOS cleanup completed; refresh eBay sync or withdraw the duplicate listing from eBay.",
     "eBay did not update the keeper listing quantity.",
     "Local TCOS merge completed; refresh eBay sync or update the keeper listing quantity from eBay.",
     "providerResponse: response.ok ? undefined : data",
-    "function ebaySkippedMessage(action: string)",
+    "function ebaySkippedMessage(action: string, error?: unknown)",
     "eBay duplicate-offer cleanup was skipped.",
     "eBay keeper quantity update was skipped.",
     "detail: error instanceof Error ? error.message",
@@ -268,6 +368,9 @@ await scenario("duplicate finder uses professional quantity labels", () => {
     "keeper quantity",
     "duplicate quantity",
     "archived quantity 0",
+    "quantity ${row.quantity}",
+    "quantity ${duplicateQuantity}",
+    "quantity ${preview.previousQuantity}",
     "keeper becomes quantity",
     "Merge All → quantity",
     "Quantity {row.quantity}",
@@ -290,6 +393,38 @@ await scenario("duplicate finder uses professional quantity labels", () => {
     assert(
       !duplicateFinderSource.includes(roughFragment),
       `Expected duplicate finder to avoid rough quantity shorthand ${roughFragment}.`,
+    );
+  }
+});
+
+await scenario("duplicate finder page uses professional command presentation", () => {
+  for (const fragment of [
+    "Duplicate Cleanup Desk",
+    "eBay Duplicate Finder",
+    "Exact-match only",
+    "Quantity-safe merge",
+    "Bounded eBay cleanup",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "transition hover:-translate-y-0.5",
+  ]) {
+    assert(
+      duplicatePageSource.includes(fragment),
+      `Expected duplicate finder page presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of [
+    'bg-[#f4f1ea]',
+    'bg-[#101418]',
+    "max-w-7xl",
+    "border border-white/20 bg-white/[0.03]",
+  ]) {
+    assert(
+      !duplicatePageSource.includes(roughShell),
+      `Expected duplicate finder page to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });

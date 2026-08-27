@@ -1,0 +1,150 @@
+name: InstaComp V20 Registry-Ready Reserve Self Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
+      - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
+      - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
+      - "services/instacomp-ai/app/**"
+      - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
+      - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
+      - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
+      - "services/instacomp-ai/requirements.txt"
+      - "src/lib/instacomp-learning-server.ts"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-staged-pinned-promotion.yml"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
+      - "services/instacomp-ai/scripts/run_staged_pinned_promotion.sh"
+      - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
+      - "services/instacomp-ai/scripts/repair_trusted_visual_memory.py"
+      - "services/instacomp-ai/scripts/repair_pinned_visual_memory_v15.py"
+      - "services/instacomp-ai/app/**"
+      - "services/instacomp-ai/tests/test_opencv_pattern_native.py"
+      - "services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py"
+      - "services/instacomp-ai/tests/test_prizm_back_mark_guard.py"
+      - "services/instacomp-ai/requirements.txt"
+      - "src/lib/instacomp-learning-server.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v20-contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile V20, V19 base, and syntax-check launchers
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py \
+            services/instacomp-ai/app/authoritative_registry_gateway.py \
+            services/instacomp-ai/app/lora_candidate_runtime_v2.py \
+            services/instacomp-ai/app/lora_candidate_runtime.py \
+            services/instacomp-ai/app/prizm_back_mark_guard.py
+          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+      - name: Run complete V20 contract five consecutive times on Linux
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== V20 LINUX SELF-TEST PASS ${pass}/5 ====="
+            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py --self-test
+          done
+      - name: Prove physical pattern and Prizm regressions
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          python -m pytest -q \
+            services/instacomp-ai/tests/test_opencv_pattern_native.py \
+            services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
+            services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
+      - name: Prove V20 Registry-ready reserve source contract
+        run: |
+          grep -q 'promotion-v20-registry-ready-reserve' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v20.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'REGISTRY_CALL_BUDGETS' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -q 'MINIMUM_LOCKED_RESERVE' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -q '_visible_set_identity_readiness' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -q '_historical_registry_receipt' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -q '_registry_lookup' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -q '_candidate_probe' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -q '_certification_round' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -q 'AuthoritativeRegistryChecklistGateway()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          grep -Fq 'const requiredSetEvidence = [ai.year, ai.brand, ai.setName];' src/lib/instacomp-learning-server.ts
+          grep -Fq 'missing_or_uncertain_visible_set_identity_evidence' src/lib/instacomp-learning-server.ts
+          ! grep -q '_core_registry_identity' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          ! grep -q '_registry_lookup_ladder' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          ! grep -q 'checklist_gateway' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          ! grep -q 'OllamaReader' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          ! grep -q 'sitecustomize' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          ! grep -q 'v18-query-guard' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          ! grep -q 'exec .* - ' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q '15) stages=(10 15)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -q '25) stages=(10 15 25)' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+
+  v20-contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile V20, V19 base, and prove macOS Bash paths
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v19.py \
+            services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py \
+            services/instacomp-ai/app/authoritative_registry_gateway.py \
+            services/instacomp-ai/app/lora_candidate_runtime_v2.py \
+            services/instacomp-ai/app/lora_candidate_runtime.py \
+            services/instacomp-ai/app/prizm_back_mark_guard.py
+          bash -n services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          bash -n services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          bash -uc 'a=(); present=0; if [[ "$present" == "1" ]]; then printf "%s\n" "${a[@]}"; else true; fi'
+      - name: Run complete V20 contract five consecutive times on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== V20 MACOS SELF-TEST PASS ${pass}/5 ====="
+            python services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py --self-test
+          done
+      - name: Prove macOS physical pattern and Prizm regressions
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          python -m pytest -q \
+            services/instacomp-ai/tests/test_opencv_pattern_native.py \
+            services/instacomp-ai/tests/test_prizm_back_mark_guard.py \
+            services/instacomp-ai/tests/test_trusted_visual_memory_parallel_override.py
+      - name: Prove V20 launcher has no runtime patch framework
+        run: |
+          grep -q 'promotion-v20-registry-ready-reserve' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v20.py' services/instacomp-ai/scripts/run_staged_pinned_promotion.sh
+          grep -q 'V20 Registry-ready reserve' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          grep -Fq 'const requiredSetEvidence = [ai.year, ai.brand, ai.setName];' src/lib/instacomp-learning-server.ts
+          ! grep -q '_core_registry_identity' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          ! grep -q '_registry_lookup_ladder' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py
+          ! grep -q 'sitecustomize' services/instacomp-ai/scripts/run-staged-learning-from-main.sh
+          ! grep -q 'v18-query-guard' services/instacomp-ai/scripts/run-staged-learning-from-main.sh

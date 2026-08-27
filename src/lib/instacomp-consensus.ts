@@ -32,6 +32,7 @@ export type InstaCompConsensusReaderFinding = {
   readerId: string;
   label: string;
   kind: InstaCompConsensusReaderKind;
+  family?: string;
   identity: InstaCompConsensusIdentity;
   confidence?: number | null;
   weight?: number | null;
@@ -68,6 +69,7 @@ export type InstaCompConsensusReaderSummary = {
   readerId: string;
   label: string;
   kind: InstaCompConsensusReaderKind;
+  family: string;
   confidence: number | null;
   knownFieldCount: number;
   evidence: string[];
@@ -113,6 +115,30 @@ export type InstaCompConsensusEscalationDecision = {
   explanation: string;
 };
 
+export type InstaCompCompSearchDecision = {
+  allowed: boolean;
+  reason: "identity_confirmed" | "identity_review_required";
+  explanation: string;
+};
+
+export function decideInstaCompCompSearch(
+  consensus: Pick<InstaCompMultiScannerConsensus, "trustedForIdentity">,
+): InstaCompCompSearchDecision {
+  return consensus.trustedForIdentity
+    ? {
+        allowed: true,
+        reason: "identity_confirmed",
+        explanation:
+          "Exact card identity is trusted, so market providers may search for matching comps.",
+      }
+    : {
+        allowed: false,
+        reason: "identity_review_required",
+        explanation:
+          "Comp search is blocked until exact card identity is trusted.",
+      };
+}
+
 const CONSENSUS_FIELDS: InstaCompConsensusField[] = [
   "year",
   "brand",
@@ -130,21 +156,28 @@ const CONSENSUS_FIELDS: InstaCompConsensusField[] = [
 
 const CRITICAL_FIELDS = new Set<InstaCompConsensusField>([
   "year",
+  "brand",
   "setName",
   "cardNumber",
   "player",
+  "team",
   "parallel",
   "serialNumber",
+  "sport",
   "isAuto",
   "isRelic",
 ]);
 
 const HARD_REVIEW_CONFLICT_FIELDS = new Set<InstaCompConsensusField>([
   "year",
+  "brand",
   "setName",
   "cardNumber",
   "player",
+  "team",
+  "parallel",
   "serialNumber",
+  "sport",
 ]);
 
 const POSITIVE_MARKER_FIELDS = new Set<InstaCompConsensusField>([
@@ -202,6 +235,39 @@ function comparableText(value: string | boolean | null | undefined) {
     .trim();
 }
 
+function comparableParallel(value: string | boolean | null | undefined) {
+  if (isGenericBase(value)) return "base";
+  return comparableText(value)
+    .replace(/\bcracked\s+ice\b/g, "ice")
+    .replace(/\bfoil\b/g, "holo")
+    .replace(/\bx[-\s]*fractor\b/g, "xfractor")
+    .replace(/\bcolor\s+blast\b/g, "colorblast")
+    .split(" ")
+    .filter(Boolean)
+    .filter(
+      (token) =>
+        ![
+          "prism",
+          "prizm",
+          "prizms",
+          "parallel",
+          "variation",
+          "rookie",
+          "card",
+        ].includes(token),
+    )
+    .filter((token, index, values) => values.indexOf(token) === index)
+    .sort()
+    .join(" ");
+}
+
+function comparableFieldValue(
+  field: InstaCompConsensusField,
+  value: string | boolean | null | undefined,
+) {
+  return field === "parallel" ? comparableParallel(value) : comparableText(value);
+}
+
 function displayField(field: InstaCompConsensusField) {
   return field
     .replace("setName", "set")
@@ -247,6 +313,11 @@ function isGenericBase(value: string | boolean | null | undefined) {
   );
 }
 
+function isProductLineOnlySetValue(value: string | boolean | null | undefined) {
+  const normalized = comparableText(value);
+  return ["prizm", "prism", "panini prizm", "panini prism"].includes(normalized);
+}
+
 function isUncertain(value: string | boolean | null | undefined) {
   return /\b(uncertain|unknown|unsure|not sure|cannot confirm|ambiguous|maybe|possibly|exact type uncertain)\b/i.test(
     String(value || ""),
@@ -288,6 +359,31 @@ function hasNumberedSignal(value: string | null | undefined) {
     /\b(?!20\d{2}\s*\/\s*\d{2}\b)(\d{1,3})\s*\/\s*(1|5|10|15|20|25|49|50|75|99|100|149|150|199|250|299|399|499|999|1000)\b/g;
 
   return numberedPattern.test(text) || /\b(?:one\s+of\s+one|1\s+of\s+1)\b/i.test(text);
+}
+
+export function applyInstaCompRegistryFastLane(
+  baseline: InstaCompConsensusEscalationDecision,
+  registryIdentityId: string,
+): InstaCompConsensusEscalationDecision {
+  if (baseline.runSecondaryVision) return baseline;
+
+  return {
+    ...baseline,
+    runSecondaryVision: false,
+    speedLane: "fast_lane",
+    councilMode: "fast_lane_council",
+    riskTier: "low",
+    scannerPlan: [
+      "primary_vision",
+      "external_ocr",
+      "checklist_registry_referee",
+    ],
+    reasons: [
+      `Checklist Registry exact identity ${registryIdentityId} confirmed after baseline safety checks.`,
+    ],
+    explanation:
+      "Primary vision and printed evidence matched a private exact Checklist Registry identity, and baseline safety checks found no reason to require secondary AI readers.",
+  };
 }
 
 export function decideInstaCompConsensusEscalation(params: {
@@ -393,10 +489,15 @@ type ValueGroup = {
   key: string;
   value: string | boolean | null;
   sources: string[];
+  families: string[];
   score: number;
   hasUncertain: boolean;
   hasGenericBase: boolean;
 };
+
+function readerFamily(reader: InstaCompConsensusReaderFinding) {
+  return cleanText(reader.family) || `${reader.kind}:${reader.readerId}`;
+}
 
 function valueGroupsForField(
   readers: InstaCompConsensusReaderFinding[],
@@ -409,7 +510,7 @@ function valueGroupsForField(
     if (!knownValue(rawValue)) continue;
 
     const value = normalizeValue(rawValue);
-    const key = comparableText(value);
+    const key = comparableFieldValue(field, value);
     if (!key) continue;
 
     const existing = groups.get(key);
@@ -417,6 +518,7 @@ function valueGroupsForField(
 
     if (existing) {
       existing.sources.push(reader.label);
+      existing.families.push(readerFamily(reader));
       existing.score += score;
       existing.hasUncertain ||= isUncertain(value);
       existing.hasGenericBase ||= isGenericBase(value);
@@ -427,6 +529,7 @@ function valueGroupsForField(
       key,
       value,
       sources: [reader.label],
+      families: [readerFamily(reader)],
       score,
       hasUncertain: isUncertain(value),
       hasGenericBase: isGenericBase(value),
@@ -464,8 +567,13 @@ function buildFieldDecision(params: {
   const fieldLabel = displayField(field);
 
   if (knownValue(catalogValue)) {
+    const catalogKey = comparableFieldValue(field, catalogValue);
+    const groupMatchesCatalog = (group: ValueGroup) =>
+      field === "setName" && catalogReferee?.identity
+        ? catalogTextFieldMatchesReader(field, catalogReferee.identity, group.value)
+        : group.key === catalogKey;
     const conflictingValues = groups
-      .filter((group) => comparableText(group.value) !== comparableText(catalogValue))
+      .filter((group) => !groupMatchesCatalog(group))
       .map((group) => String(group.value));
 
     return {
@@ -475,7 +583,7 @@ function buildFieldDecision(params: {
       sources: [
         catalogReferee?.sourceLabel || "Catalog/checklist referee",
         ...(groups
-          .filter((group) => comparableText(group.value) === comparableText(catalogValue))
+          .filter((group) => groupMatchesCatalog(group))
           .flatMap((group) => group.sources)),
       ],
       conflictingValues: uniqueStrings(conflictingValues),
@@ -504,23 +612,18 @@ function buildFieldDecision(params: {
   }
 
   if (field === "parallel") {
-    const specificGroups = groups.filter(
-      (group) => !group.hasGenericBase && !group.hasUncertain,
-    );
-    const genericBaseGroups = groups.filter((group) => group.hasGenericBase);
-
-    if (specificGroups.length === 1 && genericBaseGroups.length > 0) {
-      const [specific] = specificGroups;
-
-      return {
-        field,
-        status: "specific_variant_over_base",
-        value: specific.value,
-        sources: uniqueStrings(specific.sources),
-        conflictingValues: uniqueStrings(genericBaseGroups.map((group) => String(group.value))),
-        reason: `Specific printed/checklist variation "${specific.value}" beat generic Base for ${fieldLabel}.`,
-      };
-    }
+    const [top] = groups;
+    return {
+      field,
+      status: "review_required",
+      value: top.value,
+      sources: uniqueStrings(top.sources),
+      conflictingValues: uniqueStrings(
+        groups.slice(1).map((group) => String(group.value)),
+      ),
+      reason:
+        "Readers disagreed on the visible parallel/color/finish; weighted voting is forbidden for exact identity.",
+    };
   }
 
   if (POSITIVE_MARKER_FIELDS.has(field)) {
@@ -577,6 +680,314 @@ function buildFieldDecision(params: {
   };
 }
 
+function semanticTokens(value: string | boolean | null | undefined) {
+  return comparableText(value)
+    .replace(/\b(?:19|20)\d{2}(?:[-\s]+\d{2,4})?\b/g, " ")
+    .replace(/\bcheck\s+point\b/g, "checkpoint")
+    .replace(/\byoung\s+gun\b/g, "young guns")
+    .replace(/[/-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(
+      (token) =>
+        ![
+          "upper",
+          "deck",
+          "series",
+          "hockey",
+          "base",
+          "set",
+          "parallel",
+          "card",
+          "the",
+        ].includes(token),
+    );
+}
+
+function sortedTokenKey(tokens: string[]) {
+  return [...new Set(tokens)].sort().join(" ");
+}
+
+function catalogRegistrySetName(
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  return cleanText(
+    (identity as (Partial<InstaCompCatalogCompIdentity> & {
+      registrySetName?: string | null;
+    }) | null | undefined)?.registrySetName,
+  );
+}
+
+function logicalRegistrySetTokens(
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  const registryTokens = semanticTokens(catalogRegistrySetName(identity));
+  const parallelTokens = semanticTokens(identity?.parallel);
+  return registryTokens.filter((token) => !parallelTokens.includes(token));
+}
+
+function parallelKeyAgainstCatalog(
+  value: string | boolean | null | undefined,
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  const logicalSetTokens = new Set(logicalRegistrySetTokens(identity));
+  const tokens = comparableParallel(value)
+    .split(" ")
+    .filter(Boolean)
+    .filter((token) => !logicalSetTokens.has(token));
+  return tokens.length ? sortedTokenKey(tokens) : "base";
+}
+
+function parallelGroupMatchesCatalog(
+  group: ValueGroup,
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  return (
+    parallelKeyAgainstCatalog(group.value, identity) ===
+    parallelKeyAgainstCatalog(identity?.parallel, identity)
+  );
+}
+
+function readerEvidenceText(reader: InstaCompConsensusReaderFinding) {
+  return (reader.evidence || []).join(" ");
+}
+
+function hasUnresolvedVisibleSurfaceRisk(value: string) {
+  const clauses = String(value || "").split(/[.;]/g);
+  const finishCue =
+    /\b(speckle(?:d)?|sparkle|glitter|rainbow|holo(?:graphic)?|foil|acetate|clear[-\s]*stock|transparent|translucent|outburst|refractor|shimmer|wave|pulsar|mojo|mosaic|laser|black\s+and\s+white)\b/i;
+  const colorContext =
+    /\b(black|blue|gold|green|orange|pink|purple|red|silver|white)\b(?:\s+\w+){0,3}\s+\b(border|finish|foil|parallel)\b/i;
+  const negation = /\b(no|not|without|none|absent|neither)\b/i;
+  return clauses.some((clause) => {
+    const cue = finishCue.exec(clause) || colorContext.exec(clause);
+    if (!cue) return false;
+    return !negation.test(clause.slice(0, cue.index));
+  });
+}
+
+function evidenceSupportsCatalogParallel(
+  reader: InstaCompConsensusReaderFinding,
+  identity: Partial<InstaCompCatalogCompIdentity> | null | undefined,
+) {
+  const catalogParallel = normalizeValue(identity?.parallel);
+  if (!knownValue(catalogParallel) || isGenericBase(catalogParallel)) return false;
+  const evidenceTokens = new Set(
+    comparableParallel(readerEvidenceText(reader)).split(" ").filter(Boolean),
+  );
+  const requiredTokens = comparableParallel(catalogParallel)
+    .split(" ")
+    .filter(Boolean);
+  return (
+    requiredTokens.length > 0 &&
+    requiredTokens.every((token) => evidenceTokens.has(token))
+  );
+}
+
+function catalogTextFieldMatchesReader(
+  field: InstaCompConsensusField,
+  catalogIdentity: Partial<InstaCompCatalogCompIdentity>,
+  readerValue: string | boolean | null,
+) {
+  const catalogValue = normalizeValue(fieldValue(catalogIdentity, field));
+  if (field === "year") {
+    const catalogYear = comparableText(catalogValue).match(/\b((?:19|20)\d{2})\b/)?.[1];
+    const readerYear = comparableText(readerValue).match(/\b((?:19|20)\d{2})\b/)?.[1];
+    return Boolean(catalogYear && readerYear && catalogYear === readerYear);
+  }
+  if (field === "setName") {
+    const registrySetName = catalogRegistrySetName(catalogIdentity);
+    const catalogSetValues = [catalogValue, registrySetName].filter(Boolean);
+    if (isProductLineOnlySetValue(readerValue)) {
+      const readerTokens = semanticTokens(readerValue);
+      const productTokens = new Set(semanticTokens((catalogIdentity as typeof catalogIdentity & { product?: string | null }).product));
+      return (
+        readerTokens.length > 0 &&
+        readerTokens.every((token) => productTokens.has(token))
+      );
+    }
+    // semanticTokens intentionally strips generic words such as "base". Handle
+    // the logical Base set explicitly so Base vs Base cannot become an empty-token
+    // false conflict while still refusing Base vs a named insert/subset.
+    if (isGenericBase(readerValue)) {
+      return catalogSetValues.some((value) => isGenericBase(value));
+    }
+    if (catalogSetValues.some((value) => isGenericBase(value))) {
+      return false;
+    }
+    const readerTokens = semanticTokens(readerValue);
+    const catalogTokens = new Set(semanticTokens(catalogSetValues.join(" ")));
+    return (
+      readerTokens.length > 0 &&
+      readerTokens.every((token) => catalogTokens.has(token))
+    );
+  }
+  if (field === "player") {
+    return (
+      sortedTokenKey(semanticTokens(readerValue)) ===
+      sortedTokenKey(semanticTokens(catalogValue))
+    );
+  }
+  if (field === "cardNumber") {
+    return (
+      comparableText(readerValue).replace(/[\s-]/g, "") ===
+      comparableText(catalogValue).replace(/[\s-]/g, "")
+    );
+  }
+  return comparableText(readerValue) === comparableText(catalogValue);
+}
+
+function serialDenominator(value: string | boolean | null | undefined) {
+  if (typeof value === "boolean") return null;
+
+  const match = String(value || "").match(
+    /(?:\d{1,6}\s*\/\s*|\/\s*)(\d{1,7})\b/,
+  );
+
+  return match?.[1] || null;
+}
+
+function guardCatalogRefereeAgainstHardEvidence(params: {
+  readers: InstaCompConsensusReaderFinding[];
+  catalogReferee?: InstaCompConsensusCatalogReferee | null;
+}): InstaCompConsensusCatalogReferee | null {
+  const catalogReferee = params.catalogReferee;
+  if (catalogReferee?.status !== "catalog_confirmed" || !catalogReferee.identity) {
+    return catalogReferee || null;
+  }
+
+  const conflicts: string[] = [];
+  const catalogIdentity = catalogReferee.identity;
+  const catalogParallel = normalizeValue(catalogIdentity.parallel);
+  const catalogSerialRun =
+    serialDenominator(catalogIdentity.serialNumber) ||
+    (/^\d{1,7}$/.test(cleanText(catalogIdentity.serialRun))
+      ? cleanText(catalogIdentity.serialRun)
+      : serialDenominator(catalogIdentity.serialRun));
+
+  if (catalogSerialRun && isGenericBase(catalogParallel)) {
+    conflicts.push(
+      `catalog parallel "${catalogParallel}" cannot be Base with serial run /${catalogSerialRun}`,
+    );
+  }
+
+  const readerParallelGroups = valueGroupsForField(params.readers, "parallel");
+  const matchingParallelGroups = readerParallelGroups.filter((group) =>
+    parallelGroupMatchesCatalog(group, catalogIdentity),
+  );
+  const matchingParallelFamilies = uniqueStrings(
+    matchingParallelGroups.flatMap((group) => group.families),
+  );
+  const evidenceParallelFamilies = uniqueStrings(
+    params.readers
+      .filter((reader) => evidenceSupportsCatalogParallel(reader, catalogIdentity))
+      .map((reader) => readerFamily(reader)),
+  );
+  const supportingParallelFamilies = uniqueStrings([
+    ...matchingParallelFamilies,
+    ...evidenceParallelFamilies,
+  ]);
+  const conflictingSpecificParallelGroups = readerParallelGroups.filter(
+    (group) =>
+      !parallelGroupMatchesCatalog(group, catalogIdentity) &&
+      !group.hasGenericBase &&
+      !group.hasUncertain,
+  );
+  const unresolvedSurfaceRiskFamilies = uniqueStrings(
+    params.readers
+      .filter((reader) =>
+        hasUnresolvedVisibleSurfaceRisk(readerEvidenceText(reader)),
+      )
+      .map((reader) => readerFamily(reader)),
+  );
+
+  if (isGenericBase(catalogParallel)) {
+    if (unresolvedSurfaceRiskFamilies.length >= 1) {
+      conflicts.push(
+        "catalog Base parallel conflicts with unresolved visible surface/finish evidence",
+      );
+    }
+  } else if (supportingParallelFamilies.length < 2) {
+      conflicts.push(
+        "catalog non-Base parallel lacks agreement from two independent scanner families",
+      );
+  }
+  if (conflictingSpecificParallelGroups.length) {
+    conflicts.push(
+      `catalog parallel "${catalogParallel}" conflicts with visible scanner parallel evidence ${conflictingSpecificParallelGroups
+        .map((group) => `"${group.value}"`)
+        .join(", ")}`,
+    );
+  }
+
+  const hardTextFields: InstaCompConsensusField[] = [
+    "year",
+    "setName",
+    "cardNumber",
+    "player",
+  ];
+
+  for (const field of hardTextFields) {
+    const catalogValue = normalizeValue(fieldValue(catalogIdentity, field));
+    if (!knownValue(catalogValue)) continue;
+
+    const readerGroups = valueGroupsForField(params.readers, field);
+    if (readerGroups.length !== 1) continue;
+
+    const [readerGroup] = readerGroups;
+    if (catalogTextFieldMatchesReader(field, catalogIdentity, readerGroup.value)) {
+      continue;
+    }
+
+    conflicts.push(
+      `catalog ${displayField(field)} "${catalogValue}" conflicts with unanimous scanner evidence "${readerGroup.value}"`,
+    );
+  }
+
+  const readerSerialRuns = uniqueStrings(
+    params.readers
+      .map((reader) => serialDenominator(reader.identity.serialNumber))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  if (
+    catalogSerialRun &&
+    readerSerialRuns.length === 1 &&
+    readerSerialRuns[0] !== catalogSerialRun
+  ) {
+    conflicts.push(
+      `catalog serial run /${catalogSerialRun} conflicts with printed scanner evidence /${readerSerialRuns[0]}`,
+    );
+  }
+
+  for (const field of ["isAuto", "isRelic"] as const) {
+    const catalogValue = fieldValue(catalogIdentity, field);
+    const readerGroups = valueGroupsForField(params.readers, field);
+    const positiveEvidence = readerGroups.some((group) =>
+      hasBooleanValue(group, true),
+    );
+
+    if (catalogValue === false && positiveEvidence) {
+      conflicts.push(
+        `catalog ${displayField(field)} false conflicts with positive printed scanner evidence`,
+      );
+    }
+  }
+
+  if (!conflicts.length) return catalogReferee;
+
+  return {
+    ...catalogReferee,
+    status: "review_required",
+    matchExplanation: [
+      catalogReferee.matchExplanation,
+      `Checklist identity rejected by InstaComp hard-evidence guard: ${conflicts.join("; ")}.`,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
 function readerSummary(reader: InstaCompConsensusReaderFinding): InstaCompConsensusReaderSummary {
   const knownFieldCount = CONSENSUS_FIELDS.filter((field) =>
     knownValue(fieldValue(reader.identity, field)),
@@ -586,6 +997,7 @@ function readerSummary(reader: InstaCompConsensusReaderFinding): InstaCompConsen
     readerId: reader.readerId,
     label: reader.label,
     kind: reader.kind,
+    family: readerFamily(reader),
     confidence:
       typeof reader.confidence === "number" && Number.isFinite(reader.confidence)
         ? reader.confidence
@@ -611,12 +1023,20 @@ function councilReadiness(params: {
   const presentReaderKinds = uniqueStrings(
     params.readers.map((reader) => reader.kind),
   ) as InstaCompConsensusReaderKind[];
+  const presentReaderFamilies = uniqueStrings(
+    params.readers.map((reader) => readerFamily(reader)),
+  );
   const requiredReaderKinds: InstaCompConsensusReaderKind[] = ["primary_vision"];
   const reasons: string[] = [];
   const hasCatalogConfirmation = params.catalogReferee?.status === "catalog_confirmed";
-  const supportReaderCount = params.readers.filter(
-    (reader) => reader.kind !== "primary_vision",
-  ).length + (hasCatalogConfirmation ? 1 : 0);
+  const primaryFamilies = new Set(
+    params.readers
+      .filter((reader) => reader.kind === "primary_vision")
+      .map((reader) => readerFamily(reader)),
+  );
+  const supportReaderCount =
+    presentReaderFamilies.filter((family) => !primaryFamilies.has(family)).length +
+    (hasCatalogConfirmation ? 1 : 0);
 
   if (params.escalation?.runSecondaryVision) {
     requiredReaderKinds.push("secondary_vision");
@@ -660,7 +1080,8 @@ function councilReadiness(params: {
     status,
     speedLane: params.escalation?.speedLane || "unknown",
     councilMode: params.escalation?.councilMode || "unknown",
-    independentReaderCount: params.readers.length + (hasCatalogConfirmation ? 1 : 0),
+    independentReaderCount:
+      presentReaderFamilies.length + (hasCatalogConfirmation ? 1 : 0),
     presentReaderKinds,
     requiredReaderKinds,
     missingReaderKinds,
@@ -681,16 +1102,20 @@ export function buildInstaCompMultiScannerConsensus(params: {
   escalation?: InstaCompConsensusEscalationDecision | null;
 }): InstaCompMultiScannerConsensus {
   const readers = params.readers.filter((reader) => reader.readerId && reader.label);
-  const readiness = councilReadiness({
+  const catalogReferee = guardCatalogRefereeAgainstHardEvidence({
     readers,
     catalogReferee: params.catalogReferee,
+  });
+  const readiness = councilReadiness({
+    readers,
+    catalogReferee,
     escalation: params.escalation,
   });
   const fieldDecisions = CONSENSUS_FIELDS.flatMap((field) => {
     const decision = buildFieldDecision({
       field,
       readers,
-      catalogReferee: params.catalogReferee,
+      catalogReferee,
     });
 
     return decision ? [decision] : [];
@@ -707,10 +1132,14 @@ export function buildInstaCompMultiScannerConsensus(params: {
   const reviewReasons = uniqueStrings(
     [
       ...fieldDecisions.flatMap((decision) => {
-        if (decision.status !== "review_required") return [];
         if (!CRITICAL_FIELDS.has(decision.field)) return [];
-
-        return [`multi_scanner_${decision.field}_disagreement`];
+        if (decision.status === "review_required") {
+          return [`multi_scanner_${decision.field}_disagreement`];
+        }
+        if (decision.status === "single_reader") {
+          return [`multi_scanner_${decision.field}_single_reader`];
+        }
+        return [];
       }),
       ...(readiness.status === "review_required" ? readiness.reasons : []),
     ],
@@ -728,10 +1157,10 @@ export function buildInstaCompMultiScannerConsensus(params: {
     reviewReasons,
     reasonTrail: fieldDecisions.map((decision) => decision.reason),
     catalogReferee: {
-      status: params.catalogReferee?.status || "not_available",
-      sourceLabel: params.catalogReferee?.sourceLabel || null,
-      catalogId: params.catalogReferee?.catalogId || null,
-      matchExplanation: params.catalogReferee?.matchExplanation || null,
+      status: catalogReferee?.status || "not_available",
+      sourceLabel: catalogReferee?.sourceLabel || null,
+      catalogId: catalogReferee?.catalogId || null,
+      matchExplanation: catalogReferee?.matchExplanation || null,
     },
     suggestedQuestion: suggestedQuestion(fieldDecisions),
   };
@@ -779,6 +1208,7 @@ export function buildInstaCompReaderFindingFromAi(params: {
   readerId: string;
   label: string;
   kind: InstaCompConsensusReaderKind;
+  family?: string;
   ai: InstaCompAiResult;
   evidence?: string[];
   weight?: number;
@@ -787,6 +1217,7 @@ export function buildInstaCompReaderFindingFromAi(params: {
     readerId: params.readerId,
     label: params.label,
     kind: params.kind,
+    family: params.family,
     identity: {
       player: params.ai.player,
       year: params.ai.year,
@@ -803,6 +1234,9 @@ export function buildInstaCompReaderFindingFromAi(params: {
     },
     confidence: params.ai.confidence,
     weight: params.weight,
-    evidence: params.evidence,
+    evidence: uniqueStrings([
+      ...(params.evidence || []),
+      ...(params.ai.notes ? [params.ai.notes] : []),
+    ]),
   };
 }

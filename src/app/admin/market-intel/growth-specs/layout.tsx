@@ -1,6 +1,6 @@
 import Link from "next/link";
 import AdminSubmitButton from "../../AdminSubmitButton";
-import { seedDillonHeadHoardTarget } from "../../../../lib/market-intel-hoard-target-seed";
+import { seedDillonLewisHoardTarget } from "../../../../lib/market-intel-hoard-target-seed";
 import { getMarketIntelWatchlist } from "../../../../lib/market-intel-watchlist";
 import {
   GROWTH_PROSPECT_COUNT,
@@ -33,7 +33,7 @@ export default async function GrowthSpecsLayout({
     await seedMarketIntelGrowthProspects();
   }
 
-  await seedDillonHeadHoardTarget();
+  await seedDillonLewisHoardTarget();
   rows = await getMarketIntelWatchlist();
   const prospects = rows.filter(
     (row) => row.active && isGrowthProspect(row.notes),
@@ -47,8 +47,8 @@ export default async function GrowthSpecsLayout({
 
   return (
     <>
-      <section className="border-b border-fuchsia-200 bg-fuchsia-50 px-6 py-4 text-fuchsia-950">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="bg-[radial-gradient(circle_at_top_left,#fae8ff_0,#f8fafc_44%,#f7fee7_100%)] px-4 pt-6 text-fuchsia-950 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[1500px] flex-col gap-3 rounded-3xl border border-fuchsia-200 bg-fuchsia-50/95 p-5 shadow-sm ring-1 ring-fuchsia-950/5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em]">
               Licensed Pro Value Universe
@@ -58,35 +58,39 @@ export default async function GrowthSpecsLayout({
               baseball-first · WNBA value · non-base only
             </p>
             <p className="mt-1 text-xs font-bold text-fuchsia-800">
-              Dillon Head: 1st Bowman Chrome non-base hoard lane only.
+              Dillon Lewis: 1st Bowman Chrome non-base hoard lane only.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
               href="/admin/market-intel/discovery"
-              className="rounded-md bg-cyan-900 px-4 py-2 text-sm font-black text-white"
+              className="rounded-full bg-cyan-900 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-cyan-800"
             >
               Discover Exact Cards
             </Link>
             <Link
               href="/admin/market-intel/purchases/ebay-intake"
-              className="rounded-md bg-lime-800 px-4 py-2 text-sm font-black text-white"
+              className="rounded-full bg-lime-800 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-lime-700"
             >
               Add eBay Purchase
             </Link>
             <Link
               href="/admin/market-intel/growth-specs/prospects"
-              className="rounded-md bg-fuchsia-800 px-4 py-2 text-sm font-black text-white"
+              className="rounded-full bg-fuchsia-800 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-fuchsia-700"
             >
               View Value Watchlists
             </Link>
             <form method="post" action="/api/admin/market-intel/growth-specs/seed-prospects">
               <AdminSubmitButton
-                className="rounded-md border border-fuchsia-300 bg-white px-4 py-2 text-sm font-black"
+                className="rounded-full border border-fuchsia-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:bg-fuchsia-50"
                 pendingChildren="Refreshing lists..."
+                title="Refresh the curated Market Intel value watchlists while preserving exact-card research and history."
               >
                 Refresh Value Lists
               </AdminSubmitButton>
+              <p className="w-full text-xs font-bold text-fuchsia-950">
+                Reapplies prospect priorities and card-scope rules; saved exact cards, comps, purchases, and sales stay intact.
+              </p>
             </form>
           </div>
         </div>

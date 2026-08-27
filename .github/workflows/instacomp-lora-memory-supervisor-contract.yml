@@ -1,0 +1,185 @@
+name: InstaComp LoRA Parent OOM Recovery Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-memory-supervisor-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/qwen3_multimodal_alignment_guard.py"
+      - "services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-memory-supervisor-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/qwen3_multimodal_alignment_guard.py"
+      - "services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py"
+      - "services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile memory and alignment supervisor
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
+            services/instacomp-ai/scripts/qwen3_multimodal_alignment_guard.py \
+            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py
+      - name: Repeat deterministic parent OOM regression five times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== LORA OOM SUPERVISOR LINUX ${pass}/5 ====="
+            python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          done
+      - name: Repeat deterministic Qwen3 alignment regression five times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== QWEN3 ALIGNMENT SUPERVISOR LINUX ${pass}/5 ====="
+            python services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py
+          done
+      - name: Prove image-only recovery and Qwen3 compatibility contracts
+        run: |
+          compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
+          guard=services/instacomp-ai/scripts/qwen3_multimodal_alignment_guard.py
+          test=services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          alignment_test=services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py
+          runtime_test=services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py
+          alignment_runtime=services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py
+          grep -q 'MAX_SAFE_IMAGE_EDGE = 320' "$compat"
+          grep -q 'MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
+          grep -q 'OOM_RETRY_IMAGE_EDGES = (288, 256)' "$compat"
+          grep -q 'MULTIMODAL_ALIGNMENT_EXIT_CODE = 87' "$compat"
+          grep -q 'Preserve the exact caller-requested multimodal sequence cap' "$compat"
+          grep -q 'Refusing unsafe InstaComp multimodal max_seq_length below 2048' "$compat"
+          grep -q 'desynchronize Qwen image tokens and image features' "$compat"
+          grep -q 'requested multimodal sequence cap' "$compat"
+          grep -q 'max_seq_length={next_seq} preserved exactly' "$compat"
+          grep -q 'install_qwen3_vision_repeat_compatibility' "$compat"
+          grep -q 'install_alignment_guards' "$compat"
+          grep -q 'install_profile_pixel_floor' "$compat"
+          grep -q 'sequence-cap windows' "$guard"
+          grep -q 'upstream mlx-vlm truncation neutralized before collation' "$guard"
+          grep -q 'before masked scatter' "$guard"
+          grep -q 'checkpoint min_pixels floor' "$guard"
+          grep -q 'return subprocess.CompletedProcess(command, -6)' "$test"
+          grep -q 'Qwen3 scalar repeat shim converts only integer-like scalar counts' "$test"
+          grep -q '320/4096 -> 288/4096 -> 256/4096' "$test"
+          grep -q 'overlength sequence fit preserves late vision tokens' "$alignment_test"
+          grep -q 'sequence fit fails closed when media plus supervised completion cannot fit' "$alignment_test"
+          grep -q 'alignment recovery uses 320/4096 -> 288/4096 -> 256/4096 only' "$alignment_test"
+          grep -q 'persistent multimodal mismatch fails closed' "$alignment_test"
+          grep -q 'mx.array(2, dtype=mx.int32)' "$runtime_test"
+          grep -q 'late image tokens survive the exact 4096 batcher' "$alignment_runtime"
+          grep -q 'lower profile produces fewer real Qwen3 visual patches' "$alignment_runtime"
+          ! grep -q '1536' "$compat"
+          ! grep -q '1024' "$compat"
+
+  contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile exact Mac memory and alignment supervisor
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
+            services/instacomp-ai/scripts/qwen3_multimodal_alignment_guard.py \
+            services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py \
+            services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py
+      - name: Repeat exact Metal and sequence-preservation regression five times on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== LORA OOM SUPERVISOR MAC ${pass}/5 ====="
+            python services/instacomp-ai/scripts/test_lora_parent_oom_recovery.py
+          done
+      - name: Repeat Qwen3 alignment supervisor regression five times on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== QWEN3 ALIGNMENT SUPERVISOR MAC ${pass}/5 ====="
+            python services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_guard.py
+          done
+      - name: Install exact certified LoRA runtime
+        run: |
+          python -m pip install --disable-pip-version-check -r services/instacomp-ai/requirements-lora-runtime.txt
+      - name: Reproduce exact Qwen3-VL runtime compatibility three times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.metadata
+          import platform
+          version = importlib.metadata.version("mlx-vlm")
+          print(f"runtime_arch={platform.machine()} mlx_vlm={version}")
+          assert version == "0.6.8"
+          PY
+          for pass in 1 2 3; do
+            echo "===== QWEN3 SCALAR REPEAT MAC ${pass}/3 ====="
+            python services/instacomp-ai/scripts/test_qwen3_vl_repeat_compat_runtime.py
+            echo "===== QWEN3 ALIGNMENT RUNTIME MAC ${pass}/3 ====="
+            python services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py
+          done
+      - name: Prove Mac launcher preserves sequence cap and guards Qwen3 alignment
+        run: |
+          compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
+          guard=services/instacomp-ai/scripts/qwen3_multimodal_alignment_guard.py
+          alignment_runtime=services/instacomp-ai/scripts/test_qwen3_vl_multimodal_alignment_runtime.py
+          grep -q 'WORKER_ENV = "INSTACOMP_MLX_LORA_WORKER"' "$compat"
+          grep -q 'supervise_training' "$compat"
+          grep -q '_run_worker' "$compat"
+          grep -q '_clear_partial_output' "$compat"
+          grep -q 'PARENT OOM RECOVERY' "$compat"
+          grep -q 'PARENT ALIGNMENT RECOVERY' "$compat"
+          grep -q 'MAX_SAFE_IMAGE_EDGE = 320' "$compat"
+          grep -q 'MIN_SAFE_MULTIMODAL_SEQ_LENGTH = 2048' "$compat"
+          grep -q 'OOM_RETRY_IMAGE_EDGES = (288, 256)' "$compat"
+          grep -q 'current_seq' "$compat"
+          grep -q 'install_qwen3_vision_repeat_compatibility()' "$compat"
+          grep -q 'install_profile_pixel_floor(profile_edge)' "$compat"
+          grep -q 'install_alignment_guards()' "$compat"
+          grep -q '_MxRepeatCompatProxy' "$compat"
+          grep -q 'Qwen3MultimodalAlignmentError' "$guard"
+          grep -q 'SEQUENCE_WINDOW_PREFIX_CONTEXT = 16' "$guard"
+          grep -q 'upstream mlx-vlm truncation neutralized before collation' "$guard"
+          grep -q 'late image tokens survive the exact 4096 batcher' "$alignment_runtime"
+          ! grep -q '1536' "$compat"
+          ! grep -q '1024' "$compat"
+          grep -q 'every bounded certified image profile' "$compat"

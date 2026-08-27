@@ -4,16 +4,26 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
 import CheckoutButton from "../components/CheckoutButton";
+import BuyerProtectionOption, {
+  type BuyerProtectionCheckoutChoice,
+} from "./BuyerProtectionOption";
+import {
+  BUYER_PROTECTION_POLICY_VERSION,
+  getBuyerProtectionQuote,
+} from "../../lib/buyer-protection";
 import {
   calculateShipping,
+  getAvailableShippingMethods,
   getFreeShippingMessage,
   getShippingCoverage,
   getStandardEnvelopeEligibility,
+  PARCEL_INCLUDED_COVERAGE_LIMIT,
   resolveShippingMethod,
   SHIPPING_RULES,
   type ShippingMethod,
 } from "../../lib/shipping";
 import {
+  STORE_SUPPORT_EMAIL,
   TERMS_OF_SERVICE_PATH,
   TERMS_OF_SERVICE_VERSION,
 } from "../../lib/legal";
@@ -24,6 +34,15 @@ type CartItem = {
   price: number;
   quantity: number;
   image_url?: string;
+};
+
+const EMPTY_PROTECTION_CHOICE: BuyerProtectionCheckoutChoice = {
+  selected: false,
+  preferenceMode: "one_time",
+  termsAccepted: false,
+  declineAcknowledged: false,
+  policyVersion: BUYER_PROTECTION_POLICY_VERSION,
+  storedConsentCurrent: false,
 };
 
 export default function CartClient(props: { storeDisplayName: string }) {
@@ -38,7 +57,6 @@ export default function CartClient(props: { storeDisplayName: string }) {
     }
 
     const storedCart = localStorage.getItem("cart");
-
     if (!storedCart) return [];
 
     try {
@@ -49,7 +67,10 @@ export default function CartClient(props: { storeDisplayName: string }) {
   });
   const [shippingMethod, setShippingMethod] =
     useState<ShippingMethod>("STANDARD_ENVELOPE");
+  const [buyerProtection, setBuyerProtection] =
+    useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [couponCode, setCouponCode] = useState("");
 
   function saveCart(updatedCart: CartItem[]) {
     setCart(updatedCart);
@@ -88,29 +109,22 @@ export default function CartClient(props: { storeDisplayName: string }) {
     0,
   );
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const listingPriceBasis = subtotal;
   const standardEnvelopeEligibility = getStandardEnvelopeEligibility({
     itemCount,
     subtotal,
+    listingPriceBasis,
   });
-  const standardEnvelopeShipping = calculateShipping({
+  const availableShippingMethods = getAvailableShippingMethods({
     itemCount,
     subtotal,
-    method: "STANDARD_ENVELOPE",
-  });
-  const groundShipping = calculateShipping({
-    itemCount,
-    subtotal,
-    method: "GROUND_ADVANTAGE",
-  });
-  const priorityShipping = calculateShipping({
-    itemCount,
-    subtotal,
-    method: "PRIORITY_MAIL",
+    listingPriceBasis,
   });
   const resolvedShipping = resolveShippingMethod({
     requestedMethod: shippingMethod,
     itemCount,
     subtotal,
+    listingPriceBasis,
   });
   const selectedShippingMethod = resolvedShipping.method;
   const shippingCoverage = getShippingCoverage({
@@ -120,25 +134,54 @@ export default function CartClient(props: { storeDisplayName: string }) {
   const selectedShipping = calculateShipping({
     itemCount,
     subtotal,
+    listingPriceBasis,
     method: selectedShippingMethod,
   });
-  const total = subtotal + selectedShipping;
+  const buyerProtectionQuote = getBuyerProtectionQuote({
+    shippingMethod: selectedShippingMethod,
+    itemSubtotal: subtotal,
+    shippingAmount: selectedShipping,
+    itemCount,
+  });
+  const buyerProtectionAvailable = buyerProtectionQuote.eligible;
+  const resolvedBuyerProtection: BuyerProtectionCheckoutChoice = {
+    ...buyerProtection,
+    selected: buyerProtectionAvailable && buyerProtection.selected,
+    declineAcknowledged: buyerProtectionAvailable
+      ? buyerProtection.declineAcknowledged
+      : false,
+  };
+  const buyerProtectionFee = resolvedBuyerProtection.selected
+    ? buyerProtectionQuote.feeAmount
+    : 0;
+  const total = subtotal + selectedShipping + buyerProtectionFee;
+
+  function shippingPrice(method: ShippingMethod) {
+    return calculateShipping({
+      itemCount,
+      subtotal,
+      listingPriceBasis,
+      method,
+    });
+  }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-8">
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <div className="mb-8 border-b border-neutral-200 pb-6">
         <p className="text-sm font-bold uppercase text-neutral-500">
           Secure Checkout
         </p>
-        <h1 className="mt-2 text-4xl font-black md:text-5xl">Shopping Cart</h1>
+        <h1 className="mt-2 text-3xl font-black sm:text-4xl md:text-5xl">
+          Shopping Cart
+        </h1>
       </div>
 
       {cart.length === 0 ? (
-        <section className="rounded border bg-white p-8">
+        <section className="rounded border bg-white p-6 sm:p-8">
           <p className="text-lg font-bold">Your cart is empty.</p>
           <Link
             href="/shop"
-            className="mt-5 inline-block rounded bg-neutral-950 px-5 py-3 font-bold text-white"
+            className="mt-5 inline-flex min-h-12 items-center justify-center rounded bg-neutral-950 px-5 py-3 font-bold text-white"
           >
             Shop Inventory
           </Link>
@@ -155,50 +198,62 @@ export default function CartClient(props: { storeDisplayName: string }) {
                   <Image
                     src={item.image_url}
                     alt={item.title}
-                    width={112}
-                    height={112}
-                    unoptimized
-                    className="h-28 w-28 rounded object-cover"
+                    width={240}
+                    height={240}
+                    quality={90}
+                    className="h-44 w-full rounded bg-neutral-50 object-contain p-2 sm:h-28 sm:w-28 sm:shrink-0"
                   />
                 ) : null}
 
-                <div className="flex-1">
-                  <h2 className="font-black">{item.title}</h2>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/product/${item.id}`}
+                    className="block break-words font-black underline-offset-4 hover:underline"
+                  >
+                    {item.title}
+                  </Link>
                   <p className="mt-1 text-neutral-600">
                     ${Number(item.price).toFixed(2)} each
                   </p>
 
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => decreaseQuantity(item.id)}
-                      className="rounded border px-3 py-1 font-bold"
+                      aria-label={`Decrease quantity for ${item.title}`}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded border px-3 font-bold"
                     >
-                      -
+                      −
                     </button>
-                    <span className="text-sm font-bold">Qty: {item.quantity}</span>
+                    <span className="min-w-16 text-center text-sm font-bold">
+                      Qty: {item.quantity}
+                    </span>
                     <button
+                      type="button"
                       onClick={() => increaseQuantity(item.id)}
-                      className="rounded border px-3 py-1 font-bold"
+                      aria-label={`Increase quantity for ${item.title}`}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded border px-3 font-bold"
                     >
                       +
                     </button>
                     <button
+                      type="button"
                       onClick={() => removeItem(item.id)}
-                      className="ml-2 text-sm font-bold text-red-600"
+                      className="inline-flex min-h-11 items-center justify-center rounded border border-red-200 px-3 text-sm font-bold text-red-700"
                     >
                       Remove
                     </button>
                   </div>
                 </div>
 
-                <div className="text-xl font-black">
+                <div className="self-end text-xl font-black sm:self-auto">
                   ${(Number(item.price) * item.quantity).toFixed(2)}
                 </div>
               </div>
             ))}
           </section>
 
-          <section className="h-fit rounded border bg-white p-5">
+          <section className="h-fit rounded border bg-white p-4 sm:p-5">
             <h2 className="text-2xl font-black">Order Summary</h2>
 
             <div className="mt-4 space-y-2 text-sm">
@@ -213,72 +268,52 @@ export default function CartClient(props: { storeDisplayName: string }) {
             </div>
 
             <div className="mt-6">
-              <h3 className="text-lg font-black">Choose Shipping</h3>
-              <p className="mt-1 text-sm font-semibold text-neutral-600">
-                Shipping is currently available only to United States addresses.
-              </p>
-
               <label
-                className={`mt-3 block rounded border p-4 ${
-                  standardEnvelopeEligibility.eligible
-                    ? "cursor-pointer"
-                    : "cursor-not-allowed bg-neutral-50 text-neutral-500"
-                }`}
+                htmlFor="shipping-method"
+                className="block text-lg font-black"
               >
-                <input
-                  type="radio"
-                  checked={selectedShippingMethod === "STANDARD_ENVELOPE"}
-                  onChange={() => setShippingMethod("STANDARD_ENVELOPE")}
-                  disabled={!standardEnvelopeEligibility.eligible}
-                  className="mr-2"
-                />
-                {SHIPPING_RULES.STANDARD_ENVELOPE.name} -{" "}
-                <strong>${standardEnvelopeShipping.toFixed(2)}</strong>
-                <span className="mt-2 block text-xs font-semibold text-neutral-600">
-                  Raw-card envelope only, with USPS IMb delivery evidence.
-                  Eligible up to $20.00 and 3 estimated oz; current cart
-                  estimate:{" "}
-                  {standardEnvelopeEligibility.estimatedOunces} oz.
-                </span>
-                {!standardEnvelopeEligibility.eligible ? (
-                  <span className="mt-2 block text-xs font-bold text-amber-700">
-                    {standardEnvelopeEligibility.reason} USPS Ground Advantage
-                    is required.
-                  </span>
+                Choose Shipping
+              </label>
+              <p className="mt-1 text-sm font-semibold text-neutral-600">
+                The lowest eligible method is selected automatically. You may
+                upgrade to a premium method whenever it is available.
+              </p>
+              <select
+                id="shipping-method"
+                value={selectedShippingMethod}
+                onChange={(event) =>
+                  setShippingMethod(event.target.value as ShippingMethod)
+                }
+                className="mt-3 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-base font-bold"
+              >
+                {availableShippingMethods.map((method) => {
+                  const price = shippingPrice(method);
+                  return (
+                    <option key={method} value={method}>
+                      {SHIPPING_RULES[method].name} — {price === 0 ? "FREE" : `$${price.toFixed(2)}`}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <div className="mt-3 rounded border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+                <p className="font-black">
+                  {SHIPPING_RULES[selectedShippingMethod].name}
+                </p>
+                <p className="mt-1 font-semibold">
+                  {selectedShippingMethod === "STANDARD_ENVELOPE"
+                    ? "Up to 4 qualifying raw cards, original listing-price total $20.00 or less, maximum estimated weight 3 oz. USPS IMb scan visibility is limited and not guaranteed package tracking."
+                    : SHIPPING_RULES[selectedShippingMethod].deliveryEstimate}
+                </p>
+                {!standardEnvelopeEligibility.eligible &&
+                selectedShippingMethod !== "STANDARD_ENVELOPE" ? (
+                  <p className="mt-2 text-xs font-bold text-amber-800">
+                    Tracked Card Letter is unavailable: {standardEnvelopeEligibility.reason}
+                  </p>
                 ) : null}
-              </label>
+              </div>
 
-              <label className="mt-3 block cursor-pointer rounded border p-4">
-                <input
-                  type="radio"
-                  checked={selectedShippingMethod === "GROUND_ADVANTAGE"}
-                  onChange={() => setShippingMethod("GROUND_ADVANTAGE")}
-                  className="mr-2"
-                />
-                {SHIPPING_RULES.GROUND_ADVANTAGE.name} -{" "}
-                <strong>
-                  {groundShipping === 0
-                    ? "FREE"
-                    : `$${groundShipping.toFixed(2)}`}
-                </strong>
-              </label>
-
-              <label className="mt-3 block cursor-pointer rounded border p-4">
-                <input
-                  type="radio"
-                  checked={selectedShippingMethod === "PRIORITY_MAIL"}
-                  onChange={() => setShippingMethod("PRIORITY_MAIL")}
-                  className="mr-2"
-                />
-                {SHIPPING_RULES.PRIORITY_MAIL.name} -{" "}
-                <strong>
-                  {priorityShipping === 0
-                    ? "FREE"
-                    : `$${priorityShipping.toFixed(2)}`}
-                </strong>
-              </label>
-
-              <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-4 text-sm">
+              <div className="mt-3 rounded border border-neutral-200 bg-neutral-50 p-4 text-sm">
                 <p>
                   {getFreeShippingMessage({
                     subtotal,
@@ -291,50 +326,89 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 {selectedShippingMethod === "STANDARD_ENVELOPE" ? (
                   <>
                     <p className="font-black text-emerald-950">
-                      Delivery tracking included
+                      Limited letter tracking included
                     </p>
                     <p className="mt-1 font-semibold text-emerald-900">
-                      {shippingCoverage.provider} delivery evidence is required
-                      for under-$20 envelope orders and is expected to show USPS
-                      scan history through Out for Delivery / Delivered in
-                      Mailbox when USPS data is available. No separate buyer fee
-                      is added at checkout.
+                      {shippingCoverage.provider} may show USPS processing and
+                      delivery-related scans when data is available. It is not
+                      guaranteed package tracking or carrier insurance. Optional
+                      Shipment Protection is offered separately on qualifying orders.
                     </p>
                   </>
                 ) : (
                   <>
                     <p className="font-black text-emerald-950">
-                      Seller shipping coverage included
+                      Full parcel tracking + up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} included coverage
                     </p>
                     <p className="mt-1 font-semibold text-emerald-900">
-                      {shippingCoverage.provider} coverage is required for every
-                      TCOS parcel shipment and protects the seller for up to $
-                      {shippingCoverage.coveredAmount.toFixed(2)} in item
-                      value. No separate buyer coverage fee is added at
-                      checkout.
+                      Ground Advantage and Priority Mail use carrier parcel tracking
+                      and include carrier coverage up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)},
+                      subject to carrier terms and claim approval.
                     </p>
+                    {shippingCoverage.requiresAdditionalCoverageQuote ? (
+                      <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-3 font-bold text-amber-950">
+                        This order is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}. If you want coverage above the included amount, contact{" "}
+                        <a href={`mailto:${STORE_SUPPORT_EMAIL}`} className="underline">
+                          {STORE_SUPPORT_EMAIL}
+                        </a>{" "}
+                        before shipment for a quote. If extra coverage is not arranged,
+                        the order will ship with only the included ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}
+                        carrier coverage, subject to applicable non-waivable rights.
+                      </p>
+                    ) : null}
                   </>
                 )}
               </div>
+
+              <BuyerProtectionOption
+                available={buyerProtectionAvailable}
+                itemSubtotal={subtotal}
+                shippingAmount={selectedShipping}
+                onChange={setBuyerProtection}
+              />
             </div>
 
             <div className="mt-6 space-y-2 border-t pt-4 text-sm">
               <div className="flex justify-between">
                 <span>Shipping</span>
-                <strong>${selectedShipping.toFixed(2)}</strong>
+                <strong>
+                  {selectedShipping === 0
+                    ? "FREE"
+                    : `$${selectedShipping.toFixed(2)}`}
+                </strong>
               </div>
+              {buyerProtectionFee > 0 ? (
+                <div className="flex justify-between">
+                  <span>Shipment Protection</span>
+                  <strong>${buyerProtectionFee.toFixed(2)}</strong>
+                </div>
+              ) : null}
               <div className="flex justify-between text-xl">
                 <span className="font-black">Total</span>
                 <strong>${total.toFixed(2)}</strong>
               </div>
             </div>
 
-            <label className="mt-6 flex items-start gap-3 rounded border p-4 text-sm leading-6">
+            <label className="mt-6 block text-sm font-black">
+              Coupon code
+              <input
+                value={couponCode}
+                onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                placeholder="Enter code"
+                maxLength={32}
+                className="mt-2 min-h-12 w-full rounded border border-neutral-300 px-3 uppercase"
+              />
+              <span className="mt-1 block text-xs font-semibold text-neutral-500">
+                Eligible card discounts and free shipping are verified before payment.
+              </span>
+            </label>
+
+            <label className="mt-6 flex min-h-12 items-start gap-3 rounded border p-4 text-sm leading-6">
               <input
                 type="checkbox"
                 checked={termsAccepted}
                 onChange={(event) => setTermsAccepted(event.target.checked)}
-                className="mt-1"
+                className="mt-1 h-5 w-5 shrink-0"
               />
               <span>
                 I agree to the{" "}
@@ -358,11 +432,15 @@ export default function CartClient(props: { storeDisplayName: string }) {
               <CheckoutButton
                 shippingMethod={selectedShippingMethod}
                 termsAccepted={termsAccepted}
+                buyerProtection={resolvedBuyerProtection}
+                buyerProtectionAvailable={buyerProtectionAvailable}
+                couponCode={couponCode}
               />
 
               <button
+                type="button"
                 onClick={clearCart}
-                className="rounded border px-4 py-3 font-bold"
+                className="min-h-12 rounded border px-4 py-3 font-bold"
               >
                 Clear Cart
               </button>

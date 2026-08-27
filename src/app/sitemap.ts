@@ -1,4 +1,12 @@
 import type { MetadataRoute } from "next";
+import { BUYER_PROTECTION_PATH } from "../lib/buyer-protection";
+import {
+  CONTACT_PATH,
+  PRIVACY_POLICY_PATH,
+  RETURNS_POLICY_PATH,
+  SHIPPING_POLICY_PATH,
+  TERMS_OF_SERVICE_PATH,
+} from "../lib/legal";
 import { configuredSiteOrigin } from "../lib/site-origin";
 import { createServerInventoryEngine } from "../lib/server-inventory-engine";
 
@@ -31,6 +39,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "hourly",
       priority: 0.9,
     },
+    ...[
+      TERMS_OF_SERVICE_PATH,
+      PRIVACY_POLICY_PATH,
+      SHIPPING_POLICY_PATH,
+      BUYER_PROTECTION_PATH,
+      RETURNS_POLICY_PATH,
+      CONTACT_PATH,
+    ].map((path) => ({
+      url: `${origin}${path}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.4,
+    })),
   ];
 
   const inventoryEngine = createServerInventoryEngine();

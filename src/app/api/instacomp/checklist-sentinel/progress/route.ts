@@ -1,0 +1,267 @@
+import { NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+function response(payload: unknown, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: {
+      "Cache-Control": "public, no-store, max-age=0",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
+}
+
+function configuredMacUrl() {
+  const value = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!/^https:\/\//i.test(value)) return null;
+  if (/^https:\/\/(?:127\.0\.0\.1|localhost)(?::|\/|$)/i.test(value)) return null;
+  return value;
+}
+
+function finiteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function roundedPercent(processed: number, total: number) {
+  if (!total) return 0;
+  return Math.round((processed * 1000) / total) / 10;
+}
+
+function sanitizedTargets(raw: unknown) {
+  const targets = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return {
+    total: finiteNumber(targets.total),
+    pending: finiteNumber(targets.pending),
+    recovered: finiteNumber(targets.recovered),
+    noResult: finiteNumber(targets.no_result),
+    leadOnly: finiteNumber(targets.lead_only),
+    failed: finiteNumber(targets.failed),
+  };
+}
+
+function sanitizedTraining(raw: unknown) {
+  const training = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return {
+    state: String(training.state || "unknown"),
+    requested_iters: finiteNumber(training.requested_iters),
+    completed_iters: finiteNumber(training.completed_iters),
+    remaining_iters: finiteNumber(training.remaining_iters),
+    progress_percent: finiteNumber(training.progress_percent),
+    learning_percent: training.learning_percent === null || training.learning_percent === undefined
+      ? null
+      : finiteNumber(training.learning_percent),
+    cpu_percent: training.cpu_percent === null || training.cpu_percent === undefined
+      ? null
+      : finiteNumber(training.cpu_percent),
+    output_bundle: training.output_bundle ? String(training.output_bundle) : null,
+    updated_at_epoch: training.updated_at_epoch ? finiteNumber(training.updated_at_epoch) : null,
+  };
+}
+
+async function fetchMacJson(
+  baseUrl: string,
+  key: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<{ response: Response; payload: Record<string, unknown> | null }> {
+  const headers = new Headers(init.headers);
+  headers.set("X-InstaComp-AI-Key", key);
+  headers.set("Accept", "application/json");
+  if (init.body) headers.set("Content-Type", "application/json");
+  const macResponse = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers,
+    cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(20_000),
+  });
+  const payload = (await macResponse.json().catch(() => null)) as
+    | Record<string, unknown>
+    | null;
+  return { response: macResponse, payload };
+}
+
+async function readStatus(baseUrl: string, key: string) {
+  return fetchMacJson(baseUrl, key, "/v1/checklist-sentinel/status");
+}
+
+export async function GET() {
+  try {
+    const baseUrl = configuredMacUrl();
+    const key = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+    if (!baseUrl || !key) {
+      return response(
+        {
+          ok: false,
+          code: "SENTINEL_PROGRESS_NOT_CONFIGURED",
+          error: "Sentinel progress is not configured.",
+        },
+        503,
+      );
+    }
+
+    let statusRead = await readStatus(baseUrl, key);
+    let selfHealAttempted = false;
+    let selfHealAccepted = false;
+    let selfHealReason: string | null = null;
+
+    if (statusRead.response.ok && statusRead.payload) {
+      const initialStatus = statusRead.payload;
+      const initialFreeze =
+        initialStatus.freeze_protection && typeof initialStatus.freeze_protection === "object"
+          ? initialStatus.freeze_protection as Record<string, unknown>
+          : {};
+      const initialTargets = sanitizedTargets(initialStatus.targets);
+      const initialLatestJob =
+        initialStatus.latest_job && typeof initialStatus.latest_job === "object"
+          ? initialStatus.latest_job as Record<string, unknown>
+          : {};
+      const staleRunning =
+        Boolean(initialFreeze.stale) &&
+        String(initialLatestJob.status || "") === "running" &&
+        initialTargets.pending > 0;
+
+      // Safe self-heal for an orphaned stale job. The Mac's trigger path already
+      // fails closed: a real in-memory run task returns already_running, while an
+      // orphaned stale SQLite row is marked interrupted before a new batch starts.
+      // No target history is reset or requeued here.
+      if (staleRunning) {
+        selfHealAttempted = true;
+        const recovery = await fetchMacJson(
+          baseUrl,
+          key,
+          "/v1/checklist-sentinel/run",
+          {
+            method: "POST",
+            body: JSON.stringify({ trigger: "stale-progress-self-heal" }),
+          },
+        );
+        if (recovery.response.ok && recovery.payload) {
+          selfHealAccepted = Boolean(recovery.payload.accepted);
+          selfHealReason = recovery.payload.reason
+            ? String(recovery.payload.reason)
+            : null;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          const refreshed = await readStatus(baseUrl, key);
+          if (refreshed.response.ok && refreshed.payload) statusRead = refreshed;
+        } else {
+          selfHealReason = `http_${recovery.response.status}`;
+        }
+      }
+    }
+
+    if (statusRead.response.ok && statusRead.payload) {
+      const status = statusRead.payload;
+      const latestJob =
+        status.latest_job && typeof status.latest_job === "object"
+          ? status.latest_job as Record<string, unknown>
+          : {};
+      const freezeProtection =
+        status.freeze_protection && typeof status.freeze_protection === "object"
+          ? status.freeze_protection as Record<string, unknown>
+          : {};
+      const batchProcessed = finiteNumber(latestJob.processed_targets);
+      const batchTotal = finiteNumber(latestJob.total_targets);
+
+      return response({
+        ok: true,
+        degraded: false,
+        source: "status",
+        checkedAt: new Date().toISOString(),
+        selfHeal: {
+          attempted: selfHealAttempted,
+          accepted: selfHealAccepted,
+          reason: selfHealReason,
+        },
+        job: {
+          status: String(latestJob.status || "unknown"),
+          trigger: String(latestJob.trigger || "unknown"),
+          currentTarget: latestJob.current_target_key
+            ? String(latestJob.current_target_key)
+            : null,
+          processed: batchProcessed,
+          total: batchTotal,
+          percent: roundedPercent(batchProcessed, batchTotal),
+          found: finiteNumber(latestJob.found_count),
+          downloaded: finiteNumber(latestJob.downloaded_count),
+          imported: finiteNumber(latestJob.imported_count),
+          failed: finiteNumber(latestJob.failed_count),
+          heartbeatAt: latestJob.heartbeat_at ? String(latestJob.heartbeat_at) : null,
+        },
+        targets: sanitizedTargets(status.targets),
+        training: sanitizedTraining((status as Record<string, unknown>).training),
+        freezeStale: Boolean(freezeProtection.stale),
+      });
+    }
+
+    // Keep progress observable even if the richer status view is unhealthy.
+    // The targets endpoint is independent of latest-job/checkpoint decoding and
+    // still provides the authoritative live queue counts needed for the sprint bar.
+    const targetsRead = await fetchMacJson(
+      baseUrl,
+      key,
+      "/v1/checklist-sentinel/targets?limit=1",
+    );
+    if (targetsRead.response.ok && targetsRead.payload) {
+      return response({
+        ok: true,
+        degraded: true,
+        source: "targets_fallback",
+        checkedAt: new Date().toISOString(),
+        selfHeal: {
+          attempted: selfHealAttempted,
+          accepted: selfHealAccepted,
+          reason: selfHealReason,
+        },
+        upstreamStatus: statusRead.response.status,
+        job: {
+          status: "unknown",
+          trigger: "unknown",
+          currentTarget: null,
+          processed: 0,
+          total: 0,
+          percent: 0,
+          found: 0,
+          downloaded: 0,
+          imported: 0,
+          failed: 0,
+          heartbeatAt: null,
+        },
+        targets: sanitizedTargets(targetsRead.payload.counts),
+        training: sanitizedTraining(null),
+        freezeStale: null,
+      });
+    }
+
+    return response(
+      {
+        ok: false,
+        code: "SENTINEL_PROGRESS_UNAVAILABLE",
+        error: "Sentinel progress is temporarily unavailable.",
+        upstreamStatus: statusRead.response.status,
+        fallbackStatus: targetsRead.response.status,
+      },
+      503,
+    );
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "UnknownError";
+    const timeout = name === "TimeoutError" || name === "AbortError";
+    return response(
+      {
+        ok: false,
+        code: timeout ? "SENTINEL_PROGRESS_TIMEOUT" : "SENTINEL_PROGRESS_FAILED",
+        error: timeout
+          ? "Sentinel progress timed out."
+          : "Sentinel progress could not be read.",
+      },
+      503,
+    );
+  }
+}

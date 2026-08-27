@@ -1,0 +1,132 @@
+name: Fix InstaComp 500 review contract
+
+on:
+  push:
+    branches:
+      - fix/instacomp-500-review-contract
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-instacomp-500-review-contract
+  cancel-in-progress: false
+
+jobs:
+  repair-and-certify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Apply checklist-only review contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          main_path = Path('services/instacomp-ai/app/main.py')
+          main = main_path.read_text()
+
+          main = main.replace(
+              'Private InstaComp internal memory engine with Checklist Registry locking, "\n        "Ollama backup vision, and no direct OpenAI dependency.',
+              'Private InstaComp internal memory engine with Checklist Registry locking, "\n        "deterministic review receipts, and no external identity dependency.',
+          )
+
+          old_health = '''    database_ready = store.ready()\n    ollama_ready = await reader.health()\n    checklist_ready = await checklist_gateway.health()\n    # Ollama is a backup reader. Its outage must not mark the internal memory\n    # engine unhealthy.\n    return HealthResponse(\n        ok=database_ready and checklist_ready,\n        app=settings.app_name,\n        codename=settings.codename,\n        version=settings.version,\n        database="ready" if database_ready else "error",\n        ollama="ready" if ollama_ready else "unavailable",\n        ollama_model=settings.ollama_model,\n        checklist="ready" if checklist_ready else "not_configured",\n    )'''
+          new_health = '''    database_ready = store.ready()\n    checklist_ready = await checklist_gateway.health()\n    return HealthResponse(\n        ok=database_ready and checklist_ready,\n        app=settings.app_name,\n        codename=settings.codename,\n        version=settings.version,\n        database="ready" if database_ready else "error",\n        ollama="unchecked",\n        ollama_model="disabled_for_identity_scans",\n        checklist="ready" if checklist_ready else "not_configured",\n    )'''
+          if old_health not in main:
+              raise SystemExit('health contract block not found')
+          main = main.replace(old_health, new_health, 1)
+
+          start = main.index('    # BACKUP READER: Ollama is called only when trusted image memory and')
+          end = main.index('    suggestion_back_evidence = (', start)
+          replacement = '''    # CHECKLIST-ONLY REVIEW PATH: unresolved cards are preserved as complete\n    # scan receipts. No Ollama or external identity reader is called here.\n    suggestion = None\n    proposed_identity = printed_identity\n    memory_matches = (\n        store.search(proposed_identity)\n        if any(proposed_identity.model_dump().values())\n        else []\n    )\n    trusted_text_match = next(\n        (\n            match\n            for match in memory_matches\n            if match.score >= 0.98\n            and match.identity.player\n            and match.identity.card_number\n            and match.identity.set_name\n        ),\n        None,\n    )\n\n    if trusted_text_match:\n        trusted_identity = trusted_text_match.identity\n        checklist_result = await checklist_gateway.match(trusted_identity)\n        pricing_allowed = checklist_result.outcome == ChecklistOutcome.EXACT_MATCH\n        status = "trusted_memory_match"\n        match_source = "trusted_text_memory"\n        next_action = (\n            "Known card identified from internal text memory. Continue to verified comps."\n            if pricing_allowed\n            else "Known card identified from internal text memory; Registry verification is required for pricing."\n        )\n    else:\n        checklist_result = printed_registry\n        trusted_identity = None\n        pricing_allowed = False\n        match_source = "none"\n        if checklist_result.outcome == ChecklistOutcome.NOT_CONFIGURED:\n            status = "needs_checklist"\n            next_action = (\n                "Checklist Registry is not connected. Preserve this scan for private manual review."\n            )\n        else:\n            status = "needs_review"\n            next_action = (\n                "InstaComp preserved the front/back scan and checklist receipt, but one exact identity was not proven. Review or correct the card privately."\n            )\n\n'''
+          main = main[:start] + replacement + main[end:]
+          main_path.write_text(main)
+
+          local_path = Path('src/lib/instacomp-ai-local.ts')
+          local = local_path.read_text()
+
+          local = local.replace(
+              '  internalScanId: string;\n  internalMatchSource: string | null;',
+              '  internalScanId: string;\n  internalStatus: string;\n  internalChecklistOutcome: string | null;\n  internalChecklistCandidateCount: number;\n  internalChecklistReasons: string[];\n  internalChecklistSourceReceipts: string[];\n  internalMatchSource: string | null;',
+              1,
+          )
+
+          old_no_identity = '''  const identity = trusted || suggested;\n  if (!identity) return null;\n\n  const player = text(identity.player);'''
+          new_no_identity = '''  const identity = trusted || suggested;\n  if (!identity) {\n    const checklistReasons = textList(scan.checklist?.reasons);\n    const checklistReceipts = textList(scan.checklist?.source_receipts);\n    return {\n      player: null,\n      year: null,\n      brand: null,\n      setName: null,\n      cardNumber: null,\n      parallel: null,\n      serialNumber: null,\n      team: null,\n      sport: null,\n      isRookie: false,\n      isAuto: false,\n      isRelic: false,\n      conditionGuess: null,\n      confidence: 0,\n      notes: [\n        `InstaComp internal status: ${scan.status}.`,\n        scan.next_action || null,\n        checklistReasons.length\n          ? `Checklist: ${checklistReasons.join(" | ")}`\n          : null,\n      ]\n        .filter(Boolean)\n        .join(" "),\n      internalScanId: safeScanId(scan.scan_id),\n      internalStatus: scan.status,\n      internalChecklistOutcome: text(scan.checklist?.outcome),\n      internalChecklistCandidateCount: Math.max(\n        0,\n        Number((scan.checklist as Record<string, unknown> | undefined)?.candidate_count || 0),\n      ),\n      internalChecklistReasons: checklistReasons,\n      internalChecklistSourceReceipts: checklistReceipts,\n      internalMatchSource: text(scan.match_source),\n      internalCanonicalFilename: text(scan.canonical_filename),\n      internalLearningAllowed: false,\n      internalInscription: false,\n      internalInscriptionText: null,\n      internalMemorabiliaType: null,\n      frontVisibleText: [],\n      backVisibleText: [],\n      backEvidence: null,\n    };\n  }\n\n  const player = text(identity.player);'''
+          if old_no_identity not in local:
+              raise SystemExit('local no-identity contract block not found')
+          local = local.replace(old_no_identity, new_no_identity, 1)
+
+          local = local.replace(
+              '  if (!player && !cardNumber && !setName) return null;\n',
+              '',
+              1,
+          )
+
+          local = local.replace(
+              '    internalScanId: safeScanId(scan.scan_id),\n    internalMatchSource: text(source),',
+              '    internalScanId: safeScanId(scan.scan_id),\n    internalStatus: scan.status,\n    internalChecklistOutcome: text(scan.checklist?.outcome),\n    internalChecklistCandidateCount: Math.max(\n      0,\n      Number((scan.checklist as Record<string, unknown> | undefined)?.candidate_count || 0),\n    ),\n    internalChecklistReasons: textList(scan.checklist?.reasons),\n    internalChecklistSourceReceipts: textList(scan.checklist?.source_receipts),\n    internalMatchSource: text(source),',
+              1,
+          )
+          local_path.write_text(local)
+
+          test_path = Path('scripts/run-instacomp-review-contract-simulations.ts')
+          test_path.write_text('''import assert from "node:assert/strict";\nimport { instaCompAiLocalScanToAi, type InstaCompAiLocalScan } from "../src/lib/instacomp-ai-local";\n\nconst scan: InstaCompAiLocalScan = {\n  schema_version: "tcos.instacomp-ai.scan.v1",\n  scan_id: "review-contract-123",\n  status: "needs_review",\n  pricing_allowed: false,\n  learning_allowed: false,\n  trusted_identity: null,\n  local_suggestion: null,\n  match_source: "none",\n  checklist: {\n    outcome: "input_incomplete",\n    reasons: ["Printed evidence did not contain a labeled card number."],\n    source_receipts: [],\n  },\n  next_action: "Review privately.",\n};\n\nconst ai = instaCompAiLocalScanToAi(scan);\nassert.ok(ai, "A valid review scan must never be converted to null");\nassert.equal(ai.internalScanId, "review-contract-123");\nassert.equal(ai.internalStatus, "needs_review");\nassert.equal(ai.internalChecklistOutcome, "input_incomplete");\nassert.deepEqual(ai.internalChecklistReasons, [\n  "Printed evidence did not contain a labeled card number.",\n]);\nassert.equal(ai.confidence, 0);\nassert.equal(ai.player, null);\nassert.match(ai.notes || "", /Review privately/);\nconsole.log("InstaComp review contract simulation passed.");\n''')
+
+          static_test = Path('services/instacomp-ai/tests/test_checklist_only_scan_contract.py')
+          static_test.parent.mkdir(parents=True, exist_ok=True)
+          static_test.write_text('''from pathlib import Path\n\n\ndef test_analyze_scan_has_no_ollama_identity_call():\n    source = Path("services/instacomp-ai/app/main.py").read_text()\n    analyze = source.split("async def analyze_scan", 1)[1].split("@app.post(\\n    \\\"/v1/lessons\\\"", 1)[0]\n    assert "await reader.analyze(" not in analyze\n    assert "CHECKLIST-ONLY REVIEW PATH" in analyze\n    assert 'status = "needs_review"' in analyze\n\n\ndef test_health_marks_ollama_unchecked():\n    source = Path("services/instacomp-ai/app/main.py").read_text()\n    assert 'ollama="unchecked"' in source\n    assert 'ollama_model="disabled_for_identity_scans"' in source\n''')
+          PY
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/instacomp-ai/requirements.txt
+          python -m pip install pytest
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run Mac service tests
+        run: python -m pytest services/instacomp-ai/tests -q
+
+      - name: Run review contract simulation
+        run: node --import tsx scripts/run-instacomp-review-contract-simulations.ts
+
+      - name: Compile Python service
+        run: python -m compileall -q services/instacomp-ai/app
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit certified repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/app/main.py src/lib/instacomp-ai-local.ts services/instacomp-ai/tests/test_checklist_only_scan_contract.py scripts/run-instacomp-review-contract-simulations.ts
+          if git diff --cached --quiet; then
+            echo "No repair changes to commit."
+          else
+            git commit -m "Fix InstaComp unresolved scan 500 contract"
+            git push origin HEAD:fix/instacomp-500-review-contract
+          fi

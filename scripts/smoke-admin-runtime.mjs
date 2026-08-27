@@ -1,0 +1,935 @@
+import { spawn } from "node:child_process";
+
+const args = new Set(process.argv.slice(2));
+const existingOnly = args.has("--existing");
+const portArg = process.argv.find((arg) => arg.startsWith("--port="));
+const port = portArg ? Number(portArg.slice("--port=".length)) : 3000;
+const origin = `http://127.0.0.1:${port}`;
+const startupTimeoutMs = 45_000;
+const requestTimeoutMs = 20_000;
+const smokeRoutes = [
+  {
+    path: "/admin/login",
+    auth: false,
+    expectedText: "Admin password",
+  },
+  {
+    path: "/admin/reset-password",
+    auth: false,
+    expectedText: "Choose a permanent admin password",
+  },
+  {
+    path: "/admin",
+    auth: true,
+    expectedText: "Cards live in KINGMAKER",
+  },
+  {
+    path: "/admin/advanced",
+    auth: true,
+    expectedText: "Advanced Admin",
+  },
+  {
+    path: "/admin/instacomp-direct",
+    auth: true,
+    expectedText: "InstaComp™ Direct Scan Lab",
+  },
+  {
+    path: "/admin/instacomp/mobile",
+    auth: true,
+    expectedText: "InstaComp Mobile",
+  },
+  {
+    path: "/admin/products",
+    auth: true,
+    expectedText: "Admin products",
+  },
+  {
+    path: "/admin/products/new",
+    auth: true,
+    expectedText: "List Cards",
+  },
+  {
+    path: "/admin/quick-list",
+    auth: true,
+    expectedText: "Accuracy Council + InstaComp™",
+  },
+  {
+    path: "/admin/verified-reference-import",
+    auth: true,
+    expectedText: "Verified Reference → Pending Listings",
+  },
+  {
+    path: "/admin/orders",
+    auth: true,
+    expectedText: "Orders",
+  },
+  {
+    path: "/admin/order-notifications",
+    auth: true,
+    expectedText: "Order Notification Delivery",
+  },
+  {
+    path: "/admin/sales-history",
+    auth: true,
+    expectedText: "Sold Collectibles",
+  },
+  {
+    path: "/admin/offers",
+    auth: true,
+    expectedText: "Offers",
+  },
+  {
+    path: "/admin/ebay/inventory-intake",
+    auth: true,
+    expectedText: "eBay Inventory Intake",
+  },
+  {
+    path: "/admin/ebay/duplicates",
+    auth: true,
+    expectedText: "Duplicate cleanup queue",
+  },
+  {
+    path: "/admin/financial-reconciliation",
+    auth: true,
+    expectedText: "Stripe Reconciliation",
+  },
+  {
+    path: "/admin/market-intel",
+    auth: true,
+    expectedText: "Market Intel",
+  },
+  {
+    path: "/admin/market-intel/kingmaker",
+    auth: true,
+    expectedText: "Capital Intelligence Command",
+  },
+  {
+    path: "/admin/market-intel/kingmaker/capital-ledger",
+    auth: true,
+    expectedText: "Purchase Ledger Command",
+  },
+  {
+    path: "/admin/market-intel/kingmaker/morning-intelligence",
+    auth: true,
+    expectedText: "Controlled Delivery Console",
+  },
+  {
+    path: "/admin/production-smoke",
+    auth: true,
+    expectedText: "Production smoke",
+  },
+  {
+    path: "/admin/live-payment-launch",
+    auth: true,
+    expectedText: "Live Payment",
+  },
+  {
+    path: "/admin/live-shipping-launch",
+    auth: true,
+    expectedText: "Live Shipping",
+  },
+  {
+    path: "/admin/settings",
+    auth: true,
+    expectedText: "Settings",
+  },
+  {
+    path: "/admin/security",
+    auth: true,
+    expectedText: "Security",
+  },
+  {
+    path: "/admin/accounts",
+    auth: true,
+    expectedTexts: ["Customer Account Lookup", "Customer Accounts"],
+  },
+  {
+    path: "/admin/buyer-protection",
+    auth: true,
+    expectedText: "Buyer Protection Claims",
+  },
+  {
+    path: "/admin/owner-seller-account",
+    auth: true,
+    expectedText: "Activate the owner seller account",
+  },
+  {
+    path: "/admin/ebay",
+    auth: true,
+    expectedText: "eBay Reconciliation",
+  },
+  {
+    path: "/admin/ebay/import-runner",
+    auth: true,
+    expectedText: "eBay Import Runner",
+  },
+  {
+    path: "/admin/ebay/full-store-sync",
+    auth: true,
+    expectedText: "Full eBay Store Sync",
+  },
+  {
+    path: "/admin/ebay/launch-ready-sync",
+    auth: true,
+    expectedText: "eBay Launch Readiness",
+  },
+  {
+    path: "/admin/ebay/publish",
+    auth: true,
+    expectedText: "Pitch Black listing launcher",
+  },
+  {
+    path: "/admin/ebay/sync-control",
+    auth: true,
+    expectedText: "eBay Sync Control",
+  },
+  {
+    path: "/admin/files",
+    auth: true,
+    expectedText: "Admin Files",
+  },
+  {
+    path: "/admin/instacomp",
+    auth: true,
+    expectedText: "InstaComp™ Scan Lab",
+  },
+  {
+    path: "/admin/instacomp/pricing",
+    auth: true,
+    expectedText: "KINGMAKER Pricing Command Center",
+  },
+  {
+    path: "/admin/instacomp/pricing/receipts",
+    auth: true,
+    expectedText: "Pricing Receipt History",
+  },
+  {
+    path: "/admin/instacomp/pricing/analytics",
+    auth: true,
+    expectedText: "Pricing Analytics",
+  },
+  {
+    path: "/admin/instacomp/pricing/coverage",
+    auth: true,
+    expectedText: "Coverage Attack Queue",
+  },
+  {
+    path: "/admin/instacomp/pricing/coverage/work-orders",
+    auth: true,
+    expectedText: "Coverage Work Orders",
+  },
+  {
+    path: "/admin/instacomp/pricing/profiles",
+    auth: true,
+    expectedText: "Pricing Profiles",
+  },
+  {
+    path: "/admin/instacomp/pricing/bulk-plan",
+    auth: true,
+    expectedText: "Bulk Pricing Plan",
+  },
+  {
+    path: "/admin/instacomp/pricing/scenarios",
+    auth: true,
+    expectedText: "Pricing Scenarios",
+  },
+  {
+    path: "/admin/instacomp/pricing/review",
+    auth: true,
+    expectedText: "Pricing Review",
+  },
+  {
+    path: "/admin/instacomp/pricing/views",
+    auth: true,
+    expectedText: "Pricing Views",
+  },
+  {
+    path: "/admin/instacomp/pricing/audit",
+    auth: true,
+    expectedText: "Pricing Audit",
+  },
+  {
+    path: "/admin/instacomp/fast",
+    auth: true,
+    expectedText: "InstaComp",
+  },
+  {
+    path: "/admin/instacomp/v2",
+    auth: true,
+    expectedText: "InstaComp™ 2.0",
+  },
+  {
+    path: "/admin/instacomp/seller-sweep",
+    auth: true,
+    expectedText: "InstaComp™ Seller Sweep",
+  },
+  {
+    path: "/admin/pending-card-import",
+    auth: true,
+    expectedText: "Card Intake & Listing",
+  },
+  {
+    path: "/admin/instacomp/checklists",
+    auth: true,
+    expectedText: "Checklist Registry",
+  },
+  {
+    path: "/admin/instacomp/checklist-sentinel",
+    auth: true,
+    expectedText: "Checklist Sentinel™",
+  },
+  {
+    path: "/admin/inventory",
+    auth: true,
+    expectedText: "Inventory Bridge",
+  },
+  {
+    path: "/admin/inventory/category-review",
+    auth: true,
+    expectedText: "Import Category Review",
+  },
+  {
+    path: "/admin/launch-gate-drill",
+    auth: true,
+    expectedText: "Launch Gate Drill",
+  },
+  {
+    path: "/admin/launch-readiness",
+    auth: true,
+    expectedText: "Launch Readiness",
+  },
+  {
+    path: "/admin/market-intel/readiness",
+    auth: true,
+    expectedText: "Readiness Control Board",
+  },
+  {
+    path: "/admin/market-intel/watchlist",
+    auth: true,
+    expectedText: "Player Watchlist",
+  },
+  {
+    path: "/admin/market-intel/watch-center",
+    auth: true,
+    expectedText: "Who, What, and When to Investigate",
+  },
+  {
+    path: "/admin/market-intel/comps",
+    auth: true,
+    expectedText: "Exact-Card Sold Comps",
+  },
+  {
+    path: "/admin/market-intel/discovery",
+    auth: true,
+    expectedText: "Licensed-Card Discovery Desk",
+  },
+  {
+    path: "/admin/market-intel/ebay",
+    auth: true,
+    expectedText: "eBay Active Listing Scanner",
+  },
+  {
+    path: "/admin/market-intel/deals",
+    auth: true,
+    expectedText: "Shark List™ Deal Engine",
+  },
+  {
+    path: "/admin/market-intel/deal-hunter",
+    auth: true,
+    expectedText: "InstaComp AI Deal Hunter",
+  },
+  {
+    path: "/admin/market-intel/growth-specs",
+    auth: true,
+    expectedText: "Growth Spec Lab™",
+  },
+  {
+    path: "/admin/market-intel/growth-specs/prospects",
+    auth: true,
+    expectedText: "Licensed Pro Value Watchlists",
+  },
+  {
+    path: "/admin/market-intel/buy",
+    auth: true,
+    expectedText: "Buy + Track Desk",
+  },
+  {
+    path: "/admin/market-intel/portfolio",
+    auth: true,
+    expectedText: "Portfolio Intelligence",
+  },
+  {
+    path: "/admin/market-intel/purchases",
+    auth: true,
+    expectedText: "Purchase Ledger",
+  },
+  {
+    path: "/admin/market-intel/purchases/deleted",
+    auth: true,
+    expectedText: "Duplicate removed",
+  },
+  {
+    path: "/admin/market-intel/purchases/new",
+    auth: true,
+    expectedText: "Card Show + Card Shop Purchase",
+  },
+  {
+    path: "/admin/market-intel/purchases/ebay-intake",
+    auth: true,
+    expectedText: "eBay Purchase Inbox",
+  },
+  {
+    path: "/admin/market-intel/ingestion",
+    auth: true,
+    expectedText: "Ingestion Health",
+  },
+  {
+    path: "/admin/market-intel/reports",
+    auth: true,
+    expectedText: "Intelligence Report Desk",
+  },
+  {
+    path: "/admin/market-intel/delivery",
+    auth: true,
+    expectedText: "Email Delivery Center",
+  },
+  {
+    path: "/admin/market-intel/delivery/test",
+    auth: true,
+    expectedText: "Send a controlled test email",
+  },
+  {
+    path: "/admin/order-review-cases",
+    auth: true,
+    expectedText: "Order Review Case Queue",
+  },
+  {
+    path: "/admin/payment-simulations",
+    auth: true,
+    expectedText: "Payment Simulation Lab",
+  },
+  {
+    path: "/admin/seller-payouts",
+    auth: true,
+    expectedText: "Seller Payout Review",
+  },
+  {
+    path: "/admin/shipping",
+    auth: true,
+    expectedText: "Label + Coverage Control",
+  },
+  {
+    path: "/admin/shipping/simulations",
+    auth: true,
+    expectedText: "Shipping Simulation Lab",
+  },
+];
+const redBoxFragments = [
+  "Build Error",
+  "Runtime Error",
+  "Unhandled Runtime Error",
+  "Internal Server Error",
+  "Next.js can't recognize",
+  "Module not found",
+  "Failed to compile",
+];
+const authBoundaryChecks = [
+  {
+    label: "unauthenticated admin page redirects to login",
+    path: "/admin/products",
+    expectedStatus: "redirect",
+    expectedLocationFragment: "/admin/login?next=%2Fadmin%2Fproducts",
+  },
+  {
+    label: "unauthenticated admin API returns JSON 401",
+    path: "/api/admin/ebay-duplicates",
+    expectedStatus: 401,
+    expectedText: "Unauthorized",
+  },
+];
+const authenticatedApiChecks = [
+  {
+    path: "/api/admin/ebay-duplicates",
+    expectedText: '"success":true',
+  },
+  {
+    path: "/api/admin/ebay-inventory-intake",
+    expectedText: '"success":true',
+  },
+  {
+    path: "/api/admin/launch-readiness",
+    expectedText: '"success":true',
+  },
+  {
+    path: "/api/admin/launch-gate-drill",
+    expectedText: '"success":true',
+  },
+  {
+    path: "/api/admin/live-payment-launch",
+    expectedText: '"success":true',
+  },
+  {
+    path: "/api/admin/live-shipping-launch",
+    expectedText: '"success":true',
+  },
+  {
+    path: "/api/admin/shipping/provider-setup",
+    expectedText: '"exports":',
+  },
+];
+
+let serverProcess = null;
+let serverOutput = "";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function appendServerOutput(chunk) {
+  serverOutput = `${serverOutput}${chunk}`;
+  if (serverOutput.length > 12_000) {
+    serverOutput = serverOutput.slice(-12_000);
+  }
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function serverIsReachable() {
+  try {
+    const response = await fetchWithTimeout(`${origin}/admin/login`, {
+      redirect: "manual",
+    });
+
+    return response.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+function startDevServer() {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  serverProcess = spawn(
+    npmCommand,
+    [
+      "run",
+      "dev:isolated",
+      "--",
+      "--hostname",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--webpack",
+    ],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        NEXT_TELEMETRY_DISABLED: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  serverProcess.stdout.on("data", (chunk) => appendServerOutput(String(chunk)));
+  serverProcess.stderr.on("data", (chunk) => appendServerOutput(String(chunk)));
+}
+
+async function ensureServer() {
+  if (await serverIsReachable()) {
+    return "reused";
+  }
+
+  if (existingOnly) {
+    throw new Error(
+      `No existing Next dev server responded at ${origin}. Start npm run dev:isolated first, or rerun without --existing.`,
+    );
+  }
+
+  startDevServer();
+
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < startupTimeoutMs) {
+    if (serverProcess?.exitCode !== null) {
+      throw new Error(
+        `Next dev server exited before admin smoke could start.\n${serverOutput}`,
+      );
+    }
+
+    if (await serverIsReachable()) {
+      return "started";
+    }
+
+    await sleep(500);
+  }
+
+  throw new Error(
+    `Timed out waiting for Next dev server at ${origin}.\n${serverOutput}`,
+  );
+}
+
+function setCookieHeaders(headers) {
+  if (typeof headers.getSetCookie === "function") {
+    return headers.getSetCookie();
+  }
+
+  const combined = headers.get("set-cookie");
+  return combined ? [combined] : [];
+}
+
+function cookieHeaderFromSetCookies(cookies) {
+  return cookies
+    .map((cookie) => cookie.split(";")[0])
+    .filter(Boolean)
+    .join("; ");
+}
+
+async function adminCookieHeader() {
+  const response = await fetchWithTimeout(`${origin}/api/admin/login`, {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({
+      password: "",
+      localDevelopmentLogin: "1",
+      next: "/admin",
+    }),
+  });
+
+  if (response.status !== 303) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Local admin smoke login expected HTTP 303, received ${response.status}. ${body.slice(0, 240)}`,
+    );
+  }
+
+  const cookieHeader = cookieHeaderFromSetCookies(
+    setCookieHeaders(response.headers),
+  );
+
+  if (!cookieHeader.includes("tcos_admin_auth_v3=")) {
+    throw new Error(
+      "Local admin smoke login did not return an admin session cookie.",
+    );
+  }
+
+  return cookieHeader;
+}
+
+async function smokeRoute(route, cookieHeader) {
+  const response = await fetchWithTimeout(`${origin}${route.path}`, {
+    redirect: "manual",
+    headers: route.auth ? { cookie: cookieHeader } : undefined,
+  });
+  const location = response.headers.get("location") || "";
+  const body = await response.text().catch(() => "");
+  const failures = [];
+
+  if (response.status !== 200) {
+    failures.push(`HTTP ${response.status}`);
+  }
+
+  if (route.auth && response.status >= 300 && response.status < 400) {
+    failures.push(`unexpected redirect to ${location || "unknown location"}`);
+  }
+
+  const expectedTexts =
+    route.expectedTexts || [route.expectedText].filter(Boolean);
+  if (
+    expectedTexts.length > 0 &&
+    !expectedTexts.some((expectedText) => body.includes(expectedText))
+  ) {
+    failures.push(
+      `missing expected text ${expectedTexts.map((text) => JSON.stringify(text)).join(" or ")}`,
+    );
+  }
+
+  const redBoxFragment = redBoxFragments.find((fragment) =>
+    body.includes(fragment),
+  );
+
+  if (redBoxFragment) {
+    failures.push(`rendered error fragment ${JSON.stringify(redBoxFragment)}`);
+  }
+
+  return {
+    ...route,
+    status: response.status,
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
+async function smokeFirstProductDetail(cookieHeader) {
+  const response = await fetchWithTimeout(`${origin}/admin/products`, {
+    redirect: "manual",
+    headers: { cookie: cookieHeader },
+  });
+  const body = await response.text().catch(() => "");
+
+  if (response.status !== 200) {
+    return {
+      path: "/admin/products/[first]",
+      status: response.status,
+      ok: false,
+      failures: ["could not load product list for detail-route discovery"],
+    };
+  }
+
+  const productDetailMatch = body.match(
+    /href="(\/admin\/products\/\d+(?:\?[^"]*)?)"/,
+  );
+
+  if (!productDetailMatch) {
+    return null;
+  }
+
+  const path = productDetailMatch[1].replaceAll("&amp;", "&");
+
+  return smokeRoute(
+    {
+      path,
+      auth: true,
+      expectedText: "Product command desk",
+    },
+    cookieHeader,
+  );
+}
+
+async function smokeFirstOrderDetail(cookieHeader) {
+  const response = await fetchWithTimeout(`${origin}/admin/orders`, {
+    redirect: "manual",
+    headers: { cookie: cookieHeader },
+  });
+  const body = await response.text().catch(() => "");
+
+  if (response.status !== 200) {
+    return {
+      path: "/admin/orders/[first]",
+      status: response.status,
+      ok: false,
+      failures: ["could not load order list for detail-route discovery"],
+    };
+  }
+
+  const orderDetailMatch = body.match(
+    /href="(\/admin\/orders\/\d+(?:\?[^"]*)?)"/,
+  );
+
+  if (!orderDetailMatch) {
+    return null;
+  }
+
+  const path = orderDetailMatch[1].replaceAll("&amp;", "&");
+
+  return smokeRoute(
+    {
+      path,
+      auth: true,
+      expectedText: "Order command desk",
+    },
+    cookieHeader,
+  );
+}
+
+async function smokeAuthBoundary(check) {
+  const response = await fetchWithTimeout(`${origin}${check.path}`, {
+    redirect: "manual",
+  });
+  const location = response.headers.get("location") || "";
+  const contentType = response.headers.get("content-type") || "";
+  const cacheControl = response.headers.get("cache-control") || "";
+  const body = await response.text().catch(() => "");
+  const failures = [];
+
+  if (check.expectedStatus === "redirect") {
+    if (response.status < 300 || response.status >= 400) {
+      failures.push(`expected redirect, received HTTP ${response.status}`);
+    }
+
+    if (
+      check.expectedLocationFragment &&
+      !location.includes(check.expectedLocationFragment)
+    ) {
+      failures.push(
+        `redirect location ${JSON.stringify(location || "missing")} did not include ${JSON.stringify(
+          check.expectedLocationFragment,
+        )}`,
+      );
+    }
+  } else if (response.status !== check.expectedStatus) {
+    failures.push(
+      `expected HTTP ${check.expectedStatus}, received HTTP ${response.status}`,
+    );
+  }
+
+  if (check.expectedText && !body.includes(check.expectedText)) {
+    failures.push(
+      `missing expected text ${JSON.stringify(check.expectedText)}`,
+    );
+  }
+
+  if (
+    check.path.startsWith("/api/") &&
+    !contentType.includes("application/json")
+  ) {
+    failures.push(
+      `expected JSON response, received ${contentType || "missing content-type"}`,
+    );
+  }
+
+  if (!cacheControl.includes("no-store")) {
+    failures.push("missing no-store cache header");
+  }
+
+  return {
+    ...check,
+    status: response.status,
+    location,
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
+async function smokeAuthenticatedApi(check, cookieHeader) {
+  const response = await fetchWithTimeout(`${origin}${check.path}`, {
+    redirect: "manual",
+    headers: { cookie: cookieHeader },
+  });
+  const location = response.headers.get("location") || "";
+  const contentType = response.headers.get("content-type") || "";
+  const cacheControl = response.headers.get("cache-control") || "";
+  const body = await response.text().catch(() => "");
+  const failures = [];
+
+  if (response.status !== 200) {
+    failures.push(`HTTP ${response.status}`);
+  }
+
+  if (response.status >= 300 && response.status < 400) {
+    failures.push(`unexpected redirect to ${location || "unknown location"}`);
+  }
+
+  if (!contentType.includes("application/json")) {
+    failures.push(
+      `expected JSON response, received ${contentType || "missing content-type"}`,
+    );
+  }
+
+  if (!cacheControl.includes("no-store")) {
+    failures.push("missing no-store cache header");
+  }
+
+  if (check.expectedText && !body.includes(check.expectedText)) {
+    failures.push(
+      `missing expected text ${JSON.stringify(check.expectedText)}`,
+    );
+  }
+
+  const redBoxFragment = redBoxFragments.find((fragment) =>
+    body.includes(fragment),
+  );
+
+  if (redBoxFragment) {
+    failures.push(`rendered error fragment ${JSON.stringify(redBoxFragment)}`);
+  }
+
+  return {
+    ...check,
+    status: response.status,
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
+try {
+  const serverMode = await ensureServer();
+  const authBoundaryResults = [];
+
+  for (const check of authBoundaryChecks) {
+    authBoundaryResults.push(await smokeAuthBoundary(check));
+  }
+
+  const cookieHeader = await adminCookieHeader();
+  const apiResults = [];
+  const results = [];
+
+  for (const check of authenticatedApiChecks) {
+    apiResults.push(await smokeAuthenticatedApi(check, cookieHeader));
+  }
+
+  const productDetailResult = await smokeFirstProductDetail(cookieHeader);
+
+  if (productDetailResult) {
+    results.push(productDetailResult);
+  }
+
+  const orderDetailResult = await smokeFirstOrderDetail(cookieHeader);
+
+  if (orderDetailResult) {
+    results.push(orderDetailResult);
+  }
+
+  for (const route of smokeRoutes) {
+    results.push(await smokeRoute(route, cookieHeader));
+  }
+
+  for (const result of authBoundaryResults) {
+    const prefix = result.ok ? "PASS" : "FAIL";
+    const locationDetail = result.location ? ` -> ${result.location}` : "";
+    const detail = result.failures.length
+      ? ` - ${result.failures.join("; ")}`
+      : "";
+
+    console.log(
+      `${prefix} ${result.label} HTTP ${result.status}${locationDetail}${detail}`,
+    );
+  }
+
+  for (const result of apiResults) {
+    const prefix = result.ok ? "PASS" : "FAIL";
+    const detail = result.failures.length
+      ? ` - ${result.failures.join("; ")}`
+      : "";
+
+    console.log(`${prefix} ${result.path} API HTTP ${result.status}${detail}`);
+  }
+
+  for (const result of results) {
+    const prefix = result.ok ? "PASS" : "FAIL";
+    const detail = result.failures.length
+      ? ` - ${result.failures.join("; ")}`
+      : "";
+
+    console.log(`${prefix} ${result.path} HTTP ${result.status}${detail}`);
+  }
+
+  const allResults = [...authBoundaryResults, ...apiResults, ...results];
+  const failed = allResults.filter((result) => !result.ok);
+
+  console.log(
+    `Admin runtime smoke (${serverMode} dev server): ${allResults.length - failed.length}/${allResults.length} passed.`,
+  );
+
+  if (failed.length) {
+    process.exitCode = 1;
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+} finally {
+  if (serverProcess) {
+    serverProcess.kill("SIGTERM");
+  }
+}

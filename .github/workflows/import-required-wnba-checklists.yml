@@ -1,0 +1,80 @@
+name: Import Required WNBA Checklists
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/wnba-required-checklist-import-trigger-20260816"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: required-wnba-checklist-import
+  cancel-in-progress: false
+
+jobs:
+  import-required-checklists:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 45
+    env:
+      WNBA_REGISTRY_UPSTREAM_URL: https://truelycollectables.com/api/internal/checklist-registry/wnba-import
+      CHECKLIST_REGISTRY_ACTION_URL: http://127.0.0.1:4317/
+      CHECKLIST_REGISTRY_ACTION_TIMEOUT_MS: "600000"
+      WNBA_CHECKLIST_OUTPUT: .wnba-checklist-import/receipt.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked Node dependencies
+        run: npm ci
+      - name: Install deterministic XLS reader
+        run: python -m pip install --disable-pip-version-check xlrd==2.0.1
+      - name: Wait until the protected production import route is deployed
+        shell: bash
+        run: |
+          for attempt in $(seq 1 120); do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' "$WNBA_REGISTRY_UPSTREAM_URL" || true)"
+            if [[ "$code" == "405" || "$code" == "401" ]]; then
+              echo "Production import route is available (HTTP $code)."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Production import route did not become available."
+          exit 1
+      - name: Import all eight required WNBA checklists
+        shell: bash
+        run: |
+          node scripts/lib/wnba-registry-card-coalescing-proxy.mjs &
+          proxy_pid=$!
+          trap 'kill "$proxy_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4317/health >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == "30" ]]; then
+              echo "WNBA card coalescing proxy did not start."
+              exit 1
+            fi
+            sleep 1
+          done
+          cp scripts/import-required-wnba-checklists.ts scripts/import-required-wnba-checklists.mts
+          npx tsx scripts/import-required-wnba-checklists.mts
+      - name: Upload import receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: required-wnba-checklist-import-receipt
+          path: .wnba-checklist-import/receipt.json
+          if-no-files-found: warn
+          retention-days: 90

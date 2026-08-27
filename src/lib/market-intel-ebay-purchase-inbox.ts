@@ -35,6 +35,13 @@ export type StageEbayPurchaseInput = {
   otherCost: number;
   targetBucket: PurchaseInboxBucket;
   externalOrderId?: string | null;
+  receiptVerification?: {
+    source: "connected_ebay_buyer_order";
+    currency: string;
+    orderLineCount: number;
+    orderLineItemId?: string | null;
+    transactionId?: string | null;
+  } | null;
 };
 
 export type PurchaseInboxRow = {
@@ -332,11 +339,21 @@ export async function stageEbayPurchase(input: StageEbayPurchaseInput) {
     target_bucket: input.targetBucket,
     status: input.targetBucket === "skip" ? "skipped" : "pending",
     metadata: {
-      source: "manual_ebay_purchase_intake",
+      source:
+        input.receiptVerification?.source || "manual_ebay_purchase_intake",
+      connected_buyer_order_verified:
+        input.receiptVerification?.source === "connected_ebay_buyer_order",
+      receipt_order_line_count:
+        input.receiptVerification?.orderLineCount ?? null,
+      receipt_order_line_item_id:
+        input.receiptVerification?.orderLineItemId || null,
+      receipt_transaction_id:
+        input.receiptVerification?.transactionId || null,
       ebay_browse_item_id: detail.itemId || null,
       ebay_legacy_item_id: detail.legacyItemId || externalListingId,
       ebay_price_at_lookup: numberValue(detail.price?.value, 0),
-      currency: detail.price?.currency || "USD",
+      currency:
+        input.receiptVerification?.currency || detail.price?.currency || "",
       item_short_description: detail.shortDescription || null,
       localized_aspects: detail.localizedAspects || [],
       detected_fields: fields,
@@ -491,7 +508,14 @@ export async function movePurchaseInboxToReview(
         actual_purchase_date: row.purchased_at,
         external_order_id: row.external_order_id,
         source_adapter: "ebay_purchase_inbox",
-        currency: String(row.metadata.currency || "USD"),
+        receipt_verification_source: String(row.metadata.source || ""),
+        connected_buyer_order_verified:
+          row.metadata.connected_buyer_order_verified === true,
+        receipt_order_line_count: numberValue(
+          row.metadata.receipt_order_line_count,
+          0,
+        ),
+        currency: String(row.metadata.currency || ""),
       };
       const candidatePayload = {
         subject_id: subjectId,

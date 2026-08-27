@@ -1,0 +1,111 @@
+name: Supabase Repair Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/supabase-repair-now-trigger'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-supabase-repair-now
+  cancel-in-progress: false
+
+env:
+  SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  restart-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Restart Truely Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          status=$(curl -sS --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            -o /tmp/restart.json -w '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/restart")
+          echo "Supabase restart request -> HTTP $status"
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            cat /tmp/restart.json || true
+            exit 2
+          fi
+
+      - name: Resolve service key without printing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            status=$(curl -sS --max-time 20 \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H 'Accept: application/json' \
+              -o /tmp/keys.json -w '%{http_code}' \
+              "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys?reveal=true" || true)
+            if [ "$status" = "200" ]; then break; fi
+            echo "API key lookup attempt $attempt -> HTTP ${status:-curl_error}"
+            sleep 10
+          done
+          test "${status:-}" = "200"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const keys = JSON.parse(fs.readFileSync('/tmp/keys.json','utf8'));
+          const service = keys.find(k => String(k?.name||'').toLowerCase() === 'service_role' && k?.api_key)?.api_key
+            || keys.find(k => String(k?.type||'').toLowerCase() === 'secret' && k?.api_key)?.api_key;
+          if (!service) throw new Error('Supabase service key unavailable');
+          console.log(`::add-mask::${service}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY=${service}\n`);
+          NODE
+
+      - name: Poll database and Data API until healthy
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1/products?select=id&store_id=eq.00000000-0000-4000-8000-000000000001&id=eq.1991&limit=1"
+          healthy=0
+          for attempt in $(seq 1 60); do
+            project_status=$(curl -sS --max-time 15 \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H 'Accept: application/json' \
+              -o /tmp/project.json -w '%{http_code}' \
+              "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" || true)
+            rest_status=$(curl -sS --max-time 15 \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Accept: application/json' \
+              -o /tmp/product.json -w '%{http_code}' "$api" || true)
+            state=$(node -e "try{const x=require('/tmp/project.json');process.stdout.write(String(x.status||'unknown'))}catch{process.stdout.write('unknown')}")
+            echo "Recovery attempt $attempt -> project=${project_status:-curl_error}/$state REST=${rest_status:-curl_error}"
+            if [ "$rest_status" = "200" ]; then
+              healthy=1
+              cat /tmp/product.json
+              echo
+              break
+            fi
+            sleep 10
+          done
+          if [ "$healthy" != "1" ]; then
+            echo 'Supabase Data API did not recover within the repair window.'
+            head -c 1000 /tmp/product.json || true
+            echo
+            exit 3
+          fi
+
+      - name: Confirm database metadata recovered
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl -sS --max-time 20 \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            -o /tmp/context.json -w '%{http_code}' \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/context" || true)
+          echo "Supabase database context -> HTTP ${status:-curl_error}"
+          test "$status" = "200"

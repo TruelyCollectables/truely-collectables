@@ -26,5 +26,13 @@ create index if not exists public_endpoint_rate_limit_events_store_endpoint_subj
   on public.public_endpoint_rate_limit_events(store_id, endpoint_key, subject_key, created_at desc)
   where subject_key is not null;
 
+alter table public.public_endpoint_rate_limit_events enable row level security;
+
+revoke all privileges on table public.public_endpoint_rate_limit_events
+  from public, anon, authenticated;
+
 grant select, insert on table public.public_endpoint_rate_limit_events
-  to anon, authenticated;
+  to service_role;
+
+comment on table public.public_endpoint_rate_limit_events is
+  'Server-only audit and rate-limit events for public money endpoints. Rows may contain IP and identity evidence and are never exposed to anon or authenticated clients.';

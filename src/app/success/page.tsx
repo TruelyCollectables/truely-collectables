@@ -1,8 +1,12 @@
-import Stripe from "stripe";
-import { getOperationalStripeSecretKey } from "../../lib/stripe-credentials";
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
+import { STORE_SUPPORT_EMAIL } from "../../lib/legal";
+import {
+  resolvePostPurchaseStatus,
+  type PostPurchaseState,
+} from "../../lib/post-purchase-status";
 import { createSupabaseServerClient } from "../../lib/supabase-server";
 import { getStoreSettings } from "../../lib/store-settings";
 import { getActiveStoreId } from "../../lib/stores";
@@ -10,6 +14,15 @@ import SuccessCelebration from "./SuccessCelebration";
 import { inferSuccessTheme, rgba } from "./theme";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export const metadata: Metadata = {
+  title: "Order Status",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 type PurchasedProduct = {
   id: number;
@@ -20,25 +33,68 @@ type PurchasedProduct = {
   price: number | null;
 };
 
-function messageForType(type: string) {
-  if (type === "offer") {
+function confirmedMessageForType(type: string) {
+  if (["offer", "accepted_offer"].includes(type)) {
     return {
       title: "Offer Purchase Confirmed",
-      body: "Your accepted-offer checkout went through. We will verify the order, protect the details, and get it ready for fulfillment.",
+      body: "Your accepted-offer payment and order record are verified. We will get the card ready for fulfillment.",
     };
   }
 
   if (type === "counter") {
     return {
       title: "Counter Offer Purchase Confirmed",
-      body: "Your counter-offer checkout went through. That collectable is now moving into the fulfillment flow.",
+      body: "Your counter-offer payment and order record are verified. That card is now moving into fulfillment.",
     };
   }
 
   return {
     title: "Purchase Confirmed",
-    body: "Thank you for your order. We will verify the payment, update inventory, and get your collectable ready for its trip home.",
+    body: "Your payment and order record are verified. We will get your sports cards ready for their trip home.",
   };
+}
+
+function messageForState(state: PostPurchaseState, purchaseType: string) {
+  if (state === "confirmed") return confirmedMessageForType(purchaseType);
+
+  if (state === "processing") {
+    return {
+      title: "Payment Received",
+      body: "Stripe confirms the payment. The signed webhook is finishing the order record and inventory update now.",
+    };
+  }
+
+  if (state === "incomplete") {
+    return {
+      title: "Checkout Not Completed",
+      body: "This checkout is not recorded as a completed paid purchase. Your cart has not been cleared.",
+    };
+  }
+
+  return {
+    title: "Checkout Could Not Be Verified",
+    body: "We could not verify a completed paid Stripe checkout for this return link. Your cart has not been cleared.",
+  };
+}
+
+function statusLabel(state: PostPurchaseState) {
+  if (state === "confirmed") return "Order Confirmed";
+  if (state === "processing") return "Payment Verified / Finalizing";
+  if (state === "incomplete") return "Payment Incomplete";
+  return "Verification Failed";
+}
+
+function statusClasses(state: PostPurchaseState) {
+  if (state === "confirmed") {
+    return "border-emerald-300 bg-emerald-950/70 text-emerald-100";
+  }
+  if (state === "processing") {
+    return "border-sky-300 bg-sky-950/70 text-sky-100";
+  }
+  if (state === "incomplete") {
+    return "border-amber-300 bg-amber-950/70 text-amber-100";
+  }
+  return "border-red-300 bg-red-950/70 text-red-100";
 }
 
 function parseCartProductIds(value: string | null | undefined): number[] {
@@ -58,30 +114,10 @@ function parseCartProductIds(value: string | null | undefined): number[] {
   }
 }
 
-async function getCheckoutMetadata(sessionId: string | null | undefined) {
-  const stripeKey = getOperationalStripeSecretKey();
-
-  if (!stripeKey || !sessionId) return null;
-
-  try {
-    const stripe = new Stripe(stripeKey);
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-    return session.metadata || null;
-  } catch (error) {
-    console.error("Success page could not load Stripe session metadata", error);
-    return null;
-  }
-}
-
 async function getPurchasedProducts(
-  sessionId: string | null | undefined,
+  metadata: Record<string, string>,
   supabase: ReturnType<typeof createSupabaseServerClient>,
 ): Promise<PurchasedProduct[]> {
-  const metadata = await getCheckoutMetadata(sessionId);
-
-  if (!metadata) return [];
-
   const productIds = [
     Number(metadata.product_id),
     ...parseCartProductIds(metadata.cart),
@@ -111,17 +147,41 @@ async function getPurchasedProducts(
     .filter(Boolean) as PurchasedProduct[];
 }
 
+function formatMoney(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value || 0));
+}
+
+function readableStatus(value: string | null | undefined) {
+  return String(value || "processing").replaceAll("_", " ");
+}
+
 export default async function SuccessPage({
   searchParams,
 }: {
   searchParams?: Promise<{ type?: string; session_id?: string }>;
 }) {
   const params = await searchParams;
-  const purchaseType = params?.type || "cart";
-  const message = messageForType(purchaseType);
-  const supabase = createSupabaseServerClient();
-  const storeSettings = await getStoreSettings(supabase);
-  const purchasedProducts = await getPurchasedProducts(params?.session_id, supabase);
+  const supabase = createSupabaseServerClient({ admin: true });
+  const storeId = getActiveStoreId();
+  const storeSettings = await getStoreSettings(supabase, storeId);
+  const postPurchase = await resolvePostPurchaseStatus({
+    sessionId: params?.session_id,
+    requestedType: params?.type,
+    storeId,
+    supabase,
+  });
+  const message = messageForState(postPurchase.state, postPurchase.purchaseType);
+  const paymentVerified = ["confirmed", "processing"].includes(
+    postPurchase.state,
+  );
+  const shouldClearCart =
+    paymentVerified && postPurchase.purchaseType === "cart";
+  const purchasedProducts = paymentVerified
+    ? await getPurchasedProducts(postPurchase.metadata, supabase)
+    : [];
   const featuredProduct = purchasedProducts[0] || null;
   const extraProductCount = Math.max(purchasedProducts.length - 1, 0);
   const theme = inferSuccessTheme(
@@ -139,10 +199,16 @@ export default async function SuccessPage({
     backgroundColor: rgba("#111111", 0.7),
     borderColor: rgba(theme.accent, 0.45),
   };
+  const refreshHref = `/success?type=${encodeURIComponent(
+    postPurchase.purchaseType,
+  )}&session_id=${encodeURIComponent(postPurchase.sessionId || "")}`;
 
   return (
-    <main className="min-h-screen px-6 py-12 text-white" style={backgroundStyle}>
-      <ClearCartOnSuccess clearOnLoad={purchaseType === "cart"} />
+    <main
+      className="min-h-screen px-4 py-10 text-white sm:px-6 sm:py-12"
+      style={backgroundStyle}
+    >
+      <ClearCartOnSuccess clearOnLoad={shouldClearCart} />
 
       <section className="mx-auto flex max-w-4xl flex-col gap-8 text-center">
         <div>
@@ -152,13 +218,57 @@ export default async function SuccessPage({
           >
             {storeSettings.displayName}
           </p>
-          <h1 className="mt-3 text-5xl font-black md:text-7xl">
+          <h1 className="mt-3 text-4xl font-black sm:text-5xl md:text-7xl">
             {message.title}
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-neutral-300">
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-neutral-300 sm:text-lg sm:leading-8">
             {message.body}
           </p>
         </div>
+
+        <section
+          className={`rounded border p-5 text-left ${statusClasses(
+            postPurchase.state,
+          )}`}
+          aria-live="polite"
+        >
+          <p className="text-xs font-black uppercase tracking-wide">
+            {statusLabel(postPurchase.state)}
+          </p>
+          <p className="mt-2 text-sm leading-6">{postPurchase.detail}</p>
+
+          {postPurchase.order ? (
+            <dl className="mt-5 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <div className="rounded bg-black/20 p-3">
+                <dt className="font-bold opacity-75">Order</dt>
+                <dd className="mt-1 text-lg font-black">
+                  #{postPurchase.order.id}
+                </dd>
+              </div>
+              <div className="rounded bg-black/20 p-3">
+                <dt className="font-bold opacity-75">Total</dt>
+                <dd className="mt-1 text-lg font-black">
+                  {formatMoney(postPurchase.order.total)}
+                </dd>
+              </div>
+              <div className="rounded bg-black/20 p-3">
+                <dt className="font-bold opacity-75">Items</dt>
+                <dd className="mt-1 text-lg font-black">
+                  {postPurchase.order.itemCount}
+                </dd>
+              </div>
+              <div className="rounded bg-black/20 p-3">
+                <dt className="font-bold opacity-75">Status</dt>
+                <dd className="mt-1 break-words font-black uppercase">
+                  {readableStatus(
+                    postPurchase.order.fulfillmentStatus ||
+                      postPurchase.order.status,
+                  )}
+                </dd>
+              </div>
+            </dl>
+          ) : null}
+        </section>
 
         {featuredProduct ? (
           <div
@@ -172,7 +282,7 @@ export default async function SuccessPage({
                 fill
                 sizes="(min-width: 768px) 220px, 100vw"
                 unoptimized
-                className="object-cover"
+                className="object-contain p-2"
               />
             </div>
 
@@ -189,7 +299,7 @@ export default async function SuccessPage({
               <p className="mt-3 text-neutral-300">
                 {[featuredProduct.sport, featuredProduct.player]
                   .filter(Boolean)
-                  .join(" - ") || "Collectable"}
+                  .join(" - ") || "Sports card"}
               </p>
               <p className="mt-4 text-sm text-neutral-300">
                 Page theme: <strong>{theme.name}</strong>
@@ -203,51 +313,91 @@ export default async function SuccessPage({
           </div>
         ) : null}
 
-        <SuccessCelebration productTitle={featuredProduct?.title} theme={theme} />
+        {postPurchase.state === "confirmed" ? (
+          <SuccessCelebration
+            productTitle={featuredProduct?.title}
+            theme={theme}
+          />
+        ) : null}
 
-        <div className="grid grid-cols-1 gap-4 text-left md:grid-cols-3">
-          <div className="rounded border p-5" style={panelStyle}>
-            <p className="font-bold" style={{ color: theme.accent }}>
-              Inventory
-            </p>
-            <p className="mt-2 text-sm leading-6 text-neutral-300">
-              TCOS records the sale and updates available quantity.
-            </p>
+        {paymentVerified ? (
+          <div className="grid grid-cols-1 gap-4 text-left md:grid-cols-3">
+            <div className="rounded border p-5" style={panelStyle}>
+              <p className="font-bold" style={{ color: theme.accent }}>
+                Inventory
+              </p>
+              <p className="mt-2 text-sm leading-6 text-neutral-300">
+                The signed webhook records the sale and updates available quantity.
+              </p>
+            </div>
+
+            <div className="rounded border p-5" style={panelStyle}>
+              <p className="font-bold" style={{ color: theme.accent }}>
+                Protection
+              </p>
+              <p className="mt-2 text-sm leading-6 text-neutral-300">
+                Your order keeps payment, terms, and fulfillment evidence.
+              </p>
+            </div>
+
+            <div className="rounded border p-5" style={panelStyle}>
+              <p className="font-bold" style={{ color: theme.accent }}>
+                Fulfillment
+              </p>
+              <p className="mt-2 text-sm leading-6 text-neutral-300">
+                Tracking appears after the order is packed and a real label is recorded.
+              </p>
+            </div>
           </div>
+        ) : null}
 
-          <div className="rounded border p-5" style={panelStyle}>
-            <p className="font-bold" style={{ color: theme.accent }}>
-              Protection
-            </p>
-            <p className="mt-2 text-sm leading-6 text-neutral-300">
-              Your order keeps its payment, TOS, and fulfillment evidence.
-            </p>
-          </div>
+        <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
+          {postPurchase.state === "processing" ? (
+            <Link
+              href={refreshHref}
+              className="inline-flex min-h-12 items-center justify-center rounded border border-sky-300 px-6 font-black text-sky-100"
+            >
+              Refresh Order Status
+            </Link>
+          ) : null}
 
-          <div className="rounded border p-5" style={panelStyle}>
-            <p className="font-bold" style={{ color: theme.accent }}>
-              Fulfillment
-            </p>
-            <p className="mt-2 text-sm leading-6 text-neutral-300">
-              Once packed, tracking gets added from the admin order flow.
-            </p>
-          </div>
-        </div>
+          {postPurchase.accountLinked && paymentVerified ? (
+            <Link
+              href="/account/orders"
+              className="inline-flex min-h-12 items-center justify-center rounded px-6 font-black"
+              style={{
+                backgroundColor: theme.accent,
+                color: theme.textOnAccent,
+              }}
+            >
+              View Your Orders
+            </Link>
+          ) : null}
 
-        <div className="flex flex-wrap justify-center gap-4">
-          <Link
-            href="/shop"
-            className="rounded px-6 py-3 font-bold"
-            style={{ backgroundColor: theme.accent, color: theme.textOnAccent }}
+          {postPurchase.state === "incomplete" ? (
+            <Link
+              href="/cart"
+              className="inline-flex min-h-12 items-center justify-center rounded bg-amber-300 px-6 font-black text-neutral-950"
+            >
+              Return to Cart
+            </Link>
+          ) : null}
+
+          {paymentVerified ? (
+            <Link
+              href="/shop"
+              className="inline-flex min-h-12 items-center justify-center rounded border border-neutral-600 px-6 font-black text-white"
+            >
+              Keep Collecting
+            </Link>
+          ) : null}
+
+          <a
+            href={`mailto:${STORE_SUPPORT_EMAIL}`}
+            className="inline-flex min-h-12 items-center justify-center rounded border border-neutral-600 px-6 font-black text-white"
           >
-            Keep Collecting
-          </Link>
-          <Link
-            href="/"
-            className="rounded border border-neutral-700 px-6 py-3 font-bold text-white"
-          >
-            Back Home
-          </Link>
+            Order Support
+          </a>
         </div>
       </section>
     </main>

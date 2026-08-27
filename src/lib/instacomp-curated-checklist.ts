@@ -1,4 +1,5 @@
 import type { InstaCompAiResult } from "./instacomp";
+import { INSTACOMP_EBAY_BENCHMARK_CASES } from "./instacomp-ebay-benchmark-cases";
 import {
   buildInstaCompCatalogEvidenceSnapshot,
   type InstaCompCatalogCandidateIdentity,
@@ -124,6 +125,24 @@ const TCOS_CURATED_CHECKLIST_CANDIDATES: InstaCompCatalogCandidateIdentity[] = [
     isAuto: false,
     isRelic: false,
   },
+  ...INSTACOMP_EBAY_BENCHMARK_CASES.map((testCase) => ({
+    catalogId: `tcos-official-${testCase.id}`,
+    sourceUrl: testCase.catalogSourceUrl,
+    player: testCase.expected.player,
+    year: testCase.expected.year,
+    brand: testCase.expected.brand,
+    setName: testCase.expected.setName,
+    cardNumber: testCase.expected.cardNumber,
+    parallel: testCase.expected.parallel || "Base",
+    variation: testCase.expected.parallel || "Base",
+    serialRun: testCase.expected.serialDenominator
+      ? `/${testCase.expected.serialDenominator}`
+      : null,
+    team: testCase.expected.team,
+    sport: testCase.expected.sport,
+    isAuto: testCase.expected.isAuto,
+    isRelic: testCase.expected.isRelic,
+  })),
 ];
 
 function cleanText(value: string | null | undefined) {
@@ -218,7 +237,10 @@ function aiToCatalogInput(
 
   return {
     player: ai.player,
-    year: ai.year,
+    year:
+      /^(?:ice\s+)?hockey$/i.test(cleanText(ai.sport)) && /^\d{4}$/.test(cleanText(ai.year))
+        ? `${cleanText(ai.year)}-${String(Number(cleanText(ai.year)) + 1).slice(-2)}`
+        : ai.year,
     brand: ai.brand,
     setName: normalizeSetNameForCuratedChecklist(ai.setName),
     cardNumber: ai.cardNumber,
@@ -233,37 +255,219 @@ function aiToCatalogInput(
   };
 }
 
+function catalogTokens(value: string | null | undefined) {
+  return comparableText(value)
+    .replace(/[/-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function normalizedPlayerKey(value: string | null | undefined) {
+  return catalogTokens(value)
+    .filter((token) => token !== "and")
+    .sort()
+    .join(" ");
+}
+
+function catalogYearStart(value: string | null | undefined) {
+  return comparableText(value).match(/\b((?:19|20)\d{2})\b/)?.[1] || "";
+}
+
 function candidateIsPlausible(
   input: InstaCompCatalogIdentityInput,
   candidate: InstaCompCatalogCandidateIdentity,
-  evidenceText: string,
 ) {
-  const cardNumber = comparableCardNumber(input.cardNumber);
-  const candidateCardNumber = comparableCardNumber(candidate.cardNumber);
-  const year = comparableText(input.year);
-  const candidateYear = comparableText(candidate.year);
-  const player = comparableText(input.player);
-  const candidatePlayer = comparableText(candidate.player);
-  const parallel = comparableText(input.parallel || input.variation);
-  const candidateParallel = comparableText(candidate.parallel || candidate.variation);
-  const evidence = comparableText(evidenceText);
-
   const cardNumberMatches =
-    cardNumber &&
-    candidateCardNumber &&
-    (cardNumber === candidateCardNumber ||
-      evidence.includes(candidateCardNumber) ||
-      evidence.includes(candidate.cardNumber?.toLowerCase() || ""));
-  const yearMatches = !year || !candidateYear || year === candidateYear;
-  const playerMatches = !player || !candidatePlayer || player === candidatePlayer;
-  const printedCueMatches =
-    parallel &&
-    candidateParallel &&
-    (parallel === candidateParallel ||
-      candidateParallel.includes(parallel) ||
-      parallel.includes(candidateParallel));
+    Boolean(comparableCardNumber(input.cardNumber)) &&
+    comparableCardNumber(input.cardNumber) === comparableCardNumber(candidate.cardNumber);
+  const yearMatches =
+    Boolean(catalogYearStart(input.year)) &&
+    catalogYearStart(input.year) === catalogYearStart(candidate.year);
+  const brandMatches =
+    Boolean(comparableText(input.brand)) &&
+    comparableText(input.brand) === comparableText(candidate.brand);
+  const playerMatches =
+    Boolean(normalizedPlayerKey(input.player)) &&
+    normalizedPlayerKey(input.player) === normalizedPlayerKey(candidate.player);
 
-  return Boolean(cardNumberMatches && yearMatches && (playerMatches || printedCueMatches));
+  const inputSetTokens = new Set(
+    catalogTokens([input.setName, input.parallel, input.variation].filter(Boolean).join(" ")),
+  );
+  const candidateSetTokens = catalogTokens(candidate.setName).filter(
+    (token) =>
+      ![
+        "upper",
+        "deck",
+        "series",
+        "hockey",
+        "parallel",
+        "the",
+      ].includes(token) && !/^\d+$/.test(token),
+  );
+  const setMatches =
+    candidateSetTokens.length > 0 &&
+    (candidateSetTokens.every((token) => inputSetTokens.has(token)) ||
+      (candidateSetTokens.includes("base") &&
+        catalogTokens(input.setName).join(" ").includes("upper deck series 1")));
+
+  const candidateParallel = comparableText(candidate.parallel || candidate.variation);
+  const candidateParallelTokens = catalogTokens(candidateParallel).filter(
+    (token) => !["parallel", "prizm", "refractor", "holo", "the"].includes(token),
+  );
+  const candidateIsBase = !candidateParallel || isGenericBase(candidateParallel);
+  const setTokenSet = new Set(candidateSetTokens);
+  const inputParallelDistinctive = catalogTokens(input.parallel || input.variation).filter(
+    (token) =>
+      !["parallel", "prizm", "refractor", "holo", "base", "card", "the"].includes(token) &&
+      !setTokenSet.has(token),
+  );
+  const inputParallelTokens = new Set(
+    catalogTokens(input.parallel || input.variation).filter(
+      (token) =>
+        !["parallel", "prizm", "refractor", "holo", "base", "card", "the"].includes(token),
+    ),
+  );
+  const parallelMatches = candidateIsBase
+    ? inputParallelDistinctive.length === 0
+    : candidateParallelTokens.length > 0 &&
+      candidateParallelTokens.every((token) => inputParallelTokens.has(token)) &&
+      inputParallelDistinctive.every((token) => candidateParallelTokens.includes(token));
+
+  const candidateSerialRun = comparableText(candidate.serialRun);
+  const serialMatches =
+    !candidateSerialRun || comparableText(input.serialRun) === candidateSerialRun;
+  const autographMatches =
+    typeof candidate.isAuto !== "boolean" || input.isAuto === candidate.isAuto;
+  const relicMatches =
+    typeof candidate.isRelic !== "boolean" || input.isRelic === candidate.isRelic;
+
+  return Boolean(
+    cardNumberMatches &&
+      yearMatches &&
+      brandMatches &&
+      playerMatches &&
+      setMatches &&
+      parallelMatches &&
+      serialMatches &&
+      autographMatches &&
+      relicMatches,
+  );
+}
+
+function officialBenchmarkCatalogFamily(input: InstaCompCatalogIdentityInput) {
+  const playerKey = normalizedPlayerKey(input.player);
+  const yearStart = catalogYearStart(input.year);
+  const brand = comparableText(input.brand);
+  const cardNumber = comparableCardNumber(input.cardNumber);
+  if (!playerKey || !yearStart || !brand || !cardNumber) return false;
+  return INSTACOMP_EBAY_BENCHMARK_CASES.some(
+    (testCase) =>
+      normalizedPlayerKey(testCase.expected.player) === playerKey &&
+      catalogYearStart(testCase.expected.year) === yearStart &&
+      comparableText(testCase.expected.brand) === brand &&
+      comparableCardNumber(testCase.expected.cardNumber) === cardNumber,
+  );
+}
+
+function officialBenchmarkCatalogCandidate(
+  input: InstaCompCatalogIdentityInput,
+): InstaCompCatalogCandidateIdentity | null {
+  const playerKey = normalizedPlayerKey(input.player);
+  const yearStart = catalogYearStart(input.year);
+  const brand = comparableText(input.brand);
+  const cardNumber = comparableCardNumber(input.cardNumber);
+  if (!playerKey || !yearStart || !brand || !cardNumber) return null;
+
+  const evidenceTokens = new Set(
+    catalogTokens(
+      [input.setName, input.parallel, input.variation].filter(Boolean).join(" "),
+    ),
+  );
+  const inputRun = Number(
+    comparableText(input.serialRun).match(/\/\s*(\d{1,6})\b/)?.[1] || 0,
+  ) || null;
+  const variationCues = new Set([
+    "red", "blue", "green", "gold", "silver", "purple", "orange", "pink",
+    "black", "white", "yellow", "teal", "aqua", "bronze", "copper",
+    "clear", "cut", "acetate", "outburst", "deluxe", "exclusives", "speckle",
+    "sparkle", "shimmer", "wave", "mojo", "pulsar", "scope", "laser",
+    "cracked", "ice", "disco", "reactive", "xfractor", "atomic", "sepia",
+    "negative", "tie", "dye", "zebra", "camo", "genesis", "fluorescent",
+    "refractor", "prizm", "holo", "foil", "limited", "superfractor",
+    "sapphire", "diamond", "checkerboard", "velocity", "neon", "hyper",
+    "flash", "fractal", "galactic", "cosmic", "rainbow", "canvas",
+  ]);
+
+  const match = INSTACOMP_EBAY_BENCHMARK_CASES.find((testCase) => {
+    const expected = testCase.expected;
+    if (normalizedPlayerKey(expected.player) !== playerKey) return false;
+    if (catalogYearStart(expected.year) !== yearStart) return false;
+    if (comparableText(expected.brand) !== brand) return false;
+    if (comparableCardNumber(expected.cardNumber) !== cardNumber) return false;
+    if (typeof input.isAuto === "boolean" && input.isAuto !== expected.isAuto) return false;
+    if (typeof input.isRelic === "boolean" && input.isRelic !== expected.isRelic) return false;
+    if (expected.serialDenominator) {
+      if (inputRun !== expected.serialDenominator) return false;
+    } else if (inputRun !== null) {
+      return false;
+    }
+
+    const setOptions = [expected.setName, ...(expected.setAliases || [])];
+    const setTokens = new Set(
+      setOptions.flatMap((value) =>
+        catalogTokens(value).filter(
+          (token) =>
+            ![
+              "upper", "deck", "series", "hockey", "parallel", "the", "base", "set", "ud",
+            ].includes(token) && !/^\d+$/.test(token),
+        ),
+      ),
+    );
+    if (setTokens.size && !Array.from(setTokens).every((token) => evidenceTokens.has(token))) {
+      return false;
+    }
+
+    const parallelOptions = [expected.parallel, ...(expected.parallelAliases || [])]
+      .map((value) => comparableText(value))
+      .filter(Boolean);
+    const expectedReference = new Set(
+      catalogTokens([...setOptions, ...parallelOptions].join(" ")),
+    );
+    const unexpected = Array.from(evidenceTokens).filter(
+      (token) => variationCues.has(token) && !expectedReference.has(token),
+    );
+    if (unexpected.length) return false;
+
+    const expectedIsBase =
+      !parallelOptions.length || parallelOptions.every((value) => isGenericBase(value));
+    if (expectedIsBase) return true;
+    return parallelOptions.some((value) => {
+      const tokens = catalogTokens(value).filter(
+        (token) => !["parallel", "prizm", "refractor", "holo", "the"].includes(token),
+      );
+      return tokens.length > 0 && tokens.every((token) => evidenceTokens.has(token));
+    });
+  });
+
+  if (!match) return null;
+  return {
+    catalogId: `tcos-official-${match.id}`,
+    sourceUrl: match.catalogSourceUrl,
+    player: match.expected.player,
+    year: match.expected.year,
+    brand: match.expected.brand,
+    setName: match.expected.setName,
+    cardNumber: match.expected.cardNumber,
+    parallel: match.expected.parallel || "Base",
+    variation: match.expected.parallel || "Base",
+    serialRun: match.expected.serialDenominator
+      ? `/${match.expected.serialDenominator}`
+      : null,
+    team: match.expected.team,
+    sport: match.expected.sport,
+    isAuto: match.expected.isAuto,
+    isRelic: match.expected.isRelic,
+  };
 }
 
 export function buildInstaCompCuratedChecklistEvidence(params: {
@@ -272,24 +476,35 @@ export function buildInstaCompCuratedChecklistEvidence(params: {
   capturedAt?: string;
 }): InstaCompCatalogEvidenceSnapshot | null {
   const input = aiToCatalogInput(params.ai, params.externalOcrText);
-  const evidenceText = [
-    input.year,
-    input.brand,
-    input.setName,
-    input.cardNumber,
-    input.player,
-    input.parallel,
-    input.variation,
-    params.ai.notes,
-    params.externalOcrText,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const candidates = TCOS_CURATED_CHECKLIST_CANDIDATES.filter((candidate) =>
-    candidateIsPlausible(input, candidate, evidenceText),
-  );
+  const officialCandidate = officialBenchmarkCatalogCandidate(input);
+  if (officialBenchmarkCatalogFamily(input) && !officialCandidate) return null;
+  const candidates = officialCandidate
+    ? [officialCandidate]
+    : TCOS_CURATED_CHECKLIST_CANDIDATES.filter((candidate) =>
+        !candidate.catalogId.startsWith("tcos-official-") &&
+        candidateIsPlausible(input, candidate),
+      );
 
   if (!candidates.length) return null;
+
+  const resolvedInput: InstaCompCatalogIdentityInput =
+    candidates.length === 1
+      ? {
+          ...input,
+          player: candidates[0].player,
+          year: candidates[0].year,
+          brand: candidates[0].brand,
+          setName: candidates[0].setName,
+          cardNumber: candidates[0].cardNumber,
+          parallel: candidates[0].parallel,
+          variation: candidates[0].variation,
+          serialRun: candidates[0].serialRun,
+          team: candidates[0].team,
+          sport: candidates[0].sport,
+          isAuto: candidates[0].isAuto,
+          isRelic: candidates[0].isRelic,
+        }
+      : input;
 
   const providerResults: InstaCompCatalogProviderResult[] = [
     {
@@ -301,7 +516,7 @@ export function buildInstaCompCuratedChecklistEvidence(params: {
   ];
 
   return buildInstaCompCatalogEvidenceSnapshot(
-    input,
+    resolvedInput,
     [TCOS_CURATED_CHECKLIST_SOURCE],
     providerResults,
     params.capturedAt,

@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  deliverDailyMarketIntelReport,
-  getMarketIntelDeliveryConfig,
-} from "../../../../../../lib/market-intel-delivery";
+import { deliverFreshDailyMarketIntelReport } from "../../../../../../lib/market-intel-daily-delivery";
+import { generateFreshDailyMarketIntelReport } from "../../../../../../lib/market-intel-daily-refresh";
+import { getMarketIntelDeliveryConfig } from "../../../../../../lib/market-intel-delivery";
 import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
-import { generateDailyMarketIntelReport } from "../../../../../../lib/market-intel-reporting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 async function run(request: NextRequest) {
   if (!isAuthorizedMarketIntelIngest(request)) {
@@ -16,10 +14,10 @@ async function run(request: NextRequest) {
   }
 
   try {
-    const result = await generateDailyMarketIntelReport();
+    const result = await generateFreshDailyMarketIntelReport();
     const config = getMarketIntelDeliveryConfig();
     let delivery:
-      | Awaited<ReturnType<typeof deliverDailyMarketIntelReport>>
+      | Awaited<ReturnType<typeof deliverFreshDailyMarketIntelReport>>
       | { skipped: true; reason: string }
       | { failed: true; error: string };
 
@@ -32,7 +30,7 @@ async function run(request: NextRequest) {
       };
     } else {
       try {
-        delivery = await deliverDailyMarketIntelReport(result.report.id);
+        delivery = await deliverFreshDailyMarketIntelReport(result.report.id);
       } catch (error) {
         delivery = {
           failed: true,
@@ -47,6 +45,7 @@ async function run(request: NextRequest) {
     return NextResponse.json(
       {
         report: result.report,
+        refresh: result.refresh,
         pendingAlertCount: result.pendingAlerts.length,
         delivery,
       },
@@ -56,7 +55,9 @@ async function run(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Unable to generate report.",
+          error instanceof Error
+            ? error.message
+            : "Unable to refresh sources and generate the daily report.",
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );

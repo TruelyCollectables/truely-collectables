@@ -1,0 +1,57 @@
+name: KINGMAKER Phases 20-23 Enterprise Assurance
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/kingmaker-phases-20-23-enterprise-assurance.ts'
+      - 'scripts/run-kingmaker-phases-20-23-enterprise-assurance-regressions.ts'
+      - 'supabase/migrations/20260803184000_kingmaker_phases_20_23_enterprise_assurance.sql'
+      - '.github/workflows/kingmaker-phases-20-23-enterprise-assurance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Enterprise assurance regressions
+        run: node --import tsx scripts/run-kingmaker-phases-20-23-enterprise-assurance-regressions.ts
+      - name: Migration security
+        run: |
+          set -euo pipefail
+          file='supabase/migrations/20260803184000_kingmaker_phases_20_23_enterprise_assurance.sql'
+          test "$(grep -Eic 'enable row level security' "$file")" -ge 2
+          grep -Eiq 'revoke all .* from public, anon, authenticated' "$file"
+          grep -Eiq 'grant all .* to service_role' "$file"
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$file"
+          grep -Fq "verdict <> 'certified'" "$file"
+      - name: Dependency security
+        run: node scripts/run-dependency-security-audit.mjs
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-phases-20-23-enterprise-assurance.ts scripts/run-kingmaker-phases-20-23-enterprise-assurance-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Diff integrity
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - name: Production build
+        run: npm run build

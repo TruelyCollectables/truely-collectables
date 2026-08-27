@@ -1,0 +1,175 @@
+name: InstaComp Hockey Final Six Production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-requested-hockey-management-production
+  cancel-in-progress: true
+
+jobs:
+  final-six-production:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/hockey-final-six/base
+      DOWNLOADED_CHECKLIST_CORPUS_ROOT: /home/runner/work/_temp/hockey-final-six/corpus
+      THE_CUP_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-final-six/cup/the-cup-layout-plans
+      THE_CUP_MANAGEMENT_RECEIPT: /home/runner/work/_temp/hockey-final-six/the-cup-management.json
+      TOPPS_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/hockey-final-six/topps
+      TOPPS_HOCKEY_RECEIPT: /home/runner/work/_temp/hockey-final-six/topps-production.json
+      UPPER_DECK_SUPPLEMENT_RECEIPT: /home/runner/work/_temp/hockey-final-six/upper-deck-supplements.json
+      REQUESTED_HOCKEY_VERIFY_RECEIPT: /home/runner/work/_temp/hockey-final-six/requested-hockey-individual-verification.json
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '4'
+      CHECKLIST_REGISTRY_SET_CHUNK: '20'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '20'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '20'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '30'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '4'
+      UPPER_DECK_SUPPLEMENT_DELAY_MS: '0'
+      UPPER_DECK_SUPPLEMENT_ATTEMPTS: '4'
+      REQUESTED_HOCKEY_VERIFY_CONCURRENCY: '1'
+      REQUESTED_HOCKEY_VERIFY_ATTEMPTS: '3'
+      REQUESTED_HOCKEY_VERIFY_RETRY_MS: '10000'
+
+    steps:
+      - name: Checkout Hockey recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-target-checklists-20260816
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install deterministic source readers
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 120s python3 -m pip install --disable-pip-version-check openpyxl xlrd pypdf
+          python3 -c 'import openpyxl, xlrd, pypdf; print("source readers ready")'
+
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Download immutable original harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/hockey-final-six/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Download complete immutable source corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-complete-31992954544
+          path: /home/runner/work/_temp/hockey-final-six/corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31992954544
+
+      - name: Download certified The Cup plan
+        uses: actions/download-artifact@v4
+        with:
+          name: instacomp-the-cup-layout-recovery-31976115218
+          path: /home/runner/work/_temp/hockey-final-six/cup
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976115218
+
+      - name: Prove immutable inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$VERIFIED_HARVEST_ROOT/output/sources"
+          test -n "$(find "$VERIFIED_HARVEST_ROOT/output/sources" -maxdepth 1 -type f -name 'hockey_2022-23_upper-deck_the-cup-nhl__*' -print -quit)"
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*' | wc -l | tr -d ' ')" = '192'
+          jq -e '.exactSetKey == "hockey|2022-23|upper-deck|the-cup-nhl" and .status == "validated"' /home/runner/work/_temp/hockey-final-six/cup/the-cup-layout-recovery-receipt.json
+
+      - name: Patch final-six Production writer and parsers
+        run: |
+          set -euo pipefail
+          python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+          python3 scripts/instacomp-target-checklists/patch-final-six-production.py
+
+      - name: Repair 2022-23 The Cup in Production
+        run: node scripts/instacomp-target-checklists/apply-certified-the-cup-management.mjs
+
+      - name: Stage Topps sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
+          copy_pdf(){ local pattern="$1" dest="$2" src; src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"; test -n "$src"; cp "$src" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf"; python3 scripts/instacomp-target-checklists/pdf-to-layout-text.py "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; test -s "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; }
+          copy_pdf '*hockey_2021_topps_nhl-stickers.pdf' '2021-nhl-stickers'
+          copy_pdf '*hockey_2022-23_topps_nhl-sticker-album.pdf' '2022-23-nhl-sticker-album'
+          copy_pdf '*hockey_2022-23_topps_chrome-nhl-stickers.pdf' '2022-23-chrome-nhl-stickers'
+          copy_pdf '*hockey_2024-25_topps_nhl-sticker-collection.pdf' '2024-25-nhl-sticker-collection'
+          copy_pdf '*hockey_2025-26_topps_nhl-sticker-collection.pdf' '2025-26-nhl-sticker-collection'
+
+      - name: Repair Topps Hockey in Production
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts
+
+      - name: Repair downloaded Upper Deck supplements in Production
+        run: node --import tsx scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts
+
+      - name: Re-verify all 83 original Hockey catalogs
+        run: node --import tsx scripts/instacomp-target-checklists/verify-requested-hockey-individual.mjs
+
+      - name: Build and enforce final-six receipt gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/home/runner/work/_temp/hockey-final-six
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const root = '/home/runner/work/_temp/hockey-final-six';
+          const read = (name) => { try { return JSON.parse(fs.readFileSync(`${root}/${name}`, 'utf8')); } catch { return null; } };
+          const r = {
+            schema: 'tcos.hockeyFinalSixProduction.v2',
+            completedAt: new Date().toISOString(),
+            theCup: read('the-cup-management.json'),
+            topps: read('topps-production.json'),
+            upperDeckSupplements: read('upper-deck-supplements.json'),
+            baselineVerification: read('requested-hockey-individual-verification.json'),
+          };
+          const failures = [];
+          if (!r.theCup || !['already_live','persisted'].includes(String(r.theCup.status || ''))) failures.push('theCup');
+          if (!r.topps || Number(r.topps.failedCount || 0) !== 0 || Number(r.topps.unresolvedCount || 0) !== 0 || Number(r.topps.liveCount || 0) !== 5) failures.push('topps');
+          if (!r.upperDeckSupplements || Number(r.upperDeckSupplements.failedCount || 0) !== 0 || Number(r.upperDeckSupplements.validationFailedCount || 0) !== 0 || Number(r.upperDeckSupplements.unresolvedCount || 0) !== 0 || Number(r.upperDeckSupplements.liveCount || 0) !== 55) failures.push('upperDeckSupplements');
+          const baselinePassed = Number(r.baselineVerification?.passedCount ?? r.baselineVerification?.liveCount ?? 0);
+          const baselineFailed = Number(r.baselineVerification?.failedCount ?? r.baselineVerification?.unresolvedCount ?? 0);
+          if (!r.baselineVerification || baselinePassed !== 83 || baselineFailed !== 0) failures.push('baselineVerification');
+          r.gate = { passed: failures.length === 0, failures };
+          fs.writeFileSync(`${root}/final-six-receipt.json`, JSON.stringify(r, null, 2) + '\n');
+          console.log(JSON.stringify(r, null, 2));
+          if (failures.length) process.exit(2);
+          NODE
+
+      - name: Upload final-six Production receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-hockey-final-six-${{ github.run_id }}
+          path: |
+            /home/runner/work/_temp/hockey-final-six/final-six-receipt.json
+            /home/runner/work/_temp/hockey-final-six/the-cup-management.json
+            /home/runner/work/_temp/hockey-final-six/topps-production.json
+            /home/runner/work/_temp/hockey-final-six/upper-deck-supplements.json
+            /home/runner/work/_temp/hockey-final-six/requested-hockey-individual-verification.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hockey-final-six" .env.local .env.production.local .vercel

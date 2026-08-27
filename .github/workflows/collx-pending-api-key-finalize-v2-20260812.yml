@@ -1,0 +1,154 @@
+name: CollX Pending API Key Finalize V2 20260812
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/collx-pending-api-key-finalize-v2-trigger-20260812'
+
+permissions:
+  contents: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Park pending CollX rows and certify Production storefront
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile, urllib.parse
+          from datetime import datetime, timezone
+
+          pat=os.environ['SUPABASE_ACCESS_TOKEN']; ref=os.environ['PROJECT_REF']; store=os.environ['STORE_ID']
+
+          def curl_json(method,url,headers=None,body=None,timeout=60):
+              f=tempfile.NamedTemporaryFile(delete=False); f.close()
+              cmd=['curl','-sS','--max-time',str(timeout),'-A','curl/8.10.1','-o',f.name,'-w','%{http_code}','-X',method]
+              for k,v in (headers or {}).items(): cmd += ['-H',f'{k}: {v}']
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              cmd += [url]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=open(f.name).read(); os.unlink(f.name)
+              code=(p.stdout or '000')[-3:]
+              if code not in ('200','201','204'):
+                  raise SystemExit(f'{method} {url.split("?")[0]} HTTP {code}: {raw[:1600]}')
+              if not raw: return None
+              try:return json.loads(raw)
+              except Exception: raise SystemExit(f'Invalid JSON from {url.split("?")[0]}: {raw[:500]}')
+
+          keys=curl_json('GET',f'https://api.supabase.com/v1/projects/{ref}/api-keys?reveal=true',{'Authorization':'Bearer '+pat,'Accept':'application/json'}) or []
+          keyrow=next((k for k in keys if str(k.get('name') or '').lower()=='service_role' and (k.get('api_key') or k.get('key'))),None)
+          if not keyrow:
+              keyrow=next((k for k in keys if str(k.get('type') or '').lower()=='secret' and (k.get('api_key') or k.get('key'))),None)
+          if not keyrow:
+              safe=[{'name':k.get('name'),'type':k.get('type'),'has_api_key':bool(k.get('api_key')),'has_key':bool(k.get('key'))} for k in keys]
+              raise SystemExit('No usable Production service key. Key metadata='+json.dumps(safe))
+          key=keyrow.get('api_key') or keyrow.get('key')
+          print('::add-mask::'+key)
+          base=f'https://{ref}.supabase.co/rest/v1'
+          h={'apikey':key,'Authorization':'Bearer '+key,'Content-Type':'application/json'}
+
+          def rest(method,table,params=None,body=None,prefer=None):
+              qs=urllib.parse.urlencode(params or {},safe='(),.*-_:')
+              hh=dict(h)
+              if prefer:hh['Prefer']=prefer
+              return curl_json(method,f'{base}/{table}'+(('?'+qs) if qs else ''),hh,body)
+
+          def allrows(table,params,select):
+              out=[]; off=0
+              while True:
+                  p=dict(params);p.update({'select':select,'order':'id.asc','limit':'1000','offset':str(off)})
+                  batch=rest('GET',table,p) or [];out+=batch
+                  if len(batch)<1000:return out
+                  off+=1000
+                  if off>50000:raise SystemExit('Pagination safety stop')
+
+          def num(v):
+              try:return float(v or 0)
+              except:return 0.0
+
+          pfilters={'store_id':'eq.'+store,'sku':'gte.COLLX-','sku':'lt.COLLY','ebay_item_id':'is.null'}
+          products=allrows('products',pfilters,'id,sku,title,quantity,price,image_url,archived_at,ebay_item_id')
+          inventory=allrows('inventory_items',{'store_id':'eq.'+store},'id,legacy_product_id,sku,status,quantity,price')
+
+          def build_maps(rows):
+              bl={};bs={}
+              for x in rows:
+                  if x.get('legacy_product_id') is not None:bl[int(x['legacy_product_id'])]=x
+                  if x.get('sku'):bs[str(x['sku'])]=x
+              return bl,bs
+          bl,bs=build_maps(inventory)
+          def pick(p):return bl.get(int(p['id'])) or bs.get(str(p.get('sku') or ''))
+
+          target=[p for p in products if p.get('archived_at') is None and num(p.get('quantity'))>0 and num(p.get('price'))<=0]
+          shape={'target_rows':len(target),'target_units':sum(int(num(p.get('quantity'))) for p in target),'bridged_rows':sum(1 for p in target if pick(p))}
+          print('COLLX_V2_PENDING_PRE='+json.dumps(shape,sort_keys=True))
+          if shape!={'target_rows':127,'target_units':127,'bridged_rows':127}:
+              raise SystemExit('Safety stop: unexpected current pending shape')
+
+          now=datetime.now(timezone.utc).isoformat()
+          ids=[str(int(p['id'])) for p in target]
+          skus=[str(p['sku']) for p in target]
+          for seq,field in ((ids,'legacy_product_id'),(skus,'sku')):
+              for i in range(0,len(seq),30):
+                  c=seq[i:i+30]
+                  rest('PATCH','inventory_items',{'store_id':'eq.'+store,field:'in.('+','.join(c)+')'},{'status':'draft','updated_at':now},'return=minimal')
+
+          inventory=allrows('inventory_items',{'store_id':'eq.'+store},'id,legacy_product_id,sku,status,quantity,price')
+          bl,bs=build_maps(inventory)
+          def pick2(p):return bl.get(int(p['id'])) or bs.get(str(p.get('sku') or ''))
+
+          pending_draft=sum(1 for p in target if pick2(p) and pick2(p).get('status')=='draft')
+          current=[p for p in products if p.get('archived_at') is None and num(p.get('quantity'))>0]
+          positive=[p for p in current if num(p.get('price'))>0]
+          positive_front=[p for p in positive if str(p.get('image_url') or '').strip()]
+          storefront=[];missing=[];nonactive=[];iq0=[];ip0=[];pm=[];qm=[]
+          for p in positive_front:
+              x=pick2(p)
+              if not x:missing.append(p);continue
+              if x.get('status')!='active':nonactive.append((p,x))
+              if num(x.get('quantity'))<=0:iq0.append((p,x))
+              if num(x.get('price'))<=0:ip0.append((p,x))
+              if round(num(x.get('price')),2)!=round(num(p.get('price')),2):pm.append((p,x))
+              if int(num(x.get('quantity')))!=int(num(p.get('quantity'))):qm.append((p,x))
+              if x.get('status')=='active' and num(x.get('quantity'))>0:storefront.append((p,x))
+          archived_leaks=[]
+          for p in products:
+              if p.get('archived_at') is None or num(p.get('price'))<=0 or not str(p.get('image_url') or '').strip():continue
+              x=pick2(p)
+              if x and x.get('status')=='active' and num(x.get('quantity'))>0:archived_leaks.append((p,x))
+
+          audit={
+            'total_rows':len(products),'total_units':sum(max(0,int(num(p.get('quantity')))) for p in products),
+            'archived_rows':sum(1 for p in products if p.get('archived_at') is not None),
+            'archived_units':sum(max(0,int(num(p.get('quantity')))) for p in products if p.get('archived_at') is not None),
+            'pending_rows':len(target),'pending_units':shape['target_units'],'pending_selected_draft_rows':pending_draft,
+            'current_positive_rows':len(positive),'current_positive_with_front_rows':len(positive_front),
+            'storefront_rows':len(storefront),'storefront_units':sum(int(num(x.get('quantity'))) for _,x in storefront),
+            'positive_missing_bridge_rows':len(missing),'positive_nonactive_rows':len(nonactive),
+            'positive_inventory_zero_qty_rows':len(iq0),'positive_inventory_zero_price_rows':len(ip0),
+            'positive_price_mismatch_rows':len(pm),'positive_quantity_mismatch_rows':len(qm),
+            'archived_storefront_leak_rows':len(archived_leaks),
+            'current_missing_front_rows':sum(1 for p in positive if not str(p.get('image_url') or '').strip())}
+          print('COLLX_V2_FINAL_AUDIT='+json.dumps(audit,sort_keys=True))
+
+          def sample(items):
+              out=[]
+              for item in items[:12]:
+                  p=item[0] if isinstance(item,tuple) else item;x=item[1] if isinstance(item,tuple) else pick2(p)
+                  out.append({'id':p.get('id'),'sku':p.get('sku'),'title':str(p.get('title') or '')[:90],'product_price':p.get('price'),'inventory_price':x.get('price') if x else None,'product_qty':p.get('quantity'),'inventory_qty':x.get('quantity') if x else None,'status':x.get('status') if x else None})
+              return out
+          blockers={'missing_bridge':sample(missing),'nonactive':sample(nonactive),'inventory_zero_qty':sample(iq0),'inventory_zero_price':sample(ip0),'price_mismatch':sample(pm),'qty_mismatch':sample(qm),'archived_leaks':sample(archived_leaks)}
+          if any(blockers.values()):print('COLLX_V2_BLOCKER_SAMPLE='+json.dumps(blockers,sort_keys=True))
+          if pending_draft!=127:raise SystemExit(f'Pending park failed: {pending_draft}/127 selected rows are draft')
+          print('COLLX_V2_PENDING_PARK=SUCCESS')
+          PY

@@ -1,0 +1,75 @@
+name: Panini Checklist Archive
+
+on:
+  pull_request:
+    paths:
+      - "data/panini-checklist-seeds.json"
+      - "scripts/archive-panini-*.ts"
+      - ".github/workflows/panini-checklist-archive.yml"
+  push:
+    paths:
+      - "data/panini-checklist-seeds.json"
+      - "scripts/archive-panini-*.ts"
+      - ".github/workflows/panini-checklist-archive.yml"
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panini-checklist-archive-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download every currently known official Panini checklist file
+        run: node --import tsx scripts/archive-panini-seed-sets.ts
+      - name: Verify and report archive manifest
+        continue-on-error: true
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('.panini-seed-archive/manifest.json', 'utf8'));
+          if (manifest.schema !== 'tcos.panini.seedArchiveManifest.v1') throw new Error('Wrong Panini archive schema');
+          if ((manifest.totals?.requested ?? 0) < 1) throw new Error('No Panini seeds requested');
+          if ((manifest.totals.archived + manifest.totals.failed) !== manifest.totals.requested) throw new Error('Panini manifest totals do not reconcile');
+          console.log(`Requested: ${manifest.totals.requested}`);
+          console.log(`Archived: ${manifest.totals.archived}`);
+          console.log(`Failed: ${manifest.totals.failed}`);
+          NODE
+      - name: Package all successful files and receipts
+        if: always()
+        run: tar -C .panini-seed-archive -czf panini-checklist-archive.tar.gz .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-checklist-archive-${{ github.run_id }}
+          path: panini-checklist-archive.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-checklist-manifest-${{ github.run_id }}
+          path: .panini-seed-archive/manifest.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Fail only when nothing could be archived
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('.panini-seed-archive/manifest.json', 'utf8'));
+          if ((manifest.totals?.archived ?? 0) < 1) throw new Error('Panini sweep archived zero files');
+          NODE

@@ -1,0 +1,352 @@
+name: Checklist Registry Pokémon Japanese Historical Products
+
+on:
+  pull_request:
+    paths:
+      - "scripts/resolve-pokemon-japanese-historical-products.ts"
+      - "scripts/run-pokemon-japanese-historical-product-resolver-simulations.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-historical-products.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-registry-pokemon-ja-historical-products-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TCGDEX_SOURCE_COMMIT: 138c145b80f1a0d6a533f98fd3afe1ffc5b4f8d6
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint historical resolver
+        run: >-
+          npx eslint
+          scripts/resolve-pokemon-japanese-historical-products.ts
+          scripts/run-pokemon-japanese-historical-product-resolver-simulations.ts
+
+      - name: Prove resolver boundaries
+        run: >-
+          node --import tsx
+          scripts/run-pokemon-japanese-historical-product-resolver-simulations.ts
+
+      - name: Check out pinned TCGdex source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          git clone --filter=blob:none https://github.com/tcgdex/cards-database.git \
+            .codex-run/tcgdex-cards-database
+          git -C .codex-run/tcgdex-cards-database checkout --detach "$TCGDEX_SOURCE_COMMIT"
+          test "$(git -C .codex-run/tcgdex-cards-database rev-parse HEAD)" = "$TCGDEX_SOURCE_COMMIT"
+
+      - name: Rebuild Japanese source receipt
+        run: |
+          node --import tsx scripts/build-tcgdex-japanese-registry-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/tcgdex-ja-registry-bundles \
+            --receipt .codex-run/tcgdex-ja-build-receipt.json \
+            > .codex-run/tcgdex-ja-build-output.json
+
+      - name: Rebuild Phase 4A source classification
+        run: |
+          node --import tsx scripts/inventory-pokemon-japanese-incomplete-sets.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --delay-ms 75 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --queue .codex-run/pokemon-ja-incomplete-inventory-queue.json \
+            > .codex-run/pokemon-ja-incomplete-inventory-output.json
+
+      - name: Require the remaining 19-set target
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-incomplete-inventory-receipt.json');
+          const unmapped = receipt.rows.filter((row) => row.status === 'official_source_unmapped');
+          const expected = [
+            'S4','S4a','S5I','S5R','S5a','S6H','S6K','S6a','S7D','S7R',
+            'S8','S8a','S8b','S10D','S10P','S10a','S10b','S11','S11a',
+          ].sort();
+          const actual = unmapped.map((row) => row.setId).sort();
+          const checks = {
+            schema: receipt.schema === 'tcos.checklist.pokemonJapaneseIncompleteInventory.v1',
+            sourceCommit: receipt.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: receipt.attemptedSets === 22,
+            exactUnmappedTarget: JSON.stringify(actual) === JSON.stringify(expected),
+            failedSets: receipt.totals?.failedSets === 0,
+          };
+          console.log(JSON.stringify({ checks, unmapped: actual }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload pinned source receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4c-source-receipts
+          path: |
+            .codex-run/tcgdex-ja-build-receipt.json
+            .codex-run/pokemon-ja-incomplete-inventory-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+
+  resolve-set:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - set: S4
+            key: s4
+          - set: S4a
+            key: s4a
+          - set: S5I
+            key: s5i
+          - set: S5R
+            key: s5r
+          - set: S5a
+            key: s5a
+          - set: S6H
+            key: s6h
+          - set: S6K
+            key: s6k
+          - set: S6a
+            key: s6a
+          - set: S7D
+            key: s7d
+          - set: S7R
+            key: s7r
+          - set: S8
+            key: s8
+          - set: S8a
+            key: s8a
+          - set: S8b
+            key: s8b
+          - set: S10D
+            key: s10d
+          - set: S10P
+            key: s10p
+          - set: S10a
+            key: s10a
+          - set: S10b
+            key: s10b
+          - set: S11
+            key: s11
+          - set: S11a
+            key: s11a
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check out pinned TCGdex source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          git clone --filter=blob:none https://github.com/tcgdex/cards-database.git \
+            .codex-run/tcgdex-cards-database
+          git -C .codex-run/tcgdex-cards-database checkout --detach "$TCGDEX_SOURCE_COMMIT"
+          test "$(git -C .codex-run/tcgdex-cards-database rev-parse HEAD)" = "$TCGDEX_SOURCE_COMMIT"
+
+      - name: Download pinned source receipts
+        uses: actions/download-artifact@v4
+        with:
+          name: pokemon-ja-phase4c-source-receipts
+          path: .codex-run/source-receipts
+
+      - name: Resolve ${{ matrix.set }} historical products
+        run: |
+          node --import tsx scripts/resolve-pokemon-japanese-historical-products.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/source-receipts/tcgdex-ja-build-receipt.json \
+            --phase4a-receipt .codex-run/source-receipts/pokemon-ja-incomplete-inventory-receipt.json \
+            --set "${{ matrix.set }}" \
+            --delay-ms 250 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-historical-product-resolution-receipt.json \
+            --queue .codex-run/pokemon-ja-historical-product-resolution-queue.json \
+            > .codex-run/pokemon-ja-historical-product-resolution-output.json
+
+      - name: Require one complete set receipt
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/pokemon-ja-historical-product-resolution-receipt.json');
+          const row = receipt.rows?.[0];
+          const checks = {
+            schema: receipt.schema === 'tcos.checklist.pokemonJapaneseHistoricalProductResolution.v1',
+            mode: receipt.mode === 'read_only_historical_product_resolution',
+            sourceCommit: receipt.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: receipt.attemptedSets === 1,
+            expectedSet: row?.setId?.toLowerCase() === '${{ matrix.set }}'.toLowerCase(),
+            notFailed: row?.status !== 'failed',
+            candidateEvaluated: row?.candidateProducts?.length > 0 && row?.evaluatedGroups?.length > 0,
+          };
+          console.log(JSON.stringify({ checks, row: {
+            setId: row?.setId,
+            setName: row?.setName,
+            status: row?.status,
+            selectedProducts: row?.selectedProducts,
+            sourceCardCount: row?.sourceCardCount,
+            missingJapaneseCardNames: row?.missingJapaneseCardNames,
+            officialComparableCards: row?.selectedEvaluation?.officialComparableCards || 0,
+            officialOnlyCards: row?.selectedEvaluation?.officialOnlyCards?.length || 0,
+            resolvedMissingNames: row?.selectedEvaluation?.resolvedMissingNames || 0,
+            reasons: row?.reasons,
+            error: row?.error,
+          } }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload ${{ matrix.set }} evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4c-set-${{ matrix.key }}
+          path: |
+            .codex-run/pokemon-ja-historical-product-resolution-receipt.json
+            .codex-run/pokemon-ja-historical-product-resolution-queue.json
+            .codex-run/pokemon-ja-historical-product-resolution-output.json
+          if-no-files-found: error
+          retention-days: 90
+
+  aggregate:
+    needs: [prepare, resolve-set]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all isolated set evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pokemon-ja-phase4c-set-*
+          path: .codex-run/set-results
+
+      - name: Aggregate and require technically complete results
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          function walk(directory) {
+            return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+              const full = path.join(directory, entry.name);
+              return entry.isDirectory() ? walk(full) : [full];
+            });
+          }
+
+          const files = walk('.codex-run/set-results')
+            .filter((file) => file.endsWith('pokemon-ja-historical-product-resolution-receipt.json'));
+          const receipts = files.map((file) => JSON.parse(fs.readFileSync(file, 'utf8')));
+          const rows = receipts.flatMap((receipt) => receipt.rows || [])
+            .sort((left, right) => left.setId.localeCompare(right.setId));
+          const statusCounts = rows.reduce((counts, row) => {
+            counts[row.status] = (counts[row.status] || 0) + 1;
+            return counts;
+          }, {});
+          const totals = rows.reduce((sum, row) => {
+            sum.sourceCards += row.sourceCardCount || 0;
+            sum.missingJapaneseCardNames += row.missingJapaneseCardNames || 0;
+            sum.officialComparableCards += row.selectedEvaluation?.officialComparableCards || 0;
+            sum.officialOnlyCards += row.selectedEvaluation?.officialOnlyCards?.length || 0;
+            sum.resolvedMissingNames += row.selectedEvaluation?.resolvedMissingNames || 0;
+            sum.detailFetchFailures += row.selectedEvaluation?.detailFetchFailures || 0;
+            return sum;
+          }, {
+            sourceCards: 0,
+            missingJapaneseCardNames: 0,
+            officialComparableCards: 0,
+            officialOnlyCards: 0,
+            resolvedMissingNames: 0,
+            detailFetchFailures: 0,
+          });
+          const uniqueSets = new Set(rows.map((row) => row.setId.toLowerCase()));
+          const technicalErrors = rows.filter((row) => row.error);
+          const checks = {
+            receiptFiles: receipts.length === 19,
+            rows: rows.length === 19,
+            uniqueSets: uniqueSets.size === 19,
+            noFailedRows: rows.every((row) => row.status !== 'failed'),
+            everySetEvaluated: rows.every((row) =>
+              row.candidateProducts?.length > 0 && row.evaluatedGroups?.length > 0
+            ),
+            noTechnicalFetchErrors: technicalErrors.length === 0,
+            selectedGroupsClean: rows.every((row) =>
+              !row.selectedEvaluation || row.selectedEvaluation.detailFetchFailures === 0
+            ),
+          };
+          const summary = {
+            schema: 'tcos.checklist.pokemonJapaneseHistoricalProductResolutionAggregate.v1',
+            mode: 'read_only_isolated_historical_product_resolution',
+            sourceCommit: process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: rows.length,
+            statusCounts,
+            totals,
+            rows: rows.map((row) => ({
+              setId: row.setId,
+              setName: row.setName,
+              status: row.status,
+              selectedProducts: row.selectedProducts,
+              sourceCardCount: row.sourceCardCount,
+              missingJapaneseCardNames: row.missingJapaneseCardNames,
+              officialComparableCards: row.selectedEvaluation?.officialComparableCards || 0,
+              officialOnlyCards: row.selectedEvaluation?.officialOnlyCards?.length || 0,
+              resolvedMissingNames: row.selectedEvaluation?.resolvedMissingNames || 0,
+              reasons: row.reasons,
+              error: row.error,
+            })),
+          };
+          fs.writeFileSync(
+            '.codex-run/pokemon-ja-historical-product-resolution-aggregate.json',
+            `${JSON.stringify(summary, null, 2)}\n`,
+          );
+          console.log(JSON.stringify({ checks, summary }, null, 2));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '# Japanese Phase 4C isolated historical product resolution',
+            '',
+            '```json',
+            JSON.stringify(summary, null, 2),
+            '```',
+            '',
+          ].join('\n'));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Upload aggregate Phase 4C evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4c-historical-products-aggregate
+          path: |
+            .codex-run/pokemon-ja-historical-product-resolution-aggregate.json
+            .codex-run/set-results
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,105 @@
+name: InstaComp LoRA Resume Freeze Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-resume-freeze-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/mlx_vlm_resume_freeze_compat.py"
+      - "services/instacomp-ai/scripts/test_mlx_vlm_resume_freeze_runtime.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-lora-resume-freeze-contract.yml"
+      - "services/instacomp-ai/requirements-lora-runtime.txt"
+      - "services/instacomp-ai/scripts/mlx_vlm_lora_compat.py"
+      - "services/instacomp-ai/scripts/mlx_vlm_resume_freeze_compat.py"
+      - "services/instacomp-ai/scripts/test_mlx_vlm_resume_freeze_runtime.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile resume freeze guard
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/mlx_vlm_lora_compat.py \
+            services/instacomp-ai/scripts/mlx_vlm_resume_freeze_compat.py \
+            services/instacomp-ai/scripts/test_mlx_vlm_resume_freeze_runtime.py
+      - name: Repeat dependency-free resume freeze contract five times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== RESUME FREEZE CONTRACT LINUX ${pass}/5 ====="
+            python services/instacomp-ai/scripts/mlx_vlm_resume_freeze_compat.py
+          done
+      - name: Prove fail-closed integration contract
+        run: |
+          compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
+          freeze=services/instacomp-ai/scripts/mlx_vlm_resume_freeze_compat.py
+          runtime=services/instacomp-ai/scripts/test_mlx_vlm_resume_freeze_runtime.py
+          grep -q 'install_resume_adapter_freeze_compatibility' "$compat"
+          grep -q 'base VLM recursively frozen before adapter restore' "$freeze"
+          grep -q 'every trainable tensor is LoRA A/B only' "$freeze"
+          grep -q 'Refusing optimizer setup' "$freeze"
+          grep -q 'Pinned mlx-vlm resume behavior changed' "$runtime"
+          grep -q 'fixed_count == 64' "$runtime"
+
+  contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install exact certified LoRA runtime
+        run: |
+          python -m pip install --disable-pip-version-check -r services/instacomp-ai/requirements-lora-runtime.txt
+      - name: Verify exact pinned runtime and architecture
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import platform
+          version = importlib.metadata.version("mlx-vlm")
+          print(f"runtime_arch={platform.machine()} mlx_vlm={version}")
+          assert platform.machine() == "arm64"
+          assert version == "0.6.8"
+          PY
+      - name: Reproduce upstream resume bug and prove freeze fix five times
+        env:
+          PYTHONPATH: services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== REAL MLX RESUME FREEZE MAC ${pass}/5 ====="
+            python services/instacomp-ai/scripts/test_mlx_vlm_resume_freeze_runtime.py
+          done
+      - name: Prove warm-start worker installs freeze before mlx-vlm lora module
+        run: |
+          compat=services/instacomp-ai/scripts/mlx_vlm_lora_compat.py
+          freeze=services/instacomp-ai/scripts/mlx_vlm_resume_freeze_compat.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("services/instacomp-ai/scripts/mlx_vlm_lora_compat.py").read_text()
+          install = text.index("install_resume_adapter_freeze_compatibility()")
+          run = text.index('runpy.run_module("mlx_vlm.lora", run_name="__main__")')
+          assert install < run
+          print("PASS resume-freeze compatibility installs before mlx_vlm.lora import/execution")
+          PY
+          grep -q 'freeze()' "$freeze"
+          grep -q 'unexpected' "$freeze"
+          grep -q 'trainable_count <= 0' "$freeze"

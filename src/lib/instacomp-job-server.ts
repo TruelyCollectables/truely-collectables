@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ADMIN_SESSION_COOKIE_NAMES,
@@ -6,6 +7,7 @@ import {
 import { MAX_INSTACOMP_JOB_CARDS } from "./instacomp-job-state";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
+import { getInstaCompServiceToken } from "./tcos-profit-hunter-secrets";
 
 export const INSTACOMP_JOB_TABLE = "instacomp_scan_jobs";
 export const INSTACOMP_JOB_ITEM_TABLE = "instacomp_scan_items";
@@ -107,6 +109,37 @@ function bearerToken(request: Request) {
     : null;
 }
 
+function constantTimeSecretMatch(provided: string, expected: string) {
+  const providedBytes = Buffer.from(provided, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+
+  return (
+    providedBytes.length === expectedBytes.length &&
+    timingSafeEqual(providedBytes, expectedBytes)
+  );
+}
+
+export function isValidInstaCompServiceRequest(
+  request: Request,
+  expectedToken = getInstaCompServiceToken(),
+  acceptanceToken = process.env.INSTACOMP_ACCEPTANCE_SERVICE_TOKEN,
+) {
+  const expected = String(expectedToken || "").trim();
+  const acceptance = String(acceptanceToken || "").trim();
+  const provided = String(
+    request.headers.get("x-tcos-instacomp-service-token") || "",
+  ).trim();
+
+  if (!provided) return false;
+  if (expected && constantTimeSecretMatch(provided, expected)) return true;
+
+  // Acceptance is deliberately a separate, short-lived credential so a
+  // Production proof can never rotate or invalidate the Mac Registry token.
+  return Boolean(
+    acceptance.length >= 32 && constantTimeSecretMatch(provided, acceptance),
+  );
+}
+
 export function requireInstaCompJobSupabase(): SupabaseClient {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) {
     throw new InstaCompJobServerError(
@@ -135,6 +168,18 @@ export async function requireInstaCompJobActor(
   const supabase = requireInstaCompJobSupabase();
 
   const storeId = getActiveStoreId();
+
+  // Profit Hunter and Market Intel use a dedicated service credential. This
+  // keeps reusable seller JWTs and administrator cookies out of background
+  // connector infrastructure while preserving the same private store scope.
+  if (isValidInstaCompServiceRequest(request)) {
+    return {
+      type: "admin",
+      storeId,
+      sellerAccountId: null,
+    };
+  }
+
   const token = bearerToken(request);
   let validAccountId: string | null = null;
 

@@ -1,0 +1,86 @@
+name: Cloudflare Egress Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-egress-matrix-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Install Wrangler
+        run: npm install --no-save --package-lock=false wrangler@4.122.0
+
+      - name: Deploy tiny egress probes and compare behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/egress-probe.mjs <<'EOF'
+          async function timed(name, url) {
+            const started = Date.now();
+            try {
+              const response = await fetch(url, {
+                method: 'GET',
+                redirect: 'manual',
+                signal: AbortSignal.timeout(5000),
+                headers: { 'user-agent': 'truely-cloudflare-egress-probe/1.0' },
+              });
+              await response.body?.cancel().catch(() => {});
+              return { name, ok: true, status: response.status, elapsedMs: Date.now() - started };
+            } catch (error) {
+              return { name, ok: false, elapsedMs: Date.now() - started, error: String(error?.message || error).slice(0, 180) };
+            }
+          }
+
+          export default {
+            async fetch() {
+              const results = [];
+              results.push(await timed('example', 'https://example.com/'));
+              results.push(await timed('supabase-management', 'https://api.supabase.com/'));
+              results.push(await timed('truely-supabase-root', 'https://rfdzsoykhnngzdnvzlhz.supabase.co/'));
+              results.push(await timed('truely-supabase-auth-health', 'https://rfdzsoykhnngzdnvzlhz.supabase.co/auth/v1/health'));
+              results.push(await timed('truely-supabase-rest-root', 'https://rfdzsoykhnngzdnvzlhz.supabase.co/rest/v1/'));
+              return Response.json({ results });
+            },
+          };
+          EOF
+
+          cat > /tmp/wrangler-public.jsonc <<'EOF'
+          {
+            "name": "truely-egress-probe-public",
+            "main": "/tmp/egress-probe.mjs",
+            "compatibility_date": "2026-08-12",
+            "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+            "workers_dev": true
+          }
+          EOF
+
+          cat > /tmp/wrangler-default.jsonc <<'EOF'
+          {
+            "name": "truely-egress-probe-default",
+            "main": "/tmp/egress-probe.mjs",
+            "compatibility_date": "2026-08-12",
+            "compatibility_flags": ["nodejs_compat"],
+            "workers_dev": true
+          }
+          EOF
+
+          npx wrangler deploy --config /tmp/wrangler-public.jsonc >/tmp/deploy-public.log 2>&1
+          npx wrangler deploy --config /tmp/wrangler-default.jsonc >/tmp/deploy-default.log 2>&1
+
+          echo '=== global_fetch_strictly_public ==='
+          curl -sS --max-time 30 https://truely-egress-probe-public.truelycollectables.workers.dev/
+          echo
+          echo '=== default fetch routing ==='
+          curl -sS --max-time 30 https://truely-egress-probe-default.truelycollectables.workers.dev/
+          echo

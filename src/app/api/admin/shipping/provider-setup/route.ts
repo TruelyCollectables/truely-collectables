@@ -153,7 +153,7 @@ function exportLinks(requestUrl: string) {
     json: base,
     csv: `${base}?format=csv`,
     envTemplate: `${base}?format=env-template`,
-    vercelCommands: `${base}?format=vercel-commands`,
+    cloudflareCommands: `${base}?format=cloudflare-commands`,
     operatorChecklist: `${base}?format=operator-checklist`,
   };
 }
@@ -196,7 +196,7 @@ function envTemplateResponse(params: {
   ]);
   const lines = [
     "# TCOS shipping provider setup template",
-    "# Paste these keys into Vercel production/preview environment variables.",
+    "# Store these keys as Cloudflare production/preview Worker secrets.",
     "# Do not commit real secret values to git. This export contains names only.",
     `# Provider decision: ${params.decision.status}`,
     `# Next action: ${params.decision.nextAction}`,
@@ -257,7 +257,7 @@ function envTemplateResponse(params: {
   });
 }
 
-function vercelCommandsResponse(params: {
+function cloudflareCommandsResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
@@ -288,7 +288,7 @@ function vercelCommandsResponse(params: {
     ...liveRequirementKeys,
   ]);
   const lines = [
-    "# TCOS shipping provider Vercel env command checklist",
+    "# TCOS shipping provider Cloudflare secret command checklist",
     "# These commands prompt for values. They do not contain secret values.",
     "# Use the provider groups in the env-template export to decide which alternatives to set.",
     `# Provider decision: ${params.decision.status}`,
@@ -301,16 +301,12 @@ function vercelCommandsResponse(params: {
     ]),
     "",
     "# Production environment",
-    ...commandKeys.map(
-      (key) => `vercel env add ${key} production --scope truelycollectables-projects`,
-    ),
+    ...commandKeys.map((key) => `wrangler secret put ${key} --name truely-collectables`),
     "",
-    "# Preview environment, if you want the same staged shape before the next deploy",
-    ...commandKeys.map(
-      (key) => `vercel env add ${key} preview --scope truelycollectables-projects`,
-    ),
+    "# Preview Worker, if you want the same staged shape before the next deploy",
+    ...commandKeys.map((key) => `wrangler secret put ${key} --name truely-collectables-preview`),
     "",
-    "# After env changes, redeploy when the deployment quota is available.",
+    "# After secret changes, run the Cloudflare production deployment workflow.",
     "",
   ];
   const exportedAt = new Date().toISOString().slice(0, 10);
@@ -319,7 +315,7 @@ function vercelCommandsResponse(params: {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": `attachment; filename="tcos-shipping-provider-vercel-env-${exportedAt}.sh"`,
+      "Content-Disposition": `attachment; filename="tcos-shipping-provider-cloudflare-secrets-${exportedAt}.sh"`,
       "Cache-Control": "no-store",
       ...providerSetupResponseHeaders(params),
     },
@@ -466,8 +462,8 @@ export async function GET(request: Request) {
       });
     }
 
-    if (url.searchParams.get("format") === "vercel-commands") {
-      return vercelCommandsResponse({
+    if (url.searchParams.get("format") === "cloudflare-commands") {
+      return cloudflareCommandsResponse({
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,

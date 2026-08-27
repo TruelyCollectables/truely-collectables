@@ -116,6 +116,11 @@ scenario("offer action UI exposes busy and live checkout feedback", async () => 
     "offerActionRunningRef.current = true",
     "offerActionRunningRef.current = false",
     "const offerActionBusyReason = isBusy",
+    "const counterInputTitle = isBusy",
+    "Finish the current offer decision before editing the counter amount.",
+    "Counter amount is locked because this offer is no longer pending.",
+    "Enter a counter above the buyer offer and up to ${money(productPrice)}.",
+    "title={counterInputTitle}",
     'aria-busy={loading === "accepted"}',
     'aria-busy={loading === "declined"}',
     'aria-busy={loading === "counter"}',
@@ -130,6 +135,70 @@ scenario("offer action UI exposes busy and live checkout feedback", async () => 
     "Sending counter link...",
   ]) {
     assert(source.includes(snippet), `Expected OfferActions to include ${snippet}`);
+  }
+});
+
+scenario("offer desk keeps load and enrichment failures operator-readable", async () => {
+  const source = await readFile("src/app/admin/offers/page.tsx", "utf8");
+
+  for (const snippet of [
+    "function safeErrorMessage",
+    "const offerLoadErrorMessage = safeErrorMessage(error)",
+    "Offer queue unavailable",
+    "Offer storage did not load, so this page cannot prove whether",
+    "Decision counts",
+    "Unavailable",
+    "do not accept or decline",
+    "let accountProfilesError",
+    "try {",
+    "accountProfiles = await getAccountProfilesByIds",
+    "const accountProfilesUnavailable = Boolean(accountProfilesError)",
+    "Linked account profiles unavailable",
+    'role="status"',
+    "Offers loaded, but buyer account enrichment did not",
+    "Linked account profile lookup unavailable",
+    "accountProfilesUnavailable={accountProfilesUnavailable}",
+  ]) {
+    assert(source.includes(snippet), `Expected offer desk source to include ${snippet}`);
+  }
+
+  assert(
+    source.indexOf("Offer queue unavailable") <
+      source.indexOf("Retry offers or open the dashboard"),
+    "Expected offer load failures to explain queue uncertainty before recovery actions.",
+  );
+  assert(
+    !source.includes("{error.message}"),
+    "Expected offer desk to avoid rendering raw database error messages.",
+  );
+});
+
+scenario("offer desk uses professional command presentation", async () => {
+  const source = await readFile("src/app/admin/offers/page.tsx", "utf8");
+
+  for (const snippet of [
+    "Decision actions stay locked after pending status",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "HeaderStat label=\"Pending\"",
+    "HeaderStat label=\"Open Value\"",
+    "HeaderStat label=\"Accepted\"",
+    "CommandLink href=\"/admin/products\"",
+    "CommandLink href=\"/admin\" label=\"Dashboard\" primary",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "rounded-full border border-neutral-300 bg-white",
+    "transition hover:bg-neutral-50 xl:grid-cols",
+  ]) {
+    assert(source.includes(snippet), `Expected offer desk presentation fragment ${snippet}`);
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !source.includes(roughShell),
+      `Expected offer desk to avoid rough shell fragment ${roughShell}.`,
+    );
   }
 });
 

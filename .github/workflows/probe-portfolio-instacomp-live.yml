@@ -1,0 +1,155 @@
+name: Probe Portfolio InstaComp Live
+# Rerun after guarded Cloudflare deployment of the clone-free evaluator.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-portfolio-instacomp-live.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download encrypted production vault
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-vault-31773508121
+          path: /tmp/probe-vault
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Download recovery key
+        uses: actions/download-artifact@v4
+        with:
+          name: truely-production-secrets-recovery-key-31773508121
+          path: /tmp/probe-key
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31773508121
+
+      - name: Run one real WNBA front-back InstaComp probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          node <<'NODE'
+          (async () => {
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { createDecipheriv, createHash } = require('node:crypto');
+            const filesBelow = (root) => fs.readdirSync(root, { recursive: true, withFileTypes: true })
+              .filter((e) => e.isFile()).map((e) => path.join(e.parentPath || e.path, e.name));
+            const vaultPath = filesBelow('/tmp/probe-vault').find((f) => f.endsWith('.tcosvault'));
+            const keyPath = filesBelow('/tmp/probe-key').find((f) => f.endsWith('.recovery-key.txt'));
+            if (!vaultPath || !keyPath) throw new Error('Recovery artifacts incomplete.');
+            const envelope = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+            const keyText = fs.readFileSync(keyPath, 'utf8');
+            const match = keyText.match(/(?:^|\n)key: ([A-Za-z0-9_-]+)(?:\n|$)/);
+            if (!match) throw new Error('Recovery key invalid.');
+            const decipher = createDecipheriv('aes-256-gcm', Buffer.from(match[1], 'base64url'), Buffer.from(envelope.iv, 'base64'));
+            decipher.setAuthTag(Buffer.from(envelope.authenticationTag, 'base64'));
+            const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]);
+            if (createHash('sha256').update(plaintext).digest('hex') !== envelope.plaintextSha256) throw new Error('Vault checksum failed.');
+            const payload = JSON.parse(plaintext.toString('utf8'));
+            const all = { ...(payload?.sources?.vercelProductionApplicationVariables || {}), ...(payload?.sources?.githubActionsReferencedSecrets || {}) };
+            const credential = String(all.INSTACOMP_AI_LOCAL_KEY || '').trim();
+            if (!credential) throw new Error('INSTACOMP_AI_LOCAL_KEY missing from recovery vault.');
+
+            let listing = null;
+            for (let attempt = 1; attempt <= 8; attempt += 1) {
+              const search = await fetch(`https://truelycollectables.com/api/tcos/deal-hunter-native-ebay?scope=wnba&perQuery=5&live_probe=${Date.now()}-${attempt}`, {
+                headers: { Accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(60_000),
+              });
+              const data = await search.json().catch(() => ({}));
+              if (!search.ok || data?.ok !== true) throw new Error(`WNBA discovery failed HTTP ${search.status}.`);
+              listing = (data.results || []).find((entry) =>
+                Array.isArray(entry.imageUrls) && entry.imageUrls.length >= 2 &&
+                Number(entry.itemPrice) >= 1 &&
+                !/\b(lot|bundle|psa|bgs|sgc|gem mint|bobblehead|funko|8x10)\b/i.test(String(entry.title || ''))
+              ) || null;
+              if (listing) break;
+              await new Promise((resolve) => setTimeout(resolve, 5_000));
+            }
+            if (!listing) throw new Error('No suitable single-card WNBA listing with at least two images was found.');
+            console.log(`PORTFOLIO PROBE listing=${String(listing.title || '').slice(0, 180)} price=${listing.itemPrice} images=${listing.imageUrls.length}`);
+
+            async function imageFile(url, label) {
+              const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+              if (!response.ok) throw new Error(`${label} image HTTP ${response.status}.`);
+              const type = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+              if (!['image/jpeg', 'image/png', 'image/webp'].includes(type)) throw new Error(`${label} image type ${type || 'unknown'} unsupported.`);
+              const bytes = new Uint8Array(await response.arrayBuffer());
+              if (!bytes.length || bytes.length > 12 * 1024 * 1024) throw new Error(`${label} image size invalid.`);
+              const ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+              return { blob: new Blob([bytes], { type }), name: `${label}.${ext}` };
+            }
+            const [front, back] = await Promise.all([
+              imageFile(listing.imageUrls[0], 'front'),
+              imageFile(listing.imageUrls[1], 'back'),
+            ]);
+            const listingJson = JSON.stringify({
+              runId: `probe-${Date.now()}`,
+              candidateKey: `probe:${listing.listingItemId || listing.listingUrl}`,
+              lane: listing.lane || 'wnba_probe',
+              watchedPerson: listing.watchedPerson || null,
+              marketplace: 'eBay',
+              listingItemId: listing.listingItemId || null,
+              listingUrl: listing.listingUrl,
+              title: listing.title,
+              sellerName: listing.sellerName || null,
+              itemPrice: listing.itemPrice,
+              inboundShipping: listing.inboundShipping,
+              buyerFees: listing.buyerFees,
+              tax: listing.tax,
+              conditionText: listing.condition || null,
+              manualReviewRequired: listing.manualReviewRequired === true,
+            });
+
+            let final = null;
+            for (let attempt = 1; attempt <= 12; attempt += 1) {
+              const form = new FormData();
+              form.set('listingJson', listingJson);
+              form.set('frontImage', front.blob, front.name);
+              form.set('backImage', back.blob, back.name);
+              const response = await fetch('https://truelycollectables.com/api/instacomp/deal-hunter/portfolio-evaluate', {
+                method: 'POST',
+                headers: { 'x-instacomp-ai-key': credential, Accept: 'application/json' },
+                body: form,
+                redirect: 'manual',
+                signal: AbortSignal.timeout(300_000),
+              });
+              const data = await response.json().catch(() => null);
+              final = { response, data };
+              if (response.status !== 404) break;
+              console.log(`PORTFOLIO PROBE route not deployed yet; retry ${attempt}/12.`);
+              await new Promise((resolve) => setTimeout(resolve, 20_000));
+            }
+            if (!final) throw new Error('Portfolio evaluator probe did not run.');
+            const { response, data } = final;
+            const safeError = String(data?.error || data?.note || '').slice(0, 1200);
+            console.log(`PORTFOLIO PROBE result status=${response.status} ok=${data?.ok === true} stage=${data?.stage || 'none'} error=${safeError || 'none'}`);
+            console.log(`PORTFOLIO PROBE registryMatched=${data?.scan?.checklistRegistry?.matched === true} identityIdPresent=${Boolean(data?.scan?.checklistRegistry?.identityId)} exactSold=${Number(data?.evaluation?.soldCount || data?.scan?.exactMarket?.pricingEligibleSoldCount || 0)} history=${data?.marketHistory?.status || 'none'} roi=${data?.evaluation?.roiPercent ?? 'none'} net=${data?.evaluation?.expectedNetProfit ?? 'none'}`);
+            if (response.status === 401) throw new Error('Portfolio evaluator credential mismatch.');
+            if (response.status === 404) throw new Error('Portfolio evaluator route never appeared after deployment wait.');
+            if (!response.ok || data?.ok !== true) throw new Error(`Portfolio evaluator failed closed: HTTP ${response.status} ${safeError || data?.stage || 'unknown failure'}`);
+            console.log('PORTFOLIO PROBE PASS: real WNBA front/back evaluation completed through production.');
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          NODE
+
+      - name: Shred recovered material
+        if: always()
+        run: |
+          find /tmp/probe-vault /tmp/probe-key -type f -exec shred -u {} + 2>/dev/null || true

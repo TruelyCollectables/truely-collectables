@@ -26,11 +26,13 @@ function isLocalOrigin(origin: string) {
 }
 
 export function configuredSiteOrigin() {
-  return (
+  const configuredOrigin =
     normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) ||
-    normalizeOrigin(process.env.SITE_URL) ||
-    DEPLOY_SAFETY.cleanProductionDomain
-  );
+    normalizeOrigin(process.env.SITE_URL);
+
+  if (configuredOrigin) return configuredOrigin;
+
+  return DEPLOY_SAFETY.cleanProductionDomain;
 }
 
 export function trustedRequestOrigin(request: Request) {

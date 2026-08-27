@@ -7,6 +7,10 @@ import {
   verifyAdminPassword,
 } from "../../../../lib/admin-session";
 import {
+  getDatabaseAdminCredentialStatus,
+  verifyDatabaseAdminPasswordCandidates,
+} from "../../../../lib/admin-credentials";
+import {
   checkAdminLoginAllowed,
   recordAdminLoginAttempt,
 } from "../../../../lib/admin-login-security";
@@ -101,14 +105,25 @@ async function verifyLocalDevelopmentAdminPassword(
 }
 
 async function verifySubmittedAdminPassword(password: string, hostname: string) {
-  if (await verifyAdminPassword(password)) {
-    return true;
+  const trimmedPassword = password.trim();
+  const candidates = Array.from(
+    new Set([password, ...(trimmedPassword !== password ? [trimmedPassword] : [])]),
+  );
+
+  try {
+    const databaseCredential = await verifyDatabaseAdminPasswordCandidates(candidates);
+    if (databaseCredential.configured) {
+      return databaseCredential.valid;
+    }
+  } catch (error) {
+    console.error("Database-backed admin credential verification failed:", error);
+    return false;
   }
 
-  const trimmedPassword = password.trim();
-
-  if (trimmedPassword !== password && (await verifyAdminPassword(trimmedPassword))) {
-    return true;
+  for (const candidate of candidates) {
+    if (await verifyAdminPassword(candidate)) {
+      return true;
+    }
   }
 
   return verifyLocalDevelopmentAdminPassword(password, hostname);
@@ -184,6 +199,7 @@ export async function POST(req: Request) {
     isLocalDevelopmentAdminHost(hostname);
   const canUseLocalDevelopmentPasswordFile =
     isLocalDevelopmentAdminHost(hostname);
+  const databaseCredentialStatus = await getDatabaseAdminCredentialStatus();
 
   if (!loginPayload.readable) {
     if (loginPayload.wantsRedirect) {
@@ -244,6 +260,7 @@ export async function POST(req: Request) {
   }
 
   if (
+    !databaseCredentialStatus.configured &&
     !process.env.ADMIN_PASSWORD &&
     !isLocalDevelopmentLogin &&
     !canUseLocalDevelopmentPasswordFile
@@ -256,7 +273,7 @@ export async function POST(req: Request) {
       {
         success: false,
         code: "admin_password_missing",
-        error: "Admin password is not configured. Set ADMIN_PASSWORD and restart the server.",
+        error: "No durable database admin password or emergency ADMIN_PASSWORD fallback is configured.",
       },
       { status: 500 }
     );

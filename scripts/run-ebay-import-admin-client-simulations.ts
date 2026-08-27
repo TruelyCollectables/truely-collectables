@@ -1,0 +1,446 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import {
+  MAX_LISTING_IMAGES,
+  listingImageAltText,
+  listingImageIdentity,
+  normalizeListingImageUrls,
+  preferHighResolutionListingImage,
+  selectFrontBackListingImages,
+} from "../src/lib/listing-image-utils";
+import { isLaunchCollectible } from "../src/lib/sports-card-launch-scope";
+
+const adminEngine = fs.readFileSync(
+  "src/modules/inventory/admin-engine.ts",
+  "utf8",
+);
+const inventoryIndex = fs.readFileSync(
+  "src/modules/inventory/index.ts",
+  "utf8",
+);
+const checkoutInventoryEngine = fs.readFileSync(
+  "src/modules/inventory/checkout-engine.ts",
+  "utf8",
+);
+const inventoryRepository = fs.readFileSync(
+  "src/modules/inventory/repository.ts",
+  "utf8",
+);
+const importRoute = fs.readFileSync(
+  "src/app/api/ebay/import-listings/route.ts",
+  "utf8",
+);
+const importRunner = fs.readFileSync(
+  "src/app/admin/ebay/import-runner/EbayImportRunner.tsx",
+  "utf8",
+);
+const publicInventoryEngine = fs.readFileSync(
+  "src/lib/server-inventory-engine.ts",
+  "utf8",
+);
+const inventoryEngineSource = fs.readFileSync(
+  "src/modules/inventory/engine.ts",
+  "utf8",
+);
+const productImageRoute = fs.readFileSync(
+  "src/app/api/storefront/product-images/[id]/route.ts",
+  "utf8",
+);
+const shopPageSource = fs.readFileSync("src/app/shop/page.tsx", "utf8");
+const productActions = fs.readFileSync(
+  "src/app/product/[id]/ProductActions.tsx",
+  "utf8",
+);
+const imageSync = fs.readFileSync("src/lib/ebay-all-image-sync.ts", "utf8");
+const scheduledEbaySync = fs.readFileSync(
+  "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
+  "utf8",
+);
+
+assert.match(
+  adminEngine,
+  /createSupabaseServerClient\(\{ admin: true \}\)/,
+  "Server inventory engine must request the service-role Supabase client.",
+);
+assert.match(
+  adminEngine,
+  /new InventoryRepository\(storeId, database\)/,
+  "Inventory repository must receive the same admin database client.",
+);
+assert.match(
+  adminEngine,
+  /new InventoryEngine\([\s\S]*repository,[\s\S]*database,[\s\S]*\)/,
+  "Inventory engine must receive both the admin repository and database client.",
+);
+assert.match(
+  inventoryIndex,
+  /export \{ adminInventoryEngine as inventoryEngine \} from "\.\/admin-engine";/,
+  "Shared server imports must resolve inventoryEngine to the admin-backed engine.",
+);
+assert.match(
+  inventoryIndex,
+  /export \{ InventoryEngine \} from "\.\/checkout-engine";/,
+  "Public checkout imports must resolve InventoryEngine to the launch-scope guard.",
+);
+assert.match(
+  checkoutInventoryEngine,
+  /class InventoryEngine extends BaseInventoryEngine/,
+  "Checkout launch-scope enforcement must preserve the base inventory API.",
+);
+assert.match(
+  checkoutInventoryEngine,
+  /items\.find\(\(item\) => !isLaunchSportsCard\(item\)\)/,
+  "Checkout must reject every cart line outside the sports-card launch scope.",
+);
+assert.match(
+  checkoutInventoryEngine,
+  /Product \$\{blockedItem\.legacyProductId\} is not available for purchase/,
+  "Checkout must fail closed before reserving an out-of-scope item.",
+);
+
+const upsertStart = inventoryRepository.indexOf("async upsertBySku");
+const legacyProductLookup = inventoryRepository.indexOf(
+  "getByLegacyProductId",
+  upsertStart,
+);
+const skuLookup = inventoryRepository.indexOf("getBySku", upsertStart);
+assert.ok(
+  upsertStart >= 0 &&
+    legacyProductLookup > upsertStart &&
+    skuLookup > legacyProductLookup,
+  "Inventory upserts must resolve the existing legacy product row before falling back to SKU.",
+);
+assert.match(
+  inventoryRepository,
+  /existingByLegacyProductId\s*\?\?\s*\(await this\.getBySku\(input\.sku\)\)/,
+  "SKU fallback must reuse the canonical product-linked inventory row when available.",
+);
+
+assert.match(
+  publicInventoryEngine,
+  /isPublicStorefrontItem[\s\S]*isLaunchCollectible[\s\S]*isMergedEbayAliasItemId/,
+  "Every public inventory feed must enforce catalog exclusions and hide merged aliases.",
+);
+assert.match(
+  inventoryEngineSource,
+  /const DATABASE_PAGE_SIZE = 1000;/,
+  "Storefront inventory reads must use explicit database pagination.",
+);
+assert.match(
+  inventoryEngineSource,
+  /function readAllStoreProducts[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+  "Product reads must continue beyond Supabase's default 1,000-row limit.",
+);
+assert.match(
+  inventoryEngineSource,
+  /function readAllStoreInventoryItems[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+  "Inventory-item reads must continue beyond Supabase's default 1,000-row limit.",
+);
+assert.match(
+  inventoryEngineSource,
+  /async listAvailable[\s\S]*readAllStoreProducts[\s\S]*readAllStoreInventoryItems/,
+  "The public storefront must use the complete paginated product and inventory sets.",
+);
+assert.match(
+  publicInventoryEngine,
+  /class PublicStorefrontInventoryEngine extends InventoryEngine/,
+  "Public storefront filtering must preserve the full InventoryEngine API.",
+);
+assert.match(
+  publicInventoryEngine,
+  /async getByLegacyProductId\([\s\S]*return item && isPublicStorefrontItem\(item\) \? item : null;/,
+  "Direct product URLs must reject catalog exclusions and merged aliases.",
+);
+assert.match(
+  publicInventoryEngine,
+  /async getByLegacyProductIds\([\s\S]*return items\.filter\(isPublicStorefrontItem\);/,
+  "Bulk public product lookups must reject catalog exclusions and merged aliases.",
+);
+
+assert.match(
+  productImageRoute,
+  /createServerInventoryEngine\(\)\.getByLegacyProductId/,
+  "The public product-image endpoint must reuse the catalog exclusion guard.",
+);
+assert.match(
+  productImageRoute,
+  /selectFrontBackListingImages/,
+  "Public product images must choose one complete front/back pair.",
+);
+assert.match(
+  shopPageSource,
+  /COLLECTIBLE_SECTIONS[\s\S]*SPORT_SECTIONS[\s\S]*sortStorefrontSections/,
+  "The shop must use centralized sport and collectible section lists.",
+);
+assert.match(
+  shopPageSource,
+  /FEATURE_LINKS[\s\S]*Memorabilia Cards[\s\S]*Graded Cards/,
+  "Card feature navigation must expose memorabilia and graded-card filters.",
+);
+assert.match(
+  shopPageSource,
+  /product\.features\.memorabilia \? "Memorabilia Card"/,
+  "Product tiles must label memorabilia cards.",
+);
+assert.ok(!shopPageSource.includes('product.category?.replaceAll("_", " ")'));
+assert.ok(shopPageSource.includes("View Item"));
+assert.match(
+  productActions,
+  /\/api\/storefront\/product-images\/\$\{product\.id\}/,
+  "Product pages must load the scoped front/back image response.",
+);
+assert.match(
+  productActions,
+  /index === 0 \? "Front" : "Back"/,
+  "The native product photo panel must label front and back deterministically.",
+);
+assert.equal(
+  MAX_LISTING_IMAGES,
+  20,
+  "Inventory ingestion must preserve up to twenty ordered listing images.",
+);
+assert.match(
+  imageSync,
+  /ebay_all_image_sync_version/,
+  "The eBay image repair must persist the complete-image synchronization version.",
+);
+assert.match(
+  imageSync,
+  /sort_order: index,[\s\S]*is_primary: index === 0/,
+  "Image repair must remove sort collisions and preserve exactly one primary image.",
+);
+assert.match(
+  imageSync,
+  /imageListsMatch\(currentImages, finalImages\)/,
+  "Image repair must compare the complete ordered image list rather than stopping at two images.",
+);
+assert.match(
+  imageSync,
+  /const MAX_ACTIVE_LISTINGS = 3000;/,
+  "Image synchronization must use the same 3,000-active-listing ceiling as inventory synchronization.",
+);
+assert.match(
+  imageSync,
+  /const MAX_PAGES = Math\.ceil\(MAX_ACTIVE_LISTINGS \/ PAGE_SIZE\);/,
+  "Image page coverage must derive from the approved active-listing ceiling.",
+);
+assert.match(
+  imageSync,
+  /X-EBAY-API-CALL-NAME": "GetSellerList"/,
+  "Image synchronization must enumerate the active seller listing set.",
+);
+assert.match(
+  imageSync,
+  /<EndTimeFrom>[\s\S]*<EndTimeTo>/,
+  "Image synchronization must bound GetSellerList to the active listing end-time window.",
+);
+assert.match(
+  imageSync,
+  /X-EBAY-API-CALL-NAME": "GetItem"/,
+  "Image synchronization must hydrate each active listing with its complete PictureURL set.",
+);
+assert.match(
+  imageSync,
+  /const PRODUCT_ID_CHUNK_SIZE = 100;/,
+  "Image synchronization must chunk product-ID filters.",
+);
+assert.match(
+  imageSync,
+  /const INVENTORY_ID_CHUNK_SIZE = 20;/,
+  "Image synchronization must bound inventory UUID filters.",
+);
+assert.match(
+  imageSync,
+  /readInventoryImagesByInventoryIds[\s\S]*\.range\(from, from \+ DATABASE_PAGE_SIZE - 1\)/,
+  "Image synchronization must paginate rows beyond Supabase's default cap.",
+);
+
+assert.match(
+  scheduledEbaySync,
+  /syncEbayAllListingImages/,
+  "The scheduled authoritative eBay job must run complete 1–20 image reconciliation.",
+);
+
+assert.equal(
+  preferHighResolutionListingImage(
+    "https://i.ebayimg.com/images/g/example/s-l140.jpg",
+  ),
+  "https://i.ebayimg.com/images/g/example/s-l1600.jpg",
+  "eBay thumbnails must be upgraded to the high-resolution image path.",
+);
+assert.equal(
+  listingImageIdentity("https://i.ebayimg.com/images/g/example/s-l140.jpg"),
+  listingImageIdentity("https://i.ebayimg.com/images/g/example/s-l1600.jpg"),
+  "Different eBay size variants of the same photo must share one identity.",
+);
+assert.deepEqual(
+  normalizeListingImageUrls([
+    "https://i.ebayimg.com/images/g/front/s-l140.jpg",
+    "https://i.ebayimg.com/images/g/front/s-l1600.jpg",
+    "https://i.ebayimg.com/images/g/back/s-l140.jpg",
+  ]),
+  [
+    "https://i.ebayimg.com/images/g/front/s-l1600.jpg",
+    "https://i.ebayimg.com/images/g/back/s-l1600.jpg",
+  ],
+  "Image normalization must keep one front and one distinct back photo.",
+);
+const twentyFiveImages = Array.from(
+  { length: 25 },
+  (_, index) => `https://i.ebayimg.com/images/g/photo-${index + 1}/s-l140.jpg`,
+);
+const normalizedTwenty = normalizeListingImageUrls(twentyFiveImages);
+assert.equal(
+  normalizedTwenty.length,
+  20,
+  "Image normalization must retain the first twenty distinct listing images.",
+);
+assert.equal(
+  normalizedTwenty.at(-1),
+  "https://i.ebayimg.com/images/g/photo-20/s-l1600.jpg",
+  "The twenty-image cap must preserve eBay listing order.",
+);
+assert.deepEqual(
+  selectFrontBackListingImages([
+    "https://i.ebayimg.com/images/g/front/s-l140.jpg",
+    "https://storage.googleapis.com/cards/front.jpg",
+    "https://storage.googleapis.com/cards/back.jpg",
+  ]),
+  [
+    "https://storage.googleapis.com/cards/front.jpg",
+    "https://storage.googleapis.com/cards/back.jpg",
+  ],
+  "A complete existing front/back pair must beat a lone eBay thumbnail.",
+);
+assert.equal(
+  listingImageAltText("Test Card", 1),
+  "Test Card back",
+  "The second synchronized image must receive a back-photo alt label.",
+);
+
+assert.match(
+  importRoute,
+  /limit: Number\(url\.searchParams\.get\("limit"\) \|\| "10"\)/,
+  "Import route must default to ten-listing batches.",
+);
+assert.match(
+  importRoute,
+  /result\.debugSamples\.find\([\s\S]*includes\("failed"\)/,
+  "Import route must inspect diagnostics for batch failures.",
+);
+assert.match(
+  importRoute,
+  /success: false,[\s\S]*status: 409/,
+  "Diagnostic failures must stop the browser runner with a non-success response.",
+);
+assert.match(
+  importRoute,
+  /result\.nextOffset === null[\s\S]*syncEbayAllListingImages/,
+  "The final paged import must reconcile every available eBay image.",
+);
+assert.match(
+  importRunner,
+  /const \[limit, setLimit\] = useState\(10\);/,
+  "Browser import runner must default to ten listings.",
+);
+assert.match(
+  importRunner,
+  /\{\[5, 10\]\.map\(\(value\) => \(/,
+  "Browser import runner must offer only timeout-safe batch sizes.",
+);
+assert.match(
+  importRunner,
+  /border-rose-300 bg-rose-50[\s\S]*border-sky-300 bg-sky-50/,
+  "Import status banner must distinguish error red from success blue.",
+);
+
+const launchScopeCases = [
+  {
+    title: "2025-26 Upper Deck #702 Florian Xhekaj",
+    sport: "Hockey",
+    storefrontSection: "Hockey",
+    category: "sports_cards",
+    expected: true,
+  },
+  {
+    title: "2023 Topps Max Meyer 1988 35th Chrome RC Auto /249 PSA 8",
+    sport: "Baseball",
+    storefrontSection: "Baseball",
+    category: "sports_cards",
+    expected: true,
+  },
+  {
+    title: "Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM",
+    sport: "Trading Card Games",
+    storefrontSection: "Trading Card Games",
+    category: "trading_cards",
+    expected: true,
+  },
+  {
+    title: "Prize Pack Series Cards #005 Basic Psychic Energy",
+    sport: "Trading Card Games",
+    storefrontSection: "Trading Card Games",
+    category: "trading_cards",
+    expected: true,
+  },
+  {
+    title: "Upper Deck Authenticated Wayne Gretzky Signed Puck",
+    sport: "Pucks",
+    storefrontSection: "Pucks",
+    category: "memorabilia",
+    expected: true,
+  },
+  {
+    title: "Connor McDavid Autographed Edmonton Oilers Jersey",
+    sport: "Jerseys",
+    storefrontSection: "Jerseys",
+    category: "memorabilia",
+    expected: true,
+  },
+  {
+    title: "Oakley Sports Sunglasses Black",
+    sport: "Watches & Accessories",
+    storefrontSection: "Watches & Accessories",
+    category: "other_collectable",
+    expected: true,
+  },
+  {
+    title: "Rolex Oyster Perpetual Collectible Wristwatch",
+    sport: "Watches & Accessories",
+    storefrontSection: "Watches & Accessories",
+    category: "other_collectable",
+    expected: true,
+  },
+  {
+    title: "Adidas Ultraboost Men's Running Shoes Size 11",
+    sport: null,
+    expected: false,
+  },
+  {
+    title: "Denver Broncos Nike T-Shirt Men's XL",
+    sport: "Football",
+    expected: false,
+  },
+  {
+    title: "Denver Broncos Nike Jersey Men's XL",
+    sport: "Football",
+    expected: false,
+  },
+  {
+    title: "Mass Air Flow Fuel Sensor Replacement Auto Part",
+    sport: null,
+    expected: false,
+  },
+] as const;
+
+for (const testCase of launchScopeCases) {
+  assert.equal(
+    isLaunchCollectible(testCase),
+    testCase.expected,
+    `Unexpected launch scope decision for: ${testCase.title}`,
+  );
+}
+
+console.log(
+  "eBay import, catalog exclusion, and complete 1–20 image simulations passed",
+);

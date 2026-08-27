@@ -20,6 +20,22 @@ const productsPageSource = await readFile(
   new URL("../src/app/admin/products/page.tsx", import.meta.url),
   "utf8",
 );
+const newProductPageSource = await readFile(
+  new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
+  "utf8",
+);
+const simplifiedListPageSource = await readFile(
+  new URL("../src/app/admin/pending-card-import/page.tsx", import.meta.url),
+  "utf8",
+);
+const simplifiedListLayoutSource = await readFile(
+  new URL("../src/app/list/layout.tsx", import.meta.url),
+  "utf8",
+);
+const simpleListDraftRouteSource = await readFile(
+  new URL("../src/app/api/admin/pending-card-import/route.ts", import.meta.url),
+  "utf8",
+);
 const productSaveRouteSource = await readFile(
   new URL("../src/app/api/admin/products/[id]/save/route.ts", import.meta.url),
   "utf8",
@@ -174,10 +190,62 @@ scenario("product quick-status UI reports status success and stock blockers", ()
     "disabledReason={isDisabled ? title : undefined}",
     "adminProductStatusPendingLabel(status)",
     "End Early / Archive",
+    "Sold and archived actions intentionally remove the item from buyer",
+    "Inventory removal lane",
+    "End early without leaving phantom stock",
+    "This item is already ended",
+    "buyer availability is off and quantity should remain 0",
+    "change quantity ${Math.max(",
+    "} → 0 in one guarded action.",
+    "const removesFromInventory = status === \"sold\" || status === \"archived\"",
+    "Mark Sold / Zero Qty",
+    "End Early / Archive / Zero Qty",
+    "Ends this product early, archives it, removes it from active inventory, and sets quantity to 0.",
+    "Marks this product sold, removes it from buyer availability, and sets quantity to 0.",
+    "border border-rose-300 bg-rose-50 text-rose-950 hover:bg-rose-100",
   ]) {
     assert(
       productPageSource.includes(fragment),
       `Expected product status UI fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("product editor submits explain action scope", () => {
+  for (const fragment of [
+    "Save the edited product fields, including pricing, quantity, status, images, and authenticity notes.",
+    "Saves the form values on this page. Status rules still apply: active/reserved",
+    "products need quantity, while sold/archived inventory is forced to quantity 0.",
+    "Replace the product description with the standard TCOS template using this product's current saved facts.",
+    "Rewrites only the description from saved product facts; review the text before publishing.",
+    "Draft a concise description from saved product facts, falling back to the standard template if AI is unavailable.",
+    "Uses only saved product facts and falls back to the standard template if AI cannot run.",
+    "Update this product's price to the latest suggested comp price while preserving the rest of the product record.",
+    "Updates price from the latest comps only; title, quantity, status, image, description,",
+    "and authenticity fields stay on the product record.",
+  ]) {
+    assert(
+      productPageSource.includes(fragment),
+      `Expected product editor action-scope fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("product detail uses professional command presentation", () => {
+  for (const fragment of [
+    "Product command desk",
+    "productAvailabilityPosture",
+    "Buyer availability",
+    "No-dead-end controls keep stock and buyer state aligned.",
+    "HeaderStat",
+    'label="Inventory value"',
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "fieldClassName",
+    "bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]",
+  ]) {
+    assert(
+      productPageSource.includes(fragment),
+      `Expected product detail presentation fragment ${fragment}.`,
     );
   }
 });
@@ -224,14 +292,88 @@ scenario("product list exposes a direct end-early action", () => {
     'role="alert"',
     'aria-live="assertive"',
     "End early",
+    "End early / qty 0",
     "Ended / Sold",
     "Ended / Archived",
-    "archive it, and set quantity to 0",
+    "archive product #${product.legacyProductId}",
+    "productEndEarlyTitle(product)",
+    "productEndEarlyHelp(product)",
+    "remove it from buyer availability, and set quantity",
+    "Archives ${label}, removes it from active inventory, and changes quantity ${quantity} → 0.",
+    "pendingChildren={`Ending #${product.legacyProductId}...`}",
     "adminProductStatusSuccessMessage(\"archived\")",
+    "Review ended product",
+    "Continue inventory review",
+    "href={`/admin/products/${query.statusEnded}`}",
   ]) {
     assert(
       productsPageSource.includes(fragment),
       `Expected products list end-early fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("product list uses professional inventory command presentation", () => {
+  for (const fragment of [
+    "stale buyer availability",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "HeaderStat label=\"Products\"",
+    "HeaderStat label=\"Active\"",
+    "HeaderStat label=\"On Hand\"",
+    "CommandLink href=\"/admin/products/new\" label=\"Add product\" primary",
+    "CommandLink href=\"/admin/ebay/inventory-intake\" label=\"eBay intake\"",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "rounded-full border border-neutral-300 bg-white",
+    "rounded-full border border-rose-300 bg-rose-50",
+    "shadow-sm ring-1 ring-black/[0.02] transition hover:bg-neutral-50",
+  ]) {
+    assert(
+      productsPageSource.includes(fragment),
+      `Expected products list presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !productsPageSource.includes(roughShell),
+      `Expected products list to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
+});
+
+scenario("new product intake redirects to permanent Card Intake & Listing", () => {
+  assert(
+    newProductPageSource.includes('redirect("/admin/pending-card-import")'),
+    "Expected the legacy new-product route to redirect to Card Intake & Listing.",
+  );
+
+  for (const fragment of [
+    "PendingCardImportClient",
+    "SimpleListingQueue",
+    "Card Intake & Listing",
+    "InstaComp 2.0",
+  ]) {
+    assert(
+      simplifiedListPageSource.includes(fragment),
+      `Expected Card Intake page fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    'actor.type !== "admin"',
+    "A front card photo is required.",
+    "price: 0",
+    "quantity: 1",
+    "createSellerDraftProduct",
+    "excludedFromInstaComp: true",
+    "excludedFromMarketComps: true",
+  ]) {
+    assert(
+      simpleListDraftRouteSource.includes(fragment),
+      `Expected pending card import route fragment ${fragment}.`,
     );
   }
 });

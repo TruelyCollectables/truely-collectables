@@ -35,3 +35,9 @@ input,
 select {
   background: #ffffff;
 }
+
+/* Card photos must never render flush against a 4:5 listing frame. */
+[class*="aspect-[4/5]"] > img[class*="object-contain"] {
+  box-sizing: border-box;
+  padding: max(12px, 3%) !important;
+}

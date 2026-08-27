@@ -96,10 +96,39 @@ for (const page of noticePages) {
   }
 }
 
+try {
+  const reportsSource = await readFile(
+    new URL("../src/app/admin/market-intel/reports/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  for (const fragment of [
+    "Create, refresh, or expire alert outbox rows from the latest scored Market Intel listings.",
+    "Updates alert rows only; it does not buy listings, send messages, or change purchase records.",
+    "Build today's Market Intel report snapshot from current watchlists, comps, scores, and purchase ledger data.",
+    "Creates a report snapshot for review; alerts remain separate until the outbox is synced.",
+    "Mark alert ${alert.id} as sent after you have delivered or handled it outside this queue.",
+    "Use after the alert has been handled; this removes it from the pending queue.",
+    "Dismiss alert ${alert.id} without marking it sent or changing the source listing.",
+    "Removes this alert from pending review without touching the listing or purchase ledger.",
+  ]) {
+    assert(
+      reportsSource.includes(fragment),
+      `Expected Market Intel report action-scope fragment ${fragment}.`,
+    );
+  }
+
+  console.log("✓ Market Intel reports actions explain scope and side effects");
+} catch (error) {
+  failed.push({ name: "Market Intel reports action scope", error });
+  console.error("✗ Market Intel reports actions explain scope and side effects");
+  console.error(error);
+}
+
 console.log(
   `Admin Market Intel notice simulations: ${
-    noticePages.length - failed.length
-  }/${noticePages.length} passed.`,
+    noticePages.length + 1 - failed.length
+  }/${noticePages.length + 1} passed.`,
 );
 
 if (failed.length > 0) {

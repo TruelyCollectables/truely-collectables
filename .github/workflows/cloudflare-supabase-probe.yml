@@ -1,0 +1,61 @@
+name: Cloudflare Supabase Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-supabase-probe-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PROBE_URL: https://truely-collectables-preview.truelycollectables.workers.dev/api/cron/cloudflare-supabase-probe
+    steps:
+      - name: Install Wrangler
+        run: npm install --no-save --package-lock=false wrangler@4.122.0
+
+      - name: Set isolated preview cron secret and call live Worker probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { randomBytes } = require('node:crypto');
+          const { spawnSync } = require('node:child_process');
+          const secret = randomBytes(32).toString('base64url');
+          console.log(`::add-mask::${secret}`);
+
+          const repair = spawnSync(
+            'npx',
+            ['wrangler', 'secret', 'put', 'CRON_SECRET', '--name', 'truely-collectables-preview'],
+            {
+              input: `${secret}\n`,
+              stdio: ['pipe', 'inherit', 'inherit'],
+              env: process.env,
+            },
+          );
+          if (repair.status !== 0) process.exit(repair.status || 3);
+          console.log('Set isolated Cloudflare preview CRON_SECRET; value remains masked.');
+
+          async function main() {
+            const response = await fetch(process.env.PROBE_URL, {
+              headers: { authorization: `Bearer ${secret}` },
+            });
+            const text = await response.text();
+            console.log(`Probe HTTP ${response.status}`);
+            console.log(text);
+            if (!response.ok) process.exit(2);
+          }
+
+          main().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          NODE

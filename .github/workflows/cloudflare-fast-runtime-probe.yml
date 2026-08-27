@@ -1,0 +1,51 @@
+name: Cloudflare Fast Runtime Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-fast-runtime-probe-trigger'
+
+permissions:
+  contents: read
+
+env:
+  PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Isolate Worker edge from OpenNext handler
+        shell: bash
+        run: |
+          set +e
+          probe() {
+            local path="$1" max="$2"
+            local tag
+            tag=$(printf '%s' "$path" | sed 's#[/?]#_#g')
+            local headers="/tmp/${tag}.headers"
+            local body="/tmp/${tag}.body"
+            local result
+            result=$(curl -L -sS --max-time "$max" -D "$headers" -o "$body" -w '%{http_code} %{time_total}' "$PREVIEW_URL$path" 2>&1)
+            local rc=$?
+            local origin
+            origin=$(grep -i '^x-truely-origin:' "$headers" 2>/dev/null | tail -1 | tr -d '\r')
+            local bytes=0
+            [ -f "$body" ] && bytes=$(wc -c < "$body")
+            echo "$path -> rc=$rc result=$result origin=${origin:-missing} bytes=$bytes"
+            if [ -s "$body" ]; then head -c 700 "$body"; echo; fi
+          }
+          echo '=== edge-level route (bypasses OpenNext) ==='
+          probe '/api/instacomp/internal-readiness' 25
+          echo '=== OpenNext Supabase runtime comparison ==='
+          probe '/api/internal/cloudflare-supabase-runtime-probe' 20
+          echo '=== OpenNext static route ==='
+          probe '/robots.txt' 10
+          echo '=== OpenNext public login route ==='
+          probe '/admin/login' 15
+          echo '=== OpenNext dynamic storefront ==='
+          probe '/' 30
+          probe '/shop' 30
+          probe '/product/1991' 45

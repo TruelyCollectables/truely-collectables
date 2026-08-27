@@ -81,6 +81,15 @@ function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function safeErrorMessage(error: Error | { message?: string } | string | null) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown category review load error.";
+
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 function isReviewRequired(row: ReviewRow) {
   return (
     row.attributes.tcos_review_required === "true" ||
@@ -135,7 +144,9 @@ async function loadReviewRows() {
 
   if (inventoryResult.error) throw inventoryResult.error;
 
-  const visibleIds = (inventoryResult.data ?? []).map((item) => item.id);
+  const visibleIds = ((inventoryResult.data ?? []) as InventoryRow[]).map(
+    (item) => item.id,
+  );
   const ebayAttributeResult =
     visibleIds.length > 0
       ? await supabase
@@ -179,11 +190,12 @@ export default async function CategoryReviewPage() {
   const reviewRows = rows.filter(isReviewRequired);
   const cleanRows = rows.filter((row) => !isReviewRequired(row));
   const visibleRows = [...reviewRows, ...cleanRows].slice(0, 150);
+  const categoryReviewUnavailable = Boolean(error);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#fef3c7,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-5 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(251,191,36,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
               Category Intelligence
@@ -206,21 +218,45 @@ export default async function CategoryReviewPage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {error ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-sm font-bold text-rose-800">
-            Category review could not load: {error.message}
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm font-bold text-rose-900 shadow-sm ring-1 ring-rose-950/5">
+            <h2 className="text-lg font-black text-rose-950">
+              Category review source unavailable
+            </h2>
+            <p className="mt-2 max-w-3xl leading-6">
+              Imported category attributes did not load, so this page cannot
+              prove whether low-confidence category mappings exist. Do not treat
+              the review queue as clear until the inventory attribute source is
+              repaired.
+            </p>
+            <p className="mt-3 rounded-2xl border border-rose-200 bg-white/70 px-3 py-2 text-xs font-black text-rose-950">
+              Diagnostic: {safeErrorMessage(error)}
+            </p>
           </section>
         ) : null}
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Metric label="Mapped Imports" value={String(rows.length)} />
-          <Metric label="Needs Review" value={String(reviewRows.length)} />
-          <Metric label="Clean Mappings" value={String(cleanRows.length)} />
+          <Metric
+            label="Mapped Imports"
+            value={categoryReviewUnavailable ? "Unavailable" : String(rows.length)}
+          />
+          <Metric
+            label="Needs Review"
+            value={
+              categoryReviewUnavailable ? "Unavailable" : String(reviewRows.length)
+            }
+          />
+          <Metric
+            label="Clean Mappings"
+            value={
+              categoryReviewUnavailable ? "Unavailable" : String(cleanRows.length)
+            }
+          />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 bg-white p-5">
             <div>
               <h2 className="text-2xl font-black">Review Queue</h2>
               <p className="mt-1 text-sm text-neutral-600">
@@ -228,7 +264,7 @@ export default async function CategoryReviewPage() {
                 appear first. Evidence comes from the eBay title and aspects.
               </p>
             </div>
-            <span className="rounded border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700">
+            <span className="rounded-full border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700 shadow-sm">
               Showing {visibleRows.length}
             </span>
           </div>
@@ -246,7 +282,20 @@ export default async function CategoryReviewPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {visibleRows.length === 0 ? (
+                {categoryReviewUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-800" colSpan={6}>
+                      <p className="font-black">
+                        Category review queue unavailable.
+                      </p>
+                      <p className="mt-1 max-w-3xl font-semibold">
+                        Inventory category attributes did not load, so this
+                        table cannot prove whether imported category mappings
+                        need review.
+                      </p>
+                    </td>
+                  </tr>
+                ) : visibleRows.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={6}>
                       No imported category attributes found yet. Run an eBay
@@ -262,7 +311,7 @@ export default async function CategoryReviewPage() {
                     const reviewRequired = isReviewRequired(row);
 
                     return (
-                      <tr key={row.inventory.id} className="align-top">
+                      <tr key={row.inventory.id} className="align-top transition hover:bg-neutral-50">
                         <td className="px-4 py-4">
                           <p className="max-w-[320px] font-bold">
                             {row.inventory.title}
@@ -332,7 +381,7 @@ export default async function CategoryReviewPage() {
                           {row.inventory.legacy_product_id ? (
                             <Link
                               href={`/admin/products/${row.inventory.legacy_product_id}`}
-                              className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50"
+                              className="inline-flex rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black shadow-sm transition hover:border-neutral-500 hover:bg-neutral-50"
                             >
                               Edit Product
                             </Link>
@@ -365,7 +414,7 @@ function CommandLink({
   return (
     <Link
       href={href}
-      className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold hover:bg-white/10"
+      className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-bold shadow-sm transition hover:bg-white/15"
     >
       {label}
     </Link>
@@ -374,7 +423,7 @@ function CommandLink({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 text-3xl font-black">{value}</p>
     </div>

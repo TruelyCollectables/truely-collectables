@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "checkedAt": "2026-08-08T00:00:00.000Z",
+  "job": {
+    "status": "running",
+    "trigger": "priority-requeue",
+    "currentTarget": "baseball|2026|topps|topps",
+    "processed": 0,
+    "total": 75,
+    "percent": 0,
+    "found": 0,
+    "downloaded": 0,
+    "imported": 0,
+    "failed": 0,
+    "heartbeatAt": null
+  },
+  "targets": {
+    "total": 453,
+    "pending": 278,
+    "recovered": 0,
+    "noResult": 103,
+    "leadOnly": 72,
+    "failed": 0
+  },
+  "freezeStale": false
+}

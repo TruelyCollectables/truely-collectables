@@ -595,8 +595,8 @@ export default function EbayInventoryIntakeClient({
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-      <section className="rounded-xl border-4 border-emerald-400 bg-emerald-50 p-5 text-emerald-950">
+    <div className="mx-auto max-w-[1500px] space-y-6 py-6">
+      <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950 shadow-sm ring-1 ring-emerald-950/5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-3xl font-black">

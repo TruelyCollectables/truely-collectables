@@ -11,8 +11,16 @@ const inventoryIntakeSource = await readFile(
   ),
   "utf8",
 );
+const inventoryIntakePageSource = await readFile(
+  new URL("../src/app/admin/ebay/inventory-intake/page.tsx", import.meta.url),
+  "utf8",
+);
 const publisherSource = await readFile(
   new URL("../src/app/admin/ebay/publish/EbayPublisher.tsx", import.meta.url),
+  "utf8",
+);
+const publishPageSource = await readFile(
+  new URL("../src/app/admin/ebay/publish/page.tsx", import.meta.url),
   "utf8",
 );
 const ebayHealthSource = await readFile(
@@ -47,6 +55,15 @@ scenario("eBay sync batch form uses a pending-aware submit", () => {
     syncControlSource.includes("Running eBay batch..."),
     "Expected eBay sync-control pending label.",
   );
+  for (const fragment of [
+    "Run one controlled eBay inventory sync batch using the selected limit, offset, and run ID.",
+    "Syncs the selected batch into review data only; check Category Review before continuing with more offsets.",
+  ]) {
+    assert(
+      syncControlSource.includes(fragment),
+      `Expected eBay sync-control action-scope fragment ${fragment}.`,
+    );
+  }
 });
 
 scenario("eBay intake copy action reports clipboard failures inline", () => {
@@ -146,6 +163,7 @@ scenario("eBay publisher locks uploads and labels listing saves", () => {
     "Publishing...",
     "const publisherActionRunningRef = useRef(false)",
     "function listingBlockedReason(card: CardState)",
+    "function listingRenderBlockedReason(card: CardState)",
     "function openPublishConfirmation(card: CardState)",
     "function cancelPublishConfirmation(card: CardState)",
     "Finish the current eBay publisher action before starting another.",
@@ -153,6 +171,11 @@ scenario("eBay publisher locks uploads and labels listing saves", () => {
     "Select all policies and a location first.",
     "Upload both exact scans before creating the listing.",
     "Wait for the eBay publish action to finish before cancelling.",
+    "Create a saved eBay draft without publishing this listing live.",
+    "Open the final confirmation before publishing this listing live on eBay.",
+    "Wait for the current eBay publish action to finish.",
+    "Confirm and publish this listing live on eBay now.",
+    "Close this confirmation without publishing live.",
     "aria-disabled={listingActionBlocked}",
     "aria-disabled={card.status === \"saving\"}",
     "aria-busy={cardSavingDraft}",
@@ -212,6 +235,59 @@ scenario("eBay sync control page labels import controls professionally", () => {
   }
 });
 
+scenario("eBay sync pages keep token and summary failures operator-safe", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "eBay sync batch failed: ${safeErrorMessage(error)}",
+    "const ebayTokenStatusUnavailable = Boolean(ebayTokenResult.error)",
+    "const syncPolicySummariesUnavailable = Boolean(",
+    "const inventoryStatsUnavailable = Boolean(inventoryStatsResult.error)",
+    "eBay sync policy summaries unavailable",
+    "whether the current run allowed",
+    "Public inventory sync stats unavailable",
+    "counts below are labeled unavailable instead of shown as zero",
+    "eBay token status unavailable",
+    "import actions are paused instead of assuming eBay is disconnected",
+    "Token Status Unavailable",
+    'inventoryStatsUnavailable',
+    '? "Unavailable"',
+    "Current-run policy decisions did not load",
+    "Blocked policy summaries did not load",
+    "function UnavailableTableNotice",
+    "Decision summary unavailable.",
+  ]) {
+    assert(
+      syncControlSource.includes(fragment),
+      `Expected eBay sync-control failure-safe fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "function safeErrorMessage",
+    "const ebayTokenStatusUnavailable = Boolean(tokenError)",
+    "eBay token status unavailable",
+    "browser import runner is paused instead of assuming eBay is",
+    "Diagnostic: {safeErrorMessage(tokenError)}",
+  ]) {
+    assert(
+      importRunnerPageSource.includes(fragment),
+      `Expected eBay import runner token failure fragment ${fragment}.`,
+    );
+  }
+
+  for (const forbidden of [
+    "{ebayTokenResult.error.message}",
+    "{tokenError.message}",
+    'error: error.message || "eBay sync batch failed"',
+  ]) {
+    assert(
+      !syncControlSource.includes(forbidden) &&
+        !importRunnerPageSource.includes(forbidden),
+      `Expected eBay sync pages not to render raw failure fragment ${forbidden}.`,
+    );
+  }
+});
+
 scenario("eBay import runner uses professional diagnostics copy", () => {
   assert(
     importRunnerPageSource.includes(
@@ -245,6 +321,45 @@ scenario("eBay import runner uses professional diagnostics copy", () => {
       `Expected eBay import runner to avoid rough operator copy ${fragment}.`,
     );
   }
+});
+
+scenario("eBay admin pages use professional command presentation", () => {
+  for (const [label, source] of [
+    ["eBay health", ebayHealthSource],
+    ["eBay sync control", syncControlSource],
+    ["eBay import runner", importRunnerPageSource],
+    ["eBay inventory intake", inventoryIntakePageSource],
+    ["eBay publisher page", publishPageSource],
+  ]) {
+    for (const fragment of [
+      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+      "shadow-2xl shadow-neutral-950/10",
+      "max-w-[1500px]",
+      "rounded-full",
+    ]) {
+      assert(
+        source.includes(fragment),
+        `Expected ${label} to use command-shell presentation fragment ${fragment}.`,
+      );
+    }
+
+    for (const roughShell of [
+      'bg-[#f4f1ea]',
+      'bg-[#101418]',
+      "max-w-7xl",
+      "rounded-md border border-white/20",
+    ]) {
+      assert(
+        !source.includes(roughShell),
+        `Expected ${label} to avoid rough shell fragment ${roughShell}.`,
+      );
+    }
+  }
+
+  assert(
+    syncControlSource.includes("focus:ring-4 focus:ring-black/10"),
+    "Expected eBay sync-control form fields to expose professional focus states.",
+  );
 });
 
 const failed = [];

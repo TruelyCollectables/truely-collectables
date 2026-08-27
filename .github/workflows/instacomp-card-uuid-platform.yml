@@ -1,0 +1,62 @@
+name: InstaComp Permanent Card UUID Platform
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-card-uuid-platform.yml"
+      - "services/instacomp-ai/app/models.py"
+      - "services/instacomp-ai/app/storage.py"
+      - "services/instacomp-ai/app/training.py"
+      - "services/instacomp-ai/app/main.py"
+      - "services/instacomp-ai/app/config.py"
+      - "services/instacomp-ai/scripts/import_supervised_203_trusted.py"
+      - "services/instacomp-ai/scripts/update-live-from-main.sh"
+      - "services/instacomp-ai/tests/test_card_uuid_tracking.py"
+      - "services/instacomp-ai/tests/test_training_only_teacher_runtime.py"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/app/api/instacomp/live-scan/route.ts"
+      - "supabase/migrations/20260809032000_instacomp_card_uuid_tracking.sql"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-card-uuid-platform-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify-current-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify current permanent physical-card UUID contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -q 'def _resolve_card_uuid' services/instacomp-ai/app/main.py
+          grep -q 'card_uuid_for_image_pair' services/instacomp-ai/app/storage.py
+          grep -q 'card_uuid' src/lib/instacomp-ai-local.ts
+          grep -q 'cardUuid' src/app/api/instacomp/live-scan/route.ts
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Certify UUID persistence, rescan, and teacher-isolation behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests services/instacomp-ai/scripts/import_supervised_203_trusted.py
+          PYTHONPATH=services/instacomp-ai pytest -q \
+            services/instacomp-ai/tests/test_card_uuid_tracking.py \
+            services/instacomp-ai/tests/test_training_only_teacher_runtime.py

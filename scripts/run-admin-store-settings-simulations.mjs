@@ -160,10 +160,61 @@ scenario("settings page submits every email field through server validation", ()
     'type="email"',
     'inputMode="email"',
     "Settings were not saved:",
+    'role="alert"',
+    'aria-live="assertive"',
   ]) {
     assert(
       settingsPageSource.includes(fragment),
       `Expected settings page validation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("settings page announces scoped save feedback and eBay sync impact", () => {
+  for (const fragment of [
+    'role="status"',
+    'aria-live="polite"',
+    "Store operations saved. Domain, email, eBay environment, account label, and seller commission settings were updated.",
+    "Marketplace integration settings saved. eBay sync availability was updated for this store.",
+    "Save domain, contact email, eBay environment, account label, and seller commission settings.",
+    "Save the eBay sync toggle for this store. Disabling it blocks imports, reconnects, and post-sale eBay quantity updates.",
+    "Current eBay Sync",
+    "Enabled: imports, reconnects, and post-sale quantity pushes are allowed.",
+    "Disabled: imports, reconnects, and eBay quantity pushes are blocked.",
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page save/eBay sync feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("settings page exposes professional operator controls", () => {
+  for (const fragment of [
+    "Store Control Center",
+    "Store identity",
+    "Email routing",
+    "eBay sync policy",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "rounded-3xl border border-neutral-200 bg-white/90",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "focus:ring-2 focus:ring-amber-100",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "border border-white/15 bg-white/10",
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page professional control fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !settingsPageSource.includes(roughShell),
+      `Expected settings page to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });

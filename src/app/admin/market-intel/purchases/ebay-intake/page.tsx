@@ -48,12 +48,12 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
   const addedCount = Math.max(0, Number(query?.added || 0));
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#ecfccb,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <header className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(132,204,22,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={adminHref("/admin/market-intel/purchases")}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Purchase Ledger
           </Link>
@@ -76,7 +76,13 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           </Notice>
         ) : null}
         {query?.moved ? (
-          <Notice>{query.moved} purchase row(s) moved to exact-card review.</Notice>
+          <Notice>
+            {query.moved} purchase row(s) moved to exact-card review. {" "}
+            <Link href="#moved-to-review" className="underline">
+              Open moved purchases
+            </Link>
+            .
+          </Notice>
         ) : null}
         {query?.skipped ? <Notice>{query.skipped} row(s) skipped.</Notice> : null}
         {query?.error ? <Notice error>{query.error}</Notice> : null}
@@ -125,7 +131,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           </div>
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-800">
             Add purchase
           </p>
@@ -198,16 +204,20 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             >
               Import eBay Purchase
             </AdminSubmitButton>
+            <p className="text-xs font-bold text-neutral-600 md:col-span-2 xl:col-span-3">
+              Import creates pending inbox rows from the receipt. Nothing reaches the Purchase Ledger
+              until exact identity is confirmed and Record as Purchased is used.
+            </p>
           </form>
         </section>
 
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Metric label="Pending Review" value={String(pending.length)} />
-          <Metric label="Moved to Exact Review" value={String(moved.length)} />
+          <Metric label="Moved to Exact Review" value={String(moved.length)} href="#moved-to-review" />
           <Metric label="Recorded Purchases" value={String(recorded.length)} />
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">Pending Purchase Inbox</h2>
             <p className="mt-1 text-sm font-semibold text-neutral-600">
@@ -270,29 +280,111 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 <AdminSubmitButton
                   name="action"
                   value="move_resale"
-                  className="rounded-md bg-blue-700 px-4 py-3 font-black text-white"
+                  className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white shadow-sm transition hover:bg-blue-800"
                   pendingChildren="Moving to resale..."
+                  title="Move selected pending purchase rows into Resale exact-card review without recording them in the ledger yet."
                 >
                   Move Selected to Resale Review
                 </AdminSubmitButton>
                 <AdminSubmitButton
                   name="action"
                   value="move_hold"
-                  className="rounded-md bg-fuchsia-800 px-4 py-3 font-black text-white"
+                  className="rounded-xl bg-fuchsia-800 px-4 py-3 font-black text-white shadow-sm transition hover:bg-fuchsia-900"
                   pendingChildren="Moving to hold review..."
+                  title="Move selected pending purchase rows into Hold / Investment exact-card review without recording them in the ledger yet."
                 >
                   Move Selected to Hold / Investment Review
                 </AdminSubmitButton>
                 <AdminSubmitButton
                   name="action"
                   value="skip"
-                  className="rounded-md border border-neutral-400 bg-white px-4 py-3 font-black"
+                  className="rounded-xl border border-neutral-400 bg-white px-4 py-3 font-black shadow-sm transition hover:border-neutral-600 hover:bg-neutral-50"
                   pendingChildren="Skipping selected..."
+                  title="Skip selected pending purchase rows so they leave the active review queue without creating ledger records."
                 >
                   Skip Selected
                 </AdminSubmitButton>
+                <p className="w-full text-xs font-bold text-neutral-600">
+                  Select at least one row. Moving sends rows to exact-card review; skipping removes
+                  them from pending review without creating Purchase Ledger entries.
+                </p>
               </div>
             </form>
+          )}
+        </section>
+
+        <section
+          id="moved-to-review"
+          className="scroll-mt-6 overflow-hidden rounded-3xl border border-fuchsia-300 bg-white/95 shadow-sm ring-1 ring-fuchsia-950/5"
+        >
+          <div className="flex flex-col gap-3 border-b border-fuchsia-200 bg-fuchsia-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-fuchsia-800">
+                Exact-card queue
+              </p>
+              <h2 className="mt-1 text-2xl font-black">Ready for Exact Review</h2>
+              <p className="mt-1 text-sm font-semibold text-neutral-700">
+                These purchases have not reached the Purchase Ledger yet. Open each card,
+                confirm its exact identity, then use Record as Purchased.
+              </p>
+            </div>
+            <Link
+              href={adminHref("/admin/market-intel/discovery?from=purchase-inbox")}
+              className="inline-flex rounded-xl border border-fuchsia-800 bg-white px-4 py-3 text-center font-black text-fuchsia-900 shadow-sm transition hover:bg-fuchsia-50"
+            >
+              Open Full Exact Review Queue
+            </Link>
+          </div>
+
+          {moved.length === 0 ? (
+            <p className="p-6 font-semibold text-neutral-600">No purchases are waiting in exact review.</p>
+          ) : (
+            <div className="divide-y divide-neutral-200">
+              {moved.map((row) => (
+                <article
+                  key={row.id}
+                  className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-center"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-fuchsia-300 bg-fuchsia-100 px-3 py-1 text-xs font-black text-fuchsia-950">
+                        {bucketLabel(row.target_bucket)}
+                      </span>
+                      <span className="rounded-full border border-neutral-300 bg-neutral-50 px-3 py-1 text-xs font-black">
+                        {money(row.total_paid)} total
+                      </span>
+                      {row.external_order_id ? (
+                        <span className="text-xs font-bold text-neutral-600">Order {row.external_order_id}</span>
+                      ) : null}
+                    </div>
+                    <h3 className="mt-3 text-xl font-black">{row.player_name}</h3>
+                    <a
+                      href={row.direct_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 block truncate font-bold text-blue-700 hover:underline"
+                    >
+                      {row.title}
+                    </a>
+                  </div>
+
+                  {row.identity_candidate_id ? (
+                    <Link
+                      href={adminHref(
+                        `/admin/market-intel/discovery?from=purchase-inbox#candidate-${row.identity_candidate_id}`,
+                      )}
+                      className="inline-flex min-w-[190px] justify-center rounded-xl bg-fuchsia-900 px-4 py-3 font-black text-white shadow-sm transition hover:bg-fuchsia-950"
+                    >
+                      Open Exact Review
+                    </Link>
+                  ) : (
+                    <span className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-center text-sm font-black text-rose-950">
+                      Review link missing — move again or report this row
+                    </span>
+                  )}
+                </article>
+              ))}
+            </div>
           )}
         </section>
       </div>
@@ -301,7 +393,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
 }
 
 const inputClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 font-semibold outline-none focus:border-black";
+  "mt-2 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 font-semibold shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10";
 
 function Field({
   name,
@@ -341,12 +433,31 @@ function Field({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+function Metric({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href?: string;
+}) {
+  const content = (
+    <>
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">{label}</p>
       <p className="mt-2 text-3xl font-black">{value}</p>
-    </div>
+    </>
+  );
+
+  return href ? (
+    <Link
+      href={href}
+      className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02] transition hover:border-fuchsia-400 hover:bg-fuchsia-50"
+    >
+      {content}
+    </Link>
+  ) : (
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">{content}</div>
   );
 }
 

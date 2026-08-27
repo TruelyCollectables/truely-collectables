@@ -1,0 +1,166 @@
+name: Checklist Registry Pokémon Japanese Incomplete Inventory
+
+on:
+  pull_request:
+    paths:
+      - "scripts/inventory-pokemon-japanese-incomplete-sets.ts"
+      - "scripts/run-pokemon-japanese-incomplete-inventory-simulations.ts"
+      - ".github/workflows/checklist-registry-pokemon-ja-incomplete-inventory.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-registry-pokemon-ja-incomplete-inventory-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TCGDEX_SOURCE_COMMIT: 138c145b80f1a0d6a533f98fd3afe1ffc5b4f8d6
+
+jobs:
+  inventory-incomplete-japanese-sets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Check inventory source
+        run: >-
+          npx eslint
+          scripts/inventory-pokemon-japanese-incomplete-sets.ts
+          scripts/run-pokemon-japanese-incomplete-inventory-simulations.ts
+
+      - name: Prove inventory classifications
+        run: >-
+          node --import tsx
+          scripts/run-pokemon-japanese-incomplete-inventory-simulations.ts
+
+      - name: Check out the pinned TCGdex source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-run
+          git clone --filter=blob:none https://github.com/tcgdex/cards-database.git \
+            .codex-run/tcgdex-cards-database
+          git -C .codex-run/tcgdex-cards-database checkout --detach "$TCGDEX_SOURCE_COMMIT"
+          test "$(git -C .codex-run/tcgdex-cards-database rev-parse HEAD)" = "$TCGDEX_SOURCE_COMMIT"
+
+      - name: Rebuild the original Japanese completeness receipt
+        run: |
+          node --import tsx scripts/build-tcgdex-japanese-registry-bundles.ts \
+            .codex-run/tcgdex-cards-database \
+            .codex-run/tcgdex-ja-registry-bundles \
+            --receipt .codex-run/tcgdex-ja-build-receipt.json \
+            > .codex-run/tcgdex-ja-build-output.json
+
+      - name: Require the original 22-set gap
+        run: |
+          node - <<'NODE'
+          const receipt = require('./.codex-run/tcgdex-ja-build-receipt.json');
+          const expectedCommit = process.env.TCGDEX_SOURCE_COMMIT;
+          const japaneseSets = receipt.builtSets + receipt.incompleteJapaneseSets;
+          const checks = {
+            sourceCommit: receipt.sourceCommit === expectedCommit,
+            discoveredSetDefinitions: receipt.discoveredSetDefinitions === 168,
+            japaneseSets: japaneseSets === 120,
+            builtSets: receipt.builtSets === 98,
+            incompleteJapaneseSets: receipt.incompleteJapaneseSets === 22,
+            skippedNonJapaneseSets: receipt.skippedNonJapaneseSets === 48,
+            missingJapaneseCardNames:
+              receipt.totals?.missingJapaneseCardNames === 1799,
+            failedSets: receipt.failedSets === 0,
+          };
+          console.log(JSON.stringify({ checks, receipt: {
+            sourceCommit: receipt.sourceCommit,
+            discoveredSetDefinitions: receipt.discoveredSetDefinitions,
+            japaneseSets,
+            builtSets: receipt.builtSets,
+            incompleteJapaneseSets: receipt.incompleteJapaneseSets,
+            skippedNonJapaneseSets: receipt.skippedNonJapaneseSets,
+            missingJapaneseCardNames: receipt.totals?.missingJapaneseCardNames,
+            failedSets: receipt.failedSets,
+          } }, null, 2));
+          if (Object.values(checks).some((value) => value !== true)) process.exit(1);
+          NODE
+
+      - name: Inventory all 22 incomplete sets against official sources
+        id: live_inventory
+        continue-on-error: true
+        run: |
+          node --import tsx scripts/inventory-pokemon-japanese-incomplete-sets.ts \
+            .codex-run/tcgdex-cards-database \
+            --build-receipt .codex-run/tcgdex-ja-build-receipt.json \
+            --delay-ms 35 \
+            --continue-on-error \
+            --receipt .codex-run/pokemon-ja-incomplete-inventory-receipt.json \
+            --queue .codex-run/pokemon-ja-incomplete-inventory-queue.json \
+            > .codex-run/pokemon-ja-incomplete-inventory-output.json
+
+      - name: Require a complete read-only inventory
+        if: always()
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = './.codex-run/pokemon-ja-incomplete-inventory-receipt.json';
+          if (!fs.existsSync(path)) throw new Error('The inventory receipt was not written.');
+          const receipt = require(path);
+          const statusTotal = Object.values(receipt.statusCounts || {})
+            .reduce((sum, value) => sum + Number(value || 0), 0);
+          const summary = {
+            schema: receipt.schema,
+            mode: receipt.mode,
+            sourceCommit: receipt.sourceCommit,
+            attemptedSets: receipt.attemptedSets,
+            statusCounts: receipt.statusCounts,
+            totals: receipt.totals,
+          };
+          console.log(JSON.stringify(summary, null, 2));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '# Japanese incomplete-set inventory',
+            '',
+            '```json',
+            JSON.stringify(summary, null, 2),
+            '```',
+            '',
+          ].join('\n'));
+          const checks = {
+            schema:
+              receipt.schema ===
+              'tcos.checklist.pokemonJapaneseIncompleteInventory.v1',
+            mode: receipt.mode === 'read_only_official_inventory',
+            sourceCommit: receipt.sourceCommit === process.env.TCGDEX_SOURCE_COMMIT,
+            attemptedSets: receipt.attemptedSets === 22,
+            statusTotal: statusTotal === 22,
+            missingJapaneseCardNames:
+              receipt.totals?.missingJapaneseCardNames === 1799,
+            failedSets: receipt.totals?.failedSets === 0,
+            detailFetchFailures: receipt.totals?.detailFetchFailures === 0,
+          };
+          if (Object.values(checks).some((value) => value !== true)) {
+            console.error(JSON.stringify({ checks }, null, 2));
+            process.exit(1);
+          }
+          NODE
+
+      - name: Upload read-only Phase 4A evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ja-phase4-incomplete-inventory
+          path: |
+            .codex-run/tcgdex-ja-build-receipt.json
+            .codex-run/pokemon-ja-incomplete-inventory-receipt.json
+            .codex-run/pokemon-ja-incomplete-inventory-queue.json
+            .codex-run/pokemon-ja-incomplete-inventory-output.json
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,62 @@
+name: Cancel Superseded Full Checklist Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cancel-superseded-full-checklist-run.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cancel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Force-cancel only failed safe-v2 run 31193001695
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-superseded-run-cancel.json
+        run: |
+          set -euo pipefail
+          run_id=31193001695
+          url="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/force-cancel"
+          code="$(curl --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$RUNNER_TEMP/cancel-body.txt" \
+            --write-out '%{http_code}' \
+            "$url")"
+          if [[ "$code" != "202" && "$code" != "409" ]]; then
+            echo "Force-cancel request returned HTTP $code" >&2
+            cat "$RUNNER_TEMP/cancel-body.txt" >&2 || true
+            exit 1
+          fi
+          jq -n \
+            --arg runId "$run_id" \
+            --arg code "$code" \
+            --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{schema:"tcos.checklist.supersededRunForceCancel.v1",runId:$runId,httpCode:$code,checkedAt:$checkedAt,accepted:($code=="202" or $code=="409")}' \
+            > "$RUNNER_TEMP/cancel.json"
+          cat "$RUNNER_TEMP/cancel.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$RUNNER_TEMP/cancel.json" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m "Record failed safe-v2 force cancellation [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi
+
+# Force-cancellation target: safe-v2 attempt 31193001695

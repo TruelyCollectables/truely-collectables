@@ -1,0 +1,53 @@
+name: InstaComp Supervised 203 One Command UUID Import
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-supervised-203-one-command-uuid-import.yml"
+      - "services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh"
+      - "services/instacomp-ai/scripts/import_supervised_203_trusted.py"
+      - "scripts/fixtures/instacomp-supervised-203/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh
+      - name: Verify 203 operator truths and permanent UUID import contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+
+          root = pathlib.Path('.')
+          fixture_dir = root / 'scripts/fixtures/instacomp-supervised-203'
+          cards = []
+          for path in sorted(fixture_dir.glob('cards-*.json')):
+              payload = json.loads(path.read_text('utf-8'))
+              cards.extend(payload['cards'])
+          cards.sort(key=lambda row: int(row['o']))
+          assert len(cards) == 203
+          for ordinal, card in enumerate(cards, start=1):
+              assert card['o'] == ordinal
+              assert card['s'] == f'SCAN-{ordinal:04d}'
+          script = (root / 'services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh').read_text('utf-8')
+          importer = (root / 'services/instacomp-ai/scripts/import_supervised_203_trusted.py').read_text('utf-8')
+          assert '621d58db6fe31e15d462a72b649e66a8d742639ce39973570e790bae6d11081a' in script
+          assert 'be682137a371c02f716a6b26d469baee29dc8fe7' in script
+          assert '--train-lora' in script
+          assert 'card-uuid-map.json' in script
+          assert 'uniquePermanentCardUuids' in script
+          assert 'first_scan_uuid_becomes_permanent_card_uuid' in importer
+          assert re.search(r'card_uuid\s*=', importer)
+          print('PASS supervised 203 one-command permanent UUID import contract')
+          PY

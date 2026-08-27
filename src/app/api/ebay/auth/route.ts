@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createAdminMarketplaceOAuthState } from "../../../../lib/marketplace-token-crypto";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -36,11 +37,11 @@ export async function GET() {
   ].join(" ");
 
   const url =
-    `https://auth.ebay.com/oauth2/authorize?` +
-    `client_id=${clientId}` +
+    `${authBase}?client_id=${clientId}` +
     `&response_type=code` +
     `&redirect_uri=${redirectUri}` +
-    `&scope=${encodeURIComponent(scope)}`;
+    `&scope=${encodeURIComponent(scope)}` +
+    `&state=${encodeURIComponent(state)}`;
 
   return NextResponse.redirect(url);
 }

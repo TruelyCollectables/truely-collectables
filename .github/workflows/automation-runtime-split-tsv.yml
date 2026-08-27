@@ -1,0 +1,63 @@
+name: Build Split Automation Runtime TSV
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-runtime-split-tsv.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build split TSV files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,hashlib,re
+          RUN='dh-20260730T170046Z-7d4c2a91';SEQ=4
+          with open('tmp/automation-runtime-results.json') as f:raw=json.load(f)
+          obs=raw.get('fetchedAt') or '2026-07-30T17:05:44Z'
+          lab={'wnba':'WNBA','ivan_demidov':'IVAN','matvei_michkov_young_guns':'MICHKOV YG','matvei_michkov_opc_platinum':'MICHKOV OPCP','baseball_prospects':'MLB PROSPECT','signed_baseballs':'SIGNED BALL'}
+          def clean(v):
+            if v is None:return ''
+            if isinstance(v,bool):return 'TRUE' if v else 'FALSE'
+            s=str(v).replace('\t',' ').replace('\r',' ').replace('\n',' ').strip()
+            if s and s[0] in '=+-@':s="'"+s
+            return s
+          m={}
+          for ep,o in raw.get('endpoints',{}).items():
+            for c in (o.get('data') or {}).get('results') or []:
+              k=str(c.get('listingItemId') or c.get('listingUrl') or '')
+              if not k:continue
+              if k not in m:m[k]={'eps':set([ep]),**c}
+              else:m[k]['eps'].add(ep)
+          core=[];price=[];confidence=[];tail=[]
+          for k,c in sorted(m.items(),key=lambda x:(sorted(x[1]['eps'])[0],str(x[1].get('listingItemId') or ''))):
+            eps=sorted(c.pop('eps'));dig=hashlib.sha1(('|'.join(eps)+'|'+k).encode()).hexdigest()[:18];rawid=str(c.get('listingItemId') or '');nums=re.findall(r'\d{9,15}',rawid);num=nums[0] if nums else '';url='https://www.ebay.com/itm/'+num if num else str(c.get('listingUrl') or '').split('?')[0]
+            cid='cand-s4-ebay-'+dig
+            core.append([cid,RUN,SEQ,obs,'+'.join(lab.get(e,e) for e in eps)+'/'+str(c.get('lane') or ''),c.get('watchedPerson') or '',c.get('itemType') or '','eBay',c.get('sellerName') or '', '',rawid,url,'LIVE',str(c.get('title') or '')[:160]])
+            price.append([c.get('itemPrice'),c.get('inboundShipping')])
+            confidence.append(['INSUFFICIENT'])
+            tail.append(['MANUAL REVIEW / UNPRICED',False,False,'["pending_exact_verification"]','{}'])
+          for name,rows in [('core',core),('price',price),('confidence',confidence),('tail',tail)]:
+            with open('tmp/automation-runtime-'+name+'.tsv','w') as f:
+              for row in rows:f.write('\t'.join(clean(v) for v in row)+'\n')
+          PY
+      - name: Commit split TSV files
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/automation-runtime-core.tsv tmp/automation-runtime-price.tsv tmp/automation-runtime-confidence.tsv tmp/automation-runtime-tail.tsv
+          git commit -m 'Build split automation runtime sheet rows' || exit 0
+          git push origin HEAD:main

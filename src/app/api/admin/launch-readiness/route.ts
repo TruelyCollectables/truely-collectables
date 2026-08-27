@@ -42,10 +42,96 @@ type BriefItem = {
 
 const SHIPPING_PROVIDER_ENV_TEMPLATE_HREF =
   "/api/admin/shipping/provider-setup?format=env-template";
-const SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF =
-  "/api/admin/shipping/provider-setup?format=vercel-commands";
+const SHIPPING_PROVIDER_CLOUDFLARE_COMMANDS_HREF =
+  "/api/admin/shipping/provider-setup?format=cloudflare-commands";
 const SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF =
   "/api/admin/shipping/provider-setup?format=operator-checklist";
+
+function missingPrivilegedSupabaseEnvironment() {
+  return [
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "ADMIN_SESSION_SECRET",
+  ].filter((name) => !process.env[name]?.trim());
+}
+
+function buildPrivilegedSupabaseBlocker(
+  origin: string | null,
+  missingEnvironmentVariables: string[],
+) {
+  const href = "/admin/launch-readiness";
+  const detail =
+    "Launch Readiness cannot verify privileged runtime state because required server-only bootstrap environment is incomplete. Admin Supabase clients and admin sessions fail closed; the public anon key cannot replace the service-role key, and ADMIN_PASSWORD cannot replace the session-signing secret.";
+  const action = `Set the missing Cloudflare Production and local operator environment variable name${
+    missingEnvironmentVariables.length === 1 ? "" : "s"
+  }: ${missingEnvironmentVariables.join(", ")}. Then rerun Launch Readiness before any live-payment or deployment approval.`;
+  const attentionItem = {
+    label: "Privileged Runtime Bootstrap",
+    status: "blocked" as const,
+    detail,
+    action,
+    href,
+    url: absoluteUrl(origin, href),
+  };
+
+  return {
+    generatedAt: new Date().toISOString(),
+    storeId: getActiveStoreId(),
+    status: {
+      overall: "blocked" as const,
+      nextStep: action,
+      href,
+      url: absoluteUrl(origin, href),
+    },
+    summary: {
+      ready: 0,
+      review: 0,
+      blocked: 1,
+    },
+    missingEnvironmentVariables,
+    attentionItems: [attentionItem],
+    deploymentStarted: false,
+    environmentValuesReadOrPrinted: false,
+    readOnlyGuarantee:
+      "No environment values were read or printed, and no deployment, Checkout, payment, postage, launch approval, or database mutation was started.",
+  };
+}
+
+function privilegedSupabaseBlockerMarkdown(
+  blocker: ReturnType<typeof buildPrivilegedSupabaseBlocker>,
+  title: string,
+) {
+  const item = blocker.attentionItems[0];
+  return [
+    `# ${title}`,
+    "",
+    `Generated: ${blocker.generatedAt}`,
+    `Store: ${blocker.storeId}`,
+    "",
+    "## Current Launch Posture",
+    "",
+    "- Overall: blocked",
+    `- Operator next step: ${blocker.status.nextStep}`,
+    `- Operator link: ${blocker.status.url || blocker.status.href}`,
+    "- Ready: 0",
+    "- Review: 0",
+    "- Blocked: 1",
+    "",
+    "## Attention Items",
+    "",
+    `- **BLOCKED - ${item.label}:** ${item.detail} Next: ${item.action}`,
+    "",
+    "## Safety",
+    "",
+    `- Deployment started: ${blocker.deploymentStarted ? "yes" : "no"}`,
+    `- Environment values read or printed: ${
+      blocker.environmentValuesReadOrPrinted ? "yes" : "no"
+    }`,
+    `- ${blocker.readOnlyGuarantee}`,
+    "",
+  ].join("\n");
+}
 
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
   if (status === "passed") return "ready" as const;
@@ -148,12 +234,12 @@ function deploySafetyMarkdownLines() {
     `## ${DEPLOY_SAFETY.section}`,
     "",
     "- Run `npm run verify:production` before launch work; it covers InstaComp™ regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
-    `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
+    `- If Cloudflare reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
     `- Between build blocks, run \`${DEPLOY_SAFETY.quotaStatusCommand}\`. ${DEPLOY_SAFETY.quotaStatusDescription}`,
     `- ${DEPLOY_SAFETY.quotaUploadWarning} Marker: \`${DEPLOY_SAFETY.quotaCooldownMarkerPath}\`. Override only intentionally with \`${DEPLOY_SAFETY.quotaRetryOverrideEnv}\` or \`${DEPLOY_SAFETY.quotaRetryOverrideFlag}\`.`,
     `- ${DEPLOY_SAFETY.quotaMarkerClearCondition}`,
     `- ${DEPLOY_SAFETY.deployResultRequirement}`,
-    `- ${DEPLOY_SAFETY.vercelCliRequirement}`,
+    `- ${DEPLOY_SAFETY.cloudflareCliRequirement}`,
     `- ${DEPLOY_SAFETY.scopeRequirement}`,
     `- ${DEPLOY_SAFETY.unwantedAliasCleanupRequirement}`,
     `- ${DEPLOY_SAFETY.targetHostRequirement}`,
@@ -171,8 +257,8 @@ function deploymentSourceMarkdownLines(
   return [
     "## Deployment Source",
     "",
-    `- Vercel environment: ${deployment.vercelEnv}`,
-    `- Vercel URL: ${deployment.vercelUrl}`,
+    `- Cloudflare environment: ${deployment.deploymentEnvironment}`,
+    `- Deployment URL: ${deployment.deploymentUrl}`,
     `- Git commit SHA: ${deployment.gitCommitSha}`,
     `- Git ref: ${deployment.gitCommitRef}`,
     `- Git repo: ${deployment.gitRepo}`,
@@ -225,7 +311,7 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `- Unexpected purchase audit keys: ${inlineList(brief.shipping.purchaseAttemptAuditUnexpectedScenarioKeys)}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
-    `- Provider Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
+    `- Provider Cloudflare commands: ${brief.shipping.providerSetupCloudflareCommandsUrl || brief.shipping.providerSetupCloudflareCommandsHref}`,
     `- Provider operator checklist: ${brief.shipping.providerSetupOperatorChecklistUrl || brief.shipping.providerSetupOperatorChecklistHref}`,
     "",
     "## Shipping Provider Unlock Action Plan",
@@ -314,7 +400,7 @@ function markdownForHandoffBundle(
     "## Shipping Setup Exports",
     "",
     `- Env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
-    `- Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
+    `- Cloudflare commands: ${brief.shipping.providerSetupCloudflareCommandsUrl || brief.shipping.providerSetupCloudflareCommandsHref}`,
     `- Operator checklist: ${brief.shipping.providerSetupOperatorChecklistUrl || brief.shipping.providerSetupOperatorChecklistHref}`,
     "",
     "## Shipping Provider Unlock Action Plan",
@@ -359,14 +445,14 @@ function markdownForHandoffBundle(
     "## Production Deploy Commands",
     "",
     "- Before deploying, run `npm run verify:production`; it covers InstaComp™ regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
-    `- Check the local Vercel cooldown with \`${DEPLOY_SAFETY.quotaStatusCommand}\`; it is read-only and starts no upload or deployment.`,
-    "- If Vercel deploy quota is open, run `npm run launch:production`.",
-    `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "the launch helper")}`,
+    `- Check Cloudflare deployment status with \`${DEPLOY_SAFETY.quotaStatusCommand}\`; it is read-only and starts no upload or deployment.`,
+    "- If Cloudflare deployment gates are open, run `npm run launch:production`.",
+    `- If Cloudflare reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "the launch helper")}`,
     `- If the launch helper must be split up, run \`npm run deploy:production\` and then \`${DEPLOY_SAFETY.smokeCommand}\`.`,
     `- Keep \`${DEPLOY_SAFETY.cleanProductionDomain}\` as the clean production domain and reject the unwanted \`${DEPLOY_SAFETY.unwantedAlias}\` alias.`,
     `- ${DEPLOY_SAFETY.quotaMarkerClearCondition}`,
     `- ${DEPLOY_SAFETY.deployResultRequirement}`,
-    `- ${DEPLOY_SAFETY.vercelCliRequirement}`,
+    `- ${DEPLOY_SAFETY.cloudflareCliRequirement}`,
     `- ${DEPLOY_SAFETY.scopeRequirement}`,
     `- ${DEPLOY_SAFETY.unwantedAliasCleanupRequirement}`,
     `- ${DEPLOY_SAFETY.targetHostRequirement}`,
@@ -411,17 +497,15 @@ function absoluteUrl(origin: string | null, href: string | undefined) {
 }
 
 function buildDeploymentSource(origin: string | null) {
-  const vercelUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : origin || "local";
-  const gitOwner = process.env.VERCEL_GIT_REPO_OWNER || "unknown-owner";
-  const gitRepoSlug = process.env.VERCEL_GIT_REPO_SLUG || "unknown-repo";
-  const gitCommitSha = process.env.VERCEL_GIT_COMMIT_SHA || "local-unknown";
-  const gitCommitRef = process.env.VERCEL_GIT_COMMIT_REF || "local";
+  const deploymentUrl = process.env.TCOS_DEPLOYMENT_URL || origin || "local";
+  const gitOwner = process.env.TCOS_GIT_REPO_OWNER || "unknown-owner";
+  const gitRepoSlug = process.env.TCOS_GIT_REPO_SLUG || "unknown-repo";
+  const gitCommitSha = process.env.TCOS_GIT_COMMIT_SHA || "local-unknown";
+  const gitCommitRef = process.env.TCOS_GIT_COMMIT_REF || "local";
 
   return {
-    vercelEnv: process.env.VERCEL_ENV || "local",
-    vercelUrl,
+    deploymentEnvironment: process.env.TCOS_DEPLOYMENT_ENVIRONMENT || "local",
+    deploymentUrl,
     gitCommitSha,
     gitCommitShortSha:
       gitCommitSha.length >= 7 ? gitCommitSha.slice(0, 7) : gitCommitSha,
@@ -666,10 +750,10 @@ async function buildBrief(origin: string | null = null) {
         origin,
         SHIPPING_PROVIDER_ENV_TEMPLATE_HREF,
       ),
-      providerSetupVercelCommandsHref: SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF,
-      providerSetupVercelCommandsUrl: absoluteUrl(
+      providerSetupCloudflareCommandsHref: SHIPPING_PROVIDER_CLOUDFLARE_COMMANDS_HREF,
+      providerSetupCloudflareCommandsUrl: absoluteUrl(
         origin,
-        SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF,
+        SHIPPING_PROVIDER_CLOUDFLARE_COMMANDS_HREF,
       ),
       providerSetupOperatorChecklistHref:
         SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF,
@@ -693,8 +777,66 @@ async function buildBrief(origin: string | null = null) {
 export async function GET(request: Request) {
   try {
     const requestUrl = new URL(request.url);
-    const brief = await buildBrief(requestUrl.origin);
     const format = requestUrl.searchParams.get("format");
+    const missingEnvironmentVariables = missingPrivilegedSupabaseEnvironment();
+
+    if (missingEnvironmentVariables.length > 0) {
+      const blocker = buildPrivilegedSupabaseBlocker(
+        requestUrl.origin,
+        missingEnvironmentVariables,
+      );
+
+      if (format === "markdown" || format === "md") {
+        return new Response(
+          privilegedSupabaseBlockerMarkdown(
+            blocker,
+            "TCOS Launch Readiness Brief",
+          ),
+          {
+            status: 503,
+            headers: {
+              "Cache-Control": "no-store",
+              "Content-Disposition":
+                'attachment; filename="tcos-launch-readiness-brief.md"',
+              "Content-Type": "text/markdown; charset=utf-8",
+            },
+          },
+        );
+      }
+
+      if (format === "handoff-bundle") {
+        return new Response(
+          privilegedSupabaseBlockerMarkdown(
+            blocker,
+            "TCOS Launch Hand-off Bundle",
+          ),
+          {
+            status: 503,
+            headers: {
+              "Cache-Control": "no-store",
+              "Content-Disposition":
+                'attachment; filename="tcos-launch-handoff-bundle.md"',
+              "Content-Type": "text/markdown; charset=utf-8",
+            },
+          },
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          brief: blocker,
+        },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    const brief = await buildBrief(requestUrl.origin);
 
     if (format === "markdown" || format === "md") {
       return new Response(markdownForBrief(brief), {

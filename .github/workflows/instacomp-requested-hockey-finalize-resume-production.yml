@@ -1,0 +1,266 @@
+name: InstaComp Requested Hockey Resume Production
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/instacomp-requested-hockey-finalize-resume-production.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-requested-hockey-management-production
+  cancel-in-progress: false
+
+jobs:
+  resume-requested-hockey:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.head_ref == 'feature/instacomp-target-checklists-20260816'
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 360
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/hockey-resume/base
+      DOWNLOADED_CHECKLIST_CORPUS_ROOT: /home/runner/work/_temp/hockey-resume/corpus
+      EASY_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-resume/easy/layout-pdf-plans
+      HARD_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-resume/hard/source-duplicate-pdf-plans
+      THE_CUP_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-resume/cup/the-cup-layout-plans
+      REMAINING_WORKBOOK_RECEIPT: /home/runner/work/_temp/hockey-resume/remaining-workbooks.json
+      CERTIFIED_PDF_MANAGEMENT_RECEIPT: /home/runner/work/_temp/hockey-resume/certified-pdf-management.json
+      THE_CUP_MANAGEMENT_RECEIPT: /home/runner/work/_temp/hockey-resume/the-cup-management.json
+      LEAF_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/hockey-resume/leaf
+      LEAF_HOCKEY_RECEIPT: /home/runner/work/_temp/hockey-resume/leaf-production.json
+      TOPPS_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/hockey-resume/topps
+      TOPPS_HOCKEY_RECEIPT: /home/runner/work/_temp/hockey-resume/topps-production.json
+      UPPER_DECK_SUPPLEMENT_RECEIPT: /home/runner/work/_temp/hockey-resume/upper-deck-supplements.json
+      REQUESTED_HOCKEY_VERIFY_RECEIPT: /home/runner/work/_temp/hockey-resume/requested-hockey-individual-verification.json
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '3'
+      CHECKLIST_REGISTRY_SET_CHUNK: '25'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '25'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '25'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '40'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '3'
+      WORKBOOK_TARGET_ATTEMPTS: '2'
+      WORKBOOK_TARGET_RETRY_DELAY_MS: '30000'
+      CERTIFIED_PDF_MANAGEMENT_WAVE_SIZE: '1'
+      CERTIFIED_PDF_MANAGEMENT_WAVE_DELAY_MS: '15000'
+      LEAF_HOCKEY_MINIMUM_CARD_ROWS: '10'
+      UPPER_DECK_SUPPLEMENT_DELAY_MS: '15000'
+      UPPER_DECK_SUPPLEMENT_ATTEMPTS: '2'
+      REQUESTED_HOCKEY_VERIFY_CONCURRENCY: '1'
+      REQUESTED_HOCKEY_VERIFY_ATTEMPTS: '3'
+      REQUESTED_HOCKEY_VERIFY_RETRY_MS: '15000'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install deterministic source readers
+        run: |
+          python3 -m pip install --disable-pip-version-check openpyxl xlrd
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Download immutable source inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/hockey-resume/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+      - uses: actions/download-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-complete-31992954544
+          path: /home/runner/work/_temp/hockey-resume/corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31992954544
+      - uses: actions/download-artifact@v4
+        with:
+          name: instacomp-layout-pdf-recovery-31975826952
+          path: /home/runner/work/_temp/hockey-resume/easy
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31975826952
+      - uses: actions/download-artifact@v4
+        with:
+          name: instacomp-source-duplicate-pdf-recovery-31976899232
+          path: /home/runner/work/_temp/hockey-resume/hard
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976899232
+      - uses: actions/download-artifact@v4
+        with:
+          name: instacomp-the-cup-layout-recovery-31976115218
+          path: /home/runner/work/_temp/hockey-resume/cup
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976115218
+
+      - name: Prove immutable inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.targetCount == 122 and .readyCount == 90 and .validationFailedCount == 32 and .failedCount == 0' "$VERIFIED_HARVEST_ROOT/output/summary.json"
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*' | wc -l | tr -d ' ')" = '192'
+          jq -e '.targetCount == 3 and .validatedCount == 3 and .unresolvedCount == 0' /home/runner/work/_temp/hockey-resume/easy/layout-pdf-recovery-receipt.json
+          jq -e '.targetCount == 5 and .validatedCount == 5 and .unresolvedCount == 0' /home/runner/work/_temp/hockey-resume/hard/source-duplicate-pdf-recovery-receipt.json
+          jq -e '.exactSetKey == "hockey|2022-23|upper-deck|the-cup-nhl" and .status == "validated"' /home/runner/work/_temp/hockey-resume/cup/the-cup-layout-recovery-receipt.json
+
+      - name: Patch resumable Production writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          writer = Path('scripts/instacomp-target-checklists/management-staged-registry-writer.mjs')
+          text = writer.read_text()
+          text = text.replace('${jsonSql(plan, "plan")}', '${jsonSql({ schema: plan.schema, adapterId: plan.adapterId, adapterVersion: plan.adapterVersion, source: plan.source, release: plan.release, validation: { status: plan.validation.status, counts: plan.validation.counts } }, "plan")}', 1)
+          text = text.replace('|aborted|temporar/i.test', '|aborted|temporar|lock timeout|55P03/i.test')
+          text = text.replace('await sleep(Math.min(30_000, 2_000 * attempt));', 'await sleep(Math.min(90_000, 15_000 * (2 ** (attempt - 1))));')
+
+          old = '''  const cardChunks = chunks(plan.cards, CARD_CHUNK);
+  for (let i = 0; i < cardChunks.length; i += 1) await appendChunk(versionId, { cards: cardChunks[i] }, `Registry cards ${i + 1}/${cardChunks.length} via management SQL`);
+  const parallelChunks = chunks(plan.parallels, PARALLEL_CHUNK);
+  for (let i = 0; i < parallelChunks.length; i += 1) await appendChunk(versionId, { parallels: parallelChunks[i] }, `Registry parallels ${i + 1}/${parallelChunks.length} via management SQL`);
+  const identityChunks = chunks(plan.identities, IDENTITY_CHUNK);
+  for (let i = 0; i < identityChunks.length; i += 1) await appendChunk(versionId, { identities: identityChunks[i] }, `Registry identities ${i + 1}/${identityChunks.length} via management SQL`);'''
+          new = '''  const setByKey = new Map((plan.sets || []).map((row) => [String(row.sourceKey), row]));
+  const cardByKey = new Map((plan.cards || []).map((row) => [String(row.sourceKey), row]));
+  const parallelByKey = new Map((plan.parallels || []).map((row) => [String(row.sourceKey), row]));
+  const unique = (rows) => [...new Map(rows.filter(Boolean).map((row) => [String(row.sourceKey), row])).values()];
+
+  const cardChunks = chunks(plan.cards, CARD_CHUNK);
+  for (let i = 0; i < cardChunks.length; i += 1) {
+    const parents = unique(cardChunks[i].map((card) => setByKey.get(String(card.setSourceKey))));
+    await appendChunk(versionId, { sets: parents, cards: cardChunks[i] }, `Registry cards ${i + 1}/${cardChunks.length} via management SQL`);
+  }
+  const parallelChunks = chunks(plan.parallels, PARALLEL_CHUNK);
+  for (let i = 0; i < parallelChunks.length; i += 1) {
+    const parents = unique(parallelChunks[i].map((parallel) => setByKey.get(String(parallel.setSourceKey))));
+    await appendChunk(versionId, { sets: parents, parallels: parallelChunks[i] }, `Registry parallels ${i + 1}/${parallelChunks.length} via management SQL`);
+  }
+  const identityChunks = chunks(plan.identities, IDENTITY_CHUNK);
+  for (let i = 0; i < identityChunks.length; i += 1) {
+    const identityCards = unique(identityChunks[i].map((identity) => cardByKey.get(String(identity.cardSourceKey))));
+    const identityParallels = unique(identityChunks[i].map((identity) => identity.parallelSourceKey ? parallelByKey.get(String(identity.parallelSourceKey)) : null));
+    const identitySets = unique([
+      ...identityCards.map((card) => setByKey.get(String(card.setSourceKey))),
+      ...identityParallels.map((parallel) => setByKey.get(String(parallel.setSourceKey))),
+    ]);
+    await appendChunk(versionId, { sets: identitySets, cards: identityCards, parallels: identityParallels, identities: identityChunks[i] }, `Registry identities ${i + 1}/${identityChunks.length} via management SQL`);
+  }'''
+          if old not in text:
+              raise SystemExit('Expected staged chunk loops not found')
+          writer.write_text(text.replace(old, new, 1))
+
+          leaf = Path('scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs')
+          ltext = leaf.read_text()
+          pattern = r'const entry=entryFor\(target\); const expectedPlan=buildPlan\(entry,\{cards:\[\{setName:"Base Set".*?new Date\(\)\.toISOString\(\);\n      row\.releaseSlug=expectedPlan\.release\.releaseSlug;'
+          replacement = 'const entry=entryFor(target); row.releaseSlug=`${target.season}-leaf-${target.product}-hockey`.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");'
+          ltext, count = re.subn(pattern, replacement, ltext, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'Expected one dummy Leaf preflight plan, replaced {count}')
+          leaf.write_text(ltext)
+          PY
+
+      - name: Recover remaining workbook holdouts
+        continue-on-error: true
+        env:
+          RECOVERY_EXACT_KEYS_JSON: '["hockey|2021-22|upper-deck|o-pee-chee-nhl","hockey|2025|upper-deck|national-hockey-card-day","hockey|2026|upper-deck|national-hockey-card-day"]'
+          WORKBOOK_RECOVERY_RECEIPT: /home/runner/work/_temp/hockey-resume/remaining-workbooks.json
+        run: node --import tsx scripts/instacomp-target-checklists/run-preflight-workbook-recovery.mjs
+
+      - name: Resume certified PDF repairs
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-certified-pdfs-management.mjs
+      - name: Resume certified 2022-23 The Cup
+        continue-on-error: true
+        run: node scripts/instacomp-target-checklists/apply-certified-the-cup-management.mjs
+
+      - name: Stage Leaf sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$LEAF_HOCKEY_SOURCE_ROOT"
+          copy_source(){ local pattern="$1" dest="$2" src; src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"; test -n "$src"; cp "$src" "$LEAF_HOCKEY_SOURCE_ROOT/$dest"; }
+          copy_source '*hockey_2021-22_leaf_signature-series.xlsx' '2021-22-signature-series.xlsx'
+          copy_source '*hockey_2021-22_leaf_pro-set.xlsx' '2021-22-pro-set.xlsx'
+          copy_source '*hockey_2021-22_leaf_lumber.xlsx' '2021-22-lumber.xlsx'
+          copy_source '*hockey_2022_leaf_art-of.xlsx' '2022-art-of.xlsx'
+          copy_source '*hockey_2022_leaf_expo-ink.xlsx' '2022-expo-ink.xlsx'
+          copy_source '*hockey_2022-23_leaf_in-the-game-used.xlsx' '2022-23-used.xlsx'
+          copy_source '*hockey_2023_leaf_ultimate.xlsx' '2023-ultimate.xlsx'
+          copy_source '*hockey_2024_leaf_metal-legends.xlsx' '2024-metal-legends.xlsx'
+          copy_source '*hockey_2025_leaf_metal-legends.xls' '2025-metal-legends.xls'
+          copy_source '*hockey_2026_leaf_metal.csv' '2026-metal.csv'
+      - name: Resume Leaf Hockey catalogs
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-leaf-hockey-management.mjs
+
+      - name: Stage Topps sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
+          copy_pdf(){ local pattern="$1" dest="$2" src; src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"; test -n "$src"; cp "$src" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf"; pdftotext -layout "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; test -s "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; }
+          copy_pdf '*hockey_2021_topps_nhl-stickers.pdf' '2021-nhl-stickers'
+          copy_pdf '*hockey_2022-23_topps_nhl-sticker-album.pdf' '2022-23-nhl-sticker-album'
+          copy_pdf '*hockey_2022-23_topps_chrome-nhl-stickers.pdf' '2022-23-chrome-nhl-stickers'
+          copy_pdf '*hockey_2024-25_topps_nhl-sticker-collection.pdf' '2024-25-nhl-sticker-collection'
+          copy_pdf '*hockey_2025-26_topps_nhl-sticker-collection.pdf' '2025-26-nhl-sticker-collection'
+      - name: Resume Topps Hockey catalogs
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts
+
+      - name: Resume 55 downloaded Upper Deck pages without refetching
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts
+
+      - name: Re-verify all 83 original validated Hockey catalogs
+        if: always()
+        continue-on-error: true
+        run: node --import tsx scripts/instacomp-target-checklists/verify-requested-hockey-individual.mjs
+
+      - name: Build final receipt
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p /home/runner/work/_temp/hockey-resume
+          node <<'NODE'
+          const fs=require('node:fs'); const root='/home/runner/work/_temp/hockey-resume';
+          const read=(name)=>{try{return JSON.parse(fs.readFileSync(`${root}/${name}`,'utf8'))}catch{return null}};
+          const r={schema:'tcos.requestedHockeyResumeProduction.v1',completedAt:new Date().toISOString(),remainingWorkbooks:read('remaining-workbooks.json'),certifiedPdfs:read('certified-pdf-management.json'),theCup:read('the-cup-management.json'),leaf:read('leaf-production.json'),topps:read('topps-production.json'),upperDeckSupplements:read('upper-deck-supplements.json'),baselineVerification:read('requested-hockey-individual-verification.json')};
+          fs.writeFileSync(`${root}/final-receipt.json`,JSON.stringify(r,null,2)+'\n');
+          console.log(JSON.stringify(r,null,2));
+          NODE
+
+      - name: Upload resume Production receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-requested-hockey-resume-${{ github.run_id }}
+          path: |
+            /home/runner/work/_temp/hockey-resume/final-receipt.json
+            /home/runner/work/_temp/hockey-resume/remaining-workbooks.json
+            /home/runner/work/_temp/hockey-resume/certified-pdf-management.json
+            /home/runner/work/_temp/hockey-resume/the-cup-management.json
+            /home/runner/work/_temp/hockey-resume/leaf-production.json
+            /home/runner/work/_temp/hockey-resume/topps-production.json
+            /home/runner/work/_temp/hockey-resume/upper-deck-supplements.json
+            /home/runner/work/_temp/hockey-resume/requested-hockey-individual-verification.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hockey-resume" .env.local .env.production.local .vercel

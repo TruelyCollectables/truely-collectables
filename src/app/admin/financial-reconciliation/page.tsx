@@ -22,6 +22,13 @@ function money(value: unknown) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 function date(value: unknown) {
   return value
     ? new Intl.DateTimeFormat("en-US", {
@@ -107,15 +114,18 @@ export default async function FinancialReconciliationPage() {
 
   if (runs.error) throw runs.error;
   if (items.error) throw items.error;
-  if (sellerProtectionAdjustmentsResult.error) {
-    throw sellerProtectionAdjustmentsResult.error;
-  }
 
   const latest = runs.data?.[0] || null;
   const openItems = items.data || [];
   const latestSummary = metadataRecord(latest?.summary);
+  const sellerProtectionAdjustmentsUnavailable = Boolean(
+    sellerProtectionAdjustmentsResult.error,
+  );
   const sellerProtectionAdjustments =
-    (sellerProtectionAdjustmentsResult.data || []) as SellerProtectionAdjustment[];
+    sellerProtectionAdjustmentsUnavailable
+      ? []
+      : ((sellerProtectionAdjustmentsResult.data ||
+          []) as SellerProtectionAdjustment[]);
   const sellerProtectionReimbursedTotal = sellerProtectionAdjustments.reduce(
     (sum, adjustment) => sum + Number(adjustment.amount || 0),
     0,
@@ -256,6 +266,26 @@ export default async function FinancialReconciliationPage() {
             Review Payouts
           </Link>
         </div>
+        {sellerProtectionAdjustmentsUnavailable ? (
+          <div
+            aria-live="polite"
+            role="status"
+            className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950 shadow-sm"
+          >
+            <h3 className="text-lg font-black">
+              Seller-protection adjustment ledger unavailable
+            </h3>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+              Core Stripe reconciliation loaded, but TCOS internal
+              seller-protection reimbursement rows did not. Do not treat the
+              recent credits, item reimbursed, shipping excluded, or allocation
+              counts below as zero until this warning is cleared.
+            </p>
+            <p className="mt-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-bold">
+              {safeErrorMessage(sellerProtectionAdjustmentsResult.error)}
+            </p>
+          </div>
+        ) : null}
         <dl className="mt-4 grid gap-3 text-sm md:grid-cols-4">
           <div className="rounded-2xl border border-sky-200 bg-white/80 p-3 shadow-sm">
             <dt className="font-black uppercase opacity-70">
@@ -314,29 +344,43 @@ export default async function FinancialReconciliationPage() {
           <div className="rounded-2xl border border-sky-200 bg-white/80 p-3 shadow-sm">
             <dt className="font-black uppercase opacity-70">Recent Credits</dt>
             <dd className="mt-1 text-xl font-black">
-              {String(sellerProtectionAdjustments.length)}
+              {sellerProtectionAdjustmentsUnavailable
+                ? "Unavailable"
+                : String(sellerProtectionAdjustments.length)}
             </dd>
           </div>
           <div className="rounded-2xl border border-sky-200 bg-white/80 p-3 shadow-sm">
             <dt className="font-black uppercase opacity-70">Item Reimbursed</dt>
             <dd className="mt-1 text-xl font-black">
-              {money(sellerProtectionReimbursedTotal)}
+              {sellerProtectionAdjustmentsUnavailable
+                ? "Unavailable"
+                : money(sellerProtectionReimbursedTotal)}
             </dd>
           </div>
           <div className="rounded-2xl border border-sky-200 bg-white/80 p-3 shadow-sm">
             <dt className="font-black uppercase opacity-70">Shipping Excluded</dt>
             <dd className="mt-1 text-xl font-black">
-              {money(sellerProtectionShippingExcludedTotal)}
+              {sellerProtectionAdjustmentsUnavailable
+                ? "Unavailable"
+                : money(sellerProtectionShippingExcludedTotal)}
             </dd>
           </div>
           <div className="rounded-2xl border border-sky-200 bg-white/80 p-3 shadow-sm">
             <dt className="font-black uppercase opacity-70">Allocations</dt>
             <dd className="mt-1 text-xl font-black">
-              {String(sellerProtectionAllocationTotal)}
+              {sellerProtectionAdjustmentsUnavailable
+                ? "Unavailable"
+                : String(sellerProtectionAllocationTotal)}
             </dd>
           </div>
         </dl>
-        {sellerProtectionAdjustments.length > 0 ? (
+        {sellerProtectionAdjustmentsUnavailable ? (
+          <p className="mt-4 rounded-2xl border border-amber-200 bg-white/80 p-4 text-sm font-semibold text-amber-950 shadow-sm">
+            Seller-protection reimbursement rows are unavailable. Retry the
+            money ops view before deciding that no recent internal credits
+            exist.
+          </p>
+        ) : sellerProtectionAdjustments.length > 0 ? (
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             {sellerProtectionAdjustments.slice(0, 4).map((adjustment) => (
               <article

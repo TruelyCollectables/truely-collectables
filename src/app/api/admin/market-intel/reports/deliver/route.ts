@@ -3,7 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../lib/admin-handoff";
-import { deliverDailyMarketIntelReport } from "../../../../../../lib/market-intel-delivery";
+import { deliverFreshDailyMarketIntelReport } from "../../../../../../lib/market-intel-daily-delivery";
 
 export async function POST(request: NextRequest) {
   const handoff = adminHandoffFromUrl(new URL(request.url));
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const reportId = String(formData.get("reportId") ?? "").trim() || undefined;
-    const result = await deliverDailyMarketIntelReport(reportId);
+    const result = await deliverFreshDailyMarketIntelReport(reportId);
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/delivery?reportDelivered=${result.delivered ? "1" : "already"}`,

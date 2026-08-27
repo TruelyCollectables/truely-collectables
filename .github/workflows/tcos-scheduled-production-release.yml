@@ -110,7 +110,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ steps.changes.outputs.has_changes }}" = "true" ]; then
-            echo "A tested Market Intel batch was pushed to main. The main-only Vercel integration will create one production deployment."
+            echo "A tested Market Intel batch was pushed to main for the Cloudflare production deployment pipeline."
           else
-            echo "No unreleased Market Intel changes were found, so main and Vercel were untouched."
+            echo "No unreleased Market Intel changes were found, so production was untouched."
           fi

@@ -46,6 +46,8 @@ let ebayStoreTokenCache:
     }
   | null = null;
 
+const EBAY_DUPLICATE_PROVIDER_TIMEOUT_MS = 12_000;
+
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
@@ -215,19 +217,22 @@ async function getEbayStoreAccessToken(storeId: string) {
   const credentials = Buffer.from(
     `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`,
   ).toString("base64");
-  const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
+  const { response, data: tokenData } = await fetchEbayJsonWithTimeout({
+    url: "https://api.ebay.com/identity/v1/oauth2/token",
+    action: "refreshing the eBay seller access token",
+    init: {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: String(data.refresh_token),
+        scope: "https://api.ebay.com/oauth/api_scope/sell.inventory",
+      }),
     },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: String(data.refresh_token),
-      scope: "https://api.ebay.com/oauth/api_scope/sell.inventory",
-    }),
   });
-  const tokenData = await response.json().catch(() => ({}));
 
   if (!response.ok || !tokenData.access_token) {
     ebayStoreTokenCache = null;
@@ -268,7 +273,17 @@ function ebayProviderFailureMessage(params: {
   return `eBay did not update the keeper listing quantity.${statusSuffix} Local TCOS merge completed; refresh eBay sync or update the keeper listing quantity from eBay.`;
 }
 
-function ebaySkippedMessage(action: string) {
+function ebayProviderTimeoutMessage(action: string) {
+  return `eBay provider request timed out while ${action}. Local TCOS cleanup can continue; refresh eBay sync or retry provider cleanup after the eBay connection responds.`;
+}
+
+function ebaySkippedMessage(action: string, error?: unknown) {
+  const detail = error instanceof Error ? error.message : "";
+
+  if (detail.startsWith("eBay provider request timed out")) {
+    return detail;
+  }
+
   if (action.startsWith("withdraw_duplicate_offer")) {
     return "eBay duplicate-offer cleanup was skipped. Local TCOS cleanup completed; refresh eBay sync or withdraw the duplicate listing from eBay.";
   }
@@ -280,15 +295,45 @@ function ebaySkippedMessage(action: string) {
   return "eBay cleanup was skipped. Local TCOS cleanup completed; refresh eBay sync before retrying.";
 }
 
+async function fetchEbayJsonWithTimeout(params: {
+  url: string;
+  action: string;
+  init?: RequestInit;
+}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    EBAY_DUPLICATE_PROVIDER_TIMEOUT_MS,
+  );
+
+  try {
+    const response = await fetch(params.url, {
+      ...params.init,
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+
+    return { response, data };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(ebayProviderTimeoutMessage(params.action));
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchEbayOffers(params: {
   accessToken: string;
   sku: string;
 }): Promise<EbayOfferSummary[]> {
-  const response = await fetch(
-    `https://api.ebay.com/sell/inventory/v1/offer?sku=${encodeURIComponent(params.sku)}`,
-    { headers: ebayHeaders(params.accessToken) },
-  );
-  const data = await response.json().catch(() => ({}));
+  const { response, data } = await fetchEbayJsonWithTimeout({
+    url: `https://api.ebay.com/sell/inventory/v1/offer?sku=${encodeURIComponent(params.sku)}`,
+    action: "looking up duplicate eBay offers",
+    init: { headers: ebayHeaders(params.accessToken) },
+  });
 
   if (!response.ok) return [];
 
@@ -340,17 +385,17 @@ async function withdrawDuplicateOffer(params: {
     };
   }
 
-  const response = await fetch(
-    `https://api.ebay.com/sell/inventory/v1/offer/${encodeURIComponent(
+  const { response, data } = await fetchEbayJsonWithTimeout({
+    url: `https://api.ebay.com/sell/inventory/v1/offer/${encodeURIComponent(
       offer.offerId,
     )}/withdraw`,
-    {
+    action: "withdrawing the duplicate eBay offer",
+    init: {
       method: "POST",
       headers: ebayHeaders(params.accessToken),
       body: JSON.stringify({}),
     },
-  );
-  const data = await response.json().catch(() => ({}));
+  });
 
   return {
     ok: response.ok,
@@ -383,9 +428,10 @@ async function updateKeeperEbayQuantity(params: {
     return { ok: false, skipped: true, message: "No keeper eBay offer found." };
   }
 
-  const response = await fetch(
-    "https://api.ebay.com/sell/inventory/v1/bulk_update_price_quantity",
-    {
+  const { response, data } = await fetchEbayJsonWithTimeout({
+    url: "https://api.ebay.com/sell/inventory/v1/bulk_update_price_quantity",
+    action: "updating the keeper eBay quantity",
+    init: {
       method: "POST",
       headers: ebayHeaders(params.accessToken),
       body: JSON.stringify({
@@ -409,8 +455,7 @@ async function updateKeeperEbayQuantity(params: {
         ],
       }),
     },
-  );
-  const data = await response.json().catch(() => ({}));
+  });
 
   return {
     ok: response.ok,
@@ -438,7 +483,7 @@ async function bestEffortEbayAction(
       action,
       ok: false,
       skipped: true,
-      message: ebaySkippedMessage(action),
+      message: ebaySkippedMessage(action, error),
       detail: error instanceof Error ? error.message : "Unknown eBay provider error.",
     };
   }

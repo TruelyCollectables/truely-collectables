@@ -8,11 +8,19 @@ const sources = {
     ),
     "utf8",
   ),
+  paymentPage: await readFile(
+    new URL("../src/app/admin/live-payment-launch/page.tsx", import.meta.url),
+    "utf8",
+  ),
   shipping: await readFile(
     new URL(
       "../src/app/admin/live-shipping-launch/LiveShippingGateActions.tsx",
       import.meta.url,
     ),
+    "utf8",
+  ),
+  shippingPage: await readFile(
+    new URL("../src/app/admin/live-shipping-launch/page.tsx", import.meta.url),
     "utf8",
   ),
 };
@@ -59,6 +67,17 @@ function assertGateFeedback(source, noun) {
     "onSubmit={() => void submit(pendingAction)}",
     `APPROVE LIVE ${capitalized.toUpperCase()}`,
     `REVOKE LIVE ${capitalized.toUpperCase()}`,
+    "gateActionPanelClass",
+    "gateApproveButtonClass",
+    "gateRevokeButtonClass",
+    "gateNeutralButtonClass",
+    "gateInputClass",
+    "rounded-3xl border border-current/20 bg-white/80",
+    "rounded-full bg-emerald-700",
+    "rounded-full bg-red-700",
+    "transition hover:-translate-y-0.5",
+    "focus:ring-2 focus:ring-sky-200",
+    "rounded-2xl border px-3 py-2 text-sm font-bold shadow-sm",
   ]) {
     assert(
       source.includes(fragment),
@@ -73,6 +92,103 @@ scenario("live payment gate actions announce and explain approval controls", () 
 
 scenario("live shipping gate actions announce and explain approval controls", () => {
   assertGateFeedback(sources.shipping, "shipping");
+});
+
+scenario("live launch pages keep approval history failures operator-safe", () => {
+  for (const [label, source, unavailableCopy, defaultError] of [
+    [
+      "payment",
+      sources.paymentPage,
+      "Approval history unavailable.",
+      "Unknown live-payment launch history error.",
+    ],
+    [
+      "shipping",
+      sources.shippingPage,
+      "Shipping approval history unavailable.",
+      "Unknown live-shipping launch history error.",
+    ],
+  ]) {
+    for (const fragment of [
+      "function safeErrorMessage",
+      "replace(/\\s+/g, \" \").trim().slice(0, 220)",
+      unavailableCopy,
+      "This panel is paused instead of showing an empty approval trail.",
+      "Diagnostic: {diagnostic}",
+      "role=\"alert\"",
+      "aria-live=\"assertive\"",
+      defaultError,
+    ]) {
+      assert(
+        source.includes(fragment),
+        `Expected live ${label} launch page history failure fragment ${fragment}.`,
+      );
+    }
+
+    assert(
+      !source.includes("{eventsResult.error.message}"),
+      `Expected live ${label} launch page to avoid rendering raw history provider errors.`,
+    );
+  }
+});
+
+scenario("live launch pages expose first-screen gate posture", () => {
+  for (const fragment of [
+    "type GatePostureTone",
+    "gatePrimaryLinkClass",
+    "gateSecondaryLinkClass",
+    "GatePostureCard",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "ring-1 ring-black/[0.02]",
+  ]) {
+    assert(
+      sources.paymentPage.includes(fragment),
+      `Expected live payment page posture/polish fragment ${fragment}.`,
+    );
+    assert(
+      sources.shippingPage.includes(fragment),
+      `Expected live shipping page posture/polish fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "const paymentGatePosture =",
+    "RUNTIME ENABLED",
+    "APPROVAL BLOCKERS",
+    "LAUNCH LOCKED",
+    "READY FOR FINAL WINDOW",
+    "Payment gate posture",
+    "Database approval",
+    "Operator next step",
+    "NOT APPROVABLE",
+    "Monitor live checkout",
+    "Hold final runtime switch",
+  ]) {
+    assert(
+      sources.paymentPage.includes(fragment),
+      `Expected live payment page gate posture fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "const shippingGatePosture =",
+    "BLOCKERS PRESENT",
+    "REVIEW WARNINGS",
+    "Shipping gate posture",
+    "Provider readiness",
+    "SECRETS NEEDED",
+    "PROVIDER READY",
+    "Load provider secrets",
+    "Monitor live postage",
+    "gateAmberLinkClass",
+    "rounded-3xl border border-indigo-200 bg-indigo-50",
+  ]) {
+    assert(
+      sources.shippingPage.includes(fragment),
+      `Expected live shipping page gate posture fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];

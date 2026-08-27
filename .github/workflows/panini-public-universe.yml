@@ -1,0 +1,56 @@
+name: Panini Public Universe Pull
+
+on:
+  push:
+    branches:
+      - agent/topps-panini-download-now-20260804
+    paths:
+      - scripts/pull-panini-public-universe.ts
+      - .github/workflows/panini-public-universe.yml
+  pull_request:
+    paths:
+      - scripts/pull-panini-public-universe.ts
+      - .github/workflows/panini-public-universe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panini-public-universe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pull-panini-public-universe:
+    name: Pull Panini Public Universe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Crawl all public Panini checklist sources
+        env:
+          PANINI_PUBLIC_MAX_ARTICLES: 5000
+          PANINI_PUBLIC_MAX_CATEGORY_PAGES: 70
+        run: node --import tsx scripts/pull-panini-public-universe.ts
+      - name: Package Panini public universe
+        if: always()
+        run: tar -czf panini-public-universe.tar.gz .panini-public-universe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-public-universe-${{ github.run_id }}
+          path: panini-public-universe.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-public-universe-status-${{ github.run_id }}
+          path: .panini-public-universe/manifest.json
+          if-no-files-found: error
+          retention-days: 90

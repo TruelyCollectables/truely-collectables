@@ -35,12 +35,14 @@ type Order = {
   created_at: string;
   customer_email: string | null;
   customer_name?: string | null;
+  customer_phone?: string | null;
   total: number;
   status: string | null;
   shipping_method: string | null;
   shipping_name: string | null;
   shipping_amount: number | null;
   subtotal: number | null;
+  tax_amount?: number | null;
   item_count: number | null;
   contains_seller_items?: boolean | null;
   seller_item_count?: number | null;
@@ -48,6 +50,7 @@ type Order = {
   fulfillment_status: string | null;
   tracking_number: string | null;
   carrier: string | null;
+  fulfilled_at?: string | null;
   shipped_at: string | null;
   discount_amount?: number | null;
   discount_code?: string | null;
@@ -197,8 +200,74 @@ function statusTone(value: string | null | undefined) {
   return "border-neutral-200 bg-white text-neutral-950";
 }
 
+function orderCommandPosture({
+  activeDryRunShippingLabel,
+  fulfillmentStatus,
+  needsReview,
+  paymentStatus,
+}: {
+  activeDryRunShippingLabel: boolean;
+  fulfillmentStatus: string | null;
+  needsReview: boolean;
+  paymentStatus: string | null;
+}): {
+  detail: string;
+  label: string;
+  tone: "neutral" | "emerald" | "sky" | "amber" | "rose";
+} {
+  const payment = String(paymentStatus || "").toLowerCase();
+  const fulfillment = String(fulfillmentStatus || "").toLowerCase();
+
+  if (activeDryRunShippingLabel) {
+    return {
+      detail: "Replace simulated shipping proof before treating this order as shipped.",
+      label: "Dry-run proof attached",
+      tone: "rose",
+    };
+  }
+
+  if (needsReview) {
+    return {
+      detail: "Verify shipping evidence, inventory, and payment before release.",
+      label: "Review hold",
+      tone: "amber",
+    };
+  }
+
+  if (fulfillment === "shipped") {
+    return {
+      detail: "Fulfillment is marked shipped; keep evidence and tracking current.",
+      label: "Shipped",
+      tone: "emerald",
+    };
+  }
+
+  if (payment === "paid") {
+    return {
+      detail: "Paid order is ready for fulfillment checks and shipping proof.",
+      label: "Ready to fulfill",
+      tone: "sky",
+    };
+  }
+
+  return {
+    detail: "Payment or fulfillment status needs operator review.",
+    label: "Needs review",
+    tone: "neutral",
+  };
+}
+
 function dateLabel(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not saved";
+}
+
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown database error.";
+
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
 }
 
 function OrderMetric({
@@ -216,6 +285,39 @@ function OrderMetric({
         {metricLabel}
       </p>
       <p className="mt-2 text-2xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function OrderHeaderStat({
+  detail,
+  label: statLabel,
+  tone = "neutral",
+  value,
+}: {
+  detail: string;
+  label: string;
+  tone?: "neutral" | "emerald" | "sky" | "amber" | "rose";
+  value: string;
+}) {
+  const accentClassName =
+    tone === "emerald"
+      ? "text-emerald-200"
+      : tone === "sky"
+        ? "text-sky-200"
+        : tone === "amber"
+          ? "text-amber-200"
+          : tone === "rose"
+            ? "text-rose-200"
+            : "text-neutral-200";
+
+  return (
+    <div className="bg-neutral-950/80 p-4">
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-neutral-400">
+        {statLabel}
+      </p>
+      <p className={`mt-2 text-2xl font-black ${accentClassName}`}>{value}</p>
+      <p className="mt-1 text-xs font-bold leading-5 text-neutral-400">{detail}</p>
     </div>
   );
 }
@@ -276,6 +378,35 @@ function InfoTile({
       <dd className="mt-1 break-words text-sm font-bold text-neutral-950">
         {value}
       </dd>
+    </div>
+  );
+}
+
+function UnavailableNotice({
+  title,
+  detail,
+  error,
+  tone = "amber",
+}: {
+  title: string;
+  detail: string;
+  error?: { message?: string } | string | null;
+  tone?: "amber" | "red";
+}) {
+  const styles =
+    tone === "red"
+      ? "border-red-200 bg-red-50 text-red-950"
+      : "border-amber-200 bg-amber-50 text-amber-950";
+
+  return (
+    <div className={`rounded-2xl border p-4 text-sm ${styles}`}>
+      <p className="font-black">{title}</p>
+      <p className="mt-1 font-semibold leading-6">{detail}</p>
+      {error ? (
+        <p className="mt-2 rounded-xl border border-current/20 bg-white/60 px-3 py-2 text-xs font-bold">
+          Diagnostic: {safeErrorMessage(error)}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -395,38 +526,38 @@ export default async function AdminOrderDetailPage({
   const shippingAction = String(resolvedSearchParams.shippingAction || "").trim();
   const storeId = getActiveStoreId();
 
-  const { data: order, error } = await supabase
+  const { data: order, error: orderError } = await supabase
     .from("orders")
-    .select(
-      `
-      *,
-      order_items (
-        id,
-        seller_account_id,
-        title,
-        quantity,
-        price
-      )
-    `
-    )
+    .select("*")
     .eq("id", id)
     .eq("store_id", storeId)
     .single();
 
+  const { data: orderItems, error: orderItemsError } = order
+    ? await supabase
+        .from("order_items")
+        .select("id,seller_account_id,title,quantity,price")
+        .eq("order_id", order.id)
+        .order("id", { ascending: true })
+    : { data: [], error: null };
+  const error = orderError || orderItemsError;
+
   if (error || !order) {
     return (
-      <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
-        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#e0f2fe,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white/95 p-6 shadow-sm ring-1 ring-red-950/5">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
             Order detail
           </p>
           <h1 className="mt-2 text-3xl font-black">Order not found</h1>
           <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
-            {error?.message || "This order no longer exists in the active store."}
+            {error
+              ? safeErrorMessage(error)
+              : "This order no longer exists in the active store."}
           </p>
           <Link
             href="/admin/orders"
-            className="mt-5 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+            className="mt-5 inline-flex rounded-xl bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
           >
             Back to fulfillment center
           </Link>
@@ -435,7 +566,10 @@ export default async function AdminOrderDetailPage({
     );
   }
 
-  const typedOrder = order as Order;
+  const typedOrder = {
+    ...(order as Order),
+    order_items: (orderItems || []) as OrderItem[],
+  } as Order;
   const sellerAccountIds = Array.from(
     new Set(
       (typedOrder.order_items || [])
@@ -555,7 +689,8 @@ export default async function AdminOrderDetailPage({
     (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
     0,
   );
-  const { data: platformFeeLedgerEntries } = await supabase
+  const { data: platformFeeLedgerEntries, error: platformFeeLedgerError } =
+    await supabase
     .from("platform_fee_ledger_entries")
     .select(
       `
@@ -574,8 +709,9 @@ export default async function AdminOrderDetailPage({
     .eq("order_id", typedOrder.id)
     .eq("store_id", storeId)
     .order("created_at", { ascending: true });
-  const platformFeeLedger =
-    (platformFeeLedgerEntries || []) as PlatformFeeLedgerEntry[];
+  const platformFeeLedger = platformFeeLedgerError
+    ? []
+    : ((platformFeeLedgerEntries || []) as PlatformFeeLedgerEntry[]);
   const allSiteRakeTotal = platformFeeLedger.reduce(
     (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
     0,
@@ -681,6 +817,14 @@ export default async function AdminOrderDetailPage({
   const shippingCoverageClaims = shippingCoverageClaimsError
     ? []
     : ((shippingCoverageClaimsData || []) as ShippingCoverageClaim[]);
+  const evidenceUnavailable = Boolean(evidenceError);
+  const payoutLedgerUnavailable = Boolean(payoutLedgerError);
+  const platformFeeLedgerUnavailable = Boolean(platformFeeLedgerError);
+  const shippingLabelsUnavailable = Boolean(shippingLabelsError);
+  const shippingTrackingEventsUnavailable = Boolean(
+    shippingTrackingEventsError,
+  );
+  const shippingCoverageClaimsUnavailable = Boolean(shippingCoverageClaimsError);
 
   const itemsTotal =
     typedOrder.order_items?.reduce(
@@ -706,52 +850,95 @@ export default async function AdminOrderDetailPage({
       (activeShippingLabel &&
         isDryRunShippingLabel(activeShippingLabel, shippingTrackingEvents)),
   );
+  const orderPosture = orderCommandPosture({
+    activeDryRunShippingLabel,
+    fulfillmentStatus: typedOrder.fulfillment_status,
+    needsReview,
+    paymentStatus: typedOrder.status,
+  });
+  const customerLabel =
+    typedOrder.customer_email || typedOrder.customer_name || "Customer not captured";
+  const itemCount = Number(typedOrder.item_count || typedOrder.order_items?.length || 0);
 
   return (
-    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
-      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <Link
-              href="/admin/orders"
-              className="text-sm font-black text-neutral-600 underline"
-            >
-              ← Back to fulfillment center
-            </Link>
-            <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-sky-700">
-              Order detail
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Order #{typedOrder.id}
-            </h1>
-            <p className="mt-3 text-sm font-semibold text-neutral-600">
-              Created {new Date(typedOrder.created_at).toLocaleString()} ·{" "}
-              {typedOrder.customer_email || "No customer email"}
-            </p>
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#e0f2fe,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px] space-y-6">
+        <section className="overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 shadow-2xl shadow-neutral-950/10">
+          <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(56,189,248,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-4xl">
+                <Link
+                  href="/admin/orders"
+                  className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
+                >
+                  ← Back to fulfillment center
+                </Link>
+                <p className="mt-6 text-xs font-black uppercase tracking-[0.22em] text-sky-300">
+                  Order command desk
+                </p>
+                <h1 className="mt-3 text-4xl font-black tracking-tight text-white lg:text-5xl">
+                  Order #{typedOrder.id}
+                </h1>
+                <p className="mt-4 flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-300">
+                  <span>Created {new Date(typedOrder.created_at).toLocaleString()}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{customerLabel}</span>
+                  <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
+                    {orderPosture.label}
+                  </span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href={`/admin/orders/${typedOrder.id}/packing-slip`}
+                  className="rounded-full border border-sky-300/30 bg-sky-300/10 px-4 py-2 text-sm font-black text-sky-100 shadow-sm transition hover:bg-sky-300/20"
+                >
+                  Packing slip
+                </Link>
+                <Link
+                  href="/admin/files"
+                  className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
+                >
+                  Evidence files
+                </Link>
+                <Link
+                  href="/admin/orders"
+                  className="rounded-full bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-sky-50"
+                >
+                  Orders
+                </Link>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={`/admin/orders/${typedOrder.id}/packing-slip`}
-              className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 hover:bg-sky-100"
-            >
-              Packing slip
-            </Link>
-            <Link
-              href="/admin/files"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
-            >
-              Evidence files
-            </Link>
-            <Link
-              href="/admin/orders"
-              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
-            >
-              Orders
-            </Link>
+          <div className="grid gap-px bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+            <OrderHeaderStat
+              label="Payment"
+              value={label(typedOrder.status)}
+              detail="Checkout payment state for this order."
+              tone={typedOrder.status === "paid" ? "emerald" : orderPosture.tone}
+            />
+            <OrderHeaderStat
+              label="Fulfillment"
+              value={label(typedOrder.fulfillment_status)}
+              detail="Shipment and handling state for the operator."
+              tone={orderPosture.tone}
+            />
+            <OrderHeaderStat
+              label="Operator posture"
+              value={orderPosture.label}
+              detail={orderPosture.detail}
+              tone={orderPosture.tone}
+            />
+            <OrderHeaderStat
+              label="Total paid"
+              value={money(totalPaid)}
+              detail={`${itemCount} ${itemCount === 1 ? "item" : "items"} in this checkout.`}
+              tone="sky"
+            />
           </div>
-        </div>
-      </section>
+        </section>
 
       {needsReview ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm">
@@ -785,7 +972,19 @@ export default async function AdminOrderDetailPage({
         <OrderMetric label="Total paid" value={money(totalPaid)} />
       </section>
 
-      {platformFeeLedger.length > 0 ? (
+      {platformFeeLedgerUnavailable ? (
+        <AdminSection
+          eyebrow="Platform revenue"
+          title="Dag Danky Holdings LLC Rake"
+          detail="Calculated from this TCOS website checkout order only, using each order item plus allocated buyer-paid shipping."
+        >
+          <UnavailableNotice
+            title="Platform fee ledger unavailable."
+            detail="Platform fee storage did not load for this order, so this cockpit cannot prove whether TCOS checkout fee rows exist or whether the rake total is complete."
+            error={platformFeeLedgerError}
+          />
+        </AdminSection>
+      ) : platformFeeLedger.length > 0 ? (
         <AdminSection
           eyebrow="Platform revenue"
           title="Dag Danky Holdings LLC Rake"
@@ -854,10 +1053,13 @@ export default async function AdminOrderDetailPage({
           title="Seller Payout Ledger"
           detail="Seller-payable amounts, platform rake, and payout state for every seller-owned row in this order."
         >
-          {payoutLedgerError ? (
-            <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-black text-red-950">
-              Payout ledger unavailable: {payoutLedgerError.message}
-            </p>
+          {payoutLedgerUnavailable ? (
+            <UnavailableNotice
+              title="Seller payout ledger unavailable."
+              detail="Seller payout ledger storage did not load for this order, so do not release funds or treat this seller queue as clear until the ledger source is repaired."
+              error={payoutLedgerError}
+              tone="red"
+            />
           ) : sellerPayoutLedger.length === 0 ? (
             <p className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-600">
               No seller payout ledger entries have been created for this order yet.
@@ -933,9 +1135,15 @@ export default async function AdminOrderDetailPage({
         cases={orderReviewCases}
         sellerOptions={sellerOptions}
         payoutRows={sellerPayoutLedger}
-        tableError={orderReviewCasesError?.message || null}
+        tableError={
+          orderReviewCasesError ? safeErrorMessage(orderReviewCasesError) : null
+        }
         caseEvents={orderReviewCaseEvents}
-        eventsError={orderReviewCaseEventsError?.message || null}
+        eventsError={
+          orderReviewCaseEventsError
+            ? safeErrorMessage(orderReviewCaseEventsError)
+            : null
+        }
       />
 
       <AdminSection
@@ -946,6 +1154,7 @@ export default async function AdminOrderDetailPage({
         <dl className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <InfoTile label="Name" value={typedOrder.customer_name || "Not saved"} />
           <InfoTile label="Email" value={typedOrder.customer_email || "No email"} />
+          <InfoTile label="Customer Phone" value={typedOrder.customer_phone || "Not collected"} />
         </dl>
 
         <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
@@ -1060,6 +1269,11 @@ export default async function AdminOrderDetailPage({
           </div>
 
           <div className="flex justify-between gap-4">
+            <span>Tax Paid</span>
+            <strong>{money(typedOrder.tax_amount)}</strong>
+          </div>
+
+          <div className="flex justify-between gap-4">
             <span>Shipping Paid</span>
             <strong>{money(shippingPaid)}</strong>
           </div>
@@ -1082,6 +1296,7 @@ export default async function AdminOrderDetailPage({
           <InfoTile label="Items" value={typedOrder.item_count || 0} />
           <InfoTile label="Carrier" value={typedOrder.carrier || "Not added"} />
           <InfoTile label="Tracking" value={typedOrder.tracking_number || "Not added"} />
+          <InfoTile label="Fulfilled At" value={typedOrder.fulfilled_at ? new Date(typedOrder.fulfilled_at).toLocaleString() : "Not fulfilled"} />
           <InfoTile
             label="Shipped At"
             value={
@@ -1103,6 +1318,7 @@ export default async function AdminOrderDetailPage({
             orderId={typedOrder.id}
             activeDryRunLabel={activeDryRunShippingLabel}
             initialAction={shippingAction}
+            shippingMethod={typedOrder.shipping_method}
           />
         </div>
 
@@ -1114,10 +1330,13 @@ export default async function AdminOrderDetailPage({
           </div>
         ) : null}
 
-        {shippingLabelsError ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
-            Shipping label tables are not available yet:{" "}
-            {shippingLabelsError.message}
+        {shippingLabelsUnavailable ? (
+          <div className="mt-4">
+            <UnavailableNotice
+              title="Shipping label records unavailable."
+              detail="Shipping label storage did not load for this order, so this cockpit cannot prove whether a label record, provider purchase, tracking number, or coverage policy exists."
+              error={shippingLabelsError}
+            />
           </div>
         ) : null}
 
@@ -1145,13 +1364,13 @@ export default async function AdminOrderDetailPage({
           ))}
         </div>
 
-        {!shippingLabelsError && shippingLabels.length === 0 ? (
+        {!shippingLabelsUnavailable && shippingLabels.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-700">
             No label record has been prepared yet. Preparing one does not buy a
             live label; it creates the TCOS audit record that the provider
             adapter will later purchase against.
           </div>
-        ) : !shippingLabelsError ? (
+        ) : !shippingLabelsUnavailable ? (
           <div className="mt-4 space-y-4">
             {shippingLabels.map((shippingLabel) => {
               const policyNote = standardEnvelopePolicyNote(shippingLabel);
@@ -1316,11 +1535,14 @@ export default async function AdminOrderDetailPage({
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
             <h3 className="font-black">Tracking Events</h3>
-            {shippingTrackingEventsError ? (
-              <p className="mt-2 text-sm font-semibold text-amber-700">
-                Tracking event table unavailable:{" "}
-                {shippingTrackingEventsError.message}
-              </p>
+            {shippingTrackingEventsUnavailable ? (
+              <div className="mt-3">
+                <UnavailableNotice
+                  title="Tracking event history unavailable."
+                  detail="Tracking event storage did not load for this order, so delivery scans, provider events, and LetterTrack evidence cannot be trusted yet."
+                  error={shippingTrackingEventsError}
+                />
+              </div>
             ) : shippingTrackingEvents.length === 0 ? (
               <p className="mt-2 text-sm text-gray-600">
                 No tracking events have been recorded yet.
@@ -1347,11 +1569,14 @@ export default async function AdminOrderDetailPage({
 
           <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
             <h3 className="font-black">Coverage Claims</h3>
-            {shippingCoverageClaimsError ? (
-              <p className="mt-2 text-sm font-semibold text-amber-700">
-                Coverage claim table unavailable:{" "}
-                {shippingCoverageClaimsError.message}
-              </p>
+            {shippingCoverageClaimsUnavailable ? (
+              <div className="mt-3">
+                <UnavailableNotice
+                  title="Coverage claim history unavailable."
+                  detail="Coverage claim storage did not load for this order, so loss, damage, or seller-protection claim status cannot be trusted yet."
+                  error={shippingCoverageClaimsError}
+                />
+              </div>
             ) : shippingCoverageClaims.length === 0 ? (
               <p className="mt-2 text-sm text-gray-600">
                 No loss/damage coverage claims have been opened.
@@ -1451,10 +1676,15 @@ export default async function AdminOrderDetailPage({
               Evidence Packet
             </h3>
 
-            {evidenceError ? (
-              <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
-                Evidence table unavailable: {evidenceError.message}
-              </p>
+            {evidenceUnavailable ? (
+              <div className="mt-3">
+                <UnavailableNotice
+                  title="Evidence packet history unavailable."
+                  detail="Evidence storage did not load for this order, so chargeback packets and delivery proof cannot be treated as missing or complete yet."
+                  error={evidenceError}
+                  tone="red"
+                />
+              </div>
             ) : latestEvidence ? (
               <div className="mt-3">
                 <dl className="grid gap-3">
@@ -1533,6 +1763,7 @@ export default async function AdminOrderDetailPage({
           </Link>
         </div>
       </AdminSection>
+      </div>
     </main>
   );
 }

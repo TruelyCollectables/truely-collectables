@@ -131,7 +131,19 @@ export async function createPlatformFeeLedgerForOrder(params: {
   platformFeeRate: number;
   stripeSession?: Stripe.Checkout.Session | null;
 }) {
-  if (params.orderItems.length === 0) {
+  const feeItems = params.orderItems.filter((item) => item.seller_account_id);
+
+  const { error: cleanupError } = await params.supabase
+    .from("platform_fee_ledger_entries")
+    .delete()
+    .eq("store_id", params.storeId)
+    .eq("order_id", params.orderId)
+    .eq("source_type", "tcos_website_checkout")
+    .is("seller_account_id", null);
+
+  if (cleanupError) throw cleanupError;
+
+  if (feeItems.length === 0) {
     return { created: 0 };
   }
 
@@ -147,7 +159,7 @@ export async function createPlatformFeeLedgerForOrder(params: {
       ? params.platformFeeRate
       : 0.08;
 
-  const rows = params.orderItems.map((item) => {
+  const rows = feeItems.map((item) => {
     const quantity = Math.max(0, Math.trunc(moneyNumber(item.quantity)));
     const grossItemAmount = roundMoney(moneyNumber(item.price) * quantity);
     const shippingAllocatedAmount =
@@ -163,7 +175,7 @@ export async function createPlatformFeeLedgerForOrder(params: {
       order_id: params.orderId,
       order_item_id: item.id,
       product_id: item.product_id ?? null,
-      seller_account_id: item.seller_account_id ?? null,
+      seller_account_id: item.seller_account_id,
       source_type: "tcos_website_checkout",
       gross_item_amount: grossItemAmount,
       shipping_allocated_amount: shippingAllocatedAmount,
@@ -179,7 +191,7 @@ export async function createPlatformFeeLedgerForOrder(params: {
         item_title: item.title ?? null,
         quantity,
         fee_owner: "Dag Danky Holdings LLC",
-        fee_scope: "TCOS website checkout purchases only",
+        fee_scope: "TCOS marketplace seller-owned checkout items only",
       },
       updated_at: new Date().toISOString(),
     };

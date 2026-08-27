@@ -1,0 +1,158 @@
+name: KINGMAKER Auto Rematch Release Scope
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804022000_scope_kingmaker_auto_rematch_candidates.sql"
+      - ".github/workflows/kingmaker-auto-rematch-release-scope.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release-scoped-rematch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_rematch_scope_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_rematch_scope_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_rematch_scope_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      BECKETT_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+      AUTO_REMATCH_MIGRATION: supabase/migrations/20260804011500_kingmaker_auto_rematch_after_checklists.sql
+      AUTO_REMATCH_TRIGGER_FIX: supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql
+      MATCHER_RESULTS_FIX: supabase/migrations/20260804014500_fix_kingmaker_auto_rematch_matcher_results.sql
+      RELEASE_SCOPE_FIX: supabase/migrations/20260804022000_scope_kingmaker_auto_rematch_candidates.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply foundations and rematch migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$BECKETT_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_TRIGGER_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$MATCHER_RESULTS_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$RELEASE_SCOPE_FIX"
+
+      - name: Reapply release-scope migration to prove idempotence
+        run: psql -v ON_ERROR_STOP=1 --file "$RELEASE_SCOPE_FIX"
+
+      - name: Verify scoped helper and privilege boundary
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            release_definition text;
+            helper_definition text;
+          begin
+            select pg_get_functiondef(
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)'::regprocedure
+            ) into release_definition;
+            select pg_get_functiondef(
+              'public.tcos_match_kingmaker_price_entry_ids(uuid,uuid[])'::regprocedure
+            ) into helper_definition;
+
+            if position(
+              'tcos_match_kingmaker_price_entries(current_guide_id)'
+              in release_definition
+            ) > 0 then
+              raise exception 'Release rematcher still calls the full-guide matcher.';
+            end if;
+            if position(
+              'tcos_match_kingmaker_price_entry_ids(current_guide_id, candidate_entry_ids)'
+              in release_definition
+            ) = 0 then
+              raise exception 'Release rematcher does not call the candidate-ID helper.';
+            end if;
+            if position('entry.id = ANY (p_entry_ids)' in helper_definition) = 0
+               and position('entry.id = any(p_entry_ids)' in lower(helper_definition)) = 0 then
+              raise exception 'Candidate-ID helper does not enforce entry scope.';
+            end if;
+            if not has_function_privilege(
+              'service_role',
+              'public.tcos_match_kingmaker_price_entry_ids(uuid,uuid[])',
+              'execute'
+            ) then
+              raise exception 'Service role cannot execute candidate-ID matcher.';
+            end if;
+            if has_function_privilege(
+              'anon',
+              'public.tcos_match_kingmaker_price_entry_ids(uuid,uuid[])',
+              'execute'
+            ) or has_function_privilege(
+              'authenticated',
+              'public.tcos_match_kingmaker_price_entry_ids(uuid,uuid[])',
+              'execute'
+            ) then
+              raise exception 'Public roles can execute candidate-ID matcher.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Run unmatched-to-exact activation regression
+        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-checklist-auto-rematch-regressions.sql
+
+      - name: Prove empty candidate scope is a no-op
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            result jsonb;
+          begin
+            select public.tcos_match_kingmaker_price_entry_ids(
+              gen_random_uuid(),
+              '{}'::uuid[]
+            ) into result;
+            if result ->> 'scope' <> 'entry_ids'
+               or (result ->> 'candidate_entries')::integer <> 0
+               or (result ->> 'matched')::integer <> 0 then
+              raise exception 'Empty candidate-ID scope was not a safe no-op: %', result;
+            end if;
+          end;
+          $$;
+          SQL

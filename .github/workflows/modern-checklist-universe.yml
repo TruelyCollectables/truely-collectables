@@ -1,0 +1,59 @@
+name: Modern Checklist Universe
+
+on:
+  pull_request:
+    paths:
+      - "scripts/pull-modern-checklist-universe.ts"
+      - ".github/workflows/modern-checklist-universe.yml"
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/pull-modern-checklist-universe.ts"
+      - ".github/workflows/modern-checklist-universe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modern-checklist-universe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  modern-checklists:
+    name: Pull 2026-2001 Checklist Universe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Crawl modern checklist universe newest to oldest
+        env:
+          MODERN_CHECKLIST_START_YEAR: 2001
+          MODERN_CHECKLIST_END_YEAR: 2026
+          MODERN_CHECKLIST_MAX_CANDIDATES: 12000
+        run: node --import tsx scripts/pull-modern-checklist-universe.ts
+      - name: Package modern checklist universe
+        if: always()
+        run: tar -czf modern-checklist-universe.tar.gz .modern-checklist-universe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modern-checklist-universe-${{ github.run_id }}
+          path: modern-checklist-universe.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modern-checklist-universe-status-${{ github.run_id }}
+          path: |
+            .modern-checklist-universe/manifest.json
+            .modern-checklist-universe/coverage-summary.md
+          if-no-files-found: error
+          retention-days: 90

@@ -8,15 +8,13 @@ export default function ClearCartOnSuccess({
   clearOnLoad?: boolean;
 }) {
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    if (!clearOnLoad) return;
 
-    if (clearOnLoad || params.get("success") === "true") {
-      localStorage.removeItem("cart");
-      sessionStorage.removeItem("cart");
-      localStorage.setItem("checkoutSuccess", "true");
-      window.dispatchEvent(new Event("storage"));
-      window.dispatchEvent(new Event("cartUpdated"));
-    }
+    localStorage.removeItem("cart");
+    sessionStorage.removeItem("cart");
+    localStorage.setItem("checkoutSuccess", "true");
+    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("cartUpdated"));
   }, [clearOnLoad]);
 
   return null;

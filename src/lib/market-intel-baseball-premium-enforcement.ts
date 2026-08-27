@@ -66,14 +66,14 @@ function isPurchaseInboxMetadata(metadata: Record<string, unknown> | null | unde
   return metadata?.purchase_inbox === true;
 }
 
-function isDillonHeadFirstBowmanOnly(subject: SubjectRow) {
+function isDillonLewisFirstBowmanOnly(subject: SubjectRow) {
   return (
-    normalize(subject.name) === "dillon head" &&
+    normalize(subject.name) === "dillon lewis" &&
     String(subject.notes || "").includes("[FIRST_BOWMAN_CHROME_ONLY]")
   );
 }
 
-function dillonHeadFirstBowmanEligibility(input: {
+function dillonLewisFirstBowmanEligibility(input: {
   subject: SubjectRow;
   title: string;
   productLine: string | null;
@@ -99,7 +99,7 @@ function dillonHeadFirstBowmanEligibility(input: {
     memorabilia: input.memorabilia,
   });
   if (!premium.eligible) return premium;
-  if (!isDillonHeadFirstBowmanOnly(input.subject)) return premium;
+  if (!isDillonLewisFirstBowmanOnly(input.subject)) return premium;
 
   const text = normalize(
     [
@@ -117,11 +117,11 @@ function dillonHeadFirstBowmanEligibility(input: {
   const hasBowman = text.includes("bowman");
   const hasChrome = text.includes("chrome");
   const blocked = [
-    text.includes("mojo") ? "Dillon Head Mojo/Mega Box Mojo cards are blocked." : null,
-    text.includes("paper") ? "Dillon Head paper cards are blocked." : null,
-    !hasFirst ? "Dillon Head tracking requires an explicit 1st Bowman signal." : null,
+    text.includes("mojo") ? "Dillon Lewis Mojo/Mega Box Mojo cards are blocked." : null,
+    text.includes("paper") ? "Dillon Lewis paper cards are blocked." : null,
+    !hasFirst ? "Dillon Lewis tracking requires an explicit 1st Bowman signal." : null,
     !hasBowman || !hasChrome
-      ? "Dillon Head tracking is limited to 1st Bowman Chrome cards."
+      ? "Dillon Lewis tracking is limited to 1st Bowman Chrome cards."
       : null,
   ].filter((value): value is string => Boolean(value));
 
@@ -135,7 +135,7 @@ function dillonHeadFirstBowmanEligibility(input: {
         ...premium,
         reasons: [
           ...premium.reasons,
-          "Dillon Head 1st Bowman Chrome hoard scope confirmed",
+          "Dillon Lewis 1st Bowman Chrome hoard scope confirmed",
         ],
       };
 }
@@ -183,7 +183,7 @@ export async function enforceBaseballPremiumPolicy() {
     if (isPurchaseInboxMetadata(candidate.metadata)) continue;
     const subject = subjectById.get(candidate.subject_id);
     if (!subject) continue;
-    const policy = dillonHeadFirstBowmanEligibility({
+    const policy = dillonLewisFirstBowmanEligibility({
       subject,
       title: candidate.original_title,
       productLine: candidate.detected_product_line,
@@ -219,7 +219,7 @@ export async function enforceBaseballPremiumPolicy() {
     if (!identity.subject_id) continue;
     const subject = subjectById.get(identity.subject_id);
     if (!subject) continue;
-    const policy = dillonHeadFirstBowmanEligibility({
+    const policy = dillonLewisFirstBowmanEligibility({
       subject,
       title: identity.display_name,
       productLine: identity.product_line,
@@ -321,7 +321,7 @@ export async function assertCandidateBaseballPremiumPolicy(input: {
     .single();
   if (subjectError) throw new Error(subjectError.message);
 
-  const policy = dillonHeadFirstBowmanEligibility({
+  const policy = dillonLewisFirstBowmanEligibility({
     subject: subject as SubjectRow,
     title: candidate.original_title,
     productLine: input.productLine,

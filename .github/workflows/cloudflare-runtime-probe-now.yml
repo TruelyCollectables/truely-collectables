@@ -1,0 +1,50 @@
+name: Cloudflare Runtime Probe Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-runtime-probe-now-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truely-cloudflare-runtime-probe-now
+  cancel-in-progress: true
+
+env:
+  INSTACOMP_TUNNEL_URL: https://instacomp.truelycollectables.com
+
+jobs:
+  verify-permanent-instacomp-tunnel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Resolve permanent InstaComp hostname
+        shell: bash
+        run: |
+          set -euo pipefail
+          getent ahosts instacomp.truelycollectables.com | head -20 || true
+
+      - name: Probe permanent InstaComp inventory health
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(curl -sS --max-time 25 -D /tmp/health.headers \
+            -o /tmp/health.json -w '%{http_code} %{time_total} %{remote_ip}' \
+            "$INSTACOMP_TUNNEL_URL/api/health/inventory" || true)
+          echo "Permanent InstaComp inventory health -> $result"
+          head -c 3000 /tmp/health.json || true
+          echo
+
+      - name: Probe permanent InstaComp base health
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(curl -sS --max-time 25 -o /tmp/base.json -w '%{http_code} %{time_total} %{remote_ip}' \
+            "$INSTACOMP_TUNNEL_URL/health" || true)
+          echo "Permanent InstaComp base health -> $result"
+          head -c 2000 /tmp/base.json || true
+          echo

@@ -53,6 +53,28 @@ function ActionNotice({
   );
 }
 
+function shippingQueueActionTitle({
+  busy,
+  ready,
+  requiredMissing,
+}: {
+  busy: boolean;
+  ready: string;
+  requiredMissing: readonly (string | null | undefined)[];
+}) {
+  if (busy) return "Finish the current shipping queue action first.";
+
+  const missing = requiredMissing.filter((value): value is string =>
+    Boolean(value),
+  );
+
+  if (missing.length > 0) {
+    return `Required: ${missing.join(", ")}.`;
+  }
+
+  return ready;
+}
+
 function TextField({
   label,
   value,
@@ -199,6 +221,11 @@ export function SaveCoveragePolicyForm({
         onClick={savePolicy}
         aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
+        title={shippingQueueActionTitle({
+          busy: saving,
+          requiredMissing,
+          ready: "Save Coverage policy proof for this shipping label.",
+        })}
         className="rounded-2xl bg-amber-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Saving Coverage policy..." : "Save Coverage Policy"}
@@ -298,6 +325,11 @@ export function SaveTrackingForm({
         onClick={saveTracking}
         aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
+        title={shippingQueueActionTitle({
+          busy: saving,
+          requiredMissing,
+          ready: "Save the carrier and tracking number for this order.",
+        })}
         className="rounded-2xl bg-blue-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Saving tracking..." : "Save Tracking"}
@@ -413,6 +445,11 @@ export function RecordLetterTrackImbForm({
         onClick={recordImb}
         aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
+        title={shippingQueueActionTitle({
+          busy: saving,
+          requiredMissing,
+          ready: "Record the LetterTrack IMb or tracking reference for this order.",
+        })}
         className="rounded-2xl bg-blue-950 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Recording LetterTrack IMb..." : "Record LetterTrack IMb"}
@@ -557,6 +594,11 @@ export function RecordLetterTrackDeliveryEventForm({
         onClick={recordEvidence}
         aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
+        title={shippingQueueActionTitle({
+          busy: saving,
+          requiredMissing,
+          ready: "Record delivery evidence copied from LetterTrack or the carrier.",
+        })}
         className="rounded-2xl bg-green-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Recording delivery evidence..." : "Record Delivery Evidence"}
@@ -661,6 +703,11 @@ export function MarkOrderShippedButton({
         onClick={markShipped}
         aria-disabled={shipping || requiredMissing.length > 0}
         aria-busy={shipping}
+        title={shippingQueueActionTitle({
+          busy: shipping,
+          requiredMissing,
+          ready: "Save tracking and mark this order shipped.",
+        })}
         className="rounded-2xl bg-emerald-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {shipping ? "Marking order shipped..." : "Mark Shipped"}

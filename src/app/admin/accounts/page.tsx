@@ -44,6 +44,11 @@ type AccountStats = {
   openOffers: number;
 };
 
+type AccountDataIssue = {
+  label: string;
+  detail: string;
+};
+
 function isMissingAccountDataError(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() || "";
 
@@ -53,6 +58,13 @@ function isMissingAccountDataError(error: { code?: string; message?: string }) {
     message.includes("account_profiles") ||
     message.includes("account_id")
   );
+}
+
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
 }
 
 function label(value: string | null | undefined) {
@@ -135,8 +147,8 @@ export default async function AdminAccountsPage() {
     const isMigrationMissing = isMissingAccountDataError(profilesError);
 
     return (
-      <main className="min-h-screen bg-[#f4f1ea] p-8 text-neutral-950">
-        <div className="mx-auto max-w-5xl rounded-md border border-neutral-200 bg-white p-6">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.15),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-8 text-neutral-950 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-5xl rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
           <Link href="/admin" className="text-sm font-bold underline">
             Back to Command Center
           </Link>
@@ -144,7 +156,7 @@ export default async function AdminAccountsPage() {
           <p className="mt-3 text-sm text-neutral-600">
             {isMigrationMissing
               ? "Account tables are not available yet. Apply the TCOS account migrations before using this page."
-              : `Could not load account profiles: ${profilesError.message}`}
+              : `Could not load account profiles: ${safeErrorMessage(profilesError)}`}
           </p>
         </div>
       </main>
@@ -169,19 +181,33 @@ export default async function AdminAccountsPage() {
     ordersResult.error && isMissingAccountDataError(ordersResult.error);
   const offersUnavailable =
     offersResult.error && isMissingAccountDataError(offersResult.error);
+  const orderStatsUnavailable = Boolean(ordersResult.error);
+  const offerStatsUnavailable = Boolean(offersResult.error);
 
-  if (ordersResult.error && !ordersUnavailable) {
-    throw ordersResult.error;
+  const accountDataIssues: AccountDataIssue[] = [];
+
+  if (ordersResult.error) {
+    accountDataIssues.push({
+      label: "Order links unavailable",
+      detail: ordersUnavailable
+        ? "Order/account link columns are not available yet. Apply the account-link migration before trusting order counts or linked revenue."
+        : `Could not load linked order counts: ${safeErrorMessage(ordersResult.error)}`,
+    });
   }
 
-  if (offersResult.error && !offersUnavailable) {
-    throw offersResult.error;
+  if (offersResult.error) {
+    accountDataIssues.push({
+      label: "Offer links unavailable",
+      detail: offersUnavailable
+        ? "Offer/account link columns are not available yet. Apply the account-link migration before trusting offer counts."
+        : `Could not load linked offer counts: ${safeErrorMessage(offersResult.error)}`,
+    });
   }
 
   const statsByAccount = buildStats(
     typedProfiles,
-    ordersUnavailable ? [] : ((ordersResult.data || []) as AccountOrder[]),
-    offersUnavailable ? [] : ((offersResult.data || []) as AccountOffer[]),
+    orderStatsUnavailable ? [] : ((ordersResult.data || []) as AccountOrder[]),
+    offerStatsUnavailable ? [] : ((offersResult.data || []) as AccountOffer[]),
   );
 
   const activeAccounts = typedProfiles.filter(
@@ -193,11 +219,18 @@ export default async function AdminAccountsPage() {
     (sum, stats) => sum + stats.revenue,
     0,
   );
+  const verificationPending = Math.max(
+    0,
+    typedProfiles.length - cardVerified.length,
+  );
+  const tosMissing = Math.max(0, typedProfiles.length - tosAccepted.length);
+  const accountDataPosture =
+    accountDataIssues.length > 0 ? "PARTIAL DATA" : "LINKED DATA LIVE";
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.15),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-5 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
               TCOS Accounts
@@ -205,7 +238,7 @@ export default async function AdminAccountsPage() {
             <h1 className="mt-2 text-4xl font-black tracking-tight">
               Customer Account Lookup
             </h1>
-            <p className="mt-2 max-w-3xl text-sm text-neutral-300">
+            <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-300">
               Review buyer accounts, linked orders, offer activity, TOS status,
               and account separation from platform admin access.
             </p>
@@ -220,12 +253,29 @@ export default async function AdminAccountsPage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {ordersUnavailable || offersUnavailable ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
-            Account profiles are available, but order/offer account links need
-            the account-link migration before counts can be shown.
-          </div>
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
+        {accountDataIssues.length > 0 ? (
+          <section
+            role="status"
+            aria-live="polite"
+            className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-950 shadow-sm ring-1 ring-amber-900/5"
+          >
+            <p className="font-black">
+              Account profiles loaded, but linked activity is partially unavailable.
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold">
+              {accountDataIssues.map((issue) => (
+                <li key={issue.label}>
+                  <span className="font-black">{issue.label}:</span>{" "}
+                  {issue.detail}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 font-bold">
+              Unavailable linked counts are labeled below instead of shown as a
+              false zero.
+            </p>
+          </section>
         ) : null}
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -236,15 +286,47 @@ export default async function AdminAccountsPage() {
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Metric label="Linked Revenue" value={money(linkedRevenue)} />
+          <Metric
+            label="Linked Revenue"
+            value={orderStatsUnavailable ? "Unavailable" : money(linkedRevenue)}
+          />
           <Metric
             label="Verification Pending"
             value={String(typedProfiles.length - cardVerified.length)}
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <AccountPostureCard
+            eyebrow="Data posture"
+            title={accountDataPosture}
+            detail={
+              accountDataIssues.length > 0
+                ? "Linked order/offer counts are labeled unavailable instead of shown as false zeroes."
+                : "Account profiles, order links, and offer links loaded cleanly for this view."
+            }
+            tone={accountDataIssues.length > 0 ? "amber" : "emerald"}
+          />
+          <AccountPostureCard
+            eyebrow="Trust gates"
+            title={`${verificationPending} card review${verificationPending === 1 ? "" : "s"}`}
+            detail={`${tosMissing} account${tosMissing === 1 ? "" : "s"} still missing TOS acceptance; use this page to separate buyer readiness from admin access.`}
+            tone={verificationPending > 0 || tosMissing > 0 ? "amber" : "emerald"}
+          />
+          <AccountPostureCard
+            eyebrow="Linked activity"
+            title={orderStatsUnavailable ? "Orders unavailable" : money(linkedRevenue)}
+            detail={
+              orderStatsUnavailable || offerStatsUnavailable
+                ? "Apply account-link migrations before trusting activity totals."
+                : "Linked revenue and offer activity are safe to review from the account table below."
+            }
+            tone={orderStatsUnavailable || offerStatsUnavailable ? "amber" : "sky"}
+          />
+        </section>
+
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="border-b border-neutral-200 bg-white/70 p-5">
             <h2 className="text-2xl font-black">Recent Accounts</h2>
             <p className="mt-1 text-sm text-neutral-600">
               Limited to the latest 100 profiles while the account system is
@@ -253,13 +335,13 @@ export default async function AdminAccountsPage() {
           </div>
 
           {typedProfiles.length === 0 ? (
-            <p className="p-5 text-sm text-neutral-600">
+            <p className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 m-5 text-center text-sm font-semibold text-neutral-600">
               No customer accounts have been created yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-neutral-200 text-xs uppercase text-neutral-500">
+                <thead className="border-b border-neutral-200 bg-neutral-50 text-xs uppercase text-neutral-500">
                   <tr>
                     <th className="px-5 py-3">Account</th>
                     <th className="px-5 py-3">Status</th>
@@ -276,7 +358,7 @@ export default async function AdminAccountsPage() {
                     const stats = statsByAccount.get(profile.id) || emptyStats();
 
                     return (
-                      <tr key={profile.id}>
+                      <tr key={profile.id} className="transition hover:bg-neutral-50">
                         <td className="px-5 py-4">
                           <p className="font-black">
                             {profile.email ||
@@ -322,19 +404,47 @@ export default async function AdminAccountsPage() {
                           ) : null}
                         </td>
                         <td className="px-5 py-4">
-                          <p className="font-black">{stats.orders}</p>
-                          <p className="text-xs text-neutral-500">
-                            {stats.paidOrders} paid
-                          </p>
+                          {orderStatsUnavailable ? (
+                            <>
+                              <p className="font-black text-amber-800">
+                                Unavailable
+                              </p>
+                              <p className="text-xs text-neutral-500">
+                                Order links not loaded
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-black">{stats.orders}</p>
+                              <p className="text-xs text-neutral-500">
+                                {stats.paidOrders} paid
+                              </p>
+                            </>
+                          )}
                         </td>
                         <td className="px-5 py-4">
-                          <p className="font-black">{stats.offers}</p>
-                          <p className="text-xs text-neutral-500">
-                            {stats.openOffers} open
-                          </p>
+                          {offerStatsUnavailable ? (
+                            <>
+                              <p className="font-black text-amber-800">
+                                Unavailable
+                              </p>
+                              <p className="text-xs text-neutral-500">
+                                Offer links not loaded
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-black">{stats.offers}</p>
+                              <p className="text-xs text-neutral-500">
+                                {stats.openOffers} open
+                              </p>
+                            </>
+                          )}
                         </td>
                         <td className="px-5 py-4 font-black">
-                          {money(stats.revenue)}
+                          {orderStatsUnavailable
+                            ? "Unavailable"
+                            : money(stats.revenue)}
                         </td>
                         <td className="px-5 py-4 text-neutral-600">
                           {shortDate(profile.created_at)}
@@ -354,10 +464,41 @@ export default async function AdminAccountsPage() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 break-words text-3xl font-black">{value}</p>
     </div>
+  );
+}
+
+function AccountPostureCard({
+  eyebrow,
+  title,
+  detail,
+  tone,
+}: {
+  eyebrow: string;
+  title: string;
+  detail: string;
+  tone: "amber" | "emerald" | "sky";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "sky"
+        ? "border-sky-200 bg-sky-50 text-sky-950"
+        : "border-amber-200 bg-amber-50 text-amber-950";
+
+  return (
+    <section className={`rounded-3xl border p-5 shadow-sm ring-1 ring-black/[0.02] ${toneClass}`}>
+      <p className="text-xs font-black uppercase tracking-[0.14em] opacity-75">
+        {eyebrow}
+      </p>
+      <h2 className="mt-2 text-2xl font-black tracking-tight">{title}</h2>
+      <p className="mt-2 text-sm font-semibold leading-6 opacity-85">
+        {detail}
+      </p>
+    </section>
   );
 }
 
@@ -365,7 +506,7 @@ function CommandLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+      className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
     >
       {label}
     </Link>

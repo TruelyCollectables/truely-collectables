@@ -1,0 +1,82 @@
+name: CollX Finalize Five And Verify V2 20260812
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/collx-finalize-five-and-verify-v2-20260812.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-finalize-five-and-verify-v2-20260812
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Park five missing-front cards and verify every clean CollX item is active
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile, time
+          token=os.environ['SUPABASE_ACCESS_TOKEN']; ref=os.environ['PROJECT_REF']; store=os.environ['STORE_ID']
+          url=f'https://api.supabase.com/v1/projects/{ref}/database/query'
+          def sql(q, ro, timeout=150, retries=3):
+              last=''
+              for i in range(retries):
+                  f=tempfile.NamedTemporaryFile(delete=False); f.close()
+                  p=subprocess.run(['curl','-sS','--max-time',str(timeout),'-o',f.name,'-w','%{http_code}','-X','POST',url,'-H',f'Authorization: Bearer {token}','-H','Content-Type: application/json','--data-binary',json.dumps({'query':q,'parameters':[],'read_only':ro})],capture_output=True,text=True)
+                  raw=open(f.name).read(); os.unlink(f.name); code=(p.stdout or '000')[-3:]
+                  if code in ('200','201'): return json.loads(raw)
+                  last=f'HTTP {code}: {raw[:1600]}'
+                  if code in ('000','429','500','502','503','504','522','524','544') and i+1<retries: time.sleep(4*(i+1)); continue
+                  break
+              raise SystemExit(last)
+          target=sql(f'''select p.id,p.sku from public.products p where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null and p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is null order by p.id;''',True)
+          print('MISSING_FRONT_TARGET='+json.dumps(target,sort_keys=True))
+          if not isinstance(target,list) or len(target)!=5: raise SystemExit(f'Expected 5 missing-front rows, found {len(target) if isinstance(target,list) else "non-list"}')
+          ids=','.join(str(int(r['id'])) for r in target)
+          qlit=lambda s: "'"+str(s).replace("'","''")+"'"
+          skus=','.join(qlit(r['sku']) for r in target)
+          sql(f'''update public.inventory_items ii set status='draft',updated_at=now() where ii.store_id='{store}'::uuid and (ii.legacy_product_id in ({ids}) or (ii.legacy_product_id is null and ii.sku in ({skus})));''',False)
+          check5=sql(f'''select ii.legacy_product_id,ii.sku,ii.status from public.inventory_items ii where ii.store_id='{store}'::uuid and (ii.legacy_product_id in ({ids}) or (ii.legacy_product_id is null and ii.sku in ({skus})));''',True)
+          byid={str(r['id']):[] for r in target}; bysku={str(r['sku']):str(r['id']) for r in target}
+          for x in check5 or []:
+              k=str(x.get('legacy_product_id')) if x.get('legacy_product_id') is not None else bysku.get(str(x.get('sku')))
+              if k in byid: byid[k].append(str(x.get('status')))
+          bad={k:v for k,v in byid.items() if not v or any(s!='draft' for s in v)}
+          if bad: raise SystemExit('Five-card draft verification failed: '+json.dumps(bad,sort_keys=True))
+          def live_count():
+              r=sql(f'''select count(distinct p.id)::int n from public.products p join public.inventory_items ii on ii.store_id=p.store_id and (ii.legacy_product_id=p.id or (ii.legacy_product_id is null and ii.sku=p.sku)) where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null and p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is not null and ii.status='active';''',True)
+              return int((r or [{}])[0].get('n') or 0)
+          active=live_count(); print('LIVE_ACTIVE_BEFORE='+str(active))
+          if active!=5283:
+              sql(f'''update public.inventory_items ii set status='active',updated_at=now() from public.products p where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null and p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is not null and ii.store_id=p.store_id and (ii.legacy_product_id=p.id or (ii.legacy_product_id is null and ii.sku=p.sku)) and ii.status<>'active';''',False,180,3)
+              active=live_count()
+          s=sql(f'''select count(*)::int total_rows,coalesce(sum(greatest(p.quantity,0)),0)::int total_units,count(*) filter(where p.archived_at is not null)::int archived_rows,coalesce(sum(greatest(p.quantity,0)) filter(where p.archived_at is not null),0)::int archived_units,count(*) filter(where p.archived_at is null and p.quantity>0 and p.price<=0)::int bad_price_rows,count(*) filter(where p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is null)::int missing_front_rows,count(*) filter(where p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is not null)::int live_rows,coalesce(sum(p.quantity) filter(where p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is not null),0)::int live_units,count(*) filter(where p.archived_at is null and p.quantity<=0)::int zero_qty_rows from public.products p where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null;''',True)
+          row=(s or [{}])[0]; print('FINAL_SUMMARY='+json.dumps(row,sort_keys=True))
+          expected={'total_rows':6155,'total_units':6315,'archived_rows':740,'archived_units':0,'bad_price_rows':127,'missing_front_rows':5,'live_rows':5283,'live_units':6183,'zero_qty_rows':0}
+          problems=[f'{k}={row.get(k)} expected {v}' for k,v in expected.items() if int(row.get(k) or 0)!=v]
+          if active!=5283: problems.append(f'live_active_rows={active} expected 5283')
+          if problems: raise SystemExit('FINAL CERTIFICATION FAILED: '+'; '.join(problems))
+          print('PENDING_BAD_PRICE=127')
+          print('PENDING_MISSING_FRONT=5')
+          print('PENDING_TOTAL=132')
+          print('LIVE_ACTIVE_ROWS=5283')
+          print('LIVE_ACTIVE_UNITS=6183')
+          print('COLLX_FINALIZE_V2=SUCCESS')
+          PY
+
+# trigger: 2026-08-12T20:15:30-06:00

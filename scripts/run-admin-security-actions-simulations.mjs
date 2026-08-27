@@ -77,10 +77,41 @@ scenario("security IP save validates server-side note length", () => {
     "rawNotes.length > MAX_INVESTIGATION_NOTES_LENGTH",
     "?case=notes-too-long",
     "maxLength={MAX_INVESTIGATION_NOTES_LENGTH}",
+    'aria-describedby="investigation-notes-help"',
+    'id="investigation-notes-help"',
+    "Internal-only audit note. Maximum",
   ]) {
     assert(
       ipDetailSource.includes(fragment),
       `Expected security IP notes length fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("security IP dossier explains save scope and partial load failures", () => {
+  for (const fragment of [
+    "Some Evidence Could Not Load",
+    'role="alert"',
+    'aria-live="assertive"',
+    "Saving marks this IP reviewed now, updates status/severity, and",
+    "records internal-only notes for future admin decisions.",
+    "Save this IP investigation, update last-reviewed time, and preserve internal-only audit notes.",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "focus:ring-4 focus:ring-black/10",
+    "overflow-hidden rounded-3xl border border-neutral-200 bg-white/95",
+  ]) {
+    assert(
+      ipDetailSource.includes(fragment),
+      `Expected security IP save/load feedback fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !ipDetailSource.includes(roughShell),
+      `Expected security IP dossier to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });
@@ -97,6 +128,78 @@ scenario("security center renders missing-IP action feedback", () => {
     assert(
       securityIndexSource.includes(fragment),
       `Expected security center missing-IP notice fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("security center does not show false-empty audit queues", () => {
+  for (const fragment of [
+    "const loginAuditUnavailable = Boolean(loginResult.error)",
+    "const rateLimitAuditUnavailable = Boolean(rateLimitResult.error)",
+    "const investigationsUnavailable = Boolean(investigationResult.error)",
+    "safeErrorMessage(loginResult.error)",
+    "safeErrorMessage(rateLimitResult.error)",
+    "safeErrorMessage(investigationResult.error)",
+    "IP investigation list unavailable",
+    "Public money-path audit unavailable",
+    "Login audit unavailable",
+    "cannot prove whether active IP cases exist",
+    "cannot prove whether blocked checkout, offer, binding",
+    "cannot prove whether failed attempts or lockouts exist",
+    "Endpoint counts unavailable",
+  ]) {
+    assert(
+      securityIndexSource.includes(fragment),
+      `Expected security center unavailable-state fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    securityIndexSource.indexOf("IP investigation list unavailable") <
+      securityIndexSource.indexOf("No IP investigations saved yet"),
+    "Expected investigation load failures to render before the empty investigation state.",
+  );
+  assert(
+    securityIndexSource.indexOf("Public money-path audit unavailable") <
+      securityIndexSource.indexOf(
+        "No public money-path rate-limit events recorded yet",
+      ),
+    "Expected public money-path load failures to render before the empty rate-limit state.",
+  );
+  assert(
+    securityIndexSource.indexOf("Login audit unavailable") <
+      securityIndexSource.indexOf("No admin login attempts recorded yet"),
+    "Expected login audit load failures to render before the empty login state.",
+  );
+});
+
+scenario("security center uses professional command presentation", () => {
+  for (const fragment of [
+    "Security Command Center",
+    "empty-looking",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "HeaderStat",
+    "label=\"Lockouts\"",
+    "label=\"Blocked\"",
+    "label=\"Cases\"",
+    "Case board",
+    "Public attack surface",
+    "Admin access log",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "border border-white/15 bg-white/10",
+  ]) {
+    assert(
+      securityIndexSource.includes(fragment),
+      `Expected security center presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !securityIndexSource.includes(roughShell),
+      `Expected security center to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });

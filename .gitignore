@@ -18,6 +18,10 @@
 /.next-*/
 /out/
 
+# OpenNext / Cloudflare Worker build output
+/.open-next/
+/.wrangler/
+
 # production
 /build
 
@@ -33,8 +37,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files and local credential exports
 .env*
+/ENV_BACKUP_DO_NOT_DELETE.txt
 
 # Local PaddleOCR runtime and downloaded models
 /services/paddleocr-service/.venv/
@@ -49,15 +54,9 @@ __pycache__/
 /instacomp-trial-inbox/
 /instacomp-trial-images/
 
-# vercel
-.vercel
-
 # Supabase CLI link/cache metadata
 /supabase/.temp/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-.vercel
-.env*

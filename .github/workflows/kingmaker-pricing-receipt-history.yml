@@ -1,0 +1,55 @@
+name: KINGMAKER Pricing Receipt History
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-pricing-receipt-history-server.ts"
+      - "src/app/api/instacomp/pricing/receipts/route.ts"
+      - "scripts/run-kingmaker-pricing-receipt-history-regressions.ts"
+      - ".github/workflows/kingmaker-pricing-receipt-history.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pricing-receipt-history:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Receipt history regressions
+        run: node --import tsx scripts/run-kingmaker-pricing-receipt-history-regressions.ts
+      - name: Ownership and privacy contracts
+        run: |
+          set -euo pipefail
+          grep -q 'seller_account_id' src/lib/kingmaker-pricing-receipt-history-server.ts
+          grep -q 'sourceDisclosure: null' src/app/api/instacomp/pricing/receipts/route.ts
+          ! grep -q 'export async function POST' src/app/api/instacomp/pricing/receipts/route.ts
+          ! grep -q 'export async function PUT' src/app/api/instacomp/pricing/receipts/route.ts
+          ! grep -q 'export async function DELETE' src/app/api/instacomp/pricing/receipts/route.ts
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-pricing-receipt-history-server.ts src/app/api/instacomp/pricing/receipts/route.ts scripts/run-kingmaker-pricing-receipt-history-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build

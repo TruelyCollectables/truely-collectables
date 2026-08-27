@@ -1,7 +1,16 @@
 import type { InstaCompAiResult, InstaCompComp, InstaCompStats } from "./instacomp";
+import {
+  buildInstaCompListingOutput,
+  type InstaCompAiInscriptionFields,
+  type InstaCompListingOutput,
+} from "./instacomp-listing-output";
+import {
+  independentVerifiedInstaCompSaleCount,
+  verifiedInstaCompCompletedSales,
+} from "./instacomp-market-evidence";
 
 export type InstaCompScanReviewInput = {
-  ai: InstaCompAiResult;
+  ai: InstaCompAiResult & InstaCompAiInscriptionFields;
   stats: InstaCompStats;
   marketValueComps: InstaCompComp[];
   hasBackImage: boolean;
@@ -19,11 +28,12 @@ export type InstaCompScanReview = {
   reviewReasons: string[];
   identityReviewReasons: string[];
   pricingReviewReasons: string[];
+  listingIdentity: InstaCompListingOutput;
 };
 
 const TRUSTED_IDENTITY_CONFIDENCE = 0.92;
 const MIN_PAIRING_CONFIDENCE = 0.75;
-const MIN_EXACT_COMP_COUNT_FOR_AUTOPRICE = 2;
+const MIN_VERIFIED_SALES_FOR_AUTOPRICE = 2;
 
 function compactText(value: string | null | undefined) {
   return String(value || "")
@@ -59,15 +69,6 @@ function hasPrintedVariantSignal(text: string) {
   );
 }
 
-function exactCompEvidenceCount(comps: InstaCompComp[]) {
-  return comps.filter((comp) => {
-    if (comp.flags.includes("not used for pricing")) return false;
-    if (comp.flags.includes("guidance comp")) return false;
-
-    return comp.sourceCategory === "sold" || comp.sourceCategory === "marketplace";
-  }).length;
-}
-
 export function buildInstaCompScanReview(
   input: InstaCompScanReviewInput,
 ): InstaCompScanReview {
@@ -76,6 +77,10 @@ export function buildInstaCompScanReview(
   const pricingReviewReasons: string[] = [];
   const ocrText = compactText(input.externalOcrText);
   const printedVariantDetected = hasPrintedVariantSignal(ocrText);
+  const listingIdentity = buildInstaCompListingOutput({
+    ai,
+    externalOcrText: input.externalOcrText,
+  });
 
   if ((ai.confidence || 0) < TRUSTED_IDENTITY_CONFIDENCE) {
     identityReviewReasons.push("low_identification_confidence");
@@ -107,20 +112,24 @@ export function buildInstaCompScanReview(
       ...input.consensus.reviewReasons,
     );
   }
+  identityReviewReasons.push(...listingIdentity.publicationReviewReasons);
 
-  const exactCompCount = exactCompEvidenceCount(input.marketValueComps);
+  const verifiedSales = verifiedInstaCompCompletedSales(input.marketValueComps);
+  const independentVerifiedSaleCount = independentVerifiedInstaCompSaleCount(
+    verifiedSales,
+  );
 
-  if (!input.marketValueComps.length || !input.stats.suggestedPrice) {
-    pricingReviewReasons.push("missing_usable_comps");
-  } else if (exactCompCount < MIN_EXACT_COMP_COUNT_FOR_AUTOPRICE) {
-    pricingReviewReasons.push("insufficient_exact_comp_evidence");
+  if (!verifiedSales.length) {
+    pricingReviewReasons.push("missing_verified_completed_sales");
+  }
+  if (independentVerifiedSaleCount < MIN_VERIFIED_SALES_FOR_AUTOPRICE) {
+    pricingReviewReasons.push("insufficient_independent_verified_sales");
   }
 
   const reviewReasons = Array.from(
     new Set([...identityReviewReasons, ...pricingReviewReasons]),
   );
-  const trustedForPricing =
-    identityReviewReasons.length === 0 && pricingReviewReasons.length === 0;
+  const trustedForPricing = reviewReasons.length === 0;
 
   return {
     status: trustedForPricing ? "trusted_for_pricing" : "review_required",
@@ -128,5 +137,6 @@ export function buildInstaCompScanReview(
     reviewReasons,
     identityReviewReasons: Array.from(new Set(identityReviewReasons)),
     pricingReviewReasons: Array.from(new Set(pricingReviewReasons)),
+    listingIdentity,
   };
 }

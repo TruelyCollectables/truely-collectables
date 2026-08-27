@@ -1,0 +1,32 @@
+name: InstaComp Repair Command Safety
+
+on:
+  pull_request:
+    paths:
+      - "scripts/*instacomp*.sh"
+      - "scripts/run-instacomp-repair-command-safety-regressions.ts"
+      - ".github/workflows/instacomp-repair-command-safety.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-no-direct-main-mutation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Attack direct-main repair paths
+        run: npx tsx scripts/run-instacomp-repair-command-safety-regressions.ts
+      - name: Shell syntax
+        run: bash -n scripts/fix-instacomp-live-route.sh
+      - name: Lint regression
+        run: npx eslint scripts/run-instacomp-repair-command-safety-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit

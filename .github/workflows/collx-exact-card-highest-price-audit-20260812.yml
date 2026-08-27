@@ -1,0 +1,185 @@
+name: CollX Exact Card Highest Price Audit 20260812
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-exact-card-highest-price-audit-20260812.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+  EXPECTED_SOURCE_ROWS: "6909"
+  EXPECTED_SOURCE_SHA: "e5675ad8a23c345bf76aa7f28d73fe5cf8f56452a2bff4595b92a88a6358e904"
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout authoritative CollX migration source
+        uses: actions/checkout@v4
+        with:
+          ref: ops/collx-full-inventory-migration-20260811
+
+      - name: Reconstruct authoritative CollX CSV
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK=/tmp/collx-exact-audit
+          mkdir -p "$WORK"
+          cat \
+            .github/ops/collx-full-metadata.part{00..09} \
+            .github/ops/collx-full-metadata.part10m0 \
+            .github/ops/collx-full-metadata.part10m1 \
+            .github/ops/collx-full-metadata.part11 \
+            .github/ops/collx-full-metadata.part12 \
+            .github/ops/collx-full-metadata.part13 \
+            .github/ops/collx-full-metadata.part14m \
+            .github/ops/collx-full-metadata.part15m > "$WORK/source.xz.b64"
+          base64 -d "$WORK/source.xz.b64" | xz -d > "$WORK/source.csv"
+          test "$(sha256sum "$WORK/source.csv" | awk '{print $1}')" = "$EXPECTED_SOURCE_SHA"
+          test "$(($(wc -l < "$WORK/source.csv")-1))" = "$EXPECTED_SOURCE_ROWS"
+
+      - name: Read-only exact-card consolidation audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import csv, json, os, re, subprocess, unicodedata
+          from collections import defaultdict
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+          SOURCE='/tmp/collx-exact-audit/source.csv'
+          AJA={'1111931109962371072','1116438452553061376'}
+
+          def req(method,path,body=None,timeout=120):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json',
+                   '-H','Content-Type: application/json','-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=open('/tmp/sb.json').read() if os.path.exists('/tmp/sb.json') else ''
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=0
+              return status,payload
+
+          s,projects=req('GET','/projects',timeout=30)
+          cand=[p for p in projects] if s==200 and isinstance(projects,list) else []
+          cand=[p for p in cand if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(cand)!=1:
+              print('PROJECT_FAILURE',s,json.dumps(cand,default=str)); raise SystemExit(2)
+          ref=str(cand[0].get('id') or cand[0].get('ref') or '')
+
+          def sql(q):
+              st,b=req('POST',f'/projects/{ref}/database/query',{'query':q,'parameters':[],'read_only':True},180)
+              if st not in (200,201):
+                  print('SQL_FAILURE',st,json.dumps(b,default=str)[:12000]); raise SystemExit(3)
+              return b
+
+          def norm(v):
+              s=unicodedata.normalize('NFKC',str(v or '')).strip().casefold()
+              return re.sub(r'\s+',' ',s)
+
+          with open(SOURCE,newline='',encoding='utf-8-sig') as f:
+              src=list(csv.DictReader(f))
+          if len(src)!=6909: raise SystemExit('source row count changed')
+          byid={str(r['collx_id']).strip():r for r in src}
+          if len(byid)!=6909: raise SystemExit('source collx_id uniqueness failed')
+
+          rows=sql(f"""
+          select p.id product_id,p.sku,p.title,p.player,p.price,p.quantity,p.image_url,p.archived_at,
+                 coalesce(btrim(p.ebay_item_id::text),'') ebay_item_id,
+                 i.id inventory_item_id,i.status inventory_status,i.quantity inventory_quantity,i.price inventory_price,
+                 exists(select 1 from public.checkout_inventory_reservations r
+                        where r.store_id=p.store_id and r.legacy_product_id=p.id
+                          and r.status='active' and r.expires_at>now()) active_reservation
+          from public.products p
+          join public.inventory_items i on i.store_id=p.store_id and i.legacy_product_id=p.id and i.sku=p.sku
+          where p.store_id='{STORE}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY'
+          order by p.id;
+          """)
+
+          bad_bridge=[]; missing_source=[]; live=[]
+          for r in rows:
+              cid=str(r['sku'])[6:]
+              if cid not in byid: missing_source.append(cid); continue
+              islive=(r.get('archived_at') is None and int(r.get('quantity') or 0)>0 and float(r.get('price') or 0)>0 and bool(str(r.get('image_url') or '').strip()))
+              if islive:
+                  if r.get('inventory_status')!='active' or int(r.get('inventory_quantity') or 0)!=int(r.get('quantity') or 0) or round(float(r.get('inventory_price') or 0)*100)!=round(float(r.get('price') or 0)*100):
+                      bad_bridge.append(r['sku'])
+                  live.append(r)
+
+          if missing_source:
+              print('MISSING_SOURCE_IDS',missing_source[:50]); raise SystemExit(10)
+          if bad_bridge:
+              print('BAD_LIVE_PRODUCT_ITEM_BRIDGE',bad_bridge[:50]); raise SystemExit(11)
+
+          def key_for(cid):
+              r=byid[cid]
+              return tuple(norm(r.get(k)) for k in ('category','year','brand','set','number','name','team','flags','condition'))
+
+          groups=defaultdict(list)
+          for r in live:
+              cid=str(r['sku'])[6:]
+              groups[key_for(cid)].append(r)
+
+          candidates=[]; blocked=[]
+          for k,members in groups.items():
+              if len(members)<2: continue
+              if any(bool(x.get('active_reservation')) for x in members):
+                  blocked.append({'reason':'active_reservation','skus':[x['sku'] for x in members]}); continue
+              if any(str(x.get('ebay_item_id') or '').strip() for x in members):
+                  blocked.append({'reason':'ebay_linked','skus':[x['sku'] for x in members]}); continue
+              # Highest current live price is the keeper; stable product id breaks ties.
+              keeper=sorted(members,key=lambda x:(-float(x['price']),int(x['product_id'])))[0]
+              candidates.append({
+                  'key':k,
+                  'keeper_product_id':int(keeper['product_id']),
+                  'keeper_sku':keeper['sku'],
+                  'max_price':float(keeper['price']),
+                  'members':members,
+                  'total_quantity':sum(int(x['quantity']) for x in members),
+              })
+
+          live_aja=[r for r in live if str(r['sku'])[6:] in AJA]
+          if len(live_aja)!=1:
+              print('AJA_LIVE_GUARD_FAILED',json.dumps(live_aja,default=str)); raise SystemExit(12)
+
+          extra=sum(len(g['members'])-1 for g in candidates)
+          units=sum(g['total_quantity'] for g in candidates)
+          price_changes=sum(1 for g in candidates if any(round(float(x['price'])*100)!=round(g['max_price']*100) for x in g['members']))
+          summary={
+              'source_rows':len(src),
+              'direct_collx_rows':len(rows),
+              'live_direct_collx_rows':len(live),
+              'live_direct_collx_units':sum(int(x['quantity']) for x in live),
+              'candidate_exact_card_groups':len(candidates),
+              'extra_live_tiles_to_retire':extra,
+              'units_in_candidate_groups':units,
+              'mixed_price_exact_groups':price_changes,
+              'blocked_groups':len(blocked),
+              'aja_live_rows':len(live_aja),
+              'database_writes':False,
+          }
+          print('EXACT_CARD_AUDIT='+json.dumps(summary,sort_keys=True))
+          print('BLOCKED='+json.dumps(blocked[:30],default=str))
+          sample=[]
+          for g in candidates[:40]:
+              srow=byid[str(g['keeper_sku'])[6:]]
+              sample.append({'card':{k:srow.get(k) for k in ('year','brand','set','number','name','team','flags','condition')},'keeper_sku':g['keeper_sku'],'max_price':g['max_price'],'total_quantity':g['total_quantity'],'member_skus':[x['sku'] for x in g['members']],'member_prices':[x['price'] for x in g['members']]})
+          print('CANDIDATE_SAMPLE='+json.dumps(sample,default=str))
+          print('COLLX_EXACT_CARD_HIGHEST_PRICE_AUDIT=SUCCESS')
+          PY

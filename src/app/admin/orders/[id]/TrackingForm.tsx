@@ -22,18 +22,14 @@ export default function TrackingForm({
 }) {
   const trackingActionRunningRef = useRef(false);
   const [carrier, setCarrier] = useState(currentCarrier || "USPS");
-  const [trackingNumber, setTrackingNumber] = useState(
-    currentTrackingNumber || ""
-  );
+  const [trackingNumber, setTrackingNumber] = useState(currentTrackingNumber || "");
+  const [fulfilling, setFulfilling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [shipping, setShipping] = useState(false);
-  const [message, setMessage] = useState<{
-    tone: FeedbackTone;
-    text: string;
-  } | null>(null);
+  const [message, setMessage] = useState<{ tone: FeedbackTone; text: string } | null>(null);
   const cleanCarrier = carrier.trim();
   const cleanTrackingNumber = trackingNumber.trim();
-  const actionsBusy = saving || shipping;
+  const actionsBusy = fulfilling || saving || shipping;
   const trackingBlockedReason = dryRunShippingBlocked
     ? "The active shipping label is a dry-run simulation. Record a real label, tracking, and Coverage policy before using generic tracking actions."
     : !cleanCarrier
@@ -45,53 +41,72 @@ export default function TrackingForm({
     ? "Finish the current tracking action first."
     : trackingBlockedReason || "";
   const shipmentDisabledReason = trackingDisabledReason ||
-    (!canMarkShipped
-      ? reviewMessage ||
-        "This order is on a review hold and cannot be marked shipped yet."
-      : "");
+    (!canMarkShipped ? reviewMessage || "This order is on a review hold and cannot be marked shipped yet." : "");
+  const fulfillmentDisabledReason = actionsBusy
+    ? "Finish the current tracking action first."
+    : !canMarkShipped
+      ? reviewMessage || "This order is on a review hold and cannot be marked fulfilled yet."
+      : "";
+  const canSubmitFulfillment = !actionsBusy && canMarkShipped;
   const canSubmitTracking = !actionsBusy && !trackingBlockedReason;
   const canSubmitShipment = canSubmitTracking && canMarkShipped;
 
+  async function markFulfilled() {
+    if (trackingActionRunningRef.current || actionsBusy) {
+      setMessage({ tone: "info", text: "Finish the current tracking action first." });
+      return;
+    }
+    if (!canMarkShipped) {
+      setMessage({ tone: "error", text: reviewMessage || "This order is on a review hold and cannot be marked fulfilled yet." });
+      return;
+    }
+    trackingActionRunningRef.current = true;
+    setFulfilling(true);
+    setMessage({ tone: "info", text: "Marking fulfilled and sending preparation emails..." });
+    try {
+      const res = await fetch("/api/admin/orders/mark-fulfilled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage({ tone: "error", text: data.error || "Unable to mark fulfilled." });
+        return;
+      }
+      setMessage({ tone: "success", text: "Order fulfilled. Customer and owner preparation emails were queued." });
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err: any) {
+      setMessage({ tone: "error", text: err?.message || "Unable to mark fulfilled." });
+    } finally {
+      trackingActionRunningRef.current = false;
+      setFulfilling(false);
+    }
+  }
+
   async function saveTracking() {
     if (trackingActionRunningRef.current || actionsBusy) {
-      setMessage({
-        tone: "info",
-        text: "Finish the current tracking action first.",
-      });
+      setMessage({ tone: "info", text: "Finish the current tracking action first." });
       return;
     }
-
     if (trackingBlockedReason) {
-      setMessage(
-        { tone: "error", text: trackingBlockedReason },
-      );
+      setMessage({ tone: "error", text: trackingBlockedReason });
       return;
     }
-
     trackingActionRunningRef.current = true;
     setSaving(true);
     setMessage({ tone: "info", text: "Saving tracking..." });
-
     try {
       const res = await fetch("/api/orders/update-tracking", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderId,
-          carrier: cleanCarrier,
-          trackingNumber: cleanTrackingNumber,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, carrier: cleanCarrier, trackingNumber: cleanTrackingNumber }),
       });
-
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok) {
         setMessage({ tone: "error", text: data.error || "Failed to save tracking." });
         return;
       }
-
       setMessage({ tone: "success", text: "Tracking saved." });
     } catch (err: any) {
       setMessage({ tone: "error", text: err?.message || "Failed to save tracking." });
@@ -103,74 +118,43 @@ export default function TrackingForm({
 
   async function markShipped() {
     if (trackingActionRunningRef.current || actionsBusy) {
-      setMessage({
-        tone: "info",
-        text: "Finish the current tracking action first.",
-      });
+      setMessage({ tone: "info", text: "Finish the current tracking action first." });
       return;
     }
-
     if (trackingBlockedReason) {
       setMessage({ tone: "error", text: trackingBlockedReason });
       return;
     }
-
     if (!canMarkShipped) {
-      setMessage({
-        tone: "error",
-        text:
-          reviewMessage ||
-          "This order is on a review hold and cannot be marked shipped yet.",
-      });
+      setMessage({ tone: "error", text: reviewMessage || "This order is on a review hold and cannot be marked shipped yet." });
       return;
     }
-
     trackingActionRunningRef.current = true;
     setShipping(true);
     setMessage({ tone: "info", text: "Saving tracking and marking shipped..." });
-
     try {
       const save = await fetch("/api/orders/update-tracking", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderId,
-          carrier: cleanCarrier,
-          trackingNumber: cleanTrackingNumber,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, carrier: cleanCarrier, trackingNumber: cleanTrackingNumber }),
       });
-
       const saveData = await save.json().catch(() => ({}));
-
       if (!save.ok) {
         setMessage({ tone: "error", text: saveData.error || "Unable to save tracking." });
         return;
       }
-
       const ship = await fetch("/api/orders/mark-shipped", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderId,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
       });
-
       const shipData = await ship.json().catch(() => ({}));
-
       if (!ship.ok) {
         setMessage({ tone: "error", text: shipData.error || "Unable to mark shipped." });
         return;
       }
-
-      setMessage({ tone: "success", text: "Order marked shipped. Refreshing..." });
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 800);
+      setMessage({ tone: "success", text: "Order marked shipped. Refreshing... Customer and owner tracking emails were queued." });
+      setTimeout(() => window.location.reload(), 800);
     } catch (err: any) {
       setMessage({ tone: "error", text: err?.message || "Unable to mark shipped." });
     } finally {
@@ -184,112 +168,34 @@ export default function TrackingForm({
       <div className="grid gap-4 md:grid-cols-2">
         <label className="block text-sm font-black text-neutral-900">
           Carrier
-          <select
-            value={carrier}
-            onChange={(e) => setCarrier(e.target.value)}
-            className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
-          >
-            <option>USPS</option>
-            <option>UPS</option>
-            <option>FedEx</option>
-            <option>Canada Post</option>
-            <option>Other</option>
+          <select value={carrier} onChange={(e) => setCarrier(e.target.value)} className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950">
+            <option>USPS</option><option>UPS</option><option>FedEx</option><option>Canada Post</option><option>Other</option>
           </select>
         </label>
-
         <label className="block text-sm font-black text-neutral-900">
           Tracking Number
-          <input
-            className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
-            value={trackingNumber}
-            onChange={(e) => setTrackingNumber(e.target.value)}
-            placeholder="9405..."
-          />
+          <input className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} placeholder="9405..." />
         </label>
       </div>
-
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={saveTracking}
-          aria-disabled={!canSubmitTracking}
-          aria-busy={saving}
-          title={
-            trackingDisabledReason ||
-            "Save this tracking carrier and tracking number."
-          }
-          className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-        >
+        <button type="button" onClick={markFulfilled} aria-disabled={!canSubmitFulfillment} aria-busy={fulfilling} title={fulfillmentDisabledReason || "Mark this paid order fulfilled and send preparation emails."} className="rounded-2xl bg-violet-700 px-5 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
+          {fulfilling ? "Fulfilling..." : "Mark Fulfilled"}
+        </button>
+        <button type="button" onClick={saveTracking} aria-disabled={!canSubmitTracking} aria-busy={saving} title={trackingDisabledReason || "Save this tracking carrier and tracking number."} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
           {saving ? "Saving..." : "Save Tracking"}
         </button>
-
-        <button
-          type="button"
-          onClick={markShipped}
-          aria-disabled={!canSubmitShipment}
-          aria-busy={shipping}
-          title={
-            shipping
-              ? "Saving tracking and marking shipped..."
-              : shipmentDisabledReason || "Save tracking and mark this order shipped."
-          }
-          className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-        >
+        <button type="button" onClick={markShipped} aria-disabled={!canSubmitShipment} aria-busy={shipping} title={shipping ? "Saving tracking and marking shipped..." : shipmentDisabledReason || "Save tracking and mark this order shipped."} className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
           {shipping ? "Marking shipped..." : "Mark Shipped"}
         </button>
       </div>
-
-      {!canMarkShipped && reviewMessage ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-950"
-        >
-          {reviewMessage}
-        </div>
-      ) : null}
-
-      {dryRunShippingBlocked ? (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950"
-        >
-          Dry-run shipping is blocking generic tracking and shipped-status
-          actions. Record a real manual label + Coverage policy first.
-        </div>
-      ) : null}
-
-      {message ? (
-        <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
-      ) : trackingBlockedReason ? (
-        <ActionNotice tone="info">{trackingBlockedReason}</ActionNotice>
-      ) : null}
+      {!canMarkShipped && reviewMessage ? <div role="status" aria-live="polite" className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-950">{reviewMessage}</div> : null}
+      {dryRunShippingBlocked ? <div role="alert" aria-live="assertive" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">Dry-run shipping is blocking generic tracking and shipped-status actions. Record a real manual label + Coverage policy first.</div> : null}
+      {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : trackingBlockedReason ? <ActionNotice tone="info">{trackingBlockedReason}</ActionNotice> : null}
     </div>
   );
 }
 
-function ActionNotice({
-  tone,
-  children,
-}: {
-  tone: FeedbackTone;
-  children: ReactNode;
-}) {
-  const className =
-    tone === "success"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-      : tone === "error"
-        ? "border-red-200 bg-red-50 text-red-950"
-        : "border-blue-200 bg-blue-50 text-blue-950";
-
-  return (
-    <p
-      role={tone === "error" ? "alert" : "status"}
-      aria-live={tone === "info" ? "polite" : "assertive"}
-      className={`rounded-2xl border px-3 py-2 text-sm font-bold ${className}`}
-    >
-      {children}
-    </p>
-  );
+function ActionNotice({ tone, children }: { tone: FeedbackTone; children: ReactNode }) {
+  const className = tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : tone === "error" ? "border-red-200 bg-red-50 text-red-950" : "border-blue-200 bg-blue-50 text-blue-950";
+  return <p role={tone === "error" ? "alert" : "status"} aria-live={tone === "info" ? "polite" : "assertive"} className={`rounded-2xl border px-3 py-2 text-sm font-bold ${className}`}>{children}</p>;
 }

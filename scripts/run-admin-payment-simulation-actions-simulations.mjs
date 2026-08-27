@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 
 const sources = {
+  page: await readFile(
+    new URL("../src/app/admin/payment-simulations/page.tsx", import.meta.url),
+    "utf8",
+  ),
   actions: await readFile(
     new URL("../src/app/admin/payment-simulations/SimulationActions.tsx", import.meta.url),
     "utf8",
@@ -35,6 +39,17 @@ scenario("payment simulation UI exposes accessible typed feedback", () => {
     "Finish the current payment simulation before starting another.",
     "Wait for the payment simulation to finish before cancelling.",
     "Enable Stripe test simulation before running Stripe-touching payment tests.",
+    "function paymentSimulationActionTitle",
+    "function confirmedPaymentSimulationTitle",
+    "Run the no-money payment simulation suite.",
+    "Open the confirmation panel for the full checkout E2E simulation.",
+    "Open the confirmation panel for the Stripe sandbox suite.",
+    "Type ${expected} exactly before running this payment simulation.",
+    "Run the confirmed full checkout E2E simulation.",
+    "Run the confirmed Stripe sandbox payment suite.",
+    "Close this payment simulation confirmation panel.",
+    "title={paymentSimulationActionTitle",
+    "title={confirmedPaymentSimulationTitle",
     "beginConfirmedRun",
     "cancelConfirmedRun",
     "ActionNotice",
@@ -45,6 +60,15 @@ scenario("payment simulation UI exposes accessible typed feedback", () => {
     'aria-busy={busy === "stripe_test"}',
     "aria-disabled={busy !== null}",
     "aria-disabled={busy !== null || !stripeTestEnabled}",
+    "actionPrimaryClass",
+    "actionSkyClass",
+    "actionVioletClass",
+    "actionNeutralClass",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "rounded-3xl border border-sky-200",
+    "focus:ring-2 focus:ring-sky-200",
+    "rounded-2xl border px-3 py-2 text-sm font-bold shadow-sm",
   ]) {
     assert(
       sources.actions.includes(fragment),
@@ -89,6 +113,73 @@ scenario("checkout E2E simulation API enforces confirmation server-side", () => 
     assert(
       sources.checkoutRoute.includes(fragment),
       `Expected checkout E2E route confirmation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("payment simulation page keeps history failures operator-safe", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "Unknown payment simulation history error.",
+    "replace(/\\s+/g, \" \").trim().slice(0, 220)",
+    "const runsUnavailable = Boolean(runsResult.error)",
+    "const scenariosUnavailable = Boolean(scenariosResult.error)",
+    'value={runsUnavailable ? "Unavailable"',
+    "Payment simulation history unavailable.",
+    "counters are",
+    "labeled unavailable instead of shown as zero",
+    "Payment simulation scenario details unavailable.",
+    "loaded the run headers but could not load the scenario",
+    "Last run diagnostic: {safeErrorMessage(run.last_error)}",
+    "function UnavailableNotice",
+    "role=\"alert\"",
+    "aria-live=\"assertive\"",
+    "Diagnostic: {diagnostic}",
+    "const paymentLabPosture =",
+    "paymentNextAction",
+    "HISTORY WARNING",
+    "FAILURES NEED REVIEW",
+    "LATEST RUN CLEAN",
+    "NO RUNS YET",
+    "Lab posture",
+    "Stripe boundary",
+    "Operator next step",
+    "PaymentLabPostureCard",
+    "SANDBOX ENABLED",
+    "SANDBOX LOCKED",
+    "Run First Lab",
+    "Keep Evidence Fresh",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "rounded-3xl border border-violet-200 bg-violet-50",
+    "rounded-full border px-3 py-2 text-sm font-black",
+    "rounded-3xl border border-rose-200 bg-rose-50",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "transition hover:-translate-y-0.5",
+  ]) {
+    assert(
+      sources.page.includes(fragment),
+      `Expected payment simulation page failure-safe fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !sources.page.includes(roughShell),
+      `Expected payment simulation page to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
+
+  for (const forbidden of [
+    "if (runsResult.error) throw runsResult.error",
+    "if (scenariosResult.error) throw scenariosResult.error",
+    "{run.last_error}",
+  ]) {
+    assert(
+      !sources.page.includes(forbidden),
+      `Expected payment simulation page not to expose raw failure fragment ${forbidden}.`,
     );
   }
 });

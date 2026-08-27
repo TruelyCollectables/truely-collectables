@@ -1,0 +1,70 @@
+name: Cloudflare Emergency Storefront
+
+# Production outage recovery path: overwrite the live routed Worker in place.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cloudflare-emergency-storefront.yml"
+      - "cloudflare-emergency-storefront.ts"
+      - "wrangler.emergency.jsonc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deal-hunter-cloudflare-production-release
+  cancel-in-progress: true
+
+jobs:
+  deploy-emergency-storefront:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy standalone emergency Worker in place
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes wrangler@4 deploy --config wrangler.emergency.jsonc --keep-vars
+
+      - name: Verify production emergency edge health
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const endpoint = 'https://truelycollectables.com/__edge-health';
+          let last = 'not attempted';
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            try {
+              const response = await fetch(`${endpoint}?emergency_check=${Date.now()}`, {
+                headers: { Accept: 'application/json' },
+                redirect: 'manual',
+                signal: AbortSignal.timeout(5000),
+              });
+              const payload = await response.json().catch(() => null);
+              if (
+                response.status === 200 &&
+                response.headers.get('x-truely-origin') === 'cloudflare-emergency-worker' &&
+                response.headers.get('x-truely-edge-version') === 'emergency-v1' &&
+                payload?.ok === true &&
+                payload?.databaseIndependent === true &&
+                payload?.emergencyMode === true
+              ) {
+                console.log('Emergency production storefront verified live.');
+                process.exit(0);
+              }
+              last = `attempt=${attempt} status=${response.status} version=${response.headers.get('x-truely-edge-version') || 'none'}`;
+            } catch (error) {
+              last = `attempt=${attempt} error=${error instanceof Error ? error.message : String(error)}`;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+          }
+          throw new Error(`Emergency storefront verification failed: ${last}`);
+          NODE

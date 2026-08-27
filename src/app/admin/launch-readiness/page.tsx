@@ -146,7 +146,7 @@ function buildReadinessItems(
   const shippingProviderReadiness = shippingProviderSetup.readiness;
   const siteUrl = configuredHttpsSiteUrl(
     process.env.NEXT_PUBLIC_SITE_URL,
-    storeSettings.primaryDomain || process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    storeSettings.primaryDomain,
   );
   const paymentMode = getPaymentMode();
   const liveCredentialsStaged = Boolean(
@@ -192,24 +192,27 @@ function buildReadinessItems(
       label: "Supabase Service Role",
       status: isConfigured(process.env.SUPABASE_SERVICE_ROLE_KEY)
         ? "ready"
-        : "warning",
+        : "blocked",
       detail: isConfigured(process.env.SUPABASE_SERVICE_ROLE_KEY)
-        ? "SUPABASE_SERVICE_ROLE_KEY is configured for admin-only writes and webhook operations."
-        : "Admin-only writes and webhook operations currently fall back to the public anon key.",
+        ? "SUPABASE_SERVICE_ROLE_KEY is configured for admin-only writes, launch checks, and webhook operations."
+        : "SUPABASE_SERVICE_ROLE_KEY is missing. Privileged Supabase clients fail closed, so admin writes, database launch checks, and payment webhooks cannot rely on the public anon key.",
       action:
-        "Set SUPABASE_SERVICE_ROLE_KEY before launch so admin settings, launch checks, and payment webhooks do not depend on public-key table permissions.",
+        "Set SUPABASE_SERVICE_ROLE_KEY in the Cloudflare Production Worker and the local operator environment, then rerun Launch Readiness before any live-payment or deployment approval.",
     },
     {
       label: "Admin Access",
-      status: isConfigured(process.env.ADMIN_PASSWORD)
-        ? isConfigured(process.env.ADMIN_SESSION_SECRET)
+      status:
+        isConfigured(process.env.ADMIN_PASSWORD) &&
+        isConfigured(process.env.ADMIN_SESSION_SECRET)
           ? "ready"
-          : "warning"
-        : "blocked",
-      detail: isConfigured(process.env.ADMIN_SESSION_SECRET)
-        ? "Admin password and signed session secret are configured."
-        : "Admin sessions fall back to ADMIN_PASSWORD when ADMIN_SESSION_SECRET is missing.",
-      action: "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET before launch.",
+          : "blocked",
+      detail:
+        isConfigured(process.env.ADMIN_PASSWORD) &&
+        isConfigured(process.env.ADMIN_SESSION_SECRET)
+          ? "Admin password and an independently configured signed-session secret are ready."
+          : "ADMIN_PASSWORD and ADMIN_SESSION_SECRET are both required. Admin session creation and validation fail closed when the dedicated session-signing secret is missing.",
+      action:
+        "Set ADMIN_PASSWORD and a separate strong ADMIN_SESSION_SECRET in the Cloudflare Production Worker and local operator environment before launch.",
     },
     {
       label: "Stripe Key Mode",
@@ -249,21 +252,21 @@ function buildReadinessItems(
         "Enable the required refund and charge.dispute events for /api/webhook in Stripe Workbench, test them, then set STRIPE_FINANCIAL_EVENTS_VERIFIED=true.",
     },
     {
-      label: "Identity And VPN Blocking",
+      label: "Optional TCOS Identity And VPN Intelligence",
       status:
         identityRequired && isConfigured(process.env.IP_INTELLIGENCE_API_URL)
           ? "ready"
           : identityRequired
-          ? "blocked"
-          : "warning",
+            ? "blocked"
+            : "warning",
       detail:
         identityRequired && isConfigured(process.env.IP_INTELLIGENCE_API_URL)
-          ? "IP intelligence is required and configured."
+          ? "Optional TCOS identity intelligence is configured. It is not required for the Truely Collectables storefront launch."
           : identityRequired
-          ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing."
-          : "IP intelligence is not required.",
+            ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing. Disable the optional feature or configure it before Checkout."
+            : "VPN/proxy intelligence is deferred to the post-launch TCOS security roadmap and does not block the Truely Collectables sports-card storefront.",
       action:
-        "For launch, keep IP_INTELLIGENCE_REQUIRED=true and configure the provider URL/API key.",
+        "Treat this as optional post-launch TCOS hardening, not a Truely Collectables storefront launch requirement.",
     },
     {
       label: "Transaction Evidence Email",
@@ -349,6 +352,16 @@ function getSupabaseClient() {
   }
 }
 
+function safeReadinessErrorMessage(
+  error: { message?: string } | string | null | undefined,
+) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown launch readiness error.";
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 async function checkDatabaseCapability(
   capability: DatabaseCapability,
 ): Promise<ReadinessItem> {
@@ -380,7 +393,7 @@ async function checkDatabaseCapability(
   return {
     label: capability.label,
     status: "blocked",
-    detail: `${capability.label} is unavailable: ${error.message}`,
+    detail: `${capability.label} is unavailable. TCOS could not verify this database capability, so this is a launch blocker instead of an all-clear state. Diagnostic: ${safeReadinessErrorMessage(error)}`,
     action: `Apply supabase/migrations/${capability.migration} before relying on this feature.`,
   };
 }
@@ -844,7 +857,7 @@ async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
     return {
       label: "Dry-Run Shipping Cleanup",
       status: "blocked",
-      detail: `Launch readiness could not verify dry-run shipping cleanup: ${dryRunShippingCleanup.error.message}`,
+      detail: `Launch readiness could not verify dry-run shipping cleanup. Treat shipping launch as blocked until the dry-run rows can be checked. Diagnostic: ${safeReadinessErrorMessage(dryRunShippingCleanup.error)}`,
       action:
         "Apply shipping/order migrations and rerun readiness before enabling live buyer payments.",
     };
@@ -1105,10 +1118,10 @@ export default async function LaunchReadinessPage() {
             Shipping Env Template
           </a>
           <a
-            href="/api/admin/shipping/provider-setup?format=vercel-commands"
+            href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
             className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100"
           >
-            Shipping Vercel Commands
+            Shipping Cloudflare Commands
           </a>
           <a
             href="/api/admin/shipping/provider-setup?format=operator-checklist"
@@ -1442,7 +1455,7 @@ export default async function LaunchReadinessPage() {
               schedule health, scheduler proof, launchd runtime evidence,
               verification result, verified archive path, and SHA-256. The
               combined runway command now carries those fields beside Git,
-              Vercel quota, and live-money state.
+              Cloudflare deployment state, and live-money state.
             </p>
           </div>
           <a
@@ -1526,8 +1539,8 @@ export default async function LaunchReadinessPage() {
           <div>
             <h2 className="text-2xl font-bold">Production Deploy Queue</h2>
             <p className="mt-1 max-w-3xl text-sm">
-              Use this after the GitHub stack is pushed and Vercel accepts new
-              production deployments. If Vercel reports{" "}
+              Use this after the GitHub stack is pushed and Cloudflare accepts new
+              production deployments. If Cloudflare reports{" "}
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.quotaBlockCode}
               </code>
@@ -1549,7 +1562,7 @@ export default async function LaunchReadinessPage() {
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.quotaRetryOverrideFlag}
               </code>
-              . The deploy live safety contract keeps Vercel quota messaging,
+              . The deploy live safety contract keeps Cloudflare failure messaging,
               local quota cooldown marker handling, unwanted alias removal for{" "}
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.unwantedAlias}
@@ -1566,7 +1579,7 @@ export default async function LaunchReadinessPage() {
               {" "}
               {DEPLOY_SAFETY.deployResultRequirement}
               {" "}
-              {DEPLOY_SAFETY.vercelCliRequirement}
+              {DEPLOY_SAFETY.cloudflareCliRequirement}
               {" "}
               {DEPLOY_SAFETY.scopeRequirement}
               {" "}
@@ -1625,7 +1638,7 @@ npm run preflight:production`}
               Local <code>HEAD</code> and <code>origin/main</code> should match
               before production deploy. The deploy helper also blocks
               uncommitted deploy-relevant files, and the preflight command
-              checks that without starting a Vercel deployment. Use verify to
+              checks that without starting a Cloudflare deployment. Use verify to
               run lint, InstaComp™ regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the
               twenty-scenario shipping simulation suite, build, production
               guardrail checks, and production preflight together. Production
@@ -1968,10 +1981,10 @@ function ShippingProviderUnlockPlan({
           Export env template
         </a>
         <a
-          href="/api/admin/shipping/provider-setup?format=vercel-commands"
+          href="/api/admin/shipping/provider-setup?format=cloudflare-commands"
           className="rounded border border-indigo-300 bg-white px-3 py-2"
         >
-          Export Vercel commands
+          Export Cloudflare commands
         </a>
         <a
           href="/api/admin/shipping/provider-setup?format=operator-checklist"

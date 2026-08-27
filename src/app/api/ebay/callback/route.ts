@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   encryptMarketplaceToken,
+  parseAdminMarketplaceOAuthState,
   parseSellerMarketplaceOAuthState,
 } from "../../../../lib/marketplace-token-crypto";
 import { fetchSellerEbayIdentity } from "../../../../lib/seller-ebay";
@@ -19,12 +20,22 @@ const EBAY_SCOPE = [
   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
 ];
 
+type OAuthActor =
+  | {
+      type: "seller";
+      state: ReturnType<typeof parseSellerMarketplaceOAuthState>;
+    }
+  | {
+      type: "admin";
+      state: ReturnType<typeof parseAdminMarketplaceOAuthState>;
+    };
+
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
 function sellerRedirect(
-  request: Request,
+  _request: Request,
   status: "connected" | "error",
   message?: string,
 ) {
@@ -47,6 +58,26 @@ function adminRedirect(status: "connected" | "error", message?: string) {
   }
 
   return NextResponse.redirect(redirectUrl);
+}
+
+function parseOAuthActor(state: string, activeStoreId: string): OAuthActor {
+  try {
+    const sellerState = parseSellerMarketplaceOAuthState(state);
+
+    if (sellerState.storeId !== activeStoreId) {
+      throw new Error("Seller OAuth state belongs to another store");
+    }
+
+    return { type: "seller", state: sellerState };
+  } catch {
+    const adminState = parseAdminMarketplaceOAuthState(state);
+
+    if (adminState.storeId !== activeStoreId) {
+      throw new Error("Admin OAuth state belongs to another store");
+    }
+
+    return { type: "admin", state: adminState };
+  }
 }
 
 export async function GET(request: Request) {
@@ -77,30 +108,46 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
+  const callbackError =
+    url.searchParams.get("error_description") ||
+    url.searchParams.get("error") ||
+    "No authorization code received from eBay.";
+
+  if (!state) {
+    return adminRedirect(
+      "error",
+      "eBay OAuth state was missing. Restart the connection from the protected admin or seller page.",
+    );
+  }
+
+  let actor: OAuthActor;
+
+  try {
+    actor = parseOAuthActor(state, storeId);
+  } catch {
+    return adminRedirect(
+      "error",
+      "eBay OAuth state was invalid, expired, or belonged to another store. Restart the connection.",
+    );
+  }
 
   if (!code) {
-    if (!state) {
-      return NextResponse.json({ error: "No code received" });
-    }
-
-    try {
-      const sellerState = parseSellerMarketplaceOAuthState(state);
-
+    if (actor.type === "seller") {
       await supabase
         .from("seller_marketplace_connections")
         .update({
           connection_status: "error",
-          last_sync_error: "No code received from eBay",
+          last_sync_error: callbackError,
           updated_at: new Date().toISOString(),
         })
-        .eq("account_id", sellerState.accountId)
-        .eq("store_id", sellerState.storeId)
+        .eq("account_id", actor.state.accountId)
+        .eq("store_id", actor.state.storeId)
         .eq("provider", "ebay");
-    } catch {
-      return sellerRedirect(request, "error", "Seller eBay state was invalid.");
+
+      return sellerRedirect(request, "error", callbackError);
     }
 
-    return sellerRedirect(request, "error", "No code received from eBay.");
+    return adminRedirect("error", callbackError);
   }
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
@@ -110,7 +157,6 @@ export async function GET(request: Request) {
     storeSettings.ebayEnvironment === "sandbox"
       ? "https://api.sandbox.ebay.com"
       : "https://api.ebay.com";
-
   const response = await fetch(`${tokenBase}/identity/v1/oauth2/token`, {
     method: "POST",
     headers: {
@@ -123,22 +169,9 @@ export async function GET(request: Request) {
       redirect_uri: EBAY_REDIRECT_URI,
     }),
   });
-
   const data = await response.json();
 
-  if (state) {
-    let sellerState;
-
-    try {
-      sellerState = parseSellerMarketplaceOAuthState(state);
-    } catch (error: any) {
-      return sellerRedirect(
-        request,
-        "error",
-        error.message || "Seller eBay state was invalid.",
-      );
-    }
-
+  if (actor.type === "seller") {
     if (!response.ok || !data.refresh_token) {
       const errorMessage =
         data.error_description ||
@@ -152,8 +185,8 @@ export async function GET(request: Request) {
           last_sync_error: errorMessage,
           updated_at: new Date().toISOString(),
         })
-        .eq("account_id", sellerState.accountId)
-        .eq("store_id", sellerState.storeId)
+        .eq("account_id", actor.state.accountId)
+        .eq("store_id", actor.state.storeId)
         .eq("provider", "ebay");
 
       return sellerRedirect(request, "error", errorMessage);
@@ -187,15 +220,15 @@ export async function GET(request: Request) {
       .from("seller_marketplace_connections")
       .upsert(
         {
-          account_id: sellerState.accountId,
-          store_id: sellerState.storeId,
+          account_id: actor.state.accountId,
+          store_id: actor.state.storeId,
           provider: "ebay",
           provider_account_id: identity?.userId || null,
           provider_account_label: identity?.username || null,
           connection_status: "connected",
           sync_status: "not_started",
           oauth_scope: oauthScope,
-          token_storage_key: `seller_marketplace_connection_tokens:${sellerState.storeId}:${sellerState.accountId}:ebay`,
+          token_storage_key: `seller_marketplace_connection_tokens:${actor.state.storeId}:${actor.state.accountId}:ebay`,
           access_token_expires_at: accessTokenExpiresAt,
           refresh_token_expires_at: refreshTokenExpiresAt,
           token_last_rotated_at: new Date().toISOString(),
@@ -231,8 +264,8 @@ export async function GET(request: Request) {
       .upsert(
         {
           connection_id: connection.id,
-          account_id: sellerState.accountId,
-          store_id: sellerState.storeId,
+          account_id: actor.state.accountId,
+          store_id: actor.state.storeId,
           provider: "ebay",
           encrypted_refresh_token: encryptMarketplaceToken(data.refresh_token),
           encrypted_access_token: data.access_token
@@ -269,7 +302,7 @@ export async function GET(request: Request) {
   }
 
   const { error: tokenInsertError } = await supabase.from("ebay_tokens").insert({
-    store_id: storeId,
+    store_id: actor.state.storeId,
     refresh_token: data.refresh_token,
   });
 

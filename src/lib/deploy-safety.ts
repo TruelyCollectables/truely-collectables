@@ -1,101 +1,80 @@
 export const DEPLOY_SAFETY_SMOKE_COMMAND = "npm run smoke:production";
 
 export const DEPLOY_SAFETY = {
-  section: "Production Deploy Safety",
+  section: "Cloudflare Production Deploy Safety",
   cleanProductionDomain: "https://truelycollectables.com",
-  unwantedAlias: "truely-collectables-tt3b.vercel.app",
-  quotaBlockCode: "api-deployments-free-per-day",
+  unwantedAlias: "noncanonical deployment host",
+  quotaBlockCode: "cloudflare-deployment-blocked",
   quotaResetInstruction:
-    "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
-  quotaCooldownMarkerPath: ".codex-run/vercel-quota-block.json",
+    "Resolve the failed Cloudflare deployment check before retrying the production workflow.",
+  quotaCooldownMarkerPath: "GitHub Actions deployment receipt",
   quotaStatusCommand: "npm run status:production",
   quotaStatusDescription:
-    "Read-only local cooldown check with exact blocked/retry timestamps and no Git fetch, build, Vercel upload, or deployment.",
-  quotaRetryOverrideEnv: "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
-  quotaRetryOverrideFlag: "--force-quota-retry",
+    "Read-only production status for the Cloudflare-owned domain and current source revision.",
+  quotaRetryOverrideEnv: "No automatic override",
+  quotaRetryOverrideFlag: "No force flag",
   quotaUploadWarning:
-    "Vercel can still upload files before returning the quota error, so the deploy helper records a local cooldown marker and stops later attempts before upload unless an intentional override is used.",
+    "A failed deployment must remain blocked until the build, Worker upload, domain, and smoke checks are healthy.",
   quotaMarkerClearCondition:
-    "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds.",
+    "Treat a release as complete only after the Cloudflare deployment and production smoke checks pass.",
   deployResultRequirement:
-    "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker.",
-  vercelCliRequirement:
-    "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec and fail production preflight before upload when the exact CLI cannot run.",
+    "Require the Cloudflare deployment workflow to finish successfully before recording a production release.",
+  cloudflareCliRequirement:
+    "Use the repository-pinned Cloudflare build and Wrangler versions in the production workflow.",
   scopeRequirement:
-    "Accept VERCEL_SCOPE only as a simple lowercase Vercel team slug before quota status, preflight, Git fetch, or Vercel CLI work.",
+    "Restrict production deployment credentials to the Truely Collectables Cloudflare account and Worker.",
   unwantedAliasCleanupRequirement:
-    "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing or quota-marker clearing.",
+    "Keep the owned customer domain as the only canonical public production origin.",
   targetHostRequirement:
-    "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
+    "Accept production target overrides only as valid HTTPS DNS origins without credentials, ports, queries, or fragments.",
   smokeTargetRequirement:
-    "Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
+    "Run production smoke checks only against the owned HTTPS storefront origin.",
   quotaEarlyStopRequirement:
-    "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment; preflight-only remains quota-independent.",
+    "Stop before upload whenever source validation, build, credential, or Cloudflare ownership checks fail.",
   contract: [
-    "Vercel quota messaging",
-    "local Vercel quota cooldown marker",
-    "read-only quota status via npm run status:production",
-    "unwanted alias removal for truely-collectables-tt3b.vercel.app",
-    "clean-domain aliasing",
-    "success-only quota marker clearing",
-    "successful Vercel deploy exit before URL and alias handling",
-    "command-pinned Vercel CLI preflight",
-    "strict Vercel scope validation",
-    "fail-closed unwanted-alias cleanup",
-    "strict production target-host validation",
-    "strict production smoke-target validation",
-    "pre-CLI normal-deploy quota stop",
-    "deployed URL output",
-    "clean URL output",
+    "Cloudflare account and Worker ownership",
+    "encrypted recovery backup receipt",
+    "repository-pinned production build",
+    "successful Worker upload",
+    "owned-domain verification",
+    "post-deploy production smoke",
     `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,
   ],
   sequence: [
-    "remove unwanted truely-collectables-tt3b.vercel.app alias",
-    "set clean production alias",
-    "clear local quota marker after clean alias succeeds",
-    "print DEPLOYED_PRODUCTION",
-    "print CLEAN_PRODUCTION",
-    "print smoke handoff command",
+    "verify encrypted recovery backup",
+    "build the Cloudflare Worker",
+    "deploy the production Worker",
+    "verify the owned custom domain",
+    "run production smoke checks",
+    "record the deployment receipt",
   ],
   decisionLadder: [
     {
       label: "1. Verify the pushed stack",
       command: "npm run verify:production",
-      outcome:
-        "lint, simulations, build, guardrails, and GitHub preflight pass without touching Vercel",
+      outcome: "lint, simulations, build, guardrails, and GitHub checks pass",
     },
     {
-      label: "2. Launch only when quota is open",
-      command: "npm run launch:production",
-      outcome:
-        "production deploy, clean-domain aliasing, unwanted-alias removal, and smoke run in order",
+      label: "2. Deploy through Cloudflare",
+      command: "Cloudflare production workflow",
+      outcome: "the production Worker is built, uploaded, and attached to the owned domain",
     },
     {
-      label: "3. Halt on Vercel quota",
-      command: "api-deployments-free-per-day",
-      outcome:
-        "do not force alternate deploy paths; let the local cooldown marker stop repeat uploads, then wait for the rolling 24-hour reset and rerun the launch helper",
+      label: "3. Stop on any failed gate",
+      command: "cloudflare-deployment-blocked",
+      outcome: "do not bypass failed build, credential, ownership, or smoke checks",
     },
     {
-      label: "4. Split only after a successful deploy",
-      command: "npm run deploy:production && npm run smoke:production",
-      outcome:
-        "use the split path only when rerunning deploy and smoke separately is intentional",
-    },
-    {
-      label: "5. Ship only after smoke passes clean production",
-      command: "https://truelycollectables.com",
-      outcome:
-        "clean URL serves the latest GitHub tip and the unwanted preview-style alias does not respond",
+      label: "4. Verify production",
+      command: "npm run smoke:production",
+      outcome: "the owned domain returns the expected Cloudflare Worker marker",
     },
   ],
   smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND,
 } as const;
 
 export function deploySafetyContractMarkdown() {
-  const contractWithoutSmoke = DEPLOY_SAFETY.contract.slice(0, -1).join(", ");
-
-  return `${contractWithoutSmoke}, and the \`${DEPLOY_SAFETY.smokeCommand}\` handoff`;
+  return DEPLOY_SAFETY.contract.join(", ");
 }
 
 export function deploySafetySequenceMarkdown() {

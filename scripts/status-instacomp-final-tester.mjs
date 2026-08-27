@@ -520,11 +520,19 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
   try {
     const text = readFileSync(absolutePath, "utf8");
     const expectedCards = manifestAudit.expectedCards ?? worksheetStatus.rowCount ?? 100;
+    const loadedCards =
+      worksheetStatus.rowCount || manifestAudit.observedCards || expectedCards;
     const readyRows =
       worksheetStatus.coreReadyRows ?? manifestAudit.readyRows ?? "unknown";
+    const shortLot =
+      Number.isFinite(Number(expectedCards)) &&
+      Number.isFinite(Number(loadedCards)) &&
+      Number(loadedCards) < Number(expectedCards);
+    const shortLotCount = shortLot ? Number(expectedCards) - Number(loadedCards) : 0;
     const matchesCurrentWorksheet =
       text.includes("TCOS InstaComp™ Trial Answer-Key Review") &&
-      text.includes(`Answer key ${readyRows}/${expectedCards}`) &&
+      (text.includes(`Answer key ${readyRows}/${loadedCards}`) ||
+        text.includes(`Answer key ${readyRows}/${expectedCards}`)) &&
       text.includes("npm run instacomp:trial:groundtruth:apply") &&
       text.includes("http://localhost:3000/admin/instacomp");
 
@@ -532,8 +540,14 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
       path: htmlPath,
       exists: true,
       matchesCurrentWorksheet,
+      expectedCards,
+      loadedCards,
+      shortLot,
+      shortLotCount,
       next: matchesCurrentWorksheet
-        ? worksheetStatus.coreReadyRows >= expectedCards
+        ? shortLot
+          ? `Visual answer-key sheet matches the loaded ${loadedCards}/${expectedCards} card worksheet. Add ${shortLotCount} more card pair(s), rerun intake/prep, then regenerate before the final 100-card scan; current loaded rows can still be filled now.`
+          : worksheetStatus.coreReadyRows >= expectedCards
           ? "Visual answer-key sheet matches the filled worksheet; validate the TSV, apply it, and rerun intake."
           : "Visual answer-key sheet matches the current worksheet; use it beside the TSV while filling missing fields."
         : "Rerun npm run instacomp:trial:answer-key-html so the visual sheet matches the current TSV/manifest.",
@@ -544,6 +558,10 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
       path: htmlPath,
       exists: true,
       matchesCurrentWorksheet: false,
+      expectedCards: manifestAudit.expectedCards ?? worksheetStatus.rowCount ?? 100,
+      loadedCards: worksheetStatus.rowCount || manifestAudit.observedCards || 0,
+      shortLot: false,
+      shortLotCount: 0,
       next: `Rerun npm run instacomp:trial:answer-key-html; visual sheet could not be read: ${
         error instanceof Error ? error.message : String(error)
       }`,
@@ -721,6 +739,95 @@ function runTrialPreflightStatus() {
   }
 }
 
+function getFinalTrialImageShortfall(preflight) {
+  const progress = preflight.scanPermit?.progress || {};
+  const imagePairs = Number(progress.imagePairs);
+  const expectedImagePairs = Number(progress.expectedImagePairs);
+  const imageFiles = Number(progress.imageFiles);
+  const expectedImages = Number(progress.expectedImages);
+  const missingPairs =
+    Number.isFinite(imagePairs) && Number.isFinite(expectedImagePairs)
+      ? Math.max(0, expectedImagePairs - imagePairs)
+      : null;
+  const missingFiles =
+    Number.isFinite(imageFiles) && Number.isFinite(expectedImages)
+      ? Math.max(0, expectedImages - imageFiles)
+      : null;
+
+  return {
+    missingPairs,
+    missingFiles,
+    isShort:
+      (missingPairs !== null && missingPairs > 0) ||
+      (missingFiles !== null && missingFiles > 0),
+  };
+}
+
+function describeFinalTrialImageShortfall(shortfall) {
+  if (!shortfall.isShort) return "The final tester image lot is not short.";
+
+  const fileText =
+    shortfall.missingFiles === null
+      ? "missing image files"
+      : `${shortfall.missingFiles} missing image file(s)`;
+  const pairText =
+    shortfall.missingPairs === null
+      ? "missing card pair(s)"
+      : `${shortfall.missingPairs} missing card pair(s)`;
+
+  return `Current receipts match the loaded image audit, but the final 100-card lot is still short: ${fileText} / ${pairText}.`;
+}
+
+function getTrialReceiptStatus({ matchesCurrentAudit, needsCurrentReceiptStatus, preflight, shortfall }) {
+  if (!matchesCurrentAudit) return needsCurrentReceiptStatus;
+  if (preflight.readyToScan) return "ready_to_scan";
+  if (shortfall.isShort) return "receipt_current_but_final_lot_short";
+  if (preflight.available) return "receipt_current_but_scan_permit_blocked";
+  return "receipt_current_but_preflight_unknown";
+}
+
+function getTrialReceiptNext({ matchesCurrentAudit, refreshCommand, preflight, shortfall }) {
+  if (!matchesCurrentAudit) {
+    return `Rerun ${refreshCommand} so the local receipt matches the current image folder before any scan.`;
+  }
+
+  if (preflight.readyToScan) {
+    return "Final preflight granted the scan permit; use this receipt as the pre-scan proof.";
+  }
+
+  if (shortfall.isShort) {
+    return `${describeFinalTrialImageShortfall(shortfall)} Copy the missing images into instacomp-trial-inbox, then rerun npm run instacomp:trial:intake and npm run instacomp:trial:preflight.`;
+  }
+
+  if (preflight.available) {
+    return `Receipt is current, but the scan permit is still blocked: ${preflight.next}`;
+  }
+
+  return "Receipt is current, but preflight proof could not be read; rerun npm run instacomp:trial:preflight before scanning.";
+}
+
+function getFinalTesterNext(preflight) {
+  if (preflight.readyToScan) {
+    return "Scan the prepared 100-card lot at /admin/instacomp, export trial results, then run npm run instacomp:trial:score before calling it done-done.";
+  }
+
+  if (!preflight.available) {
+    return "Repair the final tester preflight status first: run npm run instacomp:trial:preflight and fix the reported error before scanning.";
+  }
+
+  const blockerActions = preflight.blockers
+    .map((blocker) => blocker.next)
+    .filter(Boolean);
+
+  if (blockerActions.length > 0) {
+    return `Do not scan yet. Clear the final tester preflight blockers first. ${blockerActions
+      .map((action, index) => `${index + 1}) ${action}`)
+      .join(" ")}`;
+  }
+
+  return preflight.next || "Do not scan yet. Rerun npm run instacomp:trial:preflight and clear every blocker before scanner time is spent.";
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialInboxDir = "instacomp-trial-inbox";
@@ -785,6 +892,19 @@ const trialAnswerKeyHtml = readTrialAnswerKeyHtmlStatus(
 );
 const trialAnswerKeyValidation = readTrialAnswerKeyValidationStatus(trialGroundTruthWorksheet);
 const trialPreflight = runTrialPreflightStatus();
+const finalTrialImageShortfall = getFinalTrialImageShortfall(trialPreflight);
+const trialImageMapNext = getTrialReceiptNext({
+  matchesCurrentAudit: trialImageMap.matchesCurrentAudit,
+  refreshCommand: "npm run instacomp:trial:map",
+  preflight: trialPreflight,
+  shortfall: finalTrialImageShortfall,
+});
+const trialIntakePacketNext = getTrialReceiptNext({
+  matchesCurrentAudit: trialIntakePacket.matchesCurrentAudit,
+  refreshCommand: "npm run instacomp:trial:packet",
+  preflight: trialPreflight,
+  shortfall: finalTrialImageShortfall,
+});
 
 const checklist = [
   {
@@ -884,7 +1004,9 @@ const checklist = [
     label:
       "The local visual answer-key HTML sheet can show trial front/back thumbnails next to editable TSV identity fields, then copy or download the updated TSV so the 100-card answer key can be filled faster and with fewer row mistakes.",
     status: trialAnswerKeyHtml.matchesCurrentWorksheet
-      ? trialManifestAudit.readyToScore
+      ? trialAnswerKeyHtml.shortLot
+        ? "html_current_but_lot_short"
+        : trialManifestAudit.readyToScore
         ? "ready_to_score"
         : "html_current_but_needs_groundtruth"
       : "needs_answer_key_html",
@@ -950,13 +1072,15 @@ const checklist = [
     key: "trial_image_map",
     label:
       "The pre-scan image-map receipt can prove which uploaded scanner file became each trial card front/back pair before the lot is scanned.",
-    status: trialImageMap.matchesCurrentAudit
-      ? trialImageAudit.readyToScan
-        ? "ready_to_scan"
-        : "packet_current_but_needs_files"
-      : trialImageAudit.readyToScan
+    status: getTrialReceiptStatus({
+      matchesCurrentAudit: trialImageMap.matchesCurrentAudit,
+      needsCurrentReceiptStatus: trialImageAudit.readyToScan
         ? "needs_image_map"
         : "needs_local_trial_files",
+      preflight: trialPreflight,
+      shortfall: finalTrialImageShortfall,
+    }),
+    next: trialImageMapNext,
   },
   {
     key: "trial_preflight_gate",
@@ -972,11 +1096,13 @@ const checklist = [
     key: "trial_intake_packet",
     label:
       "The pre-scan intake packet can give the operator a readable image-count, pairing-preview, problem-list, and next-command receipt before scanner time is spent.",
-    status: trialIntakePacket.matchesCurrentAudit
-      ? trialImageAudit.readyToScan
-        ? "ready_to_scan"
-        : "packet_current_but_needs_files"
-      : "needs_trial_packet",
+    status: getTrialReceiptStatus({
+      matchesCurrentAudit: trialIntakePacket.matchesCurrentAudit,
+      needsCurrentReceiptStatus: "needs_trial_packet",
+      preflight: trialPreflight,
+      shortfall: finalTrialImageShortfall,
+    }),
+    next: trialIntakePacketNext,
   },
   {
     key: "hundred_card_trial",
@@ -986,8 +1112,10 @@ const checklist = [
       ? trialManifestAudit.readyToScore
         ? "ready_to_score"
         : "needs_groundtruth"
-      : trialImageAudit.readyToScan
+      : trialPreflight.readyToScan
         ? "ready_to_scan"
+        : trialPreflight.available
+          ? "scan_permit_blocked"
         : "needs_local_trial_files",
   },
   {
@@ -1032,8 +1160,8 @@ const readiness = {
     answerKeyHtml: trialAnswerKeyHtml,
     answerKeyValidation: trialAnswerKeyValidation,
     imageAudit: trialImageAudit,
-    imageMap: trialImageMap,
-    intakePacket: trialIntakePacket,
+    imageMap: { ...trialImageMap, next: trialImageMapNext },
+    intakePacket: { ...trialIntakePacket, next: trialIntakePacketNext },
     preflight: trialPreflight,
   },
   checklist,
@@ -1067,8 +1195,7 @@ const readiness = {
     fullLocalSafety:
       "npm run lint && npm run verify:instacomp && npm run build && npm run check:production-guardrails",
   },
-  next:
-    "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94% plus the final tester timing gate, record misses, and clean the UI before calling it done-done.",
+  next: getFinalTesterNext(trialPreflight),
   safeBuildBoundary:
     "This InstaComp™ tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
 };
@@ -1246,6 +1373,7 @@ if (jsonOutput) {
   console.log("Done-done tester checklist:");
   for (const item of checklist) {
     console.log(`- ${item.status}: ${item.label}`);
+    if (item.next) console.log(`  next: ${item.next}`);
   }
   console.log("");
   console.log("Commands:");

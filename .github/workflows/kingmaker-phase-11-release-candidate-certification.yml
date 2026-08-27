@@ -1,0 +1,92 @@
+name: KINGMAKER Phase 11 Release Candidate Certification
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-phase-11-*.ts"
+      - "scripts/run-kingmaker-phase-11-*.ts"
+      - "supabase/migrations/20260803173000_kingmaker_phase_11_release_candidate_certification.sql"
+      - ".github/workflows/kingmaker-phase-11-release-candidate-certification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-phase-11-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify-release-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phase 11 certification regressions
+        run: node --import tsx scripts/run-kingmaker-phase-11-release-candidate-certification-regressions.ts
+      - name: Execute all KINGMAKER regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t suites < <(find scripts -maxdepth 1 -type f -name 'run-kingmaker-*-regressions.ts' | sort)
+          test "${#suites[@]}" -ge 20
+          for suite in "${suites[@]}"; do
+            node --import tsx "$suite"
+          done
+      - name: Certification migration security
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=supabase/migrations/20260803173000_kingmaker_phase_11_release_candidate_certification.sql
+          for table in tcos_kingmaker_release_candidates tcos_kingmaker_certification_checks tcos_kingmaker_recovery_drills tcos_kingmaker_release_evidence tcos_kingmaker_release_audit_events; do
+            grep -q "$table" "$migration"
+          done
+          test "$(grep -c 'enable row level security' "$migration")" -eq 5
+          test "$(grep -c 'revoke all' "$migration")" -eq 5
+          test "$(grep -c 'grant all' "$migration")" -eq 5
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$migration"
+      - name: Release safety contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'authorizationIntegrity' src/lib/kingmaker-phase-11-release-candidate-certification.ts
+          grep -q 'capitalLedgerBalanced' src/lib/kingmaker-phase-11-release-candidate-certification.ts
+          grep -q 'idempotencyIntegrity' src/lib/kingmaker-phase-11-release-candidate-certification.ts
+          grep -q 'ownerApprovalVerified' src/lib/kingmaker-phase-11-release-candidate-certification.ts
+          grep -q 'recovery_data_loss_detected' src/lib/kingmaker-phase-11-release-candidate-certification.ts
+          ! grep -EIn '\beval\s*\(|new Function\s*\(|child_process|execSync\s*\(|spawnSync\s*\(' src/lib/kingmaker-phase-11-*.ts scripts/run-kingmaker-phase-11-*.ts
+      - name: Diff integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+      - name: Lint Phase 11
+        run: npx eslint src/lib/kingmaker-phase-11-*.ts scripts/run-kingmaker-phase-11-*.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build

@@ -1,0 +1,23 @@
+name: Card and Sale Identity Enrichment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/card-sale-identity-enrichment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: card-sale-identity-enrichment-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  emergency-stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm identity enrichment paused for production incident
+        run: echo "Card and Sale Identity Enrichment paused during storefront recovery."

@@ -12,6 +12,13 @@ import {
   adminProductStatusNormalizedQuantity,
 } from "../../lib/admin-product-status";
 import { getStoreSettings } from "../../lib/store-settings";
+import {
+  classifyStorefrontItem,
+  matchesStorefrontFilters,
+  sortStorefrontItems,
+  sortStorefrontSections,
+  type StorefrontSort,
+} from "../../lib/storefront-taxonomy";
 import { getActiveStoreId } from "../../lib/stores";
 import { eventBus } from "../../core/events/event-bus";
 import { InventoryRepository, inventoryRepository } from "./repository";
@@ -57,6 +64,7 @@ type EbayImportInput = {
   categoryConfidence?: string | null;
   reviewRequired?: boolean;
   attributes?: Record<string, string | null>;
+  metadata?: Record<string, unknown>;
 };
 
 type ManualProductInput = {
@@ -71,6 +79,7 @@ type ManualProductInput = {
 
 type SellerDraftProductInput = {
   sellerAccountId: string | null;
+  cardUuid?: string | null;
   title: string;
   description?: string | null;
   category?: string | null;
@@ -108,10 +117,27 @@ function toNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function validCardUuid(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function metadataCardUuid(metadata: Record<string, unknown> | null | undefined) {
+  const record = metadata && typeof metadata === "object" ? metadata : {};
+  const instaComp =
+    record.instacomp && typeof record.instacomp === "object" && !Array.isArray(record.instacomp)
+      ? (record.instacomp as Record<string, unknown>)
+      : {};
+  return validCardUuid(instaComp.cardUuid);
+}
+
 function mapLegacyProduct(product: any): LegacyProductSnapshot {
   return {
     id: Number(product.id),
     seller_account_id: product.seller_account_id ?? null,
+    card_uuid: validCardUuid(product.card_uuid),
     sku: product.sku ?? null,
     title: String(product.title ?? "Untitled"),
     description: product.description ?? null,
@@ -129,19 +155,38 @@ function mapUniversal(
   product: LegacyProductSnapshot,
   inventoryItem: InventoryItem | null
 ): UniversalInventoryItem {
+  const title = inventoryItem?.title ?? product.title;
+  const description = inventoryItem?.description ?? product.description;
+  const classification = classifyStorefrontItem({
+    title,
+    description,
+    rawSport: product.sport,
+    primaryCategory: inventoryItem?.category ?? null,
+    metadata: inventoryItem?.metadata ?? null,
+  });
+
   if (inventoryItem) {
     const authenticity = extractAuthenticityProfile(inventoryItem.metadata);
+    const cardUuid =
+      validCardUuid(inventoryItem.card_uuid) ??
+      metadataCardUuid(inventoryItem.metadata) ??
+      validCardUuid(product.card_uuid);
 
     return {
       inventoryItemId: inventoryItem.id,
       legacyProductId: product.id,
+      cardUuid,
       sellerAccountId:
         inventoryItem.seller_account_id ?? product.seller_account_id ?? null,
       sku: inventoryItem.sku ?? product.sku,
-      title: inventoryItem.title,
-      description: inventoryItem.description ?? product.description,
+      title,
+      description,
       player: product.player ?? null,
-      sport: product.sport ?? null,
+      sport: classification.section,
+      category: inventoryItem.category,
+      storefrontSection: classification.section,
+      league: classification.league,
+      features: classification.features,
       price: toNumber(inventoryItem.price),
       quantity: toNumber(inventoryItem.quantity),
       imageUrl: product.image_url,
@@ -155,12 +200,17 @@ function mapUniversal(
   return {
     inventoryItemId: null,
     legacyProductId: product.id,
+    cardUuid: validCardUuid(product.card_uuid),
     sellerAccountId: product.seller_account_id ?? null,
     sku: product.sku,
-    title: product.title,
-    description: product.description,
+    title,
+    description,
     player: product.player ?? null,
-    sport: product.sport ?? null,
+    sport: classification.section,
+    category: null,
+    storefrontSection: classification.section,
+    league: classification.league,
+    features: classification.features,
     price: product.price,
     quantity: product.quantity,
     imageUrl: product.image_url,
@@ -286,6 +336,60 @@ function extractResponseText(data: any) {
   return text || null;
 }
 
+const DATABASE_PAGE_SIZE = 1000;
+const MAX_DATABASE_PAGES = 50;
+
+async function readAllStoreProducts(params: {
+  database: SupabaseClient;
+  storeId: string;
+  positivePriceOnly?: boolean;
+}) {
+  const rows: any[] = [];
+  for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+    const from = page * DATABASE_PAGE_SIZE;
+    const baseQuery = params.database
+      .from("products")
+      .select("*")
+      .eq("store_id", params.storeId);
+    const query = params.positivePriceOnly
+      ? baseQuery.gt("price", 0)
+      : baseQuery;
+    const { data, error } = await query
+      .order("id", { ascending: true })
+      .range(from, from + DATABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < DATABASE_PAGE_SIZE) return rows;
+  }
+  throw new Error(
+    `Storefront product pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`,
+  );
+}
+
+async function readAllStoreInventoryItems(params: {
+  database: SupabaseClient;
+  storeId: string;
+}) {
+  const rows: InventoryItem[] = [];
+  for (let page = 0; page < MAX_DATABASE_PAGES; page += 1) {
+    const from = page * DATABASE_PAGE_SIZE;
+    const { data, error } = await params.database
+      .from("inventory_items")
+      .select("*")
+      .eq("store_id", params.storeId)
+      .order("id", { ascending: true })
+      .range(from, from + DATABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = (data || []) as InventoryItem[];
+    rows.push(...batch);
+    if (batch.length < DATABASE_PAGE_SIZE) return rows;
+  }
+  throw new Error(
+    `Storefront inventory-item pagination exceeded ${MAX_DATABASE_PAGES * DATABASE_PAGE_SIZE} rows.`,
+  );
+}
+
 export class InventoryEngine {
   private storeDisplayNamePromise: Promise<string> | null = null;
 
@@ -344,98 +448,80 @@ export class InventoryEngine {
     params: {
       query?: string;
       sport?: string;
+      section?: string;
+      feature?: string;
+      category?: string;
+      sort?: StorefrontSort;
     } = {}
   ): Promise<UniversalInventoryItem[]> {
-    let query = this.database
-      .from("products")
-      .select("*")
-      .eq("store_id", this.storeId)
-      .gt("price", 0)
-      .order("created_at", { ascending: false });
-
-    if (params.query) {
-      const safeQuery = params.query.replaceAll(",", " ").replaceAll("%", "").trim();
-
-      if (safeQuery) {
-        query = query.or(
-          `title.ilike.%${safeQuery}%,player.ilike.%${safeQuery}%,sport.ilike.%${safeQuery}%`
-        );
-      }
-    }
-
-    if (params.sport) {
-      query = query.eq("sport", params.sport);
-    }
-
-    const [
-      { data: products, error },
-      { data: inventoryItems, error: inventoryError },
-    ] = await Promise.all([
-      query,
-      this.database
-        .from("inventory_items")
-        .select("*")
-        .eq("store_id", this.storeId),
+    const [products, inventoryItems] = await Promise.all([
+      readAllStoreProducts({
+        database: this.database,
+        storeId: this.storeId,
+        positivePriceOnly: true,
+      }),
+      readAllStoreInventoryItems({
+        database: this.database,
+        storeId: this.storeId,
+      }),
     ]);
 
-    if (error) throw error;
-    if (inventoryError) throw inventoryError;
+    const section = params.section || params.sport;
+    const available = this.mapProductsWithInventory(products ?? [], inventoryItems ?? [])
+      .filter(
+        (item) =>
+          item.inventoryItemId &&
+          item.imageUrl &&
+          item.quantity > 0 &&
+          item.status === "active",
+      )
+      .filter((item) =>
+        matchesStorefrontFilters(item, {
+          query: params.query,
+          section,
+          feature: params.feature,
+          category: params.category,
+        }),
+      );
 
-    return this.mapProductsWithInventory(products ?? [], inventoryItems ?? []).filter(
-      (item) =>
-        item.inventoryItemId &&
-        item.imageUrl &&
-        item.quantity > 0 &&
-        item.status === "active",
-    );
+    return sortStorefrontItems(available, params.sort || "section");
+  }
+
+  async listAvailableSections(): Promise<string[]> {
+    const items = await this.listAvailable({ sort: "newest" });
+    return sortStorefrontSections(items.map((item) => item.storefrontSection));
   }
 
   async listAvailableSports(): Promise<string[]> {
-    const items = await this.listAvailable();
-
-    return Array.from(
-      new Set(items.map((item) => item.sport).filter(Boolean) as string[])
-    ).sort();
+    return this.listAvailableSections();
   }
 
   async listAll(): Promise<UniversalInventoryItem[]> {
-    const [
-      { data: products, error },
-      { data: inventoryItems, error: inventoryError },
-    ] = await Promise.all([
-      this.database
-        .from("products")
-        .select("*")
-        .eq("store_id", this.storeId)
-        .order("id"),
-      this.database
-        .from("inventory_items")
-        .select("*")
-        .eq("store_id", this.storeId),
+    const [products, inventoryItems] = await Promise.all([
+      readAllStoreProducts({
+        database: this.database,
+        storeId: this.storeId,
+      }),
+      readAllStoreInventoryItems({
+        database: this.database,
+        storeId: this.storeId,
+      }),
     ]);
-
-    if (error) throw error;
-    if (inventoryError) throw inventoryError;
 
     return this.mapProductsWithInventory(products ?? [], inventoryItems ?? []);
   }
 
   async getBridgeStatus(): Promise<InventoryBridgeStatus> {
-    const [{ data: products, error: productsError }, { data: inventoryItems, error: inventoryError }] =
-      await Promise.all([
-        this.database
-          .from("products")
-          .select("*")
-          .eq("store_id", this.storeId)
-          .order("created_at", { ascending: false }),
-        this.database
-          .from("inventory_items")
-          .select("*")
-          .eq("store_id", this.storeId),
-      ]);
-
-    if (productsError) throw productsError;
-    if (inventoryError) throw inventoryError;
+    const [products, inventoryItems] = await Promise.all([
+      readAllStoreProducts({
+        database: this.database,
+        storeId: this.storeId,
+      }),
+      readAllStoreInventoryItems({
+        database: this.database,
+        storeId: this.storeId,
+      }),
+    ]);
 
     const items = (inventoryItems ?? []) as InventoryItem[];
     const byLegacyProductId = new Map<number, InventoryItem>();
@@ -544,6 +630,7 @@ export class InventoryEngine {
         const payload = {
           seller_account_id: product.seller_account_id ?? null,
           legacy_product_id: product.id,
+          card_uuid: product.card_uuid,
           sku: product.sku,
           title: product.title,
           description:
@@ -1052,6 +1139,7 @@ export class InventoryEngine {
       price: input.price,
       currency: "USD",
       notes: notes || null,
+      metadata: input.metadata,
     });
 
     try {
@@ -1219,6 +1307,7 @@ export class InventoryEngine {
       .insert({
         store_id: this.storeId,
         seller_account_id: input.sellerAccountId,
+        card_uuid: validCardUuid(input.cardUuid),
         sku,
         title: input.title,
         player: null,
@@ -1239,6 +1328,7 @@ export class InventoryEngine {
     const inventoryItem = await this.repository.create({
       seller_account_id: input.sellerAccountId,
       legacy_product_id: legacyProduct.id,
+      card_uuid: validCardUuid(input.cardUuid) ?? legacyProduct.card_uuid,
       sku: legacyProduct.sku,
       title: legacyProduct.title,
       description: generatedDescription,
@@ -1326,6 +1416,7 @@ export class InventoryEngine {
     const { data: product, error } = await this.database
       .from("products")
       .update({
+        card_uuid: current.cardUuid,
         title: input.title,
         player: input.player,
         sport: input.sport,
@@ -1350,6 +1441,7 @@ export class InventoryEngine {
     const updatedInventoryItem = await this.repository.update(
       inventoryItem.id,
       {
+        card_uuid: current.cardUuid,
         title: input.title,
         description,
         category: input.sport ?? "sports cards",

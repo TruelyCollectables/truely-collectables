@@ -130,6 +130,31 @@ scenario("merges scanned duplicate quantities by stable card identity", () => {
   assert(plan.mergedQuantity === 3, "Expected identity merge to sum 2 + 1.");
 });
 
+scenario("lets corrected scan titles override stale merge identities", () => {
+  const plan = planInstaCompSelectedQuantityMerge([
+    {
+      id: "keeper",
+      title: "2026 Pokemon Pikachu #025",
+      identityKey: null,
+      quantity: 2,
+    },
+    {
+      id: "duplicate",
+      title: "2026 Pokémon Pikachu 025",
+      identityKey: "wrong scanner identity | charizard | 004",
+      quantity: 1,
+    },
+  ]);
+
+  assert(plan.ok, "Expected operator-corrected matching titles to merge.");
+  if (!plan.ok) return;
+
+  assert(
+    plan.mergedQuantity === 3,
+    "Expected corrected Pokemon duplicate quantities to sum 2 + 1.",
+  );
+});
+
 scenario("blocks scanned quantity merge across different identities", () => {
   const plan = planInstaCompSelectedQuantityMerge([
     {
@@ -174,6 +199,10 @@ scenario("normalizes merge quantities to positive whole counts", () => {
 
 scenario("scanner row actions expose busy and disabled reasons", () => {
   for (const fragment of [
+    "copyDraftPayloadBlockedReason",
+    "saveCorrectionsBlockedReason",
+    "refreshCompsBlockedReason",
+    "addToTradeBlockedReason",
     "aria-busy={savingCorrections}",
     "aria-busy={refreshingComps}",
     "aria-busy={card.tradeStatus === \"adding\"}",
@@ -196,14 +225,61 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
     "onUnavailable={(message) => setError(message)}",
     "No ${label} is available yet.",
     "No InstaComp™ suggested price is available yet.",
+    "singleScanBlockedReason",
+    "Upload the front image before running a single-card scan.",
+    "Run InstaComp™ against the uploaded front image and optional back image.",
+    "selectRowBlockedReason",
+    "Selection unlocks after this queued row finishes scanning.",
+    "Retry or remove this failed row before selecting it for draft actions.",
+    "Select this completed row for draft, edit, export, or cleanup actions.",
+    "editFieldPersistenceNote",
+    "Saved-lot edits are local until you press Save Corrections for this row.",
+    "These edits stay in this browser batch and will be used for draft creation; saved-lot persistence unlocks after the row is attached to a saved lot.",
+    "Finish the scan before row edits can be saved or used for draft creation.",
+    "Changing Serial # clears row price until comps are refreshed or a listing price is entered.",
+    "aria-describedby={editFieldPersistenceNoteId}",
     "No comp-based price is available yet. Refresh comps or enter a listing price manually.",
     "Finish the current InstaComp™ batch action before rotating images.",
     "Image rotation is locked after draft creation starts.",
     "Add a back image before swapping front/back.",
+    "singleScanNotice",
+    "singleScanAbortControllerRef",
+    "abortSingleScan",
+    "End Current Scan",
+    "Ended the current InstaComp™ scan. The uploaded images are still loaded for a clean retry.",
+    "Ended the current InstaComp™ scan and removed the visible result. The uploaded images are still loaded for a clean retry.",
+    "Ended the current InstaComp™ scan and cleared the uploaded images/result.",
+    "singleScanAbortControllerRef.current !== abortController",
+    "function removeSingleScanResult()",
+    "function clearSingleScanImages()",
+    "Remove This Scan Result",
+    "Clear Uploaded Images",
+    "No single-card scan result is available to remove.",
+    "No single-card scan images or result are available to clear.",
+    "End the current single-card scan immediately and keep the uploaded images ready to retry.",
+    "Wait for the current InstaComp™ scan to finish before removing this result.",
+    "Removed this single-card scan result. The uploaded images are still loaded so you can rotate, replace, or run InstaComp™ again.",
+    "Cleared the single-card scan images and result.",
+    "Remove this wrong single-card scan result while keeping the uploaded images ready to retry.",
   ]) {
     assert(
       scannerSource.includes(fragment),
       `Expected scanner row action feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("scanner row actions explain unavailable clicks before running handlers", () => {
+  for (const fragment of [
+    "if (!canCopyDraftPayload) {\n                      onBlockedAction(copyDraftPayloadBlockedReason);",
+    "if (!canSaveCorrections) {\n                    onBlockedAction(saveCorrectionsBlockedReason);",
+    "if (!canRefreshComps) {\n                    onBlockedAction(refreshCompsBlockedReason);",
+    "if (!canAddToTrade) {\n                    onBlockedAction(addToTradeBlockedReason);",
+    "if (!canRetry) {\n                    onBlockedAction(",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner unavailable row action guard fragment ${fragment}.`,
     );
   }
 });
@@ -245,7 +321,9 @@ scenario("scanner exposes selected duplicate quantity merge action", () => {
     "selectedQuantityMergeDisabled",
     "planInstaCompSelectedQuantityMerge",
     "quantityMergeIdentityKeyForCard",
-    "identityKey: quantityMergeIdentityKeyForCard(card)",
+    "selectedQuantityMergeIdentityKeyForCard",
+    "return card.customTitle.trim() ? null : quantityMergeIdentityKeyForCard(card);",
+    "identityKey: selectedQuantityMergeIdentityKeyForCard(card)",
     "mergeSelectedBatchQuantityRows",
     "Merge Selected Qty",
     "Ready to merge ${selectedQuantityMergePlan.mergedRowCount} selected duplicate rows: qty ${selectedQuantityMergePlan.previousKeeperQuantity} + ${selectedQuantityMergePlan.duplicateQuantity} = ${selectedQuantityMergePlan.mergedQuantity}.",
@@ -282,14 +360,52 @@ scenario("scanner blocked batch controls explain why nothing ran", () => {
   for (const fragment of [
     "function batchBusyBlockedReason(action: string)",
     "function showBatchBusyBlocked(action: string)",
+    "function batchActionTitle",
     "No InstaComp™ batch is running right now.",
     "Pause is already requested. Current mini-pack will finish first.",
     "Finish preparing the saved InstaComp™ lot before scanning.",
     "Finish draft creation before scanning the batch.",
     "Finish the current InstaComp™ scan/action before scanning again.",
     "No draftable rows are available to select.",
+    "selectedOperatorMarkedProblemBatchCardIds",
+    "removeSelectedOperatorMarkedProblemBatchCards",
+    '"removing selected marked problem rows"',
+    "Remove Selected Problems",
+    "Select wrong or needs-more-info rows before removing marked problems.",
+    "Use Process Marked Problems to rerun them, or Remove Selected Problems to drop bad scans.",
     "No visible InstaComp™ rows are available to export as CSV.",
     "No visible InstaComp™ rows are available to export as JSON.",
+    "Fix or deselect selected rows that need edits before creating drafts.",
+    "Select at least one ready draft row before creating drafts.",
+    "Create TCOS draft listings for the selected ready rows.",
+    "Select every completed row that can become a draft.",
+    "Select draftable rows with no missing draft fields.",
+    "Select draftable rows without review warnings.",
+    "Select rows that are clean, ready, and safe to draft.",
+    "Clear selection from every draftable row.",
+    "Deselect selected rows that still need draft fixes.",
+    "Deselect selected rows with review warnings.",
+    "Export the current visible InstaComp™ rows as CSV.",
+    "Export the current visible InstaComp™ rows as JSON.",
+    "Export visible trial result rows for accuracy review.",
+    "Select at least one ready draft row before exporting payload.",
+    "Copy the selected ready draft rows as a TCOS draft payload.",
+    "Create TCOS draft listings only for selected clean ready rows.",
+    "No visible InstaComp™ rows are available to summarize.",
+    "Copy the current visible rows as CSV.",
+    "Copy the current visible rows as JSON.",
+    "Select every draftable row in the current visible view.",
+    "No visible ready rows are available to select.",
+    "Select visible rows that are clean, ready, and safe to draft.",
+    "No visible ready draft rows are available to export.",
+    "Copy visible ready rows as a TCOS draft payload.",
+    "Create TCOS draft listings for visible ready rows.",
+    "Export visible rows that still need draft fixes.",
+    "Export visible rows that still need operator review.",
+    "Create TCOS draft listings only for visible clean ready rows.",
+    "Clear custom draft edits from every visible draftable row.",
+    "Deselect visible rows that still need draft fixes.",
+    "No visible draft errors are available to clear.",
     'batchBusyBlockedReason("exporting visible trial results")',
     'batchBusyBlockedReason("copying visible trial results")',
     'batchBusyBlockedReason("exporting selected draft payload")',
@@ -408,13 +524,17 @@ scenario("scanner blocked batch controls explain why nothing ran", () => {
     "aria-disabled={loading || !frontImage}",
     "aria-disabled={item.count === 0}",
     'if (showBatchBusyBlocked("merging selected duplicate quantities")) return;',
-    'if (showBatchBusyBlocked("removing visible rows")) return;',
+    "busyAction: string",
+    "if (showBatchBusyBlocked(busyAction)) return;",
+    '"removing visible failed rows"',
+    '"removing visible drafted rows"',
     'if (showBatchBusyBlocked("rotating this row image")) return;',
     'role="alert"',
     'aria-live="assertive"',
     'role="status"',
     'aria-live="polite"',
     'batchBusyBlockedReason("removing visible failed rows")',
+    'batchBusyBlockedReason("removing visible drafted rows")',
   ]) {
     assert(
       scannerSource.includes(fragment),

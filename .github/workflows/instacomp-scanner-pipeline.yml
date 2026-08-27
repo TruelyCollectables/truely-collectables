@@ -1,0 +1,41 @@
+name: InstaComp Scanner Pipeline
+
+on:
+  pull_request:
+    paths:
+      - "src/app/seller/instacomp-scan/**"
+      - "src/app/admin/instacomp-scan/**"
+      - "src/app/api/account/seller/instacomp-scan/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-registry-receipt.ts"
+      - "scripts/certify-instacomp-scanner-pipeline.mjs"
+      - ".github/workflows/instacomp-scanner-pipeline.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/app/seller/instacomp-scan/**"
+      - "src/app/admin/instacomp-scan/**"
+      - "src/app/api/account/seller/instacomp-scan/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-registry-receipt.ts"
+      - "scripts/certify-instacomp-scanner-pipeline.mjs"
+      - ".github/workflows/instacomp-scanner-pipeline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Certify Registry-first scanner contract
+        run: node scripts/certify-instacomp-scanner-pipeline.mjs
+      - name: Typecheck scanner integration
+        run: npx tsc --noEmit

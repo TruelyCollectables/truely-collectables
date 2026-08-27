@@ -1,0 +1,61 @@
+name: Cloudflare InstaComp Binding Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-instacomp-binding-fix-trigger'
+      - '.github/workflows/cloudflare-instacomp-binding-fix.yml'
+
+permissions:
+  contents: read
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  WORKER: truely-collectables-preview
+  PREVIEW_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+  INSTACOMP_PERMANENT_URL: https://instacomp.truelycollectables.com
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+
+      - name: Install Wrangler
+        run: npm install --no-save --package-lock=false wrangler@4.122.0
+
+      - name: Point Worker at permanent InstaComp tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$INSTACOMP_PERMANENT_URL" | npx wrangler secret put INSTACOMP_AI_LOCAL_URL --name "$WORKER"
+          echo 'Cloudflare InstaComp URL binding updated to permanent tunnel; token binding was not changed.'
+
+      - name: Verify edge readiness from deployed Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in $(seq 1 8); do
+            rm -f /tmp/headers /tmp/body
+            result=$(curl -sS --max-time 20 -D /tmp/headers -o /tmp/body -w '%{http_code} %{time_total}' "$PREVIEW_URL/api/instacomp/internal-readiness" || true)
+            code=$(printf '%s' "$result" | awk '{print $1}')
+            echo "Cloudflare InstaComp readiness attempt $attempt -> $result"
+            grep -qi '^x-truely-origin: cloudflare-worker' /tmp/headers || true
+            if [ "$code" = "200" ] && node -e "const fs=require('node:fs');const b=JSON.parse(fs.readFileSync('/tmp/body','utf8'));if(!b.configured||!b.reachable)process.exit(1);console.log('configured='+b.configured+'; reachable='+b.reachable+'; databaseReady='+b.internalMemoryReady+'; checklistReady='+b.checklistReady+'; reason='+(b.reason||'none'));"; then
+              ok=1
+              break
+            fi
+            head -c 600 /tmp/body || true
+            echo
+            sleep 2
+          done
+          test "$ok" = 1

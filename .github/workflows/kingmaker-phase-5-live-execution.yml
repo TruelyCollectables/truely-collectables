@@ -1,0 +1,85 @@
+name: KINGMAKER Phase 5 Live Execution
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-phase-5-*.ts"
+      - "scripts/run-kingmaker-phase-5-*.ts"
+      - "supabase/migrations/20260803053000_kingmaker_phase_5_live_execution.sql"
+      - ".github/workflows/kingmaker-phase-5-live-execution.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-phase-5-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-live-execution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phase 5 live execution regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-live-execution-regressions.ts
+      - name: Phase 5 owner authorization regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-action-control-regressions.ts
+      - name: Phase 5 operations runtime regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-operations-runtime-regressions.ts
+      - name: Phase 5 Command Center regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-command-center-regressions.ts
+      - name: Phase 5 persistence and eBay bridge regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-persistence-bridge-regressions.ts
+      - name: Phase 5 authenticated runtime gateway regressions
+        run: node --import tsx scripts/run-kingmaker-phase-5-runtime-gateway-regressions.ts
+      - name: Migration security contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=supabase/migrations/20260803053000_kingmaker_phase_5_live_execution.sql
+          for table in \
+            tcos_kingmaker_live_cycles \
+            tcos_kingmaker_live_decisions \
+            tcos_kingmaker_source_adapter_runs \
+            tcos_kingmaker_owner_actions
+          do
+            grep -q "$table" "$migration"
+          done
+          test "$(grep -c 'enable row level security' "$migration")" -eq 4
+          test "$(grep -c 'revoke all' "$migration")" -eq 4
+          test "$(grep -c 'grant all' "$migration")" -eq 4
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$migration"
+      - name: Diff integrity
+        shell: bash
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+      - name: Lint Phase 5
+        run: npx eslint src/lib/kingmaker-phase-5-*.ts scripts/run-kingmaker-phase-5-*.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build

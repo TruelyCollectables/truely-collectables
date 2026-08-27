@@ -1,0 +1,64 @@
+name: InstaComp Inventory Training Snapshot 20260812
+
+on:
+  push:
+    branches:
+      - main
+      - fix/instacomp-direct-db-snapshot-20260812
+    paths:
+      - '.github/workflows/instacomp-inventory-training-snapshot-20260812.yml'
+      - 'services/instacomp-ai/scripts/export_inventory_training_snapshot.py'
+      - 'services/instacomp-ai/scripts/export_inventory_training_snapshot_reliable.py'
+      - 'services/instacomp-ai/scripts/inventory_training_git_snapshot.py'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_snapshot_only.py'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_guarded.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-inventory-training-snapshot
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SNAPSHOT_BRANCH: generated/instacomp-inventory-training-snapshot
+      SNAPSHOT_PATH: services/instacomp-ai/data/training/inventory-training-production-snapshot.enc.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Export encrypted authoritative inventory through direct DB API
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          python3 services/instacomp-ai/scripts/export_inventory_training_snapshot_reliable.py \
+            --output /tmp/inventory-training-production-snapshot.enc.json
+
+      - name: Publish encrypted snapshot to generated Git branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'TruelyCollectables Automation'
+          git config user.email 'david@truelycollectables.com'
+          git fetch origin "${SNAPSHOT_BRANCH}" || true
+          git checkout -B "${SNAPSHOT_BRANCH}" "${GITHUB_SHA}"
+          mkdir -p "$(dirname "${SNAPSHOT_PATH}")"
+          cp /tmp/inventory-training-production-snapshot.enc.json "${SNAPSHOT_PATH}"
+          git add -f "${SNAPSHOT_PATH}"
+          if git diff --cached --quiet; then
+            echo 'Encrypted snapshot bytes unchanged; generated branch already current.'
+          else
+            git commit -m "Refresh encrypted InstaComp inventory training snapshot"
+          fi
+          git push --force origin "HEAD:refs/heads/${SNAPSHOT_BRANCH}"
+          echo "ENCRYPTED_SNAPSHOT_PUBLISHED_BRANCH=${SNAPSHOT_BRANCH}"

@@ -1,0 +1,28 @@
+name: Audit InstaComp Mobile Production
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/admin/instacomp/mobile/**"
+      - "src/app/api/internal/instacomp-mobile-live-verify/**"
+      - ".github/workflows/verify-instacomp-mobile-release-pr.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-instacomp-mobile-production-retired-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  legacy-audit-retired:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Use the serialized canonical Production verifier
+        run: |
+          echo "PASS: duplicate Production deployment audit retired."
+          echo "Verify InstaComp Mobile Production v3 is the only pull-request workflow allowed to provision the temporary verifier secret and deploy the tested revision."
+          echo "The main-branch release workflow shares the same concurrency lock and performs the final clean Production certification."

@@ -419,6 +419,26 @@ export default function EbayPublisher() {
     return "";
   }
 
+  function listingRenderBlockedReason(card: CardState) {
+    if (card.status === "saving") {
+      return "Finish the current eBay publisher action before starting another.";
+    }
+
+    if (bulkUploading || card.uploadStatus === "uploading") {
+      return "Wait for exact scan uploads to finish before saving this listing.";
+    }
+
+    if (!policiesReady) {
+      return "Select all policies and a location first.";
+    }
+
+    if (!card.imageUrls.front || !card.imageUrls.back) {
+      return "Upload both exact scans before creating the listing.";
+    }
+
+    return "";
+  }
+
   function scanUploadBlockedReason(card: CardState) {
     if (bulkUploading) {
       return "Finish the bulk exact-scan upload before replacing individual scans.";
@@ -689,7 +709,8 @@ export default function EbayPublisher() {
             card.status === "saving" && card.message === "Creating draft…";
           const cardPublishing =
             card.status === "saving" && card.message === "Publishing…";
-          const listingActionBlocked = Boolean(listingBlockedReason(card));
+          const listingActionBlockedReason = listingRenderBlockedReason(card);
+          const listingActionBlocked = Boolean(listingActionBlockedReason);
           const scanBlockedReason = scanUploadBlockedReason(card);
           return (
             <article key={card.id} className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -817,6 +838,10 @@ export default function EbayPublisher() {
                   type="button"
                   aria-disabled={listingActionBlocked}
                   aria-busy={cardSavingDraft}
+                  title={
+                    listingActionBlockedReason ||
+                    "Create a saved eBay draft without publishing this listing live."
+                  }
                   onClick={() => void submit(card, "draft")}
                   className="rounded-lg border bg-white px-4 py-2.5 text-sm font-black hover:bg-neutral-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                 >
@@ -826,6 +851,10 @@ export default function EbayPublisher() {
                   type="button"
                   aria-disabled={listingActionBlocked}
                   aria-busy={cardPublishing}
+                  title={
+                    listingActionBlockedReason ||
+                    "Open the final confirmation before publishing this listing live on eBay."
+                  }
                   onClick={() => openPublishConfirmation(card)}
                   className="rounded-lg bg-neutral-950 px-4 py-2.5 text-sm font-black text-white hover:bg-neutral-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                 >
@@ -847,6 +876,11 @@ export default function EbayPublisher() {
                       type="button"
                       aria-disabled={card.status === "saving"}
                       aria-busy={card.status === "saving"}
+                      title={
+                        card.status === "saving"
+                          ? "Wait for the current eBay publish action to finish."
+                          : "Confirm and publish this listing live on eBay now."
+                      }
                       onClick={() => void submit(card, "publish")}
                       className="rounded-lg bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                     >
@@ -855,6 +889,11 @@ export default function EbayPublisher() {
                     <button
                       type="button"
                       aria-disabled={card.status === "saving"}
+                      title={
+                        card.status === "saving"
+                          ? "Wait for the current eBay publish action to finish before cancelling."
+                          : "Close this confirmation without publishing live."
+                      }
                       onClick={() => cancelPublishConfirmation(card)}
                       className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                     >

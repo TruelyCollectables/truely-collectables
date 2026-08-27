@@ -1,0 +1,65 @@
+import { createClient } from "@supabase/supabase-js";
+import type { requireInstaCompJobActor } from "./instacomp-job-server";
+import type { KingmakerPricingDecision } from "./kingmaker-pricing-decision";
+import type { KingmakerPricingProfileResolution } from "./kingmaker-pricing-profile-server";
+
+type InstaCompActor = Awaited<ReturnType<typeof requireInstaCompJobActor>>;
+
+function client() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Pricing decision receipts require service-role access.");
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+export function buildKingmakerPricingDecisionReceiptRow(params: {
+  actor: InstaCompActor;
+  identityId: string;
+  profileResolution: KingmakerPricingProfileResolution;
+  decision: KingmakerPricingDecision;
+}) {
+  const profile = params.profileResolution.profile;
+  const economics = params.decision.economics;
+
+  return {
+    store_id: params.actor.storeId,
+    seller_account_id: params.actor.type === "seller" ? params.actor.sellerAccountId || null : null,
+    identity_id: params.identityId,
+    profile_id: profile.id === "tcos-standard" ? null : profile.id,
+    profile_name: profile.name,
+    profile_selection: params.profileResolution.selection,
+    decision_status: params.decision.status,
+    suggested_list_price: params.decision.suggestedListPrice,
+    buy_ceiling: params.decision.buyCeiling,
+    market_median: params.decision.marketMedian,
+    reference_midpoint: params.decision.referenceMidpoint,
+    estimated_net_proceeds: params.decision.estimatedNetProceeds,
+    expected_profit: params.decision.estimatedProfitAtCeiling,
+    minimum_profitable_list_price: params.decision.minimumProfitableListPrice,
+    confidence: params.decision.confidence,
+    sold_comp_count: params.decision.soldCompCount,
+    review_reasons: params.decision.reviewReasons,
+    marketplace_fee_pct: economics.marketplaceFeePct,
+    payment_fee_pct: economics.paymentFeePct,
+    payment_fixed_fee: economics.paymentFixedFee,
+    shipping_cost: economics.shippingCost,
+    target_margin_pct: economics.targetMarginPct,
+    boundary: params.decision.boundary,
+  };
+}
+
+export async function writeKingmakerPricingDecisionReceipt(params: {
+  actor: InstaCompActor;
+  identityId: string;
+  profileResolution: KingmakerPricingProfileResolution;
+  decision: KingmakerPricingDecision;
+}) {
+  const { data, error } = await client()
+    .from("tcos_kingmaker_pricing_decision_receipts")
+    .insert(buildKingmakerPricingDecisionReceiptRow(params))
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return String(data.id);
+}

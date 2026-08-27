@@ -1,0 +1,92 @@
+name: Probe Mainstream Checklist Source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mainstream-checklist-source.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Parse exact production sources without database writes
+        shell: bash
+        env:
+          STATUS_BRANCH: ops/mainstream-checklist-status
+          STATUS_PATH: docs/operations/instacomp-mainstream-checklist-source-probe.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mainstream-source-probe"
+          node \
+            --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
+            --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs \
+            --import ./scripts/mainstream-checklist/fetch-patch.mjs \
+            --input-type=module > "$RUNNER_TEMP/mainstream-source-probe/probe.json" <<'NODE'
+          import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          import { downloadAndParse } from './scripts/mainstream-checklist/source-tools.mjs';
+
+          const ids = ['SR-0245','SR-0250','SR-0355'];
+          const manifest = loadMainstreamChecklistManifest();
+          const results = [];
+          for (const id of ids) {
+            const entry = manifest.entries.find((row) => row.id === id);
+            if (!entry) {
+              results.push({ id, error: 'manifest entry not found' });
+              continue;
+            }
+            try {
+              const downloaded = await downloadAndParse(entry);
+              results.push({
+                id,
+                canonicalName: entry.release.canonicalName,
+                sourceUrl: entry.sourceUrl,
+                selectedUrl: downloaded.source.selectedUrl,
+                finalUrl: downloaded.source.finalUrl,
+                mimeType: downloaded.source.mimeType,
+                cards: downloaded.parsed.cards.length,
+                parallels: downloaded.parsed.parallels.length,
+                errors: downloaded.parsed.errors,
+                warnings: downloaded.parsed.warnings,
+                sample: downloaded.parsed.cards.slice(0, 5).map((card) => ({ setName: card.setName, cardNumber: card.cardNumber, players: card.players })),
+              });
+            } catch (error) {
+              results.push({ id, canonicalName: entry.release.canonicalName, sourceUrl: entry.sourceUrl, error: error instanceof Error ? error.message : String(error) });
+            }
+          }
+          console.log(JSON.stringify({ checkedAt: new Date().toISOString(), results }, null, 2));
+          NODE
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$STATUS_BRANCH"
+          git checkout -B "$STATUS_BRANCH" "origin/$STATUS_BRANCH"
+          mkdir -p "$(dirname "$STATUS_PATH")"
+          cp "$RUNNER_TEMP/mainstream-source-probe/probe.json" "$STATUS_PATH"
+          git add "$STATUS_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m "Probe mainstream checklist source parsing [skip ci]"
+            git push origin "HEAD:$STATUS_BRANCH"
+          fi

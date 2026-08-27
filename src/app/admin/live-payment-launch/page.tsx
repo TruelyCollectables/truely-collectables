@@ -3,6 +3,13 @@ import {
   evaluateLivePaymentLaunch,
   type LivePaymentCheckStatus,
 } from "../../../lib/live-payment-launch";
+import {
+  databaseApprovalPresentation,
+  launchCheckBadge,
+  launchCheckTone,
+  launchSummaryTone,
+  type LaunchSemanticTone,
+} from "../../../lib/live-payment-status-presentation";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { LIVE_MONEY_JSON_EVIDENCE } from "../../../lib/live-money-evidence";
@@ -11,17 +18,63 @@ import LivePaymentGateActions from "./LivePaymentGateActions";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function tone(status: LivePaymentCheckStatus) {
-  if (status === "passed") return "border-green-200 bg-green-50 text-green-900";
-  if (status === "warning") return "border-yellow-200 bg-yellow-50 text-yellow-900";
-  return "border-red-200 bg-red-50 text-red-900";
+type GatePostureTone = Exclude<LaunchSemanticTone, "yellow">;
+
+type LaunchCheckPresentation = {
+  key: string;
+  status: LivePaymentCheckStatus;
+};
+
+function checkToneClass(check: LaunchCheckPresentation) {
+  const tone = launchCheckTone(check);
+
+  if (tone === "emerald") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (tone === "yellow") {
+    return "border-yellow-200 bg-yellow-50 text-yellow-950";
+  }
+
+  if (tone === "amber") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  return "border-red-200 bg-red-50 text-red-950";
 }
 
-function label(status: LivePaymentCheckStatus) {
-  if (status === "passed") return "Passed";
-  if (status === "warning") return "Review";
-  return "Blocked";
+function summaryPanelClass(tone: GatePostureTone) {
+  if (tone === "emerald") {
+    return "border-emerald-300 bg-emerald-50 text-emerald-950 ring-emerald-900/10";
+  }
+
+  if (tone === "amber") {
+    return "border-amber-300 bg-amber-50 text-amber-950 ring-amber-900/10";
+  }
+
+  if (tone === "sky") {
+    return "border-sky-300 bg-sky-50 text-sky-950 ring-sky-900/10";
+  }
+
+  return "border-red-300 bg-red-50 text-red-950 ring-red-900/10";
 }
+
+function safeErrorMessage(
+  error: { message?: string } | string | null | undefined,
+) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown live-payment launch history error.";
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
+const gatePrimaryLinkClass =
+  "rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
+const gateSecondaryLinkClass =
+  "rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-800 shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
+const gateEmeraldLinkClass =
+  "rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-black text-emerald-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400";
 
 export default async function LivePaymentLaunchPage() {
   const supabase = createSupabaseServerClient({ admin: true });
@@ -38,15 +91,48 @@ export default async function LivePaymentLaunchPage() {
   const {
     approvalBlockingCount,
     blockedCount,
+    databaseApproved,
     launchLockCount,
     passedCount,
     warningCount,
   } = report.summary;
+  const paymentGatePosture = report.livePaymentsEnabled
+    ? "RUNTIME ENABLED"
+    : approvalBlockingCount > 0
+      ? "APPROVAL BLOCKERS"
+      : launchLockCount > 0
+        ? "LAUNCH LOCKED"
+        : "READY FOR FINAL WINDOW";
+  const paymentPostureTone = launchSummaryTone({
+    livePaymentsEnabled: report.livePaymentsEnabled,
+    approvalBlockingCount,
+    launchLockCount,
+  });
+  const databaseApproval = databaseApprovalPresentation({
+    databaseApproved,
+    approvalReady: report.approvalReady,
+  });
+  const databaseApprovalDetail =
+    approvalBlockingCount > 0
+      ? `${approvalBlockingCount} approval blocker(s) must be cleared before recording a database approval.`
+      : databaseApproved
+        ? "The current auditable database approval is recorded."
+        : "All approval blockers are clear. Database approval can be recorded when you choose.";
+  const paymentApprovalPosture =
+    approvalBlockingCount > 0 ? "NOT APPROVABLE" : databaseApproval.status;
+  const paymentNextStep =
+    approvalBlockingCount > 0
+      ? "Clear approval blockers"
+      : launchLockCount > 0
+        ? "Hold final runtime switch"
+        : report.livePaymentsEnabled
+          ? "Monitor live checkout"
+          : "Prepare final approval";
 
   return (
     <main className="min-h-screen bg-neutral-50 px-6 py-8 text-neutral-950">
       <div className="mx-auto max-w-6xl space-y-6">
-        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
@@ -67,19 +153,19 @@ export default async function LivePaymentLaunchPage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/admin/launch-readiness"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className={gateSecondaryLinkClass}
               >
                 Launch Readiness
               </Link>
               <Link
                 href="/admin/launch-gate-drill"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className={gateSecondaryLinkClass}
               >
                 Gate Drill
               </Link>
               <Link
                 href="/admin/payment-simulations"
-                className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+                className={gatePrimaryLinkClass}
               >
                 Payment Lab
               </Link>
@@ -87,12 +173,31 @@ export default async function LivePaymentLaunchPage() {
           </div>
         </section>
 
+        <section className="grid gap-4 lg:grid-cols-3">
+          <GatePostureCard
+            detail={report.summary.operatorSummary}
+            label="Payment gate posture"
+            status={paymentGatePosture}
+            tone={paymentPostureTone}
+          />
+          <GatePostureCard
+            detail={databaseApprovalDetail}
+            label="Database approval"
+            status={paymentApprovalPosture}
+            tone={databaseApproval.tone}
+          />
+          <GatePostureCard
+            detail={`Runtime is ${report.livePaymentsEnabled ? "open" : "closed"}; ${launchLockCount} launch lock(s) still guard Stripe Checkout creation.`}
+            label="Operator next step"
+            status={paymentNextStep.toUpperCase()}
+            tone={report.livePaymentsEnabled ? "emerald" : "amber"}
+          />
+        </section>
+
         <section
-          className={`rounded-3xl border p-6 shadow-sm ${
-            report.livePaymentsEnabled
-              ? "border-green-300 bg-green-50"
-              : "border-red-300 bg-red-50"
-          }`}
+          className={`rounded-3xl border p-6 shadow-sm ring-1 ${summaryPanelClass(
+            paymentPostureTone,
+          )}`}
         >
           <div className="grid gap-4 md:grid-cols-5">
             <GateMetric
@@ -125,7 +230,7 @@ export default async function LivePaymentLaunchPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
@@ -135,9 +240,9 @@ export default async function LivePaymentLaunchPage() {
                 What remains before live money
               </h2>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
-                Approval blockers must be cleared before database approval can be
-                recorded. Launch locks are intentional final controls that keep live
-                Checkout closed until the go-live window.
+                Approval blockers must be cleared before database approval can
+                be recorded. Launch locks are intentional final controls that
+                keep live Checkout closed until the go-live window.
               </p>
             </div>
             <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-black">
@@ -150,35 +255,31 @@ export default async function LivePaymentLaunchPage() {
               {report.summary.nextActions.map((item) => (
                 <li
                   key={item.key}
-                  className={`rounded-2xl border p-4 ${tone(item.status)}`}
+                  className={`rounded-2xl border p-4 ${checkToneClass(item)}`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="font-black">{item.label}</p>
-                    <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
-                      {approvalBlockingCount > 0 &&
-                      item.status === "blocked" &&
-                      item.key !== "database_approval" &&
-                      item.key !== "runtime_switch"
-                        ? "Approval blocker"
-                        : item.status === "blocked"
-                          ? "Launch lock"
-                          : label(item.status)}
+                    <span className="rounded-full border border-current bg-white/70 px-2 py-1 text-xs font-black uppercase">
+                      {launchCheckBadge(item)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-6">{item.detail}</p>
-                  <p className="mt-2 text-sm font-bold leading-6">Next: {item.action}</p>
+                  <p className="mt-2 text-sm font-bold leading-6">
+                    Next: {item.action}
+                  </p>
                 </li>
               ))}
             </ol>
           ) : (
             <p className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-900">
-              No live-payment approval blockers or launch locks remain. Continue with final
-              operator approval, runtime switch review, and post-launch monitoring.
+              No live-payment approval blockers or launch locks remain. Continue
+              with final operator approval, runtime switch review, and
+              post-launch monitoring.
             </p>
           )}
         </section>
 
-        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm">
+        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm ring-1 ring-emerald-900/10">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-widest">
@@ -195,7 +296,7 @@ export default async function LivePaymentLaunchPage() {
             </div>
             <Link
               href="/api/admin/launch-readiness?format=handoff-bundle"
-              className="rounded-md border border-emerald-300 bg-white px-4 py-2 text-sm font-black hover:bg-emerald-100"
+              className={gateEmeraldLinkClass}
             >
               Hand-off Bundle
             </Link>
@@ -298,12 +399,12 @@ export default async function LivePaymentLaunchPage() {
           {report.checks.map((item) => (
             <article
               key={item.key}
-              className={`rounded-2xl border p-5 shadow-sm ${tone(item.status)}`}
+              className={`rounded-2xl border p-5 shadow-sm ${checkToneClass(item)}`}
             >
               <div className="flex items-start justify-between gap-4">
                 <h2 className="font-black">{item.label}</h2>
                 <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
-                  {label(item.status)}
+                  {launchCheckBadge(item)}
                 </span>
               </div>
               <p className="mt-3 text-sm leading-6">{item.detail}</p>
@@ -311,10 +412,12 @@ export default async function LivePaymentLaunchPage() {
           ))}
         </section>
 
-        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm ring-1 ring-black/[0.02]">
           <h2 className="text-xl font-black">Immutable Approval History</h2>
           {eventsResult.error ? (
-            <p className="mt-3 text-sm text-red-700">{eventsResult.error.message}</p>
+            <HistoryUnavailableNotice
+              diagnostic={safeErrorMessage(eventsResult.error)}
+            />
           ) : eventsResult.data?.length ? (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -351,6 +454,56 @@ export default async function LivePaymentLaunchPage() {
   );
 }
 
+function GatePostureCard({
+  detail,
+  label: labelText,
+  status,
+  tone: cardTone,
+}: {
+  detail: string;
+  label: string;
+  status: string;
+  tone: GatePostureTone;
+}) {
+  const className =
+    cardTone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950 ring-emerald-900/10"
+      : cardTone === "sky"
+        ? "border-sky-200 bg-sky-50 text-sky-950 ring-sky-900/10"
+        : cardTone === "amber"
+          ? "border-amber-200 bg-amber-50 text-amber-950 ring-amber-900/10"
+          : "border-red-200 bg-red-50 text-red-950 ring-red-900/10";
+
+  return (
+    <article className={`rounded-3xl border p-5 shadow-sm ring-1 ${className}`}>
+      <p className="text-xs font-black uppercase tracking-[0.16em] opacity-70">
+        {labelText}
+      </p>
+      <p className="mt-3 w-fit rounded-full border border-current bg-white/70 px-3 py-1 text-xs font-black">
+        {status}
+      </p>
+      <p className="mt-4 text-sm font-semibold leading-6">{detail}</p>
+    </article>
+  );
+}
+
+function HistoryUnavailableNotice({ diagnostic }: { diagnostic: string }) {
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950 shadow-sm ring-1 ring-rose-900/10"
+    >
+      <p className="font-black">Approval history unavailable.</p>
+      <p className="mt-2 font-semibold leading-6">
+        This panel is paused instead of showing an empty approval trail. The
+        live-payment gate remains governed by the current launch checks above.
+      </p>
+      <p className="mt-2 text-xs font-bold">Diagnostic: {diagnostic}</p>
+    </div>
+  );
+}
+
 function GateMetric({
   label: metricLabel,
   value,
@@ -359,7 +512,7 @@ function GateMetric({
   value: string | number;
 }) {
   return (
-    <div className="rounded-2xl border border-current/20 bg-white/70 p-4">
+    <div className="rounded-2xl border border-current/20 bg-white/70 p-4 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
         {metricLabel}
       </p>

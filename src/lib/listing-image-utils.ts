@@ -1,0 +1,155 @@
+export const MAX_LISTING_IMAGES = 20;
+
+function cleanImageUrl(value: unknown) {
+  return String(value || "").trim();
+}
+
+export function preferHighResolutionListingImage(value: unknown) {
+  const cleaned = cleanImageUrl(value);
+  if (!cleaned) return "";
+
+  return cleaned.replace(
+    /\/s-l\d+\.(jpg|jpeg|png|webp)(\?.*)?$/i,
+    "/s-l1600.$1$2",
+  );
+}
+
+function ebayImageKey(pathname: string) {
+  const current = /^\/images\/g\/([^/]+)\//i.exec(pathname)?.[1];
+  if (current) return current;
+
+  const legacy = /\/z\/([^/]+)\/\$_\d+\.(?:jpe?g|png|webp)$/i.exec(pathname)?.[1];
+  return legacy || null;
+}
+
+export function listingImageIdentity(value: unknown) {
+  const normalized = preferHighResolutionListingImage(value);
+  if (!normalized) return "";
+
+  try {
+    const url = new URL(normalized);
+    if (url.hostname.toLowerCase() === "i.ebayimg.com") {
+      const key = ebayImageKey(url.pathname);
+      if (key) return `ebay:${key}`;
+    }
+
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return normalized;
+  }
+}
+
+function collxExportImageSide(pathname: string) {
+  const match = /^\/collx-product-images\/\d+-(1|2)-[^/]+\.(?:jpe?g|png|webp)$/i.exec(
+    pathname,
+  );
+  if (!match?.[1]) return null;
+  return match[1] === "2" ? "back" : "front";
+}
+
+export function listingImageSide(value: unknown): "front" | "back" | null {
+  const cleaned = cleanImageUrl(value);
+  if (!cleaned) return null;
+
+  let pathname = cleaned;
+  let hostname = "";
+  try {
+    const parsed = new URL(cleaned);
+    pathname = parsed.pathname;
+    hostname = parsed.hostname.toLowerCase();
+  } catch {
+    pathname = cleaned.split(/[?#]/, 1)[0];
+  }
+
+  const namedSide = /(?:^|[-_/])(front|back)(?=\.[a-z0-9]+$)/i.exec(pathname);
+  if (namedSide?.[1]) {
+    return namedSide[1].toLowerCase() === "back" ? "back" : "front";
+  }
+
+  if (hostname === "storage.googleapis.com") {
+    return collxExportImageSide(pathname);
+  }
+
+  return null;
+}
+
+export function companionBackListingImageUrl(value: unknown) {
+  const cleaned = cleanImageUrl(value);
+  if (!cleaned || listingImageSide(cleaned) !== "front") return "";
+
+  try {
+    const url = new URL(cleaned);
+    const replaced = url.pathname.replace(
+      /(^|[-_/])front(?=\.[a-z0-9]+$)/i,
+      "$1back",
+    );
+    if (replaced === url.pathname) return "";
+    url.pathname = replaced;
+    return url.toString();
+  } catch {
+    return cleaned.replace(
+      /(^|[-_/])front(?=\.[a-z0-9]+(?:[?#].*)?$)/i,
+      "$1back",
+    );
+  }
+}
+
+export function normalizeListingImageUrls(values: unknown[]) {
+  const images: string[] = [];
+  const identities = new Set<string>();
+
+  for (const value of values) {
+    const normalized = preferHighResolutionListingImage(value);
+    const identity = listingImageIdentity(normalized);
+
+    if (!normalized || !identity || identities.has(identity)) continue;
+
+    identities.add(identity);
+    images.push(normalized);
+
+    if (images.length >= MAX_LISTING_IMAGES) break;
+  }
+
+  return images;
+}
+
+export function selectFrontBackListingImages(values: unknown[]) {
+  const normalized = normalizeListingImageUrls(values);
+  if (normalized.length <= 1) return normalized;
+
+  const explicitFront = normalized.find(
+    (image) => listingImageSide(image) === "front",
+  );
+  const explicitBack = normalized.find(
+    (image) => listingImageSide(image) === "back",
+  );
+  if (explicitFront && explicitBack) return [explicitFront, explicitBack];
+
+  const ebayImages = normalized.filter((image) =>
+    listingImageIdentity(image).startsWith("ebay:"),
+  );
+  if (ebayImages.length >= 2) return ebayImages.slice(0, 2);
+
+  const front = normalized[0];
+  const remaining = normalized.slice(1);
+  const secondEbay = remaining.find((image) =>
+    listingImageIdentity(image).startsWith("ebay:"),
+  );
+  const neutralDetail = remaining.find(
+    (image) => listingImageSide(image) !== "front",
+  );
+  const back = explicitBack || secondEbay || neutralDetail;
+
+  return back ? [front, back] : [front];
+}
+
+export function listingImageLabel(index: number) {
+  if (index === 0) return "front";
+  if (index === 1) return "back";
+  return `detail ${index + 1}`;
+}
+
+export function listingImageAltText(title: string, index: number) {
+  return `${title} ${listingImageLabel(index)}`;
+}

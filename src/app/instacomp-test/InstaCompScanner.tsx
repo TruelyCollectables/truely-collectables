@@ -2170,7 +2170,7 @@ export default function InstaCompScanner({
       formData.append("backImage", back);
     }
 
-    const response = await fetch("/api/instacomp/scan", {
+    const response = await fetch("/api/instacomp/scan-fast", {
       method: "POST",
       body: formData,
     });

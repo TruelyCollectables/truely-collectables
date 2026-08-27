@@ -124,7 +124,8 @@ export function appendAdminSessionCookies(
 }
 
 function getSessionSecret(): string {
-  return process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || "";
+  const secret = process.env.ADMIN_SESSION_SECRET;
+  return secret?.trim() || "";
 }
 
 function toBase64Url(bytes: ArrayBuffer): string {
@@ -198,7 +199,7 @@ export async function createAdminSessionValue(): Promise<string> {
   const secret = getSessionSecret();
 
   if (!secret) {
-    throw new Error("ADMIN_PASSWORD or ADMIN_SESSION_SECRET is required");
+    throw new Error("ADMIN_SESSION_SECRET is required");
   }
 
   const issuedAt = String(Math.floor(Date.now() / 1000));

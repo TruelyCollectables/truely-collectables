@@ -2,7 +2,14 @@ import Stripe from "stripe";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../../../lib/seller-payouts";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
-import { getOperationalStripeSecretKey } from "../../../../../lib/stripe-credentials";
+import {
+  getOperationalStripeSecretKey,
+  getStripeLiveSecretKey,
+} from "../../../../../lib/stripe-credentials";
+import {
+  isExternalStripeConnectAccountId,
+  isInternalPlatformStoreOwnerPayoutAccount,
+} from "../../../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -12,6 +19,7 @@ type SellerPayoutAccountRow = {
   account_id: string;
   provider_account_id: string | null;
   onboarding_status: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 function isMissingSellerPayoutTables(error: { code?: string; message?: string }) {
@@ -26,7 +34,8 @@ function isMissingSellerPayoutTables(error: { code?: string; message?: string })
 
 export async function POST() {
   try {
-    const stripeKey = getOperationalStripeSecretKey();
+    const liveStripeKey = getStripeLiveSecretKey();
+    const stripeKey = liveStripeKey || getOperationalStripeSecretKey();
 
     if (!stripeKey) {
       return Response.json(
@@ -39,7 +48,7 @@ export async function POST() {
     const storeId = getActiveStoreId();
     const { data, error } = await supabase
       .from("seller_payout_accounts")
-      .select("id,account_id,provider_account_id,onboarding_status")
+      .select("id,account_id,provider_account_id,onboarding_status,metadata")
       .eq("store_id", storeId)
       .eq("provider", "stripe_connect")
       .order("updated_at", { ascending: false })
@@ -59,14 +68,29 @@ export async function POST() {
     }
 
     const stripe = new Stripe(stripeKey);
-    const accounts = ((data || []) as SellerPayoutAccountRow[]).filter(
-      (account) => account.provider_account_id,
+    const rows = (data || []) as SellerPayoutAccountRow[];
+    const internalOwnerRows = rows.filter((account) =>
+      isInternalPlatformStoreOwnerPayoutAccount(account, storeId),
+    );
+    const externalRows = rows.filter(
+      (account) => !isInternalPlatformStoreOwnerPayoutAccount(account, storeId),
+    );
+    const accounts = externalRows.filter((account) =>
+      isExternalStripeConnectAccountId(account.provider_account_id),
+    );
+    const invalidRows = externalRows.filter(
+      (account) => !isExternalStripeConnectAccountId(account.provider_account_id),
     );
     const failures: Array<{
       sellerAccountId: string;
       providerAccountId: string | null;
       error: string;
-    }> = [];
+    }> = invalidRows.map((account) => ({
+      sellerAccountId: account.account_id,
+      providerAccountId: account.provider_account_id,
+      error:
+        "Stored external Stripe Connect account ID is invalid; expected an acct_ identifier.",
+    }));
     let updatedCount = 0;
     let statusChangedCount = 0;
 
@@ -105,7 +129,10 @@ export async function POST() {
 
     return Response.json({
       success: failures.length === 0,
+      stripeMode: liveStripeKey ? "live" : "test",
       checkedCount: accounts.length,
+      skippedInternalOwnerCount: internalOwnerRows.length,
+      invalidExternalCount: invalidRows.length,
       updatedCount,
       statusChangedCount,
       failedCount: failures.length,

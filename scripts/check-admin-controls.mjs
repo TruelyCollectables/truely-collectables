@@ -36,6 +36,9 @@ for (const filePath of walk(adminRoot)) {
   const promptPattern = /\b(?:window\.)?prompt\s*\(/g;
   const confirmPattern = /\b(?:window\.)?confirm\s*\(/g;
   const unsafeJsonPattern = /await\s+[\w$.]+\s*\.json\(\)(?!\.catch)/g;
+  const deadHrefLiteralPattern = /\bhref\s*=\s*["']#["']/g;
+  const deadHrefExpressionPattern = /\bhref\s*=\s*\{[^}]*\|\|\s*["']#["'][^}]*\}/g;
+  const adminSubmitButtonPattern = /<AdminSubmitButton\b[\s\S]*?>/g;
   const buttonPattern = /<button\b[\s\S]*?>/g;
   let match;
 
@@ -73,6 +76,47 @@ for (const filePath of walk(adminRoot)) {
       message:
         "Admin fetch handlers must parse JSON with .catch(() => ({})) so non-JSON failures still show inline feedback.",
     });
+  }
+
+  while ((match = deadHrefLiteralPattern.exec(source))) {
+    violations.push({
+      file: relativePath,
+      line: lineForOffset(source, match.index),
+      message:
+        "Admin links must not use href=\"#\" placeholders; render disabled/unavailable state instead.",
+    });
+  }
+
+  while ((match = deadHrefExpressionPattern.exec(source))) {
+    violations.push({
+      file: relativePath,
+      line: lineForOffset(source, match.index),
+      message:
+        "Admin links must not fall back to href=\"#\"; render disabled/unavailable state instead.",
+    });
+  }
+
+  while ((match = adminSubmitButtonPattern.exec(source))) {
+    const tag = match[0];
+    const line = lineForOffset(source, match.index);
+
+    if (!/\btitle\s*=/.test(tag)) {
+      violations.push({
+        file: relativePath,
+        line,
+        message:
+          "AdminSubmitButton must include a title that explains the action scope and side effects.",
+      });
+    }
+
+    if (/\bdisabled\s*=/.test(tag) && !/\bdisabledReason\s*=/.test(tag)) {
+      violations.push({
+        file: relativePath,
+        line,
+        message:
+          "Disabled AdminSubmitButton must include disabledReason so blocked clicks explain what to fix.",
+      });
+    }
   }
 
   while ((match = buttonPattern.exec(source))) {

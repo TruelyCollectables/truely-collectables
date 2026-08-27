@@ -33,7 +33,14 @@ const CATEGORY_RULES: CategoryRule[] = [
       "prizm",
       "refractor",
     ],
-    mediumTerms: ["baseball", "basketball", "football", "hockey", "soccer", "ufc"],
+    mediumTerms: [
+      "baseball",
+      "basketball",
+      "football",
+      "hockey",
+      "soccer",
+      "ufc",
+    ],
   },
   {
     category: "trading_cards",
@@ -85,22 +92,64 @@ const CATEGORY_RULES: CategoryRule[] = [
     mediumTerms: ["pack", "factory sealed", "sealed"],
   },
   {
-    category: "autographs",
+    category: "music",
     highTerms: [
-      "autograph",
-      "autographed",
-      "autographs",
-      "signature",
-      "signatures",
-      "signed",
-      "auto",
+      "cd booklet",
+      "signed cd",
+      "autographed cd",
+      "compact disc",
+      "music cd",
+      "album booklet",
+      "liner notes",
+      "cd insert",
+      "vinyl record",
     ],
+    mediumTerms: ["album", "record", "disc", "booklet"],
+  },
+  {
+    category: "autographs",
+    highTerms: ["autograph", "autographed", "autographs", "signed"],
     mediumTerms: ["coa", "jsa", "beckett authenticated", "psa dna"],
   },
   {
     category: "memorabilia",
-    highTerms: ["memorabilia", "jersey", "helmet", "bat", "game used", "relic"],
-    mediumTerms: ["patch", "framed", "display"],
+    highTerms: [
+      "sports memorabilia",
+      "memorabilia",
+      "hockey puck",
+      "signed puck",
+      "autographed puck",
+      "signed baseball",
+      "autographed baseball",
+      "signed football",
+      "autographed football",
+      "signed basketball",
+      "autographed basketball",
+      "signed jersey",
+      "autographed jersey",
+      "game used",
+      "game worn",
+      "player worn",
+      "helmet",
+      "baseball bat",
+      "signed photo",
+      "autographed photo",
+    ],
+    mediumTerms: [
+      "puck",
+      "ball",
+      "jersey",
+      "bat",
+      "glove",
+      "photo",
+      "photograph",
+      "ticket",
+      "program",
+      "patch",
+      "framed",
+      "display",
+      "coa",
+    ],
   },
   {
     category: "coins",
@@ -207,37 +256,55 @@ function hasAffirmativeAutographedAspect(aspects: EbayAspectMap) {
 }
 
 function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
+  const titleText = title.toLowerCase();
   const focused = [
     title,
     getAspectValue(aspects, "Features"),
-    getAspectValue(aspects, "Signed By"),
-    getAspectValue(aspects, "Autographed"),
     getAspectValue(aspects, "Parallel/Variety"),
   ]
     .join(" ")
     .toLowerCase();
+  const negative =
+    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed|non[- ]?auto|auto racing)\b/.test(
+      focused,
+    );
+  const signedBy = getAspectValue(aspects, "Signed By");
+  const authentication = getAspectValue(aspects, "Autograph Authentication");
+  const meaningful = (value: string) =>
+    Boolean(
+      value &&
+      !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+        value.trim(),
+      ),
+    );
+  const autoShorthand =
+    /\bautos?\b/i.test(titleText) &&
+    !/\b(?:auto racing|automotive|automobile)\b/i.test(titleText);
 
   return (
-    hasAffirmativeAutographedAspect(aspects) ||
-    hasTerm(focused, "autograph") ||
-    hasTerm(focused, "autographed") ||
-    hasTerm(focused, "signed") ||
-    /\bauto\b/i.test(focused) ||
-    /\bau\b/i.test(focused)
+    !negative &&
+    (hasAffirmativeAutographedAspect(aspects) ||
+      meaningful(signedBy) ||
+      meaningful(authentication) ||
+      /\bautograph(?:ed|s)?\b|\bautos?\b|\bsigned\b|\btreasured ink\b/i.test(
+        focused,
+      ) ||
+      autoShorthand)
   );
 }
 
-function preferSportsCardOverDescriptionNoise(params: {
+function preferSportsCardAsPrimaryCategory(params: {
   title: string;
   aspects: EbayAspectMap;
   currentCategory: string;
 }) {
   if (params.currentCategory !== "autographs") return false;
-  if (hasStrongAutographEvidence(params.title, params.aspects)) return false;
 
   const focused = `${params.title} ${aspectSearchText(params.aspects)}`;
-  const sportsCardScore =
-    scoreRule(CATEGORY_RULES[0], focused.toLowerCase()).score;
+  const sportsCardScore = scoreRule(
+    CATEGORY_RULES[0],
+    focused.toLowerCase(),
+  ).score;
 
   return sportsCardScore >= 3;
 }
@@ -268,11 +335,39 @@ export function mapEbayInventoryCategory(input: {
   aspects?: EbayAspectMap | null;
 }): EbayCategoryMapping {
   const aspects = input.aspects ?? {};
-  const focusedSearchable = `${input.title} ${aspectSearchText(aspects)}`.toLowerCase();
-  const fallbackSearchable = [
-    focusedSearchable,
-    input.description ?? "",
-  ].join(" ").toLowerCase();
+  const titleText = input.title.toLowerCase();
+  const explicitAccessoryObject =
+    /\b(?:wristwatch|sunglasses|eyewear|oakley)\b/.test(titleText) ||
+    (/\bwatch\b/.test(titleText) && !/\bfuture watch\b/.test(titleText));
+
+  if (explicitAccessoryObject) {
+    const category = "other_collectable";
+    const mappingConfidence = "high" as const;
+    const evidence = ["physical accessory title"];
+
+    return {
+      category,
+      confidence: mappingConfidence,
+      reviewRequired: false,
+      evidence,
+      attributes: {
+        tcos_category: category,
+        tcos_category_confidence: mappingConfidence,
+        tcos_review_required: "false",
+        tcos_category_evidence: evidence.join(", "),
+        tcos_is_autograph: String(
+          hasStrongAutographEvidence(input.title, aspects),
+        ),
+        ...usefulAspectAttributes(aspects),
+      },
+    };
+  }
+
+  const focusedSearchable =
+    `${input.title} ${aspectSearchText(aspects)}`.toLowerCase();
+  const fallbackSearchable = [focusedSearchable, input.description ?? ""]
+    .join(" ")
+    .toLowerCase();
 
   const focusedResults = CATEGORY_RULES.map((rule) => ({
     ...scoreRule(rule, focusedSearchable),
@@ -283,35 +378,48 @@ export function mapEbayInventoryCategory(input: {
     category: rule.category,
   })).sort((left, right) => right.score - left.score);
 
-  let best = focusedResults[0]?.score > 0 ? focusedResults[0] : fallbackResults[0];
+  let best =
+    focusedResults[0]?.score > 0 ? focusedResults[0] : fallbackResults[0];
+  const sportsCardResult = focusedResults.find(
+    (result) => result.category === "sports_cards",
+  );
+  const musicResult = focusedResults.find(
+    (result) => result.category === "music",
+  );
+
+  if (
+    best?.category === "autographs" &&
+    sportsCardResult &&
+    sportsCardResult.score >= 3
+  ) {
+    best = sportsCardResult;
+  }
 
   if (
     best &&
-    preferSportsCardOverDescriptionNoise({
+    preferSportsCardAsPrimaryCategory({
       title: input.title,
       aspects,
       currentCategory: best.category,
     })
   ) {
-    best = focusedResults.find((result) => result.category === "sports_cards") ?? best;
+    best =
+      focusedResults.find((result) => result.category === "sports_cards") ??
+      best;
   }
 
   if (
-    best?.category === "sports_cards" &&
-    hasStrongAutographEvidence(input.title, aspects)
+    musicResult &&
+    musicResult.score >= 3 &&
+    /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
+      focusedSearchable,
+    )
   ) {
-    const autographResult = focusedResults.find(
-      (result) => result.category === "autographs" && result.score > 0,
-    );
-
-    if (autographResult) {
-      best = autographResult;
-    }
+    best = musicResult;
   }
 
   const mappingConfidence = confidence(best?.score ?? 0);
-  const category =
-    best && best.score > 0 ? best.category : "other_collectable";
+  const category = best && best.score > 0 ? best.category : "other_collectable";
   const reviewRequired = mappingConfidence === "low";
   const evidence = best?.evidence ?? [];
 
@@ -325,6 +433,9 @@ export function mapEbayInventoryCategory(input: {
       tcos_category_confidence: mappingConfidence,
       tcos_review_required: String(reviewRequired),
       tcos_category_evidence: evidence.join(", "),
+      tcos_is_autograph: String(
+        hasStrongAutographEvidence(input.title, aspects),
+      ),
       ...usefulAspectAttributes(aspects),
     },
   };

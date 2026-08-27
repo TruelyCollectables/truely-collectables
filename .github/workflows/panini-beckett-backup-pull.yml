@@ -1,0 +1,56 @@
+name: Panini Beckett Backup Pull
+
+on:
+  pull_request:
+    paths:
+      - "scripts/pull-panini-checklists-from-beckett.ts"
+      - ".github/workflows/panini-beckett-backup-pull.yml"
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/pull-panini-checklists-from-beckett.ts"
+      - ".github/workflows/panini-beckett-backup-pull.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panini-beckett-backup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pull-panini:
+    name: Pull Panini Sets From Beckett
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Crawl Beckett Panini checklist archives
+        env:
+          BECKETT_MAX_PAGES: 60
+          BECKETT_MAX_ARTICLES: 2500
+        run: node --import tsx scripts/pull-panini-checklists-from-beckett.ts
+      - name: Package Panini backup set archive
+        if: always()
+        run: tar -czf panini-beckett-checklists.tar.gz .panini-beckett-archive
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-beckett-checklists-${{ github.run_id }}
+          path: panini-beckett-checklists.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panini-beckett-status-${{ github.run_id }}
+          path: .panini-beckett-archive/manifest.json
+          if-no-files-found: error
+          retention-days: 90

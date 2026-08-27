@@ -1,0 +1,118 @@
+name: InstaComp Mac Registry Pipeline
+
+on:
+  pull_request:
+    paths:
+      - "services/instacomp-ai/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-checklist-rate-limit-policy.ts"
+      - "src/lib/instacomp-registry-direct-*.ts"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/lib/deal-hunter-listing-registry-guard.ts"
+      - "src/app/api/instacomp/checklist-lookup/route.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
+      - "src/app/api/instacomp/deal-hunter/evaluate/route.ts"
+      - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
+      - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
+      - "scripts/run-instacomp-registry-release-first-regressions.ts"
+      - "scripts/run-deal-hunter-registry-context-regressions.ts"
+      - "supabase/migrations/*checklist_card_number_aliases.sql"
+      - ".github/workflows/instacomp-mac-registry-pipeline.yml"
+  push:
+    paths:
+      - "services/instacomp-ai/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/lib/instacomp-checklist-rate-limit-policy.ts"
+      - "src/lib/instacomp-registry-direct-*.ts"
+      - "src/lib/instacomp-registry-lock-request.ts"
+      - "src/lib/deal-hunter-listing-registry-guard.ts"
+      - "src/app/api/instacomp/checklist-lookup/route.ts"
+      - "src/app/api/instacomp/registry-lock/route.ts"
+      - "src/app/api/instacomp/deal-hunter/evaluate/route.ts"
+      - "scripts/run-instacomp-checklist-unthrottled-service-simulations.ts"
+      - "scripts/run-instacomp-registry-direct-exact-regressions.ts"
+      - "scripts/run-instacomp-registry-release-first-regressions.ts"
+      - "scripts/run-deal-hunter-registry-context-regressions.ts"
+      - "supabase/migrations/*checklist_card_number_aliases.sql"
+      - ".github/workflows/instacomp-mac-registry-pipeline.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Validate Mac shell helpers
+        working-directory: services/instacomp-ai
+        run: bash -n scripts/*.sh
+      - name: Compile service and control plane
+        working-directory: services/instacomp-ai
+        run: python -m compileall app scripts tests
+      - name: Run Registry and local control-plane tests
+        working-directory: services/instacomp-ai
+        run: pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prove trusted service-token Registry traffic is unthrottled
+        run: node --import tsx scripts/run-instacomp-checklist-unthrottled-service-simulations.ts
+      - name: Prove direct exact Registry recovery stays fail closed
+        run: node --import tsx scripts/run-instacomp-registry-direct-exact-regressions.ts
+      - name: Prove release-first Registry narrowing avoids global version fanout
+        run: node --import tsx scripts/run-instacomp-registry-release-first-regressions.ts
+      - name: Prove Deal Hunter rejects Registry/listing contradictions
+        run: node --import tsx scripts/run-deal-hunter-registry-context-regressions.ts
+      - name: Typecheck Next.js bridge
+        run: npx tsc --noEmit
+
+  native-serial-registry-contract:
+    name: native-macos-serial-registry
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install InstaComp service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+
+      - name: Prove serial evidence cannot poison Registry identity on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            services/instacomp-ai/tests/test_serial_evidence_guard.py \
+            services/instacomp-ai/tests/test_authoritative_registry_gateway_retry.py \
+            services/instacomp-ai/tests/test_authoritative_registry_print_run.py \
+            services/instacomp-ai/tests/test_deterministic_checklist_recovery.py
+
+      - name: Prove Registry authority through staged v11 v10 v9 source contract
+        run: |
+          set -euo pipefail
+          grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
+          grep -q 'promotion-v11-frozen-10-15-25' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'promote_lora_candidate_frozen_25_v11.py' services/instacomp-ai/scripts/run_frozen_25_promotion.sh
+          grep -q 'import promote_lora_candidate_frozen_25_v10 as v10' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
+          grep -q 'DEFAULT_STAGE_TARGET = 10' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
+          grep -q 'REGISTRY_ATTEMPT_BUDGETS = {10: 100, 15: 250, 25: 750}' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
+          grep -q 'v10._install_contract_fix()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v11.py
+          grep -q 'import promote_lora_candidate_frozen_25_v9 as v9' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
+          grep -q 'v9._install_contract_fix()' services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v10.py
+          grep -q 'class AuthoritativeRegistryChecklistGateway' services/instacomp-ai/app/authoritative_registry_gateway.py
+          grep -q '/api/instacomp/registry-lock' services/instacomp-ai/app/authoritative_registry_gateway.py
+          grep -q 'ChecklistOutcome.EXACT_MATCH' services/instacomp-ai/app/authoritative_registry_gateway.py
+          grep -q 'return SerialEvidence(stamp_present=False)' services/instacomp-ai/app/serial_evidence_guard.py
+          echo "PASS native macOS staged v11 inherits v10/v9 and preserves Registry fail-closed authority"

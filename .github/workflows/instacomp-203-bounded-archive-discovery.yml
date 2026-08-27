@@ -1,0 +1,62 @@
+name: InstaComp 203 Bounded Archive Discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-203-bounded-archive-discovery.yml"
+      - "scripts/patch-instacomp-203-bounded-archive-discovery.py"
+      - "services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-203-bounded-archive-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: fix/instacomp-203-bounded-archive-discovery-20260809
+
+jobs:
+  patch-test-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply bounded archive discovery patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-203-bounded-archive-discovery.py
+          bash -n services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh
+          git diff --check
+
+      - name: Prove archive discovery is bounded and visible
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh').read_text('utf-8')
+          assert '.rglob(' not in text
+          assert 'Searching bounded locations for the reviewed All scans.zip...' in text
+          assert 'direct_entries = list(root.iterdir())' in text
+          assert 'child_entries = list(path.iterdir())' in text
+          assert '621d58db6fe31e15d462a72b649e66a8d742639ce39973570e790bae6d11081a' in text
+          print('PASS bounded, non-recursive supervised-203 archive discovery')
+          PY
+
+      - name: Persist corrected loader
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh
+          if ! git diff --cached --quiet; then
+            git commit -m "Bound supervised 203 archive discovery [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi

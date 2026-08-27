@@ -26,14 +26,55 @@ scenario("admin login page labels native submits while posting", () => {
     "Expected admin login page to import the shared admin submit button.",
   );
   assert(
-    (loginPageSource.match(/<AdminSubmitButton/g) || []).length >= 2,
-    "Expected password and local rescue login forms to use pending-aware submit buttons.",
+    (loginPageSource.match(/<AdminSubmitButton/g) || []).length >= 3,
+    "Expected password, owner-reset, and local-rescue forms to use pending-aware submit buttons.",
   );
 
-  for (const label of ["Signing in...", "Opening admin..."]) {
+  for (const label of [
+    "Signing in...",
+    "Sending private reset link...",
+    "Opening admin...",
+  ]) {
     assert(
       loginPageSource.includes(label),
       `Expected admin login pending label ${label}.`,
+    );
+  }
+
+  for (const fragment of [
+    "Submit the permanent database owner password and create the admin session cookie for this browser.",
+    "Once the permanent database password exists, deployments cannot replace",
+    "If the password is uncertain, reset it instead of retrying guesses.",
+    "Email Owner Reset Link",
+    "Open the admin locally without the password box; this route is accepted only on localhost in non-production.",
+    "It does not use the typed password field.",
+  ]) {
+    assert(
+      loginPageSource.includes(fragment),
+      `Expected admin login action-scope guidance ${fragment}.`,
+    );
+  }
+});
+
+scenario("admin login page uses professional operator entry presentation", () => {
+  for (const fragment of [
+    "bg-[radial-gradient(circle_at_top_left",
+    "rounded-[2rem] border border-neutral-200 bg-white/95",
+    "shadow-2xl shadow-neutral-950/10",
+    "focus:ring-4 focus:ring-black/10",
+    "shadow-sm transition hover:bg-neutral-800",
+    "shadow-sm ring-1 ring-amber-950/5",
+  ]) {
+    assert(
+      loginPageSource.includes(fragment),
+      `Expected admin login professional presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]']) {
+    assert(
+      !loginPageSource.includes(roughShell),
+      `Expected admin login page to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });
@@ -42,6 +83,8 @@ scenario("admin login route keeps password paste and local rescue guards", () =>
   for (const fragment of [
     "password.trim()",
     "safeAdminLoginNextPath",
+    "verifyDatabaseAdminPasswordCandidates",
+    "getDatabaseAdminCredentialStatus",
     "verifyLocalDevelopmentAdminPassword",
     "localDevelopmentLogin",
     "jsonBodyNextPath",
@@ -53,6 +96,43 @@ scenario("admin login route keeps password paste and local rescue guards", () =>
     assert(
       loginRouteSource.includes(fragment),
       `Expected admin login route guard fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    loginRouteSource.indexOf("verifyDatabaseAdminPasswordCandidates") <
+      loginRouteSource.indexOf("verifyAdminPassword(candidate)"),
+    "Expected durable database credentials to be authoritative before the emergency environment fallback.",
+  );
+});
+
+scenario("admin local rescue login stays localhost-only and non-production", () => {
+  for (const fragment of [
+    "process.env.NODE_ENV !== \"production\"",
+    "hostname === \"localhost\"",
+    "hostname === \"127.0.0.1\"",
+    "hostname === \"::1\"",
+    "loginPayload.localDevelopmentLogin &&\n    isLocalDevelopmentAdminHost(hostname)",
+    "!isLocalDevelopmentLogin &&\n    !canUseLocalDevelopmentPasswordFile",
+    "isLocalDevelopmentLogin ||\n    (await verifySubmittedAdminPassword(loginPayload.password, hostname))",
+  ]) {
+    assert(
+      loginRouteSource.includes(fragment),
+      `Expected admin local rescue boundary fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "const localDevelopmentLoginAvailable = process.env.NODE_ENV !== \"production\";",
+    "{localDevelopmentLoginAvailable ? (",
+    "Localhost-only rescue button.",
+    "It does not use the typed password field.",
+    "Disabled in production and",
+    "rejected for non-local hosts.",
+  ]) {
+    assert(
+      loginPageSource.includes(fragment),
+      `Expected admin login page local rescue guidance fragment ${fragment}.`,
     );
   }
 });
@@ -83,8 +163,8 @@ scenario("admin login destination guard prevents login and logout loops", () => 
 scenario("admin login shows operator-readable failure guidance", () => {
   for (const message of [
     "Invalid admin password.",
-    "Admin password is not configured.",
-    "Admin password was accepted, but the server could not create an admin session.",
+    "No permanent database password or emergency fallback is configured.",
+    "The password was accepted, but the secure admin session could not be created.",
     "Too many failed attempts were recorded.",
     "Admin login request was not readable.",
   ]) {

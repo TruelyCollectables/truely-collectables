@@ -1,43 +1,21 @@
 import { NextResponse } from "next/server";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
+import { buildOrderNotificationPayload } from "../../../../lib/order-notification-payload";
 import {
   isDryRunShippingLabel,
   isDryRunShippingReference,
   type DryRunShippingLabelLike,
 } from "../../../../lib/shipping-dry-run";
-import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { enqueueAndAttemptOrderNotification } from "../../../../lib/order-notifications";
+import { getStoreSettings } from "../../../../lib/store-settings";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { refreshTransactionEvidenceReportForOrder } from "../../../../lib/transaction-evidence";
 
 export const dynamic = "force-dynamic";
 
-function trackingUrl(carrier: string, trackingNumber: string) {
-  const encoded = encodeURIComponent(trackingNumber);
-
-  if (carrier === "USPS") {
-    return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encoded}`;
-  }
-
-  if (carrier === "UPS") {
-    return `https://www.ups.com/track?tracknum=${encoded}`;
-  }
-
-  if (carrier === "FedEx") {
-    return `https://www.fedex.com/fedextrack/?trknbr=${encoded}`;
-  }
-
-  return "";
-}
-
-function storeName(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : "our store";
-}
-
 function isMissingShippingInfrastructure(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() || "";
-
   return (
     error.code === "42P01" ||
     message.includes("order_shipping_labels") ||
@@ -52,12 +30,8 @@ type ActiveShippingLabel = DryRunShippingLabelLike & {
 
 export async function POST(req: Request) {
   try {
-    const resendApiKey = process.env.RESEND_API_KEY;
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
-    const storeSettings = await getStoreSettings(supabase, storeId);
-    const activeStoreName = storeName(storeSettings.displayName);
-
     const body = await req.json();
     const orderId = Number(body.orderId);
 
@@ -67,17 +41,7 @@ export async function POST(req: Request) {
 
     const { data: order, error: lookupError } = await supabase
       .from("orders")
-      .select(
-        `
-        id,
-        customer_email,
-        customer_name,
-        tracking_number,
-        carrier,
-        status,
-        fulfillment_status
-      `,
-      )
+      .select("*")
       .eq("id", orderId)
       .eq("store_id", storeId)
       .single();
@@ -98,74 +62,54 @@ export async function POST(req: Request) {
 
     if (!order.tracking_number || !order.carrier) {
       return NextResponse.json(
-        {
-          error:
-            "Please save a carrier and tracking number before marking shipped.",
-        },
+        { error: "Please save a carrier and tracking number before marking shipped." },
         { status: 400 },
       );
     }
 
     if (isDryRunShippingReference(order.tracking_number)) {
       return NextResponse.json(
-        {
-          error:
-            "This order has TCOS dry-run tracking. Buy or record a real label before marking it shipped.",
-        },
+        { error: "This order has TCOS dry-run tracking. Buy or record a real label before marking it shipped." },
         { status: 409 },
       );
     }
 
     let activeShippingLabel: ActiveShippingLabel | null = null;
-
     try {
       const { data: label, error: labelLookupError } = await supabase
         .from("order_shipping_labels")
-        .select(
-          "id,label_status,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
-        )
+        .select("id,label_status,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id")
         .eq("store_id", storeId)
         .eq("order_id", orderId)
         .not("label_status", "in", "(voided,failed)")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-
-      if (labelLookupError && !isMissingShippingInfrastructure(labelLookupError)) {
-        throw labelLookupError;
-      }
-
+      if (labelLookupError && !isMissingShippingInfrastructure(labelLookupError)) throw labelLookupError;
       activeShippingLabel = (label || null) as ActiveShippingLabel | null;
     } catch (labelLookupError: any) {
-      if (!isMissingShippingInfrastructure(labelLookupError)) {
-        throw labelLookupError;
-      }
+      if (!isMissingShippingInfrastructure(labelLookupError)) throw labelLookupError;
     }
 
     if (isDryRunShippingLabel(activeShippingLabel)) {
       return NextResponse.json(
-        {
-          error:
-            "The active shipping label is a TCOS dry-run simulation. Buy or record a real label before marking it shipped.",
-        },
+        { error: "The active shipping label is a TCOS dry-run simulation. Buy or record a real label before marking it shipped." },
         { status: 409 },
       );
     }
 
-    const shippedAt = new Date().toISOString();
-
+    const shippedAt = order.shipped_at || new Date().toISOString();
+    const fulfilledAt = order.fulfilled_at || shippedAt;
     const { error } = await supabase
       .from("orders")
       .update({
         fulfillment_status: "shipped",
+        fulfilled_at: fulfilledAt,
         shipped_at: shippedAt,
       })
       .eq("id", orderId)
       .eq("store_id", storeId);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     try {
       if (activeShippingLabel?.id) {
@@ -174,22 +118,13 @@ export async function POST(req: Request) {
           .update({
             carrier: order.carrier,
             tracking_number: order.tracking_number,
-            label_status:
-              activeShippingLabel.label_status === "planned"
-                ? "printed"
-                : activeShippingLabel.label_status,
-            printed_at:
-              activeShippingLabel.label_status === "planned"
-                ? shippedAt
-                : undefined,
+            label_status: activeShippingLabel.label_status === "planned" ? "printed" : activeShippingLabel.label_status,
+            printed_at: activeShippingLabel.label_status === "planned" ? shippedAt : undefined,
             updated_at: shippedAt,
           })
           .eq("id", activeShippingLabel.id)
           .eq("store_id", storeId);
-
-        if (labelUpdateError && !isMissingShippingInfrastructure(labelUpdateError)) {
-          throw labelUpdateError;
-        }
+        if (labelUpdateError && !isMissingShippingInfrastructure(labelUpdateError)) throw labelUpdateError;
       }
 
       const { error: eventError } = await supabase
@@ -205,124 +140,96 @@ export async function POST(req: Request) {
           event_status: "shipped",
           message: "Order marked shipped in TCOS.",
           occurred_at: shippedAt,
-          raw_payload: {
-            carrier: order.carrier,
-            tracking_number: order.tracking_number,
-          },
+          raw_payload: { carrier: order.carrier, tracking_number: order.tracking_number },
         });
-
-      if (eventError && !isMissingShippingInfrastructure(eventError)) {
-        throw eventError;
-      }
+      if (eventError && !isMissingShippingInfrastructure(eventError)) throw eventError;
     } catch (shippingEventError: any) {
       if (!isMissingShippingInfrastructure(shippingEventError)) {
-        console.error(
-          "Shipping shipment event update failed:",
-          shippingEventError.message || shippingEventError,
-        );
+        console.error("Shipping shipment event update failed:", shippingEventError.message || shippingEventError);
       }
     }
 
     try {
-      await refreshTransactionEvidenceReportForOrder({
-        supabase,
-        orderId,
-        storeId,
-      });
+      await refreshTransactionEvidenceReportForOrder({ supabase, orderId, storeId });
     } catch (reportError: any) {
-      console.error(
-        "Evidence report refresh after shipment update failed:",
-        reportError.message || reportError,
-      );
+      console.error("Evidence report refresh after shipment update failed:", reportError.message || reportError);
     }
 
-    let emailSent = false;
-    let emailError: string | null = null;
+    const { data: orderItems, error: itemError } = await supabase
+      .from("order_items")
+      .select("title,quantity,price")
+      .eq("order_id", orderId)
+      .eq("store_id", storeId)
+      .order("id", { ascending: true });
+    if (itemError) throw itemError;
+    const items = (orderItems || []).map((item) => ({
+      title: String(item.title || "Item"),
+      quantity: Number(item.quantity || 1),
+      price: Number(item.price || 0),
+    }));
+    const updatedOrder = {
+      ...order,
+      fulfillment_status: "shipped",
+      fulfilled_at: fulfilledAt,
+      shipped_at: shippedAt,
+    };
+    const settings = await getStoreSettings(supabase, storeId);
+    const baseSiteUrl = String(process.env.NEXT_PUBLIC_SITE_URL || "https://truelycollectables.com").replace(/\/+$/, "");
 
-    if (resendApiKey && order.customer_email) {
-      const trackUrl = trackingUrl(order.carrier, order.tracking_number);
-
-      const html = `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
-          <h1>Your ${activeStoreName} order has shipped!</h1>
-
-          <p>Hi ${order.customer_name || "there"},</p>
-
-          <p>Great news - your order #${order.id} has shipped.</p>
-
-          <p>
-            <strong>Carrier:</strong> ${order.carrier}<br />
-            <strong>Tracking Number:</strong> ${order.tracking_number}
-          </p>
-
-          ${
-            trackUrl
-              ? `<p><a href="${trackUrl}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">Track Your Package</a></p>`
-              : `<p>You can use your tracking number on the carrier's website to follow your package.</p>`
-          }
-
-          <p>Thank you for shopping with ${activeStoreName}!</p>
-
-          <p>- ${activeStoreName}</p>
-        </div>
-      `;
-
-      const text = `
-Your ${activeStoreName} order has shipped!
-
-Hi ${order.customer_name || "there"},
-
-Great news - your order #${order.id} has shipped.
-
-Carrier: ${order.carrier}
-Tracking Number: ${order.tracking_number}
-
-${trackUrl ? `Track your package: ${trackUrl}` : "You can use your tracking number on the carrier's website to follow your package."}
-
-Thank you for shopping with ${activeStoreName}!
-
-- ${activeStoreName}
-      `.trim();
-
-      try {
-        const emailRes = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: storeSettings.orderFromEmail,
-            to: order.customer_email,
-            subject: `Your ${activeStoreName} order #${order.id} has shipped!`,
-            html,
-            text,
-          }),
-        });
-
-        const emailData = await emailRes.json().catch(() => ({}));
-
-        if (!emailRes.ok) {
-          emailError = JSON.stringify(emailData);
-          console.error("Shipment email failed:", emailData);
-        } else {
-          emailSent = true;
-        }
-      } catch (err: any) {
-        emailError = err.message || "Shipment email failed";
-        console.error("Shipment email failed:", emailError);
-      }
+    let customerNotification = null;
+    let ownerNotification = null;
+    let notificationError: string | null = null;
+    try {
+      customerNotification = await enqueueAndAttemptOrderNotification({
+        supabase,
+        storeId,
+        orderId,
+        notificationType: "shipment_confirmation",
+        recipientEmail: order.customer_email,
+        recipientName: order.customer_name,
+        payload: buildOrderNotificationPayload({
+          order: updatedOrder,
+          items,
+          audience: "customer",
+          fulfilledAt,
+          shippedAt,
+        }),
+      });
+      ownerNotification = await enqueueAndAttemptOrderNotification({
+        supabase,
+        storeId,
+        orderId,
+        notificationType: "shipment_confirmation",
+        recipientEmail: settings.salesEmail,
+        recipientName: "Fulfillment",
+        idempotencyKey: `store_order_shipped/${storeId}/${orderId}`,
+        payload: buildOrderNotificationPayload({
+          order: updatedOrder,
+          items,
+          audience: "store",
+          fulfilledAt,
+          shippedAt,
+          adminOrderUrl: `${baseSiteUrl}/admin/orders/${orderId}`,
+        }),
+      });
+    } catch (notificationFailure: any) {
+      notificationError = notificationFailure?.message || "Shipment notification failed";
+      console.error("Shipment notification failed:", notificationError);
     }
 
+    const notification = customerNotification;
     return NextResponse.json({
       success: true,
-      emailSent,
-      emailError,
+      emailSent: notification?.sent === true,
+      emailQueued: Boolean(notification),
+      notificationId: customerNotification?.notificationId || null,
+      notificationStatus: customerNotification?.status || null,
+      ownerEmailSent: ownerNotification?.sent === true,
+      ownerNotificationId: ownerNotification?.notificationId || null,
+      ownerNotificationStatus: ownerNotification?.status || null,
+      emailError: customerNotification?.error || ownerNotification?.error || notificationError,
     });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Mark shipped failed" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: error.message || "Mark shipped failed" }, { status: 500 });
   }
 }

@@ -1,0 +1,63 @@
+name: Topps Football Certification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/lib/checklist-registry/topps-football-*.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/run-topps-football-worker.ts"
+      - "scripts/run-topps-football-regressions.ts"
+      - ".github/workflows/topps-football-*.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/checklist-registry/topps-football-*.ts"
+      - "src/lib/checklist-registry/topps-sport-pipelines.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "scripts/run-topps-football-worker.ts"
+      - "scripts/run-topps-football-regressions.ts"
+      - ".github/workflows/topps-football-*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-football-certification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify-football-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run Topps Football regressions
+        run: npx tsx scripts/run-topps-football-regressions.ts
+
+      - name: Lint Topps Football pipeline
+        run: >-
+          npx eslint
+          src/lib/checklist-registry/topps-football-text.ts
+          src/lib/checklist-registry/topps-football-text-adapter.ts
+          src/lib/checklist-registry/topps-sport-pipelines.ts
+          src/lib/checklist-registry/server.ts
+          scripts/run-topps-football-worker.ts
+          scripts/run-topps-football-regressions.ts
+
+      - name: TypeScript
+        run: npx tsc --noEmit

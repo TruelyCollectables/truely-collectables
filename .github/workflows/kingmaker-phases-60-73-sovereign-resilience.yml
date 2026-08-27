@@ -1,0 +1,55 @@
+name: KINGMAKER Phases 60-73 Sovereign Resilience
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/kingmaker-phases-60-73-sovereign-resilience.ts'
+      - 'scripts/run-kingmaker-phases-60-73-sovereign-resilience-regressions.ts'
+      - 'supabase/migrations/20260803200000_kingmaker_phases_60_73_sovereign_resilience.sql'
+      - '.github/workflows/kingmaker-phases-60-73-sovereign-resilience.yml'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phases 60-73 regressions
+        run: node --import tsx scripts/run-kingmaker-phases-60-73-sovereign-resilience-regressions.ts
+      - name: Migration security
+        run: |
+          file=supabase/migrations/20260803200000_kingmaker_phases_60_73_sovereign_resilience.sql
+          grep -q 'enable row level security' "$file"
+          grep -q 'revoke all' "$file"
+          grep -q 'service_role' "$file"
+          grep -q 'unique (certification_id, artifact_digest)' "$file"
+      - name: Dependency security
+        run: npm audit --audit-level=critical
+      - name: Lint
+        run: npm run lint
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Diff integrity
+        run: |
+          git diff --check origin/${{ github.base_ref }}...HEAD
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}" || {
+            echo 'Checked-out commit is not the exact PR head'; exit 1;
+          }
+      - name: Production build
+        run: npm run build

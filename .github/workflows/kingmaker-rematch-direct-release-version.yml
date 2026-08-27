@@ -1,0 +1,157 @@
+name: KINGMAKER Rematch Direct Release Version
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804030000_scope_kingmaker_matcher_to_release_version.sql"
+      - "scripts/run-kingmaker-beckett-rematch-drain.mjs"
+      - ".github/workflows/kingmaker-rematch-direct-release-version.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-direct-release-version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_rematch_release_version_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_rematch_release_version_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_rematch_release_version_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      BECKETT_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+      AUTO_REMATCH_MIGRATION: supabase/migrations/20260804011500_kingmaker_auto_rematch_after_checklists.sql
+      AUTO_REMATCH_TRIGGER_FIX: supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql
+      MATCHER_RESULTS_FIX: supabase/migrations/20260804014500_fix_kingmaker_auto_rematch_matcher_results.sql
+      RELEASE_SCOPE_FIX: supabase/migrations/20260804022000_scope_kingmaker_auto_rematch_candidates.sql
+      BATCHED_DRAIN_MIGRATION: supabase/migrations/20260804024500_batch_kingmaker_auto_rematch_drain.sql
+      DIRECT_RELEASE_VERSION_MIGRATION: supabase/migrations/20260804030000_scope_kingmaker_matcher_to_release_version.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply Registry and KINGMAKER foundations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$BECKETT_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_TRIGGER_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$MATCHER_RESULTS_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$RELEASE_SCOPE_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$BATCHED_DRAIN_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$DIRECT_RELEASE_VERSION_MIGRATION"
+
+      - name: Reapply direct release-version migration
+        run: psql -v ON_ERROR_STOP=1 --file "$DIRECT_RELEASE_VERSION_MIGRATION"
+
+      - name: Verify release-version-only matcher and privileges
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            helper_definition text;
+            batch_definition text;
+          begin
+            select pg_get_functiondef(
+              'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)'::regprocedure
+            ) into helper_definition;
+            select pg_get_functiondef(
+              'public.tcos_rematch_kingmaker_price_entries_for_release_batch(uuid,uuid,integer,text)'::regprocedure
+            ) into batch_definition;
+
+            if position('unnest(p_entry_ids)' in lower(helper_definition)) = 0 then
+              raise exception 'Release-version matcher does not start from explicit candidate IDs.';
+            end if;
+            if position('checklist_releases' in lower(helper_definition)) > 0
+               or position('checklist_manufacturers' in lower(helper_definition)) > 0 then
+              raise exception 'Release-version matcher still searches across Registry releases.';
+            end if;
+            if position('set_row.normalized_name' in lower(helper_definition)) = 0
+               or position('card.normalized_card_number' in lower(helper_definition)) = 0
+               or position('parallel.normalized_name' in lower(helper_definition)) = 0 then
+              raise exception 'Release-version matcher is missing normalized Registry joins.';
+            end if;
+            if position(
+              'tcos_match_kingmaker_price_entry_ids_for_release(current_guide_id, candidate_entry_ids, release_row.release_id, release_row.active_version_id)'
+              in lower(batch_definition)
+            ) = 0 then
+              raise exception 'Batched rematcher does not call the release-version matcher.';
+            end if;
+            if position(
+              'tcos_match_kingmaker_price_entry_ids(current_guide_id, candidate_entry_ids)'
+              in lower(batch_definition)
+            ) > 0 then
+              raise exception 'Batched rematcher still calls the cross-release matcher.';
+            end if;
+
+            if not has_function_privilege(
+              'service_role',
+              'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)',
+              'execute'
+            ) then
+              raise exception 'Service role cannot execute release-version matcher.';
+            end if;
+            if has_function_privilege(
+              'anon',
+              'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)',
+              'execute'
+            ) or has_function_privilege(
+              'authenticated',
+              'public.tcos_match_kingmaker_price_entry_ids_for_release(uuid,uuid[],uuid,uuid)',
+              'execute'
+            ) then
+              raise exception 'Public roles can execute release-version matcher.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Run unmatched-to-exact activation regression
+        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-checklist-auto-rematch-regressions.sql
+
+      - name: Verify drain runner
+        run: |
+          node --check scripts/run-kingmaker-beckett-rematch-drain.mjs
+          node scripts/run-kingmaker-beckett-rematch-drain.mjs --self-test

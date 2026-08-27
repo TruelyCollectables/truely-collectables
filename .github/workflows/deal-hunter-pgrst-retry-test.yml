@@ -1,0 +1,46 @@
+name: Deal Hunter PGRST retry test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_snapshot_only.py'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_guarded.py'
+      - 'services/instacomp-ai/tests/test_inventory_learning_completion.py'
+      - 'services/instacomp-ai/tests/test_supabase_read_retry.py'
+      - 'services/instacomp-ai/tests/test_inventory_sync_guard_retry.py'
+      - '.github/workflows/deal-hunter-pgrst-retry-test.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install InstaComp dependencies
+        working-directory: services/instacomp-ai
+        run: python -m pip install -r requirements.txt
+      - name: Compile guarded Deal Hunter learning path
+        working-directory: services/instacomp-ai
+        run: |
+          python -m py_compile \
+            scripts/sync_all_inventory_training_truth_snapshot_only.py \
+            scripts/sync_all_inventory_training_truth_guarded.py \
+            scripts/sync_all_inventory_training_truth_v3.py \
+            scripts/train_lora_full_inventory.py \
+            scripts/finish_deal_hunter_ai_learning.py \
+            tests/test_inventory_learning_completion.py \
+            tests/test_supabase_read_retry.py \
+            tests/test_inventory_sync_guard_retry.py
+      - name: Run snapshot and completion regression tests
+        working-directory: services/instacomp-ai
+        run: python tests/test_inventory_learning_completion.py -v
+      - name: Run exact Supabase PGRST retry regression tests
+        working-directory: services/instacomp-ai
+        run: python tests/test_supabase_read_retry.py -v
+      - name: Run guarded full-sync retry regression tests
+        working-directory: services/instacomp-ai
+        run: python tests/test_inventory_sync_guard_retry.py -v

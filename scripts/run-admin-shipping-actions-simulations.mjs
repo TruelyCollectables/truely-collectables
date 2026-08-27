@@ -24,6 +24,25 @@ const sources = {
     new URL("../src/app/admin/shipping/ShippingClaimActions.tsx", import.meta.url),
     "utf8",
   ),
+  simulationsPage: await readFile(
+    new URL("../src/app/admin/shipping/simulations/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  fulfillmentQueue: await readFile(
+    new URL("../src/app/admin/orders/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  orderDetail: await readFile(
+    new URL("../src/app/admin/orders/[id]/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  packingSlip: await readFile(
+    new URL(
+      "../src/app/admin/orders/[id]/packing-slip/page.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
 };
 
 const scenarios = [];
@@ -47,6 +66,16 @@ scenario("shipping queue actions expose live notices and specific busy labels", 
     "Marking order shipped...",
     "shippingQueueActionRef",
     "Finish the current shipping queue action first.",
+    "function shippingQueueActionTitle",
+    "requiredMissing: readonly (string | null | undefined)[]",
+    "const missing = requiredMissing.filter",
+    "Required: ${missing.join(\", \")}.",
+    "title={shippingQueueActionTitle",
+    "Save Coverage policy proof for this shipping label.",
+    "Save the carrier and tracking number for this order.",
+    "Record the LetterTrack IMb or tracking reference for this order.",
+    "Record delivery evidence copied from LetterTrack or the carrier.",
+    "Save tracking and mark this order shipped.",
     "aria-busy={saving}",
     "aria-busy={shipping}",
     "aria-disabled={saving || requiredMissing.length > 0}",
@@ -99,11 +128,20 @@ scenario("order shipping label actions announce async provider work", () => {
     "const shippingActionRunningRef = useRef(false)",
     "function shippingActionBlockedReason(action: string)",
     "function showShippingActionBlocked(action: string)",
+    "function shippingLabelActionTitle",
     "Finish the current shipping label action before ${action}.",
+    "Prepare an internal shipping label and Coverage record for this order.",
+    "Record a real manual label or void the dry-run label before provider purchase.",
+    "Check whether live provider credentials and label purchase setup are ready.",
+    "Open the manual label and Coverage proof form for externally purchased shipping.",
+    "Open the external void/cancel proof form for a label handled outside TCOS.",
+    "Record a real Coverage policy before opening a claim.",
+    "Open or reuse a Coverage claim draft for this order's shipping label.",
     "shippingActionRunningRef.current = true",
     "shippingActionRunningRef.current = false",
     "aria-disabled={busy}",
     "aria-disabled={providerActionsBlocked}",
+    "title={shippingLabelActionTitle",
   ]) {
     assert(
       sources.orderLabelActions.includes(fragment),
@@ -118,6 +156,10 @@ scenario("manual shipping proof forms lock while any order shipping action is bu
     "Recording external label void...",
     "aria-disabled={busy || manualPurchaseMissing.length > 0}",
     "aria-disabled={busy || voidMissing.length > 0}",
+    "Save the external label, tracking, postage, and Coverage proof for this order.",
+    "Save the external label void/cancel proof and close the TCOS label record.",
+    "Required: ${manualPurchaseMissing.join(\", \")}.",
+    "Required: ${voidMissing.join(\", \")}.",
     'showShippingActionBlocked("recording manual label purchase")',
     'showShippingActionBlocked("recording an external label void")',
     'showShippingActionBlocked("opening the manual purchase form")',
@@ -180,6 +222,70 @@ scenario("shipping claim status actions expose typed live feedback", () => {
       `Expected shipping claim feedback fragment ${fragment}.`,
     );
   }
+});
+
+scenario("shipping simulation lab uses professional reliability presentation", () => {
+  for (const fragment of [
+    "TCOS Shipping Reliability",
+    "Shipping Simulation Lab",
+    "HeaderStat label=\"Shipping\"",
+    "label=\"Scenarios\"",
+    "label=\"Live Gate\"",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "transition hover:-translate-y-0.5",
+    "rounded-3xl border border-blue-200 bg-blue-50",
+    "Seller-protection money trail",
+    "Live shipping approval report",
+  ]) {
+    assert(
+      sources.simulationsPage.includes(fragment),
+      `Expected shipping simulation presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !sources.simulationsPage.includes(roughShell),
+      `Expected shipping simulation lab to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
+});
+
+scenario("fulfillment pages avoid ambiguous orders/order_items embeds", () => {
+  for (const [name, source] of [
+    ["fulfillment queue", sources.fulfillmentQueue],
+    ["order detail", sources.orderDetail],
+    ["packing slip", sources.packingSlip],
+  ]) {
+    assert(
+      !source.includes("order_items ("),
+      "Expected " + name + " to avoid an ambiguous embedded order_items relationship.",
+    );
+    assert(
+      source.includes('.from("order_items")'),
+      "Expected " + name + " to load order_items explicitly.",
+    );
+    assert(
+      source.includes('.select("*")'),
+      "Expected " + name + " to load its order row without a relationship embed.",
+    );
+  }
+
+  assert(
+    sources.fulfillmentQueue.includes('.in("order_id", orderIds)'),
+    "Expected the fulfillment queue to fetch items for all loaded order IDs.",
+  );
+  assert(
+    sources.orderDetail.includes('.eq("order_id", order.id)'),
+    "Expected the order detail to fetch items for the selected order.",
+  );
+  assert(
+    sources.packingSlip.includes('.eq("order_id", order.id)'),
+    "Expected the packing slip to fetch items for the selected order.",
+  );
 });
 
 const failed = [];

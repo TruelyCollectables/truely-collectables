@@ -1,0 +1,37 @@
+name: Check Supabase Projects
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-supabase-projects.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: List project names and refs only
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo 'SUPABASE_ACCESS_TOKEN missing'; exit 2; }
+          curl -sS --fail-with-body --retry 3 --retry-all-errors --max-time 30 \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H 'Accept: application/json' \
+            https://api.supabase.com/v1/projects \
+            -o /tmp/projects.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const projects = JSON.parse(fs.readFileSync('/tmp/projects.json', 'utf8'));
+          if (!Array.isArray(projects) || !projects.length) throw new Error('No Supabase projects returned.');
+          for (const project of projects) {
+            console.log(`SUPABASE_PROJECT name=${String(project.name || '')} ref=${String(project.id || project.ref || '')} status=${String(project.status || '')}`);
+          }
+          NODE
+          shred -u /tmp/projects.json

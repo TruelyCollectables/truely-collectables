@@ -449,12 +449,12 @@ function providerSetupActionPlan(params: {
     },
     {
       order: 2,
-      title: "Stage Vercel environment names",
+      title: "Stage Cloudflare Worker secrets",
       status: credentialsReady ? "ready" : "blocked",
       detail:
-        "Store provider values only in Vercel environment variables. The TCOS exports list names and commands only, never secret values.",
+        "Store provider values only in Cloudflare Worker secrets. The TCOS exports list names and commands only, never secret values.",
       action:
-        "Download the env template and Vercel commands export, then add the selected provider keys in Vercel production/preview.",
+        "Download the env template and Cloudflare commands export, then add the selected provider keys to the production and preview Workers.",
       evidence: missingGroups.length
         ? missingGroups.flatMap((group) => group.missingKeys)
         : ["No missing provider credential groups in the current environment."],

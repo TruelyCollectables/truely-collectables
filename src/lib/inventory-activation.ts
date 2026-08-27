@@ -8,25 +8,46 @@ export type InventoryActivationBlocker =
   | "missing_price"
   | "missing_quantity"
   | "missing_image"
+  | "missing_back_image"
+  | "missing_card_uuid"
   | "missing_authenticity_disclosure"
   | "missing_cert_provider"
   | "missing_pass_guarantee_authenticator"
-  | "missing_provenance_evidence";
+  | "missing_provenance_evidence"
+  | "grader_verification_required"
+  | "grader_verification_conflict"
+  | "instacomp_orientation_review_required"
+  | "instacomp_listing_review_required";
 
 function cleanText(value: string | null | undefined) {
   return value?.trim() || null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function validPhysicalCardUuid(value: unknown) {
+  const normalized = cleanText(String(value || ""))?.toLowerCase() || "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    normalized,
+  );
 }
 
 function isAutographSensitive(params: {
   title: string | null;
   category: string | null;
   authenticity: AuthenticityProfile;
+  cardAutographObserved: boolean;
 }) {
   const title = cleanText(params.title)?.toLowerCase() || "";
   const category = cleanText(params.category)?.toLowerCase() || "";
   const authenticity = params.authenticity;
 
   return (
+    params.cardAutographObserved ||
     category === "autographs" ||
     title.includes("autograph") ||
     title.includes("autographed") ||
@@ -54,19 +75,121 @@ export function getInventoryActivationBlockers(params: {
   metadata?: Record<string, unknown> | null;
 }) {
   const blockers: InventoryActivationBlocker[] = [];
+  const metadata = recordValue(params.metadata);
   const authenticity = extractAuthenticityProfile(params.metadata);
+  const collectibleAsset = recordValue(metadata.collectible_asset);
+  const instaComp = recordValue(metadata.instacomp);
+  const imageOrientation = recordValue(instaComp.imageOrientation);
+  const checklistIdentity = recordValue(instaComp.checklistIdentity);
+  const listingOutput = recordValue(instaComp.listingOutput);
+  const verifiedReference = recordValue(metadata.verified_reference);
+  const publicationStatus = cleanText(
+    typeof instaComp.publicationStatus === "string"
+      ? instaComp.publicationStatus
+      : typeof listingOutput.publicationStatus === "string"
+        ? listingOutput.publicationStatus
+        : null,
+  );
+  const requiresFrontBackListing =
+    cleanText(params.category)?.toLowerCase() === "trading card singles" &&
+    cleanText(String(instaComp.source || "")) === "mac_registry_scanner";
+  const requiresOrientationVerification =
+    cleanText(params.category)?.toLowerCase() === "trading card singles" &&
+    Boolean(
+      cleanText(String(instaComp.source || "")) ||
+        cleanText(String(instaComp.scanId || "")),
+    );
+  const orientationVerified = Boolean(
+    imageOrientation.status === "completed" &&
+      instaComp.imageOrientationPersisted === true &&
+      instaComp.imagePersistenceVerified === true,
+  );
+  const hasBackImageReceipt = Boolean(
+    instaComp.hasBackImage === true &&
+      cleanText(String(instaComp.backSha256 || "")),
+  );
+  const hasPermanentCardUuid = validPhysicalCardUuid(instaComp.cardUuid);
+  const cardAutographObserved = collectibleAsset.autograph === true;
+  const registryConfirmedCardAutograph = Boolean(
+    cardAutographObserved &&
+      checklistIdentity.source === "checklist_registry" &&
+      cleanText(String(checklistIdentity.registryIdentityId || "")) &&
+      cleanText(
+        String(checklistIdentity.registryFingerprintSha256 || ""),
+      ),
+  );
+  const gradingCompany = cleanText(
+    typeof collectibleAsset.grading_company === "string"
+      ? collectibleAsset.grading_company
+      : null,
+  );
+  const gradingCertNumber = cleanText(
+    typeof collectibleAsset.grading_cert_number === "string"
+      ? collectibleAsset.grading_cert_number
+      : null,
+  );
+  const storedGraderVerificationStatus = cleanText(
+    typeof collectibleAsset.grader_verification_status === "string"
+      ? collectibleAsset.grader_verification_status
+      : null,
+  );
+  const humanVerifiedSlabEvidence =
+    instaComp.humanVerified === true &&
+    Boolean(gradingCompany) &&
+    Boolean(gradingCertNumber) &&
+    Boolean(cleanText(String(verifiedReference.front_sha256 || "")));
+  const graderVerificationStatus =
+    storedGraderVerificationStatus === "conflict"
+      ? "conflict"
+      : ["verified", "manual_verified"].includes(
+            String(storedGraderVerificationStatus || ""),
+          )
+        ? storedGraderVerificationStatus
+        : humanVerifiedSlabEvidence
+          ? "manual_verified"
+          : storedGraderVerificationStatus;
 
   if (!params.sku) blockers.push("missing_sku");
   if (params.price <= 0) blockers.push("missing_price");
   if (params.quantity <= 0) blockers.push("missing_quantity");
   if (!params.imageUrl) blockers.push("missing_image");
+  if (requiresFrontBackListing && !hasBackImageReceipt) {
+    blockers.push("missing_back_image");
+  }
+  if (requiresFrontBackListing && !hasPermanentCardUuid) {
+    blockers.push("missing_card_uuid");
+  }
+  if (requiresOrientationVerification && !orientationVerified) {
+    blockers.push("instacomp_orientation_review_required");
+  }
+  if (publicationStatus === "review_required") {
+    blockers.push("instacomp_listing_review_required");
+  }
 
-  if (isAutographSensitive({
-    title: params.title,
-    category: params.category,
-    authenticity,
-  })) {
-    if (authenticity.status === "not_applicable") {
+  if (gradingCompany) {
+    if (graderVerificationStatus === "conflict") {
+      blockers.push("grader_verification_conflict");
+    } else if (
+      !["verified", "manual_verified"].includes(
+        String(graderVerificationStatus || ""),
+      )
+    ) {
+      blockers.push("grader_verification_required");
+    }
+  }
+
+  if (
+    isAutographSensitive({
+      title: params.title,
+      category: params.category,
+      authenticity,
+      cardAutographObserved,
+    })
+  ) {
+    if (
+      authenticity.status === "not_applicable" &&
+      !registryConfirmedCardAutograph
+    ) {
       blockers.push("missing_authenticity_disclosure");
     }
 

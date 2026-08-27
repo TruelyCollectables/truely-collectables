@@ -186,20 +186,31 @@ export default async function AdminSettingsPage({
   const settings = await loadSettings();
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f4f1ea_34%,#eef2ff_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-6 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
-              Store Controls
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-amber-300">
+              Store Control Center
             </p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">
               Store Settings
             </h1>
-            <p className="mt-2 max-w-3xl text-sm text-neutral-300">
+            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-300">
               Operational controls for {settings.displayName}. These are
               store-level settings, not global TCOS platform defaults.
             </p>
+            <div className="mt-5 grid max-w-3xl gap-3 text-xs font-black uppercase tracking-[0.12em] text-neutral-200 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 shadow-inner shadow-white/5">
+                Store identity
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 shadow-inner shadow-white/5">
+                Email routing
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 shadow-inner shadow-white/5">
+                eBay sync policy
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -210,16 +221,24 @@ export default async function AdminSettingsPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {params?.saved ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800 shadow-sm ring-1 ring-emerald-900/5"
+          >
             {params.saved === "operations"
-              ? "Store operations saved."
-              : "Store settings saved."}
+              ? "Store operations saved. Domain, email, eBay environment, account label, and seller commission settings were updated."
+              : "Marketplace integration settings saved. eBay sync availability was updated for this store."}
           </div>
         ) : null}
         {params?.settingsError ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800 shadow-sm ring-1 ring-rose-900/5"
+          >
             Settings were not saved: {params.settingsError}
           </div>
         ) : null}
@@ -235,8 +254,8 @@ export default async function AdminSettingsPage({
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/90 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
+          <div className="border-b border-neutral-200 bg-white/70 p-5">
             <h2 className="text-2xl font-black">Store Operations</h2>
             <p className="mt-1 max-w-3xl text-sm text-neutral-600">
               Update the active store domain, contact emails, evidence delivery,
@@ -313,7 +332,7 @@ export default async function AdminSettingsPage({
                 <select
                   name="ebay_environment"
                   defaultValue={settings.ebayEnvironment}
-                  className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2"
+                  className="mt-1 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-neutral-950 focus:ring-2 focus:ring-amber-100"
                 >
                   <option value="production">production</option>
                   <option value="sandbox">sandbox</option>
@@ -328,16 +347,17 @@ export default async function AdminSettingsPage({
             </div>
 
             <AdminSubmitButton
-              className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800"
+              className="rounded-full bg-neutral-950 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
               pendingChildren="Saving operations..."
+              title="Save domain, contact email, eBay environment, account label, and seller commission settings."
             >
               Save Store Operations
             </AdminSubmitButton>
           </form>
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/90 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
+          <div className="border-b border-neutral-200 bg-white/70 p-5">
             <h2 className="text-2xl font-black">Marketplace Integrations</h2>
             <p className="mt-1 max-w-3xl text-sm text-neutral-600">
               Turn store-level marketplace sync on or off. Disabling eBay sync
@@ -347,7 +367,7 @@ export default async function AdminSettingsPage({
           </div>
 
           <form action={updateIntegrationSettings} className="space-y-5 p-5">
-            <label className="flex items-start gap-4 rounded-md border border-neutral-200 bg-neutral-50 p-4">
+            <label className="flex items-start gap-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm ring-1 ring-black/[0.02]">
               <input
                 type="checkbox"
                 name="ebay_sync_enabled"
@@ -368,11 +388,20 @@ export default async function AdminSettingsPage({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Info label="Account Label" value={settings.ebayAccountLabel || "Not set"} />
               <Info label="Environment" value={settings.ebayEnvironment} />
+              <Info
+                label="Current eBay Sync"
+                value={
+                  settings.ebaySyncEnabled
+                    ? "Enabled: imports, reconnects, and post-sale quantity pushes are allowed."
+                    : "Disabled: imports, reconnects, and eBay quantity pushes are blocked."
+                }
+              />
             </div>
 
             <AdminSubmitButton
-              className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800"
+              className="rounded-full bg-neutral-950 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
               pendingChildren="Saving integration..."
+              title="Save the eBay sync toggle for this store. Disabling it blocks imports, reconnects, and post-sale eBay quantity updates."
             >
               Save Integration Settings
             </AdminSubmitButton>
@@ -400,7 +429,7 @@ function Metric({
       : "text-neutral-950";
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-2xl border border-neutral-200 bg-white/90 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className={`mt-3 break-words text-2xl font-black ${toneClass}`}>
         {value}
@@ -411,7 +440,7 @@ function Metric({
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white px-4 py-3">
+    <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
       <dt className="text-xs font-bold uppercase text-neutral-500">{label}</dt>
       <dd className="mt-1 break-words font-black">{value}</dd>
     </div>
@@ -451,7 +480,7 @@ function Field({
         min={min}
         max={max}
         step={step}
-        className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2"
+        className="mt-1 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-neutral-950 focus:ring-2 focus:ring-amber-100"
       />
     </label>
   );
@@ -461,7 +490,7 @@ function CommandLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+      className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/15 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
     >
       {label}
     </Link>

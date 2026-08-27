@@ -9,6 +9,10 @@ const bulkEditorSource = await readFile(
   new URL("../src/app/admin/products/BulkDescriptionEditor.tsx", import.meta.url),
   "utf8",
 );
+const productsPageSource = await readFile(
+  new URL("../src/app/admin/products/page.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -101,6 +105,36 @@ scenario("bulk description editor exposes searchable safe bulk controls", () => 
     assert(
       bulkEditorSource.includes(fragment),
       `Expected bulk editor safety fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("bulk description success points operators back to product records", () => {
+  for (const fragment of [
+    "Updated descriptions on {query.bulkUpdated} product",
+    "href=\"/admin/products#product-records\"",
+    "Review product records",
+    "Continue bulk editing",
+    "id=\"product-records\"",
+  ]) {
+    assert(
+      productsPageSource.includes(fragment),
+      `Expected bulk success next-step fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("bulk description failures use sanitized product action recovery", () => {
+  for (const fragment of [
+    "let failure: string | null = null",
+    "failure = adminProductActionFailureMessage(",
+    "Could not update all selected product descriptions.",
+    "redirect(productActionErrorPath(failure))",
+    "redirect(`/admin/products?bulkUpdated=${updated}`)",
+  ]) {
+    assert(
+      productsPageSource.includes(fragment),
+      `Expected bulk failure recovery fragment ${fragment}.`,
     );
   }
 });

@@ -1,0 +1,58 @@
+name: Beckett Public Checklist Archive
+
+on:
+  pull_request:
+    paths:
+      - "scripts/archive-public-beckett-checklists.ts"
+      - ".github/workflows/beckett-public-archive.yml"
+  push:
+    branches:
+      - "agent/topps-panini-download-now-20260804"
+    paths:
+      - "scripts/archive-public-beckett-checklists.ts"
+      - ".github/workflows/beckett-public-archive.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beckett-public-checklist-archive-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  archive:
+    name: Archive All Public Beckett Checklists
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Archive every public Beckett checklist article and file
+        env:
+          BECKETT_PUBLIC_MAX_PAGES: 60
+          BECKETT_PUBLIC_MAX_ARTICLES: 5000
+        run: node --import tsx scripts/archive-public-beckett-checklists.ts
+      - name: Package public Beckett archive
+        if: always()
+        run: tar -czf beckett-public-checklists.tar.gz .beckett-public-archive
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beckett-public-checklists-${{ github.run_id }}
+          path: beckett-public-checklists.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beckett-public-checklists-status-${{ github.run_id }}
+          path: |
+            .beckett-public-archive/manifest.json
+            .beckett-public-archive/GAPS.md
+          if-no-files-found: error
+          retention-days: 90

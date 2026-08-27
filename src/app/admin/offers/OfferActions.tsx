@@ -69,6 +69,13 @@ export default function OfferActions({
   const counterDisabledReason = canCounter
     ? offerActionBusyReason || "Send a counter offer checkout link."
     : `Counter needs: ${counterRequirements.join(", ")}.`;
+  const counterInputTitle = isBusy
+    ? "Finish the current offer decision before editing the counter amount."
+    : !isPending
+      ? "Counter amount is locked because this offer is no longer pending."
+      : productPrice
+        ? `Enter a counter above the buyer offer and up to ${money(productPrice)}.`
+        : "Enter a counter amount after the product asking price is available.";
   const visibleRequirements = Array.from(
     new Set([...acceptRequirements, ...counterRequirements]),
   );
@@ -286,6 +293,7 @@ export default function OfferActions({
           }
           value={counterAmount}
           disabled={!isPending || isBusy}
+          title={counterInputTitle}
           onChange={(e) => setCounterAmount(e.target.value)}
           className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
         />

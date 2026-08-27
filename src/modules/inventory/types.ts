@@ -1,12 +1,16 @@
 import type { AuthenticityProfile } from "../../lib/authenticity";
 
-export type InventoryStatus = "draft" | "active" | "reserved" | "sold" | "archived";
+export type InventoryStatus =
+  "draft" | "active" | "reserved" | "sold" | "archived";
+
+export type SaleEvidenceStatus = "verified" | "manual" | "unresolved";
 
 export type InventoryItem = {
   id: string;
   store_id: string;
   seller_account_id: string | null;
   legacy_product_id: number | null;
+  card_uuid: string | null;
   sku: string | null;
   title: string;
   description: string | null;
@@ -20,6 +24,14 @@ export type InventoryItem = {
   location: string | null;
   notes: string | null;
   metadata: Record<string, unknown> | null;
+  sold_at?: string | null;
+  sold_price?: number | null;
+  sold_source?: string | null;
+  sold_reference?: string | null;
+  sold_price_status?: SaleEvidenceStatus | null;
+  sold_evidence?: Record<string, unknown> | null;
+  archive_after?: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -27,6 +39,7 @@ export type InventoryItem = {
 export type LegacyProductSnapshot = {
   id: number;
   seller_account_id: string | null;
+  card_uuid: string | null;
   sku: string | null;
   title: string;
   description: string | null;
@@ -37,17 +50,38 @@ export type LegacyProductSnapshot = {
   image_url: string | null;
   ebay_item_id: string | null;
   last_seen_at: string | null;
+  sold_at?: string | null;
+  sold_price?: number | null;
+  sold_source?: string | null;
+  sold_reference?: string | null;
+  sold_price_status?: SaleEvidenceStatus | null;
+  sold_evidence?: Record<string, unknown> | null;
+  archive_after?: string | null;
+  archived_at?: string | null;
+};
+
+export type StorefrontFeatureFlags = {
+  autograph: boolean;
+  memorabilia: boolean;
+  rookie: boolean;
+  graded: boolean;
+  numbered: boolean;
 };
 
 export type UniversalInventoryItem = {
   inventoryItemId: string | null;
   legacyProductId: number;
+  cardUuid: string | null;
   sellerAccountId: string | null;
   sku: string | null;
   title: string;
   description: string | null;
   player: string | null;
   sport: string | null;
+  category: string | null;
+  storefrontSection: string;
+  league: string | null;
+  features: StorefrontFeatureFlags;
   price: number;
   quantity: number;
   imageUrl: string | null;
@@ -55,6 +89,19 @@ export type UniversalInventoryItem = {
   status: InventoryStatus;
   source: "inventory_items" | "products";
   authenticity: AuthenticityProfile;
+  promotion?: {
+    onSale: boolean;
+    originalPrice: number | null;
+    discountPercent: number;
+  };
+  soldAt?: string | null;
+  soldPrice?: number | null;
+  soldSource?: string | null;
+  soldReference?: string | null;
+  soldPriceStatus?: SaleEvidenceStatus | null;
+  archiveAfter?: string | null;
+  archivedAt?: string | null;
+  isSoldRetention?: boolean;
 };
 
 export type InventoryImage = {
@@ -86,6 +133,7 @@ export type InventorySearchParams = {
 export type CreateInventoryItemInput = {
   seller_account_id?: string | null;
   legacy_product_id?: number | null;
+  card_uuid?: string | null;
   sku?: string | null;
   title: string;
   description?: string | null;
@@ -99,6 +147,14 @@ export type CreateInventoryItemInput = {
   location?: string | null;
   notes?: string | null;
   metadata?: Record<string, unknown> | null;
+  sold_at?: string | null;
+  sold_price?: number | null;
+  sold_source?: string | null;
+  sold_reference?: string | null;
+  sold_price_status?: SaleEvidenceStatus | null;
+  sold_evidence?: Record<string, unknown> | null;
+  archive_after?: string | null;
+  archived_at?: string | null;
 };
 
 export type UpdateInventoryItemInput = Partial<CreateInventoryItemInput>;

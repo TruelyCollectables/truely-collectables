@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "truely-collectables-preview",
+  "main": "./cloudflare-storefront-entrypoint.ts",
+  "compatibility_date": "2026-08-12",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "truely-collectables-preview"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
+
+

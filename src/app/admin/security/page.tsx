@@ -54,6 +54,13 @@ function shortDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 function isActiveLockout(value: string | null) {
   if (!value) return false;
   return new Date(value).getTime() > Date.now();
@@ -205,6 +212,9 @@ export default async function AdminSecurityPage({
   const rateLimitEvents = (rateLimitResult.data ?? []) as PublicRateLimitEvent[];
   const investigations =
     (investigationResult.data ?? []) as SecurityIpInvestigation[];
+  const loginAuditUnavailable = Boolean(loginResult.error);
+  const rateLimitAuditUnavailable = Boolean(rateLimitResult.error);
+  const investigationsUnavailable = Boolean(investigationResult.error);
   const failedAttempts = attempts.filter((attempt) => !attempt.success);
   const successfulAttempts = attempts.filter((attempt) => attempt.success);
   const activeLockouts = attempts.filter((attempt) =>
@@ -230,23 +240,48 @@ export default async function AdminSecurityPage({
   const caseNotice = securityCaseNotice(resolvedSearchParams.case);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
-              Security Center
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Security Command Center
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm text-neutral-300">
-              Review admin login attempts, public money-path throttles,
-              identity risk, and IP activity for Store #{storeId.slice(-4)}.
-            </p>
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.15),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+                Security Center
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
+                Security Command Center
+              </h1>
+              <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-neutral-300">
+                Review admin login attempts, public money-path throttles,
+                identity risk, and IP activity for Store #{storeId.slice(-4)}.
+                Unavailable audit storage stays explicit so an empty-looking
+                page never hides a missing security table.
+              </p>
+            </div>
+
+            <div className="grid min-w-[300px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-neutral-950/20">
+              <HeaderStat
+                label="Lockouts"
+                value={loginAuditUnavailable ? "N/A" : String(activeLockouts.length)}
+              />
+              <HeaderStat
+                label="Blocked"
+                value={
+                  rateLimitAuditUnavailable
+                    ? "N/A"
+                    : String(blockedRateLimitEvents.length)
+                }
+              />
+              <HeaderStat
+                label="Cases"
+                value={
+                  investigationsUnavailable ? "N/A" : String(investigations.length)
+                }
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="mt-6 flex flex-wrap gap-2">
             <CommandLink href="/admin" label="Command Center" />
             <CommandLink href="/admin/settings" label="Settings" />
             <CommandLink href="/admin/launch-readiness" label="Readiness" />
@@ -254,11 +289,11 @@ export default async function AdminSecurityPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {caseNotice ? (
           <section
             aria-live="assertive"
-            className={`rounded-md border px-5 py-4 ${caseNotice.className}`}
+            className={`rounded-2xl border px-5 py-4 shadow-sm ring-1 ring-black/[0.02] ${caseNotice.className}`}
             role="alert"
           >
             <h2 className="text-lg font-black">{caseNotice.title}</h2>
@@ -267,10 +302,10 @@ export default async function AdminSecurityPage({
         ) : null}
 
         {loginResult.error ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-xl font-black">Login Audit Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
-              {loginResult.error.message}
+              {safeErrorMessage(loginResult.error)}
             </p>
             <p className="mt-2 text-sm">
               Apply the `20260628180000_create_admin_login_attempts.sql`
@@ -280,10 +315,10 @@ export default async function AdminSecurityPage({
         ) : null}
 
         {rateLimitResult.error ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-xl font-black">Public Endpoint Audit Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
-              {rateLimitResult.error.message}
+              {safeErrorMessage(rateLimitResult.error)}
             </p>
             <p className="mt-2 text-sm">
               Apply the
@@ -295,10 +330,10 @@ export default async function AdminSecurityPage({
         ) : null}
 
         {investigationResult.error ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-xl font-black">Investigation Cases Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
-              {investigationResult.error.message}
+              {safeErrorMessage(investigationResult.error)}
             </p>
             <p className="mt-2 text-sm">
               Apply the
@@ -309,8 +344,11 @@ export default async function AdminSecurityPage({
           </section>
         ) : null}
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="border-b border-neutral-200 bg-gradient-to-r from-white to-amber-50/60 p-5">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-700">
+              Case board
+            </p>
             <h2 className="text-2xl font-black">Active IP Investigations</h2>
             <p className="mt-1 text-sm text-neutral-600">
               Watched, review, and resolved IP cases saved from IP dossiers.
@@ -331,7 +369,21 @@ export default async function AdminSecurityPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {investigations.length === 0 ? (
+                {investigationsUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-700" colSpan={7}>
+                      <p className="font-black">
+                        IP investigation list unavailable.
+                      </p>
+                      <p className="mt-1 max-w-2xl text-sm font-semibold">
+                        The investigation table did not load, so this page
+                        cannot prove whether active IP cases exist. Use the
+                        migration warning above before treating this queue as
+                        clear.
+                      </p>
+                    </td>
+                  </tr>
+                ) : investigations.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={7}>
                       No IP investigations saved yet.
@@ -345,7 +397,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${investigationTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${investigationTone(
                             investigation.status,
                           )}`}
                         >
@@ -354,7 +406,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${investigationTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${investigationTone(
                             investigation.severity,
                           )}`}
                         >
@@ -384,23 +436,48 @@ export default async function AdminSecurityPage({
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Money Events" value={String(rateLimitEvents.length)} />
+          <Metric
+            label="Money Events"
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(rateLimitEvents.length)
+            }
+          />
           <Metric
             label="Blocked Money Events"
-            value={String(blockedRateLimitEvents.length)}
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(blockedRateLimitEvents.length)
+            }
             tone="rose"
           />
           <Metric
             label="Watch Events"
-            value={String(watchRateLimitEvents.length)}
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(watchRateLimitEvents.length)
+            }
             tone="amber"
           />
-          <Metric label="Money IPs" value={String(uniqueRateLimitIps.size)} />
+          <Metric
+            label="Money IPs"
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(uniqueRateLimitIps.size)
+            }
+          />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white p-5">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+                Public attack surface
+              </p>
               <h2 className="text-2xl font-black">Public Money-Path Activity</h2>
               <p className="mt-1 text-sm text-neutral-600">
                 Checkout, public offers, seller payout onboarding, and binding
@@ -408,17 +485,29 @@ export default async function AdminSecurityPage({
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-              {Object.entries(endpointCounts).map(([endpoint, count]) => (
-                <div
-                  key={endpoint}
-                  className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2"
-                >
-                  <p className="text-lg font-black">{count}</p>
-                  <p className="text-xs font-bold uppercase text-neutral-500">
-                    {endpointLabel(endpoint)}
+              {rateLimitAuditUnavailable ? (
+                <div className="col-span-full rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
+                  <p className="text-sm font-black">
+                    Endpoint counts unavailable
+                  </p>
+                  <p className="mt-1 text-xs font-semibold">
+                    Public money-path audit storage did not load.
                   </p>
                 </div>
-              ))}
+              ) : null}
+              {!rateLimitAuditUnavailable
+                ? Object.entries(endpointCounts).map(([endpoint, count]) => (
+                    <div
+                      key={endpoint}
+                      className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2 shadow-sm"
+                    >
+                      <p className="text-lg font-black">{count}</p>
+                      <p className="text-xs font-bold uppercase text-neutral-500">
+                        {endpointLabel(endpoint)}
+                      </p>
+                    </div>
+                  ))
+                : null}
             </div>
           </div>
 
@@ -438,7 +527,20 @@ export default async function AdminSecurityPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {rateLimitEvents.length === 0 ? (
+                {rateLimitAuditUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-700" colSpan={9}>
+                      <p className="font-black">
+                        Public money-path audit unavailable.
+                      </p>
+                      <p className="mt-1 max-w-2xl text-sm font-semibold">
+                        Rate-limit audit storage did not load, so this page
+                        cannot prove whether blocked checkout, offer, binding
+                        offer, or seller-onboarding events exist.
+                      </p>
+                    </td>
+                  </tr>
+                ) : rateLimitEvents.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={9}>
                       No public money-path rate-limit events recorded yet.
@@ -452,7 +554,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${rateLimitTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${rateLimitTone(
                             event,
                           )}`}
                         >
@@ -493,14 +595,46 @@ export default async function AdminSecurityPage({
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Recent Attempts" value={String(attempts.length)} />
-          <Metric label="Successful" value={String(successfulAttempts.length)} tone="green" />
-          <Metric label="Failed" value={String(failedAttempts.length)} tone="amber" />
-          <Metric label="Active Lockouts" value={String(activeLockouts.length)} tone="rose" />
+          <Metric
+            label="Recent Attempts"
+            value={
+              loginAuditUnavailable ? "Unavailable" : String(attempts.length)
+            }
+          />
+          <Metric
+            label="Successful"
+            value={
+              loginAuditUnavailable
+                ? "Unavailable"
+                : String(successfulAttempts.length)
+            }
+            tone="green"
+          />
+          <Metric
+            label="Failed"
+            value={
+              loginAuditUnavailable ? "Unavailable" : String(failedAttempts.length)
+            }
+            tone="amber"
+          />
+          <Metric
+            label="Active Lockouts"
+            value={
+              loginAuditUnavailable
+                ? "Unavailable"
+                : String(activeLockouts.length)
+            }
+            tone="rose"
+          />
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Unique IPs" value={String(uniqueIps.size)} />
+          <Metric
+            label="Unique IPs"
+            value={
+              loginAuditUnavailable ? "Unavailable" : String(uniqueIps.size)
+            }
+          />
           <Metric
             label="Failed Limit"
             value={String(adminLoginSecurityPolicy.maxFailedAttempts)}
@@ -515,8 +649,11 @@ export default async function AdminSecurityPage({
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="border-b border-neutral-200 bg-gradient-to-r from-white to-sky-50/60 p-5">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+              Admin access log
+            </p>
             <h2 className="text-2xl font-black">Recent Login Attempts</h2>
             <p className="mt-1 text-sm text-neutral-600">
               Showing the latest 100 attempts. Successful attempts are kept for
@@ -538,7 +675,17 @@ export default async function AdminSecurityPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {attempts.length === 0 ? (
+                {loginAuditUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-700" colSpan={7}>
+                      <p className="font-black">Login audit unavailable.</p>
+                      <p className="mt-1 max-w-2xl text-sm font-semibold">
+                        Admin login attempt storage did not load, so this page
+                        cannot prove whether failed attempts or lockouts exist.
+                      </p>
+                    </td>
+                  </tr>
+                ) : attempts.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={7}>
                       No admin login attempts recorded yet.
@@ -552,7 +699,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${statusTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${statusTone(
                             attempt,
                           )}`}
                         >
@@ -607,9 +754,11 @@ function Metric({
       : "text-neutral-950";
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-2xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
-      <p className={`mt-3 text-3xl font-black ${toneClass}`}>{value}</p>
+      <p className={`mt-3 break-words text-3xl font-black ${toneClass}`}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -618,9 +767,20 @@ function CommandLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+      className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-white/15"
     >
       {label}
     </Link>
+  );
+}
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center shadow-sm">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-400">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-lg font-black text-white">{value}</p>
+    </div>
   );
 }

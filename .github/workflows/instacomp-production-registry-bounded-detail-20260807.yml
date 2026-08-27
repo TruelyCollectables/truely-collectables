@@ -1,0 +1,51 @@
+name: InstaComp Production Registry Bounded Detail 20260807
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/test-instacomp-production-registry-bounded-detail.mjs"
+      - ".github/workflows/instacomp-production-registry-bounded-detail-20260807.yml"
+      - "src/lib/instacomp-learning-server.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-production-registry-bounded-detail-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-bounded-registry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify bounded source contract
+        run: node scripts/test-instacomp-production-registry-bounded-detail.mjs
+
+      - name: TypeScript compile
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+        run: npx tsc --noEmit --pretty false
+
+      - name: Working tree remains clean
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --exit-code

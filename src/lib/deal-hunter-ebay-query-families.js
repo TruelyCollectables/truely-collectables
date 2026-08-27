@@ -1,0 +1,637 @@
+const SAFE_PLAYER_PATTERN = /^[\p{L}\p{M} .'-]{2,60}$/u;
+
+const WNBA_PLAYERS = Object.freeze([
+  { player: "Caitlin Clark", team: "Indiana Fever" },
+  { player: "Paige Bueckers", team: "Dallas Wings" },
+  { player: "Dominique Malonga", team: "Seattle Storm" },
+  { player: "Sonia Citron", team: "Washington Mystics" },
+  { player: "Kiki Iriafen", team: "Washington Mystics" },
+  { player: "Aneesah Morrow", team: "Connecticut Sun", autoSingleOrLotOnly: true },
+  { player: "Sarah Ashlee Barker", team: "Los Angeles Sparks", autoSingleOrLotOnly: true },
+]);
+
+export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([
+  "Jesus Made",
+  "Leo De Vries",
+  "Josue De Paula",
+  "George Lombard Jr",
+  "Franklin Arias",
+  "Brandon Compton",
+]);
+
+const COLLEGE_OR_PRE_WNBA =
+  /\b(college|ncaa|bowman university|bowman u|draft picks?|uconn|connecticut huskies|usc trojans|notre dame|south carolina gamecocks|tcu horned frogs|iowa hawkeyes|maryland terrapins)\b/i;
+const PROHIBITED_LISTING =
+  /\b(custom|reprint|facsimile|digital card|nft|mystery|break spot|box break|case break|replica)\b/i;
+const PREMIUM_TIER =
+  /\b(silver|prizm|refractor|holo|optic|parallel|numbered|ssp|sp\b|case hit|downtown|kaboom|gold|blue|red|green|purple|orange|pink|ice|wave|shimmer|scope|disco|fast break|choice|variation|courtside|premier|concourse|auto|autograph|signature|patch|relic|memorabilia)\b|\/\d{1,4}\b/i;
+const EXPLICIT_BASE = /\bbase(?: card)?\b/i;
+const LOT_OR_BUNDLE =
+  /\b(lot|bundle|collection|group of|set of)\b|\b(?:qty|quantity|x)\s*[:x-]?\s*\d{2,}\b|\b\d{2,}\s*(?:cards?|card lot)\b/i;
+const CARD_CATEGORY =
+  /\b(trading card|sports mem|sports memorabilia|collectible card|card singles?|trading cards?)\b/i;
+const MICHKOV_NAME_OR_MISSPELLING =
+  /\b(michkov|michov|mikhkov|mitchkov)\b/i;
+const MICHKOV_CANONICAL_NAME = /\bmatvei\s+michkov\b/i;
+const YOUNG_GUNS_SIGNAL = /\b(young guns?|yg)\b/i;
+const UPPER_DECK_SIGNAL = /\bupper deck\b|\bud\b/i;
+const MUSIC_COMEDY_AUTOGRAPH_FORMAT =
+  /\b(poster|11x17|11 x 17|11x18|11 x 18|print|tour print|show print|concert poster|gig poster|cd|cd cover|album|album cover|lp|vinyl|record|record jacket|sleeve|booklet|insert|setlist)\b/i;
+const MUSIC_COMEDY_DIRECT_SOURCE =
+  /\b(artist direct|from (?:the )?(?:artist|band|comedian)|official store|official merch|merch table|merch booth|vip|meet and greet|m&g|signed at|purchased at|tour merch|concert merch|show merch|venue|coa from artist)\b/i;
+const MUSIC_COMEDY_AUTHENTICATOR =
+  /\b(jsa|beckett|bas|psa|coa|certificate of authenticity)\b/i;
+const MUSIC_COMEDY_UNWANTED_FORMAT =
+  /\b(guitar pick|pickguard|drumstick|drum stick|shirt|t-shirt|tee shirt|hat|cap|funko|photo card|trading card|index card|cut signature|preprint|printed signature)\b/i;
+
+function slug(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizedWords(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function boundedEditDistance(left, right, maximum = 1) {
+  if (left === right) return 0;
+  if (Math.abs(left.length - right.length) > maximum) return maximum + 1;
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    let rowMinimum = row;
+    for (let column = 1; column <= right.length; column += 1) {
+      const value = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1),
+      );
+      current.push(value);
+      rowMinimum = Math.min(rowMinimum, value);
+    }
+    if (rowMinimum > maximum) return maximum + 1;
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function matchWatchedPerson(value, watchedPerson) {
+  const targetWords = normalizedWords(watchedPerson);
+  const words = normalizedWords(value);
+  if (!targetWords.length || !words.length) {
+    return { matched: false, method: "none", fuzzyTokens: [] };
+  }
+
+  const normalizedValue = ` ${words.join(" ")} `;
+  const normalizedTarget = ` ${targetWords.join(" ")} `;
+  if (normalizedValue.includes(normalizedTarget)) {
+    return { matched: true, method: "exact_name", fuzzyTokens: [] };
+  }
+
+  const fuzzyTokens = [];
+  for (const target of targetWords) {
+    const exact = words.includes(target);
+    if (exact) continue;
+    const fuzzy =
+      target.length >= 5 &&
+      words.some(
+        (word) =>
+          word.length >= 4 && boundedEditDistance(word, target, 1) <= 1,
+      );
+    if (!fuzzy) {
+      return { matched: false, method: "none", fuzzyTokens: [] };
+    }
+    fuzzyTokens.push(target);
+  }
+
+  return {
+    matched: true,
+    method: fuzzyTokens.length ? "fuzzy_name" : "exact_tokens",
+    fuzzyTokens,
+  };
+}
+
+function categoryNames(raw) {
+  if (!Array.isArray(raw?.categories)) return [];
+  return raw.categories
+    .map((category) => category?.categoryName || category?.name || "")
+    .map(String)
+    .filter(Boolean);
+}
+
+function lotQuantityGuess(value, raw) {
+  const nativeLotSize = Number(raw?.lotSize);
+  if (Number.isInteger(nativeLotSize) && nativeLotSize > 1) return nativeLotSize;
+  const text = String(value || "");
+  const matches = [
+    text.match(/\b(?:qty|quantity|x)\s*[:x-]?\s*(\d{2,})\b/i),
+    text.match(/\b(\d{2,})\s*(?:cards?|card lot)\b/i),
+    text.match(/\b(?:lot|bundle|set)\s*(?:of)?\s*(\d{2,})\b/i),
+  ];
+  for (const match of matches) {
+    const quantity = Number(match?.[1]);
+    if (Number.isInteger(quantity) && quantity > 1) return quantity;
+  }
+  return null;
+}
+
+function cardNumberGuess(value) {
+  const text = String(value || "");
+  return (
+    text.match(/(?:^|\s)#\s*([A-Z0-9][A-Z0-9-]{0,11})(?=\s|$|[,/])/i)?.[1] ||
+    null
+  );
+}
+
+export function analyzeDealHunterEbayListing({
+  title,
+  description,
+  raw,
+  family,
+} = {}) {
+  const combined = [title, description].filter(Boolean).join(" ");
+  const titleMatch = matchWatchedPerson(title, family?.watchedPerson);
+  const evidenceMatch = matchWatchedPerson(combined, family?.watchedPerson);
+  const categories = categoryNames(raw);
+  const lotSignal = Boolean(raw?.lotSize > 1 || LOT_OR_BUNDLE.test(combined));
+  const cardNumber = cardNumberGuess(title) || cardNumberGuess(description);
+  const categoryLooksLikeCard =
+    !categories.length || categories.some((name) => CARD_CATEGORY.test(name));
+
+  const mislistReasons = [];
+  if (evidenceMatch.matched && !titleMatch.matched) {
+    mislistReasons.push("watched_player_missing_from_title_but_supported_by_ebay_metadata");
+  }
+  if (!categoryLooksLikeCard) {
+    mislistReasons.push("possible_wrong_category_listing");
+  }
+  if (lotSignal) mislistReasons.push("lot_or_bundle_listing");
+  if (cardNumber && !titleMatch.matched) {
+    mislistReasons.push("card_number_or_underspecified_title_rescue");
+  }
+
+  return {
+    targetMatch: titleMatch.matched ? titleMatch : evidenceMatch,
+    targetMatchedInTitle: titleMatch.matched,
+    targetMatchedInMetadata: !titleMatch.matched && evidenceMatch.matched,
+    categories,
+    categoryLooksLikeCard,
+    lotSignal,
+    lotQuantityGuess: lotQuantityGuess(combined, raw),
+    cardNumberGuess: cardNumber,
+    mislistReasons,
+  };
+}
+
+export function parseDealHunterPlayers(
+  value,
+  fallback = DEFAULT_BASEBALL_PROSPECTS,
+) {
+  const raw = String(value || "").trim();
+  if (!raw) return [...fallback];
+
+  const unique = new Map();
+  for (const entry of raw.split(",")) {
+    const player = entry.replace(/\s+/g, " ").trim();
+    if (!SAFE_PLAYER_PATTERN.test(player)) continue;
+    unique.set(player.toLocaleLowerCase("en-US"), player);
+    if (unique.size >= 8) break;
+  }
+  return unique.size ? [...unique.values()] : [...fallback];
+}
+
+function wnbaFamilies() {
+  return WNBA_PLAYERS.flatMap(({ player, team, autoSingleOrLotOnly = false }) => {
+    const id = slug(player);
+    const [firstName, ...surnameParts] = player.split(" ");
+    const surname = surnameParts.join(" ");
+
+    if (autoSingleOrLotOnly) {
+      return [
+        {
+familyId: `wnba.${id}.autograph-memorabilia`,
+scope: "wnba",
+lane: "autograph_memorabilia",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_autograph_memorabilia",
+query: `${player} WNBA rookie autograph auto patch memorabilia`,
+required: true,
+        },
+        {
+familyId: `wnba.${id}.rookie-lots`,
+scope: "wnba",
+lane: "rookie_lots",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_lot",
+query: `${player} WNBA rookie card lot bundle`,
+required: true,
+        },
+        {
+familyId: `wnba.${id}.first-name-auto-rescue`,
+scope: "wnba",
+lane: "name_typo_and_underspecified_rescue",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_autograph_memorabilia",
+query: `${firstName} WNBA rookie autograph`,
+required: true,
+rescueMode: true,
+        },
+        {
+familyId: `wnba.${id}.surname-auto-rescue`,
+scope: "wnba",
+lane: "name_typo_and_underspecified_rescue",
+watchedPerson: player,
+itemType: "professional_wnba_rookie_autograph_memorabilia",
+query: `${surname} WNBA rookie autograph`,
+required: true,
+rescueMode: true,
+        },
+      ];
+    }
+
+    return [
+      {
+        familyId: `wnba.${id}.broad-professional-rookies`,
+        scope: "wnba",
+        lane: "broad_professional_rookies",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${player} ${team} WNBA rookie card`,
+        required: true,
+      },
+      {
+        familyId: `wnba.${id}.silver-color-numbered-ssp`,
+        scope: "wnba",
+        lane: "silver_color_numbered_ssp",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_parallel",
+        query: `${player} WNBA rookie silver color numbered SSP`,
+        required: true,
+      },
+      {
+        familyId: `wnba.${id}.autograph-memorabilia`,
+        scope: "wnba",
+        lane: "autograph_memorabilia",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_autograph_memorabilia",
+        query: `${player} WNBA rookie autograph auto patch memorabilia`,
+        required: true,
+      },
+      {
+        familyId: `wnba.${id}.first-name-rescue`,
+        scope: "wnba",
+        lane: "name_typo_and_underspecified_rescue",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${firstName} WNBA rookie card`,
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `wnba.${id}.surname-rescue`,
+        scope: "wnba",
+        lane: "name_typo_and_underspecified_rescue",
+        watchedPerson: player,
+        itemType: "professional_wnba_rookie_card",
+        query: `${surname} WNBA rookie card`,
+        required: true,
+        rescueMode: true,
+      },
+    ];
+  });
+}
+
+function ivanFamilies() {
+  return [
+    {
+      familyId: "ivan-demidov.professional-rookies",
+      scope: "ivan_demidov",
+      lane: "professional_rookies",
+      watchedPerson: "Ivan Demidov",
+      itemType: "professional_nhl_rookie_card",
+      query: "Ivan Demidov NHL rookie card",
+      required: true,
+    },
+    {
+      familyId: "ivan-demidov.young-guns-parallels",
+      scope: "ivan_demidov",
+      lane: "young_guns_parallels",
+      watchedPerson: "Ivan Demidov",
+      itemType: "young_guns_rookie_parallel",
+      query: "Ivan Demidov Young Guns rookie parallel",
+      required: true,
+    },
+    {
+      familyId: "ivan-demidov.autograph-memorabilia",
+      scope: "ivan_demidov",
+      lane: "autograph_memorabilia",
+      watchedPerson: "Ivan Demidov",
+      itemType: "nhl_rookie_autograph_memorabilia",
+      query: "Ivan Demidov NHL rookie autograph patch memorabilia",
+      required: true,
+    },
+  ];
+}
+
+function michkovYoungGunsFamilies() {
+  const definitions = [
+    ["exact-young-guns", "Matvei Michkov Young Guns rookie"],
+    ["young-guns-parallels", "Matvei Michkov Young Guns parallel"],
+    ["yg-abbreviation", "Matvei Michkov YG Philadelphia Flyers"],
+    ["matvey-first-name", "Matvey Michkov Young Guns"],
+    ["matei-first-name", "Matei Michkov Young Guns"],
+    ["michov-surname", "Matvei Michov Young Guns"],
+    ["mikhkov-surname", "Matvei Mikhkov Young Guns"],
+    ["mitchkov-surname", "Mitchkov Young Guns Philadelphia Flyers"],
+  ];
+
+  return definitions.map(([family, query]) => ({
+    familyId: `matvei-michkov.${family}`,
+    scope: "matvei_michkov_young_guns",
+    lane: "young_guns_deal_and_misspelling",
+    watchedPerson: "Matvei Michkov",
+    itemType: "young_guns_rookie_card",
+    query,
+    required: true,
+  }));
+}
+
+function prospectFamilies(players) {
+  return players.flatMap((player) => {
+    const id = slug(player);
+    return [
+      {
+        familyId: `baseball-prospect.${id}.true-first-bowman`,
+        scope: "baseball_prospects",
+        lane: "true_first_bowman",
+        watchedPerson: player,
+        itemType: "true_first_bowman_card",
+        query: `${player} 1st Bowman Chrome`,
+        required: true,
+      },
+      {
+        familyId: `baseball-prospect.${id}.first-bowman-auto-color`,
+        scope: "baseball_prospects",
+        lane: "first_bowman_autograph_color_numbered",
+        watchedPerson: player,
+        itemType: "true_first_bowman_autograph_parallel",
+        query: `${player} 1st Bowman autograph color numbered`,
+        required: true,
+      },
+    ];
+  });
+}
+
+function signedBaseballFamilies(players) {
+  return players.flatMap((player) => {
+    const id = slug(player);
+    const base = [
+      {
+        familyId: `signed-baseball.${id}`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: `${player} signed baseball autograph`,
+        required: true,
+      },
+    ];
+
+    if (player !== "Brandon Compton") return base;
+
+    return [
+      ...base,
+      {
+        familyId: `signed-baseball.${id}.autographed-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Brandon Compton autographed baseball",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.surname-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Compton signed baseball Marlins",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.initial-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "B Compton signed baseball Marlins",
+        required: true,
+        rescueMode: true,
+      },
+      {
+        familyId: `signed-baseball.${id}.signed-ball-rescue`,
+        scope: "signed_baseballs",
+        lane: "signed_prospect_baseball_mislist_rescue",
+        watchedPerson: player,
+        itemType: "signed_prospect_baseball",
+        query: "Brandon Compton signed ball",
+        required: true,
+        rescueMode: true,
+      },
+    ];
+  });
+}
+
+function musicComedyAutographFamilies() {
+  const definitions = [
+    ["country.artist-direct-posters", "country music signed poster artist direct", "Country Music", "music_signed_poster"],
+    ["country.signed-cd-album", "country music signed CD album cover official store", "Country Music", "music_signed_album_cover"],
+    ["metal.unsigned-posters", "metal band signed poster merch table", "Metal", "music_signed_poster"],
+    ["metal.signed-cd-vinyl", "metal band signed CD vinyl album cover", "Metal", "music_signed_album_cover"],
+    ["rock.artist-direct-posters", "rock band signed poster artist direct tour merch", "Rock", "music_signed_poster"],
+    ["classic-rock.album-covers", "classic rock signed album cover vinyl LP", "Classic Rock", "music_signed_album_cover"],
+    ["comedian.11x17-11x18", "comedian signed 11x17 11x18 poster", "Comedians", "comedy_signed_poster"],
+    ["comedian.show-posters", "stand up comedian signed show poster merch", "Comedians", "comedy_signed_poster"],
+  ];
+
+  return definitions.map(([id, query, watchedPerson, lane]) => ({
+    familyId: `music-comedy-autograph.${id}`,
+    scope: "music_comedy_autographs",
+    lane,
+    watchedPerson,
+    itemType: lane,
+    query,
+    maxItemPrice: 60,
+    maxKnownDeliveredCost: 75,
+    required: true,
+  }));
+}
+
+export function buildDealHunterEbayQueryFamilies({
+  scope = "wnba",
+  players = DEFAULT_BASEBALL_PROSPECTS,
+} = {}) {
+  const normalizedScope = String(scope || "wnba").trim().toLowerCase();
+  const prospectPlayers = parseDealHunterPlayers(
+    players,
+    DEFAULT_BASEBALL_PROSPECTS,
+  );
+
+  if (normalizedScope === "wnba") return wnbaFamilies();
+  if (normalizedScope === "ivan_demidov") return ivanFamilies();
+  if (normalizedScope === "matvei_michkov_young_guns") {
+    return michkovYoungGunsFamilies();
+  }
+  if (normalizedScope === "baseball_prospects") {
+    return prospectFamilies(prospectPlayers);
+  }
+  if (normalizedScope === "signed_baseballs") {
+    return signedBaseballFamilies(prospectPlayers);
+  }
+  if (normalizedScope === "music_comedy_autographs") {
+    return musicComedyAutographFamilies();
+  }
+  if (normalizedScope === "all") {
+    return [
+      ...wnbaFamilies(),
+      ...ivanFamilies(),
+      ...michkovYoungGunsFamilies(),
+      ...prospectFamilies(prospectPlayers),
+      ...signedBaseballFamilies(prospectPlayers),
+      ...musicComedyAutographFamilies(),
+    ];
+  }
+  throw new Error(`Unsupported Deal Hunter eBay scope: ${normalizedScope}`);
+}
+
+export function screenDealHunterEbayTitle({
+  title,
+  description,
+  raw,
+  family,
+}) {
+  const value = String(title || "").trim();
+  const evidenceText = [value, description].filter(Boolean).join(" ");
+  const rejectionReasons = [];
+  const reviewReasons = [];
+  const analysis = analyzeDealHunterEbayListing({
+    title: value,
+    description,
+    raw,
+    family,
+  });
+
+  if (!value) rejectionReasons.push("missing_title");
+  if (PROHIBITED_LISTING.test(evidenceText)) {
+    rejectionReasons.push("custom_reprint_digital_break_or_mystery");
+  }
+
+  if (family?.scope === "wnba") {
+    if (!analysis.targetMatch.matched) {
+      rejectionReasons.push("watched_player_not_matched");
+    } else if (!analysis.targetMatchedInTitle) {
+      reviewReasons.push("watched_player_supported_by_metadata_not_title_verify_image");
+    } else if (analysis.targetMatch.method === "fuzzy_name") {
+      reviewReasons.push("seller_name_typo_or_variant_detected_verify_image");
+    }
+
+    if (COLLEGE_OR_PRE_WNBA.test(evidenceText)) {
+      rejectionReasons.push("college_or_pre_wnba");
+    }
+    if (EXPLICIT_BASE.test(value) && !PREMIUM_TIER.test(value)) {
+      rejectionReasons.push("explicit_ordinary_base");
+    } else if (!PREMIUM_TIER.test(value)) {
+      reviewReasons.push("tier_not_proven_from_title_image_review_required");
+    }
+    if (analysis.lotSignal) {
+      reviewReasons.push("lot_or_bundle_unit_economics_review_required");
+    }
+    if (!analysis.categoryLooksLikeCard) {
+      reviewReasons.push("possible_wrong_category_listing_verify_item");
+    }
+  }
+
+  if (family?.scope === "matvei_michkov_young_guns") {
+    if (!MICHKOV_NAME_OR_MISSPELLING.test(value)) {
+      rejectionReasons.push("michkov_name_or_misspelling_not_claimed");
+    }
+    if (!YOUNG_GUNS_SIGNAL.test(value)) {
+      rejectionReasons.push("young_guns_not_claimed");
+    }
+    if (/\bchecklist\b/i.test(value)) {
+      rejectionReasons.push("young_guns_checklist_not_player_card");
+    }
+    if (!MICHKOV_CANONICAL_NAME.test(value)) {
+      reviewReasons.push("seller_name_variant_or_misspelling_detected_verify_images");
+    }
+    if (!UPPER_DECK_SIGNAL.test(value)) {
+      reviewReasons.push("upper_deck_not_explicit_verify_product");
+    }
+  }
+
+  if (
+    family?.scope === "baseball_prospects" &&
+    !/\b1st\b|\bfirst\b/i.test(value)
+  ) {
+    reviewReasons.push("true_first_bowman_not_proven_from_title");
+  }
+
+  if (
+    family?.scope === "signed_baseballs" &&
+    !/\b(signed|autograph|auto)\b/i.test(value)
+  ) {
+    rejectionReasons.push("signature_not_claimed");
+  }
+
+  if (family?.scope === "music_comedy_autographs") {
+    if (!/\b(signed|autograph(?:ed)?|auto)\b/i.test(value)) {
+      rejectionReasons.push("signature_not_claimed");
+    }
+    if (!MUSIC_COMEDY_AUTOGRAPH_FORMAT.test(evidenceText)) {
+      rejectionReasons.push("wanted_format_not_claimed");
+    }
+    if (MUSIC_COMEDY_UNWANTED_FORMAT.test(evidenceText)) {
+      rejectionReasons.push("unwanted_format");
+    }
+    if (!MUSIC_COMEDY_DIRECT_SOURCE.test(evidenceText)) {
+      reviewReasons.push("artist_direct_or_event_purchase_not_proven");
+    }
+    if (MUSIC_COMEDY_AUTHENTICATOR.test(evidenceText)) {
+      reviewReasons.push("authenticated_listing_allowed_but_not_operator_preference");
+    }
+  }
+
+  return {
+    accepted: rejectionReasons.length === 0,
+    manualReviewRequired: reviewReasons.length > 0,
+    rejectionReasons,
+    reviewReasons: Array.from(new Set(reviewReasons)),
+    analysis,
+  };
+}
+
+export function extractEbayItemId(value) {
+  const direct = String(value?.itemId || value?.legacyItemId || "").trim();
+  if (direct) return direct;
+  const url = String(value?.itemWebUrl || value?.url || "");
+  return (
+    url.match(/\/itm\/(?:[^/?#]+\/)?(\d{9,15})(?:[/?#]|$)/i)?.[1] || null
+  );
+}
+
+export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = wnbaFamilies().length;
+export const DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT = 8;

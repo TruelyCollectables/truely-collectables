@@ -86,6 +86,22 @@ scenario("comp detail labels recalculation and sale-save actions", () => {
   }
 });
 
+scenario("comp detail uses professional command presentation", () => {
+  for (const fragment of [
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-full border border-white/15 bg-white/10",
+    "focus:ring-4 focus:ring-black/10",
+  ]) {
+    assert(
+      compDetailPageSource.includes(fragment),
+      `Expected comp detail presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {
