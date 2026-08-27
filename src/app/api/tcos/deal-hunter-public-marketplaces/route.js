@@ -20,10 +20,10 @@ const FAMILIES = Object.freeze({
       lane: "public_marketplace_card", watchedPerson: "Ivan Demidov", itemType: "sports_card" },
   ],  shoe_deals: [
     { familyId: "shoe-deal.mercari", sources: ["Mercari"],
-      query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots under $25 currently for sale on Mercari",
+      query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots at or below $30 currently for sale on Mercari",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
     { familyId: "shoe-deal.poshmark", sources: ["Poshmark"],
-      query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots under $25 currently for sale on Poshmark",
+      query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots at or below $30 currently for sale on Poshmark",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
   ],
 });
@@ -82,7 +82,7 @@ function safeListing(entry, family) {
   if (family.itemType === "new_adult_shoes") {
     const brand = shoeBrand(evidence);
     if (!brand || !SHOE_NEW.test(evidence) || SHOE_USED.test(evidence) || SHOE_KIDS.test(evidence)) return null;
-    if (itemPrice === null || itemPrice > 25) return null;
+    if (itemPrice === null || itemPrice > 30) return null;
     if (shipping !== null && shipping > 15) return null;
     if (!/\b(?:men(?:'s)?|women(?:'s)?|adult|size\s*(?:[5-9]|1[0-9])(?:\.5)?\b)\b/i.test(evidence)) {
       manualReviewRequired = true;

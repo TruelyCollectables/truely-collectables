@@ -73,7 +73,7 @@ SIGNED_BASEBALL_MIN_PER_RUN = 5
 SIGNED_BASEBALL_REVIEW_MAX_DELIVERED_COST = 60.0
 PUBLIC_MARKETPLACE_MIN_PER_RUN = 8
 SHOE_DEAL_LANES = {"shoe_deal"}
-SHOE_MAX_ITEM_PRICE = 25.0
+SHOE_MAX_ITEM_PRICE = 30.0
 SHOE_MAX_SHIPPING = 15.0
 SIGNED_BASEBALL_SIGNATURE_RE = re.compile(r"\b(signed|autograph(?:ed)?|auto)\b", re.I)
 SIGNED_BASEBALL_OFFICIAL_RE = re.compile(
@@ -584,7 +584,7 @@ class DealHunterScheduler:
                 "delivered_cost": delivered_cost,
                 "deal_label": "SHOE PASS — OVER ACQUISITION LIMIT",
                 "error_code": "DEAL_HUNTER_SHOE_PRICE_LIMIT",
-                "error_message": "Shoe Deal Watch requires an item price of $25 or less.",
+                "error_message": "Shoe Deal Watch requires an item price of $30 or less.",
             }
         if shipping is not None and shipping > SHOE_MAX_SHIPPING:
             return {
@@ -604,7 +604,7 @@ class DealHunterScheduler:
             "error_code": "DEAL_HUNTER_SHOE_FLIP_REVIEW",
             "error_message": (
                 "Public listing passed the saved Shoe Deal Watch intake rules: new adult New Balance, Adidas, "
-                "or Timberland Pro, item price at or below $25, and no excessive known shipping. Verify the "
+                "or Timberland Pro, item price at or below $30, and no excessive known shipping. Verify the "
                 "listing is still available, size/condition, seller quality, and resale margin before buying."
             ),
         }
@@ -769,7 +769,15 @@ class DealHunterScheduler:
                         "backImage": (back[2], back[0], back[1]),
                     },
                 )
-                payload = response.json()
+                try:
+                    payload = response.json()
+                except ValueError as exc:
+                    content_type = str(response.headers.get("content-type") or "unknown")
+                    preview = " ".join(response.text.strip().split())[:1000] or "<empty>"
+                    raise RuntimeError(
+                        f"Deal Hunter evaluator HTTP {response.status_code} returned non-JSON "
+                        f"({content_type}): {preview}"
+                    ) from exc
                 if not response.is_success or payload.get("ok") is not True:
                     raise RuntimeError(
                         str(payload.get("error") or payload.get("note") or f"HTTP {response.status_code}")

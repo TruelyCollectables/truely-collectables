@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runDealHunterCore } from "./multi-provider-core";
-import { persistRunSummary } from "./core";
+import { parseDealHunterMultipartRequest, replayDealHunterMultipartRequest } from "./multipart-request";
 import { dealHunterListingRegistryConflict } from "../../../../../lib/deal-hunter-listing-registry-guard";
 import {
   persistExactCardMarketHistory,
@@ -27,13 +27,6 @@ function deliveredCost(listing: Record<string, unknown>) {
     numberValue(listing.tax),
   ];
   return Number(parts.reduce<number>((sum, value) => sum + (value || 0), 0).toFixed(2));
-}
-
-async function listingFromClone(request: Request) {
-  const form = await request.formData();
-  const raw = form.get("listingJson");
-  if (typeof raw !== "string") return null;
-  return JSON.parse(raw) as Record<string, unknown>;
 }
 
 function listingConflictResponse(
@@ -127,30 +120,28 @@ function listingConflictResponse(
 
 export async function POST(request: NextRequest) {
   const contentType = String(request.headers.get("content-type") || "").toLowerCase();
-  if (contentType.includes("application/json")) {
-    try {
-      const body = (await request.clone().json()) as Record<string, any>;
-      if (body?.kind === "run_complete") {
-        const result = await persistRunSummary(body);
-        return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } });
-      }
-    } catch {
-      // Fall through to the standard evaluator for malformed JSON; the core
-      // handler will return the canonical request error.
-    }
-    return runDealHunterCore(request);
+  if (contentType.includes("application/json")) return runDealHunterCore(request);
+
+  let multipartInput;
+  try {
+    multipartInput = await parseDealHunterMultipartRequest(request);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : String(error) },
+      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
   }
 
-  const requestCopy = request.clone();
-  const coreResponse = await runDealHunterCore(request);
+  const coreResponse = await runDealHunterCore(
+    replayDealHunterMultipartRequest(request, multipartInput),
+  );
   if (!coreResponse.ok) return coreResponse;
 
   const payload = (await coreResponse.clone().json()) as Record<string, any>;
   if (payload.ok !== true || !payload.scan) return coreResponse;
 
   try {
-    const listing = await listingFromClone(requestCopy);
-    if (!listing) throw new Error("Deal Hunter history wrapper could not recover listingJson.");
+    const listing = multipartInput.listing;
 
     const scan = payload.scan as Record<string, any>;
     const conflict = dealHunterListingRegistryConflict(listing, scan);

@@ -393,7 +393,10 @@ def test_shoe_evaluation_enforces_saved_intake_limits(tmp_path: Path):
     assert good["alertworthy"] is True
     assert good["status"] == "manual_review"
 
-    overpriced = scheduler._evaluate_shoe({**base, "item_price": 26.0})
+    boundary = scheduler._evaluate_shoe({**base, "item_price": 30.0})
+    assert boundary["alertworthy"] is True
+
+    overpriced = scheduler._evaluate_shoe({**base, "item_price": 30.01})
     assert overpriced["alertworthy"] is False
     assert overpriced["error_code"] == "DEAL_HUNTER_SHOE_PRICE_LIMIT"
 

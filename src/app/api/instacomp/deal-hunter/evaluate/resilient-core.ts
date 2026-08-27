@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { parseDealHunterMultipartRequest, replayDealHunterMultipartRequest } from "./multipart-request";
 import { POST as runDealHunterCore } from "./core";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { loadExactCardMarketHistory } from "../../../../../lib/instacomp-market-history";
@@ -13,8 +14,6 @@ import {
 } from "../../../../../lib/instacomp-live-pipeline";
 import type { InstaCompAiResult } from "../../../../../lib/instacomp";
 
-const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function json(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
@@ -617,39 +616,19 @@ async function persistEvaluation(params: {
   return { id: data.id, fingerprint, delivery };
 }
 
-async function fallbackInput(request: Request) {
-  const form = await request.formData();
-  const listingJson = form.get("listingJson");
-  const frontValue = form.get("frontImage");
-  const backValue = form.get("backImage");
-  if (typeof listingJson !== "string") throw new Error("listingJson is required.");
-  if (!(frontValue instanceof File) || !(backValue instanceof File)) {
-    throw new Error("Both frontImage and backImage are required.");
-  }
-  if (!ALLOWED_IMAGE_TYPES.has(frontValue.type) || !ALLOWED_IMAGE_TYPES.has(backValue.type)) {
-    throw new Error("Deal Hunter images must be JPEG, PNG, or WebP.");
-  }
-  if (
-    frontValue.size <= 0 ||
-    backValue.size <= 0 ||
-    frontValue.size > MAX_IMAGE_BYTES ||
-    backValue.size > MAX_IMAGE_BYTES
-  ) {
-    throw new Error("Deal Hunter images must be non-empty and no larger than 12MB each.");
-  }
-  return {
-    listing: JSON.parse(listingJson) as Record<string, any>,
-    front: frontValue,
-    back: backValue,
-  };
-}
-
 export async function POST(request: NextRequest) {
   const contentType = String(request.headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("application/json")) return runDealHunterCore(request);
 
-  const fallbackRequest = request.clone();
-  const primaryResponse = await runDealHunterCore(request);
+  let input;
+  try {
+    input = await parseDealHunterMultipartRequest(request);
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  const primaryResponse = await runDealHunterCore(
+    replayDealHunterMultipartRequest(request, input),
+  );
   if (primaryResponse.ok) return primaryResponse;
   const primaryPayload = (await primaryResponse.clone().json().catch(() => null)) as
     | Record<string, any>
@@ -657,7 +636,6 @@ export async function POST(request: NextRequest) {
   if (!isKnownMacIdentityFailure(primaryResponse, primaryPayload)) return primaryResponse;
 
   try {
-    const input = await fallbackInput(fallbackRequest);
     const scan = await buildRegistryLockedFallbackScan({
       ...input,
       originalFailure: primaryPayload,

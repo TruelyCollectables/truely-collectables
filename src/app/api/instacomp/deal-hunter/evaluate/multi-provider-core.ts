@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseDealHunterMultipartRequest, replayDealHunterMultipartRequest } from "./multipart-request";
 import { POST as runResilientCore } from "./resilient-core";
 import { loadExactCardMarketHistory } from "../../../../../lib/instacomp-market-history";
 import { trustedHistoricalSoldPricing } from "../../../../../lib/deal-hunter-trusted-sold-history";
@@ -11,8 +12,6 @@ import {
 } from "../../../../../lib/instacomp-live-pipeline";
 import type { InstaCompAiResult } from "../../../../../lib/instacomp";
 
-const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const GEMINI_API_KEY = String(
   process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || "",
 ).trim();
@@ -459,33 +458,6 @@ function economics(listing: Record<string, unknown>, scan: Record<string, any>) 
   };
 }
 
-async function fallbackInput(request: Request) {
-  const form = await request.formData();
-  const listingJson = form.get("listingJson");
-  const frontValue = form.get("frontImage");
-  const backValue = form.get("backImage");
-  if (typeof listingJson !== "string") throw new Error("listingJson is required.");
-  if (!(frontValue instanceof File) || !(backValue instanceof File)) {
-    throw new Error("Both frontImage and backImage are required.");
-  }
-  if (!ALLOWED_IMAGE_TYPES.has(frontValue.type) || !ALLOWED_IMAGE_TYPES.has(backValue.type)) {
-    throw new Error("Deal Hunter images must be JPEG, PNG, or WebP.");
-  }
-  if (
-    frontValue.size <= 0 ||
-    backValue.size <= 0 ||
-    frontValue.size > MAX_IMAGE_BYTES ||
-    backValue.size > MAX_IMAGE_BYTES
-  ) {
-    throw new Error("Deal Hunter images must be non-empty and no larger than 12MB each.");
-  }
-  return {
-    listing: JSON.parse(listingJson) as Record<string, any>,
-    front: frontValue,
-    back: backValue,
-  };
-}
-
 function shouldTryIndependentProviders(response: Response, payload: Record<string, any> | null) {
   if (response.status < 500) return false;
   return String(payload?.error || "")
@@ -497,8 +469,15 @@ export async function POST(request: NextRequest) {
   const contentType = String(request.headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("application/json")) return runResilientCore(request);
 
-  const independentRequest = request.clone();
-  const resilientResponse = await runResilientCore(request);
+  let input;
+  try {
+    input = await parseDealHunterMultipartRequest(request);
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  const resilientResponse = await runResilientCore(
+    replayDealHunterMultipartRequest(request, input),
+  );
   if (resilientResponse.ok) return resilientResponse;
 
   const resilientPayload = (await resilientResponse.clone().json().catch(() => null)) as
@@ -509,7 +488,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const input = await fallbackInput(independentRequest);
     const locked = await identifyAndLock({
       front: input.front,
       back: input.back,
