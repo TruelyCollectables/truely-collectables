@@ -69,10 +69,6 @@ export default function ShipStationConnectionTest() {
   const [originSaving, setOriginSaving] = useState(false);
   const [originMessage, setOriginMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    void loadOrigin();
-  }, []);
-
   async function loadOrigin() {
     try {
       const response = await fetch(`/api/admin/shipping/shipstation-origin?load=${Date.now()}`, {
@@ -134,6 +130,13 @@ export default function ShipStationConnectionTest() {
       setRunning(false);
     }
   }
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadOrigin();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const serviceRows = result?.requiredServices
     ? [

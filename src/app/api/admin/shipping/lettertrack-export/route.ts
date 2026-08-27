@@ -179,7 +179,7 @@ export async function POST(request: Request) {
 
     let batchMetadata: BatchMetadataWithPayload;
     let candidateLabels: LetterTrackExportLabel[];
-    let replayed = replayLabels.length > 0;
+    const replayed = replayLabels.length > 0;
 
     if (replayed) {
       const stored = getLetterTrackExportBatchMetadata(replayLabels[0]);
