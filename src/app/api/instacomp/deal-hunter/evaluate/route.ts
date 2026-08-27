@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runDealHunterCore } from "./multi-provider-core";
+import { persistRunSummary } from "./core";
 import { parseDealHunterMultipartRequest, replayDealHunterMultipartRequest } from "./multipart-request";
 import { dealHunterListingRegistryConflict } from "../../../../../lib/deal-hunter-listing-registry-guard";
 import {
@@ -270,6 +271,24 @@ export async function POST(request: NextRequest) {
         { ok: false, error: error instanceof Error ? error.message : String(error) },
         { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
       );
+    }
+    if (body.kind === "run_complete") {
+      try {
+        const result = await persistRunSummary(body);
+        return NextResponse.json(result, {
+          headers: { "Cache-Control": "no-store, max-age=0" },
+        });
+      } catch (error) {
+        return NextResponse.json(
+          {
+            ok: false,
+            kind: "run_complete",
+            stage: "persist_run_summary",
+            error: error instanceof Error ? error.message : String(error),
+          },
+          { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } },
+        );
+      }
     }
     if (body.kind !== "candidate_evaluate_v2") {
       return runDealHunterCore(replayJsonRequest(request, body));
