@@ -1,7 +1,6 @@
 import { DealHunterEbayBrowseAdapter } from "../../../../lib/deal-hunter-ebay-native-search";
 import {
   buildDealHunterEbayQueryFamilies,
-  DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT,
   DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT,
   extractEbayItemId,
   parseDealHunterPlayers,
@@ -15,8 +14,6 @@ export const maxDuration = 60;
 
 const SCOPES = new Set([
   "wnba",
-  "ivan_demidov",
-  "matvei_michkov_young_guns",
   "baseball_prospects",
   "signed_baseballs",
   "music_comedy_autographs",
@@ -27,6 +24,28 @@ function clampPerQuery(value) {
   const parsed = Number(value || 25);
   if (!Number.isFinite(parsed)) return 25;
   return Math.min(Math.max(Math.floor(parsed), 5), 50);
+}
+
+function ebayPaceMs() {
+  const parsed = Number(process.env.TCOS_DEAL_HUNTER_EBAY_PACE_MS || 600);
+  if (!Number.isFinite(parsed)) return 600;
+  return Math.min(Math.max(Math.floor(parsed), 250), 5000);
+}
+
+function ebayQuotaReserve() {
+  const parsed = Number(process.env.TCOS_DEAL_HUNTER_EBAY_QUOTA_RESERVE || 250);
+  if (!Number.isFinite(parsed)) return 250;
+  return Math.min(Math.max(Math.floor(parsed), 0), 2500);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function deferredRateLimitError() {
+  const error = new Error("eBay Browse query deferred after an earlier HTTP 429 in this batch.");
+  error.code = "EBAY_BROWSE_RATE_LIMIT_DEFERRED";
+  return error;
 }
 
 function responseHeaders() {
@@ -166,6 +185,7 @@ function mergeListing(existing, incoming) {
 }
 
 function classifyError(error) {
+  if (error?.code === "EBAY_BROWSE_RATE_LIMIT_DEFERRED") return error.code;
   const message = error instanceof Error ? error.message : String(error);
   if (/HTTP 403|access denied/i.test(message)) return "EBAY_BUY_API_ACCESS_DENIED";
   if (/HTTP 429|rate limit/i.test(message)) return "EBAY_BROWSE_RATE_LIMITED";
@@ -240,8 +260,49 @@ export async function GET(request) {
     }, 503);
   }
 
-  const outcomes = await Promise.allSettled(
-    families.map(async (family) => {
+  const paceMs = ebayPaceMs();
+  const quotaReserve = ebayQuotaReserve();
+  let rateLimit = null;
+  try {
+    rateLimit = await adapter.rateLimitStatus();
+  } catch (error) {
+    rateLimit = {
+      available: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (
+    rateLimit?.available === true &&
+    Number.isFinite(Number(rateLimit.remaining)) &&
+    Number(rateLimit.remaining) < families.length + quotaReserve
+  ) {
+    return json({
+      ok: false,
+      schema: "TCOS_NATIVE_EBAY_FEED_V1",
+      code: "EBAY_BROWSE_QUOTA_RESERVED",
+      scope,
+      deployment,
+      nativeEbayUsed: false,
+      queryFamilyCount: families.length,
+      successfulQueryCount: 0,
+      failedQueryCount: 0,
+      deferredQueryCount: families.length,
+      rateLimit,
+      quotaReserve,
+      paceMs,
+      error: `Deal Hunter deferred eBay discovery to preserve ${quotaReserve} Browse calls.`,
+    }, 429);
+  }
+
+  const outcomes = [];
+  let rateLimitTripped = false;
+  for (let index = 0; index < families.length; index += 1) {
+    const family = families[index];
+    if (rateLimitTripped) {
+      outcomes.push({ status: "rejected", reason: deferredRateLimitError() });
+      continue;
+    }
+    try {
       const familyStartedAt = Date.now();
       const result = await adapter.search({
         query: family.query,
@@ -292,28 +353,40 @@ export async function GET(request) {
       }
 
       const returned = accepted.slice(0, perQuery);
-      return {
-        family,
-        coverage: {
-          familyId: family.familyId,
-          watchedPerson: family.watchedPerson,
-          lane: family.lane,
-          query: family.query,
-          rescueMode: Boolean(family.rescueMode),
-          status: "COMPLETE",
-          rawResultCount: result.results?.length || 0,
-          acceptedResultCount: accepted.length,
-          returnedResultCount: returned.length,
-          rejectedResultCount: (result.results?.length || 0) - accepted.length,
-          rejectionCounts,
-          warnings: result.warnings || [],
-          searchDiagnostics: result.diagnostics || null,
-          durationMs: Date.now() - familyStartedAt,
+      outcomes.push({
+        status: "fulfilled",
+        value: {
+          family,
+          coverage: {
+            familyId: family.familyId,
+            watchedPerson: family.watchedPerson,
+            lane: family.lane,
+            query: family.query,
+            rescueMode: Boolean(family.rescueMode),
+            status: "COMPLETE",
+            rawResultCount: result.results?.length || 0,
+            acceptedResultCount: accepted.length,
+            returnedResultCount: returned.length,
+            rejectedResultCount: (result.results?.length || 0) - accepted.length,
+            rejectionCounts,
+            warnings: result.warnings || [],
+            searchDiagnostics: result.diagnostics || null,
+            durationMs: Date.now() - familyStartedAt,
+          },
+          accepted: returned,
         },
-        accepted: returned,
-      };
-    }),
-  );
+      });
+    } catch (reason) {
+      if (classifyError(reason) === "EBAY_BROWSE_RATE_LIMITED") {
+        rateLimitTripped = true;
+      }
+      outcomes.push({ status: "rejected", reason });
+    }
+    if (!rateLimitTripped && index < families.length - 1) {
+      await sleep(paceMs);
+    }
+  }
+
 
   const coverage = [];
   const errors = [];
@@ -353,16 +426,11 @@ export async function GET(request) {
 
   const successfulQueryCount = coverage.filter((entry) => entry.status === "COMPLETE").length;
   const wnbaFamilyCount = families.filter((family) => family.scope === "wnba").length;
-  const michkovFamilyCount = families.filter((family) => family.scope === "matvei_michkov_young_guns").length;
   const requiredWnbaFamiliesExecuted =
     !["wnba", "all"].includes(scope) ||
     (wnbaFamilyCount === DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT &&
       coverage.filter((entry) => entry.familyId.startsWith("wnba.") && entry.status === "COMPLETE").length === DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
-  const requiredMichkovFamiliesExecuted =
-    !["matvei_michkov_young_guns", "all"].includes(scope) ||
-    (michkovFamilyCount === DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT &&
-      coverage.filter((entry) => entry.familyId.startsWith("matvei-michkov.") && entry.status === "COMPLETE").length === DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT);
-  const complete = errors.length === 0 && successfulQueryCount === families.length && requiredWnbaFamiliesExecuted && requiredMichkovFamiliesExecuted;
+  const complete = errors.length === 0 && successfulQueryCount === families.length && requiredWnbaFamiliesExecuted;
 
   return json({
     ok: complete,
@@ -381,9 +449,12 @@ export async function GET(request) {
     failedQueryCount: errors.length,
     requiredWnbaFamilyCount: ["wnba", "all"].includes(scope) ? DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT : 0,
     requiredWnbaFamiliesExecuted,
-    requiredMichkovFamilyCount: ["matvei_michkov_young_guns", "all"].includes(scope) ? DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT : 0,
-    requiredMichkovFamiliesExecuted,
     perQuery,
+    paceMs,
+    quotaReserve,
+    rateLimit,
+    rateLimitTripped,
+    deferredQueryCount: coverage.filter((entry) => entry.errorCode === "EBAY_BROWSE_RATE_LIMIT_DEFERRED").length,
     rawResultCount: coverage.reduce((sum, entry) => sum + Number(entry.rawResultCount || 0), 0),
     deduplicatedResultCount: deduplicated.size,
     results: [...deduplicated.values()].sort(

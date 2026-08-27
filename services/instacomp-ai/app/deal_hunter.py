@@ -20,17 +20,6 @@ from .deal_hunter_store import DealHunterStore, utc_now
 # but a feed that unexpectedly shrinks below its certified baseline still fails.
 FEEDS = (
     ("wnba", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=wnba", 15),
-    ("ivan_demidov", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=ivan_demidov", 3),
-    (
-        "matvei_michkov_young_guns",
-        "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=matvei_michkov_young_guns",
-        8,
-    ),
-    (
-        "matvei_michkov_opc_platinum",
-        "/api/tcos/deal-hunter-michkov-opc-platinum?perQuery={per_query}",
-        10,
-    ),
     (
         "baseball_prospects",
         "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=baseball_prospects",
@@ -45,11 +34,6 @@ FEEDS = (
         "music_comedy_autographs",
         "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=music_comedy_autographs",
         8,
-    ),
-    (
-        "demidov_public_marketplaces",
-        "/api/tcos/deal-hunter-public-marketplaces?perQuery={per_query}&scope=demidov_public_marketplaces",
-        2,
     ),
     (
         "shoe_deals",
@@ -92,6 +76,14 @@ SIGNED_BASEBALL_AUTH_RE = re.compile(
     r"coa|certificate\s+of\s+authenticity|authenticated)\b",
     re.I,
 )
+
+
+class DealHunterEbayRateLimited(RuntimeError):
+    pass
+
+
+def _is_native_ebay_feed_path(path: str) -> bool:
+    return "deal-hunter-native-ebay" in str(path)
 
 
 def _number(value: Any) -> float | None:
@@ -432,65 +424,84 @@ class DealHunterScheduler:
         timeout = httpx.Timeout(float(self.settings.deal_hunter_request_timeout_seconds))
         aggregate: dict[str, dict[str, Any]] = {}
         coverage = []
-
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            tasks = []
-            for key, path, minimum_families in FEEDS:
-                url = site + path.format(per_query=int(self.settings.deal_hunter_per_query))
-                tasks.append(self._fetch_feed(client, key, url, minimum_families))
-            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-
         failures = []
         healthy_feed_count = 0
-        for index, outcome in enumerate(outcomes):
-            feed_key, _path, minimum_families = FEEDS[index]
-            if isinstance(outcome, Exception):
-                error = str(outcome)[:1000]
-                failures.append(f"{feed_key}: {error}")
-                coverage.append(
-                    {
-                        "key": feed_key,
-                        "status": "FAILED",
-                        "minimum_query_family_count": minimum_families,
-                        "result_count": 0,
-                        "error": error,
-                    }
-                )
-                continue
+        ebay_rate_limited = False
+        feed_pace = max(0.0, min(15.0, float(getattr(self.settings, "deal_hunter_feed_pace_seconds", 2.0))))
 
-            healthy_feed_count += 1
-            coverage.append(outcome["coverage"])
-            for raw in outcome["results"]:
-                normalized = normalize_candidate(raw)
-                if not normalized["listing_url"]:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            for key, path, minimum_families in FEEDS:
+                native_ebay = _is_native_ebay_feed_path(path)
+                if native_ebay and ebay_rate_limited:
+                    coverage.append(
+                        {
+                            "key": key,
+                            "status": "DEFERRED_RATE_LIMIT",
+                            "minimum_query_family_count": minimum_families,
+                            "result_count": 0,
+                            "error": "Skipped without an HTTP call after an earlier eBay Browse rate limit in this run.",
+                        }
+                    )
                     continue
-                key = normalized["candidate_key"]
-                existing = aggregate.get(key)
-                if existing:
-                    existing["image_urls"] = list(
-                        dict.fromkeys(existing["image_urls"] + normalized["image_urls"])
-                    )[:12]
-                    existing["query_family_ids"] = list(
-                        dict.fromkeys(
-                            existing["query_family_ids"] + normalized["query_family_ids"]
-                        )
-                    )
-                    existing["manual_review_required"] = bool(
-                        existing["manual_review_required"]
-                        or normalized["manual_review_required"]
-                    )
-                    existing["preliminary_risks"] = list(
-                        dict.fromkeys(
-                            existing["preliminary_risks"]
-                            + normalized["preliminary_risks"]
-                        )
-                    )
-                else:
-                    aggregate[key] = normalized
 
-        # Discovery resilience is deliberately separate from identity/pricing trust.
-        # A broken feed must not blind every healthy hunting lane, but a total feed
-        # outage remains fail-closed. Each degraded lane stays visible in coverage.
+                url = site + path.format(per_query=int(self.settings.deal_hunter_per_query))
+                try:
+                    outcome = await self._fetch_feed(client, key, url, minimum_families)
+                except DealHunterEbayRateLimited as exc:
+                    ebay_rate_limited = True
+                    error = str(exc)[:1000]
+                    failures.append(f"{key}: {error}")
+                    coverage.append(
+                        {
+                            "key": key,
+                            "status": "FAILED_RATE_LIMIT",
+                            "minimum_query_family_count": minimum_families,
+                            "result_count": 0,
+                            "error": error,
+                        }
+                    )
+                    continue
+                except Exception as exc:
+                    error = str(exc)[:1000]
+                    failures.append(f"{key}: {error}")
+                    coverage.append(
+                        {
+                            "key": key,
+                            "status": "FAILED",
+                            "minimum_query_family_count": minimum_families,
+                            "result_count": 0,
+                            "error": error,
+                        }
+                    )
+                    continue
+
+                healthy_feed_count += 1
+                coverage.append(outcome["coverage"])
+                for raw in outcome["results"]:
+                    normalized = normalize_candidate(raw)
+                    if not normalized["listing_url"]:
+                        continue
+                    candidate_id = normalized["candidate_key"]
+                    existing = aggregate.get(candidate_id)
+                    if existing:
+                        existing["image_urls"] = list(
+                            dict.fromkeys(existing["image_urls"] + normalized["image_urls"])
+                        )[:12]
+                        existing["query_family_ids"] = list(
+                            dict.fromkeys(existing["query_family_ids"] + normalized["query_family_ids"])
+                        )
+                        existing["manual_review_required"] = bool(
+                            existing["manual_review_required"] or normalized["manual_review_required"]
+                        )
+                        existing["preliminary_risks"] = list(
+                            dict.fromkeys(existing["preliminary_risks"] + normalized["preliminary_risks"])
+                        )
+                    else:
+                        aggregate[candidate_id] = normalized
+
+                if native_ebay and feed_pace > 0:
+                    await asyncio.sleep(feed_pace)
+
         if failures and healthy_feed_count == 0:
             raise RuntimeError(
                 "All Deal Hunter discovery feeds failed closed: " + " | ".join(failures)
@@ -512,8 +523,30 @@ class DealHunterScheduler:
                 "User-Agent": "InstaComp-AI-Mac-Deal-Hunter/1.0",
             },
         )
-        response.raise_for_status()
-        payload = response.json()
+        payload = None
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if not response.is_success:
+            errors = payload.get("errors") if isinstance(payload, dict) else None
+            codes = {
+                str(row.get("code") or row.get("errorCode") or "")
+                for row in (errors or [])
+                if isinstance(row, dict)
+            }
+            top_code = str(payload.get("code") or "") if isinstance(payload, dict) else ""
+            if response.status_code == 429 or top_code in {"EBAY_BROWSE_QUOTA_RESERVED", "EBAY_BROWSE_RATE_LIMITED"} or "EBAY_BROWSE_RATE_LIMITED" in codes:
+                detail = ""
+                if isinstance(payload, dict):
+                    detail = str(payload.get("error") or "")
+                raise DealHunterEbayRateLimited(
+                    f"{key} eBay discovery rate-limited (HTTP {response.status_code})"
+                    + (f": {detail}" if detail else "")
+                )
+            response.raise_for_status()
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"{key} feed returned unreadable JSON")
         validate_feed(payload, key, minimum_families)
         family_count = int(payload.get("queryFamilyCount", 0))
         return {

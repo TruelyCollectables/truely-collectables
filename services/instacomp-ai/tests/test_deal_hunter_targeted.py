@@ -30,8 +30,10 @@ def candidate(index: int):
     }
 
 
-def test_ivan_lane_is_allowlisted():
-    assert "ivan_demidov" in ALLOWED_TARGET_LANES
+def test_removed_hockey_lanes_are_not_allowlisted():
+    assert "ivan_demidov" not in ALLOWED_TARGET_LANES
+    assert "matvei_michkov_young_guns" not in ALLOWED_TARGET_LANES
+    assert "matvei_michkov_opc_platinum" not in ALLOWED_TARGET_LANES
 
 
 def test_force_bypasses_only_cooldown_and_respects_configured_limit(tmp_path: Path):

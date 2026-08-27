@@ -508,8 +508,6 @@ export function buildDealHunterEbayQueryFamilies({
   if (normalizedScope === "all") {
     return [
       ...wnbaFamilies(),
-      ...ivanFamilies(),
-      ...michkovYoungGunsFamilies(),
       ...prospectFamilies(prospectPlayers),
       ...signedBaseballFamilies(prospectPlayers),
       ...musicComedyAutographFamilies(),

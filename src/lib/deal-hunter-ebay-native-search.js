@@ -151,6 +151,63 @@ export class DealHunterEbayBrowseAdapter {
     return ebayApplicationTokenService.status();
   }
 
+  async rateLimitStatus() {
+    if (!this.configured) {
+      return { available: false, reason: "not_configured" };
+    }
+    const accessToken = await ebayApplicationTokenService.getAccessToken();
+    const url = new URL(
+      `${ebayApplicationTokenService.apiBaseUrl()}/developer/analytics/v1_beta/rate_limit/`,
+    );
+    url.searchParams.set("api_name", "browse");
+    url.searchParams.set("api_context", "buy");
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        available: false,
+        httpStatus: response.status,
+        reason: payload?.errors?.[0]?.message || response.statusText || "analytics_failed",
+      };
+    }
+    const records = [];
+    for (const apiLimit of Array.isArray(payload?.rateLimits) ? payload.rateLimits : []) {
+      for (const resource of Array.isArray(apiLimit?.resources) ? apiLimit.resources : []) {
+        for (const rate of Array.isArray(resource?.rates) ? resource.rates : []) {
+          const finite = (value) => {
+            if (value === null || value === undefined || value === "") return null;
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+          };
+          records.push({
+            resource: String(resource?.name || "unknown"),
+            limit: finite(rate?.limit),
+            count: finite(rate?.count),
+            remaining: finite(rate?.remaining),
+            reset: rate?.reset || null,
+            timeWindow: rate?.timeWindow || null,
+          });
+        }
+      }
+    }
+    const searchRecords = records.filter((row) => /search|item_summary/i.test(row.resource));
+    const candidates = searchRecords.length ? searchRecords : records;
+    const finiteRemaining = candidates
+      .map((row) => row.remaining)
+      .filter((value) => Number.isFinite(value));
+    return {
+      available: true,
+      remaining: finiteRemaining.length ? Math.min(...finiteRemaining) : null,
+      records: candidates,
+    };
+  }
+
   async requestSearch(url, accessToken) {
     const controller = new AbortController();
     const timeout = setTimeout(

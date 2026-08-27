@@ -16,110 +16,22 @@ import { createSupabaseServerClient } from "./supabase-server";
 const MOUNTAIN_TIME_ZONE = "America/Denver";
 const PROFIT_HUNTER_HOURS = Object.freeze([7, 9, 11, 13, 15, 17, 19, 21]);
 const EXPECTED_WNBA_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "wnba" }).length;
-const EXPECTED_MICHKOV_YOUNG_GUNS_FAMILIES = 8;
-const EXPECTED_MICHKOV_OPC_FAMILIES = 10;
-const EXPECTED_IVAN_FAMILIES = 3;
 const EXPECTED_PROSPECT_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "baseball_prospects", players: DEFAULT_BASEBALL_PROSPECTS }).length;
 const EXPECTED_SIGNED_BASEBALL_FAMILIES = buildDealHunterEbayQueryFamilies({ scope: "signed_baseballs", players: DEFAULT_BASEBALL_PROSPECTS }).length;
 const EXPECTED_TOTAL_FAMILIES =
   EXPECTED_WNBA_FAMILIES +
-  EXPECTED_MICHKOV_YOUNG_GUNS_FAMILIES +
-  EXPECTED_MICHKOV_OPC_FAMILIES +
-  EXPECTED_IVAN_FAMILIES +
   EXPECTED_PROSPECT_FAMILIES +
   EXPECTED_SIGNED_BASEBALL_FAMILIES;
 
-const OPC_PLATINUM_FAMILIES = Object.freeze([
-  {
-    familyId: "matvei-michkov-opc-platinum.exact-o-pee-chee-rainbow",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvei Michkov 2024-25 O-Pee-Chee Platinum Rainbow rookie",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.opc-rainbow",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvei Michkov 2024-25 OPC Platinum Rainbow rookie",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.o-pee-chee-no-punctuation",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvei Michkov 2024-25 O Pee Chee Platinum Rainbow rookie",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.color-numbered-parallels",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvei Michkov OPC Platinum rookie parallel color numbered",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.rookie-autographs",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvei Michkov O-Pee-Chee Platinum rookie autograph auto",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.matvey-first-name",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvey Michkov OPC Platinum Rainbow rookie",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.matei-first-name",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matei Michkov OPC Platinum Rainbow rookie",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.michov-surname",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvei Michov OPC Platinum Rainbow rookie",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.mikhkov-surname",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Matvei Mikhkov OPC Platinum Rainbow rookie",
-  },
-  {
-    familyId: "matvei-michkov-opc-platinum.mitchkov-surname",
-    scope: "matvei_michkov_opc_platinum",
-    lane: "opc_platinum_rookie_rainbow_or_better",
-    watchedPerson: "Matvei Michkov",
-    itemType: "opc_platinum_rookie_parallel_or_autograph",
-    query: "Mitchkov OPC Platinum rookie parallel Philadelphia Flyers",
-  },
-]);
+function profitHunterEbayPaceMs() {
+  const parsed = Number(process.env.TCOS_PROFIT_HUNTER_EBAY_PACE_MS || 600);
+  if (!Number.isFinite(parsed)) return 600;
+  return Math.min(Math.max(Math.floor(parsed), 250), 5000);
+}
 
-const OPC_NAME_SIGNAL = /\b(michkov|michov|mikhkov|mitchkov)\b/i;
-const OPC_CANONICAL_NAME = /\bmatvei\s+michkov\b/i;
-const OPC_PRODUCT_SIGNAL = /\b(?:o[\s.-]?pee[\s.-]?chee|opc)\s+platinum\b/i;
-const OPC_EXPLICIT_BASE = /\bbase(?:\s+card)?\b/i;
-const OPC_PROHIBITED =
-  /\b(custom|reprint|facsimile|digital card|nft|mystery|break spot|box break|case break|replica|checklist)\b/i;
-const OPC_RAINBOW_OR_BETTER =
-  /\b(rainbow|retro rainbow|sunset|yellow traxx|red prism|violet pixels|arctic freeze|emerald surge|orange checkers|seismic gold|golden treasures|neon yellow|aqua marine|blue rainbow|pink matte|color wheel|parallel|numbered|serial numbered|auto|autograph|signature)\b|\/\d{1,4}\b/i;
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function finiteNumber(value) {
   const parsed = Number(value);
@@ -179,39 +91,6 @@ function extractItemId(entry) {
   const direct = safeText(raw.itemId || raw.legacyItemId);
   if (direct) return direct;
   return safeText(entry?.url).match(/\/itm\/(?:[^/?#]+\/)?(\d{9,15})(?:[/?#]|$)/i)?.[1] || null;
-}
-
-function screenOpcTitle(title) {
-  const value = safeText(title);
-  const rejectionReasons = [];
-  const reviewReasons = [];
-  if (!value) rejectionReasons.push("missing_title");
-  if (OPC_PROHIBITED.test(value)) {
-    rejectionReasons.push("custom_reprint_digital_break_mystery_or_checklist");
-  }
-  if (!OPC_NAME_SIGNAL.test(value)) {
-    rejectionReasons.push("michkov_name_or_variant_not_claimed");
-  }
-  if (!OPC_PRODUCT_SIGNAL.test(value)) {
-    rejectionReasons.push("opc_platinum_product_not_claimed");
-  }
-  if (OPC_EXPLICIT_BASE.test(value) && !OPC_RAINBOW_OR_BETTER.test(value)) {
-    rejectionReasons.push("ordinary_base_excluded");
-  } else if (!OPC_RAINBOW_OR_BETTER.test(value)) {
-    reviewReasons.push("rainbow_or_better_not_proven_from_title_verify_images");
-  }
-  if (!/\b(rookie|rc)\b/i.test(value)) {
-    reviewReasons.push("rookie_status_not_explicit_verify_exact_card");
-  }
-  if (!OPC_CANONICAL_NAME.test(value)) {
-    reviewReasons.push("seller_name_variant_or_misspelling_detected_verify_images");
-  }
-  return {
-    accepted: rejectionReasons.length === 0,
-    manualReviewRequired: reviewReasons.length > 0,
-    rejectionReasons,
-    reviewReasons,
-  };
 }
 
 function normalizeCandidate(entry, family, screening) {
@@ -297,9 +176,6 @@ function mergeCandidate(existing, incoming) {
 function allFamilies() {
   return [
     ...buildDealHunterEbayQueryFamilies({ scope: "wnba" }),
-    ...buildDealHunterEbayQueryFamilies({ scope: "ivan_demidov" }),
-    ...buildDealHunterEbayQueryFamilies({ scope: "matvei_michkov_young_guns" }),
-    ...OPC_PLATINUM_FAMILIES,
     ...buildDealHunterEbayQueryFamilies({
       scope: "baseball_prospects",
       players: DEFAULT_BASEBALL_PROSPECTS,
@@ -343,21 +219,31 @@ async function runNativeDiscovery({ perQuery = 20 } = {}) {
     throw new Error("Production eBay Browse client is not configured.");
   }
 
-  const outcomes = await mapWithConcurrency(families, 8, async (family) => {
+  let ebayRateLimited = false;
+  const paceMs = profitHunterEbayPaceMs();
+  const outcomes = await mapWithConcurrency(families, 1, async (family) => {
+    if (ebayRateLimited) {
+      throw new Error("eBay Browse query deferred after an earlier HTTP 429 in this Profit Hunter run.");
+    }
     const startedAt = Date.now();
-    const result = await adapter.search({
-      query: family.query,
-      sources: ["eBay"],
-      filters: {},
-      maxResults: Math.max(5, Math.min(20, Number(perQuery) || 20)),
-    });
+    let result;
+    try {
+      result = await adapter.search({
+        query: family.query,
+        sources: ["eBay"],
+        filters: {},
+        maxResults: Math.max(5, Math.min(20, Number(perQuery) || 20)),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/HTTP 429|rate limit/i.test(message)) ebayRateLimited = true;
+      throw error;
+    }
+    await delay(paceMs);
     const accepted = [];
     const rejectionCounts = {};
     for (const entry of result.results || []) {
-      const screening =
-        family.scope === "matvei_michkov_opc_platinum"
-          ? screenOpcTitle(entry.title)
-          : screenDealHunterEbayTitle({ title: entry.title, family });
+      const screening = screenDealHunterEbayTitle({ title: entry.title, family });
       if (!screening.accepted) {
         for (const reason of screening.rejectionReasons || []) {
           rejectionCounts[reason] = Number(rejectionCounts[reason] || 0) + 1;
@@ -435,6 +321,8 @@ async function runNativeDiscovery({ perQuery = 20 } = {}) {
     tokenMode: "client_credentials",
     queryFamilyCount: families.length,
     successfulQueryCount,
+    ebayPaceMs: paceMs,
+    ebayRateLimited,
     failedQueryCount: errors.length,
     complete:
       errors.length === 0 &&
@@ -802,6 +690,4 @@ export const PROFIT_HUNTER_SERVER_CONTRACT = Object.freeze({
   scheduledHours: [...PROFIT_HUNTER_HOURS],
   expectedTotalFamilies: EXPECTED_TOTAL_FAMILIES,
   expectedWnbaFamilies: EXPECTED_WNBA_FAMILIES,
-  expectedMichkovYoungGunsFamilies: EXPECTED_MICHKOV_YOUNG_GUNS_FAMILIES,
-  expectedMichkovOpcFamilies: EXPECTED_MICHKOV_OPC_FAMILIES,
 });

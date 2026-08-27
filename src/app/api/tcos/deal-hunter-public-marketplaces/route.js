@@ -5,20 +5,13 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 120;
 
-const SCOPES = new Set(["demidov_public_marketplaces", "shoe_deals"]);
+const SCOPES = new Set(["shoe_deals"]);
 const SHOE_NEW = /(?:\bbrand\s*new\b|\bnew\s+with\s+tags\b|\bnew\s+in\s+box\b|\bnew\s+without\s+box\b|\bnwt\b|\bnib\b|\bnwob\b|\bdeadstock\b|\bnew\b(?!\s+balance))/i;
 const SHOE_USED = /\b(?:pre[- ]?owned|used|worn|gently\s+used|worn\s+once)\b/i;
 const SHOE_KIDS = /\b(?:kid(?:s)?|youth|toddler|child(?:ren)?|boys?|girls?)\b/i;
 
 const FAMILIES = Object.freeze({
-  demidov_public_marketplaces: [
-    { familyId: "demidov-public.mercari", sources: ["Mercari"],
-      query: "Ivan Demidov hockey card rookie Young Guns parallel lot currently for sale on Mercari",
-      lane: "public_marketplace_card", watchedPerson: "Ivan Demidov", itemType: "sports_card" },
-    { familyId: "demidov-public.poshmark", sources: ["Poshmark"],
-      query: "Ivan Demidov hockey card rookie Young Guns parallel lot currently for sale on Poshmark",
-      lane: "public_marketplace_card", watchedPerson: "Ivan Demidov", itemType: "sports_card" },
-  ],  shoe_deals: [
+  shoe_deals: [
     { familyId: "shoe-deal.mercari", sources: ["Mercari"],
       query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots at or below $30 currently for sale on Mercari",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },

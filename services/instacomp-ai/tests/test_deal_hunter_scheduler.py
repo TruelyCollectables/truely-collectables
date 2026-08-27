@@ -9,6 +9,7 @@ import pytest
 from app.deal_hunter import (
     FEEDS,
     DealHunterScheduler,
+    DealHunterEbayRateLimited,
     candidate_key,
     normalize_candidate,
     validate_feed,
@@ -180,6 +181,46 @@ async def test_discovery_isolates_one_failed_feed_and_keeps_hunting(tmp_path: Pa
     assert failed[0]["key"] == "wnba"
     assert "simulated WNBA feed outage" in failed[0]["error"]
     assert len([row for row in coverage if row["status"] == "COMPLETE"]) == len(FEEDS) - 1
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_short_circuits_remaining_ebay_feeds_but_keeps_public_lanes(tmp_path: Path):
+    settings = SimpleNamespace(
+        deal_hunter_site_url="https://example.test",
+        deal_hunter_request_timeout_seconds=1.0,
+        deal_hunter_per_query=1,
+        deal_hunter_feed_pace_seconds=0.0,
+    )
+    scheduler = DealHunterScheduler(settings, DealHunterStore(tmp_path / "instacomp.sqlite3"))
+    calls = []
+
+    async def fake_fetch_feed(_client, key, _url, expected):
+        calls.append(key)
+        if key == "wnba":
+            raise DealHunterEbayRateLimited("simulated eBay 429")
+        return {
+            "coverage": {
+                "key": key,
+                "status": "COMPLETE",
+                "query_family_count": expected,
+                "result_count": 0,
+                "duration_ms": 1,
+            },
+            "results": [],
+        }
+
+    scheduler._fetch_feed = fake_fetch_feed  # type: ignore[method-assign]
+    candidates, coverage = await scheduler._discover()
+
+    assert candidates == []
+    assert calls == ["wnba", "shoe_deals"]
+    assert [(row["key"], row["status"]) for row in coverage] == [
+        ("wnba", "FAILED_RATE_LIMIT"),
+        ("baseball_prospects", "DEFERRED_RATE_LIMIT"),
+        ("signed_baseballs", "DEFERRED_RATE_LIMIT"),
+        ("music_comedy_autographs", "DEFERRED_RATE_LIMIT"),
+        ("shoe_deals", "COMPLETE"),
+    ]
 
 
 @pytest.mark.asyncio
