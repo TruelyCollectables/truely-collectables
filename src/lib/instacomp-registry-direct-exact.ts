@@ -133,7 +133,6 @@ function brandAndProductMatch(
   }
 
   const setTokens = meaningfulTokens(probe.setName);
-  if (!setTokens.length) return false;
   const productTokens = new Set(
     meaningfulTokens(
       [release.brand?.name, release.product_name, setName]
@@ -141,6 +140,9 @@ function brandAndProductMatch(
         .join(" "),
     ),
   );
+  if (!setTokens.length) {
+    return productTokens.size > 0;
+  }
   return setTokens.every((token) => productTokens.has(token));
 }
 
@@ -193,7 +195,9 @@ export function chooseDirectRegistryExactMatch(
   const matches = new Map<string, RegistryMatch>();
 
   if (!targetYear || !normalizedText(probe.brand) || !meaningfulTokens(probe.setName).length) {
-    return null;
+    // If the surface read is incomplete, still allow a broad candidate scan so
+    // the user gets a reviewable shortlist instead of a dead end.
+    if (!targetYear || !normalizedText(probe.brand)) return null;
   }
 
   for (const card of rows) {
@@ -319,7 +323,7 @@ export async function resolveRegistryDirectExact(
     .limit(250);
   if (directResult.error) return null;
 
-  let observedAliasByCard = new Map<string, string>();
+  const observedAliasByCard = new Map<string, string>();
   let aliasCardIds: string[] = [];
   const aliasResult = await supabase
     .from("checklist_card_number_aliases")
@@ -335,7 +339,7 @@ export async function resolveRegistryDirectExact(
     }
   }
 
-  let cards = [...(directResult.data || [])] as any[];
+  const cards = [...(directResult.data || [])] as any[];
   const directIds = new Set(cards.map((row: any) => String(row.id)));
   aliasCardIds = [...new Set(aliasCardIds)].filter((id) => !directIds.has(id));
   if (aliasCardIds.length) {

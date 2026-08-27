@@ -110,11 +110,16 @@ export async function POST(request: NextRequest) {
     if (!account) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
+    const isOwner =
+      account.email === "sales@truelycollectables.com" ||
+      account.email === "sales@trulycollectables.com";
+    if (!isOwner) {
+      await ensureAccountStoreMembership({
+        accountId: account.id,
+        role: "seller",
+        status: "active",
+      });
+    }
 
     const parsedBody = await request.json().catch(() => ({}));
     const body = record(parsedBody);
@@ -159,9 +164,6 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
-    const isOwner =
-      account.email === "sales@truelycollectables.com" ||
-      account.email === "sales@trulycollectables.com";
 
     let query = supabase
       .from("inventory_items")
