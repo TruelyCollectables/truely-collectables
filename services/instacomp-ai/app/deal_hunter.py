@@ -176,8 +176,17 @@ def validate_feed(payload: dict[str, Any], key: str, minimum_families: int) -> N
     elif schema == "TCOS_PUBLIC_MARKETPLACE_FEED_V1":
         if payload.get("publicWebSearchUsed") is not True:
             errors.append("publicWebSearchUsed=false")
-        if payload.get("providerMode") != "openai_web_search":
-            errors.append(f"providerMode={payload.get('providerMode')}")
+        provider_mode = str(payload.get("providerMode") or "")
+        allowed_provider_modes = {
+            "openai_web_search",
+            "openai_web_search_fallback",
+            "gemini_google_search_primary",
+            "poshmark_public_api",
+            "poshmark_public_api_plus_gemini_fallback",
+            "poshmark_public_api_plus_openai_fallback",
+        }
+        if provider_mode not in allowed_provider_modes:
+            errors.append(f"providerMode={provider_mode or None}")
     else:
         errors.append(f"schema={schema}")
     if payload.get("ok") is not True:
