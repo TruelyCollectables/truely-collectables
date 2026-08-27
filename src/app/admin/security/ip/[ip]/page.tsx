@@ -140,7 +140,9 @@ async function saveIpInvestigation(formData: FormData) {
     resolved_at: status === "resolved" ? now : null,
   };
 
-  const { error: investigationSaveError } = await supabase
+  const adminSupabase = supabase as any;
+
+  const { error: investigationSaveError } = await adminSupabase
     .from("security_ip_investigations")
     .upsert([investigationRow], { onConflict: "store_id,ip_address" });
 
