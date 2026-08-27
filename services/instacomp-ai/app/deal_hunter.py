@@ -385,7 +385,14 @@ class DealHunterScheduler:
                 summary["alert_delivery"] = alert_delivery
                 summary.update(counts)
                 summary["completed_at"] = utc_now().isoformat()
-                await self._publish_run_summary(run_id, status, counts, summary)
+                try:
+                    await self._publish_run_summary(run_id, status, counts, summary)
+                    summary["run_summary_delivery"] = {"status": "sent"}
+                except Exception as publish_error:
+                    summary["run_summary_delivery"] = {
+                        "status": "failed",
+                        "error": str(publish_error)[:1000],
+                    }
             except Exception as exc:
                 status = "failed"
                 error_message = str(exc)[:4000]
