@@ -29,6 +29,47 @@ function deliveredCost(listing: Record<string, unknown>) {
   return Number(parts.reduce<number>((sum, value) => sum + (value || 0), 0).toFixed(2));
 }
 
+const MAX_JSON_IMAGE_BYTES = 12 * 1024 * 1024;
+const JSON_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function fileFromJsonImage(value: unknown, fallbackName: string) {
+  const image = (value || {}) as Record<string, unknown>;
+  const contentType = String(image.contentType || "").trim().toLowerCase();
+  const dataBase64 = String(image.dataBase64 || "").trim();
+  const name = String(image.name || fallbackName).trim() || fallbackName;
+  if (!JSON_IMAGE_TYPES.has(contentType)) {
+    throw new Error("Deal Hunter JSON images must be JPEG, PNG, or WebP.");
+  }
+  if (!dataBase64) throw new Error("Deal Hunter JSON image data is required.");
+  const bytes = Buffer.from(dataBase64, "base64");
+  if (bytes.length <= 0 || bytes.length > MAX_JSON_IMAGE_BYTES) {
+    throw new Error("Deal Hunter JSON images must be non-empty and no larger than 12MB each.");
+  }
+  return new File([bytes], name, { type: contentType });
+}
+
+function multipartInputFromJson(body: Record<string, any>) {
+  const listing = (body.listing || null) as Record<string, any> | null;
+  if (!listing) throw new Error("Deal Hunter listing is required.");
+  return {
+    listingJson: JSON.stringify(listing),
+    listing,
+    front: fileFromJsonImage(body.frontImage, "front.jpg"),
+    back: fileFromJsonImage(body.backImage, "back.jpg"),
+  };
+}
+
+function replayJsonRequest(request: Request, body: Record<string, any>) {
+  const headers = new Headers(request.headers);
+  headers.set("content-type", "application/json");
+  headers.delete("content-length");
+  return new NextRequest(request.url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+}
+
 function listingConflictResponse(
   payload: Record<string, any>,
   scan: Record<string, any>,
@@ -118,20 +159,10 @@ function listingConflictResponse(
   );
 }
 
-export async function POST(request: NextRequest) {
-  const contentType = String(request.headers.get("content-type") || "").toLowerCase();
-  if (contentType.includes("application/json")) return runDealHunterCore(request);
-
-  let multipartInput;
-  try {
-    multipartInput = await parseDealHunterMultipartRequest(request);
-  } catch (error) {
-    return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : String(error) },
-      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
-    );
-  }
-
+async function evaluateInput(
+  request: NextRequest,
+  multipartInput: Awaited<ReturnType<typeof parseDealHunterMultipartRequest>>,
+) {
   let coreResponse: Response;
   try {
     coreResponse = await runDealHunterCore(
@@ -226,4 +257,41 @@ export async function POST(request: NextRequest) {
       { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }
+}
+
+export async function POST(request: NextRequest) {
+  const contentType = String(request.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    let body: Record<string, any>;
+    try {
+      body = (await request.json()) as Record<string, any>;
+    } catch (error) {
+      return NextResponse.json(
+        { ok: false, error: error instanceof Error ? error.message : String(error) },
+        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
+      );
+    }
+    if (body.kind !== "candidate_evaluate_v2") {
+      return runDealHunterCore(replayJsonRequest(request, body));
+    }
+    try {
+      return await evaluateInput(request, multipartInputFromJson(body));
+    } catch (error) {
+      return NextResponse.json(
+        { ok: false, stage: "candidate_json_decode", error: error instanceof Error ? error.message : String(error) },
+        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
+      );
+    }
+  }
+
+  let multipartInput;
+  try {
+    multipartInput = await parseDealHunterMultipartRequest(request);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : String(error) },
+      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
+  }
+  return evaluateInput(request, multipartInput);
 }

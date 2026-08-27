@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import re
@@ -763,10 +764,19 @@ class DealHunterScheduler:
                         "X-InstaComp-AI-Key": str(self.settings.api_key),
                         "Accept": "application/json",
                     },
-                    data={"listingJson": json.dumps(listing_payload)},
-                    files={
-                        "frontImage": (front[2], front[0], front[1]),
-                        "backImage": (back[2], back[0], back[1]),
+                    json={
+                        "kind": "candidate_evaluate_v2",
+                        "listing": listing_payload,
+                        "frontImage": {
+                            "name": front[2],
+                            "contentType": front[1],
+                            "dataBase64": base64.b64encode(front[0]).decode("ascii"),
+                        },
+                        "backImage": {
+                            "name": back[2],
+                            "contentType": back[1],
+                            "dataBase64": base64.b64encode(back[0]).decode("ascii"),
+                        },
                     },
                 )
                 try:
