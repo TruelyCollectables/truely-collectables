@@ -23,13 +23,13 @@ const FAMILIES = Object.freeze({
       query: "brand new adult New Balance Adidas Timberland Pro shoes sneakers boots at or below $30 currently for sale on Mercari",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
     { familyId: "shoe-deal.poshmark-adidas", sources: ["Poshmark"],
-      query: "adidas shoes sneakers",
+      query: "adidas nwt shoes sneakers",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
     { familyId: "shoe-deal.poshmark-new-balance", sources: ["Poshmark"],
-      query: "new balance shoes sneakers",
+      query: "new balance nwt shoes sneakers",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
     { familyId: "shoe-deal.poshmark-timberland-pro", sources: ["Poshmark"],
-      query: "timberland pro boots shoes",
+      query: "timberland pro nwt boots shoes",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
   ],
 });
@@ -216,7 +216,15 @@ export async function GET(request) {
     generatedAt: new Date().toISOString(),
     scope,
     marketplace: "Mercari + Poshmark",
-    providerMode: providerStatus.geminiPublicWeb ? "gemini_google_search_primary" : "openai_web_search_fallback",
+    providerMode: providerStatus.poshmarkPublicApi
+      ? providerStatus.geminiPublicWeb
+        ? "poshmark_public_api_plus_gemini_fallback"
+        : providerStatus.openAiPublicWeb
+          ? "poshmark_public_api_plus_openai_fallback"
+          : "poshmark_public_api"
+      : providerStatus.geminiPublicWeb
+        ? "gemini_google_search_primary"
+        : "openai_web_search_fallback",
     publicWebSearchUsed: successfulQueryCount > 0,
     queryFamilyCount: families.length,
     successfulQueryCount,

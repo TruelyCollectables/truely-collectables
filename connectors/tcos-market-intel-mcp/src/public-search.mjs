@@ -235,16 +235,24 @@ export class PoshmarkPublicSearchAdapter {
 
   async search(request) {
     const count = Math.max(1, Math.min(request.maxResults || 20, 48));
-    const envelope = JSON.stringify({ query: String(request.query || "").trim(), count, experience: "all", sort_by: "price_asc" });
-    const url = new URL("https://poshmark.com/vm-rest/posts");
-    url.searchParams.set("request", envelope);
-    const response = await fetch(url, {
-      headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 TCOS-Deal-Hunter/1.0" },
-      cache: "no-store",
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Poshmark public search failed (HTTP ${response.status}).`);
-    const posts = Array.isArray(payload?.data) ? payload.data : [];
+    const pageSize = Math.max(24, Math.min(48, count * 2));
+    const posts = [];
+    let maxId = null;
+    for (let page = 0; page < 3; page += 1) {
+      const envelope = { query: String(request.query || "").trim(), count: pageSize, experience: "all" };
+      if (maxId) envelope.max_id = maxId;
+      const url = new URL("https://poshmark.com/vm-rest/posts");
+      url.searchParams.set("request", JSON.stringify(envelope));
+      const response = await fetch(url, {
+        headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 TCOS-Deal-Hunter/1.0" },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`Poshmark public search failed (HTTP ${response.status}).`);
+      if (Array.isArray(payload?.data)) posts.push(...payload.data);
+      maxId = payload?.more?.next_max_id || payload?.more?.max_id || null;
+      if (!maxId || !Array.isArray(payload?.data) || payload.data.length === 0) break;
+    }
     const results = posts
       .filter((post) => String(post?.inventory?.status || "").toLowerCase() === "available")
       .map((post) => {
@@ -270,13 +278,14 @@ export class PoshmarkPublicSearchAdapter {
           raw_payload: post,
         }, "Poshmark");
       })
-      .filter((entry) => entry.url);
+      .filter((entry) => entry.url)
+      .sort((a, b) => Number(a.askingPrice ?? Number.POSITIVE_INFINITY) - Number(b.askingPrice ?? Number.POSITIVE_INFINITY));
     return {
       source: this.name,
       configured: true,
-      results: results.slice(0, count),
+      results: results.slice(0, Math.max(count, Math.min(results.length, count * 3))),
       warnings: [],
-      diagnostics: { endpoint: "poshmark_vm_rest_posts", publicJson: true },
+      diagnostics: { endpoint: "poshmark_vm_rest_posts", publicJson: true, pagesScanned: 3, serverPriceSortUsed: false },
     };
   }
 }
