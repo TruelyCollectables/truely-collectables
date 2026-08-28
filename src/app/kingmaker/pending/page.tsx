@@ -175,6 +175,9 @@ function identityReadout(card: PendingCard) {
       normalized === "review required" ||
       normalized === "untitled item" ||
       normalized === "permanent uuid missing"
+      || normalized.includes("identity review required")
+      || normalized.includes("review required")
+      || normalized.includes("credits")
     ) {
       return "";
     }

@@ -123,6 +123,9 @@ function isGenericTitle(value: unknown) {
     title === "untitled item" ||
     title === "identity review required" ||
     title === "review required" ||
+    title.includes("identity review required") ||
+    title.includes("review required") ||
+    title.includes("credits") ||
     title.includes("permanent uuid missing")
   );
 }
