@@ -145,6 +145,25 @@ def visible_product_line_hint(observations: Iterable[OCRObservation]) -> str | N
     return registry_product_line_hint_from_text(text)
 
 
+def visible_subset_hint(observations: Iterable[OCRObservation]) -> str | None:
+    text = _normalized_words(" ".join(
+        str(observation.text or "")
+        for observation in observations
+        if observation.text
+    ))
+    if not text:
+        return None
+    patterns: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"\ball american\b"), "All American"),
+        (re.compile(r"\bcrunch time\b"), "Crunch Time"),
+        (re.compile(r"\bbase\b"), "Base"),
+    )
+    for pattern, label in patterns:
+        if pattern.search(text):
+            return label
+    return None
+
+
 def visible_player_hint(observations: Iterable[OCRObservation]) -> str | None:
     values = list(observations)
 
@@ -189,10 +208,13 @@ def install_visible_identity_hint_guard() -> None:
         values = base.model_dump()
 
         player = visible_player_hint(observations)
+        subset = visible_subset_hint(observations)
         card_number = module._card_number_hint(_normalized_observations(observations))
 
         if not values.get("player") and player:
             values["player"] = player
+        if not values.get("subset") and subset:
+            values["subset"] = subset
         # Keep local set_name untouched. Product-line OCR is passed separately as
         # a Registry-only query hint by AuthoritativeRegistryChecklistGateway.
         if not values.get("card_number") and card_number:
