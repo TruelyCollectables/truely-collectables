@@ -524,6 +524,9 @@ def _player_hint(observations: Iterable[OCRObservation]) -> str | None:
         lowered_words = {word.lower().strip(".'-") for word in words}
         if lowered_words & PLAYER_STOPWORDS:
             continue
+        normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+        if normalized in SUBSET_PHRASES:
+            continue
         if any(len(word) < 2 for word in words):
             continue
         score = observation.confidence * (0.7 + min(0.3, observation.box.height * 5))

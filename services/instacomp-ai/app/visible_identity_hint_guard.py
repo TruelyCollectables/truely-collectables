@@ -177,6 +177,11 @@ def visible_player_hint(observations: Iterable[OCRObservation]) -> str | None:
         " ".join(value.text for value in values if value.side == "back")
     )
     candidates = _front_player_candidates(values)
+    candidates = [
+        (score, candidate, normalized)
+        for score, candidate, normalized in candidates
+        if normalized not in {"all american", "crunch time", "base"}
+    ]
     if back_text:
         repeated = [
             (score + 2.0, candidate)
