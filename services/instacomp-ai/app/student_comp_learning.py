@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from .config import settings
-from .teacher_comp_learning import load_teacher_comp_receipts
+from .teacher_comp_learning import load_market_observations, load_teacher_comp_receipts
 
 SCHEMA_VERSION = "tcos.instacomp-ai.student-comp-hypothesis.v1"
 
@@ -87,6 +87,26 @@ def _score_similarity(target: dict[str, Any], candidate: dict[str, Any]) -> int:
     return score
 
 
+def _market_observation_memory(path: Path, target: dict[str, Any], limit: int = 12) -> list[dict[str, Any]]:
+    registry_identity_id = _text(target.get("registryIdentityId") or target.get("registry_identity_id"), 160)
+    rows = load_market_observations(path, identity={"registryIdentityId": registry_identity_id}, limit=limit) if registry_identity_id else load_market_observations(path, limit=limit)
+    memory: list[dict[str, Any]] = []
+    for row in rows:
+        memory.append({
+            "event_class": row.get("event_class"),
+            "observation_type": row.get("observation_type"),
+            "marketplace": row.get("marketplace"),
+            "listing_title": row.get("listing_title"),
+            "total_price": row.get("total_price"),
+            "decision": row.get("decision"),
+            "rejection_reason": row.get("rejection_reason"),
+            "verified_pricing_truth": bool(row.get("verified_pricing_truth")),
+            "pricing_training_eligible": bool(row.get("pricing_training_eligible")),
+            "observed_at": row.get("observed_at"),
+        })
+    return memory
+
+
 def _trusted_training_memory(path: Path, target: dict[str, Any], limit: int = 8) -> list[dict[str, Any]]:
     rows = load_teacher_comp_receipts(path, limit=2000)
     ranked: list[tuple[int, dict[str, Any]]] = []
@@ -162,6 +182,7 @@ async def build_student_comp_hypothesis(path: Path, body: dict[str, Any]) -> dic
         raise ValueError("Student comp hypothesis requires exact identity fields: " + ", ".join(missing))
 
     memory = _trusted_training_memory(path, identity, limit=8)
+    market_memory = _market_observation_memory(path, {**identity, "registryIdentityId": body.get("registryIdentityId") or body.get("registry_identity_id")}, limit=12)
     prompt = "\n".join(
         [
             "You are InstaComp AI in COMP LEARN MODE. You are the student, not pricing authority.",
@@ -173,6 +194,7 @@ async def build_student_comp_hypothesis(path: Path, body: dict[str, Any]) -> dic
             f"EXACT TITLE: {exact_title}",
             "CANONICAL IDENTITY: " + json.dumps(identity, separators=(",", ":"), ensure_ascii=False),
             "TRUSTED PRIOR COMP MEMORY: " + json.dumps(memory, separators=(",", ":"), ensure_ascii=False),
+            "RECENT MARKET OBSERVATION MEMORY, INCLUDING REJECTED/PASS/ACTIVE ASKS FOR CONTEXT ONLY: " + json.dumps(market_memory, separators=(",", ":"), ensure_ascii=False),
         ]
     )
     payload = {
@@ -220,6 +242,7 @@ async def build_student_comp_hypothesis(path: Path, body: dict[str, Any]) -> dic
         "identity_training_mutated": False,
         "model": settings.ollama_model,
         "training_memory_examples": len(memory),
+        "market_observation_memory_examples": len(market_memory),
         "hypothesis": {
             "predictedMedian": median,
             "predictedLow": low,

@@ -12,10 +12,16 @@ from .deal_hunter_learning import (
     load_decision_lessons,
     record_decision_learning_event,
 )
+from .manual_instacomp_ingestion import (
+    manual_ingestion_contract,
+    record_manual_instacomp_market_research,
+)
 from .storage import MemoryStore
 from .student_comp_learning import build_student_comp_hypothesis
 from .teacher_comp_learning import (
     initialize_teacher_comp_learning,
+    append_market_observation_outcome,
+    load_market_observations,
     load_teacher_comp_receipts,
     record_teacher_comp_receipt,
     teacher_comp_learning_stats,
@@ -54,6 +60,7 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
             "dataset": teacher_comp_training_readiness(teacher_receipts),
             "student_hypothesis_endpoint": "/v1/training/student-comp-hypothesis",
             "online_comp_learn_mode": True,
+            "market_memory_table": "instacomp_market_observations",
         }
         return result
 
@@ -108,6 +115,41 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
             except ValueError as exc:
                 dataset_refresh = {"status": "failed", "reason": str(exc)}
         return {**result, "dataset_refresh": dataset_refresh}
+
+    @router.get("/manual-instacomp/contract")
+    async def manual_instacomp_contract():
+        return manual_ingestion_contract()
+
+    @router.post("/manual-instacomp")
+    async def manual_instacomp(body: dict[str, Any] = Body(...)):
+        try:
+            return record_manual_instacomp_market_research(store.path, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.get("/market-observations")
+    async def market_observations(research_id: str | None = Query(default=None), limit: int = Query(default=100, ge=1, le=2000)):
+        rows = load_market_observations(store.path, research_id=research_id, limit=limit)
+        return {
+            "schema_version": "tcos.instacomp.market-observations.v1",
+            "count": len(rows),
+            "pricing_authority": False,
+            "identity_training_mutation_allowed": False,
+            "observations": rows,
+        }
+
+    @router.post("/market-observations/outcome")
+    async def market_observation_outcome(body: dict[str, Any] = Body(...)):
+        prior = str(body.get("priorObservationFingerprint") or body.get("prior_observation_fingerprint") or "").strip()
+        outcome = body.get("outcome") or {k: v for k, v in body.items() if k not in {"priorObservationFingerprint", "prior_observation_fingerprint"}}
+        if not prior:
+            raise HTTPException(status_code=400, detail="priorObservationFingerprint is required")
+        if not isinstance(outcome, dict):
+            raise HTTPException(status_code=400, detail="outcome must be an object")
+        try:
+            return append_market_observation_outcome(store.path, prior_observation_fingerprint=prior, outcome=outcome)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.post("/teacher-comp-export")
     async def teacher_comp_export(validation_percent: int = Query(default=15, ge=0, le=50)):
