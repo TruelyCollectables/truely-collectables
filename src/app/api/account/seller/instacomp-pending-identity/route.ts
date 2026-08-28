@@ -83,6 +83,41 @@ function buildIdentitySummary(fields: Record<string, unknown>) {
     : null;
 }
 
+function buildIdentityTitle(fields: Record<string, unknown>) {
+  const year = textValue(fields.year);
+  const manufacturer = textValue(fields.manufacturer) || textValue(fields.brand);
+  const setName = textValue(fields.setName) || textValue(fields.product);
+  const cardNumber = textValue(fields.cardNumber) || textValue(fields.card_number);
+  const player = textValue(fields.player) || textValue(fields.playerName);
+  const team = textValue(fields.team);
+  const parallel =
+    textValue(fields.parallel) ||
+    textValue(fields.checklistParallel) ||
+    textValue(fields.parallelName);
+  const pieces = [
+    year,
+    manufacturer,
+    setName,
+    cardNumber ? `#${cardNumber}` : null,
+    player,
+    parallel,
+    team ? `(${team})` : null,
+  ].filter(Boolean);
+  const title = pieces.join(" ").replace(/\s+/g, " ").trim();
+  return title || null;
+}
+
+function isGenericTitle(value: unknown) {
+  const title = textValue(value)?.toLowerCase() || "";
+  return (
+    !title ||
+    title === "untitled item" ||
+    title === "identity review required" ||
+    title === "review required" ||
+    title.includes("permanent uuid missing")
+  );
+}
+
 function collectEvidenceTexts(metadata: JsonRecord) {
   const instaComp = recordValue(metadata.instacomp);
   const ai = recordValue(instaComp.ai);
@@ -247,7 +282,6 @@ function visualIdentity(metadata: JsonRecord) {
   const collectible = recordValue(metadata.collectible_asset);
   const card = recordValue(metadata.card);
   const verified = recordValue(metadata.verified_reference);
-  const identityComplete = instaComp.identityComplete === true;
 
   const year = textValue(ai.year, ai.season, card.year, card.season, verified.year);
   const manufacturer = textValue(
@@ -338,6 +372,32 @@ function visualIdentity(metadata: JsonRecord) {
                   : null);
   const visualSetName = setName || visualProduct;
   const visualParallel = parallel || inferParallel(evidenceTexts);
+  const visualTitle =
+    buildIdentityTitle({
+      year: visualYear,
+      manufacturer: visualManufacturer,
+      brand,
+      product: visualProduct,
+      setName: visualSetName,
+      cardNumber: visualCardNumber,
+      player: visualPlayer,
+      team,
+      parallel: visualParallel,
+    }) ||
+    textValue(instaComp.identitySummary) ||
+    textValue(ai.notes) ||
+    buildIdentitySummary({
+      year: visualYear,
+      manufacturer: visualManufacturer,
+      brand,
+      product: visualProduct,
+      setName: visualSetName,
+      cardNumber: visualCardNumber,
+      player: visualPlayer,
+      team,
+      variation,
+      parallel: visualParallel,
+    });
   const summary =
     textValue(ai.notes) ||
     textValue(instaComp.identitySummary) ||
@@ -353,19 +413,15 @@ function visualIdentity(metadata: JsonRecord) {
       variation,
       parallel: visualParallel,
     });
-  const hasEnoughIdentity = Boolean(
-    visualYear && visualManufacturer && visualCardNumber && visualPlayer,
-  );
+  const identified = Boolean(visualTitle);
 
   return {
-    status:
-      identityComplete && hasEnoughIdentity
-        ? ('identified' as const)
-        : ('review_required' as const),
+    status: identified ? ('identified' as const) : ('review_required' as const),
     source: 'visual_ai' as const,
-    aiIdentificationRequired: !(identityComplete && hasEnoughIdentity),
+    aiIdentificationRequired: !identified,
     registryIdentityId: registryIdentityId || null,
     registryFingerprintSha256: registryFingerprintSha256 || null,
+    title: visualTitle || null,
     lockedFields: {
       year: visualYear || null,
       manufacturer: visualManufacturer || null,
@@ -383,10 +439,9 @@ function visualIdentity(metadata: JsonRecord) {
       isAuto,
       isRelic,
     },
-    reasons:
-      identityComplete && hasEnoughIdentity
-        ? ['pending_listing_identity_locked_to_visual_ai_read']
-        : ['visual_ai_identity_missing_required_fields'],
+    reasons: identified
+      ? ['pending_listing_identity_locked_to_visual_ai_read']
+      : ['visual_ai_identity_missing_required_fields'],
     notes: summary,
   };
 }
@@ -414,7 +469,7 @@ export async function POST(request: Request) {
     const storeId = getActiveStoreId();
     const { data: row, error } = await supabase
       .from("inventory_items")
-      .select("id,seller_account_id,metadata")
+      .select("id,seller_account_id,title,metadata")
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
       .maybeSingle();
@@ -433,6 +488,8 @@ export async function POST(request: Request) {
     const instaComp = recordValue(metadata.instacomp);
     const identity = visualIdentity(metadata);
     const currentAi = recordValue(instaComp.ai);
+    const currentTitle = textValue((row as { title?: unknown }).title);
+    const nextTitle = identity.title && isGenericTitle(currentTitle) ? identity.title : null;
     const nextAi = {
       ...currentAi,
       year: identity.lockedFields.year,
@@ -476,9 +533,14 @@ export async function POST(request: Request) {
       },
     };
 
+    const updatePayload: Record<string, unknown> = { metadata: nextMetadata };
+    if (nextTitle) {
+      updatePayload.title = nextTitle;
+    }
+
     const { error: updateError } = await supabase
       .from("inventory_items")
-      .update({ metadata: nextMetadata })
+      .update(updatePayload)
       .eq("id", inventoryItemId)
       .eq("store_id", storeId);
     if (updateError) throw updateError;

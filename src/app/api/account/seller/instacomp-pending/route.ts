@@ -52,8 +52,37 @@ function buildIdentitySummary(identity: Record<string, unknown>) {
         surfaceVariation ? `Surface variation: ${surfaceVariation}.` : null,
       ]
         .filter(Boolean)
-        .join(" ")
+      .join(" ")
     : null;
+}
+
+function buildIdentityTitle(identity: Record<string, unknown>) {
+  const setName = textValue(identity.setName) || textValue(identity.set_name);
+  const product = textValue(identity.product);
+  const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
+  const pieces = [
+    textValue(identity.year),
+    textValue(identity.manufacturer) || textValue(identity.brand),
+    normalizedSetName || product,
+    textValue(identity.cardNumber) || textValue(identity.card_number)
+      ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
+      : null,
+    textValue(identity.player) || textValue(identity.playerName),
+    textValue(identity.parallel) || textValue(identity.checklistParallel) || textValue(identity.parallelName),
+    textValue(identity.team) ? `(${textValue(identity.team)})` : null,
+  ].filter(Boolean);
+  return pieces.join(" ").replace(/\s+/g, " ").trim() || null;
+}
+
+function isGenericTitle(value: unknown) {
+  const title = textValue(value)?.toLowerCase() || "";
+  return (
+    !title ||
+    title === "untitled item" ||
+    title === "identity review required" ||
+    title === "review required" ||
+    title.includes("permanent uuid missing")
+  );
 }
 
 const PENDING_INVENTORY_COLUMNS =
@@ -380,6 +409,18 @@ export async function GET(request: Request) {
       const displayFrontUrl =
         storedPair.frontImageUrl || product?.image_url || null;
       const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
+      const rawTitle = textValue(row.title);
+      const generatedTitle =
+        buildIdentityTitle(ai) ||
+        buildIdentityTitle(recordValue(metadata.card)) ||
+        buildIdentityTitle(recordValue(metadata.verified_reference)) ||
+        buildIdentityTitle(recordValue(metadata.collectible_asset)) ||
+        buildIdentityTitle(metadata) ||
+        null;
+      const displayTitle =
+        rawTitle && !isGenericTitle(rawTitle)
+          ? rawTitle
+          : generatedTitle || rawTitle || "Untitled item";
 
       const suggestedPrice = optionalPrice(
         Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
@@ -425,7 +466,7 @@ export async function GET(request: Request) {
       return {
         inventoryItemId: row.id,
         legacyProductId: row.legacy_product_id,
-        title: row.title || "Untitled item",
+        title: displayTitle,
         description: row.description || null,
         sku: row.sku || null,
         status: row.status || "draft",
