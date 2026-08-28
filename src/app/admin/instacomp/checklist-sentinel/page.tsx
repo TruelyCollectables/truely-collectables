@@ -172,9 +172,9 @@ export default function ChecklistSentinelAdminPage() {
     ? Math.max(0, Math.min(100, completedTargets * 100 / totalTargets))
     : 0;
   const batchProgress = Math.max(0, Math.min(100, number(job?.progress_percent)));
-  // `enabled` is the Mac service's auto-start setting, not the website proxy
-  // reachability signal. If we have a fresh Sentinel payload, the tunnel works.
-  const connectionHealthy = Boolean(status && !status.freeze_protection?.stale);
+  const connectionHealthy = Boolean(
+    status?.enabled && !status.freeze_protection?.stale,
+  );
   const archived = useMemo(
     () =>
       downloads.filter((row) =>
