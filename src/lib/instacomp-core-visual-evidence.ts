@@ -73,6 +73,20 @@ function booleanOrNull(value: unknown) {
   return typeof value === "boolean" ? value : null;
 }
 
+function normalizedIdentityText(value: unknown) {
+  return text(value, 200)?.toLowerCase().replace(/\s+/g, " ").trim() || null;
+}
+
+function isSubsetPhrase(value: unknown) {
+  const normalized = normalizedIdentityText(value);
+  return Boolean(
+    normalized &&
+      /\b(all american|crunch time|base|chrome|prizm|prizms|parallel|insert|subset)\b/i.test(
+        normalized,
+      ),
+  );
+}
+
 function parseJsonObject(value: string) {
   const trimmed = value.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
@@ -270,6 +284,8 @@ export async function readInstaCompCoreVisualEvidence(params: {
     const frontVisibleText = stringList(parsed.frontVisibleText);
     const backVisibleText = stringList(parsed.backVisibleText);
     const surfaceVariationHint = text(parsed.surfaceVariationHint, 200);
+    const subset = text(parsed.subset, 200);
+    const player = text(parsed.player, 200);
     const cardNumber =
       normalizedCardNumber(parsed.cardNumber) ||
       inferCardNumberFromVisibleText([...backVisibleText, ...frontVisibleText]);
@@ -285,6 +301,12 @@ export async function readInstaCompCoreVisualEvidence(params: {
         team: text(parsed.team, 160),
         surfaceVariationHint,
       });
+    const cleanPlayer =
+      subset && player && normalizedIdentityText(player) === normalizedIdentityText(subset)
+        ? null
+        : isSubsetPhrase(player)
+          ? null
+          : player;
 
     return {
       status: "completed",
@@ -293,8 +315,8 @@ export async function readInstaCompCoreVisualEvidence(params: {
       manufacturer: text(parsed.manufacturer, 120),
       product: text(parsed.product, 200),
       setName: text(parsed.setName, 200),
-      subset: text(parsed.subset, 200),
-      player: text(parsed.player, 200),
+      subset,
+      player: cleanPlayer,
       cardNumber,
       team: text(parsed.team, 160),
       sport: text(parsed.sport, 100),

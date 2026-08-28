@@ -204,12 +204,20 @@ function titleManufacturer(value: string) {
 function titlePlayer(value: string, cardNumber: string | null) {
   if (!cardNumber) return null;
   const escaped = cardNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return (
-    new RegExp(
-      `#${escaped}\\s+(.+?)(?=\\s+(?:Base|Silver|Blue|Red|Green|Gold|Orange|Purple|Pink|Black|White|Cracked|Velocity|Wave|Holo|Prizm|Prizms|Flash|Auto|Autograph|Rookie|RC)\\b|$)`,
-      "i",
-    ).exec(value)?.[1]?.trim() || null
-  );
+  const match = new RegExp(
+    `#${escaped}\\s+(.+?)(?=\\s+(?:Base|Silver|Blue|Red|Green|Gold|Orange|Purple|Pink|Black|White|Cracked|Velocity|Wave|Holo|Prizm|Prizms|Flash|Auto|Autograph|Rookie|RC)\\b|$)`,
+    "i",
+  ).exec(value)?.[1]?.trim() || null;
+  if (!match) return null;
+  const normalized = match.toLowerCase().replace(/\s+/g, " ").trim();
+  if (
+    /\b(all american|crunch time|base|chrome|prizm|prizms|parallel|insert|subset)\b/i.test(
+      normalized,
+    )
+  ) {
+    return null;
+  }
+  return match;
 }
 
 function titleSurfaceHint(value: string) {
