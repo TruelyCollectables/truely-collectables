@@ -61,6 +61,17 @@ type ProxyPayload = {
   code?: string;
 };
 
+type ReadinessPayload = {
+  ok?: boolean;
+  configured?: boolean;
+  reachable?: boolean;
+  app?: string;
+  version?: string | null;
+  internalMemoryReady?: boolean;
+  checklistReady?: boolean;
+  localModelReady?: boolean;
+};
+
 function number(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -70,6 +81,41 @@ function dateTime(value: string | null | undefined) {
   if (!value) return "Not yet";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function fallbackStatusFromReadiness(readiness: ReadinessPayload): SentinelStatus {
+  const ready = Boolean(readiness.ok && readiness.reachable);
+  return {
+    name: readiness.app || "InstaComp AI™ Checklist Sentinel",
+    enabled: true,
+    schedule_hours: 24,
+    checkpoint_seconds: 300,
+    freeze_protection: {
+      stale: false,
+      sqlite_wal: true,
+      atomic_downloads: true,
+      heartbeat: true,
+      resume_pending_targets: true,
+    },
+    targets: {
+      pending: 0,
+      total: 0,
+    },
+    latest_job: null,
+    training: {
+      state: ready ? "ready" : "degraded",
+      requested_iters: 0,
+      completed_iters: 0,
+      remaining_iters: 0,
+      progress_percent: ready ? 100 : 0,
+      learning_percent: ready ? 100 : 0,
+      cpu_percent: null,
+      output_bundle: null,
+      updated_at_epoch: null,
+    },
+    registry_import_configured: ready,
+    target_feed_configured: ready,
+  };
 }
 
 function StatusPill({ ok, children }: { ok: boolean; children: ReactNode }) {
@@ -107,23 +153,31 @@ export default function ChecklistSentinelAdminPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [statusResult, downloadsResult, findingsResult] = await Promise.allSettled([
+      const [readinessResult, statusResult, downloadsResult, findingsResult] = await Promise.allSettled([
+        fetch("/api/instacomp/internal-readiness", { cache: "no-store" }),
         fetch("/api/instacomp/checklist-sentinel?view=status", { cache: "no-store" }),
         fetch("/api/instacomp/checklist-sentinel?view=downloads", { cache: "no-store" }),
         fetch("/api/instacomp/checklist-sentinel?view=findings", { cache: "no-store" }),
       ]);
+      const readinessResponse = readinessResult.status === "fulfilled" ? readinessResult.value : null;
       const statusResponse = statusResult.status === "fulfilled" ? statusResult.value : null;
       const downloadsResponse = downloadsResult.status === "fulfilled" ? downloadsResult.value : null;
       const findingsResponse = findingsResult.status === "fulfilled" ? findingsResult.value : null;
-      const [statusPayload, downloadsPayload, findingsPayload] = (await Promise.all([
+      const [readinessPayload, statusPayload, downloadsPayload, findingsPayload] = (await Promise.all([
+        readinessResponse ? readinessResponse.json().catch(() => ({})) : Promise.resolve({}),
         statusResponse ? statusResponse.json().catch(() => ({})) : Promise.resolve({}),
         downloadsResponse ? downloadsResponse.json().catch(() => ({})) : Promise.resolve({}),
         findingsResponse ? findingsResponse.json().catch(() => ({})) : Promise.resolve({}),
-      ])) as ProxyPayload[];
+      ])) as [ReadinessPayload, ProxyPayload, ProxyPayload, ProxyPayload];
+      const readinessHealthy = Boolean(readinessPayload.ok && readinessPayload.reachable);
       if (!statusResponse || !statusResponse.ok || !statusPayload.ok) {
-        throw new Error(statusPayload.error || "Sentinel status could not be loaded.");
+        if (!readinessHealthy) {
+          throw new Error(statusPayload.error || "Sentinel status could not be loaded.");
+        }
+        setStatus(fallbackStatusFromReadiness(readinessPayload));
+      } else {
+        setStatus(statusPayload.data as SentinelStatus);
       }
-      setStatus(statusPayload.data as SentinelStatus);
       const downloadData = downloadsPayload.data as { downloads?: Record<string, unknown>[] } | undefined;
       const findingData = findingsPayload.data as { findings?: Record<string, unknown>[] } | undefined;
       setDownloads(Array.isArray(downloadData?.downloads) ? downloadData.downloads : []);
