@@ -225,11 +225,14 @@ function checklistReceiptValue(scan: InstaCompAiLocalScan, prefix: string) {
 function deterministicIdentity(scan: InstaCompAiLocalScan) {
   const localVision = record(scan.local_vision);
   const hints = record(localVision.identity_hints);
+  const subset = text(hints.subset);
+  const player = text(hints.player);
   const identity: Record<string, unknown> = {
-    player: text(hints.player),
+    player: subset && player && player.toLowerCase() === subset.toLowerCase() ? null : player,
     year: text(hints.year),
     brand: text(hints.manufacturer ?? hints.brand),
     setName: text(hints.set_name ?? hints.setName),
+    subset,
     cardNumber: text(hints.card_number ?? hints.cardNumber),
     parallel: text(hints.parallel),
     serialNumber: text(hints.serial_number ?? hints.serialNumber),
