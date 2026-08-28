@@ -44,6 +44,7 @@ function isPublicBrowseRequest(request: Request) {
   if (request.headers.has("authorization")) return false;
 
   const url = new URL(request.url);
+  if (url.pathname.startsWith("/kingmaker")) return false;
   return (
     url.pathname === "/" ||
     url.pathname === "/shop" ||
