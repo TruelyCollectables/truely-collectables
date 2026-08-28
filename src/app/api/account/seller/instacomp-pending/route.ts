@@ -249,7 +249,7 @@ export async function GET(request: Request) {
       accountId: account.id,
       ownerAccount: isStoreOwnerAccount,
       columns: PENDING_INVENTORY_COLUMNS,
-      draftOnly: true,
+      draftOnly: false,
     });
     const instaCompRows = inventoryRows.filter((row: any) => {
       const metadata = recordValue(row.metadata);
