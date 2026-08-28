@@ -167,6 +167,23 @@ function serialRunLabel(value: string) {
 
 function identityReadout(card: PendingCard) {
   const identity = card.instaComp.identity || {};
+  const genericPlayerPhrases = new Set([
+    "all american",
+    "all-american",
+    "base",
+    "chrome",
+    "donruss",
+    "heritage",
+    "league leaders",
+    "prizm",
+    "prizms",
+    "score",
+    "select",
+    "topps",
+    "upper deck",
+    "bowman",
+    "rookie",
+  ]);
   const clean = (value?: string | null) => {
     const text = value?.trim() || "";
     if (!text) return "";
@@ -193,8 +210,10 @@ function identityReadout(card: PendingCard) {
   const year = clean(identity.year);
   const manufacturer = clean(identity.manufacturer || identity.brand);
   const setName = clean(identity.setName || identity.subset);
+  const subset = clean(identity.subset);
   const cardNumber = clean(identity.cardNumber);
-  const player = blockedPlayerValues.has((identity.player || "").trim().toLowerCase())
+  const playerCandidate = (identity.player || "").trim().toLowerCase();
+  const player = blockedPlayerValues.has(playerCandidate) || genericPlayerPhrases.has(playerCandidate)
     ? ""
     : clean(identity.player);
   const team = clean(identity.team);
@@ -203,6 +222,7 @@ function identityReadout(card: PendingCard) {
     year,
     manufacturer,
     setName,
+    subset,
     cardNumber ? `#${cardNumber.replace(/^#/, "")}` : "",
     player,
     team ? `(${team})` : "",

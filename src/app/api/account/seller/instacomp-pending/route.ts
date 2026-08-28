@@ -44,38 +44,44 @@ function identityValue(value: unknown) {
   return text;
 }
 
-function identityValueWithExclusions(
-  value: unknown,
-  exclusions: Array<string | null | undefined> = [],
-) {
-  const text = identityValue(value);
-  if (!text) return null;
-  const normalized = text.toLowerCase();
-  if (
-    exclusions
-      .map((entry) => String(entry || "").trim().toLowerCase())
-      .filter(Boolean)
-      .includes(normalized)
-  ) {
-    return null;
-  }
-  return text;
+const GENERIC_PLAYER_PHRASES = new Set([
+  "all american",
+  "all-american",
+  "base",
+  "chrome",
+  "donruss",
+  "heritage",
+  "league leaders",
+  "prizm",
+  "prizms",
+  "score",
+  "select",
+  "topps",
+  "upper deck",
+  "bowman",
+  "rookie",
+]);
+
+function identityPlayerValue(identity: Record<string, unknown>) {
+  const candidate = identityValue(identity.player) || identityValue(identity.playerName);
+  if (!candidate) return null;
+  const normalized = candidate.toLowerCase();
+  if (GENERIC_PLAYER_PHRASES.has(normalized)) return null;
+  return candidate;
 }
 
 function buildIdentitySummary(identity: Record<string, unknown>) {
   const setName = textValue(identity.setName) || textValue(identity.set_name);
   const product = textValue(identity.product);
+  const subset = identityValue(identity.subset);
   const brand = textValue(identity.brand) || textValue(identity.manufacturer);
-  const player = identityValueWithExclusions(identity.player, [
-    setName,
-    product,
-    brand,
-  ]);
+  const player = identityPlayerValue(identity);
   const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
   const pieces = [
     textValue(identity.year),
     brand,
     normalizedSetName || product,
+    subset,
     textValue(identity.cardNumber) || textValue(identity.card_number)
       ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
       : null,
@@ -102,8 +108,9 @@ function buildIdentityReadout(identity: Record<string, unknown>) {
   const year = textValue(identity.year);
   const manufacturer = identityValue(identity.manufacturer) || identityValue(identity.brand);
   const setName = identityValue(identity.setName) || identityValue(identity.set_name) || identityValue(identity.product);
+  const subset = identityValue(identity.subset);
   const cardNumber = identityValue(identity.cardNumber) || identityValue(identity.card_number);
-  const player = identityValueWithExclusions(identity.player, [setName, manufacturer]) || identityValue(identity.playerName);
+  const player = identityPlayerValue(identity);
   const team = identityValue(identity.team);
   const parallel =
     identityValue(identity.parallel) ||
@@ -114,6 +121,7 @@ function buildIdentityReadout(identity: Record<string, unknown>) {
     year,
     manufacturer,
     setName,
+    subset,
     cardNumber ? `#${cardNumber}` : null,
     player,
     team ? `(${team})` : null,
@@ -125,13 +133,15 @@ function buildIdentityReadout(identity: Record<string, unknown>) {
 function buildIdentityTitle(identity: Record<string, unknown>) {
   const setName = textValue(identity.setName) || textValue(identity.set_name);
   const product = textValue(identity.product);
+  const subset = identityValue(identity.subset);
   const brand = textValue(identity.brand) || textValue(identity.manufacturer);
-  const player = identityValueWithExclusions(identity.player, [setName, product, brand]);
+  const player = identityPlayerValue(identity);
   const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
   const pieces = [
     textValue(identity.year),
     brand,
     normalizedSetName || product,
+    subset,
     textValue(identity.cardNumber) || textValue(identity.card_number)
       ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
       : null,
@@ -604,11 +614,7 @@ export async function GET(request: Request) {
             product: textValue(ai.product),
             setName: textValue(ai.setName) || textValue(ai.set_name),
             subset: textValue(ai.subset),
-            player: identityValueWithExclusions(ai.player, [
-              textValue(ai.setName) || textValue(ai.set_name),
-              textValue(ai.product),
-              textValue(ai.brand) || textValue(ai.manufacturer),
-            ]),
+            player: identityPlayerValue(ai),
             team: textValue(ai.team),
             cardNumber: textValue(ai.cardNumber) || textValue(ai.card_number),
             parallel:
