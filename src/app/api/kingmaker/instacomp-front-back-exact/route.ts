@@ -627,6 +627,7 @@ function macCoreEvidence(
     manufacturer: candidate.manufacturer,
     product: candidate.product || candidate.setName || null,
     setName: candidate.setName || candidate.product || null,
+    subset: candidate.subset || null,
     player: candidate.player,
     cardNumber: candidate.cardNumber,
     team: candidate.team || null,

@@ -9,6 +9,7 @@ export type InstaCompCoreVisualEvidence = {
   manufacturer: string | null;
   product: string | null;
   setName: string | null;
+  subset: string | null;
   player: string | null;
   cardNumber: string | null;
   team: string | null;
@@ -30,6 +31,7 @@ const EMPTY: InstaCompCoreVisualEvidence = {
   manufacturer: null,
   product: null,
   setName: null,
+  subset: null,
   player: null,
   cardNumber: null,
   team: null,
@@ -161,6 +163,7 @@ export async function readInstaCompCoreVisualEvidence(params: {
         "Read the FRONT and BACK together and extract only the core printed identity fields needed to query a checklist.",
         "Required targets are year, manufacturer, product/set, player, card number, team, sport/league, and rookie mark.",
         "If you can read a named subset or insert phrase such as All American or Crunch Time, put it in subset and keep it separate from player.",
+        "If the text is clearly a subset or insert title, do not place it in player even if it looks like a slogan or title.",
         "Treat card-number labels like No. 13, Card No. 13, Card #13, #13, or Card number 13 as card-number evidence. Preserve letters and leading zeros.",
         "Use the copyright/product line on the back to distinguish product families such as Panini Prizm WNBA, Select, Donruss, Topps Chrome, Bowman, or Upper Deck.",
         "Do NOT decide Base versus any parallel. If you can read a visible finish or variation such as Silver Flash Prizm, Silver Prizm, Cracked Ice, Green Prizm, Wave, or Holo, place that in surfaceVariationHint instead of forcing a final registry lock.",
@@ -207,6 +210,7 @@ export async function readInstaCompCoreVisualEvidence(params: {
                 manufacturer: { anyOf: [{ type: "string" }, { type: "null" }] },
                 product: { anyOf: [{ type: "string" }, { type: "null" }] },
                 setName: { anyOf: [{ type: "string" }, { type: "null" }] },
+                subset: { anyOf: [{ type: "string" }, { type: "null" }] },
                 player: { anyOf: [{ type: "string" }, { type: "null" }] },
                 cardNumber: { anyOf: [{ type: "string" }, { type: "null" }] },
                 team: { anyOf: [{ type: "string" }, { type: "null" }] },
@@ -233,6 +237,7 @@ export async function readInstaCompCoreVisualEvidence(params: {
                 "manufacturer",
                 "product",
                 "setName",
+                "subset",
                 "player",
                 "cardNumber",
                 "team",
@@ -288,6 +293,7 @@ export async function readInstaCompCoreVisualEvidence(params: {
       manufacturer: text(parsed.manufacturer, 120),
       product: text(parsed.product, 200),
       setName: text(parsed.setName, 200),
+      subset: text(parsed.subset, 200),
       player: text(parsed.player, 200),
       cardNumber,
       team: text(parsed.team, 160),
