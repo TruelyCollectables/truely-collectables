@@ -352,6 +352,54 @@ function titleSetName(
   return coreSet && normalized(coreSet) !== "base" ? coreSet : null;
 }
 
+function buildCardReadSummary(params: {
+  candidate?: InstaCompChecklistCandidate | null;
+  core: InstaCompCoreVisualEvidence;
+  parallelDecision?: Awaited<ReturnType<typeof resolveChecklistParallelFromVision>> | null;
+}) {
+  const candidate = params.candidate || null;
+  const year = candidate?.year || params.core.year;
+  const manufacturer = candidate?.manufacturer || params.core.manufacturer;
+  const setName = titleSetName(candidate || ({} as InstaCompChecklistCandidate), params.core);
+  const cardNumber = candidate?.cardNumber || params.core.cardNumber;
+  const player = candidate?.player || params.core.player;
+  const team = candidate?.team || params.core.team;
+  const surfaceVariation = params.core.surfaceVariationHint || candidate?.variation || null;
+  const parallel = candidate?.parallel && normalized(candidate.parallel) !== "base"
+    ? candidate.parallel
+    : params.parallelDecision?.selectedParallel && normalized(params.parallelDecision.selectedParallel) !== "base"
+      ? params.parallelDecision.selectedParallel
+      : null;
+
+  const identity = [
+    year,
+    manufacturer,
+    setName,
+    cardNumber ? `#${cardNumber}` : null,
+    player,
+    team ? `(${team})` : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const details = [
+    surfaceVariation ? `Surface variation: ${surfaceVariation}.` : null,
+    parallel ? `Parallel: ${parallel}.` : null,
+    params.core.identitySummary && params.core.identitySummary !== identity
+      ? `Vision note: ${params.core.identitySummary}.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return [identity ? `Card read: ${identity}.` : null, details || null]
+    .filter(Boolean)
+    .join(" ")
+    .trim() || null;
+}
+
 function canonicalTitle(params: {
   candidate: InstaCompChecklistCandidate;
   core: InstaCompCoreVisualEvidence;
@@ -364,6 +412,35 @@ function canonicalTitle(params: {
     params.candidate.player || params.core.player,
     params.candidate.parallel || "Base",
     params.core.rookie === true ? "RC" : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function visualTitle(ai: {
+  year: string | null;
+  manufacturer: string | null;
+  product: string | null;
+  setName: string | null;
+  cardNumber: string | null;
+  player: string | null;
+  team?: string | null;
+  parallel?: string | null;
+  isRookie?: boolean | null;
+}) {
+  const setName = normalized(ai.setName || ai.product) === "base" ? ai.product : ai.setName || ai.product;
+  const parallel = ai.parallel && normalized(ai.parallel) !== "base" ? ai.parallel : null;
+  return [
+    ai.year,
+    ai.manufacturer,
+    setName,
+    ai.cardNumber ? `#${ai.cardNumber}` : null,
+    ai.player,
+    ai.team ? `(${ai.team})` : null,
+    parallel,
+    ai.isRookie === true ? "RC" : null,
   ]
     .filter(Boolean)
     .join(" ")
@@ -398,6 +475,11 @@ function candidateAi(
 ) {
   const exactParallel = candidate.parallel || "Base";
   const storedParallel = normalized(exactParallel) === "base" ? null : exactParallel;
+  const notes = buildCardReadSummary({
+    candidate,
+    core,
+    parallelDecision,
+  });
   return {
     year: candidate.year || core.year,
     manufacturer: candidate.manufacturer || core.manufacturer,
@@ -428,6 +510,7 @@ function candidateAi(
     parallelVisualFeatures: parallelDecision.features,
     checklistIdentityId: candidate.identityId,
     checklistFingerprintSha256: candidate.fingerprintSha256 || null,
+    notes,
   };
 }
 
@@ -480,6 +563,18 @@ function macCoreEvidence(
   receipt: MacReceipt,
 ): InstaCompCoreVisualEvidence {
   const identity = record(receipt.checklistIdentity);
+  const identitySummary = [
+    candidate.year,
+    candidate.manufacturer,
+    candidate.product || candidate.setName || null,
+    candidate.cardNumber ? `#${candidate.cardNumber}` : null,
+    candidate.player,
+    candidate.team ? `(${candidate.team})` : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
   return {
     status: "completed",
     model: "mac_instacomp_ai_registry",
@@ -493,6 +588,10 @@ function macCoreEvidence(
     sport: candidate.sport || null,
     league: candidate.league || null,
     rookie: typeof identity.rookie === "boolean" ? identity.rookie : null,
+    surfaceVariationHint: text(candidate.variation, 160),
+    identitySummary: identitySummary
+      ? `Card read: ${identitySummary}.`
+      : null,
     frontVisibleText: evidence(receipt.imageOrientation?.front_evidence),
     backVisibleText: evidence(receipt.imageOrientation?.back_evidence),
     confidence: 0.99,
@@ -920,7 +1019,7 @@ export async function POST(request: NextRequest) {
       (candidate) =>
         candidate.identityId === parallelDecision.selectedIdentityId,
     );
-    const identityComplete = Boolean(selected);
+    const identityComplete = Boolean(core.year && core.manufacturer && core.player && core.cardNumber);
     const resolvedAi = selected
       ? candidateAi(selected, core, parallelDecision)
       : {
@@ -931,14 +1030,26 @@ export async function POST(request: NextRequest) {
           setName: core.setName || core.product,
           player: core.player,
           cardNumber: core.cardNumber,
+          parallel:
+            parallelDecision.selectedParallel &&
+            normalized(parallelDecision.selectedParallel) !== "base"
+              ? parallelDecision.selectedParallel
+              : null,
+          variation: core.surfaceVariationHint || null,
           team: core.team,
           sport: core.sport,
           league: core.league,
           isRookie: core.rookie === true,
+          isAuto: false,
+          isRelic: false,
           frontVisibleText: core.frontVisibleText,
           backVisibleText: core.backVisibleText,
           coreVisualConfidence: core.confidence,
           parallelVisualFeatures: parallelDecision.features,
+          notes: buildCardReadSummary({
+            core,
+            parallelDecision,
+          }),
         };
 
     const storedImages = await persistNormalizedInstaCompImagePair({
@@ -955,14 +1066,16 @@ export async function POST(request: NextRequest) {
 
     const checkedAt = new Date().toISOString();
     const collectibleAsset = record(metadata.collectible_asset);
-    const selectedParallel = selected?.parallel || null;
+    const selectedParallel = resolvedAi.parallel || null;
     const selectedIsBase = normalized(selectedParallel) === "base";
     const selectedRegistryIdentityId = validUuid(selected?.identityId);
     const selectedRegistryFingerprintSha256 = text(
       selected?.fingerprintSha256,
       80,
     );
-    const nextTitle = selected
+    const nextTitle = identityComplete
+      ? visualTitle(resolvedAi)
+      : selected
       ? canonicalTitle({ candidate: selected, core })
       : reviewTitle(core, String(item.title || ""));
 
@@ -1015,39 +1128,41 @@ export async function POST(request: NextRequest) {
           productFamilies: productFilter.requestedFamilies,
           productFilterApplied: productFilter.filterApplied,
         },
-        checklistIdentity: selected
+        checklistIdentity: identityComplete
           ? {
               status: "identified",
-              source: "checklist_registry",
+              source: selected ? "checklist_registry" : "visual_ai",
               aiIdentificationRequired: false,
               registryIdentityId: selectedRegistryIdentityId,
               registryFingerprintSha256: selectedRegistryFingerprintSha256,
               lockedFields: {
-                year: selected.year,
-                manufacturer: selected.manufacturer,
-                brand: selected.brand || null,
-                product: selected.product || null,
-                setName: selected.setName || null,
-                cardNumber: selected.cardNumber,
-                player: selected.player,
-                team: selected.team || null,
-                sport: selected.sport || null,
-                league: selected.league || null,
-                parallel: selected.parallel || "Base",
-                variation: selected.variation || null,
-                serialRun: selected.serialRun ?? null,
-                isAuto: selected.isAuto,
-                isRelic: selected.isRelic,
+                year: resolvedAi.year,
+                manufacturer: resolvedAi.manufacturer,
+                brand: resolvedAi.brand || resolvedAi.manufacturer || null,
+                product: resolvedAi.product || null,
+                setName: resolvedAi.setName || resolvedAi.product || null,
+                cardNumber: resolvedAi.cardNumber,
+                player: resolvedAi.player,
+                team: resolvedAi.team || null,
+                sport: resolvedAi.sport || null,
+                league: resolvedAi.league || null,
+                parallel: resolvedAi.parallel || "Base",
+                variation: resolvedAi.variation || null,
+                serialRun: parallelDecision.features.serialRun ?? null,
+                isAuto: resolvedAi.isAuto,
+                isRelic: resolvedAi.isRelic,
               },
               reasons: [
-                "exact_visual_checklist_identity_locked_before_marketplace_pricing",
+                selected
+                  ? "exact_visual_checklist_identity_locked_before_marketplace_pricing"
+                  : "visual_ai_identity_locked_before_marketplace_pricing",
               ],
               checkedAt,
             }
           : {
               ...record(previousInstaComp.checklistIdentity),
               status: "review_required",
-              source: "checklist_registry",
+              source: "visual_ai",
               aiIdentificationRequired: true,
               registryIdentityId: null,
               registryFingerprintSha256: null,
@@ -1058,9 +1173,9 @@ export async function POST(request: NextRequest) {
         parallelVisualFeatures: parallelDecision.features,
         identitySource: selected
           ? "first_time_visual_core_plus_checklist_plus_surface"
-          : "first_time_visual_review_required",
+          : "first_time_visual_core_plus_surface",
         identityComplete,
-        identityRuleApplied: selected
+        identityRuleApplied: identityComplete
           ? "year_product_player_card_then_color_pattern_serial"
           : null,
         hasBackImage: true,
@@ -1073,8 +1188,8 @@ export async function POST(request: NextRequest) {
           ? "identity_complete_pricing_pending"
           : "blocked_identity_review_required",
         pricingReason: identityComplete
-          ? "One exact checklist identity survived core, product, color, pattern, and serial checks."
-          : "The card was preserved, but one exact checklist identity did not survive every evidence gate.",
+          ? "One visual identity survived core, product, surface, and serial checks."
+          : "The card was preserved, but the visual identity did not meet the minimum evidence threshold.",
         lastStatus: identityComplete
           ? "identity_complete"
           : "review_required",
