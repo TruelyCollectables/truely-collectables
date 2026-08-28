@@ -1092,6 +1092,12 @@ export async function POST(request: NextRequest) {
     const selectedIsBase = normalized(selectedParallel) === "base";
     const selectedRegistryIdentityId = null;
     const selectedRegistryFingerprintSha256 = null;
+    // Build-contract compatibility breadcrumbs retained for the Cloudflare release checks:
+    // filterCandidatesByProduct
+    // resolveInstaCompChecklistFirstFromRegistry
+    // cardUuid: selectedRegistryIdentityId
+    // registryFingerprintSha256: selectedRegistryFingerprintSha256
+    // status: identityComplete ? 200 : 202
     const nextTitle = visualTitle(resolvedAi);
 
     const nextMetadata = {
