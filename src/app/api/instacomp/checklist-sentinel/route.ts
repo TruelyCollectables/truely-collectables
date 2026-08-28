@@ -12,6 +12,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// The website proxy reads the permanent tunnel through the shared
+// INSTACOMP_AI_LOCAL_URL / INSTACOMP_AI_LOCAL_KEY credential helper and must
+// reject localhost in Production.
+
 const GET_PATHS: Record<string, string> = {
   status: "/v1/checklist-sentinel/status",
   targets: "/v1/checklist-sentinel/targets?limit=500",
