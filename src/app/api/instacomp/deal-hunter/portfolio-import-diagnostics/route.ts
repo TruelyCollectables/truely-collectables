@@ -17,7 +17,7 @@ function matchesSecret(provided: string, expected: string) {
 }
 
 function authorize(request: Request) {
-  const instaCompExpected = getConfiguredInstaCompMacKey();
+  const instaCompExpected = getConfiguredInstaCompMacKey() || "";
   const instaCompProvided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
   if (matchesSecret(instaCompProvided, instaCompExpected)) return true;
 

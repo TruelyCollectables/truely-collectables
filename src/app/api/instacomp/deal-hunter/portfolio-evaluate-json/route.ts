@@ -113,7 +113,7 @@ async function secretsMatch(provided: string, expected: string) {
 }
 
 async function authorize(request: Request): Promise<TrustedAuth> {
-  const instaCompExpected = getConfiguredInstaCompMacKey();
+  const instaCompExpected = getConfiguredInstaCompMacKey() || "";
   const instaCompProvided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
   if (await secretsMatch(instaCompProvided, instaCompExpected)) {
     return { ok: true, internalInstaCompKey: instaCompExpected };
