@@ -5,7 +5,7 @@ import type {
 
 export type InstaCompPendingListingIdentity = {
   status: "identified" | "review_required";
-  source: "checklist_registry";
+  source: "checklist_registry" | "visual_ai";
   aiIdentificationRequired: boolean;
   registryIdentityId: string | null;
   registryFingerprintSha256: string | null;

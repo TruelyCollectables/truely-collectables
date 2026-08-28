@@ -16,6 +16,7 @@ type CardIdentity = {
   cardNumber?: string | null;
   parallel?: string | null;
   variation?: string | null;
+  notes?: string | null;
   serialNumber?: string | null;
   isRookie?: boolean;
   isAuto?: boolean;
@@ -718,6 +719,11 @@ export default function KingmakerPendingPage() {
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
                     </p>
+                    {card.instaComp.identity?.notes ? (
+                      <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+                        {card.instaComp.identity.notes}
+                      </p>
+                    ) : null}
                     {card.instaComp.duplicateGroup && card.instaComp.duplicateGroup.totalRows > 1 ? (
                       <p className="mt-1 text-xs font-black text-amber-300">
                         EXACT-CARD GROUP · {card.instaComp.duplicateGroup.totalQuantity} copies · {card.instaComp.duplicateGroup.activeRows} active · priced together
@@ -936,7 +942,7 @@ export default function KingmakerPendingPage() {
                     ) : null}
                     <button
                       type="button"
-                      title={job?.manualIdentityLocked ? "Re-scan and Replace Locked Identity" : "Run Exact Identity"}
+                      title={job?.manualIdentityLocked ? "Re-scan and Replace Locked Identity" : "Read Card"}
                       onClick={() => void runExactIdentity(card)}
                       disabled={!pairReady || Boolean(busyId)}
                       className="rounded-xl bg-sky-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
@@ -945,7 +951,7 @@ export default function KingmakerPendingPage() {
                         ? "Working…"
                         : job?.manualIdentityLocked
                           ? "Replace Manual Identity with AI"
-                          : "Run Exact Identity"}
+                          : "Read Card"}
                     </button>
                   </div>
                 </div>

@@ -26,6 +26,36 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function buildIdentitySummary(identity: Record<string, unknown>) {
+  const setName = textValue(identity.setName) || textValue(identity.set_name);
+  const product = textValue(identity.product);
+  const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
+  const pieces = [
+    textValue(identity.year),
+    textValue(identity.manufacturer) || textValue(identity.brand),
+    normalizedSetName || product,
+    textValue(identity.cardNumber) || textValue(identity.card_number)
+      ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
+      : null,
+    textValue(identity.player) || textValue(identity.playerName),
+    textValue(identity.team) ? `(${textValue(identity.team)})` : null,
+  ].filter(Boolean);
+  const surfaceVariation =
+    textValue(identity.variation) ||
+    textValue(identity.parallel) ||
+    textValue(identity.checklistParallel) ||
+    textValue(identity.parallelName);
+  const summary = pieces.join(" ").replace(/\s+/g, " ").trim();
+  return summary
+    ? [
+        `Card read: ${summary}.`,
+        surfaceVariation ? `Surface variation: ${surfaceVariation}.` : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : null;
+}
+
 const PENDING_INVENTORY_COLUMNS =
   "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at";
 
@@ -434,6 +464,7 @@ export async function GET(request: Request) {
             manufacturer:
               textValue(ai.manufacturer) || textValue(ai.brand),
             brand: textValue(ai.brand),
+            product: textValue(ai.product),
             setName: textValue(ai.setName) || textValue(ai.set_name),
             subset: textValue(ai.subset),
             player: textValue(ai.player),
@@ -444,6 +475,7 @@ export async function GET(request: Request) {
               textValue(ai.parallelName) ||
               textValue(ai.parallel),
             variation: textValue(ai.variation),
+            notes: textValue(ai.notes) || buildIdentitySummary(ai),
             serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
             isRookie: ai.isRookie === true || collectibleAsset.rookie === true,
             isAuto: ai.isAuto === true || collectibleAsset.autograph === true,

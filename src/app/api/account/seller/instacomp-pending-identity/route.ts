@@ -2,8 +2,6 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../lib/account-auth";
-import { buildPendingListingIdentity } from "../../../../../lib/instacomp-pending-listing-identity";
-import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../../lib/instacomp-checklist-first-server";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -45,135 +43,132 @@ function positiveInteger(...values: unknown[]) {
   return null;
 }
 
-function checklistInput(metadata: JsonRecord) {
+function visualIdentity(metadata: JsonRecord) {
   const instaComp = recordValue(metadata.instacomp);
   const ai = recordValue(instaComp.ai);
-  const card = recordValue(metadata.card);
   const collectible = recordValue(metadata.collectible_asset);
+  const card = recordValue(metadata.card);
   const verified = recordValue(metadata.verified_reference);
+  const identityComplete = instaComp.identityComplete === true;
 
-  return {
-    year: textValue(ai.year, ai.season, card.year, card.season, verified.year),
-    manufacturer: textValue(
-      ai.manufacturer,
-      ai.manufacturerName,
-      card.manufacturer,
-      verified.manufacturer,
-    ),
-    brand: textValue(ai.brand, card.brand, verified.brand),
-    product: textValue(ai.product, ai.productName, card.product, verified.product),
-    setName: textValue(
-      ai.setName,
-      ai.set_name,
-      ai.set,
-      card.setName,
-      card.set_name,
-      verified.setName,
-    ),
-    cardNumber: textValue(
-      ai.cardNumber,
-      ai.card_number,
-      card.cardNumber,
-      card.card_number,
-      verified.cardNumber,
-      verified.card_number,
-    ),
-    player: textValue(
-      ai.player,
-      ai.playerName,
-      ai.subject,
-      card.player,
-      verified.player,
-    ),
-    team: textValue(ai.team, ai.teamName, card.team, verified.team),
-    sport: textValue(ai.sport, card.sport, verified.sport),
-    league: textValue(ai.league, card.league, verified.league),
-    parallel: textValue(
-      ai.checklistParallel,
-      ai.parallelName,
-      ai.parallel,
-      card.parallel,
-      verified.parallel,
-    ),
-    variation: textValue(ai.variation, card.variation, verified.variation),
-    serialRun: positiveInteger(
-      ai.serialRun,
-      ai.printRun,
-      collectible.serial_run,
-      collectible.title_print_run,
-      verified.serialRun,
-    ),
-    isAuto: booleanValue(
-      ai.isAuto,
-      ai.autograph,
-      ai.autographStatus,
-      card.isAuto,
-      verified.isAuto,
-    ),
-    isRelic: booleanValue(
-      ai.isRelic,
-      ai.memorabilia,
-      ai.memorabiliaStatus,
-      card.isRelic,
-      verified.isRelic,
-    ),
-  };
-}
-
-function trustedScannerIdentity(metadata: JsonRecord) {
-  const instaComp = recordValue(metadata.instacomp);
-  if (instaComp.identityComplete !== true) return null;
-
-  const ai = recordValue(instaComp.ai);
-  const registryIdentityId = textValue(
-    ai.checklistIdentityId,
-    instaComp.cardUuid,
+  const year = textValue(ai.year, ai.season, card.year, card.season, verified.year);
+  const manufacturer = textValue(
+    ai.manufacturer,
+    ai.manufacturerName,
+    card.manufacturer,
+    verified.manufacturer,
   );
+  const brand = textValue(ai.brand, card.brand, verified.brand);
+  const product = textValue(ai.product, ai.productName, card.product, verified.product);
+  const setName = textValue(
+    ai.setName,
+    ai.set_name,
+    ai.set,
+    card.setName,
+    card.set_name,
+    verified.setName,
+  );
+  const cardNumber = textValue(
+    ai.cardNumber,
+    ai.card_number,
+    card.cardNumber,
+    card.card_number,
+    verified.cardNumber,
+    verified.card_number,
+  );
+  const player = textValue(
+    ai.player,
+    ai.playerName,
+    ai.subject,
+    card.player,
+    verified.player,
+  );
+  const team = textValue(ai.team, ai.teamName, card.team, verified.team);
+  const sport = textValue(ai.sport, card.sport, verified.sport);
+  const league = textValue(ai.league, card.league, verified.league);
+  const parallel =
+    textValue(ai.checklistParallel, ai.parallelName, ai.parallel, card.parallel, verified.parallel) ||
+    "Base";
+  const variation = textValue(ai.variation, card.variation, verified.variation);
+  const serialRun = positiveInteger(
+    ai.serialRun,
+    ai.printRun,
+    collectible.serial_run,
+    collectible.title_print_run,
+    verified.serialRun,
+  );
+  const isAuto = booleanValue(
+    ai.isAuto,
+    ai.autograph,
+    ai.autographStatus,
+    card.isAuto,
+    verified.isAuto,
+  );
+  const isRelic = booleanValue(
+    ai.isRelic,
+    ai.memorabilia,
+    ai.memorabiliaStatus,
+    card.isRelic,
+    verified.isRelic,
+  );
+  const registryIdentityId = textValue(ai.checklistIdentityId, instaComp.cardUuid);
   const registryFingerprintSha256 = textValue(
     ai.checklistFingerprintSha256,
     ai.registryFingerprintSha256,
   );
-  const year = textValue(ai.year, ai.season);
-  const manufacturer = textValue(ai.manufacturer, ai.manufacturerName);
-  const cardNumber = textValue(ai.cardNumber, ai.card_number);
-  const player = textValue(ai.player, ai.playerName, ai.subject);
-  const parallel = textValue(ai.checklistParallel, ai.parallelName, ai.parallel);
 
-  if (
-    !registryIdentityId ||
-    !registryFingerprintSha256 ||
-    !year ||
-    !manufacturer ||
-    !cardNumber ||
-    !player
-  ) {
-    return null;
+  if (!identityComplete || !year || !manufacturer || !cardNumber || !player) {
+    return {
+      status: "review_required" as const,
+      source: "visual_ai" as const,
+      aiIdentificationRequired: true,
+      registryIdentityId: registryIdentityId || null,
+      registryFingerprintSha256: registryFingerprintSha256 || null,
+      lockedFields: {
+        year: year || null,
+        manufacturer: manufacturer || null,
+        brand: brand || null,
+        product: product || null,
+        setName: setName || null,
+        cardNumber: cardNumber || null,
+        player: player || null,
+        team: team || null,
+        sport: sport || null,
+        league: league || null,
+        parallel,
+        variation: variation || null,
+        serialRun: serialRun ?? null,
+        isAuto,
+        isRelic,
+      },
+      reasons: ["visual_ai_identity_missing_required_fields"],
+    };
   }
 
   return {
     status: "identified" as const,
-    source: "checklist_registry" as const,
+    source: "visual_ai" as const,
     aiIdentificationRequired: false,
-    registryIdentityId,
-    registryFingerprintSha256,
+    registryIdentityId: registryIdentityId || null,
+    registryFingerprintSha256: registryFingerprintSha256 || null,
     lockedFields: {
       year,
       manufacturer,
-      brand: textValue(ai.brand),
-      product: textValue(ai.product, ai.productName),
-      setName: textValue(ai.setName, ai.set_name, ai.set),
+      brand,
+      product,
+      setName,
       cardNumber,
       player,
-      team: textValue(ai.team, ai.teamName),
-      sport: textValue(ai.sport),
-      league: textValue(ai.league),
-      parallel: parallel || "Base",
-      variation: textValue(ai.variation),
-      serialRun: positiveInteger(ai.serialRun, ai.printRun),
-      isAuto: booleanValue(ai.isAuto, ai.autograph, ai.autographStatus),
-      isRelic: booleanValue(ai.isRelic, ai.memorabilia, ai.memorabiliaStatus),
+      team,
+      sport,
+      league,
+      parallel,
+      variation,
+      serialRun: serialRun ?? null,
+      isAuto,
+      isRelic,
     },
-    reasons: ["pending_listing_identity_reused_trusted_scanner_registry_receipt"],
+    reasons: ["pending_listing_identity_locked_to_visual_ai_read"],
   };
 }
 
@@ -216,14 +211,8 @@ export async function POST(request: Request) {
     }
 
     const metadata = recordValue(row.metadata);
-    const input = checklistInput(metadata);
     const instaComp = recordValue(metadata.instacomp);
-    const identity =
-      trustedScannerIdentity(metadata) ||
-      buildPendingListingIdentity({
-        input,
-        decision: await resolveInstaCompChecklistFirstFromRegistry(input),
-      });
+    const identity = visualIdentity(metadata);
 
     const nextMetadata = {
       ...metadata,

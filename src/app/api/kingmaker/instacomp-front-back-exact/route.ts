@@ -182,6 +182,51 @@ function completedMacOrientation(
   };
 }
 
+function titleCardNumber(value: string) {
+  const match = value.match(
+    /(?:#|no\.?|card\s*(?:no\.?|number)?\s*[:#.-]?)\s*([a-z]{0,6}-?\d{1,5}[a-z]{0,3})\b/i,
+  );
+  return match?.[1] || null;
+}
+
+function titleYear(value: string) {
+  return value.match(/\b((?:19|20)\d{2})\b/)?.[1] || null;
+}
+
+function titleManufacturer(value: string) {
+  const names = ["Panini", "Bowman", "Topps", "Upper Deck", "Donruss", "Leaf", "Fleer", "Score", "SkyBox", "Pacific"];
+  const matches = names.filter((name) =>
+    new RegExp(`\\b${name.replace(" ", "\\s+")}\\b`, "i").test(value),
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function titlePlayer(value: string, cardNumber: string | null) {
+  if (!cardNumber) return null;
+  const escaped = cardNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(
+      `#${escaped}\\s+(.+?)(?=\\s+(?:Base|Silver|Blue|Red|Green|Gold|Orange|Purple|Pink|Black|White|Cracked|Velocity|Wave|Holo|Prizm|Prizms|Flash|Auto|Autograph|Rookie|RC)\\b|$)`,
+      "i",
+    ).exec(value)?.[1]?.trim() || null
+  );
+}
+
+function titleSurfaceHint(value: string) {
+  return (
+    value.match(
+      /\b(silver flash prizm|silver prizm|green prizm|blue prizm|red prizm|gold prizm|orange prizm|purple prizm|pink prizm|black prizm|white prizm|cracked ice|wave|holo|mojo|disco|shimmer|velocity|ice)\b/i,
+    )?.[1] || null
+  );
+}
+
+function titleAutoRelic(title: string) {
+  return {
+    isAuto: /\b(auto|autograph|autographed|signature)\b/i.test(title),
+    isRelic: /\b(relic|memorabilia|patch|jersey|game[- ]?used)\b/i.test(title),
+  };
+}
+
 const MINIMUM_MAC_ORIENTATION_CONFIDENCE = 0.55;
 
 async function dataUrl(file: File) {
@@ -948,109 +993,86 @@ export async function POST(request: NextRequest) {
     }
 
     const macCandidate = macTrustedCandidate(macReceipt);
-    const core = macCandidate
-      ? macCoreEvidence(macCandidate, macReceipt)
-      : await readInstaCompCoreVisualEvidence({
-          frontDataUrl: finalFrontDataUrl,
-          backDataUrl: finalBackDataUrl,
-        });
-    const coreMissing = [
-      ["year", core.year],
-      ["manufacturer", core.manufacturer],
-      ["player", core.player],
-      ["card_number", core.cardNumber],
-    ]
-      .filter(([, fieldValue]) => !fieldValue)
-      .map(([field]) => field);
-
-    const broadDecision = macCandidate
-      ? {
-          status: "exact_match" as const,
-          aiRequired: false,
-          match: macCandidate,
-          candidates: [macCandidate],
-          reasons: [
-            "mac_local_trusted_registry_exact_match",
-            ...macReceipt.checklistReasons,
-          ],
-        }
-      : coreMissing.length
-        ? {
-          status: "input_incomplete" as const,
-          aiRequired: true,
-          match: null,
-          candidates: [] as InstaCompChecklistCandidate[],
-          reasons: coreMissing.map((field) => `missing_${field}`),
-        }
-        : await resolveInstaCompChecklistFirstFromRegistry({
-            year: core.year,
-            manufacturer: core.manufacturer,
-            cardNumber: core.cardNumber,
-            player: core.player,
-            serialNumber: null,
-            isAuto: null,
-            isRelic: null,
-            parallel: null,
-            variation: null,
-            ocrText: [
-              core.product,
-              core.setName,
-              ...core.frontVisibleText,
-              ...core.backVisibleText,
+    const core = await readInstaCompCoreVisualEvidence({
+      frontDataUrl: finalFrontDataUrl,
+      backDataUrl: finalBackDataUrl,
+    });
+    const titleText = String(item.title || "");
+    const titleCard = titleCardNumber(titleText);
+    const titleHints = {
+      year: titleYear(titleText),
+      manufacturer: titleManufacturer(titleText),
+      cardNumber: titleCard,
+      player: titlePlayer(titleText, titleCard),
+      surfaceVariationHint: titleSurfaceHint(titleText),
+      ...titleAutoRelic(titleText),
+    };
+    const visualYear = core.year || titleHints.year;
+    const visualManufacturer = core.manufacturer || titleHints.manufacturer;
+    const visualCardNumber = core.cardNumber || titleHints.cardNumber;
+    const visualPlayer = core.player || titleHints.player;
+    const visualSurfaceVariationHint =
+      core.surfaceVariationHint || titleHints.surfaceVariationHint;
+    const visualProduct = core.product || core.setName || null;
+    const visualSetName = core.setName || core.product || null;
+    const parallelDecision = await resolveChecklistParallelFromVision({
+      frontDataUrl: finalFrontDataUrl,
+      backDataUrl: finalBackDataUrl,
+      candidates: [],
+    });
+    const identityComplete = true;
+    const resolvedAi = {
+      year: visualYear,
+      manufacturer: visualManufacturer,
+      brand: visualManufacturer,
+      product: visualProduct,
+      setName: visualSetName || visualProduct,
+      player: visualPlayer,
+      cardNumber: visualCardNumber,
+      parallel:
+        parallelDecision.selectedParallel &&
+        normalized(parallelDecision.selectedParallel) !== "base"
+          ? parallelDecision.selectedParallel
+          : null,
+      variation: visualSurfaceVariationHint || null,
+      team: core.team,
+      sport: core.sport,
+      league: core.league,
+      isRookie: core.rookie === true,
+      isAuto: titleHints.isAuto,
+      isRelic: titleHints.isRelic,
+      frontVisibleText: core.frontVisibleText,
+      backVisibleText: core.backVisibleText,
+      coreVisualConfidence: core.confidence,
+      parallelVisualFeatures: parallelDecision.features,
+      notes: buildCardReadSummary({
+        core: {
+          ...core,
+          year: visualYear,
+          manufacturer: visualManufacturer,
+          product: visualProduct,
+          setName: visualSetName,
+          player: visualPlayer,
+          cardNumber: visualCardNumber,
+          surfaceVariationHint: visualSurfaceVariationHint,
+          identitySummary:
+            core.identitySummary ||
+            [
+              visualYear,
+              visualManufacturer,
+              visualSetName || visualProduct,
+              visualCardNumber ? `#${visualCardNumber}` : null,
+              visualPlayer,
+              core.team ? `(${core.team})` : null,
             ]
               .filter(Boolean)
               .join(" ")
-              .slice(0, 12_000),
-          });
-
-    const rawCandidates = broadDecision.match
-      ? [broadDecision.match]
-      : broadDecision.candidates;
-    const productFilter = filterCandidatesByProduct(rawCandidates, core);
-    const candidates = productFilter.candidates;
-    const parallelDecision = macCandidate
-      ? macParallelDecision(macCandidate)
-      : await resolveChecklistParallelFromVision({
-          frontDataUrl: finalFrontDataUrl,
-          backDataUrl: finalBackDataUrl,
-          candidates,
-        });
-    const selected = candidates.find(
-      (candidate) =>
-        candidate.identityId === parallelDecision.selectedIdentityId,
-    );
-    const identityComplete = Boolean(core.year && core.manufacturer && core.player && core.cardNumber);
-    const resolvedAi = selected
-      ? candidateAi(selected, core, parallelDecision)
-      : {
-          year: core.year,
-          manufacturer: core.manufacturer,
-          brand: core.manufacturer,
-          product: core.product,
-          setName: core.setName || core.product,
-          player: core.player,
-          cardNumber: core.cardNumber,
-          parallel:
-            parallelDecision.selectedParallel &&
-            normalized(parallelDecision.selectedParallel) !== "base"
-              ? parallelDecision.selectedParallel
-              : null,
-          variation: core.surfaceVariationHint || null,
-          team: core.team,
-          sport: core.sport,
-          league: core.league,
-          isRookie: core.rookie === true,
-          isAuto: false,
-          isRelic: false,
-          frontVisibleText: core.frontVisibleText,
-          backVisibleText: core.backVisibleText,
-          coreVisualConfidence: core.confidence,
-          parallelVisualFeatures: parallelDecision.features,
-          notes: buildCardReadSummary({
-            core,
-            parallelDecision,
-          }),
-        };
+              .replace(/\s+/g, " ")
+              .trim(),
+        },
+        parallelDecision,
+      }),
+    };
 
     const storedImages = await persistNormalizedInstaCompImagePair({
       supabase,
@@ -1068,23 +1090,16 @@ export async function POST(request: NextRequest) {
     const collectibleAsset = record(metadata.collectible_asset);
     const selectedParallel = resolvedAi.parallel || null;
     const selectedIsBase = normalized(selectedParallel) === "base";
-    const selectedRegistryIdentityId = validUuid(selected?.identityId);
-    const selectedRegistryFingerprintSha256 = text(
-      selected?.fingerprintSha256,
-      80,
-    );
-    const nextTitle = identityComplete
-      ? visualTitle(resolvedAi)
-      : selected
-      ? canonicalTitle({ candidate: selected, core })
-      : reviewTitle(core, String(item.title || ""));
+    const selectedRegistryIdentityId = null;
+    const selectedRegistryFingerprintSha256 = null;
+    const nextTitle = visualTitle(resolvedAi);
 
     const nextMetadata = {
       ...metadata,
       collectible_asset: {
         ...collectibleAsset,
         parallel_name:
-          selected && !selectedIsBase ? selectedParallel : null,
+          !selectedIsBase && selectedParallel ? selectedParallel : null,
         exact_serial_number:
           parallelDecision.features.serialStampText || null,
         serial_run: parallelDecision.features.serialRun || null,
@@ -1119,87 +1134,55 @@ export async function POST(request: NextRequest) {
           text(previousInstaComp.pricingGroupKey, 120) ||
           null,
         checklistDecision: {
-          status: broadDecision.status,
-          reasons: broadDecision.reasons,
-          candidateCount: candidates.length,
-          candidateIdentityIds: candidates.map(
-            (candidate) => candidate.identityId,
-          ),
-          productFamilies: productFilter.requestedFamilies,
-          productFilterApplied: productFilter.filterApplied,
+          status: "ai_only",
+          reasons: ["checklist_disabled_visual_ai_only"],
+          candidateCount: 0,
+          candidateIdentityIds: [],
+          productFamilies: [],
+          productFilterApplied: false,
         },
-        checklistIdentity: identityComplete
-          ? {
-              status: "identified",
-              source: selected ? "checklist_registry" : "visual_ai",
-              aiIdentificationRequired: false,
-              registryIdentityId: selectedRegistryIdentityId,
-              registryFingerprintSha256: selectedRegistryFingerprintSha256,
-              lockedFields: {
-                year: resolvedAi.year,
-                manufacturer: resolvedAi.manufacturer,
-                brand: resolvedAi.brand || resolvedAi.manufacturer || null,
-                product: resolvedAi.product || null,
-                setName: resolvedAi.setName || resolvedAi.product || null,
-                cardNumber: resolvedAi.cardNumber,
-                player: resolvedAi.player,
-                team: resolvedAi.team || null,
-                sport: resolvedAi.sport || null,
-                league: resolvedAi.league || null,
-                parallel: resolvedAi.parallel || "Base",
-                variation: resolvedAi.variation || null,
-                serialRun: parallelDecision.features.serialRun ?? null,
-                isAuto: resolvedAi.isAuto,
-                isRelic: resolvedAi.isRelic,
-              },
-              reasons: [
-                selected
-                  ? "exact_visual_checklist_identity_locked_before_marketplace_pricing"
-                  : "visual_ai_identity_locked_before_marketplace_pricing",
-              ],
-              checkedAt,
-            }
-          : {
-              ...record(previousInstaComp.checklistIdentity),
-              status: "review_required",
-              source: "visual_ai",
-              aiIdentificationRequired: true,
-              registryIdentityId: null,
-              registryFingerprintSha256: null,
-              reasons: broadDecision.reasons,
-              checkedAt,
-            },
+        checklistIdentity: {
+          status: "identified",
+          source: "visual_ai",
+          aiIdentificationRequired: false,
+          registryIdentityId: null,
+          registryFingerprintSha256: null,
+          lockedFields: {
+            year: resolvedAi.year,
+            manufacturer: resolvedAi.manufacturer,
+            brand: resolvedAi.brand || resolvedAi.manufacturer || null,
+            product: resolvedAi.product || null,
+            setName: resolvedAi.setName || resolvedAi.product || null,
+            cardNumber: resolvedAi.cardNumber,
+            player: resolvedAi.player,
+            team: resolvedAi.team || null,
+            sport: resolvedAi.sport || null,
+            league: resolvedAi.league || null,
+            parallel: resolvedAi.parallel || "Base",
+            variation: resolvedAi.variation || null,
+            serialRun: parallelDecision.features.serialRun ?? null,
+            isAuto: resolvedAi.isAuto,
+            isRelic: resolvedAi.isRelic,
+          },
+          reasons: ["visual_ai_identity_locked_without_checklist"],
+          checkedAt,
+        },
         parallelDecision,
         parallelVisualFeatures: parallelDecision.features,
-        identitySource: selected
-          ? "first_time_visual_core_plus_checklist_plus_surface"
-          : "first_time_visual_core_plus_surface",
+        identitySource: "first_time_visual_only",
         identityComplete,
-        identityRuleApplied: identityComplete
-          ? "year_product_player_card_then_color_pattern_serial"
-          : null,
+        identityRuleApplied: "year_product_player_card_then_color_pattern_serial",
         hasBackImage: true,
         humanVerified: false,
         trustedForIdentity: false,
         manualIdentityEdit: false,
         manualIdentityLocked: false,
-        identityRefreshRequired: !identityComplete,
-        pricingStatus: identityComplete
-          ? "identity_complete_pricing_pending"
-          : "blocked_identity_review_required",
-        pricingReason: identityComplete
-          ? "One visual identity survived core, product, surface, and serial checks."
-          : "The card was preserved, but the visual identity did not meet the minimum evidence threshold.",
-        lastStatus: identityComplete
-          ? "identity_complete"
-          : "review_required",
-        lastStage: identityComplete
-          ? "complete"
-          : coreMissing.length
-            ? "core_identity"
-            : candidates.length
-              ? "parallel_review"
-              : "checklist_lookup",
+        identityRefreshRequired: false,
+        pricingStatus: "identity_complete_pricing_pending",
+        pricingReason:
+          "The card was read visually without checklist gating and is ready for review or edit.",
+        lastStatus: "identity_complete",
+        lastStage: "complete",
         lastError: null,
         lastErrorCode: null,
         scannedAt: checkedAt,
@@ -1226,39 +1209,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        stage: identityComplete
-          ? "complete"
-          : coreMissing.length
-            ? "core_identity"
-            : candidates.length
-              ? "parallel_review"
-              : "checklist_lookup",
+        stage: "complete",
         identityComplete,
-        cardUuid: selectedRegistryIdentityId,
-        registryIdentityId: selectedRegistryIdentityId,
-        registryFingerprintSha256: selectedRegistryFingerprintSha256,
+        cardUuid: null,
+        registryIdentityId: null,
+        registryFingerprintSha256: null,
         title: nextTitle,
         ai: resolvedAi,
         coreVisualEvidence: core,
         checklistDecision: {
-          ...broadDecision,
-          candidates,
-          productFamilies: productFilter.requestedFamilies,
-          productFilterApplied: productFilter.filterApplied,
+          status: "ai_only",
+          reasons: ["checklist_disabled_visual_ai_only"],
+          candidateCount: 0,
+          candidateIdentityIds: [],
+          productFamilies: [],
+          productFilterApplied: false,
         },
         parallelDecision,
         macReceipt,
         imageOrientation: finalOrientation,
         normalizedImages: storedImages,
-        pricingStatus: identityComplete
-          ? "identity_complete_pricing_pending"
-          : "blocked_identity_review_required",
+        pricingStatus: "identity_complete_pricing_pending",
         nothingPublished: true,
       },
-      {
-        status: identityComplete ? 200 : 202,
-        headers: { "Cache-Control": "no-store" },
-      },
+      { status: 200, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     const failure =
