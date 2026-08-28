@@ -254,7 +254,15 @@ export async function GET(request: Request) {
     const instaCompRows = inventoryRows.filter((row: any) => {
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
-      return Boolean(textValue(instaComp.source) || textValue(instaComp.scanId));
+      if (!Boolean(textValue(instaComp.source) || textValue(instaComp.scanId))) {
+        return false;
+      }
+      return (
+        instaComp.identityComplete === true ||
+        textValue(instaComp.lastStatus) === "identity_complete" ||
+        textValue(instaComp.lastStatus) === "review_required" ||
+        textValue(instaComp.pricingStatus) === "identity_complete_pricing_pending"
+      );
     });
     const queueCounts = {
       listings: instaCompRows.filter(
