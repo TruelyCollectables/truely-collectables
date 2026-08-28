@@ -59,6 +59,8 @@ type PendingCard = {
     } | null;
     pricingStatus: string;
     serialNumber?: string | null;
+    identitySummary?: string | null;
+    identityReadout?: string | null;
     suggestedPrice?: number | null;
     listingPrice?: number | null;
     reliableSoldCompCount?: number;
@@ -160,6 +162,42 @@ function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
 function serialRunLabel(value: string) {
   const match = String(value || "").match(/\/(\d{1,6})$/);
   return match ? `/${Number(match[1])}` : "";
+}
+
+function identityReadout(card: PendingCard) {
+  const identity = card.instaComp.identity || {};
+  const clean = (value?: string | null) => {
+    const text = value?.trim() || "";
+    if (!text) return "";
+    const normalized = text.toLowerCase();
+    if (
+      normalized === "identity review required" ||
+      normalized === "review required" ||
+      normalized === "untitled item" ||
+      normalized === "permanent uuid missing"
+    ) {
+      return "";
+    }
+    if (/^no\.?\s*/i.test(text) && text.split(/\s+/).length <= 3) return "";
+    return text;
+  };
+  const year = clean(identity.year);
+  const manufacturer = clean(identity.manufacturer || identity.brand);
+  const setName = clean(identity.setName || identity.subset);
+  const cardNumber = clean(identity.cardNumber);
+  const player = clean(identity.player);
+  const team = clean(identity.team);
+  const parallel = clean(identity.parallel || identity.variation);
+  const pieces = [
+    year,
+    manufacturer,
+    setName,
+    cardNumber ? `#${cardNumber.replace(/^#/, "")}` : "",
+    player,
+    team ? `(${team})` : "",
+    parallel,
+  ].filter(Boolean);
+  return pieces.join(" ").replace(/\s+/g, " ").trim();
 }
 
 function standardizedTitle(edit: EditState) {
@@ -696,6 +734,11 @@ export default function KingmakerPendingPage() {
                     <input type="checkbox" aria-label={`Select ${card.title}`} checked={selectedIds.has(card.inventoryItemId)} onChange={() => toggleSelected(card.inventoryItemId)} className="mt-1 h-5 w-5 accent-emerald-400" />
                     <div className="min-w-0">
                     <h2 className="font-black">{card.title}</h2>
+                    {card.instaComp.identityReadout || card.instaComp.identitySummary || identityReadout(card) ? (
+                      <p className="mt-1 text-xs font-semibold text-emerald-200">
+                        {card.instaComp.identityReadout || card.instaComp.identitySummary || identityReadout(card)}
+                      </p>
+                    ) : null}
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
                     </p>

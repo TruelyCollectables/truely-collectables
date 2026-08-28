@@ -26,6 +26,24 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function identityValue(value: unknown) {
+  const text = textValue(value);
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (
+    normalized === "identity review required" ||
+    normalized === "review required" ||
+    normalized === "untitled item" ||
+    normalized === "permanent uuid missing"
+  ) {
+    return null;
+  }
+  if (/^no\.?\s*/i.test(text) && text.split(/\s+/).length <= 3) {
+    return null;
+  }
+  return text;
+}
+
 function buildIdentitySummary(identity: Record<string, unknown>) {
   const setName = textValue(identity.setName) || textValue(identity.set_name);
   const product = textValue(identity.product);
@@ -54,6 +72,30 @@ function buildIdentitySummary(identity: Record<string, unknown>) {
         .filter(Boolean)
       .join(" ")
     : null;
+}
+
+function buildIdentityReadout(identity: Record<string, unknown>) {
+  const year = textValue(identity.year);
+  const manufacturer = identityValue(identity.manufacturer) || identityValue(identity.brand);
+  const setName = identityValue(identity.setName) || identityValue(identity.set_name) || identityValue(identity.product);
+  const cardNumber = identityValue(identity.cardNumber) || identityValue(identity.card_number);
+  const player = identityValue(identity.player) || identityValue(identity.playerName);
+  const team = identityValue(identity.team);
+  const parallel =
+    identityValue(identity.parallel) ||
+    identityValue(identity.checklistParallel) ||
+    identityValue(identity.parallelName) ||
+    identityValue(identity.variation);
+  const pieces = [
+    year,
+    manufacturer,
+    setName,
+    cardNumber ? `#${cardNumber}` : null,
+    player,
+    team ? `(${team})` : null,
+    parallel,
+  ].filter(Boolean);
+  return pieces.join(" ").replace(/\s+/g, " ").trim() || null;
 }
 
 function buildIdentityTitle(identity: Record<string, unknown>) {
@@ -417,10 +459,24 @@ export async function GET(request: Request) {
         buildIdentityTitle(recordValue(metadata.collectible_asset)) ||
         buildIdentityTitle(metadata) ||
         null;
+      const identitySummary =
+        buildIdentitySummary(ai) ||
+        buildIdentitySummary(recordValue(metadata.card)) ||
+        buildIdentitySummary(recordValue(metadata.verified_reference)) ||
+        buildIdentitySummary(recordValue(metadata.collectible_asset)) ||
+        buildIdentitySummary(metadata) ||
+        null;
+      const identityReadout =
+        buildIdentityReadout(ai) ||
+        buildIdentityReadout(recordValue(metadata.card)) ||
+        buildIdentityReadout(recordValue(metadata.verified_reference)) ||
+        buildIdentityReadout(recordValue(metadata.collectible_asset)) ||
+        buildIdentityReadout(metadata) ||
+        null;
       const displayTitle =
         rawTitle && !isGenericTitle(rawTitle)
           ? rawTitle
-          : generatedTitle || rawTitle || "Untitled item";
+          : generatedTitle || identitySummary || rawTitle || "Untitled item";
 
       const suggestedPrice = optionalPrice(
         Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
@@ -602,6 +658,8 @@ export async function GET(request: Request) {
             ebayActiveUrl: textValue(sourceLinks.ebayActiveUrl),
             broadCardMarketUrl: textValue(sourceLinks.broadCardMarketUrl),
           },
+          identitySummary,
+          identityReadout,
           gradingCompany:
             textValue(collectibleAsset.grading_company) ||
             textValue(ai.gradingCompany),
