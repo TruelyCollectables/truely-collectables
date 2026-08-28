@@ -269,7 +269,8 @@ async def _import_to_registry_source_file(
                             content_type or "application/octet-stream",
                         )
                     },
-                )
+                    )
+        raw_text = response.text[:2000] if response.content else ""
         payload = response.json() if response.content else {}
         receipt = str(
             payload.get("receipt")
@@ -291,7 +292,7 @@ async def _import_to_registry_source_file(
             or str(
                 payload.get("registryError")
                 or payload.get("error")
-                or response.status_code
+                or (raw_text if raw_text else response.status_code)
             )[:1000],
         )
     except (httpx.HTTPError, OSError, ValueError, json.JSONDecodeError) as error:

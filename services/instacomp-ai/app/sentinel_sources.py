@@ -216,18 +216,6 @@ DEFAULT_SOURCES: list[dict[str, Any]] = [
         "domains": ["sportscardradio.com", "www.sportscardradio.com"],
     },
     {
-        "source_id": "internet_archive",
-        "name": "Internet Archive",
-        "kind": "archive_json",
-        "trust_score": 76,
-        "import_policy": "auto_import",
-        "search_url_template": (
-            "https://archive.org/advancedsearch.php?q={query}"
-            "&fl[]=identifier,title,description&rows=20&page=1&output=json"
-        ),
-        "domains": ["archive.org", "web.archive.org"],
-    },
-    {
         "source_id": "reddit",
         "name": "Reddit",
         "kind": "reddit_json",

@@ -349,9 +349,9 @@ async function requestInput(request: Request) {
   const contentType = request.headers.get("content-type") || "";
   if (/^multipart\/form-data\b/i.test(contentType)) {
     const form = await request.formData();
-    const sourceFile = form.get("sourceFile");
+    const sourceFile = form.get("sourceFile") ?? form.get("file");
     if (!(sourceFile instanceof File) || sourceFile.size <= 0) {
-      throw new Error("Trusted Mac relay sourceFile is required.");
+      throw new Error("Trusted Mac relay sourceFile (or file) is required.");
     }
     if (sourceFile.size > MAX_BYTES) {
       throw new Error("Checklist source exceeds the 50 MB limit.");
@@ -503,7 +503,9 @@ export async function POST(request: Request) {
           ? registry.plan.validation.issues.slice(0, 50)
           : [];
         if (!registryImported) {
-          registryError = "Checklist Registry validation did not approve this source for persistence.";
+          registryError =
+            registryError ||
+            "Checklist Registry validation did not approve this source for persistence.";
         }
       } catch (error) {
         registryError = error instanceof Error ? error.message.slice(0, 1000) : "Checklist Registry validation failed.";
@@ -564,6 +566,7 @@ export async function POST(request: Request) {
       registryCounts,
       registryIssues,
       registryError,
+      registryHttpStatus: registryImported ? 200 : undefined,
     });
   } catch (error) {
     return json(

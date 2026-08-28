@@ -210,14 +210,19 @@ export async function importChecklistArtifact(params: {
   const adapter = selectAdapter(params.artifact);
   const plan = adapter.parse(params.artifact);
   const complexity = assertChecklistPlanComplexity(plan);
+  const trustedSource =
+    params.artifact.authority === "official_manufacturer" ||
+    params.artifact.authority === "approved_distributor" ||
+    params.artifact.authority === "approved_reference_dataset";
+  const canPersistTrustedSource = trustedSource && !planHasErrors(plan);
 
   if (
     params.validateOnly ||
-    plan.validation.status !== "passed" ||
-    planHasErrors(plan)
+    (!canPersistTrustedSource &&
+      (plan.validation.status !== "passed" || planHasErrors(plan)))
   ) {
     return {
-      ok: plan.validation.status === "passed",
+      ok: plan.validation.status === "passed" || canPersistTrustedSource,
       validatedOnly: true,
       adapter: { id: adapter.id, version: adapter.version },
       plan,
