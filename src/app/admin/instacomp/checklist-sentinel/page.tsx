@@ -107,17 +107,20 @@ export default function ChecklistSentinelAdminPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [statusResponse, downloadsResponse, findingsResponse] = await Promise.all([
+      const [statusResult, downloadsResult, findingsResult] = await Promise.allSettled([
         fetch("/api/instacomp/checklist-sentinel?view=status", { cache: "no-store" }),
         fetch("/api/instacomp/checklist-sentinel?view=downloads", { cache: "no-store" }),
         fetch("/api/instacomp/checklist-sentinel?view=findings", { cache: "no-store" }),
       ]);
+      const statusResponse = statusResult.status === "fulfilled" ? statusResult.value : null;
+      const downloadsResponse = downloadsResult.status === "fulfilled" ? downloadsResult.value : null;
+      const findingsResponse = findingsResult.status === "fulfilled" ? findingsResult.value : null;
       const [statusPayload, downloadsPayload, findingsPayload] = (await Promise.all([
-        statusResponse.json(),
-        downloadsResponse.json(),
-        findingsResponse.json(),
+        statusResponse ? statusResponse.json().catch(() => ({})) : Promise.resolve({}),
+        downloadsResponse ? downloadsResponse.json().catch(() => ({})) : Promise.resolve({}),
+        findingsResponse ? findingsResponse.json().catch(() => ({})) : Promise.resolve({}),
       ])) as ProxyPayload[];
-      if (!statusResponse.ok || !statusPayload.ok) {
+      if (!statusResponse || !statusResponse.ok || !statusPayload.ok) {
         throw new Error(statusPayload.error || "Sentinel status could not be loaded.");
       }
       setStatus(statusPayload.data as SentinelStatus);
