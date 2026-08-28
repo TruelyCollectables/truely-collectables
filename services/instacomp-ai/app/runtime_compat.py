@@ -258,18 +258,23 @@ async def _import_to_registry_source_file(
             follow_redirects=True,
             headers=headers,
         ) as client:
-            with local_path.open("rb") as handle:
-                response = await client.post(
-                    self.registry_import_url,
-                    data=data,
-                    files={
-                        "sourceFile": (
-                            local_path.name,
-                            handle,
-                            content_type or "application/octet-stream",
-                        )
-                    },
-                    )
+            source_bytes = local_path.read_bytes()
+            response = await client.post(
+                self.registry_import_url,
+                data=data,
+                files={
+                    "sourceFile": (
+                        local_path.name,
+                        source_bytes,
+                        content_type or "application/octet-stream",
+                    ),
+                    "file": (
+                        local_path.name,
+                        source_bytes,
+                        content_type or "application/octet-stream",
+                    ),
+                },
+            )
         raw_text = response.text[:2000] if response.content else ""
         payload = response.json() if response.content else {}
         receipt = str(

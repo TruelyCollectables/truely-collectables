@@ -345,7 +345,12 @@ def build_sentinel_router(
                             file_name,
                             source_bytes,
                             content_type,
-                        )
+                        ),
+                        "file": (
+                            file_name,
+                            source_bytes,
+                            content_type,
+                        ),
                     },
                 )
             data = response.json() if response.content else {}

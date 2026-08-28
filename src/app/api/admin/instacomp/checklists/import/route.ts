@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     const form = await request.formData();
-    const sourceFile = form.get("sourceFile");
+    const sourceFile = form.get("sourceFile") ?? form.get("file");
     const sourceUrl = String(form.get("sourceUrl") || "").trim();
     const authority = String(
       form.get("authority") || "manual_official_file",

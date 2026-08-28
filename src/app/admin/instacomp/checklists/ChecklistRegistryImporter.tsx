@@ -77,6 +77,7 @@ export default function ChecklistRegistryImporter() {
     try {
       const form = new FormData();
       form.append("sourceFile", sourceFile);
+      form.append("file", sourceFile);
       form.append("sourceUrl", sourceUrl.trim());
       form.append("authority", authority);
       form.append("validateOnly", String(validateOnly));
