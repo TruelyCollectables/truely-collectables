@@ -63,6 +63,11 @@ PLAYER_STOPWORDS = {
     "ice",
 }
 
+SUBSET_PHRASES = {
+    "all american": "All American",
+    "crunch time": "Crunch Time",
+}
+
 SET_TITLE_STOPWORDS = {
     "panini", "topps", "bowman", "upper", "deck", "leaf", "donruss", "fleer", "score",
     "prizm", "prism", "select", "optic", "mosaic", "wnba", "nba", "nfl", "nhl", "mlb",
@@ -526,6 +531,14 @@ def _player_hint(observations: Iterable[OCRObservation]) -> str | None:
     return max(candidates, default=(0.0, None), key=lambda value: value[0])[1]
 
 
+def _subset_hint(observations: Iterable[OCRObservation]) -> str | None:
+    text = _all_text(observations).lower()
+    for phrase, label in SUBSET_PHRASES.items():
+        if phrase in text:
+            return label
+    return None
+
+
 def _set_name_hint(observations: Iterable[OCRObservation]) -> str | None:
     values = [value for value in observations if value.side == "front"]
     player = _player_hint(values)
@@ -597,12 +610,10 @@ def build_identity_hints(
     return CardIdentity(
         year=_year_hint(observations),
         manufacturer=_manufacturer_hint(text),
-        # Player and logical set/insert names are not deterministic OCR facts.
-        # Team names, damaged player text, and partial insert titles can be large
-        # front-card typography; let Qwen/Registry resolve them instead of
-        # allowing raw OCR to overwrite a checklist-verifiable identity.
-        player=None,
+        # Keep the actual player and the insert/subset separate.
+        player=_player_hint(observations),
         set_name=None,
+        subset=_subset_hint(observations),
         card_number=_card_number_hint(observations),
         parallel=_parallel_hint(front=front, back=back),
         serial_number=exact_serial,
