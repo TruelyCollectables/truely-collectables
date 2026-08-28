@@ -477,9 +477,12 @@ export async function GET(request: Request) {
         buildIdentityReadout(metadata) ||
         null;
       const displayTitle =
-        rawTitle && !isGenericTitle(rawTitle)
-          ? rawTitle
-          : generatedTitle || identitySummary || rawTitle || "Untitled item";
+        identityReadout ||
+        identitySummary ||
+        generatedTitle ||
+        (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
+        rawTitle ||
+        "Untitled item";
 
       const suggestedPrice = optionalPrice(
         Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
