@@ -259,27 +259,31 @@ export default function KingmakerPendingPage() {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
       const headers = { Authorization: `Bearer ${session.access_token}` };
-      const [cardsResponse, statusResponse] = await Promise.all([
+      const [cardsResult, statusResult] = await Promise.allSettled([
         fetch(`/api/account/seller/instacomp-pending?queue=${queue}`, { headers, cache: "no-store" }),
         fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
       ]);
-      const [cardsData, statusData] = await Promise.all([cardsResponse.json(), statusResponse.json()]);
+      const cardsResponse = cardsResult.status === "fulfilled" ? cardsResult.value : null;
+      const statusResponse = statusResult.status === "fulfilled" ? statusResult.value : null;
+      const cardsData = cardsResponse ? await cardsResponse.json().catch(() => ({})) : {};
+      const statusData = statusResponse ? await statusResponse.json().catch(() => ({})) : {};
+      if (!cardsResponse) throw new Error("Could not load pending cards.");
       if (!cardsResponse.ok) throw new Error(cardsData.error || "Could not load pending cards.");
-      if (!statusResponse.ok) throw new Error(statusData.error || "Could not load card job status.");
+      if (statusResponse && !statusResponse.ok) {
+        setJobs({});
+      } else {
+        setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
+      }
       setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
       setQueueCounts({
         listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
       });
-      setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
       setSelectedIds((current) => {
         const available = new Set((Array.isArray(cardsData.items) ? cardsData.items : []).map((card: PendingCard) => card.inventoryItemId));
         return new Set([...current].filter((id) => available.has(id)));
       });
     } catch (error) {
-      setCards([]);
-      setQueueCounts({ listings: 0, verification: 0 });
-      setJobs({});
       setPageError(message(error));
     } finally {
       setLoading(false);
@@ -505,7 +509,6 @@ export default function KingmakerPendingPage() {
   }
 
   async function runExactIdentity(card: PendingCard) {
-    const job = jobs[card.inventoryItemId];
     if (!hasValidPair(card)) {
       setLocalError((current) => ({ ...current, [card.inventoryItemId]: "A distinct stored front and back are required." }));
       return;
@@ -518,51 +521,28 @@ export default function KingmakerPendingPage() {
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      const response = await fetch("/api/account/seller/inventory/instacomp-front-back", {
+      const response = await fetch("/api/account/seller/instacomp-pending-identity", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           inventoryItemId: card.inventoryItemId,
-          replaceManualIdentity: job?.manualIdentityLocked === true,
-          aiCouncilTier: "adaptive",
         }),
         cache: "no-store",
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success !== true) {
-        throw new Error([data.error || "Exact front-and-back scan failed.", data.code, data.stage].filter(Boolean).join(" · "));
+        throw new Error([data.error || "Card reading failed.", data.code, data.stage].filter(Boolean).join(" · "));
       }
-      if (data.identityComplete === true) {
-        const pricingResponse = await fetch("/api/account/seller/inventory/instacomp-verified", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            inventoryItemId: card.inventoryItemId,
-            aiCouncilTier: "adaptive",
-            requestId: `kingmaker-pending-${card.inventoryItemId}-${Date.now()}`,
-          }),
-          cache: "no-store",
-        });
-        const pricingData = await pricingResponse.json().catch(() => ({}));
-        const pricingPayload = pricingData?.payload || pricingData;
-        setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "complete" }));
-        if (pricingResponse.ok && pricingPayload?.success !== false) {
-          setNotice(`${data.title || card.title}: exact checklist identity resolved and InstaComp pricing ran.`);
-        } else {
-          setLocalError((current) => ({
-            ...current,
-            [card.inventoryItemId]:
-              pricingPayload?.error ||
-              "Exact identity resolved, but InstaComp pricing still needs retry.",
-          }));
-          setNotice(`${data.title || card.title}: exact checklist identity resolved; pricing needs retry.`);
-        }
-      } else {
-        setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "review" }));
-        setLocalError((current) => ({
-          ...current,
-          [card.inventoryItemId]: data.parallelDecision?.evidence || "The exact parallel remains unresolved. No Base or look-alike parallel was substituted.",
-        }));
+      setLocalStage((current) => ({
+        ...current,
+        [card.inventoryItemId]: data.identityComplete === true ? "complete" : "review",
+      }));
+      setNotice(
+        data.identity?.notes ||
+          `${data.identityComplete === true ? "Identity read" : "Best-effort identity read"} for ${data.title || card.title}.`,
+      );
+      if (data.identityComplete !== true) {
+        setLocalError((current) => ({ ...current, [card.inventoryItemId]: "" }));
       }
       await load();
     } catch (error) {
