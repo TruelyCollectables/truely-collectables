@@ -1,5 +1,9 @@
 import type { InstaCompAiResult } from "./instacomp";
 import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
+import {
+  getConfiguredInstaCompMacKey,
+  getConfiguredInstaCompMacUrl,
+} from "./instacomp-mac-credentials";
 
 export type InstaCompStudentCompHypothesis = {
   status: "ready" | "skipped" | "failed";
@@ -19,9 +23,7 @@ export type InstaCompStudentCompHypothesis = {
 };
 
 function localMacBaseUrl() {
-  const configured = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
+  const configured = getConfiguredInstaCompMacUrl();
   if (!configured || !/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(configured)) {
     return null;
   }
@@ -29,7 +31,7 @@ function localMacBaseUrl() {
 }
 
 function localMacKey() {
-  return String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim() || null;
+  return getConfiguredInstaCompMacKey();
 }
 
 function numberOrNull(value: unknown) {

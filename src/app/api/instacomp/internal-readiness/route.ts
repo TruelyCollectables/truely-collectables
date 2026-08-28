@@ -1,5 +1,9 @@
 import { lookup } from "node:dns/promises";
 import { NextResponse } from "next/server";
+import {
+  getConfiguredInstaCompMacKey,
+  getConfiguredInstaCompMacUrl,
+} from "../../../../lib/instacomp-mac-credentials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,17 +22,7 @@ function getServerFetch(): typeof fetch {
 }
 
 function configuredLocalUrl() {
-  const value = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(value)) return null;
-  if (
-    process.env.NODE_ENV === "production" &&
-    /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::|\/|$)/i.test(value)
-  ) {
-    return null;
-  }
-  return value;
+  return getConfiguredInstaCompMacUrl();
 }
 
 function readinessResponse(
@@ -172,7 +166,7 @@ export async function GET() {
 
   try {
     const headers = new Headers();
-    const key = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+    const key = getConfiguredInstaCompMacKey();
     if (key) headers.set("X-InstaComp-AI-Key", key);
     const response = await getServerFetch()(`${baseUrl}/health`, {
       headers,

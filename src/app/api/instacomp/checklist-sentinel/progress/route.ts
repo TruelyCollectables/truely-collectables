@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getConfiguredInstaCompMacKey, getConfiguredInstaCompMacUrl } from "../../../../../lib/instacomp-mac-credentials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,12 +17,7 @@ function response(payload: unknown, status = 200) {
 }
 
 function configuredMacUrl() {
-  const value = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (!/^https:\/\//i.test(value)) return null;
-  if (/^https:\/\/(?:127\.0\.0\.1|localhost)(?::|\/|$)/i.test(value)) return null;
-  return value;
+  return getConfiguredInstaCompMacUrl();
 }
 
 function finiteNumber(value: unknown) {
@@ -95,7 +91,7 @@ async function readStatus(baseUrl: string, key: string) {
 export async function GET() {
   try {
     const baseUrl = configuredMacUrl();
-    const key = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+    const key = getConfiguredInstaCompMacKey();
     if (!baseUrl || !key) {
       return response(
         {

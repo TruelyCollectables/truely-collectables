@@ -70,7 +70,8 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   ].filter(Boolean).length;
   const requiredVotes = teacherRequiredVotes(votingTeacherCount);
   const macLearningBridgeConfigured = Boolean(
-    validMacTunnel(env.INSTACOMP_AI_LOCAL_URL) && configured(env.INSTACOMP_AI_LOCAL_KEY),
+    validMacTunnel(env.INSTACOMP_AI_LOCAL_URL) &&
+      (configured(env.INSTACOMP_AI_LOCAL_KEY) || configured(env.INSTACOMP_AI_API_KEY)),
   );
 
   return {

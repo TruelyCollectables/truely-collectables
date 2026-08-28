@@ -4,6 +4,7 @@ import {
   requireInstaCompJobActor,
   type InstaCompJobActor,
 } from "../../../../lib/instacomp-job-server";
+import { getConfiguredInstaCompMacKey, getConfiguredInstaCompMacUrl } from "../../../../lib/instacomp-mac-credentials";
 import { assertTrustedInstaCompMutationRequest } from "../../../../lib/instacomp-mutation-security";
 import { isValidInstaCompSentinelArchiveRequest } from "../../../../lib/instacomp-sentinel-auth";
 
@@ -36,12 +37,7 @@ function response(payload: unknown, status = 200) {
 }
 
 function configuredMacUrl() {
-  const value = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (!/^https:\/\//i.test(value)) return null;
-  if (/^https:\/\/(?:127\.0\.0\.1|localhost)(?::|\/|$)/i.test(value)) return null;
-  return value;
+  return getConfiguredInstaCompMacUrl();
 }
 
 async function requireAdmin(request: Request): Promise<InstaCompJobActor> {
@@ -58,7 +54,7 @@ async function requireAdmin(request: Request): Promise<InstaCompJobActor> {
 
 async function callMac(path: string, init: RequestInit = {}) {
   const baseUrl = configuredMacUrl();
-  const key = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const key = getConfiguredInstaCompMacKey();
   if (!baseUrl || !key) {
     throw new InstaCompJobServerError(
       "The permanent InstaComp Mac connection is not configured in Production.",

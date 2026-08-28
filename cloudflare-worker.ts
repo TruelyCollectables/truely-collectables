@@ -75,6 +75,7 @@ type WorkerEnv = {
   CRON_SECRET: string;
   INSTACOMP_AI_LOCAL_URL?: string;
   INSTACOMP_AI_LOCAL_KEY?: string;
+  INSTACOMP_AI_API_KEY?: string;
   WORKER_SELF_REFERENCE: {
     fetch(request: Request): Promise<Response>;
   };
@@ -134,7 +135,7 @@ async function cloudflareInstaCompReadiness(env: WorkerEnv) {
   }
 
   const headers = new Headers({ Accept: "application/json" });
-  const key = String(env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const key = String(env.INSTACOMP_AI_LOCAL_KEY || env.INSTACOMP_AI_API_KEY || "").trim();
   if (key) headers.set("X-InstaComp-AI-Key", key);
 
   try {
@@ -323,7 +324,7 @@ async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
   }
 }
 
-export default {
+const worker = {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
     const url = new URL(request.url);
     if (
@@ -341,6 +342,7 @@ export default {
     env: WorkerEnv,
     _ctx: ExecutionContextLike,
   ) {
+    void _ctx;
     if (INCIDENT_DISABLE_SCHEDULED_JOBS) {
       console.warn("Cloudflare scheduler paused during storefront database incident.");
       return;
@@ -379,3 +381,5 @@ export default {
     }
   },
 };
+
+export default worker;

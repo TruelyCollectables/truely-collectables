@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { getConfiguredInstaCompMacKey } from "../../../../lib/instacomp-mac-credentials";
 import { getInstaCompServiceToken } from "../../../../lib/tcos-profit-hunter-secrets";
 import { filterExactEbayPriceInsightsRows } from "../../../../lib/instacomp-ebay-price-insights";
 import {
@@ -31,7 +32,7 @@ function authorized(request: NextRequest) {
   const serviceProvided = String(request.headers.get("x-tcos-instacomp-service-token") || "").trim();
   if (serviceExpected && serviceProvided && safeEqual(serviceExpected, serviceProvided)) return true;
 
-  const macExpected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const macExpected = getConfiguredInstaCompMacKey();
   const macProvided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
   return Boolean(macExpected && macProvided && safeEqual(macExpected, macProvided));
 }

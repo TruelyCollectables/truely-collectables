@@ -1,4 +1,8 @@
 import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
+import {
+  getConfiguredInstaCompMacKey,
+  getConfiguredInstaCompMacUrl,
+} from "./instacomp-mac-credentials";
 
 export type InstaCompTeacherReceipt = {
   schemaVersion: "tcos.instacomp.teacher-comp-receipt.v1";
@@ -36,9 +40,7 @@ export type InstaCompTeacherLearningBridgeResult = {
 };
 
 function localMacBaseUrl() {
-  const configured = String(process.env.INSTACOMP_AI_LOCAL_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
+  const configured = getConfiguredInstaCompMacUrl();
   if (!configured) return null;
   if (!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(configured)) {
     return null;
@@ -47,7 +49,7 @@ function localMacBaseUrl() {
 }
 
 function localMacKey() {
-  return String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim() || null;
+  return getConfiguredInstaCompMacKey();
 }
 
 export async function pushInstaCompTeacherReceipt(

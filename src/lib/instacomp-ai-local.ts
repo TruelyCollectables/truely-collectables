@@ -1,4 +1,5 @@
 import type { InstaCompAiResult } from "./instacomp";
+import { getConfiguredInstaCompMacKey, getConfiguredInstaCompMacUrl } from "./instacomp-mac-credentials";
 
 export type InstaCompAiLocalVisualEvidence = {
   visible_text?: string[];
@@ -141,10 +142,7 @@ export type InstaCompAiResultWithInternalReceipt = InstaCompAiResult & {
 };
 
 function baseUrl() {
-  return (process.env.INSTACOMP_AI_LOCAL_URL || "http://127.0.0.1:8787").replace(
-    /\/+$/,
-    "",
-  );
+  return getConfiguredInstaCompMacUrl() || "http://127.0.0.1:8787";
 }
 
 export function hasConfiguredInstaCompAiLocal() {
@@ -161,7 +159,7 @@ export function hasConfiguredInstaCompAiLocal() {
 
 function requestHeaders(): Headers {
   const headers = new Headers();
-  const key = process.env.INSTACOMP_AI_LOCAL_KEY?.trim();
+  const key = getConfiguredInstaCompMacKey();
   if (key) headers.set("X-InstaComp-AI-Key", key);
   return headers;
 }

@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { getInstaCompServiceToken } from "../../../../../lib/tcos-profit-hunter-secrets";
 import { loadExactCardMarketHistory } from "../../../../../lib/instacomp-market-history";
 import { trustedHistoricalSoldPricing } from "../../../../../lib/deal-hunter-trusted-sold-history";
+import { getConfiguredInstaCompMacKey } from "../../../../../lib/instacomp-mac-credentials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ function secretMatches(provided: string, expected: string) {
 }
 
 function authorizeMac(request: Request) {
-  const expected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const expected = getConfiguredInstaCompMacKey();
   const provided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
   return Boolean(expected && provided && secretMatches(provided, expected));
 }

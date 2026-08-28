@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getConfiguredInstaCompMacKey } from "../../../../../lib/instacomp-mac-credentials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ function matchesSecret(provided: string, expected: string) {
 }
 
 function authorize(request: Request) {
-  const instaCompExpected = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+  const instaCompExpected = getConfiguredInstaCompMacKey();
   const instaCompProvided = String(request.headers.get("x-instacomp-ai-key") || "").trim();
   if (matchesSecret(instaCompProvided, instaCompExpected)) return true;
 
