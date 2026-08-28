@@ -9,6 +9,7 @@ type CardIdentity = {
   year?: string | null;
   manufacturer?: string | null;
   brand?: string | null;
+  product?: string | null;
   setName?: string | null;
   subset?: string | null;
   player?: string | null;
@@ -184,11 +185,18 @@ function identityReadout(card: PendingCard) {
     if (/^no\.?\s*/i.test(text) && text.split(/\s+/).length <= 3) return "";
     return text;
   };
+  const blockedPlayerValues = new Set(
+    [identity.setName, identity.subset, identity.product, identity.brand, identity.manufacturer]
+      .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+      .map((value) => value.trim().toLowerCase()),
+  );
   const year = clean(identity.year);
   const manufacturer = clean(identity.manufacturer || identity.brand);
   const setName = clean(identity.setName || identity.subset);
   const cardNumber = clean(identity.cardNumber);
-  const player = clean(identity.player);
+  const player = blockedPlayerValues.has((identity.player || "").trim().toLowerCase())
+    ? ""
+    : clean(identity.player);
   const team = clean(identity.team);
   const parallel = clean(identity.parallel || identity.variation);
   const pieces = [

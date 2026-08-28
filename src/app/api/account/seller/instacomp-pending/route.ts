@@ -44,18 +44,42 @@ function identityValue(value: unknown) {
   return text;
 }
 
+function identityValueWithExclusions(
+  value: unknown,
+  exclusions: Array<string | null | undefined> = [],
+) {
+  const text = identityValue(value);
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (
+    exclusions
+      .map((entry) => String(entry || "").trim().toLowerCase())
+      .filter(Boolean)
+      .includes(normalized)
+  ) {
+    return null;
+  }
+  return text;
+}
+
 function buildIdentitySummary(identity: Record<string, unknown>) {
   const setName = textValue(identity.setName) || textValue(identity.set_name);
   const product = textValue(identity.product);
+  const brand = textValue(identity.brand) || textValue(identity.manufacturer);
+  const player = identityValueWithExclusions(identity.player, [
+    setName,
+    product,
+    brand,
+  ]);
   const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
   const pieces = [
     textValue(identity.year),
-    textValue(identity.manufacturer) || textValue(identity.brand),
+    brand,
     normalizedSetName || product,
     textValue(identity.cardNumber) || textValue(identity.card_number)
       ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
       : null,
-    textValue(identity.player) || textValue(identity.playerName),
+    player || textValue(identity.playerName),
     textValue(identity.team) ? `(${textValue(identity.team)})` : null,
   ].filter(Boolean);
   const surfaceVariation =
@@ -79,7 +103,7 @@ function buildIdentityReadout(identity: Record<string, unknown>) {
   const manufacturer = identityValue(identity.manufacturer) || identityValue(identity.brand);
   const setName = identityValue(identity.setName) || identityValue(identity.set_name) || identityValue(identity.product);
   const cardNumber = identityValue(identity.cardNumber) || identityValue(identity.card_number);
-  const player = identityValue(identity.player) || identityValue(identity.playerName);
+  const player = identityValueWithExclusions(identity.player, [setName, manufacturer]) || identityValue(identity.playerName);
   const team = identityValue(identity.team);
   const parallel =
     identityValue(identity.parallel) ||
@@ -101,15 +125,17 @@ function buildIdentityReadout(identity: Record<string, unknown>) {
 function buildIdentityTitle(identity: Record<string, unknown>) {
   const setName = textValue(identity.setName) || textValue(identity.set_name);
   const product = textValue(identity.product);
+  const brand = textValue(identity.brand) || textValue(identity.manufacturer);
+  const player = identityValueWithExclusions(identity.player, [setName, product, brand]);
   const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
   const pieces = [
     textValue(identity.year),
-    textValue(identity.manufacturer) || textValue(identity.brand),
+    brand,
     normalizedSetName || product,
     textValue(identity.cardNumber) || textValue(identity.card_number)
       ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
       : null,
-    textValue(identity.player) || textValue(identity.playerName),
+    player || textValue(identity.playerName),
     textValue(identity.parallel) || textValue(identity.checklistParallel) || textValue(identity.parallelName),
     textValue(identity.team) ? `(${textValue(identity.team)})` : null,
   ].filter(Boolean);
@@ -578,7 +604,11 @@ export async function GET(request: Request) {
             product: textValue(ai.product),
             setName: textValue(ai.setName) || textValue(ai.set_name),
             subset: textValue(ai.subset),
-            player: textValue(ai.player),
+            player: identityValueWithExclusions(ai.player, [
+              textValue(ai.setName) || textValue(ai.set_name),
+              textValue(ai.product),
+              textValue(ai.brand) || textValue(ai.manufacturer),
+            ]),
             team: textValue(ai.team),
             cardNumber: textValue(ai.cardNumber) || textValue(ai.card_number),
             parallel:
