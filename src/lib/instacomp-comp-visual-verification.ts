@@ -92,7 +92,7 @@ async function fileToDataUrl(file: File) {
 async function remoteImageToDataUrl(url: string) {
   const safeUrl = assertSafeInstaCompRemoteImageUrl(url, { ebayOnly: true });
   const response = await fetch(safeUrl, {
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(15_000),
     headers: { "User-Agent": "TCOS-InstaComp-VisualVerifier/1.0" },
   });

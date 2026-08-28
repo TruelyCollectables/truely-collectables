@@ -127,7 +127,7 @@ function validateFile(file: File, side: "front" | "back") {
 async function downloadStoredImage(url: string, side: "front" | "back") {
   const safeUrl = assertSafeInstaCompRemoteImageUrl(url);
   const response = await fetch(safeUrl, {
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(25_000),
     headers: { "User-Agent": "TCOS-InstaComp-FrontBack/2.0" },
   });

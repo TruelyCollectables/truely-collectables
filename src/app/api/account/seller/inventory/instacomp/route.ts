@@ -105,7 +105,7 @@ function imageExtension(type: string) {
 async function downloadImage(url: string, index: number) {
   const safeUrl = assertSafeInstaCompRemoteImageUrl(url);
   const response = await fetch(safeUrl, {
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(25_000),
     headers: { "User-Agent": "TCOS-InstaComp-ExactMarket/1.0" },
   });
