@@ -47,6 +47,8 @@ function identityValue(value: unknown) {
 const GENERIC_PLAYER_PHRASES = new Set([
   "all american",
   "all-american",
+  "crunch time",
+  "crunch-time",
   "base",
   "chrome",
   "donruss",
@@ -70,10 +72,39 @@ function identityPlayerValue(identity: Record<string, unknown>) {
   return candidate;
 }
 
+function normalizeSubsetLabel(value: string) {
+  const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
+  if (normalized === "all american" || normalized === "all-american") return "All American";
+  if (normalized === "crunch time" || normalized === "crunch-time") return "Crunch Time";
+  if (normalized === "future watch") return "Future Watch";
+  if (normalized === "young guns") return "Young Guns";
+  if (normalized === "spectrum fx") return "Spectrum FX";
+  return value;
+}
+
+function identitySubsetValue(identity: Record<string, unknown>) {
+  const candidate =
+    identityValue(identity.subset) ||
+    identityValue(identity.insertName) ||
+    identityValue(identity.insert) ||
+    identityValue(identity.seriesName) ||
+    identityValue(identity.series) ||
+    identityValue(identity.parallelName) ||
+    identityValue(identity.parallel) ||
+    identityValue(identity.player) ||
+    identityValue(identity.playerName) ||
+    identityValue(identity.subject);
+  if (!candidate) return null;
+  const normalized = candidate.toLowerCase();
+  if (normalized === "base") return null;
+  if (GENERIC_PLAYER_PHRASES.has(normalized)) return normalizeSubsetLabel(candidate);
+  return normalizeSubsetLabel(candidate);
+}
+
 function buildIdentitySummary(identity: Record<string, unknown>) {
   const setName = textValue(identity.setName) || textValue(identity.set_name);
   const product = textValue(identity.product);
-  const subset = identityValue(identity.subset);
+  const subset = identitySubsetValue(identity);
   const brand = textValue(identity.brand) || textValue(identity.manufacturer);
   const player = identityPlayerValue(identity);
   const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
@@ -108,7 +139,7 @@ function buildIdentityReadout(identity: Record<string, unknown>) {
   const year = textValue(identity.year);
   const manufacturer = identityValue(identity.manufacturer) || identityValue(identity.brand);
   const setName = identityValue(identity.setName) || identityValue(identity.set_name) || identityValue(identity.product);
-  const subset = identityValue(identity.subset);
+  const subset = identitySubsetValue(identity);
   const cardNumber = identityValue(identity.cardNumber) || identityValue(identity.card_number);
   const player = identityPlayerValue(identity);
   const team = identityValue(identity.team);
@@ -133,7 +164,7 @@ function buildIdentityReadout(identity: Record<string, unknown>) {
 function buildIdentityTitle(identity: Record<string, unknown>) {
   const setName = textValue(identity.setName) || textValue(identity.set_name);
   const product = textValue(identity.product);
-  const subset = identityValue(identity.subset);
+  const subset = identitySubsetValue(identity);
   const brand = textValue(identity.brand) || textValue(identity.manufacturer);
   const player = identityPlayerValue(identity);
   const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
@@ -364,8 +395,44 @@ export async function GET(request: Request) {
     const instaCompRows = inventoryRows.filter((row: any) => {
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
-      if (!Boolean(textValue(instaComp.source) || textValue(instaComp.scanId))) {
+      const cardIdentity = recordValue(metadata.card_identity);
+      const saleIdentity = recordValue(metadata.sale_identity);
+      const hasInstaCompSource = Boolean(
+        textValue(instaComp.source) || textValue(instaComp.scanId),
+      );
+      const hasStoredIdentity = Boolean(
+        textValue(cardIdentity.year) ||
+          textValue(cardIdentity.player) ||
+          textValue(cardIdentity.cardNumber) ||
+          textValue(cardIdentity.card_number) ||
+          textValue(saleIdentity.year) ||
+          textValue(saleIdentity.player) ||
+          textValue(saleIdentity.cardNumber) ||
+          textValue(saleIdentity.card_number),
+      );
+      const queueHint = textValue(recordValue(metadata.listingWorkflow).queue) ||
+        textValue(recordValue(metadata.listing_workflow).queue) ||
+        textValue(recordValue(metadata.pending_verification).status);
+      const hasStoredImageHint =
+        textValue(instaComp.recoveredImageUrls && (instaComp.recoveredImageUrls as Record<string, unknown>).front) ||
+        textValue(instaComp.recoveredImageUrls && (instaComp.recoveredImageUrls as Record<string, unknown>).back) ||
+        (Array.isArray(instaComp.sourceImageUrls) && instaComp.sourceImageUrls.some((value: unknown) => Boolean(textValue(value))));
+      if (
+        !hasInstaCompSource &&
+        !hasStoredIdentity &&
+        !hasStoredImageHint &&
+        queueHint !== "pending_verification" &&
+        queueHint !== "pending"
+      ) {
         return false;
+      }
+      if (
+        queueHint === "pending_verification" ||
+        queueHint === "pending" ||
+        hasStoredImageHint ||
+        hasStoredIdentity
+      ) {
+        return true;
       }
       return (
         instaComp.identityComplete === true ||
@@ -384,9 +451,19 @@ export async function GET(request: Request) {
           instaCompPendingQueueFromMetadata(row.metadata) === "verification",
       ).length,
     };
-    const rows = instaCompRows.filter(
-      (row: any) => instaCompPendingQueueFromMetadata(row.metadata) === queue,
-    );
+    const rows = instaCompRows.filter((row: any) => {
+      const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
+      if (rowQueue !== queue) return false;
+      if (queue === "verification") return true;
+      const metadata = recordValue(row.metadata);
+      const instaComp = recordValue(metadata.instacomp);
+      return (
+        instaComp.identityComplete === true ||
+        textValue(instaComp.lastStatus) === "identity_complete" ||
+        textValue(instaComp.lastStatus) === "review_required" ||
+        textValue(instaComp.pricingStatus) === "identity_complete_pricing_pending"
+      );
+    });
 
     const pricingGroupKeys = Array.from(
       new Set(
@@ -467,6 +544,8 @@ export async function GET(request: Request) {
       const sellerReview = recordValue(metadata.seller_review);
       const sourceLinks = recordValue(instaComp.sourceLinks);
       const pricingAnalysis = recordValue(instaComp.pricingAnalysis);
+      const cardIdentity = recordValue(metadata.card_identity);
+      const saleIdentity = recordValue(metadata.sale_identity);
       const pricingGroupKey = instaCompPricingGroupKey(metadata);
       const pricingGroupRows = pricingGroupKey
         ? pricingGroups.get(pricingGroupKey) || []
@@ -494,6 +573,8 @@ export async function GET(request: Request) {
       const generatedTitle =
         buildIdentityTitle(ai) ||
         buildIdentityTitle(recordValue(metadata.card)) ||
+        buildIdentityTitle(cardIdentity) ||
+        buildIdentityTitle(saleIdentity) ||
         buildIdentityTitle(recordValue(metadata.verified_reference)) ||
         buildIdentityTitle(recordValue(metadata.collectible_asset)) ||
         buildIdentityTitle(metadata) ||
@@ -501,6 +582,8 @@ export async function GET(request: Request) {
       const identitySummary =
         buildIdentitySummary(ai) ||
         buildIdentitySummary(recordValue(metadata.card)) ||
+        buildIdentitySummary(cardIdentity) ||
+        buildIdentitySummary(saleIdentity) ||
         buildIdentitySummary(recordValue(metadata.verified_reference)) ||
         buildIdentitySummary(recordValue(metadata.collectible_asset)) ||
         buildIdentitySummary(metadata) ||
@@ -508,6 +591,8 @@ export async function GET(request: Request) {
       const identityReadout =
         buildIdentityReadout(ai) ||
         buildIdentityReadout(recordValue(metadata.card)) ||
+        buildIdentityReadout(cardIdentity) ||
+        buildIdentityReadout(saleIdentity) ||
         buildIdentityReadout(recordValue(metadata.verified_reference)) ||
         buildIdentityReadout(recordValue(metadata.collectible_asset)) ||
         buildIdentityReadout(metadata) ||
@@ -607,23 +692,69 @@ export async function GET(request: Request) {
           identity: {
             sport: textValue(ai.sport),
             league: textValue(ai.league),
-            year: textValue(ai.year),
+            year:
+              textValue(ai.year) ||
+              textValue(cardIdentity.year) ||
+              textValue(saleIdentity.year),
             manufacturer:
-              textValue(ai.manufacturer) || textValue(ai.brand),
-            brand: textValue(ai.brand),
-            product: textValue(ai.product),
-            setName: textValue(ai.setName) || textValue(ai.set_name),
-            subset: textValue(ai.subset),
-            player: identityPlayerValue(ai),
-            team: textValue(ai.team),
-            cardNumber: textValue(ai.cardNumber) || textValue(ai.card_number),
+              textValue(ai.manufacturer) ||
+              textValue(ai.brand) ||
+              textValue(cardIdentity.manufacturer) ||
+              textValue(cardIdentity.brand) ||
+              textValue(saleIdentity.manufacturer) ||
+              textValue(saleIdentity.brand),
+            brand:
+              textValue(ai.brand) ||
+              textValue(cardIdentity.brand) ||
+              textValue(saleIdentity.brand),
+            product:
+              textValue(ai.product) ||
+              textValue(cardIdentity.product) ||
+              textValue(saleIdentity.product),
+            setName:
+              textValue(ai.setName) ||
+              textValue(ai.set_name) ||
+              textValue(cardIdentity.setName) ||
+              textValue(cardIdentity.set_name) ||
+              textValue(saleIdentity.setName) ||
+              textValue(saleIdentity.set_name),
+            subset:
+              identitySubsetValue(ai) ||
+              identitySubsetValue(recordValue(metadata.card)) ||
+              identitySubsetValue(cardIdentity) ||
+              identitySubsetValue(saleIdentity) ||
+              identitySubsetValue(recordValue(metadata.verified_reference)),
+            player:
+              identityPlayerValue(ai) ||
+              identityPlayerValue(cardIdentity) ||
+              identityPlayerValue(saleIdentity),
+            team:
+              textValue(ai.team) ||
+              textValue(cardIdentity.team) ||
+              textValue(saleIdentity.team),
+            cardNumber:
+              textValue(ai.cardNumber) ||
+              textValue(ai.card_number) ||
+              textValue(cardIdentity.cardNumber) ||
+              textValue(cardIdentity.card_number) ||
+              textValue(saleIdentity.cardNumber) ||
+              textValue(saleIdentity.card_number),
             parallel:
               textValue(ai.checklistParallel) ||
               textValue(ai.parallelName) ||
-              textValue(ai.parallel),
-            variation: textValue(ai.variation),
-            notes: textValue(ai.notes) || buildIdentitySummary(ai),
-            serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
+              textValue(ai.parallel) ||
+              textValue(cardIdentity.parallel) ||
+              textValue(saleIdentity.parallel),
+            variation:
+              textValue(ai.variation) ||
+              textValue(cardIdentity.variation) ||
+              textValue(saleIdentity.variation),
+            notes: textValue(ai.notes) || buildIdentitySummary(ai) || buildIdentitySummary(cardIdentity) || buildIdentitySummary(saleIdentity),
+            serialNumber:
+              textValue(ai.serialNumber) ||
+              textValue(cardIdentity.serialNumber) ||
+              textValue(saleIdentity.serialNumber) ||
+              exactSerialNumber,
             isRookie: ai.isRookie === true || collectibleAsset.rookie === true,
             isAuto: ai.isAuto === true || collectibleAsset.autograph === true,
             isRelic: ai.isRelic === true || collectibleAsset.memorabilia === true,

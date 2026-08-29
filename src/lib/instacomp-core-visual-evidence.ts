@@ -109,6 +109,7 @@ function inferCardNumberFromVisibleText(fragments: string[]) {
   const combined = fragments.join(" | ");
   const patterns = [
     /\b(?:card\s*(?:no\.?|number)|card\s*#)\s*([A-Z0-9][A-Z0-9-]{0,7})\b/i,
+    /\bno\.?\s*([A-Z0-9][A-Z0-9-]{0,7})\b/i,
     /\b(?:no\.?|#)\s*([A-Z0-9][A-Z0-9-]{0,7})\b/i,
   ];
   for (const pattern of patterns) {
@@ -176,8 +177,9 @@ export async function readInstaCompCoreVisualEvidence(params: {
         "You are the TCOS first-time sports-card evidence reader.",
         "Read the FRONT and BACK together and extract only the core printed identity fields needed to query a checklist.",
         "Required targets are year, manufacturer, product/set, player, card number, team, sport/league, and rookie mark.",
-        "If you can read a named subset or insert phrase such as All American or Crunch Time, put it in subset and keep it separate from player.",
+        "If you can read a named subset or insert phrase such as All American, Crunch Time, Young Guns, Future Watch, or Spectrum FX, put it in subset and keep it separate from player.",
         "If the text is clearly a subset or insert title, do not place it in player even if it looks like a slogan or title.",
+        "If a line says No. 13, Card No. 13, Card #13, #13, or similar, treat that as the card number and not as a player name.",
         "Treat card-number labels like No. 13, Card No. 13, Card #13, #13, or Card number 13 as card-number evidence. Preserve letters and leading zeros.",
         "Use the copyright/product line on the back to distinguish product families such as Panini Prizm WNBA, Select, Donruss, Topps Chrome, Bowman, or Upper Deck.",
         "Do NOT decide Base versus any parallel. If you can read a visible finish or variation such as Silver Flash Prizm, Silver Prizm, Cracked Ice, Green Prizm, Wave, or Holo, place that in surfaceVariationHint instead of forcing a final registry lock.",

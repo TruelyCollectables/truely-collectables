@@ -51,6 +51,16 @@ const CONTEXT_PHRASES = new Set([
   "O-PEE-CHEE PLATINUM", "OPC PLATINUM",
 ]);
 
+const SUBSET_PHRASES = [
+  "ALL AMERICAN",
+  "ALL-AMERICAN",
+  "CRUNCH TIME",
+  "CRUNCH-TIME",
+  "FUTURE WATCH",
+  "YOUNG GUNS",
+  "SPECTRUM FX",
+];
+
 const LEADING_CARD_WORDS = new Set([
   "UPPER", "PANINI", "TOPPS", "FLEER", "DONRUSS", "BOWMAN", "LEAF", "SCORE", "SELECT",
   "PRIZM", "OPTIC", "ARTIFACTS", "ARTIFACT", "SKYBOX", "PACIFIC", "PINNACLE", "HOOPS",
@@ -65,6 +75,16 @@ const NAME_CONNECTORS = new Set([
 const NAME_SUFFIXES = new Set(["JR", "SR", "II", "III", "IV", "V"]);
 const PLACEHOLDER_PLAYERS = new Set([
   "", "NOT CATALOGED", "UNKNOWN", "N/A", "NA", "NONE", "PLAYER", "ATHLETE",
+]);
+
+const NON_PLAYER_SUBSET_PHRASES = new Set([
+  "ALL AMERICAN",
+  "ALL-AMERICAN",
+  "CRUNCH TIME",
+  "CRUNCH-TIME",
+  "FUTURE WATCH",
+  "YOUNG GUNS",
+  "SPECTRUM FX",
 ]);
 
 function clean(value: unknown) {
@@ -373,6 +393,29 @@ export function inferPlayerFromCardTitle(title: string): string | null {
   const knownOverride = resolveKnownPlayerTitleOverride(cleaned);
   if (knownOverride) return knownOverride;
 
+  const subsetPlayer = (() => {
+    const normalized = cleaned.replace(/^\s*(?:19|20)\d{2}(?:-\d{2,4})?\s+/,
+      "",
+    );
+    const upper = normalized.toUpperCase();
+    for (const subset of SUBSET_PHRASES) {
+      const index = upper.indexOf(subset);
+      if (index < 0) continue;
+      const afterSubset = normalized.slice(index + subset.length).trim();
+      const beforeNumber = afterSubset
+        .replace(/\s+(?:#\s*|NO\.?\s+)[A-Z0-9.-]+\s*$/i, "")
+        .trim();
+      const candidate =
+        takeNameFromStart(beforeNumber) ||
+        takeNameFromEnd(beforeNumber) ||
+        takeNameFromStart(afterSubset) ||
+        takeNameFromEnd(afterSubset);
+      if (candidate && isLikelyPlayerName(candidate)) return candidate;
+    }
+    return null;
+  })();
+  if (subsetPlayer) return subsetPlayer;
+
   const afterCardNumber = cleaned.match(
     /(?:^|\s)(?:#\s*|NO\.?\s+)[A-Z0-9.-]+\s+(.+)$/i,
   )?.[1];
@@ -397,6 +440,7 @@ export function inferPlayerFromCardTitle(title: string): string | null {
 function isLikelySinglePlayerName(candidate: string) {
   const upper = candidate.toUpperCase();
   if (PLACEHOLDER_PLAYERS.has(upper)) return false;
+  if (NON_PLAYER_SUBSET_PHRASES.has(upper)) return false;
 
   const tokens = normalizedTokens(candidate);
   if (tokens.length < 1 || tokens.length > 6) return false;
