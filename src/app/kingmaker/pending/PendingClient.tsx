@@ -359,14 +359,16 @@ export default function KingmakerPendingPage({
   const load = useCallback(async (activeQueue: PendingQueue) => {
     setLoading(true);
     setPageError("");
+    let accessTokenHint: string | null = null;
     if (typeof window !== "undefined") {
       (window as any).__kingmakerPendingDebug = {
         queue: activeQueue,
-        stage: "starting",
-        itemCount: null,
-        queueCounts: null,
-      };
-    }
+          stage: "starting",
+          itemCount: null,
+          queueCounts: null,
+          accessTokenHint: null,
+        };
+      }
     try {
       let accessToken: string | null = null;
       if (typeof window !== "undefined") {
@@ -387,6 +389,7 @@ export default function KingmakerPendingPage({
         accessToken = session?.access_token?.trim() || null;
       }
       if (!accessToken) throw new Error("Seller login is required.");
+      accessTokenHint = accessToken.slice(-8);
       const headers = { Authorization: `Bearer ${accessToken}` };
       if (typeof window !== "undefined") {
         (window as any).__kingmakerPendingDebug = {
@@ -394,6 +397,7 @@ export default function KingmakerPendingPage({
           stage: "fetching",
           itemCount: null,
           queueCounts: null,
+          accessTokenHint,
         };
       }
       const [cardsResult, statusResult] = await Promise.allSettled([
@@ -425,6 +429,7 @@ export default function KingmakerPendingPage({
             listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
             verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
           },
+          accessTokenHint,
         };
       }
       setSelectedIds((current) => {
@@ -439,6 +444,7 @@ export default function KingmakerPendingPage({
           error: message(error),
           itemCount: null,
           queueCounts: null,
+          accessTokenHint,
         };
       }
       setPageError(message(error));

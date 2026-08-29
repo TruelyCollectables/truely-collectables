@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import AccountSessionBoundary from "../account/AccountSessionBoundary";
 import KingmakerShell from "./KingmakerShell";
 
 export const metadata: Metadata = {
@@ -9,5 +10,9 @@ export const metadata: Metadata = {
 };
 
 export default function KingmakerLayout({ children }: { children: ReactNode }) {
-  return <KingmakerShell>{children}</KingmakerShell>;
+  return (
+    <AccountSessionBoundary>
+      <KingmakerShell>{children}</KingmakerShell>
+    </AccountSessionBoundary>
+  );
 }
