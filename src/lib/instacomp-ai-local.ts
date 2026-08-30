@@ -261,6 +261,89 @@ function deterministicEvidence(scan: InstaCompAiLocalScan) {
   ].filter((value): value is string => Boolean(value));
 }
 
+function fallbackIdentity(scan: InstaCompAiLocalScan) {
+  const deterministic = deterministicIdentity(scan);
+  const localVision = record(scan.local_vision);
+  const hints = record(localVision.identity_hints);
+  const front = record(localVision.front);
+  const back = record(localVision.back);
+  const pattern = record(front.pattern);
+  const visibleText = Array.from(
+    new Set([
+      ...localVisionOcrText(scan, "front"),
+      ...localVisionOcrText(scan, "back"),
+    ]),
+  );
+  const subset = text(hints.subset);
+  const player = text(hints.player);
+  const year = text(hints.year);
+  const brand = text(hints.manufacturer ?? hints.brand);
+  const setName = text(hints.set_name ?? hints.setName ?? subset);
+  const cardNumber = text(hints.card_number ?? hints.cardNumber);
+  const parallel =
+    text(hints.parallel) ||
+    text(pattern.label) ||
+    (visibleText.some((value) => /\bsilver\s+prizm\b/i.test(value))
+      ? "Silver Prizm"
+      : null);
+
+  return {
+    player: subset && player && player.toLowerCase() === subset.toLowerCase() ? null : player,
+    year,
+    brand,
+    setName,
+    cardNumber,
+    parallel,
+    serialNumber: text(hints.serial_number ?? hints.serialNumber),
+    team: text(hints.team),
+    sport: text(hints.sport),
+    isRookie: hints.rookie === true ? true : false,
+    isAuto: hints.autograph === true ? true : false,
+    isRelic: hints.memorabilia === true ? true : false,
+    conditionGuess: null,
+    confidence: 0,
+    notes: [
+      "InstaComp internal source: deterministic fallback.",
+      visibleText.length ? `Visible text: ${visibleText.slice(0, 20).join(" | ")}` : null,
+      text(pattern.label) && text(pattern.label) !== "unknown"
+        ? `Front pattern: ${text(pattern.label)}`
+        : null,
+      back
+        ? `Back evidence: ${text(back.label) || text(back.title) || ""}`.trim()
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    internalScanId: safeScanId(scan.scan_id),
+    internalCardUuid: safeCardUuid(scan.card_uuid),
+    internalStatus: scan.status,
+    internalChecklistOutcome: text(scan.checklist?.outcome),
+    internalChecklistCandidateCount: Math.max(
+      0,
+      Number(
+        (scan.checklist as Record<string, unknown> | undefined)
+          ?.candidate_count || 0,
+      ),
+    ),
+    internalChecklistReasons: textList(scan.checklist?.reasons),
+    internalChecklistSourceReceipts: textList(scan.checklist?.source_receipts),
+    internalChecklistIdentityId: text(scan.checklist?.identity_id),
+    internalChecklistFingerprintSha256: checklistReceiptValue(scan, "registry_fingerprint:"),
+    internalDeterministicIdentity: deterministic,
+    internalDeterministicEvidence: deterministicEvidence(scan),
+    internalMatchSource: text(scan.match_source),
+    internalCanonicalFilename: text(scan.canonical_filename),
+    internalLearningAllowed: false,
+    internalInscription: false,
+    internalInscriptionText: null,
+    internalMemorabiliaType: null,
+    internalLocalSuggestionProvider: text(scan.local_suggestion?.provider),
+    frontVisibleText: localVisionOcrText(scan, "front"),
+    backVisibleText: localVisionOcrText(scan, "back"),
+    backEvidence: localVisionOcrText(scan, "back").join(" | ") || null,
+  } satisfies InstaCompAiResultWithInternalReceipt;
+}
+
 function confidence(value: unknown) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
@@ -276,60 +359,7 @@ export function instaCompAiLocalScanToAi(
   const suggested = scan.local_suggestion?.identity || null;
   const identity = trusted || suggested;
   if (!identity) {
-    const checklistReasons = textList(scan.checklist?.reasons);
-    const checklistReceipts = textList(scan.checklist?.source_receipts);
-    return {
-      player: null,
-      year: null,
-      brand: null,
-      setName: null,
-      cardNumber: null,
-      parallel: null,
-      serialNumber: null,
-      team: null,
-      sport: null,
-      isRookie: false,
-      isAuto: false,
-      isRelic: false,
-      conditionGuess: null,
-      confidence: 0,
-      notes: [
-        `InstaComp internal status: ${scan.status}.`,
-        scan.next_action || null,
-        checklistReasons.length
-          ? `Checklist: ${checklistReasons.join(" | ")}`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" "),
-      internalScanId: safeScanId(scan.scan_id),
-      internalCardUuid: safeCardUuid(scan.card_uuid),
-      internalStatus: scan.status,
-      internalChecklistOutcome: text(scan.checklist?.outcome),
-      internalChecklistCandidateCount: Math.max(
-        0,
-        Number(
-          (scan.checklist as Record<string, unknown> | undefined)
-            ?.candidate_count || 0,
-        ),
-      ),
-      internalChecklistReasons: checklistReasons,
-      internalChecklistSourceReceipts: checklistReceipts,
-      internalChecklistIdentityId: text(scan.checklist?.identity_id),
-      internalChecklistFingerprintSha256: checklistReceiptValue(scan, "registry_fingerprint:"),
-      internalDeterministicIdentity: deterministicIdentity(scan),
-      internalDeterministicEvidence: deterministicEvidence(scan),
-      internalMatchSource: text(scan.match_source),
-      internalCanonicalFilename: text(scan.canonical_filename),
-      internalLearningAllowed: false,
-      internalInscription: false,
-      internalInscriptionText: null,
-      internalMemorabiliaType: null,
-      internalLocalSuggestionProvider: text(scan.local_suggestion?.provider),
-      frontVisibleText: freshFrontVisibleText,
-      backVisibleText: freshBackVisibleText,
-      backEvidence: freshBackVisibleText.join(" | ") || null,
-    };
+    return fallbackIdentity(scan);
   }
 
   const player = text(identity.player);
