@@ -1,0 +1,79 @@
+name: Verify InstaComp Shedeur Firewall Live V2
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-firewall:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for both Production domains to include final Shedeur firewall
+        env:
+          FIREWALL_COMMIT: bd7032819f87cbca3f3a2973452c37a2439edfd5
+        run: |
+          set -euo pipefail
+          primary='https://truelycollectables.com/instacomp-release.json'
+          alias='https://truely-collectables.vercel.app/instacomp-release.json'
+
+          for attempt in $(seq 1 60); do
+            nonce="$(date +%s)-${attempt}"
+            echo "Production verification attempt ${attempt}/60"
+
+            primary_ok=false
+            alias_ok=false
+            curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${primary}?v=${nonce}" -o /tmp/primary.json && primary_ok=true || true
+            curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${alias}?v=${nonce}" -o /tmp/alias.json && alias_ok=true || true
+
+            if [[ "$primary_ok" == true && "$alias_ok" == true ]]; then
+              if node <<'NODE'
+          const fs = require('fs');
+          const primary = JSON.parse(fs.readFileSync('/tmp/primary.json', 'utf8'));
+          const alias = JSON.parse(fs.readFileSync('/tmp/alias.json', 'utf8'));
+          const expectedRelease = 'evidence-first-95-ai-council-30';
+          const validSha = (value) => /^[0-9a-f]{40}$/i.test(String(value || ''));
+          const contractOk = (value) =>
+            value.schema === 'tcos.instacomp.release.v1' &&
+            value.backendRelease === expectedRelease &&
+            value.identityThreshold === 0.95 &&
+            value.requiresBackImage === true &&
+            value.compSearchRequiresConfirmedIdentity === true &&
+            value.learningRequiresConfirmedIdentity === true &&
+            value.aiCouncilDefaultReaders === 8 &&
+            value.aiCouncilMaxReaders === 30 &&
+            value.aiCouncilFamilyVoteCap === true &&
+            validSha(value.sourceCommit);
+          if (!contractOk(primary) || !contractOk(alias)) process.exit(1);
+          if (primary.sourceCommit !== alias.sourceCommit) process.exit(1);
+          fs.writeFileSync('/tmp/production-sha', primary.sourceCommit);
+          console.log(`Both domains report ${primary.backendRelease} at ${primary.sourceCommit}.`);
+          NODE
+              then
+                production_sha="$(cat /tmp/production-sha)"
+                git fetch --no-tags origin "$production_sha" --depth=1 || true
+                if git merge-base --is-ancestor "$FIREWALL_COMMIT" "$production_sha"; then
+                  echo "PASS: Production commit ${production_sha} contains final Shedeur firewall ${FIREWALL_COMMIT}."
+                  exit 0
+                fi
+                echo "Production commit ${production_sha} does not yet contain final Shedeur firewall."
+              else
+                echo "Production release contract is incomplete, stale, or inconsistent."
+              fi
+            else
+              echo "One or both Production release endpoints are not ready."
+            fi
+
+            sleep 30
+          done
+
+          echo "FAIL: Production did not prove the final Shedeur firewall within 30 minutes."
+          exit 1
