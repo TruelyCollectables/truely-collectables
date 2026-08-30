@@ -1,0 +1,284 @@
+name: Import Six Checklist Releases 20260802
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/import-six-checklist-releases-20260802.yml"
+      - "scripts/ops/import-six-checklist-releases-20260802.mjs"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: tcos-checklist-registry-production
+  cancel-in-progress: false
+
+env:
+  EXPECTED_MAIN_SHA: d0784767fd664bf0960bf28e71afd7ca15533182
+  EXPECTED_BRANCH: ops/import-six-checklist-releases-20260802
+  VALIDATION_ARTIFACT_ID: "8845633740"
+  VALIDATION_ARTIFACT_SHA256: 780963f8bdbdbb2ab5cedb3ac0c727f6f14155c8e7fee94c0e92c9e937fb9239
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  EVIDENCE_DIR: evidence/six-checklist-production-20260802
+
+jobs:
+  audit-import-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main "$EXPECTED_BRANCH"
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" "origin/$EXPECTED_BRANCH"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH")
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/import-six-checklist-releases-20260802.yml'
+          test "${changed[1]}" = 'scripts/ops/import-six-checklist-releases-20260802.mjs'
+          git diff --check "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH"
+          cp scripts/ops/import-six-checklist-releases-20260802.mjs "$RUNNER_TEMP/import-six-checklist-releases-20260802.mjs"
+          git checkout --detach "$EXPECTED_MAIN_SHA"
+          mkdir -p scripts/ops "$EVIDENCE_DIR"
+          cp "$RUNNER_TEMP/import-six-checklist-releases-20260802.mjs" scripts/ops/import-six-checklist-releases-20260802.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies and resolve masked Production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm install --no-save --package-lock=false pg@8.16.3
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+
+          mkdir -p .vercel "$RUNNER_TEMP/six-checklist-production"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' \
+              "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables \
+              --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+
+          npx vercel@56.2.0 env pull \
+            "$RUNNER_TEMP/six-checklist-production/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" >/dev/null
+
+          PRODUCTION_ENV_PATH="$RUNNER_TEMP/six-checklist-production/production.env" node - <<'NODE'
+          const fs = require('node:fs');
+
+          function parseEnv(filePath) {
+            const parsed = {};
+            for (const raw of fs.readFileSync(filePath, 'utf8').split(/\r?\n/)) {
+              const line = raw.trim();
+              if (!line || line.startsWith('#')) continue;
+              const index = line.indexOf('=');
+              if (index < 1) continue;
+              const key = line.slice(0, index).trim();
+              let value = line.slice(index + 1).trim();
+              if (value.startsWith('"') && value.endsWith('"')) {
+                try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+              } else if (value.startsWith("'") && value.endsWith("'")) {
+                value = value.slice(1, -1);
+              }
+              parsed[key] = value;
+            }
+            return parsed;
+          }
+
+          (async () => {
+            const parsed = parseEnv(process.env.PRODUCTION_ENV_PATH);
+            const productionUrl = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '');
+            if (!productionUrl) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL in Production environment');
+            const projectRef = new URL(productionUrl).hostname.split('.')[0];
+            if (!projectRef) throw new Error('Could not resolve Production Supabase project ref');
+
+            let serviceKey = String(
+              parsed.SUPABASE_SERVICE_ROLE_KEY ||
+              parsed.SUPABASE_SECRET_KEY ||
+              Object.entries(parsed).find(([key, value]) => /^SUPABASE_SECRET_.*_KEY$/.test(key) && value)?.[1] ||
+              ''
+            );
+            if (!serviceKey) {
+              const response = await fetch(
+                `https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`,
+                { headers: { Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}` } },
+              );
+              const text = await response.text();
+              if (!response.ok) {
+                throw new Error(`Supabase API-key lookup failed with HTTP ${response.status}: ${text.slice(0, 500)}`);
+              }
+              const keys = text ? JSON.parse(text) : [];
+              if (!Array.isArray(keys)) throw new Error('Supabase API-key lookup returned an unexpected payload');
+              const legacy = keys.find((key) => key?.name === 'service_role' && key?.api_key);
+              const roleSecret = keys.find((key) => key?.secret_jwt_template?.role === 'service_role' && key?.api_key);
+              const secret = keys.find((key) => key?.type === 'secret' && key?.api_key);
+              serviceKey = String(legacy?.api_key || roleSecret?.api_key || secret?.api_key || '');
+            }
+            if (!serviceKey) throw new Error('No elevated Supabase API key could be resolved');
+
+            for (const value of [productionUrl, serviceKey]) console.log(`::add-mask::${value}`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `NEXT_PUBLIC_SUPABASE_URL<<SUPABASE_URL_EOF\n${productionUrl}\nSUPABASE_URL_EOF\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY<<SUPABASE_KEY_EOF\n${serviceKey}\nSUPABASE_KEY_EOF\n`);
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Download and verify pinned six-release validation artifact
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/six-checklist-validation-artifact"
+          curl -fsSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$VALIDATION_ARTIFACT_ID/zip" \
+            -o "$RUNNER_TEMP/six-checklist-validation-artifact.zip"
+          echo "$VALIDATION_ARTIFACT_SHA256  $RUNNER_TEMP/six-checklist-validation-artifact.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/six-checklist-validation-artifact.zip" \
+            -d "$RUNNER_TEMP/six-checklist-validation-artifact"
+
+      - name: Require the exact passing validation bundle without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT_ROOT="$RUNNER_TEMP/six-checklist-validation-artifact" node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = process.env.ARTIFACT_ROOT;
+          const receipt = JSON.parse(fs.readFileSync(path.join(root, 'validation.json'), 'utf8'));
+          const ids = [
+            '2024-bowman-chrome-baseball',
+            '2025-bowman-baseball',
+            '2024-panini-prizm-wnba',
+            '2025-panini-prizm-wnba',
+            '2024-panini-select-wnba',
+            '2025-panini-select-wnba',
+          ];
+          if (receipt.schema !== 'tcos.checklist.sixReleaseValidation.v1' || receipt.status !== 'passed') throw new Error('Pinned validation receipt did not pass');
+          if (receipt.releaseCount !== 6 || receipt.results?.length !== 6) throw new Error('Pinned validation release count is wrong');
+          const expectedTotals = { rows: 66767, sets: 117, cards: 3586, parallels: 1036, identities: 66767 };
+          for (const [key, value] of Object.entries(expectedTotals)) if (Number(receipt.totals?.[key]) !== value) throw new Error(`Pinned ${key} total is wrong`);
+          if (receipt.results.some((entry) => entry.validationStatus !== 'passed')) throw new Error('One or more pinned release plans did not pass');
+          for (const id of ids) {
+            const directory = path.join(root, 'private', id);
+            const plan = path.join(directory, `${id}.plan.json`);
+            const source = path.join(directory, `${id}.xlsx`);
+            if (!fs.existsSync(plan) || !fs.existsSync(source)) throw new Error(`Pinned files missing for ${id}`);
+          }
+          if (receipt.safety?.productionDatabaseWrites !== false || receipt.safety?.migrationsApplied !== false || receipt.safety?.deploymentPerformed !== false || receipt.safety?.rowSourcesNeverRepresentedAsOfficialManufacturer !== true) throw new Error('Pinned validation safety receipt is wrong');
+          console.log(JSON.stringify({ status: receipt.status, totals: receipt.totals, releases: ids }, null, 2));
+          NODE
+          node --check scripts/ops/import-six-checklist-releases-20260802.mjs
+
+      - name: Import one canary then the remaining five releases
+        shell: bash
+        env:
+          ALLOW_PRODUCTION_SIX_CHECKLIST_IMPORT: "YES"
+          ARTIFACT_ROOT: ${{ runner.temp }}/six-checklist-validation-artifact
+        run: |
+          set -euo pipefail
+          node scripts/ops/import-six-checklist-releases-20260802.mjs \
+            --apply \
+            --artifact-root "$ARTIFACT_ROOT" \
+            --receipt "$EVIDENCE_DIR/production-import.json"
+
+      - name: Require sanitized passing Production receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'evidence/six-checklist-production-20260802/production-import.json';
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.schema !== 'tcos.checklist.sixReleaseProductionImport.v1' || receipt.status !== 'passed') throw new Error('Six-release Production receipt did not pass');
+          if (receipt.imports?.length !== 6 || receipt.auditStates?.length !== 7 || receipt.finalTargets?.length !== 6) throw new Error('Production receipt cardinality is wrong');
+          const totals = receipt.imports.reduce((sum, entry) => ({ cards: sum.cards + Number(entry.counts?.cards || 0), identities: sum.identities + Number(entry.counts?.identities || 0) }), { cards: 0, identities: 0 });
+          if (totals.cards !== 3586 || totals.identities !== 66767) throw new Error(`Unexpected imported totals ${JSON.stringify(totals)}`);
+          const expectedFinal = { releases: 303, activeVersions: 303, activeCards: 39573, activeIdentities: 110983 };
+          for (const [key, value] of Object.entries(expectedFinal)) if (Number(receipt.finalTotals?.[key]) !== value) throw new Error(`Unexpected final ${key}: ${receipt.finalTotals?.[key]}`);
+          if (receipt.imports.some((entry) => entry.transport !== 'temporary-postgresql-login' || entry.sourceAuthority !== 'approved_reference_dataset' || entry.adapter?.id !== 'expanded-checklist-spreadsheet')) throw new Error('Production import provenance or transport is wrong');
+          const safety = receipt.safety || {};
+          if (safety.exactValidationArtifactPinned !== true || safety.semanticDigestsPinned !== true || safety.rawSourceHashesRecorded !== true || safety.thirdPartyRowsNeverRepresentedAsOfficialManufacturer !== true || safety.canaryVerifiedBeforeRemainingImports !== true || safety.canaryReleaseSlug !== '2024-panini-prizm-wnba' || safety.temporaryLoginRoleDeleted !== true || safety.migrationsApplied !== false || safety.deploymentPerformed !== false || safety.rawSourceFilesIncludedInReceipt !== false) throw new Error('Production safety receipt is incomplete');
+          const audit = receipt.finalCleanupAudit || {};
+          if (Number(audit.releases) !== 303 || Number(audit.active_versions) !== 303 || Number(audit.active_cards) !== 39573 || Number(audit.active_identities) !== 110983 || Number(audit.identity_deficit_versions) !== 0 || Number(audit.failed_import_runs) !== 0 || Number(audit.registry_public_grants) !== 0 || Number(audit.temporary_login_roles) !== 0 || audit.private_source_bucket !== true || audit.writer_rpc !== true || audit.targets?.length !== 6) throw new Error('Final cleanup audit is incomplete');
+          console.log(JSON.stringify({ status: receipt.status, totals, finalTotals: receipt.finalTotals, targets: audit.targets.map((entry) => ({ releaseSlug: entry.release_slug, cards: entry.cards, identities: entry.identities })) }, null, 2));
+          NODE
+
+      - name: Capture sanitized read-only state after a failed import
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$EVIDENCE_DIR"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const productionUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
+          const accessToken = String(process.env.GH_SUPABASE_ACCESS_TOKEN || '');
+          const output = `${process.env.EVIDENCE_DIR}/failure-audit.json`;
+          const slugs = [
+            '2024-bowman-chrome-baseball',
+            '2025-bowman-baseball',
+            '2024-panini-prizm-wnba',
+            '2025-panini-prizm-wnba',
+            '2024-panini-select-wnba',
+            '2025-panini-select-wnba',
+          ];
+          (async () => {
+            if (!productionUrl || !accessToken) throw new Error('Failure audit credentials are unavailable');
+            const projectRef = new URL(productionUrl).hostname.split('.')[0];
+            const quoted = slugs.map((slug) => `'${slug}'`).join(', ');
+            const query = `with active_versions as (select * from public.checklist_versions where is_active), target_rows as (select r.slug as release_slug, r.metadata->>'latestAdapterId' as adapter_id, v.normalized_card_count as expected_cards, v.normalized_identity_count as expected_identities, (select count(*) from public.checklist_cards c where c.version_id=v.id) as cards, (select count(*) from public.checklist_card_identities i where i.version_id=v.id) as identities from public.checklist_releases r join active_versions v on v.release_id=r.id where r.slug in (${quoted})) select json_build_object('releases',(select count(*) from public.checklist_releases),'active_versions',(select count(*) from active_versions),'active_cards',(select count(*) from public.checklist_cards c join active_versions v on v.id=c.version_id),'active_identities',(select count(*) from public.checklist_card_identities i join active_versions v on v.id=i.version_id),'failed_import_runs',(select count(*) from public.checklist_import_runs where status='failed'),'registry_public_grants',(select count(*) from information_schema.role_table_grants where table_schema='public' and table_name like 'checklist\\_%' escape '\\' and grantee in ('anon','authenticated')),'temporary_login_roles',(select count(*) from pg_roles where rolname like 'cli_login_%'),'targets',coalesce((select jsonb_agg(to_jsonb(target_rows) order by release_slug) from target_rows),'[]'::jsonb)) as state;`;
+            const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ query, parameters: [], read_only: true }) });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Failure audit HTTP ${response.status}: ${text.slice(0, 500)}`);
+            const rows = text ? JSON.parse(text) : [];
+            fs.writeFileSync(output, `${JSON.stringify({ schema: 'tcos.checklist.sixReleaseFailureAudit.v1', generatedAt: new Date().toISOString(), state: rows?.[0]?.state || null }, null, 2)}\n`);
+          })().catch((error) => {
+            fs.writeFileSync(output, `${JSON.stringify({ schema: 'tcos.checklist.sixReleaseFailureAudit.v1', generatedAt: new Date().toISOString(), auditError: error instanceof Error ? error.message : String(error) }, null, 2)}\n`);
+          });
+          NODE
+
+      - name: Upload sanitized Production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: six-checklist-production-20260802
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove temporary Production files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/six-checklist-production" \
+            "$RUNNER_TEMP/six-checklist-validation-artifact" \
+            "$RUNNER_TEMP/six-checklist-validation-artifact.zip"
+          rm -f .env.local .env.production.local
