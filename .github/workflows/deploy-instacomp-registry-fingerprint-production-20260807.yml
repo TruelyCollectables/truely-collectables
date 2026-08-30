@@ -1,0 +1,123 @@
+name: Deploy InstaComp Registry Fingerprint Production 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-instacomp-registry-fingerprint-production-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_BRANCH: ops/deploy-instacomp-registry-fingerprint-20260807
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  EVIDENCE_DIR: evidence/instacomp-registry-fingerprint-production-20260807
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations branch and merged repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/$EXPECTED_BRANCH)"
+          git merge-base --is-ancestor eea7729939c3a915f1cbab147225e920376ce442 HEAD
+          git merge-base --is-ancestor b21a755fed52a216e3f97ad26911d98ae69e762e HEAD
+          grep -q 'internal_checklist_card_detail_lookup_failed' src/lib/instacomp-learning-server.ts
+          grep -q '"/v1/runtime-identity"' services/instacomp-ai/app/settings_routes.py
+          grep -q 'runtimeSourceFingerprint' src/app/api/instacomp/internal-readiness/route.ts
+          bash -n services/instacomp-ai/scripts/update-live-from-main.sh
+          echo "source_commit=$(git rev-parse HEAD)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install, certify source contracts, and typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-instacomp-checklist-parallel-alias-simulations.ts
+          node scripts/test-instacomp-production-registry-bounded-detail.mjs
+          npx tsc --noEmit
+          mkdir -p "$EVIDENCE_DIR"
+          node - <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const path = require('path');
+          const root = path.resolve('services/instacomp-ai');
+          const files = ['app/local_vision.py', 'app/ollama.py'];
+          const digest = crypto.createHash('sha256');
+          for (const relative of files) {
+            digest.update(relative, 'utf8');
+            digest.update(Buffer.from([0]));
+            digest.update(fs.readFileSync(path.join(root, relative)));
+            digest.update(Buffer.from([0]));
+          }
+          fs.writeFileSync('/tmp/expected-mac-fingerprint.txt', digest.digest('hex') + '\n');
+          NODE
+
+      - name: Deploy exact branch to Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/vercel-deploy-url.txt
+
+      - name: Verify Production readiness and fingerprint visibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          curl --silent --show-error --fail --retry 5 --retry-delay 3 --retry-all-errors \
+            "https://truelycollectables.com/api/instacomp/internal-readiness?ts=$(date +%s)" \
+            | tee /tmp/instacomp-production-readiness.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/instacomp-production-readiness.json','utf8'));
+          const required = ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady'];
+          const bad = required.filter((key) => body[key] !== true);
+          if (bad.length) throw new Error(`Production readiness failed: ${bad.join(', ')}`);
+          if (!Object.prototype.hasOwnProperty.call(body, 'runtimeSourceFingerprint')) {
+            throw new Error('Production readiness does not expose runtimeSourceFingerprint');
+          }
+          const expected = fs.readFileSync('/tmp/expected-mac-fingerprint.txt','utf8').trim();
+          const actual = typeof body.runtimeSourceFingerprint === 'string'
+            ? body.runtimeSourceFingerprint.trim()
+            : null;
+          const deployUrl = fs.readFileSync('/tmp/vercel-deploy-url.txt','utf8').trim().split(/\s+/).at(-1) || null;
+          const receipt = {
+            schema: 'tcos.instacomp.registryFingerprintProductionDeploy.v1',
+            capturedAt: new Date().toISOString(),
+            sourceCommit: process.env.GITHUB_SHA || null,
+            expectedMacRuntimeSourceFingerprint: expected,
+            actualMacRuntimeSourceFingerprint: actual,
+            macRuntimeCurrent: Boolean(actual && actual === expected),
+            productionReadiness: body,
+            deploymentUrl: deployUrl,
+          };
+          fs.writeFileSync(`${process.env.EVIDENCE_DIR}/receipt.json`, JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt, null, 2));
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: instacomp-registry-fingerprint-production-20260807
+          path: evidence/instacomp-registry-fingerprint-production-20260807/receipt.json
+          if-no-files-found: error
+          retention-days: 90
