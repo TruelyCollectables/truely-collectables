@@ -1,0 +1,154 @@
+name: Validate Six Checklist Releases 20260802
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-six-checklist-releases-20260802.yml"
+      - "scripts/ops/validate-six-checklist-releases-20260802.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-six-checklist-releases-20260802
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BRANCH: feature/checklist-six-release-validator-v1
+  EXPECTED_MAIN_SHA: d0784767fd664bf0960bf28e71afd7ca15533182
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact validation scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          git fetch origin main "$EXPECTED_BRANCH"
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" origin/main
+          git merge-base --is-ancestor "$EXPECTED_MAIN_SHA" "origin/$EXPECTED_BRANCH"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH")
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/validate-six-checklist-releases-20260802.yml'
+          test "${changed[1]}" = 'scripts/ops/validate-six-checklist-releases-20260802.mjs'
+          git diff --check "$EXPECTED_MAIN_SHA"..."origin/$EXPECTED_BRANCH"
+          git checkout --detach "origin/$EXPECTED_BRANCH"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies and XLSX parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm install --no-save --package-lock=false xlsx@0.18.5
+
+      - name: Preserve checklist entries whose official card number is unstated
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path('scripts/ops/validate-six-checklist-releases-20260802.mjs')
+          text = file.read_text()
+          old = '''    if (!physicalSet || !number || !name) { malformed.push({row:i+1,physicalSet,number,name,team,printRun}); continue; }
+              rows.push({sourceRow:i+1,physicalSet,number,name,team,printRun,odds});
+            }
+            if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows`);'''
+          new = '''    const effectiveNumber = number || (physicalSet && name ? `UNN-${sha256(`${normalizeText(physicalSet)}|${normalizeText(name)}|${normalizeText(team)}`).slice(0,16)}` : "");
+              if (!physicalSet || !effectiveNumber || !name) { malformed.push({row:i+1,physicalSet,number,name,team,printRun}); continue; }
+              rows.push({sourceRow:i+1,physicalSet,number:effectiveNumber,sourceNumber:number || null,name,team,printRun,odds});
+            }
+            if (malformed.length) throw new Error(`${source.id} has ${malformed.length} malformed populated rows: ${JSON.stringify(malformed)}`);'''
+          if text.count(old) != 1:
+              raise SystemExit('Unnumbered-card patch did not match exactly once')
+          file.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Pin validated Bowman hashes, counts, and known identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          file = Path('scripts/ops/validate-six-checklist-releases-20260802.mjs')
+          text = file.read_text()
+
+          replacements = [
+              (
+                  'expected: { rows: 9414, sets: 28, cards: 818, parallels: 124, identities: 9414 },',
+                  'expected: { rows: 9419, sets: 29, cards: 823, parallels: 124, identities: 9419 },',
+                  '2024 Bowman validated counts',
+              ),
+              (
+                  'expectedSha256: null,\n    expected: null,\n    release: { manufacturer: "Topps", brand: "Bowman", product: "2025 Bowman Baseball"',
+                  'expectedSha256: "e6500897800d768e004bb87e4e5bc5dcf800bba89fc64c5f8aaa6d38ed87059c",\n    expected: { rows: 21539, sets: 28, cards: 963, parallels: 239, identities: 21539 },\n    release: { manufacturer: "Topps", brand: "Bowman", product: "2025 Bowman Baseball"',
+                  '2025 Bowman validated source contract',
+              ),
+              (
+                  '{ label: "Jesus Made Chrome Prospect base", setName: "Chrome Prospects", cardNumber: "BCP-66", player: "Jesus Made", parallel: "Base", serialRun: "" },',
+                  '{ label: "Jesus Made Chrome Prospect base", setName: "Bowman Chrome Prospects", cardNumber: "BCP-66", player: "Jesus Made", parallel: "Base", serialRun: "" },',
+                  'Jesus Made base identity',
+              ),
+              (
+                  '{ label: "Jesus Made numbered Chrome Prospect", setName: "Chrome Prospects", cardNumber: "BCP-66", player: "Jesus Made", requireNumberedNonBase: true },',
+                  '{ label: "Jesus Made numbered Chrome Prospect", setName: "Bowman Chrome Prospects", cardNumber: "BCP-66", player: "Jesus Made", requireNumberedNonBase: true },',
+                  'Jesus Made numbered identity',
+              ),
+          ]
+
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label} patch expected exactly one match, found {count}')
+              text = text.replace(old, new, 1)
+
+          file.write_text(text)
+          PY
+
+      - name: Fetch, normalize, and validate all six releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ops/validate-six-checklist-releases-20260802.mjs
+
+      - name: Require a passing six-release validation receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const file = '.checklist-work/six-release-validation/validation.json';
+          if (!fs.existsSync(file)) throw new Error('Six-release validation receipt is missing');
+          const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (receipt.status !== 'passed') throw new Error(`Six-release validation did not pass: ${JSON.stringify(receipt.failures)}`);
+          if (receipt.releaseCount !== 6 || receipt.results?.length !== 6 || receipt.results.some((entry) => entry.validationStatus !== 'passed')) throw new Error('Validation did not pass all six releases');
+          const expectedTotals = { rows: 66767, sets: 117, cards: 3586, parallels: 1036, identities: 66767 };
+          for (const [key, value] of Object.entries(expectedTotals)) if (Number(receipt.totals?.[key]) !== value) throw new Error(`Unexpected ${key}: ${receipt.totals?.[key]} != ${value}`);
+          if (receipt.results.some((entry) => entry.knownIdentities?.some((check) => check.found !== true))) throw new Error('A known identity check is missing');
+          if (receipt.safety?.productionDatabaseWrites !== false || receipt.safety?.migrationsApplied !== false || receipt.safety?.deploymentPerformed !== false || receipt.safety?.rowSourcesNeverRepresentedAsOfficialManufacturer !== true) throw new Error('Validation safety receipt is invalid');
+          console.log(JSON.stringify({ status: receipt.status, totals: receipt.totals, results: receipt.results.map((entry) => ({ id: entry.id, sha256: entry.rawSourceSha256, normalizedPlanSha256: entry.normalizedPlanSha256, counts: entry.counts })) }, null, 2));
+          NODE
+
+      - name: Upload private six-release validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: six-checklist-release-validation-20260802
+          path: .checklist-work/six-release-validation
+          if-no-files-found: error
+          retention-days: 30
