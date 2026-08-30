@@ -1,0 +1,76 @@
+name: Deploy InstaComp Ice Alias Production 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-instacomp-ice-alias-production-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_BRANCH: ops/deploy-instacomp-ice-alias-20260807
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on exact operations branch and merged repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/$EXPECTED_BRANCH)"
+          git merge-base --is-ancestor 56d50e8d421790d57601f71ddd69d6f9c9ba6405 HEAD
+          grep -q 'function normalizedParallel' src/lib/instacomp-checklist-first.ts
+          grep -q 'white cracked ice prizm' src/lib/instacomp-checklist-first.ts
+          grep -q 'return "prizms ice"' src/lib/instacomp-checklist-first.ts
+          echo "source_commit=$(git rev-parse HEAD)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install, simulate alias safety, and typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node --import tsx scripts/run-instacomp-checklist-parallel-alias-simulations.ts
+          npx tsc --noEmit
+
+      - name: Deploy exact branch to Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee /tmp/vercel-deploy-url.txt
+
+      - name: Verify Production InstaComp readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          curl --silent --show-error --fail --retry 5 --retry-delay 3 --retry-all-errors \
+            "https://truelycollectables.com/api/instacomp/internal-readiness?ts=$(date +%s)" \
+            | tee /tmp/instacomp-production-readiness.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/instacomp-production-readiness.json','utf8'));
+          const required = ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady'];
+          const bad = required.filter((key) => body[key] !== true);
+          if (bad.length) throw new Error(`Production readiness failed: ${bad.join(', ')}`);
+          console.log('Production InstaComp readiness: PASS');
+          NODE
