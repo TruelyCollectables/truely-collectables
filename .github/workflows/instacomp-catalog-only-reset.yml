@@ -1,0 +1,96 @@
+name: InstaComp Catalog-Only Reset
+
+on:
+  push:
+    branches:
+      - fix/instacomp-catalog-only-reset
+  pull_request:
+    paths:
+      - "services/instacomp-ai/**"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/app/api/instacomp/internal-readiness/route.ts"
+      - "src/app/api/admin/card-listing-queue/route.ts"
+      - "src/app/admin/pending-card-import/TcosListingGateway.tsx"
+      - "scripts/patch-instacomp-catalog-only-reset.py"
+      - "scripts/check-instacomp-catalog-only-reset.mjs"
+      - ".github/workflows/instacomp-catalog-only-reset.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-catalog-only-reset
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: |
+          pip install -r services/instacomp-ai/requirements.txt
+          npm ci
+      - name: Apply catalog-only reset patch
+        run: python scripts/patch-instacomp-catalog-only-reset.py
+      - name: Architecture gate
+        run: node scripts/check-instacomp-catalog-only-reset.mjs
+      - name: Mac service tests
+        working-directory: services/instacomp-ai
+        run: |
+          python -m compileall app tests
+          pytest -q
+      - name: Lint changed TypeScript
+        run: >-
+          npx eslint
+          src/lib/instacomp-ai-local.ts
+          src/app/api/instacomp/internal-readiness/route.ts
+          src/app/api/admin/card-listing-queue/route.ts
+          src/app/admin/pending-card-import/TcosListingGateway.tsx
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+          INSTACOMP_SERVICE_TOKEN: placeholder-service-token
+          INTERNAL_PUBLISH_WEBHOOK_SECRET: placeholder-internal-publish-secret
+          INTERNAL_IMPORT_WEBHOOK_SECRET: placeholder-internal-import-secret
+        run: |
+          npm run build
+          git checkout -- public/instacomp-release.json
+      - name: Commit certified runtime files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/instacomp-ai/app/main.py \
+            services/instacomp-ai/app/models.py \
+            services/instacomp-ai/app/storage.py \
+            services/instacomp-ai/app/cockpit_routes.py \
+            services/instacomp-ai/app/system_doctor.py \
+            services/instacomp-ai/tests/test_catalog_only_reset.py \
+            src/lib/instacomp-ai-local.ts \
+            src/app/api/instacomp/internal-readiness/route.ts \
+            src/app/api/admin/card-listing-queue/route.ts \
+            src/app/admin/pending-card-import/TcosListingGateway.tsx \
+            scripts/check-instacomp-catalog-only-reset.mjs \
+            scripts/patch-instacomp-catalog-only-reset.py
+          if git diff --cached --quiet; then
+            echo "Certified runtime files are already committed."
+          else
+            git commit -m "Switch InstaComp pending queue to catalog-only reset"
+            git push origin HEAD:fix/instacomp-catalog-only-reset
+          fi
