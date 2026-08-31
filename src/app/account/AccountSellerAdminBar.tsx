@@ -46,10 +46,10 @@ export default function AccountSellerAdminBar() {
           Inventory Admin
         </Link>
         <Link
-          href="/seller/inventory"
+          href="/kingmaker/pending"
           className="rounded-lg border border-white/20 px-3 py-2 text-sm font-black transition hover:bg-white/10"
         >
-          Seller Workspace
+          Pending Cards
         </Link>
         <Link
           href="/account/orders"
