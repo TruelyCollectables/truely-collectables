@@ -47,6 +47,22 @@ function forwardedHeaders(request: NextRequest, contentType?: string) {
   return headers;
 }
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function text(value: unknown): string | null {
+  const next = String(value ?? "").trim();
+  return next.length ? next : null;
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   let inventoryItemId: string | null = null;
@@ -89,7 +105,7 @@ export async function POST(request: NextRequest) {
     const storeId = getActiveStoreId();
     const { data: duplicateRows, error: duplicateError } = await supabase
       .from("inventory_items")
-      .select("id,title,status")
+      .select("id,title,status,price,quantity,card_uuid,metadata")
       .eq("store_id", storeId)
       .eq("seller_account_id", account.id)
       .neq("status", "archived")
@@ -98,18 +114,49 @@ export async function POST(request: NextRequest) {
     if (duplicateError) throw duplicateError;
     const duplicate = duplicateRows?.[0] || null;
     if (duplicate) {
+      const metadata = objectRecord(duplicate.metadata);
+      const acquisition = objectRecord(metadata.acquisition);
+      const pendingImport = objectRecord(metadata.pendingImport);
+      const instacomp = objectRecord(metadata.instacomp);
+      const purchaseId =
+        text(acquisition.purchaseId) ||
+        text(acquisition.purchase_id) ||
+        text(pendingImport.purchaseId) ||
+        text(pendingImport.purchase_id);
+      const duplicateCardUuid = text(duplicate.card_uuid) || text(instacomp.cardUuid);
       return NextResponse.json(
         {
-          success: false,
-          code: "DUPLICATE_SCAN",
-          error: "This exact front/back image pair already exists in inventory.",
+          success: true,
+          stage: "review_required",
+          identityComplete: false,
+          inventoryItemId: duplicate.id,
+          title: duplicate.title,
+          code: duplicateCardUuid ? "DUPLICATE_PHYSICAL_CARD" : "DUPLICATE_SCAN",
+          error: purchaseId
+            ? duplicateCardUuid
+              ? `This physical card is already in inventory as an existing copy. It appears to belong to Purchase ${purchaseId}.`
+              : `This exact front/back image pair already exists in inventory. It appears to belong to Purchase ${purchaseId}.`
+            : duplicateCardUuid
+              ? "This physical card is already in inventory as an existing copy."
+              : "This exact front/back image pair already exists in inventory.",
           duplicate: {
             inventoryItemId: duplicate.id,
             title: duplicate.title,
             status: duplicate.status,
+            purchaseId,
+            matchType: duplicateCardUuid ? "physical_card" : "exact_scan_pair",
+            cardUuid: duplicateCardUuid,
+            serialNumber: text(scan.trusted_identity?.serial_number),
+            serialRun:
+              typeof scan.trusted_identity?.serial_run === "number"
+                ? scan.trusted_identity.serial_run
+                : null,
+            price: numberValue(duplicate.price),
+            quantity: Number(duplicate.quantity || 0) || null,
+            addCopyAllowed: true,
           },
         },
-        { status: 409 },
+        { status: 202, headers: { "Cache-Control": "no-store" } },
       );
     }
 
