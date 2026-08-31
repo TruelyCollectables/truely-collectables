@@ -21,7 +21,7 @@ assert.equal(searchContract.url.searchParams.get("fieldgroups"), "EXTENDED");
 
 const wnba = buildDealHunterEbayQueryFamilies({ scope: "wnba" });
 assert.equal(wnba.length, DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
-assert.equal(new Set(wnba.map((family) => family.familyId)).size, 25);
+assert.equal(new Set(wnba.map((family) => family.familyId)).size, DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
 for (const player of [
   "Caitlin Clark",
   "Paige Bueckers",
@@ -100,7 +100,8 @@ assert.equal(
     3 +
     DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT +
     players.length * 2 +
-    players.length,
+    players.length +
+    8,
 );
 assert.equal(new Set(all.map((family) => family.familyId)).size, all.length);
 

@@ -14,7 +14,7 @@ const feeds = [
   {
     key: "wnba",
     path: "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=wnba",
-    expectedFamilyCount: 25,
+    expectedFamilyCount: 33,
     requiredFlag: ["requiredWnbaFamiliesExecuted", true],
     requiresSourceStatus: true,
   },
