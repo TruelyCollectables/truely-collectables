@@ -20,6 +20,8 @@ from .deal_hunter_store import DealHunterStore, utc_now
 # but a feed that unexpectedly shrinks below its certified baseline still fails.
 FEEDS = (
     ("wnba", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=wnba", 15),
+    ("ivan_demidov", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=ivan_demidov", 3),
+    ("matvei_michkov_young_guns", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=matvei_michkov_young_guns", 8),
     (
         "baseball_prospects",
         "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=baseball_prospects",
