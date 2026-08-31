@@ -114,10 +114,10 @@ export default function SellerInventoryAdminItemPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
-                href="/seller/admin/inventory"
+                href="/kingmaker/pending"
                 className="rounded-full border border-white/20 px-4 py-2 text-sm font-black hover:bg-white/10"
               >
-                Back to master listing workspace
+                Back to pending cards
               </Link>
               <button
                 type="button"
