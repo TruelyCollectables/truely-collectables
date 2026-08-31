@@ -63,22 +63,6 @@ function forwardedHeaders(request: NextRequest, contentType?: string) {
   return headers;
 }
 
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function text(value: unknown): string | null {
-  const next = String(value ?? "").trim();
-  return next.length ? next : null;
-}
-
-function numberValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
-}
-
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   let inventoryItemId: string | null = null;
