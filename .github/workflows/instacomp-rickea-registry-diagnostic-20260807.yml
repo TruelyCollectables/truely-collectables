@@ -1,0 +1,109 @@
+name: InstaComp Rickea Registry Diagnostic 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-rickea-registry-diagnostic-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-v8-last-two-20260807
+          fetch-depth: 0
+
+      - name: Apply proposed last-two repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ops/patch-instacomp-v8-last-two-20260807.py
+          python scripts/ops/patch-instacomp-v8-rickea-product-line-20260807.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve Production Registry read credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$RUNNER_TEMP/production.env"
+          runtime_file="$RUNNER_TEMP/registry-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const p={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#'))continue;
+            const i=line.indexOf('='); if(i<1)continue;
+            const k=line.slice(0,i).trim(); let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}} p[k]=v;
+          }
+          (async()=>{
+            const url=String(p.NEXT_PUBLIC_SUPABASE_URL||'').trim(); if(!url)throw new Error('Missing Production Supabase URL');
+            const ref=new URL(url).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const text=await r.text(); if(!r.ok)throw new Error(`Supabase keys HTTP ${r.status}`);
+            const keys=text?JSON.parse(text):[]; const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const key=val(modern||legacy); if(!key)throw new Error('No Production server key');
+            console.log(`::add-mask::${url}`);console.log(`::add-mask::${key}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(url)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Probe Rickea identity variants and rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/registry-env.sh"
+          cat > .tmp-rickea-diagnostic.ts <<'TS'
+          import { createClient } from '@supabase/supabase-js';
+          import { resolveChecklistRegistry } from './src/lib/instacomp-learning-server';
+
+          async function main(){
+            const variants=[
+              {label:'prizm-null', input:{player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:null,registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS'}},
+              {label:'prizm-base', input:{player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'PRIZM',cardNumber:'118',parallel:'Base',registryVisibleText:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS'}},
+              {label:'base-base', input:{player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'Base',cardNumber:'118',parallel:'Base'}},
+              {label:'product-null', input:{player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'2025 Panini Prizm WNBA',cardNumber:'118',parallel:null}},
+              {label:'product-base', input:{player:'Rickea Jackson',year:'2025',brand:'Panini',setName:'2025 Panini Prizm WNBA',cardNumber:'118',parallel:'Base'}},
+            ];
+            for(const v of variants){
+              const r=await resolveChecklistRegistry(v.input,{evidenceTrusted:false});
+              console.log(JSON.stringify({label:v.label,status:r.status,candidateCount:r.candidateCount,reasons:r.reasons,identityId:r.match?.identityId||null,fingerprint:r.match?.fingerprintSha256||null,setName:r.match?.setName||null,parallel:r.match?.parallel||null}));
+            }
+
+            const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
+            const {data:cards,error:cardError}=await db.from('checklist_cards').select('id,card_number,set_id').eq('card_number','118').limit(250);
+            if(cardError) throw cardError;
+            const cardIds=(cards||[]).map((c:any)=>c.id);
+            const {data:identities,error:idError}=await db.from('checklist_card_identities').select('id,card_id,fingerprint_sha256,player:checklist_players(display_name),parallel:checklist_parallels(name,serial_run)').in('card_id',cardIds).limit(500);
+            if(idError) throw idError;
+            const rickea=(identities||[]).filter((row:any)=>String(row.player?.display_name||'').toLowerCase()==='rickea jackson');
+            console.log('RICKEA_118_IDENTITY_ROWS='+JSON.stringify(rickea));
+          }
+          main().catch(e=>{console.error(e);process.exit(1)});
+          TS
+          npx tsx .tmp-rickea-diagnostic.ts
+          rm -f .tmp-rickea-diagnostic.ts

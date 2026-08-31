@@ -1,0 +1,122 @@
+name: InstaComp Soft Set Match Diagnostic 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-soft-set-match-diagnostic-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_SCOPE: truelycollectables-projects
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instacomp-v8-last-two-20260807
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve Production Registry read credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          env_file="$RUNNER_TEMP/production.env"
+          runtime_file="$RUNNER_TEMP/registry-env.sh"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PRODUCTION_ENV_PATH="$env_file" RUNTIME_ENV_PATH="$runtime_file" GH_SUPABASE_ACCESS_TOKEN="$GH_SUPABASE_ACCESS_TOKEN" node - <<'NODE'
+          const fs=require('node:fs');
+          const p={};
+          for(const raw of fs.readFileSync(process.env.PRODUCTION_ENV_PATH,'utf8').split(/\r?\n/)){
+            const line=raw.trim();if(!line||line.startsWith('#'))continue;
+            const i=line.indexOf('=');if(i<1)continue;
+            const k=line.slice(0,i).trim();let v=line.slice(i+1).trim();
+            if(v.startsWith('"')&&v.endsWith('"')){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}p[k]=v;
+          }
+          (async()=>{
+            const url=String(p.NEXT_PUBLIC_SUPABASE_URL||'').trim();if(!url)throw new Error('Missing Production Supabase URL');
+            const ref=new URL(url).hostname.split('.')[0];
+            const r=await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`}});
+            const text=await r.text();if(!r.ok)throw new Error(`Supabase keys HTTP ${r.status}`);
+            const keys=text?JSON.parse(text):[];const val=e=>String(e?.api_key||e?.key||e?.value||'');
+            const modern=keys.find(e=>/^sb_secret_/i.test(val(e)));
+            const legacy=keys.find(e=>e?.name==='service_role'&&/^eyJ/.test(val(e)))||keys.find(e=>e?.secret_jwt_template?.role==='service_role'&&/^eyJ/.test(val(e)));
+            const key=val(modern||legacy);if(!key)throw new Error('No Production server key');
+            console.log(`::add-mask::${url}`);console.log(`::add-mask::${key}`);
+            fs.writeFileSync(process.env.RUNTIME_ENV_PATH,`export NEXT_PUBLIC_SUPABASE_URL=${JSON.stringify(url)}\nexport SUPABASE_SERVICE_ROLE_KEY=${JSON.stringify(key)}\n`,{mode:0o600});
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Print exact soft set matches for Groovy and Rickea OCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/registry-env.sh"
+          cat > .tmp-soft-set-diagnostic.ts <<'TS'
+          import { createClient } from '@supabase/supabase-js';
+
+          const GENERIC = new Set(['panini','topps','upper','deck','leaf','card','cards','trading','sports','the','and','of']);
+          const normalizedText=(value:any)=>String(value||'').normalize('NFKD').replace(/[’']/g,'').replace(/[^a-z0-9]+/gi,' ').trim().toLowerCase();
+          const meaningfulTokens=(value:any)=>normalizedText(value).split(/\s+/).filter((t)=>t.length>=2&&!GENERIC.has(t));
+          const isBase=(value:any)=>['','base','base card','standard','regular','none'].includes(normalizedText(value));
+          const visibleSupports=(setName:any,visible:any)=>{
+            if(isBase(setName)) return false;
+            const setTokens=meaningfulTokens(setName);
+            if(!setTokens.length) return false;
+            const vis=new Set(meaningfulTokens(visible));
+            return setTokens.every((t)=>vis.has(t));
+          };
+          const isProductLine=(value:any)=>['prizm','prism','panini prizm','panini prism'].includes(normalizedText(value));
+
+          async function main(){
+            const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
+            const [{data:versions,error:ve},{data:releases,error:re}] = await Promise.all([
+              db.from('checklist_versions').select('id').eq('is_active',true).eq('status','live').limit(5000),
+              db.from('checklist_releases').select('id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)').limit(5000),
+            ]);
+            if(ve) throw ve;if(re) throw re;
+            const active=new Set((versions||[]).map((v:any)=>String(v.id)));
+            const targetReleases=(releases||[]).filter((r:any)=>{
+              const year=String(r.release_year||r.season||'');
+              const hay=normalizedText([r.manufacturer?.name,r.brand?.name,r.product_name,r.sport?.name,r.league?.name].filter(Boolean).join(' '));
+              return year.startsWith('2025') && hay.includes('panini') && hay.includes('prizm') && hay.includes('wnba');
+            });
+            console.log('TARGET_RELEASES='+JSON.stringify(targetReleases.map((r:any)=>({id:r.id,product:r.product_name,year:r.release_year||r.season,manufacturer:r.manufacturer?.name,brand:r.brand?.name,sport:r.sport?.name,league:r.league?.name}))));
+            const ids=targetReleases.map((r:any)=>r.id);
+            const {data:sets,error:se}=await db.from('checklist_sets').select('id,name,normalized_name,release_id,version_id').in('release_id',ids).limit(5000);
+            if(se) throw se;
+            const scoped=(sets||[]).filter((s:any)=>active.has(String(s.version_id)));
+            const texts={
+              groovy:'GROOVY SONIA CITRON PRIZM WNBA',
+              rickea:'RICKEA JACKSON PRIZM WNBA LOS ANGELES SPARKS',
+            };
+            for(const [label,visible] of Object.entries(texts)){
+              const matched=scoped.filter((s:any)=>visibleSupports(s.name,visible)).map((s:any)=>({id:s.id,name:s.name,normalized:s.normalized_name,tokens:meaningfulTokens(s.name),productLineOnly:isProductLine(s.name)}));
+              console.log(`SOFT_${label.toUpperCase()}=`+JSON.stringify(matched));
+            }
+            console.log('ALL_SET_NAMES='+JSON.stringify([...new Set(scoped.map((s:any)=>s.name))].sort()));
+          }
+          main().catch(e=>{console.error(e);process.exit(1)});
+          TS
+          npx tsx .tmp-soft-set-diagnostic.ts
+          rm -f .tmp-soft-set-diagnostic.ts
