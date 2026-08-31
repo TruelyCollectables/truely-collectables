@@ -361,7 +361,7 @@ export default function InstaCompScanPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   className="rounded-lg bg-amber-300 px-4 py-2 font-black text-black"
-                  href={`/seller/admin/inventory?inventoryItemId=${encodeURIComponent(result.duplicate.inventoryItemId)}`}
+                  href={`/seller/admin/inventory/${encodeURIComponent(result.duplicate.inventoryItemId)}`}
                 >
                   Open master listing
                 </Link>
@@ -388,7 +388,7 @@ export default function InstaCompScanPage() {
                         return;
                       }
                       setStage(payload.message || "Added copy to existing inventory");
-                      router.push(`/seller/admin/inventory?inventoryItemId=${encodeURIComponent(result.duplicate.inventoryItemId)}`);
+                      router.push(`/seller/admin/inventory/${encodeURIComponent(result.duplicate.inventoryItemId)}`);
                     }}
                   >
                     Add one copy
