@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getFreshAccountSession } from "../../account/account-session";
 import KingmakerInstaCompQueue from "../../kingmaker/KingmakerInstaCompQueue";
 
@@ -19,7 +20,14 @@ type ScannerResult = {
   pricing?: any;
   checklistDecision?: any;
   parallelDecision?: any;
-  duplicate?: { inventoryItemId: string; title: string; status: string };
+  duplicate?: {
+    inventoryItemId: string;
+    title: string;
+    status: string;
+    cardUuid?: string | null;
+    serialNumber?: string | null;
+    serialRun?: number | null;
+  };
 };
 
 function money(value: number) {
@@ -74,6 +82,7 @@ function identityRows(result: ScannerResult) {
 }
 
 export default function InstaCompScanPage() {
+  const router = useRouter();
   const [front, setFront] = useState<File | null>(null);
   const [back, setBack] = useState<File | null>(null);
   const [result, setResult] = useState<ScannerResult | null>(null);
@@ -149,6 +158,10 @@ export default function InstaCompScanPage() {
       } else if (payload.inventoryItemId) {
         setStage(
           "Front and back saved to Pending Listings; exact parallel review is required",
+        );
+      } else if (payload.duplicate?.inventoryItemId) {
+        setStage(
+          "Duplicate recognized and linked to the existing inventory record",
         );
       } else {
         setStage("Stopped safely for review");
@@ -329,14 +342,59 @@ export default function InstaCompScanPage() {
           ) : null}
           {result?.duplicate ? (
             <div className="mt-4 rounded-xl border border-amber-600 bg-amber-950/50 p-4">
-              <p className="font-black text-amber-200">Duplicate scan blocked</p>
+              <p className="font-black text-amber-200">Duplicate recognized</p>
               <p className="mt-1">{result.duplicate.title}</p>
+              {result.duplicate.cardUuid ? (
+                <p className="mt-1 text-amber-100">Card UUID {result.duplicate.cardUuid}</p>
+              ) : null}
+              {result.duplicate.serialNumber || result.duplicate.serialRun ? (
+                <p className="mt-1 text-amber-100">
+                  Serial {result.duplicate.serialNumber || result.duplicate.serialRun}
+                </p>
+              ) : null}
               <Link
                 className="mt-3 inline-block font-bold underline"
                 href="/kingmaker/pending"
               >
                 Review existing pending item
               </Link>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  className="rounded-lg bg-amber-300 px-4 py-2 font-black text-black"
+                  href={`/seller/inventory?inventoryItemId=${encodeURIComponent(result.duplicate.inventoryItemId)}`}
+                >
+                  Open existing inventory record
+                </Link>
+                {result.duplicate.status !== "archived" ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-amber-300 px-4 py-2 font-black text-amber-50 hover:bg-amber-900/40"
+                    onClick={async () => {
+                      const session = await getFreshAccountSession(5 * 60, false);
+                      if (!session?.access_token) {
+                        setError("Log in before adding a copy.");
+                        return;
+                      }
+                      const response = await fetch(
+                        `/api/account/seller/inventory/${encodeURIComponent(result.duplicate.inventoryItemId)}/add-copy`,
+                        {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${session.access_token}` },
+                        },
+                      );
+                      const payload = await response.json().catch(() => ({}));
+                      if (!response.ok) {
+                        setError(payload.error || "Could not add a copy.");
+                        return;
+                      }
+                      setStage(payload.message || "Added copy to existing inventory");
+                      router.push(`/seller/inventory?inventoryItemId=${encodeURIComponent(result.duplicate.inventoryItemId)}`);
+                    }}
+                  >
+                    Add one copy
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
