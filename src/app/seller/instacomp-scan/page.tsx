@@ -92,6 +92,7 @@ export default function InstaCompScanPage() {
   const [stage, setStage] = useState(
     "Ready for required front and back photos",
   );
+  const duplicate = result?.duplicate;
   const suggestedPrice = findSuggestedPrice(result);
   const pricingChoices = useMemo(
     () =>
@@ -340,16 +341,18 @@ export default function InstaCompScanPage() {
               saved draft, and pricing choices will appear here.
             </p>
           ) : null}
-          {result?.duplicate ? (
+          {duplicate ? (
             <div className="mt-4 rounded-xl border border-amber-600 bg-amber-950/50 p-4">
               <p className="font-black text-amber-200">Duplicate recognized</p>
-              <p className="mt-1">{result.duplicate.title}</p>
-              {result.duplicate.cardUuid ? (
-                <p className="mt-1 text-amber-100">Card UUID {result.duplicate.cardUuid}</p>
-              ) : null}
-              {result.duplicate.serialNumber || result.duplicate.serialRun ? (
+              <p className="mt-1">{duplicate.title}</p>
+              {duplicate.cardUuid ? (
                 <p className="mt-1 text-amber-100">
-                  Serial {result.duplicate.serialNumber || result.duplicate.serialRun}
+                  Card UUID {duplicate.cardUuid}
+                </p>
+              ) : null}
+              {duplicate.serialNumber || duplicate.serialRun ? (
+                <p className="mt-1 text-amber-100">
+                  Serial {duplicate.serialNumber || duplicate.serialRun}
                 </p>
               ) : null}
               <Link
@@ -361,22 +364,23 @@ export default function InstaCompScanPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   className="rounded-lg bg-amber-300 px-4 py-2 font-black text-black"
-                  href={`/seller/inventory?inventoryItemId=${encodeURIComponent(result.duplicate.inventoryItemId)}`}
+                  href={`/seller/inventory?inventoryItemId=${encodeURIComponent(duplicate.inventoryItemId)}`}
                 >
                   Open existing inventory record
                 </Link>
-                {result.duplicate.status !== "archived" ? (
+                {duplicate.status !== "archived" ? (
                   <button
                     type="button"
                     className="rounded-lg border border-amber-300 px-4 py-2 font-black text-amber-50 hover:bg-amber-900/40"
                     onClick={async () => {
+                      const duplicateInventoryItemId = duplicate.inventoryItemId;
                       const session = await getFreshAccountSession(5 * 60, false);
                       if (!session?.access_token) {
                         setError("Log in before adding a copy.");
                         return;
                       }
                       const response = await fetch(
-                        `/api/account/seller/inventory/${encodeURIComponent(result.duplicate.inventoryItemId)}/add-copy`,
+                        `/api/account/seller/inventory/${encodeURIComponent(duplicateInventoryItemId)}/add-copy`,
                         {
                           method: "POST",
                           headers: { Authorization: `Bearer ${session.access_token}` },
@@ -388,7 +392,9 @@ export default function InstaCompScanPage() {
                         return;
                       }
                       setStage(payload.message || "Added copy to existing inventory");
-                      router.push(`/seller/inventory?inventoryItemId=${encodeURIComponent(result.duplicate.inventoryItemId)}`);
+                      router.push(
+                        `/seller/inventory?inventoryItemId=${encodeURIComponent(duplicateInventoryItemId)}`,
+                      );
                     }}
                   >
                     Add one copy
