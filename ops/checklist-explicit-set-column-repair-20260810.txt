@@ -1,0 +1,3 @@
+Operations-only Production checklist repair. Do not merge as product code.
+
+Pinned to exact current main b825dfb55277a3c07a6ae3967e73f049ee12c8fd. The repair recognizes workbook rows shaped as Set Name | Card Number | Player | Team | Serial, emits the exact set name as the parser namespace, and parses only the remaining card cells. Same-section card-number conflicts remain fatal, the 25-row minimum remains enforced, existing Registry rows remain idempotent/already_live, and ambiguous targets stay quarantined. Direct XLSX/PDF remains preferred; no Registry rows are deleted or overwritten ambiguously.
