@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchWithAccountSession, getFreshAccountSession } from "../../../../account/account-session";
@@ -44,13 +45,10 @@ function dateLabel(value: string | null) {
       });
 }
 
-export default function SellerInventoryAdminItemPage({
-  params,
-}: {
-  params: { inventoryItemId: string };
-}) {
+export default function SellerInventoryAdminItemPage() {
   const router = useRouter();
-  const inventoryItemId = params.inventoryItemId;
+  const params = useParams<{ inventoryItemId: string }>();
+  const inventoryItemId = String(params?.inventoryItemId || "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [item, setItem] = useState<InventoryAdminItem | null>(null);
