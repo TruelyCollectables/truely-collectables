@@ -14,31 +14,13 @@ const feeds = [
   {
     key: "wnba",
     path: "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=wnba",
-    expectedFamilyCount: 25,
+    expectedFamilyCount: 33,
     requiredFlag: ["requiredWnbaFamiliesExecuted", true],
     requiresSourceStatus: true,
   },
-  {
-    key: "ivan_demidov",
-    path: "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=ivan_demidov",
-    expectedFamilyCount: 3,
-    requiresSourceStatus: true,
-  },
-  {
-    key: "matvei_michkov_young_guns",
-    path:
-      "/api/tcos/deal-hunter-native-ebay?perQuery=20&scope=matvei_michkov_young_guns",
-    expectedFamilyCount: 8,
-    requiredFlag: ["requiredMichkovFamiliesExecuted", true],
-    requiresSourceStatus: true,
-  },
-  {
-    key: "matvei_michkov_opc_platinum",
-    path: "/api/tcos/deal-hunter-michkov-opc-platinum?perQuery=20",
-    expectedFamilyCount: 10,
-    requiredFlag: ["requiredMichkovOpcPlatinumFamiliesExecuted", true],
-    requiredCountField: ["requiredMichkovOpcPlatinumFamilyCount", 10],
-  },
+
+
+
   {
     key: "baseball_prospects",
     path:
