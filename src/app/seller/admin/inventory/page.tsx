@@ -109,6 +109,10 @@ function dateLabel(value: string | null) {
 }
 
 export default function SellerInventoryAdminPage() {
+  const focusInventoryItemId =
+    typeof window === "undefined"
+      ? ""
+      : new URLSearchParams(window.location.search).get("inventoryItemId") || "";
   const [session, setSession] = useState<StoredAccountSession | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [items, setItems] = useState<InventoryAdminItem[]>([]);
@@ -185,7 +189,7 @@ export default function SellerInventoryAdminPage() {
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
 
-    return items.filter((item) => {
+    const visibleItems = items.filter((item) => {
       if (statusFilter === "ended") {
         if (!["sold", "reserved"].includes(item.status)) return false;
       } else if (statusFilter !== "all" && item.status !== statusFilter) {
@@ -208,7 +212,13 @@ export default function SellerInventoryAdminPage() {
         .toLowerCase()
         .includes(term);
     });
-  }, [items, search, statusFilter]);
+    if (focusInventoryItemId.trim()) {
+      return visibleItems.filter(
+        (item) => item.inventoryItemId === focusInventoryItemId.trim(),
+      );
+    }
+    return visibleItems;
+  }, [focusInventoryItemId, items, search, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -216,7 +226,12 @@ export default function SellerInventoryAdminPage() {
     (safePage - 1) * PAGE_SIZE,
     safePage * PAGE_SIZE,
   );
-  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedIdSet = useMemo(() => {
+    const baseSelectedIds = focusInventoryItemId
+      ? [focusInventoryItemId]
+      : selectedIds;
+    return new Set(baseSelectedIds);
+  }, [focusInventoryItemId, selectedIds]);
   const selectablePageIds = pageItems
     .filter(isEditableItem)
     .map((item) => item.inventoryItemId);
