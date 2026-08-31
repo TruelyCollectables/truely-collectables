@@ -472,8 +472,8 @@ export default function SellerInventoryAdminPage() {
                 <Link href="/account/orders" className="rounded-full border border-white/20 px-4 py-2 text-sm font-black hover:bg-white/10">
                   Orders
                 </Link>
-                <Link href="/seller/inventory" className="rounded-full border border-white/20 px-4 py-2 text-sm font-black hover:bg-white/10">
-                  Seller Workspace
+                <Link href="/kingmaker/pending" className="rounded-full border border-white/20 px-4 py-2 text-sm font-black hover:bg-white/10">
+                  Pending Cards
                 </Link>
                 <Link href="/shop" className="rounded-full bg-yellow-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-yellow-200">
                   View Store
