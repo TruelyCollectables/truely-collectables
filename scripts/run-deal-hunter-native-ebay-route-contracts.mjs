@@ -21,26 +21,24 @@ assert.equal(searchContract.url.searchParams.get("fieldgroups"), "EXTENDED");
 
 const wnba = buildDealHunterEbayQueryFamilies({ scope: "wnba" });
 assert.equal(wnba.length, DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
-assert.equal(new Set(wnba.map((family) => family.familyId)).size, DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT);
-for (const player of [
-  "Caitlin Clark",
-  "Paige Bueckers",
-  "Dominique Malonga",
-  "Sonia Citron",
-  "Kiki Iriafen",
-]) {
+assert.equal(new Set(wnba.map((family) => family.familyId)).size, 35);
+for (const player of ["Caitlin Clark", "Paige Bueckers", "Dominique Malonga"]) {
   const families = wnba.filter((family) => family.watchedPerson === player);
   assert.equal(families.length, 5);
   assert.equal(families.filter((family) => family.rescueMode).length, 2);
-  assert.deepEqual(
-    new Set(families.map((family) => family.lane)),
-    new Set([
-      "broad_professional_rookies",
-      "silver_color_numbered_ssp",
-      "autograph_memorabilia",
-      "name_typo_and_underspecified_rescue",
-    ]),
-  );
+}
+for (const player of [
+  "Sonia Citron",
+  "Kiki Iriafen",
+  "Aneesah Morrow",
+  "Saniya Rivers",
+  "Sarah Ashlee Barker",
+]) {
+  const families = wnba.filter((family) => family.watchedPerson === player);
+  assert.equal(families.length, 4);
+  assert.ok(families.every((family) => family.nonBaseOnly));
+  assert.ok(families.some((family) => family.lane === "rookie_lots"));
+  assert.ok(families.some((family) => family.lane === "silver_color_numbered_ssp"));
 }
 
 const michkov = buildDealHunterEbayQueryFamilies({
@@ -209,8 +207,8 @@ const photoReview = screenDealHunterEbayTitle({
   title: "Sonia Citron WNBA Rookie Card",
   family: soniaSilverFamily,
 });
-assert.equal(photoReview.accepted, true);
-assert.equal(photoReview.manualReviewRequired, true);
+assert.equal(photoReview.accepted, false);
+assert.ok(photoReview.rejectionReasons.includes("non_base_not_proven"));
 
 assert.equal(
   extractEbayItemId({
@@ -242,6 +240,8 @@ console.log(
       michkovYoungGunsQueryFamilies: michkov.length,
       fixedScopes: [
         "wnba",
+        "ivan_demidov",
+        "matvei_michkov_young_guns",
         "baseball_prospects",
         "signed_baseballs",
         "all",

@@ -4,10 +4,11 @@ const WNBA_PLAYERS = Object.freeze([
   { player: "Caitlin Clark", team: "Indiana Fever" },
   { player: "Paige Bueckers", team: "Dallas Wings" },
   { player: "Dominique Malonga", team: "Seattle Storm" },
-  { player: "Sonia Citron", team: "Washington Mystics" },
-  { player: "Kiki Iriafen", team: "Washington Mystics" },
-  { player: "Aneesah Morrow", team: "Connecticut Sun", autoSingleOrLotOnly: true },
-  { player: "Sarah Ashlee Barker", team: "Los Angeles Sparks", autoSingleOrLotOnly: true },
+  { player: "Sonia Citron", team: "Washington Mystics", nonBaseSinglesAndLotsOnly: true },
+  { player: "Kiki Iriafen", team: "Washington Mystics", nonBaseSinglesAndLotsOnly: true },
+  { player: "Aneesah Morrow", team: "Connecticut Sun", nonBaseSinglesAndLotsOnly: true },
+  { player: "Saniya Rivers", team: "Connecticut Sun", nonBaseSinglesAndLotsOnly: true },
+  { player: "Sarah Ashlee Barker", team: "Los Angeles Sparks", nonBaseSinglesAndLotsOnly: true },
 ]);
 
 export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([
@@ -212,50 +213,53 @@ export function parseDealHunterPlayers(
 }
 
 function wnbaFamilies() {
-  return WNBA_PLAYERS.flatMap(({ player, team, autoSingleOrLotOnly = false }) => {
+  return WNBA_PLAYERS.flatMap(({ player, team, nonBaseSinglesAndLotsOnly = false }) => {
     const id = slug(player);
     const [firstName, ...surnameParts] = player.split(" ");
     const surname = surnameParts.join(" ");
 
-    if (autoSingleOrLotOnly) {
+    if (nonBaseSinglesAndLotsOnly) {
       return [
         {
-familyId: `wnba.${id}.autograph-memorabilia`,
-scope: "wnba",
-lane: "autograph_memorabilia",
-watchedPerson: player,
-itemType: "professional_wnba_rookie_autograph_memorabilia",
-query: `${player} WNBA rookie autograph auto patch memorabilia`,
-required: true,
+          familyId: `wnba.${id}.non-base-singles`,
+          scope: "wnba",
+          lane: "silver_color_numbered_ssp",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_parallel",
+          query: `${player} WNBA rookie parallel silver color numbered SSP insert`,
+          required: true,
+          nonBaseOnly: true,
         },
         {
-familyId: `wnba.${id}.rookie-lots`,
-scope: "wnba",
-lane: "rookie_lots",
-watchedPerson: player,
-itemType: "professional_wnba_rookie_lot",
-query: `${player} WNBA rookie card lot bundle`,
-required: true,
+          familyId: `wnba.${id}.autograph-memorabilia`,
+          scope: "wnba",
+          lane: "autograph_memorabilia",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_autograph_memorabilia",
+          query: `${player} WNBA rookie autograph auto patch memorabilia`,
+          required: true,
+          nonBaseOnly: true,
         },
         {
-familyId: `wnba.${id}.first-name-auto-rescue`,
-scope: "wnba",
-lane: "name_typo_and_underspecified_rescue",
-watchedPerson: player,
-itemType: "professional_wnba_rookie_autograph_memorabilia",
-query: `${firstName} WNBA rookie autograph`,
-required: true,
-rescueMode: true,
+          familyId: `wnba.${id}.non-base-rookie-lots`,
+          scope: "wnba",
+          lane: "rookie_lots",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_lot",
+          query: `${player} WNBA rookie parallel insert autograph numbered lot bundle`,
+          required: true,
+          nonBaseOnly: true,
         },
         {
-familyId: `wnba.${id}.surname-auto-rescue`,
-scope: "wnba",
-lane: "name_typo_and_underspecified_rescue",
-watchedPerson: player,
-itemType: "professional_wnba_rookie_autograph_memorabilia",
-query: `${surname} WNBA rookie autograph`,
-required: true,
-rescueMode: true,
+          familyId: `wnba.${id}.surname-non-base-rescue`,
+          scope: "wnba",
+          lane: "name_typo_and_underspecified_rescue",
+          watchedPerson: player,
+          itemType: "professional_wnba_rookie_parallel",
+          query: `${surname} WNBA rookie parallel insert autograph numbered`,
+          required: true,
+          rescueMode: true,
+          nonBaseOnly: true,
         },
       ];
     }
@@ -554,11 +558,20 @@ export function screenDealHunterEbayTitle({
     }
     if (EXPLICIT_BASE.test(value) && !PREMIUM_TIER.test(value)) {
       rejectionReasons.push("explicit_ordinary_base");
+    } else if (family?.nonBaseOnly && !PREMIUM_TIER.test(evidenceText)) {
+      rejectionReasons.push("non_base_not_proven");
     } else if (!PREMIUM_TIER.test(value)) {
       reviewReasons.push("tier_not_proven_from_title_image_review_required");
     }
     if (analysis.lotSignal) {
-      reviewReasons.push("lot_or_bundle_unit_economics_review_required");
+      if (family?.nonBaseOnly && !PREMIUM_TIER.test(evidenceText)) {
+        rejectionReasons.push("ordinary_base_lot");
+      } else {
+        reviewReasons.push("lot_or_bundle_unit_economics_review_required");
+        if (family?.nonBaseOnly) {
+          reviewReasons.push("verify_lot_non_base_cards_only_before_instacomp");
+        }
+      }
     }
     if (!analysis.categoryLooksLikeCard) {
       reviewReasons.push("possible_wrong_category_listing_verify_item");

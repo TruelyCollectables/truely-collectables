@@ -577,8 +577,10 @@ class DealHunterScheduler:
             price_changed = 0
             if prior and candidate.get("item_price") is not None and prior.get("last_price") is not None:
                 price_changed = 0 if abs(float(candidate["item_price"]) - float(prior["last_price"])) >= 0.01 else 1
+            failed_retry = 0 if prior and str(prior.get("last_status") or "").lower() == "failed" else 1
             image_penalty = 0 if len(candidate.get("image_urls") or []) >= 2 else 1
             return (
+                failed_retry,
                 never,
                 price_changed,
                 image_penalty,
