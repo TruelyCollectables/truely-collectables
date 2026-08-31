@@ -364,7 +364,7 @@ export default function InstaCompScanPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   className="rounded-lg bg-amber-300 px-4 py-2 font-black text-black"
-                  href={`/seller/inventory?inventoryItemId=${encodeURIComponent(duplicate.inventoryItemId)}`}
+                  href={`/seller/admin/inventory/${encodeURIComponent(duplicate.inventoryItemId)}`}
                 >
                   Open existing inventory record
                 </Link>
@@ -393,7 +393,7 @@ export default function InstaCompScanPage() {
                       }
                       setStage(payload.message || "Added copy to existing inventory");
                       router.push(
-                        `/seller/inventory?inventoryItemId=${encodeURIComponent(duplicateInventoryItemId)}`,
+                        `/seller/admin/inventory/${encodeURIComponent(duplicateInventoryItemId)}`,
                       );
                     }}
                   >
