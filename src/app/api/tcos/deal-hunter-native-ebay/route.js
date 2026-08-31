@@ -14,6 +14,8 @@ export const maxDuration = 60;
 
 const SCOPES = new Set([
   "wnba",
+  "ivan_demidov",
+  "matvei_michkov_young_guns",
   "baseball_prospects",
   "signed_baseballs",
   "music_comedy_autographs",

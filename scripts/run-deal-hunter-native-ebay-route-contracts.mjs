@@ -97,6 +97,8 @@ const all = buildDealHunterEbayQueryFamilies({ scope: "all", players });
 assert.equal(
   all.length,
   DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT +
+    3 +
+    DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT +
     players.length * 2 +
     players.length +
     8,
