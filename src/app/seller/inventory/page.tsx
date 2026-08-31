@@ -173,6 +173,7 @@ function initialInventoryFilters() {
       status: "all" as StatusFilter,
       readiness: "all" as ReadinessFilter,
       source: "all" as SourceFilter,
+      inventoryItemId: "",
     };
   }
 
@@ -183,6 +184,7 @@ function initialInventoryFilters() {
     status: parseStatusFilter(params.get("status")),
     readiness: parseReadinessFilter(params.get("readiness")),
     source: parseSourceFilter(params.get("source")),
+    inventoryItemId: params.get("inventoryItemId") || "",
   };
 }
 
@@ -775,17 +777,22 @@ export default function SellerInventoryPage() {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
     initialFilters.source,
   );
+  const [focusInventoryItemId, setFocusInventoryItemId] = useState(
+    initialFilters.inventoryItemId,
+  );
 
   function syncInventoryUrl(next: {
     search?: string;
     status?: StatusFilter;
     readiness?: ReadinessFilter;
     source?: SourceFilter;
+    inventoryItemId?: string;
   }) {
     const finalSearch = next.search ?? search;
     const finalStatus = next.status ?? statusFilter;
     const finalReadiness = next.readiness ?? readinessFilter;
     const finalSource = next.source ?? sourceFilter;
+    const finalInventoryItemId = next.inventoryItemId ?? focusInventoryItemId;
     const params = new URLSearchParams();
 
     if (finalSearch.trim()) {
@@ -804,6 +811,10 @@ export default function SellerInventoryPage() {
       params.set("source", finalSource);
     }
 
+    if (finalInventoryItemId.trim()) {
+      params.set("inventoryItemId", finalInventoryItemId.trim());
+    }
+
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
@@ -813,21 +824,25 @@ export default function SellerInventoryPage() {
     status?: StatusFilter;
     readiness?: ReadinessFilter;
     source?: SourceFilter;
+    inventoryItemId?: string;
   }) {
     const finalSearch = next.search ?? search;
     const finalStatus = next.status ?? statusFilter;
     const finalReadiness = next.readiness ?? readinessFilter;
     const finalSource = next.source ?? sourceFilter;
+    const finalInventoryItemId = next.inventoryItemId ?? focusInventoryItemId;
 
     setSearch(finalSearch);
     setStatusFilter(finalStatus);
     setReadinessFilter(finalReadiness);
     setSourceFilter(finalSource);
+    setFocusInventoryItemId(finalInventoryItemId);
     syncInventoryUrl({
       search: finalSearch,
       status: finalStatus,
       readiness: finalReadiness,
       source: finalSource,
+      inventoryItemId: finalInventoryItemId,
     });
   }
 
@@ -960,7 +975,7 @@ export default function SellerInventoryPage() {
   const filteredItems = useMemo(() => {
     const searchTerm = search.trim().toLowerCase();
 
-    return items.filter((item) => {
+    const visibleItems = items.filter((item) => {
       if (statusFilter !== "all" && item.status !== statusFilter) {
         return false;
       }
@@ -986,6 +1001,7 @@ export default function SellerInventoryPage() {
       }
 
       const haystack = [
+        item.inventoryItemId,
         item.title,
         item.sku || "",
         item.category,
@@ -1004,7 +1020,34 @@ export default function SellerInventoryPage() {
 
       return haystack.includes(searchTerm);
     });
-  }, [items, readinessFilter, search, sourceFilter, statusFilter]);
+    if (focusInventoryItemId.trim()) {
+      return visibleItems.filter(
+        (item) => item.inventoryItemId === focusInventoryItemId.trim(),
+      );
+    }
+    return visibleItems;
+  }, [
+    focusInventoryItemId,
+    items,
+    readinessFilter,
+    search,
+    sourceFilter,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    if (!focusInventoryItemId || typeof document === "undefined") return;
+    const node = document.querySelector<HTMLElement>(
+      `[data-inventory-item-id="${CSS.escape(focusInventoryItemId)}"]`,
+    );
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    node.classList.add("ring-4", "ring-amber-400", "ring-offset-4");
+    const timer = window.setTimeout(() => {
+      node.classList.remove("ring-4", "ring-amber-400", "ring-offset-4");
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [focusInventoryItemId, filteredItems.length]);
 
   const visibleInventoryItemIds = useMemo(
     () => filteredItems.map((item) => item.inventoryItemId),
@@ -3046,7 +3089,8 @@ export default function SellerInventoryPage() {
               {filteredItems.map((item) => (
                 <article
                   key={item.inventoryItemId}
-                  className="rounded-md border border-neutral-200 bg-neutral-50 p-4"
+                  data-inventory-item-id={item.inventoryItemId}
+                  className="rounded-md border border-neutral-200 bg-neutral-50 p-4 transition-shadow"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="flex min-w-0 items-start gap-3">
