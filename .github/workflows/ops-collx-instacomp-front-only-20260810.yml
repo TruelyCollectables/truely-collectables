@@ -1,0 +1,125 @@
+name: Ops CollX InstaComp Front Only 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-instacomp-front-only-20260810.yml"
+      - "src/app/api/instacomp/ops/collx-front-identify/route.ts"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  CANDIDATE_ARTIFACT_ID: "9088498879"
+  TEMP_DIR: /tmp/collx-instacomp-front-only-20260810
+
+jobs:
+  identify-front-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Validate front-only bridge and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TEMP_DIR/candidates" "$TEMP_DIR/results"
+          npm ci >/dev/null
+          npx tsc --noEmit
+          grep -Fq 'tcos.collx.instacompFrontBridge.v1' src/app/api/instacomp/ops/collx-front-identify/route.ts
+          grep -Fq 'back: null' src/app/api/instacomp/ops/collx-front-identify/route.ts
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Download preserved candidate map and isolate 50 front-only cards
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${CANDIDATE_ARTIFACT_ID}/zip" > "$TEMP_DIR/candidates.zip"
+          unzip -q "$TEMP_DIR/candidates.zip" -d "$TEMP_DIR/candidates"
+          MAP="$TEMP_DIR/candidates/candidate-owned-map.json" node - <<'NODE'
+          const fs=require('node:fs'); const x=JSON.parse(fs.readFileSync(process.env.MAP,'utf8'));
+          const rows=x.candidates.filter(c=>c.front_owned&&!c.back_owned);
+          if(rows.length!==50) throw new Error(`frontOnly=${rows.length}`);
+          fs.writeFileSync(process.env.MAP.replace('candidate-owned-map.json','front-only.json'),JSON.stringify(rows,null,2));
+          console.log(JSON.stringify({frontOnly:rows.length}));
+          NODE
+      - name: Replace any stale isolated credential and provision fresh one
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$TEMP_DIR/env-before.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true; fi
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"; chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
+      - name: Deploy temporary front-only bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/proof-deploy.log" 2>&1
+          touch "$TEMP_DIR/proof-deployed"
+      - name: Run 50 front-only cards through InstaComp
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs'; import path from 'node:path'; import {setTimeout as sleep} from 'node:timers/promises';
+          const root=process.env.TEMP_DIR, token=fs.readFileSync(path.join(root,'acceptance-token'),'utf8').trim();
+          const rows=JSON.parse(fs.readFileSync(path.join(root,'candidates','front-only.json'),'utf8'));
+          const endpoint=`${process.env.PRODUCTION_ORIGIN}/api/instacomp/ops/collx-front-identify`;
+          async function call(c){let last='';for(let a=1;a<=4;a++){try{const r=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','x-tcos-instacomp-service-token':token},body:JSON.stringify({collx_id:String(c.collx_id),front_url:c.front_owned}),redirect:'error',signal:AbortSignal.timeout(285000)});const text=await r.text();let body={};try{body=text?JSON.parse(text):{}}catch{body={parse_error:true,raw:text.slice(0,1000)}}if(r.ok&&body?.ok===true)return{ok:true,http_status:r.status,body};last=`HTTP ${r.status}: ${String(body?.error||body?.code||text).slice(0,500)}`;if(r.status<500&&r.status!==429)break}catch(e){last=String(e?.message||e)}if(a<4)await sleep(Math.min(12000,a*1500))}return{ok:false,error:last}}
+          const results=new Array(rows.length);let next=0,done=0,ok=0,failed=0;
+          async function worker(id){while(true){const i=next++;if(i>=rows.length)return;const c=rows[i],started=Date.now(),r=await call(c);results[i]={collx_id:String(c.collx_id),front_owned:c.front_owned,duration_ms:Date.now()-started,...r};done++;r.ok?ok++:failed++;console.log(`worker=${id} done=${done}/${rows.length} ok=${ok} failed=${failed} collx_id=${c.collx_id}`)}}
+          await Promise.all([worker(1),worker(2),worker(3)]);
+          const summary={schema:'tcos.collx.instacomp.frontOnlyIdentification.v1',requested:rows.length,completed:done,ok,failed,generated_at:new Date().toISOString(),inventoryMutation:false,pricingMutation:false,publishingMutation:false};
+          fs.writeFileSync(path.join(root,'results','front-only-identifications.json'),JSON.stringify({summary,results},null,2));fs.writeFileSync(path.join(root,'results','receipt.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary,null,2));if(ok===0)throw new Error('zero successful front-only identifications');
+          NODE
+      - name: Remove isolated credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/token-provisioned" ]; then exit 0; fi
+          npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          list="$TEMP_DIR/env-after.txt"; npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          ! grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; rm -f "$list"; touch "$TEMP_DIR/token-removed"
+      - name: Restore current main and prove route removed
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$TEMP_DIR/proof-deployed" ]; then exit 0; fi
+          test -f "$TEMP_DIR/token-removed"; git fetch --no-tags --depth=1 origin main; git checkout --detach origin/main
+          test ! -f src/app/api/instacomp/ops/collx-front-identify/route.ts
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/clean-deploy.log" 2>&1
+          code="$(curl -sS --max-time 30 -o "$TEMP_DIR/route-after-cleanup.txt" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/ops/collx-front-identify")"; test "$code" = "404"; touch "$TEMP_DIR/clean-redeployed"
+      - name: Upload front-only identification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-instacomp-front-only-identifications
+          path: |
+            ${{ env.TEMP_DIR }}/results/front-only-identifications.json
+            ${{ env.TEMP_DIR }}/results/receipt.json
+            ${{ env.TEMP_DIR }}/route-after-cleanup.txt
+          retention-days: 7
+          if-no-files-found: warn
