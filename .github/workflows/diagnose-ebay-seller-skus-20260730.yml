@@ -1,0 +1,58 @@
+name: Diagnose eBay Seller SKUs 20260730
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/diagnose-ebay-seller-skus-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/diagnose-ebay-seller-skus-20260730
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prepare route and token
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/seller-sku-diagnostic"; mkdir -p "$work" .vercel src/app/api/internal/diagnose-ebay-seller-skus
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json; else npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"; fi
+          cp ops/templates/diagnose-ebay-seller-skus-route.txt src/app/api/internal/diagnose-ebay-seller-skus/route.ts
+          token="$(openssl rand -hex 32)"; printf '%s' "$token" > "$work/token"; echo "::add-mask::$token"
+          printf '%s\n' "$token" | npx vercel@56.2.0 env add EBAY_SELLER_SKU_DIAGNOSTIC_TOKEN_20260730 production --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx tsc --noEmit --pretty false
+      - name: Deploy diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/seller-sku-diagnostic"
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee "$work/deploy.log"
+          grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$work/deploy.log" | tail -1 > "$work/url"
+      - name: Run diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/seller-sku-diagnostic"; token="$(cat "$work/token")"; url="$(cat "$work/url")"
+          curl -sS --max-time 180 -H "x-tcos-diagnostic-token: $token" -X POST "$url/api/internal/diagnose-ebay-seller-skus?run=${GITHUB_RUN_ID}" | tee "$work/result.json"
+          echo
+          node -e 'const r=require(process.argv[1]); console.log("SELLER_SKU_DIAGNOSTIC="+JSON.stringify(r));' "$work/result.json"
+      - name: Restore clean production
+        if: always()
+        shell: bash
+        run: |
+          npx vercel@56.2.0 env rm EBAY_SELLER_SKU_DIAGNOSTIC_TOKEN_20260730 production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null || true
+          git fetch origin main && git reset --hard origin/main && git clean -fd
+          npx vercel@56.2.0 deploy --prod --yes --force --archive=tgz --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
