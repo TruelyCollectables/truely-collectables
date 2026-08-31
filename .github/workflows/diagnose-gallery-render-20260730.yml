@@ -1,0 +1,36 @@
+name: Diagnose Gallery Render 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-gallery-render-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/diagnose-gallery-render-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect live candidate product pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in 2135 2080 2052 2411 2122; do
+            file="$RUNNER_TEMP/product-${id}.html"
+            status="$(curl -sS -L --max-time 60 -o "$file" -w '%{http_code}' "https://truelycollectables.com/product/${id}?diag=${GITHUB_RUN_ID}")"
+            size="$(wc -c < "$file")"
+            echo "===== product=${id} status=${status} size=${size} ====="
+            printf 'front_count='; grep -Eio 'front photo|front and back photos|front' "$file" | wc -l || true
+            printf 'back_count='; grep -Eio 'back photo|front and back photos|back' "$file" | wc -l || true
+            printf 'error_count='; grep -Eio 'error loading|permission denied|missing supabase|not found' "$file" | wc -l || true
+            printf 'image_count='; grep -Eo 'https://i\.ebayimg\.com[^"< ]+' "$file" | sort -u | wc -l || true
+            echo "markers:"
+            grep -Eio '.{0,80}(front photo|back photo|front and back photos|error loading|permission denied|not found).{0,120}' "$file" | head -n 20 || true
+            echo "title snippets:"
+            grep -Eo '<title>[^<]+' "$file" | head -n 2 || true
+          done
