@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import sharp from "sharp";
 import { filterStrictExactMarketMatches } from "./instacomp-exact-market-provider";
 import { buildExactIdentityTitle, isInstaCompPricingEligibleComp } from "./instacomp-live-pipeline";
 import { persistExactCardMarketHistory } from "./instacomp-market-history";
@@ -224,9 +223,11 @@ async function screenshotData(file: File) {
   if (!file.type.startsWith("image/")) throw new Error("Upload a screenshot image file.");
   const raw = Buffer.from(await file.arrayBuffer());
   if (!raw.length || raw.length > MAX_SCREENSHOT_BYTES) throw new Error("130point screenshot must be 12MB or smaller.");
-  const webp = await sharp(raw).rotate().resize({ width: 1800, withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
-  const sha256 = createHash("sha256").update(webp).digest("hex");
-  return { sha256, dataUrl: `data:image/webp;base64,${webp.toString("base64")}`, bytes: webp.length };
+  // Keep Sharp out of the Cloudflare evaluator bundle. 130point evidence is already
+  // capped at 12 MB, so the vision endpoint can consume the original screenshot.
+  const sha256 = createHash("sha256").update(raw).digest("hex");
+  const contentType = file.type || "image/jpeg";
+  return { sha256, dataUrl: `data:${contentType};base64,${raw.toString("base64")}`, bytes: raw.length };
 }
 async function extractScreenshotSales(params: {
   ai: InstaCompAiResult;
