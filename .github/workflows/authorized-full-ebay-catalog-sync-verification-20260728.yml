@@ -1,0 +1,23 @@
+name: Authorized Full eBay Catalog Sync Verification 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-full-ebay-catalog-sync-verification-20260728.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authorized-full-ebay-catalog-sync-verification
+  cancel-in-progress: true
+
+jobs:
+  superseded:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Use fresh sync runner
+        run: echo "Superseded by Authorized Fresh eBay Inventory Sync 20260728."

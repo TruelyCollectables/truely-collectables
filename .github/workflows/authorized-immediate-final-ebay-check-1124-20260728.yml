@@ -1,0 +1,105 @@
+name: Authorized Immediate Final eBay Check 1124 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/authorized-immediate-final-ebay-check-1124-20260728.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  certify-now:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/verify-full-ebay-catalog-sync-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+      CRON_NOT_BEFORE_UTC: 2026-07-28T17:16:30Z
+      BASELINE_REMOTE_TOTAL_0902: "893"
+      BASELINE_ELIGIBLE_0902: "865"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/verify-full-ebay-catalog-sync-20260728
+          fetch-depth: 1
+      - name: Link Vercel project
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel immediate-final/storefront
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+      - name: Capture final receipt
+        run: |
+          set -euo pipefail
+          found=''
+          for attempt in $(seq 1 10); do
+            npx vercel@56.2.0 logs \
+              --project truely-collectables \
+              --environment production \
+              --since "$CRON_NOT_BEFORE_UTC" \
+              --no-branch --json --expand --limit 1000 \
+              --query "ebay_store_fixed_price_sync_completed" \
+              --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+              > immediate-final/runtime.jsonl 2>immediate-final/runtime.stderr || true
+            node <<'NODE'
+          const fs = require('node:fs');
+          const rows = fs.readFileSync('immediate-final/runtime.jsonl','utf8').split(/\r?\n/).filter(Boolean);
+          const receipts=[];
+          const visit=(v)=>{if(!v)return;if(typeof v==='object'){if(v.event==='ebay_store_fixed_price_sync_completed')receipts.push(v);for(const n of Object.values(v))visit(n);return;}if(typeof v!=='string')return;const p='[ebay-store-fixed-price-sync] ';const i=v.indexOf(p);if(i>=0){try{const x=JSON.parse(v.slice(i+p.length));if(x?.event==='ebay_store_fixed_price_sync_completed')receipts.push(x);}catch{}}};
+          for(const row of rows){try{visit(JSON.parse(row));}catch{}}
+          const receipt=receipts.sort((a,b)=>Date.parse(a.completedAt||0)-Date.parse(b.completedAt||0)).at(-1)||null;
+          fs.writeFileSync('immediate-final/receipt.json',JSON.stringify(receipt,null,2)+'\n');
+          NODE
+            if grep -Fq '"event": "ebay_store_fixed_price_sync_completed"' immediate-final/receipt.json; then found="$attempt"; break; fi
+            sleep 20
+          done
+          test -n "$found"
+      - name: Validate final receipt
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');const r=JSON.parse(fs.readFileSync('immediate-final/receipt.json','utf8'));
+          const fail=m=>{throw new Error(m)};
+          if(r.success!==true||(r.errors||[]).length)fail(`sync errors ${JSON.stringify(r.errors||[])}`);
+          const a=r.authoritative;const f=r.finalAuthoritative||(r.convergencePasses||[]).at(-1);const i=(r.imagePasses||[]).at(-1);const d=r.databaseAudit||{};
+          if(!a?.cycleComplete||a.failed!==0||a.remoteFixedPriceTotal>3000)fail('initial active cycle failed');
+          if(Number(a.eligibleCollectibles)+Number(a.skippedNonCollectibles)!==Number(a.remoteFixedPriceTotal))fail('remote totals do not reconcile');
+          if(!i?.cycleComplete||i.failed!==0||i.remainingCandidates!==0)fail('images did not converge');
+          if(!r.quantities||r.quantities.failed!==0)fail('quantities failed');
+          if(!f?.cycleComplete||f.failed!==0||f.inserted!==0||f.updated!==0||f.deactivated!==0||f.unchanged!==f.eligibleCollectibles)fail(`final not stable ${JSON.stringify(f)}`);
+          if(d.matchesEligibleEbayInventory!==true||d.activeLinkedProducts!==f.eligibleCollectibles)fail('database does not match eBay');
+          const bR=Number(process.env.BASELINE_REMOTE_TOTAL_0902),bE=Number(process.env.BASELINE_ELIGIBLE_0902);
+          const s={success:true,completedAt:r.completedAt,remoteFixedPriceTotal:f.remoteFixedPriceTotal,eligibleCollectibles:f.eligibleCollectibles,skippedNonCollectibles:f.skippedNonCollectibles,activeLinkedProducts:d.activeLinkedProducts,firstPassChanges:{inserted:a.inserted,updated:a.updated,deactivated:a.deactivated},imagePasses:r.imagePasses.length,quantityChecked:r.quantities.checked,convergencePasses:r.convergencePasses.length,deltaSince0902:{remoteFixedPriceTotal:f.remoteFixedPriceTotal-bR,eligibleCollectibles:f.eligibleCollectibles-bE}};
+          fs.writeFileSync('immediate-final/certified-summary.json',JSON.stringify(s,null,2)+'\n');console.log(JSON.stringify(s));
+          NODE
+      - name: Verify storefront
+        run: |
+          set -euo pipefail
+          for spec in 'all|/shop' 'pucks|/shop?section=Pucks' 'autographs|/shop?feature=autograph' 'shoes|/shop?q=shoes' 'pants|/shop?q=pants' 'parts|/shop?q=fuel%20sensor'; do
+            key="${spec%%|*}"; path="${spec#*|}";
+            code="$(curl -L -sS --max-time 90 -H 'Cache-Control: no-cache' -o "immediate-final/storefront/${key}.html" -w '%{http_code}' "${PRODUCTION_ORIGIN}${path}" || true)";
+            test "$code" = 200;
+          done
+          node <<'NODE'
+          const fs=require('node:fs');const s=JSON.parse(fs.readFileSync('immediate-final/certified-summary.json','utf8'));
+          const count=k=>{const h=fs.readFileSync(`immediate-final/storefront/${k}.html`,'utf8').replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');const m=h.match(/([\d,]+) active cards & collectibles/i);return m?Number(m[1].replaceAll(',','')):null};
+          const x={all:count('all'),pucks:count('pucks'),autographs:count('autographs'),shoes:count('shoes'),pants:count('pants'),parts:count('parts')};
+          if(x.all!==s.eligibleCollectibles)throw new Error(`storefront ${x.all} != ${s.eligibleCollectibles}`);if(x.pucks<1||x.autographs<1)throw new Error('required sections empty');for(const k of ['shoes','pants','parts'])if(x[k]!==0)throw new Error(`${k} exclusion failed`);fs.writeFileSync('immediate-final/storefront-summary.json',JSON.stringify(x,null,2)+'\n');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: immediate-final-ebay-certificate-${{ github.run_number }}
+          path: immediate-final
+          if-no-files-found: warn
+          retention-days: 30
