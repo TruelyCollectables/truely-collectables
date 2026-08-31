@@ -235,7 +235,45 @@ export async function persistRunSummary(body: Record<string, any>) {
     { onConflict: "run_id" },
   );
   if (error) throw new Error(error.message);
-  return { ok: true, kind: "run_complete", runId };
+
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  const to = String(process.env.DEAL_HUNTER_ALERT_TO || "truelycollectables@gmail.com").trim();
+  if (!apiKey || !to) {
+    throw new Error("Deal Hunter run email is not configured (RESEND_API_KEY / DEAL_HUNTER_ALERT_TO).");
+  }
+  const from = String(
+    process.env.DEAL_HUNTER_ALERT_FROM || "Truely Collectables <sales@truelycollectables.com>",
+  ).trim();
+  const summary = (body.summary || {}) as Record<string, any>;
+  const reviewItems = Array.isArray(summary.review_items) ? summary.review_items.slice(0, 40) : [];
+  const rows = reviewItems.map((item: Record<string, any>) => {
+    const price = Number(item.item_price);
+    const shipping = Number(item.inbound_shipping);
+    const delivered = Number(item.delivered_cost);
+    const url = text(item.listing_url, 2000) || "";
+    return `<li style="margin:0 0 14px"><strong>${escapeHtml(item.title || "Untitled listing")}</strong><br>` +
+      `${escapeHtml(item.watched_person || item.lane || "Deal Hunter")} — ${escapeHtml(item.status || "review")}<br>` +
+      `Price: ${Number.isFinite(price) ? `$${price.toFixed(2)}` : "n/a"}` +
+      `${Number.isFinite(shipping) && shipping > 0 ? ` + $${shipping.toFixed(2)} shipping` : ""}` +
+      `${Number.isFinite(delivered) ? ` — delivered $${delivered.toFixed(2)}` : ""}` +
+      `${url ? `<br><a href="${escapeHtml(url)}">Open listing</a>` : ""}</li>`;
+  }).join("");
+  const subject = `Deal Hunter run complete — ${Number(counts.actionable || 0)} deals, ${Number(counts.manual_review || 0)} review`;
+  const html = `<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;color:#111">` +
+    `<h1>Deal Hunter run complete</h1><p><strong>Run:</strong> ${escapeHtml(runId)}</p>` +
+    `<p>Discovered: ${Number(counts.discovery || 0)} · Evaluated: ${Number(counts.evaluated || 0)} · ` +
+    `Actionable: ${Number(counts.actionable || 0)} · Review: ${Number(counts.manual_review || 0)} · Failures: ${Number(counts.failure || 0)}</p>` +
+    (rows ? `<h2>Listings to review</h2><ol>${rows}</ol>` : `<p>No listings required review in this run.</p>`) +
+    `</div>`;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to: [to], subject, html }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const delivery = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(text((delivery as any)?.message, 1000) || `Resend HTTP ${response.status}`);
+  return { ok: true, kind: "run_complete", runId, email: { status: "sent", id: (delivery as any)?.id || null } };
 }
 
 async function sendAlertEmail(params: {

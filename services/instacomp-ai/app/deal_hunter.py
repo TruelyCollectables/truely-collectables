@@ -333,6 +333,7 @@ class DealHunterScheduler:
                 )
                 summary["evaluation_concurrency"] = concurrency
 
+                run_review_items: list[dict[str, Any]] = []
                 for candidate, outcome in zip(selected, evaluated_results):
                     if isinstance(outcome, Exception):
                         result = {
@@ -352,6 +353,22 @@ class DealHunterScheduler:
                         result.get("status") in {"manual_review", "identity_review"}
                     )
                     counts["failure"] += int(result.get("status") == "failed")
+                    if result.get("status") in {"manual_review", "identity_review"} or bool(result.get("actionable")):
+                        run_review_items.append({
+                            "title": result.get("title"),
+                            "listing_url": result.get("listing_url"),
+                            "watched_person": result.get("watched_person"),
+                            "lane": result.get("lane"),
+                            "status": result.get("status"),
+                            "item_price": result.get("item_price"),
+                            "inbound_shipping": result.get("inbound_shipping"),
+                            "delivered_cost": result.get("delivered_cost"),
+                            "conservative_resale": result.get("conservative_resale"),
+                            "expected_net_profit": result.get("expected_net_profit"),
+                            "roi_percent": result.get("roi_percent"),
+                            "deal_label": result.get("deal_label"),
+                            "actionable": bool(result.get("actionable")),
+                        })
 
                     # Fully evaluated card candidates are persisted and alerted by
                     # the central evaluate endpoint during _evaluate(). Local-only
@@ -377,6 +394,7 @@ class DealHunterScheduler:
                                 alert_delivery["errors"].append(str(alert_error)[:1000])
 
                 summary["alert_delivery"] = alert_delivery
+                summary["review_items"] = run_review_items
                 summary.update(counts)
                 summary["completed_at"] = utc_now().isoformat()
                 try:
@@ -996,7 +1014,7 @@ class DealHunterScheduler:
         summary: dict[str, Any],
     ) -> None:
         if not self.settings.api_key:
-            return
+            raise RuntimeError("Deal Hunter run summary email cannot send: InstaComp AI key is missing.")
         timeout = httpx.Timeout(min(float(self.settings.deal_hunter_request_timeout_seconds), 60.0))
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             response = await client.post(
@@ -1016,3 +1034,6 @@ class DealHunterScheduler:
                 },
             )
             response.raise_for_status()
+            body = response.json()
+            if body.get("ok") is not True or (body.get("email") or {}).get("status") != "sent":
+                raise RuntimeError(str(body.get("error") or "Deal Hunter run summary email was not confirmed sent."))

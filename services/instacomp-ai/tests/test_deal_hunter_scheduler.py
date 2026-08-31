@@ -322,8 +322,9 @@ async def test_run_bridges_local_alertworthy_candidate_to_central_delivery(tmp_p
             "persistence": {"delivery": {"status": "sent", "id": "email-test"}},
         }
 
+    published_summary: dict = {}
     async def publish_summary(_run_id, _status, _counts, _summary):
-        return None
+        published_summary.update(_summary)
 
     scheduler._discover = discover  # type: ignore[method-assign]
     scheduler._evaluate = evaluate  # type: ignore[method-assign]
@@ -333,6 +334,22 @@ async def test_run_bridges_local_alertworthy_candidate_to_central_delivery(tmp_p
     result = await scheduler.run_now(trigger="manual")
 
     assert result["status"] == "completed"
+    assert result["review_items"] == [{
+        "title": evaluated["title"],
+        "listing_url": evaluated["listing_url"],
+        "watched_person": evaluated.get("watched_person"),
+        "lane": evaluated.get("lane"),
+        "status": "manual_review",
+        "item_price": evaluated.get("item_price"),
+        "inbound_shipping": evaluated.get("inbound_shipping"),
+        "delivered_cost": evaluated.get("delivered_cost"),
+        "conservative_resale": evaluated.get("conservative_resale"),
+        "expected_net_profit": evaluated.get("expected_net_profit"),
+        "roi_percent": evaluated.get("roi_percent"),
+        "deal_label": evaluated["deal_label"],
+        "actionable": False,
+    }]
+    assert published_summary["review_items"] == result["review_items"]
     assert len(published) == 1
     assert published[0][1] == "ebay:local-review-1"
     assert result["alert_delivery"] == {
