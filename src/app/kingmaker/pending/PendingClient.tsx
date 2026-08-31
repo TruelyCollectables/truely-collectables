@@ -2,6 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getFreshAccountSession } from "../../account/account-session";
@@ -870,6 +871,17 @@ export default function KingmakerPendingPage({
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
                     </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Link
+                        href={`/seller/admin/inventory/${encodeURIComponent(card.inventoryItemId)}`}
+                        className="rounded-full border border-emerald-500 px-3 py-1 text-xs font-black text-emerald-200 hover:bg-emerald-500 hover:text-slate-950"
+                      >
+                        Open exact master listing
+                      </Link>
+                      <span className="rounded-full border border-slate-600 px-3 py-1 text-xs font-black text-slate-300">
+                        ID {card.inventoryItemId.slice(0, 8)}
+                      </span>
+                    </div>
                     {card.instaComp.identity?.notes ? (
                       <p className="mt-2 text-xs leading-relaxed text-neutral-300">
                         {card.instaComp.identity.notes}
