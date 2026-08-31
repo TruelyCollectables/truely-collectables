@@ -37,6 +37,22 @@ async function digest(file: File) {
     .digest("hex");
 }
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function text(value: unknown): string | null {
+  const next = String(value ?? "").trim();
+  return next.length ? next : null;
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
+}
+
 function forwardedHeaders(request: NextRequest, contentType?: string) {
   const headers = new Headers();
   const authorization = request.headers.get("authorization");
@@ -124,6 +140,10 @@ export async function POST(request: NextRequest) {
         text(pendingImport.purchaseId) ||
         text(pendingImport.purchase_id);
       const duplicateCardUuid = text(duplicate.card_uuid) || text(instacomp.cardUuid);
+      const duplicateSerialNumber =
+        text(instacomp.serialNumber) ||
+        text(metadata.serialNumber) ||
+        text(metadata.serial_number);
       return NextResponse.json(
         {
           success: true,
@@ -146,11 +166,8 @@ export async function POST(request: NextRequest) {
             purchaseId,
             matchType: duplicateCardUuid ? "physical_card" : "exact_scan_pair",
             cardUuid: duplicateCardUuid,
-            serialNumber: text(scan.trusted_identity?.serial_number),
-            serialRun:
-              typeof scan.trusted_identity?.serial_run === "number"
-                ? scan.trusted_identity.serial_run
-                : null,
+            serialNumber: duplicateSerialNumber,
+            serialRun: null,
             price: numberValue(duplicate.price),
             quantity: Number(duplicate.quantity || 0) || null,
             addCopyAllowed: true,
