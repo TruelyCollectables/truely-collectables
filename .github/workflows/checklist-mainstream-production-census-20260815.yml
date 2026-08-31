@@ -1,0 +1,111 @@
+name: Checklist Mainstream Production Census 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-mainstream-production-census-20260815.yml'
+      - 'scripts/mainstream-checklist/manifest.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-mainstream-production-census-20260815
+  cancel-in-progress: false
+
+jobs:
+  census:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 20
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dump canonical mainstream manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/mainstream-production-census"
+          mkdir -p "$out"
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { loadMainstreamChecklistManifest } from './scripts/mainstream-checklist/manifest.mjs';
+          const manifest = loadMainstreamChecklistManifest();
+          const out = process.env.RUNNER_TEMP + '/mainstream-production-census';
+          writeFileSync(out + '/manifest.json', JSON.stringify(manifest, null, 2));
+          const type = Array.isArray(manifest) ? 'array' : typeof manifest;
+          const keys = manifest && typeof manifest === 'object' ? Object.keys(manifest) : [];
+          const candidateArrays = keys.filter((k) => Array.isArray(manifest[k])).map((k) => ({key:k,count:manifest[k].length}));
+          writeFileSync(out + '/manifest-shape.json', JSON.stringify({type, keys, candidateArrays, topLevelLength:Array.isArray(manifest)?manifest.length:null}, null, 2));
+          console.log(JSON.stringify({type, keys, candidateArrays, topLevelLength:Array.isArray(manifest)?manifest.length:null}));
+          NODE
+
+      - name: Resolve Production Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/mainstream-production-census"
+          projects="$out/projects.json"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$projects" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$projects")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          keys="$out/api-keys.json"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$keys" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "PROD_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "PROD_SERVICE_KEY=$service_key" >> "$GITHUB_ENV"
+          rm -f "$projects" "$keys"
+
+      - name: Snapshot Production Registry schema and rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/mainstream-production-census"
+          curl --silent --show-error --fail --retry 3 --retry-all-errors --max-time 60 \
+            -H "apikey: $PROD_SERVICE_KEY" -H "Authorization: Bearer $PROD_SERVICE_KEY" \
+            -H "Accept: application/openapi+json" \
+            "$PROD_URL/rest/v1/" > "$out/supabase-openapi.json"
+          jq -r '.paths | keys[] | select(test("checklist";"i"))' "$out/supabase-openapi.json" > "$out/checklist-rest-paths.txt"
+          cat "$out/checklist-rest-paths.txt"
+          while IFS= read -r p; do
+            table="${p#/}"
+            case "$table" in
+              rpc/*) continue ;;
+            esac
+            safe="$(printf '%s' "$table" | tr '/:' '__')"
+            code="$(curl --silent --show-error --output "$out/table-$safe.json" --write-out '%{http_code}' --max-time 60 \
+              -H "apikey: $PROD_SERVICE_KEY" -H "Authorization: Bearer $PROD_SERVICE_KEY" \
+              -H "Range: 0-999" -H "Prefer: count=exact" \
+              "$PROD_URL/rest/v1/$table?select=*")"
+            printf '%s\t%s\n' "$table" "$code" >> "$out/table-fetch-status.tsv"
+          done < "$out/checklist-rest-paths.txt"
+
+      - name: Upload Production census
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-mainstream-production-census-${{ github.run_id }}
+          path: ${{ runner.temp }}/mainstream-production-census
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mainstream-production-census/projects.json" "$RUNNER_TEMP/mainstream-production-census/api-keys.json"

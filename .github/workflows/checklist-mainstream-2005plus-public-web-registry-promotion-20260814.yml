@@ -1,0 +1,199 @@
+name: Checklist Mainstream 2005 Plus Public Web Registry Promotion 20260814
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-mainstream-2005plus-public-web-registry-promotion-20260814.yml'
+      - 'scripts/promote-mainstream-2005plus-public-web-candidates.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-mainstream-2005plus-public-web-registry-promotion-20260814
+  cancel-in-progress: false
+
+env:
+  PUBLIC_WEB_MINING_RUN_ID: '31848415115'
+  PUBLIC_WEB_AGGREGATE_RUN_ID: '31854670094'
+  PUBLIC_WEB_AGGREGATE_ARTIFACT: mainstream-2005plus-public-web-aggregate-31854670094
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install existing checklist parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+
+      - name: Prove unchanged Registry/parser foundations
+        run: |
+          set -euo pipefail
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+          grep -q 'persistPlan' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          grep -q 'registryWriter: "serialized"' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          grep -q 'minimumCardRows: MINIMUM_CARD_ROWS' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          grep -q 'pinnedValidationSource' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          grep -q 'SUPPLEMENTAL_SOURCES' scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+
+      - name: Download completed 2005+ public-web aggregate
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PUBLIC_WEB_AGGREGATE_ARTIFACT }}
+          path: ${{ runner.temp }}/public-web-aggregate
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PUBLIC_WEB_AGGREGATE_RUN_ID }}
+
+      - name: Verify immutable candidate queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          queue="$RUNNER_TEMP/public-web-aggregate/candidate-validation-queue.json"
+          test -s "$queue"
+          jq -e '
+            .schema=="tcos.checklist.mainstream2005plusCandidateValidationQueue.v1"
+            and .count==20
+            and (.targets|length)==20
+            and ([.targets[].exactSetKey]|unique|length)==20
+            and ([.targets[].trustedAutoImportCandidateCount]|all(. >= 1))
+          ' "$queue" >/dev/null
+          echo "PUBLIC_WEB_CANDIDATE_QUEUE=$queue" >> "$GITHUB_ENV"
+
+      - name: Resolve Production Supabase directly through Management API
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/public-web-registry-promotion"
+          mkdir -p "$root"
+          projects="$root/projects.json"
+          for n in 1 2 3 4 5; do
+            if curl --silent --show-error --fail --max-time 45 \
+              --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              --output "$projects" \
+              "https://api.supabase.com/v1/projects"; then break; fi
+            test "$n" -lt 5 || exit 1
+            sleep $((n * 3))
+          done
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$projects")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+
+          proof="$root/registry-proof.json"
+          body="$root/registry-proof-body.json"
+          jq -nc --arg query "select exists(select 1 from information_schema.tables where table_schema='public' and table_name='checklist_source_catalog') as has_catalog, exists(select 1 from storage.buckets where id='tcos-checklist-source-files') as has_source_bucket, exists(select 1 from pg_proc where proname='tcos_apply_checklist_import_plan') as has_apply_rpc;" '{query:$query,parameters:[],read_only:true}' > "$body"
+          for n in 1 2 3 4 5; do
+            code="$(curl --silent --show-error --max-time 60 \
+              --output "$proof" --write-out '%{http_code}' --request POST \
+              --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$body" \
+              "https://api.supabase.com/v1/projects/$project_ref/database/query" || true)"
+            if { [ "$code" = "200" ] || [ "$code" = "201" ]; } \
+              && jq -e 'type=="array" and length==1 and .[0].has_catalog==true and .[0].has_source_bucket==true and .[0].has_apply_rpc==true' "$proof" >/dev/null 2>&1; then break; fi
+            test "$n" -lt 5 || { cat "$proof" >&2 || true; exit 1; }
+            sleep $((n * 3))
+          done
+
+          keys="$root/api-keys.json"
+          for n in 1 2 3 4 5; do
+            if curl --silent --show-error --fail --max-time 45 \
+              --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              --output "$keys" \
+              "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"; then break; fi
+            test "$n" -lt 5 || exit 1
+            sleep $((n * 3))
+          done
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Validate trusted public candidates through existing Registry parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          export PUBLIC_WEB_PROMOTION_APPLY=false
+          export PUBLIC_WEB_PROMOTION_OUTPUT="$RUNNER_TEMP/public-web-validation/validation-receipt.json"
+          export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$RUNNER_TEMP/public-web-validation/validated-targets.json"
+          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          jq -e '
+            .schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2"
+            and .mode=="validate"
+            and .queueCount==20
+            and .selectedCount==20
+            and .minimumCardRows>=25
+            and .supplementalSourceTargets>=18
+            and .registryWriter=="serialized"
+            and (.blockedAutomaticIngestDomains|index("www.beckett.com")!=null)
+          ' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
+          jq -e '
+            .schema=="tcos.checklist.mainstream2005plusValidatedTargets.v2"
+            and .count==(.targets|length)
+            and .count==(.exactSetKeys|length)
+            and ([.targets[].sourceUrl]|all(type=="string" and length>0))
+          ' "$PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT" >/dev/null
+          jq '{mode,statuses,normalizedTotals,validatedTargets}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
+
+      - name: Apply only exact sources that passed validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          export PUBLIC_WEB_PROMOTION_APPLY=true
+          export PUBLIC_WEB_TARGET_FILTER="$RUNNER_TEMP/public-web-validation/validated-targets.json"
+          export PUBLIC_WEB_PROMOTION_OUTPUT="$RUNNER_TEMP/public-web-apply/apply-receipt.json"
+          export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$RUNNER_TEMP/public-web-apply/imported-targets.json"
+          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          expected="$(jq -r '.count' "$PUBLIC_WEB_TARGET_FILTER")"
+          actual="$(jq -r '.selectedCount' "$PUBLIC_WEB_PROMOTION_OUTPUT")"
+          test "$actual" = "$expected"
+          jq -e '
+            .schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2"
+            and .mode=="apply"
+            and .registryWriter=="serialized"
+            and ([.results[] | select(.status=="imported") | .exactSetKey] | length) == (.statuses.imported // 0)
+          ' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
+          jq '{mode,statuses,normalizedTotals,validatedTargets}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
+
+      - name: Upload validation and apply receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainstream-2005plus-public-web-registry-promotion-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/public-web-validation
+            ${{ runner.temp }}/public-web-apply
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/public-web-registry-promotion" .env.local .env.production.local .vercel

@@ -1,0 +1,194 @@
+name: Checklist Mainstream Structured Expansion Recovery 20260815
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-mainstream-structured-expansion-recovery-20260815.yml'
+      - 'scripts/mainstream-checklist/gogts-structured-normalizer.mjs'
+      - 'scripts/promote-mainstream-2005plus-public-web-candidates.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-mainstream-structured-expansion-recovery-20260815
+  cancel-in-progress: false
+
+env:
+  PUBLIC_WEB_MINING_RUN_ID: '31848415115'
+  PUBLIC_WEB_AGGREGATE_RUN_ID: '31854670094'
+  PUBLIC_WEB_MINIMUM_CARD_ROWS: '25'
+
+jobs:
+  structured-expansion-recovery:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 120
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install existing checklist parser dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+          node --check scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          node --check scripts/mainstream-checklist/gogts-structured-normalizer.mjs
+          node --input-type=module -e 'import { runGoGtsStructuredNormalizerSelfTest } from "./scripts/mainstream-checklist/gogts-structured-normalizer.mjs"; console.log(JSON.stringify(runGoGtsStructuredNormalizerSelfTest()));'
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+      - name: Patch GoGTS structured normalization into existing parser path
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const path = "scripts/mainstream-checklist/source-tools.mjs";
+          let source = readFileSync(path, "utf8");
+          const importAnchor = 'import { extname, resolve } from "node:path";\n';
+          const importLine = 'import { normalizeGoGtsStructuredText } from "./gogts-structured-normalizer.mjs";\n';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error("GoGTS normalizer import anchor not found");
+            source = source.replace(importAnchor, `${importAnchor}${importLine}`);
+          }
+          const parseAnchor = "  const text = extractText(downloaded, filename);";
+          const normalizedParse = "  const text = normalizeGoGtsStructuredText(extractText(downloaded, filename));";
+          if (!source.includes(normalizedParse)) {
+            const occurrences = source.split(parseAnchor).length - 1;
+            if (occurrences !== 1) throw new Error(`Expected one parser handoff anchor, found ${occurrences}`);
+            source = source.replace(parseAnchor, normalizedParse);
+          }
+          writeFileSync(path, source, "utf8");
+          NODE
+          node --check scripts/mainstream-checklist/source-tools.mjs
+          MAINSTREAM_CHECKLIST_SELF_TEST=true node --import tsx scripts/ingest-mainstream-checklist-backlog.mjs
+
+      - name: Build explicit expansion and timeout-recovery queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          queue="$RUNNER_TEMP/structured-expansion-recovery-queue.json"
+          filter="$RUNNER_TEMP/structured-expansion-recovery-targets.json"
+          cat > "$queue" <<'JSON'
+          {
+            "schema": "tcos.checklist.mainstream2005plusCandidateValidationQueue.v1",
+            "count": 5,
+            "targets": [
+              {"exactSetKey":"football|2024|panini|prizm","year":2024,"sport":"football","sourceArtifact":"structured-expansion-recovery-20260815","exactCandidateCount":1,"trustedAutoImportCandidateCount":1,"candidates":[]},
+              {"exactSetKey":"baseball|2024|panini|select","year":2024,"sport":"baseball","sourceArtifact":"structured-expansion-recovery-20260815","exactCandidateCount":1,"trustedAutoImportCandidateCount":1,"candidates":[]},
+              {"exactSetKey":"basketball|2024-25|panini|prizm","year":2024,"sport":"basketball","sourceArtifact":"structured-expansion-recovery-20260815","exactCandidateCount":1,"trustedAutoImportCandidateCount":1,"candidates":[]},
+              {"exactSetKey":"basketball|2024-25|donruss|donruss","year":2024,"sport":"basketball","sourceArtifact":"structured-expansion-recovery-20260815","exactCandidateCount":1,"trustedAutoImportCandidateCount":1,"candidates":[]},
+              {"exactSetKey":"football|2024|donruss|optic","year":2024,"sport":"football","sourceArtifact":"structured-expansion-recovery-20260815","exactCandidateCount":1,"trustedAutoImportCandidateCount":1,"candidates":[]}
+            ]
+          }
+          JSON
+          cat > "$filter" <<'JSON'
+          {
+            "schema": "tcos.checklist.mainstreamStructuredExpansionRecoveryTargets.v1",
+            "targets": [
+              {"exactSetKey":"football|2024|panini|prizm","sourceUrl":"https://gogts.net/wp-content/uploads/2024/12/2024-Panini-Prizm-NFL-Football-Cards-Checklist.xls"},
+              {"exactSetKey":"baseball|2024|panini|select","sourceUrl":"https://gogts.net/wp-content/uploads/2025/03/2024-Panini-Select-Baseball-Cards-Checklist.xls"},
+              {"exactSetKey":"basketball|2024-25|panini|prizm","sourceUrl":"https://gogts.net/wp-content/uploads/2025/02/2024-25-Panini-Prizm-NBA-Basketball-Cards-Checklist.xls"},
+              {"exactSetKey":"basketball|2024-25|donruss|donruss","sourceUrl":"https://gogts.net/wp-content/uploads/2025/03/2024-25-Donruss-NBA-Basketball-Cards-Checklist.xls"},
+              {"exactSetKey":"football|2024|donruss|optic","sourceUrl":"https://gogts.net/wp-content/uploads/2025/04/2024-Donruss-Optic-NFL-Football-Cards-Checklist.xls"}
+            ]
+          }
+          JSON
+          jq -e '.schema=="tcos.checklist.mainstream2005plusCandidateValidationQueue.v1" and .count==5 and (.targets|length)==5 and ([.targets[].exactSetKey]|unique|length)==5' "$queue" >/dev/null
+          jq -e '.targets|length==5 and ([.[].exactSetKey]|unique|length)==5 and ([.[].sourceUrl]|unique|length)==5' "$filter" >/dev/null
+          jq -e --slurpfile f "$filter" '([.targets[].exactSetKey]|sort)==([$f[0].targets[].exactSetKey]|sort)' "$queue" >/dev/null
+          echo "PUBLIC_WEB_CANDIDATE_QUEUE=$queue" >> "$GITHUB_ENV"
+          echo "STRUCTURED_EXPANSION_RECOVERY_FILTER=$filter" >> "$GITHUB_ENV"
+
+      - name: Resolve Production Supabase directly through Management API
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/structured-expansion-recovery-production"
+          mkdir -p "$root"
+          projects="$root/projects.json"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$projects" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$projects")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          keys="$root/api-keys.json"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$keys" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Validate expansion and timeout recoveries through existing Registry parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          export PUBLIC_WEB_PROMOTION_APPLY=false
+          export PUBLIC_WEB_TARGET_FILTER="$STRUCTURED_EXPANSION_RECOVERY_FILTER"
+          export PUBLIC_WEB_PROMOTION_OUTPUT="$RUNNER_TEMP/structured-expansion-recovery-validation/validation-receipt.json"
+          export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$RUNNER_TEMP/structured-expansion-recovery-validation/validated-targets.json"
+          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          jq -e '.schema=="tcos.checklist.mainstream2005plusPublicWebPromotionReceipt.v2" and .mode=="validate" and .queueCount==5 and .selectedCount==5 and .minimumCardRows>=25 and .registryWriter=="serialized"' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
+          jq '{mode,statuses,normalizedTotals,validatedTargets,results:[.results[]|{exactSetKey,status,sourceUrl,counts,errors,message}]}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
+
+      - name: Apply only exact sources that passed validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          export PUBLIC_WEB_PROMOTION_APPLY=true
+          export PUBLIC_WEB_TARGET_FILTER="$RUNNER_TEMP/structured-expansion-recovery-validation/validated-targets.json"
+          export PUBLIC_WEB_PROMOTION_OUTPUT="$RUNNER_TEMP/structured-expansion-recovery-apply/apply-receipt.json"
+          export PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT="$RUNNER_TEMP/structured-expansion-recovery-apply/imported-targets.json"
+          expected="$(jq -r '.count' "$PUBLIC_WEB_TARGET_FILTER")"
+          if [ "$expected" -eq 0 ]; then
+            mkdir -p "$RUNNER_TEMP/structured-expansion-recovery-apply"
+            printf '%s\n' '{"schema":"tcos.checklist.mainstreamStructuredExpansionRecoveryApply.v1","selectedCount":0,"statuses":{},"normalizedTotals":{"sets":0,"cards":0,"parallels":0,"identities":0},"results":[]}' > "$PUBLIC_WEB_PROMOTION_OUTPUT"
+            cp "$PUBLIC_WEB_TARGET_FILTER" "$PUBLIC_WEB_VALIDATED_TARGETS_OUTPUT"
+            exit 0
+          fi
+          node --import tsx scripts/promote-mainstream-2005plus-public-web-candidates.mjs
+          actual="$(jq -r '.selectedCount' "$PUBLIC_WEB_PROMOTION_OUTPUT")"
+          test "$actual" = "$expected"
+          jq -e '.mode=="apply" and .registryWriter=="serialized"' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
+          jq -e '[.results[] | select(.status=="imported") | .persistence.ok] | all(. == true)' "$PUBLIC_WEB_PROMOTION_OUTPUT" >/dev/null
+          jq '{mode,statuses,normalizedTotals,validatedTargets,results:[.results[]|{exactSetKey,status,sourceUrl,counts,persistence,errors,message}]}' "$PUBLIC_WEB_PROMOTION_OUTPUT"
+
+      - name: Upload structured expansion and recovery receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-mainstream-structured-expansion-recovery-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/structured-expansion-recovery-validation
+            ${{ runner.temp }}/structured-expansion-recovery-apply
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/structured-expansion-recovery-production" .env.local .env.production.local .vercel
