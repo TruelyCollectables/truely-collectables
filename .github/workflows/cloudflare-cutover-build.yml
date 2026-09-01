@@ -51,7 +51,7 @@ jobs:
       - name: Install locked application dependencies
         run: npm ci
       - name: Install Cloudflare deployment tooling without changing lockfile
-        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@latest wrangler@latest
+        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@1.20.2 wrangler@latest
       - name: Build Next.js for Cloudflare Workers
         run: npx opennextjs-cloudflare build
       - name: Validate Worker bundle with Wrangler

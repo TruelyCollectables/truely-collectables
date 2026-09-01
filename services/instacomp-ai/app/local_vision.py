@@ -4,6 +4,7 @@ import asyncio
 import io
 import math
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Iterable
@@ -61,6 +62,25 @@ PLAYER_STOPWORDS = {
     "velocity",
     "cracked",
     "ice",
+}
+
+PLAYER_PHRASE_STOPWORDS = {
+    "chicago sky",
+    "dallas wings",
+    "golden state valkyries",
+    "indiana fever",
+    "los angeles sparks",
+    "seattle storm",
+    "ucla health",
+    "washington mystics",
+}
+
+PLAYER_TRAILING_CONTEXT_WORDS = {
+    "chicago",
+    "dallas",
+    "indiana",
+    "seattle",
+    "washington",
 }
 
 SUBSET_PHRASES = {
@@ -511,27 +531,62 @@ def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
     return next(iter(upper_back_tokens)) if len(upper_back_tokens) == 1 else None
 
 
+def _ascii_text(value: str) -> str:
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+
+
+def _player_observation_candidates(observation: OCRObservation) -> list[str]:
+    cleaned = re.sub(r"[^A-Za-z .'-]+", " ", _ascii_text(str(observation.text or "")))
+    cleaned = " ".join(cleaned.split()).strip(" .-")
+    words = cleaned.split()
+    if not 2 <= len(words) <= 5:
+        return []
+    lowered_words = {word.lower().strip(".'-") for word in words}
+    if lowered_words & PLAYER_STOPWORDS:
+        return []
+    normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+    if normalized in SUBSET_PHRASES or normalized in PLAYER_PHRASE_STOPWORDS:
+        return []
+    if "health" in lowered_words:
+        return []
+    if any(len(word) < 2 for word in words):
+        return []
+    candidates = [cleaned]
+    if len(words) >= 3 and words[-1].lower().strip(".'-") in PLAYER_TRAILING_CONTEXT_WORDS:
+        candidates.append(" ".join(words[:-1]))
+    return candidates
+
+
 def _player_hint(observations: Iterable[OCRObservation]) -> str | None:
-    candidates: list[tuple[float, str]] = []
+    grouped: dict[str, dict[str, Any]] = {}
+    has_back = False
     for observation in observations:
-        if observation.side != "front":
-            continue
-        cleaned = re.sub(r"[^A-Za-z .'-]+", " ", observation.text)
-        cleaned = " ".join(cleaned.split()).strip(" .-")
-        words = cleaned.split()
-        if not 2 <= len(words) <= 5:
-            continue
-        lowered_words = {word.lower().strip(".'-") for word in words}
-        if lowered_words & PLAYER_STOPWORDS:
-            continue
-        normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
-        if normalized in SUBSET_PHRASES:
-            continue
-        if any(len(word) < 2 for word in words):
-            continue
-        score = observation.confidence * (0.7 + min(0.3, observation.box.height * 5))
-        candidates.append((score, cleaned))
-    return max(candidates, default=(0.0, None), key=lambda value: value[0])[1]
+        has_back = has_back or observation.side == "back"
+        for cleaned in _player_observation_candidates(observation):
+            normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+            if not normalized:
+                continue
+            score = observation.confidence * (0.7 + min(0.3, observation.box.height * 5))
+            if observation.side == "back":
+                score += 0.15
+            current = grouped.setdefault(
+                normalized,
+                {"score": 0.0, "label": cleaned, "sides": set()},
+            )
+            current["score"] += score
+            current["sides"].add(observation.side)
+            if len(cleaned) > len(str(current["label"])):
+                current["label"] = cleaned
+    if has_back:
+        grouped = {
+            key: value
+            for key, value in grouped.items()
+            if {"front", "back"}.issubset(value["sides"])
+        }
+    if not grouped:
+        return None
+    best = max(grouped.values(), key=lambda value: float(value["score"]))
+    return str(best["label"]).upper()
 
 
 def _subset_hint(observations: Iterable[OCRObservation]) -> str | None:
