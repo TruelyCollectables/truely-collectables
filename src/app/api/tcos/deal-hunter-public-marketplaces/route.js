@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 120;
 
-const SCOPES = new Set(["shoe_deals"]);
+const SCOPES = new Set(["shoe_deals", "card_opportunities"]);
 const SHOE_NEW = /(?:\bbrand\s*new\b|\bnew\s+with\s+tags\b|\bnew\s+in\s+box\b|\bnew\s+without\s+box\b|\bnwt\b|\bnib\b|\bnwob\b|\bdeadstock\b|\bnew\b(?!\s+balance))/i;
 const SHOE_USED = /\b(?:pre[- ]?owned|used|worn|gently\s+used|worn\s+once)\b/i;
 const SHOE_KIDS = /\b(?:kid(?:s)?|youth|toddler|child(?:ren)?|boys?|girls?)\b/i;
@@ -24,6 +24,26 @@ const FAMILIES = Object.freeze({
     { familyId: "shoe-deal.poshmark-timberland-pro", sources: ["Poshmark"],
       query: "timberland pro nwt boots shoes",
       lane: "shoe_deal", watchedPerson: "Shoe Deal Watch", itemType: "new_adult_shoes" },
+  ],
+  card_opportunities: [
+    { familyId: "mercari.wnba-rookie-lots", sources: ["Mercari"],
+      query: "site:mercari.com/us/item WNBA rookie card lot Paige Bueckers Dominique Malonga Sonia Citron Kiki Iriafen",
+      lane: "broad_professional_rookies", watchedPerson: "WNBA Rookie Deal Watch", itemType: "trading_card" },
+    { familyId: "mercari.wnba-base-rookies", sources: ["Mercari"],
+      query: "site:mercari.com/us/item 2025 WNBA rookie card base Prizm Select Paige Bueckers Malonga Citron",
+      lane: "broad_professional_rookies", watchedPerson: "WNBA Base Rookie Deal Watch", itemType: "trading_card" },
+    { familyId: "mercari.first-bowman-prospects", sources: ["Mercari"],
+      query: "site:mercari.com/us/item 1st Bowman Chrome prospect card Leo De Vries Josue De Paula Jesus Made Franklin Arias",
+      lane: "true_first_bowman", watchedPerson: "1st Bowman Prospect Deal Watch", itemType: "trading_card" },
+    { familyId: "mercari.signed-prospect-baseballs", sources: ["Mercari"],
+      query: "site:mercari.com/us/item signed baseball autograph prospect official major league baseball Leo De Vries Josue De Paula",
+      lane: "signed_prospect_baseball", watchedPerson: "Signed Prospect Baseball Watch", itemType: "signed_baseball" },
+    { familyId: "mercari.music-comedy-autographs", sources: ["Mercari"],
+      query: "site:mercari.com/us/item signed poster album CD autograph country rock metal comedian",
+      lane: "music_comedy_autographs", watchedPerson: "Music Comedy Autograph Watch", itemType: "autograph_flat" },
+    { familyId: "mercari.cheap-card-lots", sources: ["Mercari"],
+      query: "site:mercari.com/us/item sports card lot rookie chrome prizm select under 20",
+      lane: "cheap_card_lots", watchedPerson: "Cheap Card Lot Watch", itemType: "trading_card_lot" },
   ],
 });
 
@@ -65,11 +85,28 @@ function shoeBrand(value) {
   return null;
 }
 
+function cardOpportunityPasses(evidence, family) {
+  if (!/\b(?:card|cards|rookie|rc|bowman|chrome|prizm|select|lot|autograph|signed|poster|album|cd)\b/i.test(evidence)) {
+    return false;
+  }
+  if (family.itemType === "signed_baseball") {
+    return /\b(?:signed|autograph(?:ed)?|auto)\b/i.test(evidence) && /\b(?:baseball|ball|omlb|rawlings)\b/i.test(evidence);
+  }
+  if (family.itemType === "autograph_flat") {
+    return /\b(?:signed|autograph(?:ed)?|auto)\b/i.test(evidence) && /\b(?:poster|album|vinyl|lp|cd|booklet|setlist|photo)\b/i.test(evidence);
+  }
+  if (family.itemType === "trading_card_lot") {
+    return /\b(?:lot|bundle|collection|2x|rookies|cards)\b/i.test(evidence);
+  }
+  return true;
+}
+
 function safeListing(entry, family) {
   const marketplace = directMarketplace(entry.url);
   if (!marketplace || !family.sources.includes(marketplace)) return null;
   const title = String(entry.title || "Untitled listing").trim();
-  const description = String(entry.description || "").trim();  const evidence = `${title} ${description}`.trim();
+  const description = String(entry.description || "").trim();
+  const evidence = `${title} ${description}`.trim();
   const itemPrice = numberValue(entry.askingPrice);
   const shipping = numberValue(entry.shipping);
   const buyerFees = numberValue(entry.buyerFees);
@@ -90,10 +127,14 @@ function safeListing(entry, family) {
     }
     risks.push(`shoe_brand:${brand}`);
   } else {
-    if (!/\bivan\s+demidov\b/i.test(evidence)) return null;
+    if (!cardOpportunityPasses(evidence, family)) return null;
     if (images.length < 2) {
       manualReviewRequired = true;
       risks.push("front_back_image_pair_not_publicly_exposed");
+    }
+    if (marketplace === "Mercari") {
+      manualReviewRequired = true;
+      risks.push("mercari_public_listing_requires_manual_verification");
     }
   }
 
@@ -124,6 +165,9 @@ function mergeListing(existing, incoming) {
   return {
     ...existing,
     ...incoming,
+    lane: existing.lane || incoming.lane,
+    watchedPerson: existing.watchedPerson || incoming.watchedPerson,
+    itemType: existing.itemType || incoming.itemType,
     imageUrls: Array.from(new Set([...(existing.imageUrls || []), ...(incoming.imageUrls || [])])),
     queryFamilyIds: Array.from(new Set([...(existing.queryFamilyIds || []), ...(incoming.queryFamilyIds || [])])),
     preliminaryRisks: Array.from(new Set([...(existing.preliminaryRisks || []), ...(incoming.preliminaryRisks || [])])),

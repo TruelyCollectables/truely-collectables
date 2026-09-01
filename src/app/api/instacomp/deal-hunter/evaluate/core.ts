@@ -245,25 +245,34 @@ export async function persistRunSummary(body: Record<string, any>) {
     process.env.DEAL_HUNTER_ALERT_FROM || "Truely Collectables <sales@truelycollectables.com>",
   ).trim();
   const summary = (body.summary || {}) as Record<string, any>;
+  const topOpportunities = Array.isArray(summary.top_opportunities)
+    ? summary.top_opportunities.slice(0, 5)
+    : [];
   const reviewItems = Array.isArray(summary.review_items) ? summary.review_items.slice(0, 40) : [];
-  const rows = reviewItems.map((item: Record<string, any>) => {
+  const renderRows = (items: Record<string, any>[]) => items.map((item: Record<string, any>) => {
     const price = Number(item.item_price);
     const shipping = Number(item.inbound_shipping);
     const delivered = Number(item.delivered_cost);
     const url = text(item.listing_url, 2000) || "";
+    const label = text(item.deal_label, 200) || text(item.error_code, 120) || "Research opportunity";
+    const marketplace = text(item.marketplace, 80);
     return `<li style="margin:0 0 14px"><strong>${escapeHtml(item.title || "Untitled listing")}</strong><br>` +
-      `${escapeHtml(item.watched_person || item.lane || "Deal Hunter")} — ${escapeHtml(item.status || "review")}<br>` +
+      `${escapeHtml(marketplace ? `${marketplace} · ` : "")}${escapeHtml(item.watched_person || item.lane || "Deal Hunter")} — ${escapeHtml(label)}<br>` +
       `Price: ${Number.isFinite(price) ? `$${price.toFixed(2)}` : "n/a"}` +
       `${Number.isFinite(shipping) && shipping > 0 ? ` + $${shipping.toFixed(2)} shipping` : ""}` +
       `${Number.isFinite(delivered) ? ` — delivered $${delivered.toFixed(2)}` : ""}` +
       `${url ? `<br><a href="${escapeHtml(url)}">Open listing</a>` : ""}</li>`;
   }).join("");
-  const subject = `Deal Hunter run complete — ${Number(counts.actionable || 0)} deals, ${Number(counts.manual_review || 0)} review`;
+  const opportunityRows = renderRows(topOpportunities);
+  const reviewRows = renderRows(reviewItems);
+  const subject = `Deal Hunter run complete — ${topOpportunities.length} opportunities, ${Number(counts.actionable || 0)} exact deals`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;color:#111">` +
     `<h1>Deal Hunter run complete</h1><p><strong>Run:</strong> ${escapeHtml(runId)}</p>` +
     `<p>Discovered: ${Number(counts.discovery || 0)} · Evaluated: ${Number(counts.evaluated || 0)} · ` +
     `Actionable: ${Number(counts.actionable || 0)} · Review: ${Number(counts.manual_review || 0)} · Failures: ${Number(counts.failure || 0)}</p>` +
-    (rows ? `<h2>Listings to review</h2><ol>${rows}</ol>` : `<p>No listings required review in this run.</p>`) +
+    (opportunityRows ? `<h2>Top 5 opportunities</h2><ol>${opportunityRows}</ol>` : `<p>No opportunity candidates were evaluated in this run.</p>`) +
+    (reviewRows ? `<h2>Listings requiring review</h2><ol>${reviewRows}</ol>` : `<p>No listings required review in this run.</p>`) +
+    `<p style="font-size:12px;color:#666">Actionable stays exact-comp backed. Opportunities are research leads for fast manual inspection and market learning.</p>` +
     `</div>`;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
