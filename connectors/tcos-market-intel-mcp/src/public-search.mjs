@@ -332,6 +332,73 @@ export class GeminiPublicSearchAdapter {
   }
 }
 
+export class GoogleProgrammableSearchAdapter {
+  get name() {
+    return "google_programmable_search";
+  }
+
+  get configured() {
+    return Boolean(config.googleSearchApiKey && config.googleSearchEngineId);
+  }
+
+  async search(request) {
+    if (!this.configured) {
+      return {
+        source: this.name,
+        configured: false,
+        results: [],
+        warnings: ["GOOGLE_SEARCH_API_KEY or GOOGLE_SEARCH_ENGINE_ID is not configured"],
+      };
+    }
+    const maxResults = Math.max(1, Math.min(request.maxResults || config.searchMaxResults, 10));
+    const sourceNames = (request.sources || []).map(normalizeText);
+    const siteHints = [];
+    if (sourceNames.some((source) => source.includes("mercari"))) siteHints.push("site:mercari.com/us/item");
+    if (sourceNames.some((source) => source.includes("poshmark"))) siteHints.push("site:poshmark.com/listing");
+    if (sourceNames.some((source) => source.includes("ebay"))) siteHints.push("site:ebay.com/itm");
+    const searchQuery = [siteHints.join(" OR "), request.query]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const url = new URL("https://www.googleapis.com/customsearch/v1");
+    url.searchParams.set("key", config.googleSearchApiKey);
+    url.searchParams.set("cx", config.googleSearchEngineId);
+    url.searchParams.set("q", searchQuery);
+    url.searchParams.set("num", String(maxResults));
+    url.searchParams.set("safe", "off");
+    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(`Google Programmable Search failed: ${payload?.error?.message || response.statusText || response.status}`);
+    }
+    const results = (payload.items || [])
+      .map((item) =>
+        normalizePublicResult(
+          {
+            source: "Google Programmable Search",
+            url: item.link,
+            title: item.title,
+            description: item.snippet,
+            manual_review_required: true,
+            verification_notes:
+              "Google Programmable Search found this direct listing URL; verify current availability, price, shipping, photos, and seller details before buying.",
+            raw_payload: item,
+          },
+          this.name,
+        ),
+      )
+      .filter((entry) => entry.url);
+    return {
+      source: this.name,
+      configured: true,
+      results,
+      warnings: results.length ? [] : ["Google Programmable Search returned no direct listing URLs"],
+      diagnostics: { engineConfigured: true, siteHints },
+    };
+  }
+}
+
 export class EbayBrowseAdapter {
   get name() {
     return "ebay_browse";
@@ -558,6 +625,7 @@ export class PublicSearchService {
   constructor() {
     this.poshmark = new PoshmarkPublicSearchAdapter();
     this.gemini = new GeminiPublicSearchAdapter();
+    this.google = new GoogleProgrammableSearchAdapter();
     this.openAi = new OpenAiPublicSearchAdapter();
     this.ebay = new EbayBrowseAdapter();
     this.x = new XRecentSearchAdapter();
@@ -566,6 +634,7 @@ export class PublicSearchService {
   status() {
     return {
       poshmarkPublicApi: this.poshmark.configured,
+      googleProgrammableSearch: this.google.configured,
       geminiPublicWeb: this.gemini.configured,
       geminiSearchModel: this.gemini.configured ? config.geminiSearchModel : null,
       openAiPublicWeb: this.openAi.configured,
@@ -579,6 +648,7 @@ export class PublicSearchService {
       notes: [
         "Poshmark shoe discovery uses its public vm-rest JSON endpoint and does not consume AI credits.",
         "eBay native discovery requests newly listed inventory and scans deeper than the displayed result count.",
+        "Google Programmable Search is used for direct public listing URLs when configured, ahead of AI web-search quota.",
         "Gemini Google Search is the primary public-web discovery provider; OpenAI is fallback-only when Gemini is unavailable or returns no usable direct listings.",
         "Public web discovery searches multiple legitimate marketplaces and direct public seller/listing pages.",
         "Private Facebook groups and login-restricted content are never accessed automatically.",
@@ -598,7 +668,7 @@ export class PublicSearchService {
     const publicWebSearch = async () => {
       const warnings = [];
       let lastEmpty = null;
-      for (const adapter of [this.gemini, this.openAi]) {
+      for (const adapter of [this.google, this.gemini, this.openAi]) {
         if (!adapter.configured) continue;
         try {
           const result = await adapter.search(request);

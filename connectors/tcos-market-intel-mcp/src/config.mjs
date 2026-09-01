@@ -42,6 +42,8 @@ export const config = Object.freeze({
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   openAiApiKey: process.env.OPENAI_API_KEY || "",
   geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || "",
+  googleSearchApiKey: String(process.env.GOOGLE_SEARCH_API_KEY || "").trim(),
+  googleSearchEngineId: String(process.env.GOOGLE_SEARCH_ENGINE_ID || "").trim(),
   geminiSearchModel: process.env.TCOS_GEMINI_SEARCH_MODEL || "gemini-3.6-flash",
   searchModel: process.env.TCOS_SEARCH_MODEL || "gpt-5",
   searchMaxResults: Math.max(1, Math.min(100, parseNumber(process.env.TCOS_SEARCH_MAX_RESULTS, 50))),
@@ -83,7 +85,11 @@ export const ebayBrowseConfigured = Boolean(
   config.ebayBrowseAccessToken || (config.ebayClientId && config.ebayClientSecret),
 );
 export const publicSearchConfigured = Boolean(
-  config.geminiApiKey || config.openAiApiKey || ebayBrowseConfigured || config.xBearerToken,
+  config.geminiApiKey ||
+    config.openAiApiKey ||
+    (config.googleSearchApiKey && config.googleSearchEngineId) ||
+    ebayBrowseConfigured ||
+    config.xBearerToken,
 );
 export const instaCompConfigured = Boolean(
   config.instacompBaseUrl && config.instacompServiceToken,
