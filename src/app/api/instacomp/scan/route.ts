@@ -104,10 +104,9 @@ const GEMINI_API_KEY =
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL;
 const INSTACOMP_GEMINI_MODEL =
-  process.env.INSTACOMP_GEMINI_MODEL || "gemini-2.5-flash";
+  process.env.INSTACOMP_GEMINI_MODEL || "gemini-3.6-flash";
 const INSTACOMP_GROQ_MODEL =
-  process.env.INSTACOMP_GROQ_MODEL ||
-  "meta-llama/llama-4-scout-17b-16e-instruct";
+  process.env.INSTACOMP_GROQ_MODEL || "qwen/qwen3.6-27b";
 const INSTACOMP_OLLAMA_MODEL =
   process.env.INSTACOMP_OLLAMA_MODEL || "llava";
 const INSTACOMP_AI_COUNCIL_TIER =
