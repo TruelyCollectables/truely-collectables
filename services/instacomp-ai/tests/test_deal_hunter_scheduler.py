@@ -42,6 +42,48 @@ def test_feed_contract_is_fail_closed():
         validate_feed(broken, "wnba", 15)
 
 
+@pytest.mark.asyncio
+async def test_fetch_feed_preserves_source_warnings(tmp_path: Path):
+    settings = SimpleNamespace()
+    scheduler = DealHunterScheduler(settings, DealHunterStore(tmp_path / "instacomp.sqlite3"))
+    payload = complete_feed(2)
+    payload["sourceCoverage"] = [
+        {
+            "familyId": "mercari.wnba-rookie-lots",
+            "status": "COMPLETE",
+            "warnings": ["Gemini quota exceeded"],
+        },
+        {
+            "familyId": "mercari.cheap-card-lots",
+            "status": "COMPLETE",
+            "error": "OpenAI credits exhausted",
+        },
+    ]
+
+    class FakeResponse:
+        is_success = True
+        status_code = 200
+
+        def json(self):
+            return payload
+
+    class FakeClient:
+        async def get(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    outcome = await scheduler._fetch_feed(
+        FakeClient(),  # type: ignore[arg-type]
+        "mercari_card_opportunities",
+        "https://example.test/feed",
+        2,
+    )
+
+    assert outcome["coverage"]["warnings"] == [
+        "mercari.wnba-rookie-lots: Gemini quota exceeded",
+        "mercari.cheap-card-lots: OpenAI credits exhausted",
+    ]
+
+
 def test_candidate_normalization_deduplicates_images():
     raw = {
         "listingItemId": "123",
