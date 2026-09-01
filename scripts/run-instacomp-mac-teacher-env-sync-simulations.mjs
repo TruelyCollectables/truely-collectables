@@ -45,7 +45,7 @@ assert.match(
 );
 assert.doesNotMatch(productionRelease, /\bvercel\b/i);
 assert.match(routedWorkerConfig, /"name"\s*:\s*"truely-collectables-preview"/);
-assert.match(routedWorkerConfig, /"main"\s*:\s*"\.\/cloudflare-worker\.ts"/);
+assert.match(routedWorkerConfig, /"main"\s*:\s*"\.\/cloudflare-storefront-entrypoint\.ts"/);
 
 // Keep the runtime credential vocabulary explicit so a provider cannot silently
 // stop participating after deployment even though its Worker secret still exists.
