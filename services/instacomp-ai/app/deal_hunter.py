@@ -20,8 +20,6 @@ from .deal_hunter_store import DealHunterStore, utc_now
 # but a feed that unexpectedly shrinks below its certified baseline still fails.
 FEEDS = (
     ("wnba", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=wnba", 15),
-    ("ivan_demidov", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=ivan_demidov", 3),
-    ("matvei_michkov_young_guns", "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=matvei_michkov_young_guns", 8),
     (
         "baseball_prospects",
         "/api/tcos/deal-hunter-native-ebay?perQuery={per_query}&scope=baseball_prospects",
@@ -42,6 +40,11 @@ FEEDS = (
         "/api/tcos/deal-hunter-public-marketplaces?perQuery={per_query}&scope=shoe_deals",
         2,
     ),
+    (
+        "mercari_card_opportunities",
+        "/api/tcos/deal-hunter-public-marketplaces?perQuery={per_query}&scope=card_opportunities",
+        6,
+    ),
 )
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -60,6 +63,7 @@ SIGNED_BASEBALL_LANES = {
 SIGNED_BASEBALL_MIN_PER_RUN = 5
 SIGNED_BASEBALL_REVIEW_MAX_DELIVERED_COST = 60.0
 PUBLIC_MARKETPLACE_MIN_PER_RUN = 8
+OPPORTUNITIES_PER_RUN = 5
 SHOE_DEAL_LANES = {"shoe_deal"}
 SHOE_MAX_ITEM_PRICE = 30.0
 SHOE_MAX_SHIPPING = 15.0
@@ -108,6 +112,69 @@ def _is_shoe_candidate(candidate: dict[str, Any]) -> bool:
 
 def _is_public_marketplace_candidate(candidate: dict[str, Any]) -> bool:
     return str(candidate.get("marketplace") or "").strip().lower() in {"mercari", "poshmark"}
+
+
+def _opportunity_score(result: dict[str, Any]) -> tuple[float, float, str]:
+    if bool(result.get("actionable")):
+        return (10_000.0 + float(result.get("roi_percent") or 0), 0.0, str(result.get("candidate_key") or ""))
+    price = _number(result.get("item_price"))
+    shipping = _number(result.get("inbound_shipping"))
+    marketplace = str(result.get("marketplace") or "").strip().lower()
+    lane = str(result.get("lane") or "").strip().lower()
+    title = str(result.get("title") or "")
+    score = 0.0
+    if marketplace == "mercari":
+        score += 35.0
+    elif marketplace == "poshmark":
+        score += 15.0
+    if bool(result.get("alertworthy")):
+        score += 25.0
+    if result.get("status") in {"manual_review", "identity_review"}:
+        score += 18.0
+    if lane in {"broad_professional_rookies", "true_first_bowman", "signed_prospect_baseball", "signed_prospect_baseball_mislist_rescue"}:
+        score += 12.0
+    if re.search(r"\b(?:lot|2x|pair|bundle|complete your set|rookie|rc|1st|chrome|prizm|select|auto|autograph|signed)\b", title, re.I):
+        score += 10.0
+    if price is not None:
+        if price <= 3:
+            score += 18.0
+        elif price <= 10:
+            score += 14.0
+        elif price <= 20:
+            score += 8.0
+        elif price <= 40:
+            score += 3.0
+    if shipping is not None and shipping <= 1.5:
+        score += 5.0
+    elif shipping is not None and shipping >= 8:
+        score -= 5.0
+    if result.get("error_code") == "DEAL_HUNTER_EXACT_SOLD_REQUIRED":
+        score += 4.0
+    return (score, -(price if price is not None else 10**6), str(result.get("candidate_key") or ""))
+
+
+def _opportunity_item(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "candidate_key": result.get("candidate_key"),
+        "title": result.get("title"),
+        "listing_url": result.get("listing_url"),
+        "watched_person": result.get("watched_person"),
+        "lane": result.get("lane"),
+        "marketplace": result.get("marketplace"),
+        "status": result.get("status"),
+        "item_price": result.get("item_price"),
+        "inbound_shipping": result.get("inbound_shipping"),
+        "delivered_cost": result.get("delivered_cost"),
+        "conservative_resale": result.get("conservative_resale"),
+        "expected_net_profit": result.get("expected_net_profit"),
+        "roi_percent": result.get("roi_percent"),
+        "deal_label": result.get("deal_label"),
+        "actionable": bool(result.get("actionable")),
+        "alertworthy": bool(result.get("alertworthy")),
+        "error_code": result.get("error_code"),
+        "error_message": result.get("error_message"),
+        "opportunity_score": round(_opportunity_score(result)[0], 2),
+    }
 
 
 def _known_delivered_cost(candidate: dict[str, Any]) -> float | None:
@@ -334,6 +401,7 @@ class DealHunterScheduler:
                 summary["evaluation_concurrency"] = concurrency
 
                 run_review_items: list[dict[str, Any]] = []
+                opportunity_pool: list[dict[str, Any]] = []
                 for candidate, outcome in zip(selected, evaluated_results):
                     if isinstance(outcome, Exception):
                         result = {
@@ -354,21 +422,9 @@ class DealHunterScheduler:
                     )
                     counts["failure"] += int(result.get("status") == "failed")
                     if result.get("status") in {"manual_review", "identity_review"} or bool(result.get("actionable")):
-                        run_review_items.append({
-                            "title": result.get("title"),
-                            "listing_url": result.get("listing_url"),
-                            "watched_person": result.get("watched_person"),
-                            "lane": result.get("lane"),
-                            "status": result.get("status"),
-                            "item_price": result.get("item_price"),
-                            "inbound_shipping": result.get("inbound_shipping"),
-                            "delivered_cost": result.get("delivered_cost"),
-                            "conservative_resale": result.get("conservative_resale"),
-                            "expected_net_profit": result.get("expected_net_profit"),
-                            "roi_percent": result.get("roi_percent"),
-                            "deal_label": result.get("deal_label"),
-                            "actionable": bool(result.get("actionable")),
-                        })
+                        run_review_items.append(_opportunity_item(result))
+                    if result.get("status") != "failed" and result.get("listing_url"):
+                        opportunity_pool.append(result)
 
                     # Fully evaluated card candidates are persisted and alerted by
                     # the central evaluate endpoint during _evaluate(). Local-only
@@ -395,6 +451,15 @@ class DealHunterScheduler:
 
                 summary["alert_delivery"] = alert_delivery
                 summary["review_items"] = run_review_items
+                summary["top_opportunities"] = [
+                    _opportunity_item(result)
+                    for result in sorted(
+                        opportunity_pool,
+                        key=_opportunity_score,
+                        reverse=True,
+                    )[:OPPORTUNITIES_PER_RUN]
+                ]
+                summary["top_opportunity_count"] = len(summary["top_opportunities"])
                 summary.update(counts)
                 summary["completed_at"] = utc_now().isoformat()
                 try:

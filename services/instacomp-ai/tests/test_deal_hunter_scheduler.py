@@ -213,13 +213,14 @@ async def test_rate_limit_short_circuits_remaining_ebay_feeds_but_keeps_public_l
     candidates, coverage = await scheduler._discover()
 
     assert candidates == []
-    assert calls == ["wnba", "shoe_deals"]
+    assert calls == ["wnba", "shoe_deals", "mercari_card_opportunities"]
     assert [(row["key"], row["status"]) for row in coverage] == [
         ("wnba", "FAILED_RATE_LIMIT"),
         ("baseball_prospects", "DEFERRED_RATE_LIMIT"),
         ("signed_baseballs", "DEFERRED_RATE_LIMIT"),
         ("music_comedy_autographs", "DEFERRED_RATE_LIMIT"),
         ("shoe_deals", "COMPLETE"),
+        ("mercari_card_opportunities", "COMPLETE"),
     ]
 
 
@@ -334,21 +335,14 @@ async def test_run_bridges_local_alertworthy_candidate_to_central_delivery(tmp_p
     result = await scheduler.run_now(trigger="manual")
 
     assert result["status"] == "completed"
-    assert result["review_items"] == [{
-        "title": evaluated["title"],
-        "listing_url": evaluated["listing_url"],
-        "watched_person": evaluated.get("watched_person"),
-        "lane": evaluated.get("lane"),
-        "status": "manual_review",
-        "item_price": evaluated.get("item_price"),
-        "inbound_shipping": evaluated.get("inbound_shipping"),
-        "delivered_cost": evaluated.get("delivered_cost"),
-        "conservative_resale": evaluated.get("conservative_resale"),
-        "expected_net_profit": evaluated.get("expected_net_profit"),
-        "roi_percent": evaluated.get("roi_percent"),
-        "deal_label": evaluated["deal_label"],
-        "actionable": False,
-    }]
+    assert len(result["review_items"]) == 1
+    assert result["review_items"][0]["title"] == evaluated["title"]
+    assert result["review_items"][0]["listing_url"] == evaluated["listing_url"]
+    assert result["review_items"][0]["status"] == "manual_review"
+    assert result["review_items"][0]["deal_label"] == evaluated["deal_label"]
+    assert result["review_items"][0]["actionable"] is False
+    assert result["top_opportunity_count"] == 1
+    assert result["top_opportunities"][0]["candidate_key"] == "ebay:local-review-1"
     assert published_summary["review_items"] == result["review_items"]
     assert len(published) == 1
     assert published[0][1] == "ebay:local-review-1"
@@ -360,6 +354,64 @@ async def test_run_bridges_local_alertworthy_candidate_to_central_delivery(tmp_p
         "failed": 0,
         "errors": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_run_sends_top_five_opportunities_even_without_exact_actionable(tmp_path: Path):
+    settings = SimpleNamespace(
+        deal_hunter_enabled=True,
+        deal_hunter_interval_minutes=60,
+        deal_hunter_candidate_cooldown_hours=6,
+        deal_hunter_max_candidates_per_run=10,
+        deal_hunter_evaluation_concurrency=4,
+    )
+    store = DealHunterStore(tmp_path / "instacomp.sqlite3")
+    store.initialize()
+    scheduler = DealHunterScheduler(settings, store)
+    published_summary = {}
+
+    async def discover():
+        return [
+            {
+                "candidate_key": f"mercari:m{index}",
+                "listing_url": f"https://www.mercari.com/us/item/m{index}/",
+                "marketplace": "Mercari",
+                "lane": "broad_professional_rookies",
+                "watched_person": "WNBA Rookie Deal Watch",
+                "title": f"WNBA rookie base card lot {index}",
+                "item_price": float(index + 1),
+                "inbound_shipping": 0.99,
+                "image_urls": ["front", "back"],
+            }
+            for index in range(7)
+        ], []
+
+    async def evaluate(candidate, _run_id):
+        return {
+            **candidate,
+            "status": "completed",
+            "actionable": False,
+            "alertworthy": False,
+            "deal_label": "SUPPRESSED - NO TRUSTED EXACT SOLD PRICE",
+            "error_code": "DEAL_HUNTER_EXACT_SOLD_REQUIRED",
+            "error_message": "Research lead only until exact sold evidence is proven.",
+        }
+
+    async def publish_summary(_run_id, _status, _counts, summary):
+        published_summary.update(summary)
+
+    scheduler._discover = discover  # type: ignore[method-assign]
+    scheduler._evaluate = evaluate  # type: ignore[method-assign]
+    scheduler._publish_run_summary = publish_summary  # type: ignore[method-assign]
+
+    result = await scheduler.run_now(trigger="manual")
+
+    assert result["actionable"] == 0
+    assert result["top_opportunity_count"] == 5
+    assert len(result["top_opportunities"]) == 5
+    assert result["top_opportunities"][0]["marketplace"] == "Mercari"
+    assert result["top_opportunities"][0]["error_code"] == "DEAL_HUNTER_EXACT_SOLD_REQUIRED"
+    assert len(published_summary["top_opportunities"]) == 5
 
 
 @pytest.mark.asyncio
