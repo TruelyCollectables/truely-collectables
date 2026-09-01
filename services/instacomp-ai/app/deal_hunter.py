@@ -637,6 +637,24 @@ class DealHunterScheduler:
             raise RuntimeError(f"{key} feed returned unreadable JSON")
         validate_feed(payload, key, minimum_families)
         family_count = int(payload.get("queryFamilyCount", 0))
+        source_coverage = [
+            row for row in (payload.get("sourceCoverage") or []) if isinstance(row, dict)
+        ]
+        warnings = []
+        for row in source_coverage:
+            label = str(
+                row.get("familyId")
+                or row.get("key")
+                or row.get("lane")
+                or key
+            )
+            for warning in row.get("warnings") or []:
+                message = str(warning or "").strip()
+                if message:
+                    warnings.append(f"{label}: {message[:500]}")
+            error = str(row.get("error") or "").strip()
+            if error:
+                warnings.append(f"{label}: {error[:500]}")
         return {
             "coverage": {
                 "key": key,
@@ -644,6 +662,7 @@ class DealHunterScheduler:
                 "query_family_count": family_count,
                 "minimum_query_family_count": minimum_families,
                 "result_count": len(payload.get("results") or []),
+                "warnings": warnings[:12],
                 "duration_ms": int((utc_now() - started).total_seconds() * 1000),
             },
             "results": payload.get("results") or [],
