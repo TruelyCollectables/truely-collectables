@@ -32,7 +32,7 @@ assert.match(
       watchedPerson: "Kiki Iriafen",
       title: "2025 Donruss WNBA Kiki Iriafen Rookie Card (RC) #94 - Washington Mystics",
     },
-    { ai: { player: "Jack Leiter", cardNumber: "94", sport: "baseball", parallel: "Base" } },
+    { ai: { player: "Jack Leiter", cardNumber: "94", sport: "baseball", parallel: "Base", confidence: 0.99 } },
   ) || "",
   /watched player/i,
 );
@@ -43,7 +43,7 @@ assert.match(
       watchedPerson: "Sonia Citron",
       title: "Sonia Citron Rated Rookie RC 2025 Donruss WNBA Basketball Card #87 Mystics",
     },
-    { ai: { player: "Alex Rodriguez", cardNumber: "87", sport: "baseball", parallel: "Base" } },
+    { ai: { player: "Alex Rodriguez", cardNumber: "87", sport: "baseball", parallel: "Base", confidence: 0.99 } },
   ) || "",
   /watched player/i,
 );
@@ -60,6 +60,7 @@ assert.match(
         cardNumber: "60",
         sport: "Basketball",
         parallel: "Silver Prizms",
+        confidence: 0.99,
       },
     },
   ) || "",
@@ -78,6 +79,7 @@ assert.match(
         cardNumber: "60",
         sport: "Basketball",
         parallel: "Silver Prizms",
+        confidence: 0.99,
       },
     },
   ) || "",
@@ -116,10 +118,27 @@ assert.match(
         sport: "Baseball",
         league: "MLB",
         parallel: "Base",
+        confidence: 0.99,
       },
     },
   ) || "",
   /WNBA listing conflicts/i,
+);
+
+assert.equal(
+  dealHunterListingRegistryConflict(
+    { watchedPerson: "Paige Bueckers", title: "2025 Panini Donruss WNBA Paige Bueckers #86 RC" },
+    { ai: { player: "EAIGE BUSCKER", cardNumber: "86", parallel: "unknown", confidence: 0.183, internalStatus: "needs_review" } },
+  ),
+  null,
+);
+
+assert.equal(
+  dealHunterListingRegistryConflict(
+    { watchedPerson: "Jesus Made", title: "2025 Bowman Chrome Jesus Made #BCP-50 Mojo Refractor" },
+    { ai: { player: "JESUS MADE", cardNumber: null, parallel: "unknown", confidence: 0.167, internalStatus: "needs_review" } },
+  ),
+  null,
 );
 
 console.log(

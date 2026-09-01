@@ -63,7 +63,12 @@ export function dealHunterListingRegistryConflict(
 
   const watchedPerson = normalized(listing.watchedPerson);
   const lockedPlayer = normalized(ai.player);
-  if (watchedPerson && lockedPlayer && watchedPerson !== lockedPlayer) {
+  const aiConfidence = Number(ai.confidence);
+  const identityTrusted =
+    ai.internalStatus === "identified" ||
+    ai.internalChecklistOutcome === "identified" ||
+    (Number.isFinite(aiConfidence) && aiConfidence >= 0.85);
+  if (watchedPerson && lockedPlayer && watchedPerson !== lockedPlayer && identityTrusted) {
     return `watched player ${String(listing.watchedPerson)} conflicts with Registry player ${String(ai.player)}`;
   }
 
@@ -72,6 +77,7 @@ export function dealHunterListingRegistryConflict(
   if (
     titleNumbers.length > 0 &&
     lockedCardNumber &&
+    identityTrusted &&
     !titleNumbers.includes(lockedCardNumber)
   ) {
     return `listing card number ${titleNumbers.join("/")} conflicts with Registry card number ${String(ai.cardNumber)}`;
@@ -82,6 +88,7 @@ export function dealHunterListingRegistryConflict(
   const lockedLeague = normalized(ai.league);
   if (
     titleText.includes("wnba") &&
+    identityTrusted &&
     ((lockedSport && lockedSport !== "basketball") ||
       (lockedLeague && lockedLeague !== "wnba"))
   ) {
@@ -90,9 +97,10 @@ export function dealHunterListingRegistryConflict(
 
   const titleParallel = explicitTitleParallel(title);
   const lockedParallel = normalizedParallel(ai.parallel);
+  const parallelTrusted = identityTrusted && lockedParallel && lockedParallel !== "unknown";
   if (
     titleParallel &&
-    lockedParallel &&
+    parallelTrusted &&
     !lockedParallel.includes(normalizedParallel(titleParallel))
   ) {
     return `listing parallel ${titleParallel} conflicts with Registry parallel ${String(ai.parallel)}`;
