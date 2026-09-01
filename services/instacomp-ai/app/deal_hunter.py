@@ -463,8 +463,11 @@ class DealHunterScheduler:
                 summary.update(counts)
                 summary["completed_at"] = utc_now().isoformat()
                 try:
-                    await self._publish_run_summary(run_id, status, counts, summary)
-                    summary["run_summary_delivery"] = {"status": "sent"}
+                    receipt = await self._publish_run_summary(run_id, status, counts, summary)
+                    summary["run_summary_delivery"] = {
+                        "status": "sent",
+                        "email": receipt.get("email") or {},
+                    }
                 except Exception as publish_error:
                     summary["run_summary_delivery"] = {
                         "status": "failed",
@@ -1077,7 +1080,7 @@ class DealHunterScheduler:
         status: str,
         counts: dict[str, int],
         summary: dict[str, Any],
-    ) -> None:
+    ) -> dict[str, Any]:
         if not self.settings.api_key:
             raise RuntimeError("Deal Hunter run summary email cannot send: InstaComp AI key is missing.")
         timeout = httpx.Timeout(min(float(self.settings.deal_hunter_request_timeout_seconds), 60.0))
@@ -1102,3 +1105,4 @@ class DealHunterScheduler:
             body = response.json()
             if body.get("ok") is not True or (body.get("email") or {}).get("status") != "sent":
                 raise RuntimeError(str(body.get("error") or "Deal Hunter run summary email was not confirmed sent."))
+            return body

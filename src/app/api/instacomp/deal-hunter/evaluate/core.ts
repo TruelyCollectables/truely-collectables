@@ -63,6 +63,45 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", "&#039;");
 }
 
+function maskEmail(value: string) {
+  const trimmed = value.trim();
+  const [local, domain] = trimmed.split("@");
+  if (!local || !domain) return trimmed ? "configured-recipient" : "";
+  const visible = local.length <= 2 ? local[0] || "*" : `${local.slice(0, 2)}...${local.slice(-1)}`;
+  return `${visible}@${domain}`;
+}
+
+function feedCoverageItems(summary: Record<string, any>) {
+  const coverage = summary.feed_coverage;
+  if (Array.isArray(coverage)) return coverage.filter((entry) => entry && typeof entry === "object");
+  if (coverage && typeof coverage === "object") {
+    return Object.entries(coverage).map(([key, value]) => ({
+      key,
+      ...(value && typeof value === "object" ? value : {}),
+    }));
+  }
+  return [];
+}
+
+function feedLabel(entry: Record<string, any>) {
+  return text(entry.key || entry.familyId || entry.feed || entry.source || entry.lane, 160) || "market feed";
+}
+
+function feedWarningLines(summary: Record<string, any>) {
+  return feedCoverageItems(summary)
+    .flatMap((entry) => {
+      const warnings = Array.isArray(entry.warnings)
+        ? entry.warnings
+        : [entry.warning, entry.error].filter(Boolean);
+      return warnings.map((warning: unknown) => ({
+        feed: feedLabel(entry),
+        message: text(warning, 500) || "Feed returned a warning.",
+      }));
+    })
+    .filter((entry) => entry.message)
+    .slice(0, 12);
+}
+
 function economics(listing: Record<string, unknown>, scan: Record<string, any>) {
   const exactMarket = (scan.exactMarket || {}) as Record<string, any>;
   const soldCount = Number(
@@ -249,6 +288,11 @@ export async function persistRunSummary(body: Record<string, any>) {
     ? summary.top_opportunities.slice(0, 5)
     : [];
   const reviewItems = Array.isArray(summary.review_items) ? summary.review_items.slice(0, 40) : [];
+  const feedWarnings = feedWarningLines(summary);
+  const feedWarningRows = feedWarnings.map((entry) =>
+    `<li style="margin:0 0 10px"><strong>${escapeHtml(entry.feed)}</strong><br>${escapeHtml(entry.message)}</li>`,
+  ).join("");
+  const recipientNote = maskEmail(to);
   const renderRows = (items: Record<string, any>[]) => items.map((item: Record<string, any>) => {
     const price = Number(item.item_price);
     const shipping = Number(item.inbound_shipping);
@@ -267,10 +311,12 @@ export async function persistRunSummary(body: Record<string, any>) {
   const reviewRows = renderRows(reviewItems);
   const subject = `Deal Hunter run complete — ${topOpportunities.length} opportunities, ${Number(counts.actionable || 0)} exact deals`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;color:#111">` +
-    `<h1>Deal Hunter run complete</h1><p><strong>Run:</strong> ${escapeHtml(runId)}</p>` +
+    `<h1>Deal Hunter run complete</h1><p><strong>Run:</strong> ${escapeHtml(runId)}<br>` +
+    `<strong>Sent to:</strong> ${escapeHtml(recipientNote)}</p>` +
     `<p>Discovered: ${Number(counts.discovery || 0)} · Evaluated: ${Number(counts.evaluated || 0)} · ` +
     `Actionable: ${Number(counts.actionable || 0)} · Review: ${Number(counts.manual_review || 0)} · Failures: ${Number(counts.failure || 0)}</p>` +
     (opportunityRows ? `<h2>Top 5 opportunities</h2><ol>${opportunityRows}</ol>` : `<p>No opportunity candidates were evaluated in this run.</p>`) +
+    (feedWarningRows ? `<h2>Feed warnings</h2><ol>${feedWarningRows}</ol>` : "") +
     (reviewRows ? `<h2>Listings requiring review</h2><ol>${reviewRows}</ol>` : `<p>No listings required review in this run.</p>`) +
     `<p style="font-size:12px;color:#666">Actionable stays exact-comp backed. Opportunities are research leads for fast manual inspection and market learning.</p>` +
     `</div>`;
@@ -282,7 +328,17 @@ export async function persistRunSummary(body: Record<string, any>) {
   });
   const delivery = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(text((delivery as any)?.message, 1000) || `Resend HTTP ${response.status}`);
-  return { ok: true, kind: "run_complete", runId, email: { status: "sent", id: (delivery as any)?.id || null } };
+  return {
+    ok: true,
+    kind: "run_complete",
+    runId,
+    email: {
+      status: "sent",
+      id: (delivery as any)?.id || null,
+      recipient: recipientNote,
+      feedWarningCount: feedWarnings.length,
+    },
+  };
 }
 
 async function sendAlertEmail(params: {
