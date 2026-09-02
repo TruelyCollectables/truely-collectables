@@ -48,6 +48,12 @@ def _is_verified_checklist_page_url(url: str) -> bool:
     return url in _VERIFIED_PAGE_URLS
 
 
+def _is_beckett_checklist_page_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return host in {"beckett.com", "www.beckett.com"} and parsed.path.startswith("/news/")
+
+
 def _psa_requires_browser_render(downloaded: DownloadedFile) -> bool:
     if not _is_exact_psa_apr_url(downloaded.url):
         return False
@@ -81,6 +87,33 @@ def _verified_page_http_error_requires_browser_render(
 
 def _verified_page_requires_browser_render(downloaded: DownloadedFile) -> bool:
     if not _is_verified_checklist_page_url(downloaded.url):
+        return False
+    if downloaded.content_type not in {"text/html", "application/xhtml+xml", "application/octet-stream"}:
+        return False
+    lowered = downloaded.content.lower()
+    blocked = any(
+        marker in lowered
+        for marker in (
+            b"cf-chl-",
+            b"cloudflare",
+            b"access denied",
+            b"enable javascript and cookies",
+            b"just a moment",
+        )
+    )
+    too_thin = len(downloaded.content) < 3000 or b"checklist" not in lowered
+    return blocked or too_thin
+
+
+def _beckett_http_error_requires_browser_render(url: str, error: httpx.HTTPStatusError) -> bool:
+    if not _is_beckett_checklist_page_url(url):
+        return False
+    response = error.response
+    return response is not None and response.status_code in {403, 429, 502, 503}
+
+
+def _beckett_requires_browser_render(downloaded: DownloadedFile) -> bool:
+    if not _is_beckett_checklist_page_url(downloaded.url):
         return False
     if downloaded.content_type not in {"text/html", "application/xhtml+xml", "application/octet-stream"}:
         return False
@@ -216,6 +249,37 @@ async def _render_verified_checklist_page_with_chrome(
         for marker in (b"cf-chl-", b"enable javascript and cookies", b"just a moment")
     ):
         raise ValueError("Verified checklist page remained behind an interstitial after browser rendering.")
+    return DownloadedFile(
+        url=url,
+        content=stdout,
+        content_type="text/html",
+        sha256=hashlib.sha256(stdout).hexdigest(),
+        extension=".html",
+    )
+
+
+async def _render_beckett_checklist_page_with_chrome(
+    client: SentinelSourceClient,
+    url: str,
+) -> DownloadedFile:
+    if not _is_beckett_checklist_page_url(url):
+        raise ValueError("Refusing browser capture for a non-Beckett checklist page URL.")
+    stdout = await _dump_dom_with_chrome(
+        client,
+        url,
+        profile_prefix="instacomp-beckett-page-",
+        virtual_time_budget_ms=30000,
+    )
+    lowered = stdout.lower()
+    if b"<html" not in lowered or b"checklist" not in lowered or len(stdout) < 3000:
+        raise ValueError(
+            "Beckett checklist page rendered, but the captured DOM did not expose a substantive checklist page."
+        )
+    if any(
+        marker in lowered
+        for marker in (b"cf-chl-", b"enable javascript and cookies", b"just a moment")
+    ):
+        raise ValueError("Beckett checklist page remained behind an interstitial after browser rendering.")
     return DownloadedFile(
         url=url,
         content=stdout,
@@ -363,11 +427,15 @@ def install_sentinel_runtime_compat() -> None:
                 return await _render_psa_apr_with_chrome(self, url)
             if _verified_page_http_error_requires_browser_render(url, error):
                 return await _render_verified_checklist_page_with_chrome(self, url)
+            if _beckett_http_error_requires_browser_render(url, error):
+                return await _render_beckett_checklist_page_with_chrome(self, url)
             raise
         if _psa_requires_browser_render(downloaded):
             return await _render_psa_apr_with_chrome(self, downloaded.url)
         if _verified_page_requires_browser_render(downloaded):
             return await _render_verified_checklist_page_with_chrome(self, downloaded.url)
+        if _beckett_requires_browser_render(downloaded):
+            return await _render_beckett_checklist_page_with_chrome(self, downloaded.url)
         return downloaded
 
     SentinelSourceClient.search = search_with_verified_recovery
@@ -381,5 +449,5 @@ def install_sentinel_runtime_compat() -> None:
     # Sentinel code used `file`, causing otherwise-valid downloads to stop at
     # the relay boundary. Keep the corrected contract centralized here until
     # every installed runtime has moved past the legacy implementation.
-    ChecklistSentinel._import_to_registry = _import_to_registry_source_file
+    # Local Mac SQLite Registry is authoritative; keep Sentinel._import_to_registry.
     ChecklistSentinel._instacomp_source_file_relay_compat = True

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.sentinel import ChecklistSentinel
+from app.sentinel import ChecklistSentinel, rotated_sentinel_sources, sentinel_source_order
 from app.sentinel_sources import (
     Candidate,
     DownloadedFile,
@@ -56,6 +56,45 @@ def test_target_key_parser() -> None:
     assert target["year"] == 2024
     assert target["manufacturer"] == "upper-deck"
     assert target["product"] == "artifacts"
+
+
+def test_known_sentinel_sources_run_before_generic_search_engines() -> None:
+    sources = [
+        {"source_id": "google", "trust_score": 60},
+        {"source_id": "bing", "trust_score": 60},
+        {"source_id": "tcdb", "trust_score": 55},
+        {"source_id": "blowout", "trust_score": 55},
+        {"source_id": "psa", "trust_score": 96},
+        {"source_id": "panini", "trust_score": 100},
+    ]
+    ordered = [source["source_id"] for source in sorted(sources, key=sentinel_source_order)]
+    assert ordered == ["psa", "panini", "blowout", "tcdb", "bing", "google"]
+
+
+def test_golden_sources_rotate_before_generic_search_engines() -> None:
+    sources = [
+        {"source_id": "psa", "trust_score": 96},
+        {"source_id": "panini", "trust_score": 100},
+        {"source_id": "topps", "trust_score": 100},
+        {"source_id": "upperdeck", "trust_score": 100},
+        {"source_id": "leaf", "trust_score": 98},
+        {"source_id": "beckett", "trust_score": 90},
+        {"source_id": "gogts", "trust_score": 84},
+        {"source_id": "cardboardconnection", "trust_score": 88},
+        {"source_id": "bing", "trust_score": 60},
+        {"source_id": "google", "trust_score": 60},
+    ]
+    topps = [source["source_id"] for source in rotated_sentinel_sources(
+        sources, 0, {"manufacturer": "Topps"}
+    )]
+    upperdeck = [source["source_id"] for source in rotated_sentinel_sources(
+        sources, 1, {"manufacturer": "Upper Deck"}
+    )]
+
+    assert topps[:3] == ["topps", "beckett", "gogts"]
+    assert upperdeck[:3] == ["upperdeck", "beckett", "gogts"]
+    assert topps[-2:] == ["google", "bing"]
+    assert upperdeck[-2:] == ["google", "bing"]
 
 
 def test_sentinel_store_freeze_resume_and_sha_dedupe(tmp_path: Path) -> None:

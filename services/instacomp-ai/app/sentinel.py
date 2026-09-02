@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+import sqlite3
 import subprocess
 from contextlib import suppress
 from datetime import datetime, timezone
@@ -20,6 +22,7 @@ from .sentinel_sources import (
     targets_from_payload,
 )
 from .sentinel_store import SentinelStore
+from .local_registry_store import LocalRegistryStore
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -45,6 +48,57 @@ def _env_float(name: str, default: float, minimum: float, maximum: float) -> flo
     return max(minimum, min(maximum, value))
 
 
+def sentinel_source_order(source: dict[str, Any]) -> tuple[int, int, str]:
+    source_id = str(source.get("source_id") or "")
+    if source_id == "psa":
+        lane = 0
+    elif source_id in GOLDEN_SOURCE_ROTATION:
+        lane = 1
+    elif source_id == "cardboardconnection":
+        lane = 3
+    elif source_id in {"google", "bing"}:
+        lane = 4
+    else:
+        lane = 2
+    return (lane, -int(source.get("trust_score") or 0), source_id)
+
+
+GOLDEN_SOURCE_ROTATION = ("panini", "topps", "upperdeck", "leaf", "beckett", "gogts")
+
+
+def rotated_sentinel_sources(
+    sources: list[dict[str, Any]],
+    target_index: int,
+    target: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Manufacturer first, then Beckett/GoGTS, then trusted fallbacks."""
+    by_id = {str(source.get("source_id") or ""): source for source in sources}
+    manufacturer = str((target or {}).get("manufacturer") or "").strip().lower()
+    aliases = {
+        "upper deck": "upperdeck", "upperdeck": "upperdeck",
+        "topps": "topps", "bowman": "topps",
+        "panini": "panini", "donruss": "panini", "leaf": "leaf",
+    }
+    primary = aliases.get(manufacturer, manufacturer.replace(" ", ""))
+    preferred = [primary, "beckett", "gogts"]
+    ordered: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for source_id in preferred:
+        if source_id and source_id in by_id and source_id not in used:
+            ordered.append(by_id[source_id])
+            used.add(source_id)
+    for source in sorted(sources, key=sentinel_source_order):
+        source_id = str(source.get("source_id") or "")
+        if source_id not in used and source_id not in {"google", "bing"}:
+            ordered.append(source)
+            used.add(source_id)
+    for source_id in ("google", "bing"):
+        if source_id in by_id and source_id not in used:
+            ordered.append(by_id[source_id])
+            used.add(source_id)
+    return ordered
+
+
 class ChecklistSentinel:
     """InstaComp AI Checklist Sentinel™.
 
@@ -60,6 +114,16 @@ class ChecklistSentinel:
         self.service_root = service_root
         self.repo_root = service_root.parents[1]
         self.store = SentinelStore(database_path)
+        # Canonical checklist truth lives in the Mac registry SQLite. Sentinel
+        # checks it before spending search/download capacity on a target.
+        self.registry_database_path = self._resolve_path(
+            os.getenv(
+                "INSTACOMP_AI_REGISTRY_DB_PATH",
+                str(service_root / "data" / "database" / "checklist_registry.sqlite3"),
+            )
+        )
+        self.registry_store = LocalRegistryStore(self.registry_database_path, service_root)
+        self.registry_store.initialize()
         self.download_root = self._resolve_path(
             os.getenv(
                 "INSTACOMP_AI_SENTINEL_DOWNLOAD_PATH",
@@ -122,6 +186,9 @@ class ChecklistSentinel:
 
     async def start(self) -> None:
         self.store.initialize()
+        self.store.interrupt_running_jobs(
+            "Service restarted; previous in-process Sentinel job was safely interrupted."
+        )
         self.store.seed_sources(DEFAULT_SOURCES)
         await self.refresh_targets()
         if not self.auto_start or self._scheduler_task:
@@ -224,7 +291,7 @@ class ChecklistSentinel:
             except asyncio.TimeoutError:
                 continue
 
-    async def trigger(self, trigger: str = "manual-api") -> dict[str, Any]:
+    async def trigger(self, trigger: str = "manual-api", target_keys: list[str] | None = None) -> dict[str, Any]:
         async with self._start_lock:
             if self._run_task and not self._run_task.done():
                 latest = self.store.latest_job()
@@ -243,7 +310,7 @@ class ChecklistSentinel:
                 }
 
             self._run_task = asyncio.create_task(
-                self._run(job_id),
+                self._run(job_id, target_keys=target_keys),
                 name=f"instacomp-ai-checklist-sentinel-{job_id}",
             )
             return {
@@ -252,8 +319,62 @@ class ChecklistSentinel:
                 "trigger": trigger,
             }
 
-    async def _run(self, job_id: str) -> None:
-        targets = self.store.due_targets(self.max_targets_per_run)
+    def _load_mac_registry_release_index(self) -> list[tuple[Any, Any]]:
+        if not self.registry_database_path.exists():
+            return []
+        try:
+            db = sqlite3.connect(self.registry_database_path, timeout=10)
+            try:
+                return db.execute(
+                    "SELECT year, product FROM checklist_registry_entries WHERE active=1 GROUP BY release_id"
+                ).fetchall()
+            finally:
+                db.close()
+        except sqlite3.Error:
+            return []
+
+    def _target_already_in_mac_registry(
+        self,
+        target: dict[str, Any],
+        registry_index: list[tuple[Any, Any]] | None = None,
+    ) -> bool:
+        year = str(target.get("year") or target.get("season") or "")[:4]
+        product = " ".join(str(target.get("product") or "").lower().split())
+        if not product:
+            return False
+
+        rows = registry_index
+        if rows is None:
+            rows = self._load_mac_registry_release_index()
+
+        def norm(v: object) -> str:
+            return re.sub(r"[^a-z0-9]+", " ", str(v or "").lower()).strip()
+        want = norm(product)
+        for have_year, have_product in rows:
+            if year and str(have_year or "")[:4] != year:
+                continue
+            have = norm(have_product)
+            if have == want or (len(want) >= 12 and (want in have or have in want)):
+                return True
+        return False
+
+    async def _run(self, job_id: str, target_keys: list[str] | None = None) -> None:
+        due = (
+            self.store.targets_by_keys(target_keys)
+            if target_keys
+            else self.store.due_targets(self.max_targets_per_run * 3)
+        )
+        registry_index = await asyncio.to_thread(self._load_mac_registry_release_index)
+        targets = []
+        already_present = 0
+        for target in due:
+            if self._target_already_in_mac_registry(target, registry_index):
+                self.store.mark_target(target["target_key"], "recovered", retry_after_seconds=self.interval_seconds, metadata={"reason":"already_present_mac_registry","registry_required":False})
+                already_present += 1
+                continue
+            targets.append(target)
+            if len(targets) >= self.max_targets_per_run:
+                break
         total = len(targets)
         counters = {
             "processed": 0,
@@ -262,7 +383,9 @@ class ChecklistSentinel:
             "imported": 0,
             "duplicates": 0,
             "failed": 0,
+            "already_present": 0,
         }
+        counters["already_present"] = already_present
         heartbeat_task = asyncio.create_task(
             self._heartbeat_loop(job_id, counters, total),
             name=f"sentinel-heartbeat-{job_id}",
@@ -293,17 +416,7 @@ class ChecklistSentinel:
 
         try:
             sources = self.store.list_sources(enabled_only=True)
-            # PSA APR is a first-party checklist source and must run before any
-            # SERP-backed manufacturer/community discovery. Trust still orders
-            # the remaining sources after the PSA-first lane.
-            sources.sort(
-                key=lambda source: (
-                    0 if source.get("source_id") == "psa" else 1,
-                    -int(source.get("trust_score") or 0),
-                    str(source.get("source_id") or ""),
-                )
-            )
-            for target in targets:
+            for target_index, target in enumerate(targets):
                 self.store.heartbeat(
                     job_id,
                     current_target_key=target["target_key"],
@@ -319,7 +432,7 @@ class ChecklistSentinel:
                     result = await self._process_target(
                         job_id=job_id,
                         target=target,
-                        sources=sources,
+                        sources=rotated_sentinel_sources(sources, target_index, target),
                         client=client,
                     )
                     for key in ["found", "downloaded", "imported", "duplicates"]:
@@ -347,9 +460,12 @@ class ChecklistSentinel:
                     },
                 )
 
-            final_status = (
-                "completed_with_errors" if counters["failed"] else "completed"
-            )
+            if counters["failed"]:
+                final_status = "completed_with_errors"
+            elif counters["imported"] or counters["already_present"]:
+                final_status = "completed"
+            else:
+                final_status = "completed_no_registry_progress"
             self.store.heartbeat(
                 job_id,
                 processed_targets=counters["processed"],
@@ -494,9 +610,35 @@ class ChecklistSentinel:
                 if status != "validated_candidate" or recovered_download_id:
                     continue
 
+                ingest_candidate = candidate
+                candidate_path = candidate.url.lower().split("?", 1)[0]
+                if not candidate_path.endswith((".xlsx", ".xls", ".csv", ".pdf")) and hasattr(client, "resolve_ingest_candidates"):
+                    try:
+                        attachments = await client.resolve_ingest_candidates(source, target, candidate)
+                    except (httpx.HTTPError, ValueError):
+                        attachments = []
+                    if not attachments:
+                        lead_count += 1
+                        continue
+                    ingest_candidate = attachments[0]
+
                 try:
-                    downloaded = await client.download(candidate.url)
+                    downloaded = await client.download(ingest_candidate.url)
                 except (httpx.HTTPError, ValueError):
+                    continue
+
+                # HTML pages are discovery/catalog evidence only. For ingestion
+                # Sentinel accepts only spreadsheet files or structured PDFs.
+                if downloaded.extension.lower() not in {".xlsx", ".xls", ".csv", ".pdf"}:
+                    lead_count += 1
+                    self.store.record_finding(
+                        job_id=job_id, target_key=target["target_key"],
+                        source_id=source["source_id"], url=candidate.url,
+                        title=candidate.title, domain=candidate.domain,
+                        trust_score=candidate.trust_score, exact_match=True,
+                        content_type=downloaded.content_type, status="unsupported_ingest_format",
+                        reason="Discovery page retained, but ingestion requires XLSX/CSV or structured PDF.",
+                    )
                     continue
 
                 existing = self.store.sha_exists(downloaded.sha256)
@@ -522,6 +664,22 @@ class ChecklistSentinel:
                     if existing_status == "imported_registry":
                         recovered_download_id = str(existing["download_id"])
                         break
+                    # A prior download is NOT a successful duplicate unless it was
+                    # actually imported. Retry the already-persisted supported file
+                    # through the current local Mac SQLite importer.
+                    existing_path = Path(str(existing.get("local_path") or ""))
+                    if existing_path.exists() and existing_path.suffix.lower() in {".xlsx", ".xls", ".csv", ".pdf"}:
+                        registry_status, receipt = await self._import_to_registry(
+                            target=target, source_url=downloaded.url,
+                            local_path=existing_path, content_type=downloaded.content_type,
+                            sha256=downloaded.sha256,
+                        )
+                        self.store.update_download_status(str(existing["download_id"]), registry_status, receipt)
+                        counts["downloaded"] += 1
+                        if registry_status == "imported_registry":
+                            counts["imported"] += 1
+                            recovered_download_id = str(existing["download_id"])
+                            break
                     lead_count += 1
                     continue
 
@@ -597,75 +755,46 @@ class ChecklistSentinel:
 
     async def _import_to_registry(
         self,
-        *,
-        target: dict[str, Any],
-        source_url: str,
-        local_path: Path,
-        content_type: str,
-        sha256: str,
+        *, target: dict[str, Any], source_url: str, local_path: Path,
+        content_type: str, sha256: str,
     ) -> tuple[str, str | None]:
-        if not self.registry_import_url:
-            return "downloaded_local_pending_registry_import", None
-
-        headers = {}
-        if self.registry_token:
-            headers["authorization"] = f"Bearer {self.registry_token}"
-            headers["x-tcos-instacomp-service-token"] = self.registry_token
-        data = {
-            "targetKey": target["target_key"],
-            "sport": target.get("sport") or "",
-            "year": str(target.get("year") or ""),
-            "season": str(target.get("season") or ""),
-            "manufacturer": str(target.get("manufacturer") or ""),
-            "product": str(target.get("product") or ""),
-            "sourceUrl": source_url,
-            "sha256": sha256,
-            "source": "instacomp-ai-checklist-sentinel",
-        }
+        if local_path.suffix.lower() not in {".xlsx", ".xls", ".csv", ".pdf"}:
+            return "downloaded_local_unsupported_format", "Only XLSX/CSV or structured PDF is accepted."
         try:
-            async with httpx.AsyncClient(
-                timeout=max(60.0, self.request_timeout_seconds),
-                follow_redirects=True,
-                headers=headers,
-            ) as client:
-                with local_path.open("rb") as handle:
-                    response = await client.post(
-                        self.registry_import_url,
-                        data=data,
-                        files={
-                            "file": (
-                                local_path.name,
-                                handle,
-                                content_type or "application/octet-stream",
-                            )
-                        },
-                    )
-            raw_text = response.text[:2000] if response.content else ""
-            payload = response.json() if response.content else {}
-            receipt = str(
-                payload.get("receipt")
-                or payload.get("importId")
-                or payload.get("id")
-                or ""
-            ).strip()
-            if (
-                response.is_success
-                and payload.get("ok") is True
-                and payload.get("registryImported") is True
-            ):
-                return "imported_registry", receipt or None
-            if response.is_success and payload.get("ok") is True:
-                return "downloaded_local_pending_registry_validation", receipt or None
-            return (
-                "downloaded_local_registry_rejected",
-                receipt
-                or str(
-                    payload.get("registryError")
-                    or payload.get("error")
-                    or (raw_text if raw_text else response.status_code)
-                )[:1000],
-            )
-        except (httpx.HTTPError, OSError, ValueError, json.JSONDecodeError) as error:
+            plan = await asyncio.to_thread(self.registry_store._parse_plan, local_path)
+            # Sentinel target metadata is authoritative for release identity. The
+            # downloaded cache filename is not a trustworthy manufacturer/sport source.
+            if isinstance(plan, dict):
+                release = plan.get("release")
+                if isinstance(release, dict):
+                    manufacturer = str(target.get("manufacturer") or release.get("manufacturer") or "").strip()
+                    sport = str(target.get("sport") or release.get("sport") or "").strip()
+                    product = str(target.get("product") or release.get("product") or "").strip()
+                    season = str(target.get("season") or target.get("year") or release.get("season") or "").strip()
+                    year = str(target.get("year") or release.get("releaseYear") or "").strip()
+                    manufacturer_display = {"upper-deck":"Upper Deck", "panini":"Panini", "topps":"Topps", "press-pass":"Press Pass"}.get(manufacturer.lower(), manufacturer)
+                    sport_display = {"basketball":"Basketball", "golf":"Golf", "wrestling":"Wrestling", "soccer":"Soccer", "racing":"Racing"}.get(sport.lower(), sport.title())
+                    slug_bits = [year, manufacturer, product, sport]
+                    release.update({"manufacturer": manufacturer_display, "product": product, "releaseYear": year, "season": season, "sport": sport_display, "releaseSlug": "-".join(re.sub(r"[^a-z0-9]+", "-", x.lower()).strip("-") for x in slug_bits if x)})
+            validation = plan.get("validation") if isinstance(plan, dict) else {}
+            if not isinstance(validation, dict) or validation.get("status") != "passed":
+                return "downloaded_local_registry_rejected", "Checklist plan validation did not pass."
+            entries = self.registry_store._flatten_plan(sha256, source_url, local_path.stem[:120], target["target_key"], plan)
+            if not entries:
+                return "downloaded_local_registry_rejected", "Validated plan produced zero identities."
+            release_id = self.registry_store._release_id(plan)
+            with self.registry_store.connection() as db:
+                db.execute("DELETE FROM checklist_registry_entries WHERE release_id=?", (release_id,))
+                db.execute("DELETE FROM checklist_registry_imports WHERE source_sha256=?", (sha256,))
+                db.execute("""INSERT INTO checklist_registry_imports (source_sha256,source_url,source_name,target_key,source_path,authority,content_type,byte_count,registry_receipt,imported_at,plan_json,import_status,import_error) VALUES (?,?,?,?,?,?,?,?,?,?,?,'imported',NULL)""", (sha256,source_url,local_path.stem[:120],target["target_key"],str(local_path),"official_manufacturer_or_approved_checklist_source",content_type,local_path.stat().st_size,release_id,datetime.now(timezone.utc).isoformat(),json.dumps(plan,sort_keys=True)))
+                columns = list(entries[0].keys())
+                db.executemany(f"INSERT INTO checklist_registry_entries ({','.join(columns)}) VALUES ({','.join(':'+c for c in columns)})", entries)
+            with self.registry_store.connection() as db:
+                actual = db.execute("SELECT COUNT(*) FROM checklist_registry_entries WHERE release_id=? AND active=1", (release_id,)).fetchone()[0]
+            if actual != len(entries):
+                return "downloaded_local_registry_error", f"post-write verification expected={len(entries)} actual={actual}"
+            return "imported_registry", f"{release_id}:{actual}"
+        except Exception as error:
             return "downloaded_local_registry_error", str(error)[:1000]
 
     def status(self) -> dict[str, Any]:

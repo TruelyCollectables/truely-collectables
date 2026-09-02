@@ -218,6 +218,23 @@ class SentinelStore:
                 (iso_now(), status, error, iso_now(), source_id),
             )
 
+    def interrupt_running_jobs(self, reason: str) -> int:
+        with self.connection() as db:
+            before = db.total_changes
+            db.execute(
+                """
+                UPDATE checklist_sentinel_jobs
+                SET status = 'interrupted',
+                    completed_at = ?,
+                    heartbeat_at = ?,
+                    current_target_key = NULL,
+                    error = COALESCE(error, ?)
+                WHERE status = 'running'
+                """,
+                (iso_now(), iso_now(), reason[:1000]),
+            )
+            return db.total_changes - before
+
     def upsert_targets(self, targets: list[dict[str, Any]]) -> int:
         now = iso_now()
         changed = 0
@@ -331,15 +348,29 @@ class SentinelStore:
         with self.connection() as db:
             rows = db.execute(
                 """
-                SELECT * FROM checklist_sentinel_targets
-                WHERE status IN ('pending', 'no_result', 'lead_only', 'failed')
-                  AND (next_search_at IS NULL OR next_search_at <= ?)
-                ORDER BY priority ASC, COALESCE(year, 9999) DESC, attempts ASC, target_key
+                SELECT t.* FROM checklist_sentinel_targets t
+                WHERE t.status IN ('pending', 'no_result', 'lead_only', 'failed')
+                  AND (t.next_search_at IS NULL OR t.next_search_at <= ?)
+                ORDER BY COALESCE(CAST(substr(t.year,1,4) AS INTEGER), 0) DESC,
+                         t.priority ASC, t.attempts ASC, t.target_key
                 LIMIT ?
                 """,
                 (now, limit),
             ).fetchall()
         return [self._target_row(row) for row in rows]
+
+    def targets_by_keys(self, target_keys: list[str]) -> list[dict[str, Any]]:
+        keys = list(dict.fromkeys(str(k).strip() for k in target_keys if str(k).strip()))
+        if not keys:
+            return []
+        placeholders = ",".join("?" for _ in keys)
+        with self.connection() as db:
+            rows = db.execute(
+                f"SELECT * FROM checklist_sentinel_targets WHERE target_key IN ({placeholders})",
+                keys,
+            ).fetchall()
+        by_key = {row["target_key"]: self._target_row(row) for row in rows}
+        return [by_key[key] for key in keys if key in by_key]
 
     def list_targets(self, limit: int = 500, status: str | None = None) -> list[dict[str, Any]]:
         with self.connection() as db:
@@ -624,6 +655,13 @@ class SentinelStore:
                 ),
             )
         return download_id
+
+    def update_download_status(self, download_id: str, status: str, registry_receipt: str | None = None) -> None:
+        with self.connection() as db:
+            db.execute(
+                "UPDATE checklist_sentinel_downloads SET status = ?, registry_receipt = ? WHERE download_id = ?",
+                (status, registry_receipt, download_id),
+            )
 
     def mark_target(
         self,

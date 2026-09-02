@@ -5,6 +5,8 @@ import inspect
 import httpx
 
 from app.runtime_compat import (
+    _beckett_http_error_requires_browser_render,
+    _beckett_requires_browser_render,
     _psa_http_error_requires_browser_render,
     _psa_requires_browser_render,
     install_sentinel_runtime_compat,
@@ -14,6 +16,7 @@ from app.sentinel_sources import DownloadedFile, SentinelSourceClient
 
 
 PSA_URL = "https://www.psacard.com/auctionprices/basketball-cards/2010-panini-elite-black-box/101090"
+BECKETT_URL = "https://www.beckett.com/news/2024-panini-prizm-football-cards/"
 
 
 def downloaded(url: str, content: bytes, content_type: str = "text/html") -> DownloadedFile:
@@ -74,6 +77,17 @@ def test_exact_psa_non_403_does_not_bypass_http_failure() -> None:
 def test_non_psa_403_does_not_bypass_http_failure() -> None:
     url = "https://example.com/checklist.html"
     assert _psa_http_error_requires_browser_render(url, status_error(url, 403)) is False
+
+
+def test_beckett_http_403_requires_browser_fallback() -> None:
+    assert _beckett_http_error_requires_browser_render(BECKETT_URL, status_error(BECKETT_URL, 403)) is True
+
+
+def test_beckett_thin_or_blocked_html_requires_browser_render() -> None:
+    blocked = b"<html>Just a moment... checklist</html>"
+    assert _beckett_requires_browser_render(downloaded(BECKETT_URL, blocked)) is True
+    healthy = b"<html><body><h1>2024 Panini Prizm Football Checklist</h1>" + b"card row " * 1000 + b"</body></html>"
+    assert _beckett_requires_browser_render(downloaded(BECKETT_URL, healthy)) is False
 
 
 def test_runtime_compat_is_idempotent_and_uses_source_file_relay_contract() -> None:

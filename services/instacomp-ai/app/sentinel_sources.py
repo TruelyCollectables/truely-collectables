@@ -38,6 +38,8 @@ AUTO_IMPORT_DOMAINS = {
     "www.baseballcardpedia.com": 92,
     "beckett.com": 90,
     "www.beckett.com": 90,
+    "checklistinsider.com": 94,
+    "www.checklistinsider.com": 94,
     "cardboardconnection.com": 88,
     "www.cardboardconnection.com": 88,
     "breakninja.com": 86,
@@ -160,6 +162,15 @@ DEFAULT_SOURCES: list[dict[str, Any]] = [
         "import_policy": "auto_import",
         "search_url_template": "https://www.bing.com/search?q={query}",
         "domains": ["beckett.com", "www.beckett.com"],
+    },
+    {
+        "source_id": "checklistinsider",
+        "name": "Checklist Insider",
+        "kind": "site_search",
+        "trust_score": 94,
+        "import_policy": "auto_import",
+        "search_url_template": "https://www.bing.com/search?q={query}",
+        "domains": ["checklistinsider.com", "www.checklistinsider.com"],
     },
     {
         "source_id": "cardboardconnection",
@@ -321,6 +332,13 @@ def significant_tokens(value: Any) -> set[str]:
     }
 
 
+def clean_product_text(value: Any) -> str:
+    text = str(value or "").replace("-", " ")
+    text = re.sub(r"\b0*38\b", " and ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 def exact_target_match(target: dict[str, Any], title: str, url: str) -> tuple[bool, str]:
     haystack = normalize_text(f"{title} {unquote(url)}")
     if target.get("scope") == "discovery":
@@ -335,7 +353,7 @@ def exact_target_match(target: dict[str, Any], title: str, url: str) -> tuple[bo
     if manufacturer and not manufacturer.intersection(set(haystack.split())):
         return False, "Manufacturer was not visible in the result."
 
-    product = significant_tokens(target.get("product"))
+    product = significant_tokens(clean_product_text(target.get("product")))
     if not product:
         return False, "Target product is empty."
     overlap = len(product.intersection(set(haystack.split()))) / max(1, len(product))
@@ -401,6 +419,31 @@ def is_public_http_url(url: str) -> bool:
         )
     except ValueError:
         return True
+
+
+def _normalized_domain(value: str) -> str:
+    return value.lower().removeprefix("www.")
+
+
+def _host_matches_domain(host: str, domain: str) -> bool:
+    normalized_host = _normalized_domain(host)
+    normalized_domain = _normalized_domain(domain)
+    return normalized_host == normalized_domain or normalized_host.endswith(
+        f".{normalized_domain}"
+    )
+
+
+def _allowed_source_host(source: dict[str, Any], host: str) -> bool:
+    raw_domains = source.get("domains") or []
+    if isinstance(raw_domains, str):
+        try:
+            raw_domains = json.loads(raw_domains)
+        except json.JSONDecodeError:
+            raw_domains = [raw_domains]
+    domains = [str(domain) for domain in raw_domains if domain]
+    if not domains:
+        return True
+    return any(_host_matches_domain(host, domain) for domain in domains)
 
 
 def safe_filename(target: dict[str, Any], extension: str, sha256: str) -> str:
@@ -578,6 +621,14 @@ class SentinelSourceClient:
                     raise direct_error
                 raise
 
+        if kind == "site_search":
+            direct = await self._direct_site_candidates(source, target, headers)
+            if direct:
+                return direct
+            release_results = await self._search_release_candidates(source, target, headers)
+            if release_results:
+                return release_results
+
         url = source["search_url_template"].format(query=quote_plus(query))
         async with httpx.AsyncClient(
             timeout=self.timeout_seconds,
@@ -591,6 +642,57 @@ class SentinelSourceClient:
         if kind == "archive_json":
             return self._archive_candidates(source, target, response.json())
         return self._html_candidates(source, target, response.text, str(response.url))
+
+    async def resolve_ingest_candidates(
+        self, source: dict[str, Any], target: dict[str, Any], candidate: Candidate
+    ) -> list[Candidate]:
+        """Resolve trusted landing pages to supported checklist attachments."""
+        # Any enabled approved auto-import source may expose a release landing page
+        # whose actual checklist is an XLSX/CSV/PDF attachment. Provenance/trust
+        # was already established before this resolver is called.
+        if source.get("import_policy") != "auto_import" or int(source.get("trust_score") or 0) < 75:
+            return []
+        path = urlparse(candidate.url).path.lower()
+        if path.endswith((".xlsx", ".xls", ".csv", ".pdf")):
+            return [candidate]
+        headers = {"user-agent": USER_AGENT, "accept": "text/html,*/*;q=0.8"}
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=True, headers=headers) as client:
+            response = await client.get(candidate.url)
+            response.raise_for_status()
+        content_type = response.headers.get("content-type", "").split(";")[0].lower()
+        if "html" not in content_type:
+            return []
+        parser = AnchorParser(); parser.feed(response.text)
+        resolved: list[Candidate] = []; seen: set[str] = set()
+        for href, title in parser.anchors:
+            url = urljoin(str(response.url), href)
+            if not is_public_http_url(url) or url in seen:
+                continue
+            text = (title or "").lower()
+            parsed = urlparse(url)
+            supported = parsed.path.lower().endswith((".xlsx", ".xls", ".csv", ".pdf")) or any(ext in url.lower() for ext in (".xlsx", ".xls", ".csv", ".pdf"))
+            downloadish = any(word in text for word in ("download", "checklist", "xlsx", "spreadsheet", "csv", "pdf"))
+            if not supported and not downloadish:
+                continue
+            if not supported:
+                try:
+                    async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=True, headers=headers) as probe:
+                        head = await probe.get(url)
+                    final = str(head.url); ctype = head.headers.get("content-type", "").lower()
+                    if not (urlparse(final).path.lower().endswith((".xlsx", ".xls", ".csv", ".pdf")) or any(x in ctype for x in ("spreadsheet", "excel", "csv", "pdf"))):
+                        continue
+                    url = final
+                except httpx.HTTPError:
+                    continue
+            seen.add(url)
+            if source.get("source_id") == "beckett" and not ("checklist" in text or "xlsx" in text or "spreadsheet" in text):
+                continue
+            # Attachment hosts (for example Beckett's S3 bucket) are allowed only
+            # after we reached an exact, trusted release page and found the link
+            # on that page. Re-score the attachment by its trusted parent page,
+            # rather than downgrading a CDN/storage hostname to lead-only.
+            resolved.append(Candidate(url=url, title=title or candidate.title, source_id=candidate.source_id, domain=(urlparse(url).hostname or "").lower(), trust_score=candidate.trust_score, import_policy=candidate.import_policy, exact_match=True, reason=f"Resolved supported checklist attachment from exact trusted release page {candidate.url}"))
+        return resolved[:10]
 
     def _query(self, source: dict[str, Any], target: dict[str, Any]) -> str:
         source_id = str(source.get("source_id") or "")
@@ -622,13 +724,25 @@ class SentinelSourceClient:
                 ]
                 if value
             )
+        elif source.get("kind") == "site_search":
+            query = " ".join(
+                str(value).strip()
+                for value in [
+                    target.get("season") or target.get("year"),
+                    target.get("manufacturer"),
+                    clean_product_text(target.get("product")),
+                    target.get("sport"),
+                    "checklist",
+                ]
+                if value
+            )
         else:
             query = " ".join(
                 str(value).strip()
                 for value in [
                     target.get("season") or target.get("year"),
                     target.get("manufacturer"),
-                    target.get("product"),
+                    clean_product_text(target.get("product")),
                     target.get("sport"),
                     "checklist",
                     "spreadsheet OR PDF OR XLSX OR CSV",
@@ -638,6 +752,35 @@ class SentinelSourceClient:
         if source["kind"] == "site_search" and source.get("domains"):
             query = f"site:{source['domains'][0]} {query}"
         return query
+
+    def _release_search_queries(self, source: dict[str, Any], target: dict[str, Any]) -> list[str]:
+        domain = (source.get("domains") or [""])[0]
+        season = str(target.get("season") or target.get("year") or "").strip()
+        product = clean_product_text(target.get("product"))
+        manufacturer = str(target.get("manufacturer") or "").strip()
+        sport = str(target.get("sport") or "").strip()
+        base = " ".join(x for x in [season, manufacturer, product, sport] if x)
+        queries = [f'site:{domain} "{base}" checklist']
+        # Hobby seasons are often queued by start year (2025) while publishers print 2025-26.
+        if season.isdigit() and len(season) == 4:
+            nxt = str(int(season) + 1)[-2:]
+            queries.append(f'site:{domain} "{season}-{nxt}" {manufacturer} {product} {sport} checklist')
+        return list(dict.fromkeys(queries))
+
+    async def _search_release_candidates(self, source: dict[str, Any], target: dict[str, Any], headers: dict[str, str]) -> list[Candidate]:
+        results=[]; seen=set()
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=True, headers=headers) as client:
+            for query in self._release_search_queries(source, target):
+                url = source["search_url_template"].format(query=quote_plus(query))
+                try:
+                    response=await client.get(url); response.raise_for_status()
+                except httpx.HTTPError:
+                    continue
+                for candidate in self._html_candidates(source,target,response.text,str(response.url)):
+                    if candidate.url in seen or not candidate.exact_match: continue
+                    seen.add(candidate.url); results.append(candidate)
+                if results: break
+        return results[:10]
 
     def _html_candidates(
         self,
@@ -660,6 +803,10 @@ class SentinelSourceClient:
             host = (urlparse(url).hostname or "").lower()
             if host.endswith("google.com") or host.endswith("bing.com"):
                 continue
+            if source.get("kind") == "site_search" and not _allowed_source_host(
+                source, host
+            ):
+                continue
             if source.get("source_id") == "psa" and not _is_psa_exact_release_url(url, target):
                 continue
             trust, policy = candidate_trust(url)
@@ -679,6 +826,96 @@ class SentinelSourceClient:
             if len(results) >= 25:
                 break
         return results
+
+    async def _direct_site_candidates(self, source: dict[str, Any], target: dict[str, Any], headers: dict[str, str]) -> list[Candidate]:
+        urls = self._direct_site_urls(source, target)
+        if not urls: return []
+        results=[]; seen=set()
+        async with httpx.AsyncClient(timeout=min(self.timeout_seconds,12.0), follow_redirects=True, headers=headers) as client:
+            for url in urls:
+                try:
+                    response=await client.get(url); response.raise_for_status()
+                except httpx.HTTPError:
+                    continue
+                host=(urlparse(str(response.url)).hostname or '').lower()
+                if not _allowed_source_host(source,host): continue
+                parser=AnchorParser(); parser.feed(response.text)
+                # A source index is navigation, not the release. Find exact release links on-page.
+                for href,title in parser.anchors:
+                    link=urljoin(str(response.url),href)
+                    if link in seen or not is_public_http_url(link): continue
+                    lhost=(urlparse(link).hostname or '').lower()
+                    if not _allowed_source_host(source,lhost): continue
+                    exact,reason=exact_target_match(target,title,link)
+                    if not exact: continue
+                    seen.add(link); trust,policy=candidate_trust(link)
+                    results.append(Candidate(url=link,title=title or self._direct_site_title(target),source_id=source['source_id'],domain=lhost,trust_score=trust,import_policy=policy,exact_match=True,reason=f'Exact release link found on source site. {reason}'))
+                if results: return results[:10]
+        return []
+
+    def _direct_site_urls(
+        self,
+        source: dict[str, Any],
+        target: dict[str, Any],
+    ) -> list[str]:
+        source_id = str(source.get("source_id") or "")
+        slug = self._target_slug(target)
+        if not slug:
+            return []
+        slugs = list(dict.fromkeys([slug, slug.replace("-and-", "-")]))
+        if source_id == "topps":
+            urls = ["https://www.topps.com/pages/checklists"]
+            product = clean_product_text(target.get("product")).lower()
+            sport = str(target.get("sport") or "").lower()
+            # Topps uses stable release landing pages whose download controls are rendered there.
+            if "chrome" in product and ("uefa" in product or sport == "soccer"):
+                urls.insert(0, "https://www.topps.com/pages/topps-chrome-uefa-club-competitions")
+            return urls
+        if source_id == "upperdeck":
+            return ["https://upperdeck.com/checklists/"]
+        if source_id == "panini":
+            return ["https://www.paniniamerica.net/checklist.html"]
+        if source_id == "leaf":
+            return ["https://www.leaftradingcards.com/collections/checklists"]
+        if source_id == "beckett":
+            return ["https://www.beckett.com/news/category/checklists/"]
+        if source_id == "gogts":
+            return ["https://gogts.net/sports-card-checklists/"]
+        if source_id == "cardboardconnection":
+            return [f"https://www.cardboardconnection.com/{value}" for value in slugs]
+        if source_id == "sportscardradio":
+            return [
+                url
+                for value in slugs
+                for url in [
+                    f"https://www.sportscardradio.com/{value}-checklist/",
+                    f"https://www.sportscardradio.com/{value}-box-checklist/",
+                ]
+            ]
+        return []
+
+    def _target_slug(self, target: dict[str, Any]) -> str:
+        values = [
+            target.get("year") or target.get("season"),
+            target.get("manufacturer"),
+            clean_product_text(target.get("product")),
+            target.get("sport"),
+        ]
+        text = " ".join(str(value or "").strip() for value in values if value)
+        return re.sub(r"[^a-z0-9]+", "-", normalize_text(text)).strip("-")
+
+    def _direct_site_title(self, target: dict[str, Any]) -> str:
+        return " ".join(
+            str(value or "").strip()
+            for value in [
+                target.get("year") or target.get("season"),
+                target.get("manufacturer"),
+                clean_product_text(target.get("product")),
+                target.get("sport"),
+                "checklist",
+            ]
+            if value
+        )
 
     def _reddit_candidates(
         self,
@@ -840,9 +1077,9 @@ def parse_target_key(line: str) -> dict[str, Any] | None:
         "year": year,
         "season": season,
         "manufacturer": manufacturer,
-        "product": product.replace("-", " "),
+        "product": clean_product_text(product),
         "scope": "mainstream-gap" if year and year >= 2000 else "pre-2000-gap",
-        "priority": 10 if year and year >= 2000 else 20,
+        "priority": max(1, min(100, 10 + (2026 - year))) if year and year >= 2000 else 100,
         "metadata": {"source": "target-key-file"},
     }
 

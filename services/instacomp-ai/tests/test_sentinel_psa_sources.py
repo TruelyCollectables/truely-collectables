@@ -97,6 +97,41 @@ def test_psa_html_candidates_drop_card_and_subset_pages_keep_exact_release_as_le
     assert rows[0].trust_score == 96
 
 
+def test_site_search_candidates_are_limited_to_the_requested_source_domain():
+    client = SentinelSourceClient(timeout_seconds=5, max_download_bytes=1_000_000)
+    html = """
+    <a href="https://www.bexar.org/2010-panini-threads">2010 Panini Threads checklist</a>
+    <a href="https://www.historycentral.com/2010-panini-threads">2010 Panini Threads checklist</a>
+    <a href="https://www.paniniamerica.net/checklists/2010-panini-threads-basketball">2010 Panini Threads Basketball Checklist</a>
+    """
+    rows = client._html_candidates(
+        source("panini"),
+        target(),
+        html,
+        "https://www.bing.com/search?q=site%3Apaniniamerica.net+2010+panini+threads",
+    )
+    assert [row.domain for row in rows] == ["www.paniniamerica.net"]
+    assert rows[0].exact_match is True
+    assert rows[0].import_policy == "auto_import"
+
+
+def test_direct_site_url_probe_normalizes_escaped_ampersand_targets():
+    client = SentinelSourceClient(timeout_seconds=5, max_download_bytes=1_000_000)
+    target_row = {
+        **target(),
+        "target_key": "football|2010|panini|plates-038-patches",
+        "sport": "football",
+        "year": 2010,
+        "season": "2010",
+        "product": "plates 038 patches",
+    }
+    assert client._target_slug(target_row) == "2010-panini-plates-and-patches-football"
+    assert client._direct_site_urls(source("cardboardconnection"), target_row) == [
+        "https://www.cardboardconnection.com/2010-panini-plates-and-patches-football",
+        "https://www.cardboardconnection.com/2010-panini-plates-patches-football",
+    ]
+
+
 class FakeResponse:
     def __init__(self, url: str, text: str):
         self.url = url

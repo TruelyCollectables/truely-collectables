@@ -32,7 +32,8 @@ def test_registry_relay_accepts_basic_auth_from_local_import_url(monkeypatch):
     assert _archive_token_valid(None, f"Basic {wrong_user}") is False
 
 
-def test_pending_backlog_drain_only_runs_when_safe_and_needed():
+def test_pending_backlog_drain_only_runs_when_safe_and_needed(monkeypatch):
+    monkeypatch.setenv("INSTACOMP_AI_SENTINEL_BACKLOG_DRAIN_ENABLED", "true")
     completed = {
         "targets": {"pending": 378, "total": 453},
         "latest_job": {"status": "completed"},
