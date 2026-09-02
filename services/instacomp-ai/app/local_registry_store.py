@@ -750,7 +750,7 @@ class LocalRegistryStore:
         target_card = normalized_card_number(ai.get("cardNumber"))
         if target_card != row["normalized_card_number"]:
             return False
-        target_serial = serial_denominator(ai.get("serialNumber"))
+        target_serial = serial_denominator(ai.get("serialNumber")); raw_run = ai.get("serialRun"); serial = serial or (int(raw_run) if str(raw_run or "").isdigit() else serial_denominator(raw_run))
         row_serial = row["serial_run"]
         # An explicit visible /N stamp is a hard physical-card fact. A Registry
         # row with no serial run cannot satisfy it; otherwise a numbered card
@@ -844,12 +844,12 @@ class LocalRegistryStore:
         if not all([card, year, player, maker]): return []
         with self.connection() as db:
             rows = db.execute("SELECT * FROM checklist_registry_entries WHERE active=1 AND normalized_card_number=? AND year=? AND lower(player)=? AND (lower(brand)=? OR lower(manufacturer)=?)", (card, year, player, maker, maker)).fetchall()
-        set_name = normalized_text(ai.get("setName")); subset = normalized_text(ai.get("subset")); serial = serial_denominator(ai.get("serialNumber"))
+        set_name = normalized_text(ai.get("setName")); subset = normalized_text(ai.get("subset")); serial = serial_denominator(ai.get("serialNumber")); raw_run = ai.get("serialRun"); serial = serial or (int(raw_run) if str(raw_run or "").isdigit() else serial_denominator(raw_run))
         legal = []
         for row in rows:
-            if set_name and not self._matches_required_set(row, set_name): continue
-            if subset and subset not in normalized_text(row["set_name"]): continue
-            if serial is not None and row["serial_run"] != serial: continue
+            if set_name and not self._matches_required_set(ai, row): continue
+            if subset and subset not in normalized_text(row["set_name"]) and subset not in normalized_text(row["parallel"]): continue
+            if serial is not None and int(row["serial_run"] or 0) != serial: continue
             legal.append(dict(row))
         return legal
 

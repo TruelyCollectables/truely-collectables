@@ -66,7 +66,7 @@ def test_release_year_and_split_no_card_number_outrank_stats_and_jersey_numbers(
     assert identity.parallel is None
 
 
-def test_confident_surface_geometry_can_supply_parallel_without_using_jersey_color():
+def test_surface_geometry_stays_advisory_until_registry_constrains_parallel():
     front = side(
         "front",
         [obs("DOMINIQUE MALONGA", side="front", x=0.2, y=0.1)],
@@ -82,7 +82,7 @@ def test_confident_surface_geometry_can_supply_parallel_without_using_jersey_col
     )
     identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
     assert identity.card_number == "116"
-    assert identity.parallel == "Cracked Ice Prizm"
+    assert identity.parallel is None
 
 
 def test_ollama_merge_uses_hard_ocr_facts_and_drops_unseen_serial_hallucination():
@@ -273,3 +273,14 @@ def test_real_groovy_and_team_text_are_not_promoted_to_hard_identity_hints():
     assert identity.player is None
     assert identity.card_number == "13"
     assert identity.manufacturer == "Panini"
+
+
+
+def test_visible_candidates_accept_serial_run_when_exact_stamp_is_missing():
+    from pathlib import Path
+    from app.local_registry_store import LocalRegistryStore
+    store = LocalRegistryStore(Path("data/database/checklist_registry.sqlite3"), Path("."))
+    ai = {"year": 2025, "brand": "Panini", "setName": "Select WNBA", "subset": "Premier Level", "player": "Sonia Citron", "cardNumber": "122", "serialRun": 399}
+    rows = store.visible_candidates(ai)
+    assert rows
+    assert all(int(row["serial_run"]) == 399 for row in rows)

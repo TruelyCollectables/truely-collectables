@@ -832,6 +832,7 @@ async def analyze_scan(
         "manufacturer": printed_identity.manufacturer, "setName": printed_identity.set_name,
         "subset": printed_identity.subset, "player": printed_identity.player,
         "cardNumber": printed_identity.card_number, "serialNumber": printed_identity.serial_number,
+        "serialRun": printed_identity.serial_run,
     }
     legal_rows = registry_store.visible_candidates(candidate_ai)
     if legal_rows and not printed_identity.parallel:
@@ -858,6 +859,14 @@ async def analyze_scan(
             winner_parallels = {str(row.get("parallel") or "") for row in winners}
             if len(winner_parallels) == 1:
                 printed_identity = printed_identity.model_copy(update={"parallel": next(iter(winner_parallels))})
+        # If color cannot discriminate, an advisory surface pattern may only
+        # select a parallel whose exact name exists in the already-constrained
+        # Registry family. It can never invent a treatment or fall back to Base.
+        if not printed_identity.parallel and local_vision.front.pattern.label:
+            pattern = str(local_vision.front.pattern.label).replace("_", " ").casefold()
+            exact_pattern_rows = [r for r in legal_rows if str(r.get("parallel") or "").casefold() == pattern]
+            if len(exact_pattern_rows) == 1:
+                printed_identity = printed_identity.model_copy(update={"parallel": str(exact_pattern_rows[0].get("parallel"))})
 
     # PRIMARY ENGINE STEP TWO: bounded printed text and the Checklist
     # Registry. A checklist-known card does not need a teacher model.
