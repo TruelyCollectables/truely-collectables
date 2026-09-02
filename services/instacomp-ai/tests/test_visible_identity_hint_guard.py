@@ -297,3 +297,7 @@ def test_visible_subset_reads_select_levels_and_en_fuego():
     assert visible_subset_hint([obs("PREMIER LEVEL", "back")]) == "Base Set - Premier Level"
     assert visible_subset_hint([obs("COURTSIDE", "back")]) == "Base Set - Courtside"
     assert visible_subset_hint([obs("CONCOURSE", "back")]) == "Base Set - Concourse"
+
+
+def test_visible_subset_reads_snapshots_before_guessing_en_fuego():
+    assert visible_subset_hint([obs("SNAPSHOTS", "front")]) == "Snapshots"

@@ -169,6 +169,8 @@ def visible_subset_hint(observations: Iterable[OCRObservation]) -> str | None:
         (re.compile(r"\bscore\s+select\s+throwback\b"), "Score Select Throwback"),
         (re.compile(r"\ball american\b"), "All American"),
         (re.compile(r"\bcrunch time\b"), "Crunch Time"),
+        (re.compile(r"\bsnapshots?\b"), "Snapshots"),
+        (re.compile(r"\bselective\s+swatches\b"), "Selective Swatches"),
         (re.compile(r"\bbase\b"), "Base"),
     )
     for pattern, label in patterns:
