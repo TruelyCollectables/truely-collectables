@@ -23,7 +23,7 @@ async function main() {
     identityEvidence: "Exact year, product, set, player and card number matched.",
   };
 
-  const expectedDomains = ["ebay.com", "psacard.com"];
+  const expectedDomains = ["ebay.com", "sales-history.fanaticscollect.com", "fanaticscollect.com", "psacard.com", "goldin.co"];
   let disagreement = false;
   let xaiContractChecked = false;
   let groqContractChecked = false;

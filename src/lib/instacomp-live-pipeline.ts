@@ -38,10 +38,35 @@ function normalizedTitle(value: string | null | undefined) {
     .trim();
 }
 
+function marketplaceKey(comp: InstaCompComp) {
+  const source = `${clean(comp.source)} ${clean(comp.sourceLabel)}`.toLowerCase();
+  if (source.includes("ebay")) return "ebay";
+  if (source.includes("fanatics")) return "fanatics";
+  if (source.includes("goldin")) return "goldin";
+  if (source.includes("heritage")) return "heritage";
+  if (source.includes("psa")) return "psa";
+  return source.split(/\s+/)[0] || "unknown";
+}
+
+function sourceSaleId(comp: InstaCompComp) {
+  const url = normalizedUrl(comp.url);
+  const ebay = url.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})(?:\/|$)/i)?.[1];
+  if (ebay) return `ebay:${ebay}`;
+  const fanatics = url.match(/fanaticscollect\.com\/(?:buy-now|auction|item)\/([^/]+)/i)?.[1];
+  if (fanatics) return `fanatics:${fanatics}`;
+  return null;
+}
+
 function compKey(comp: InstaCompComp) {
+  const saleId = sourceSaleId(comp);
+  if (saleId) return saleId;
+  const soldAt = clean(comp.soldAt).slice(0, 10);
+  if (soldAt) {
+    return `${marketplaceKey(comp)}|${normalizedTitle(comp.title)}|${soldAt}|${Number(comp.price).toFixed(2)}`;
+  }
   const url = normalizedUrl(comp.url);
   if (url) return url;
-  return `${normalizedTitle(comp.title)}|${Number(comp.price).toFixed(2)}`;
+  return `${marketplaceKey(comp)}|${normalizedTitle(comp.title)}|${Number(comp.price).toFixed(2)}`;
 }
 
 function isDiscoveryOnlyEvidence(comp: InstaCompComp) {

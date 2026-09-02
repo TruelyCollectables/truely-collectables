@@ -4,7 +4,9 @@ import { POST as runResilientCore } from "./resilient-core";
 import { loadExactCardMarketHistory } from "../../../../../lib/instacomp-market-history";
 import { trustedHistoricalSoldPricing } from "../../../../../lib/deal-hunter-trusted-sold-history";
 import { resolveChecklistRegistry } from "../../../../../lib/instacomp-learning-server";
-import { getExactEbayMarketProviders } from "../../../../../lib/instacomp-exact-market-provider";
+import { getTeacherExactMarketProviders } from "../../../../../lib/instacomp-teacher-market-provider";
+import { getOpenAiExactEbayMarketProviders } from "../../../../../lib/instacomp-openai-web-market-provider";
+import { getFanaticsExactSoldProvider } from "../../../../../lib/instacomp-fanatics-sold-provider";
 import {
   buildExactIdentityTitle,
   dedupeExactMarketComps,
@@ -494,12 +496,18 @@ export async function POST(request: NextRequest) {
       listingTitle: text(input.listing.title, 1000),
     });
     const exactTitle = buildExactIdentityTitle(locked.ai, text(input.listing.title, 1000));
-    const ebay = await getExactEbayMarketProviders({
-      exactTitle,
-      fallbackQuery: text(input.listing.title, 1000) || exactTitle,
-      ai: locked.ai,
-    });
-    const market = mergeExactMarketSources([ebay]);
+    const [teacher, fanaticsSold] = await Promise.all([
+      getTeacherExactMarketProviders({ exactTitle, ai: locked.ai }),
+      getFanaticsExactSoldProvider({ exactTitle, ai: locked.ai }),
+    ]);
+    const openAi = teacher.sold.results.length || fanaticsSold.results.length
+      ? null
+      : await getOpenAiExactEbayMarketProviders({ exactTitle, ai: locked.ai });
+    const market = mergeExactMarketSources([
+      { sold: teacher.sold, active: teacher.active },
+      { sold: fanaticsSold, active: { source: "fanatics_active_not_used", label: "Fanatics Active", status: "not_configured", message: "Sales History is sold-only.", results: [] } },
+      openAi ? { sold: openAi.sold, active: openAi.active } : null,
+    ]);
     const pricingSold = dedupeExactMarketComps(market.sold, 50);
     let scan: Record<string, any> = {
       ok: true,
@@ -524,8 +532,8 @@ export async function POST(request: NextRequest) {
       },
       exactMarket: {
         status: market.status,
-        query: ebay.query,
-        queries: ebay.queries,
+        query: exactTitle,
+        queries: [exactTitle],
         soldCount: market.sold.length,
         activeCount: market.active.length,
         pricingEligibleSoldCount: pricingSold.length,
@@ -542,7 +550,7 @@ export async function POST(request: NextRequest) {
           priorFailure: text(resilientPayload?.error, 1000),
         },
       },
-      providers: [ebay.sold, ebay.active],
+      providers: [fanaticsSold, teacher.sold, teacher.active, ...(openAi ? [openAi.sold, openAi.active] : [])],
       soldComps: market.sold,
       activeComps: market.active,
       soldStats: market.pricing,

@@ -44,6 +44,8 @@ jobs:
         run: npx tsc --noEmit --pretty false
       - name: Market history behavior simulation
         run: node --import tsx scripts/run-instacomp-market-history-simulations.ts
+      - name: Install InstaComp Python runtime dependencies
+        run: python -m pip install -r services/instacomp-ai/requirements.txt
       - name: Deal Hunter decision-learning tests
         env:
           PYTHONPATH: services/instacomp-ai
