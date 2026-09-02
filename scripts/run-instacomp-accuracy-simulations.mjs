@@ -479,3 +479,32 @@ check(
 console.log(`InstaComp™ accuracy simulations: ${total - failed}/${total} passed.`);
 
 if (failed > 0) process.exitCode = 1;
+
+const checklistStyleBaseDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor McDavid",
+    year: "2020-21",
+    brand: "Upper Deck",
+    setName: "Base",
+    cardNumber: "1",
+    parallel: "Base Base",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title follows checklist style without repeated Base",
+  checklistStyleBaseDraftTitle === "2020-21 Upper Deck Connor McDavid #1",
+  checklistStyleBaseDraftTitle
+);
+
+const repeatedCrackedIceDraftTitle = buildInstaCompDraftTitle(
+  { player: "Connor McDavid", year: "2020-21", brand: "Panini Prizm", setName: "Prizm", cardNumber: "97", parallel: "Cracked Ice Prizm Cracked Ice Prizm", serialNumber: null, isRookie: false },
+  "fallback.jpg"
+);
+check(
+  "draft title emits a repeated parallel only once",
+  repeatedCrackedIceDraftTitle === "2020-21 Panini Prizm Connor McDavid Cracked Ice #97",
+  repeatedCrackedIceDraftTitle
+);

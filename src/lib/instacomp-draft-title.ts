@@ -230,10 +230,11 @@ function shouldIncludeBrandInReleaseTitle(brand: string, setName: string) {
 
 function releaseTitleParts(ai: InstaCompDraftTitleAi | null | undefined) {
   const brand = cleanDraftTitlePhrase(ai?.brand, 80);
-  const setName = stripLeadingBrandFromSetName(
+  const rawSetName = stripLeadingBrandFromSetName(
     brand,
     stripGenericSportReleaseWords(ai?.setName),
   );
+  const setName = isGenericBaseTitlePart(rawSetName) ? "" : rawSetName;
 
   return [
     shouldIncludeBrandInReleaseTitle(brand, setName) ? brand : null,
