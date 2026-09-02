@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { POST as runIdentityScan } from "../scan/route";
 import { getOpenAiExactEbayMarketProviders } from "../../../../lib/instacomp-openai-web-market-provider";
 import { getTeacherExactMarketProviders } from "../../../../lib/instacomp-teacher-market-provider";
+import { getFanaticsExactSoldProvider } from "../../../../lib/instacomp-fanatics-sold-provider";
 import {
   pushInstaCompExactMarketHistory,
   pushInstaCompTeacherReceipt,
@@ -659,6 +660,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle, ai });
+
   let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
   let teacherFailure: string | null = null;
   try {
@@ -685,7 +688,7 @@ export async function POST(request: NextRequest) {
 
   let openAi: Awaited<ReturnType<typeof getOpenAiExactEbayMarketProviders>> | null = null;
   let openAiFailure: string | null = null;
-  if (!teacherSource.sold.results.length) {
+  if (!teacherSource.sold.results.length && !fanaticsSold.results.length) {
     try {
       openAi = await getOpenAiExactEbayMarketProviders({ exactTitle, ai });
     } catch (error) {
@@ -754,11 +757,13 @@ export async function POST(request: NextRequest) {
     }),
   };
   const summary = mergeExactMarketSources([
+    { sold: fanaticsSold, active: { source: "fanatics_active_not_used", label: "Fanatics Active", status: "not_configured", message: "Sales History is sold-only.", results: [] } },
     teacherSource,
     openAiSource,
     verifiedOfficialActiveSource,
   ]);
   const exactProviders = [
+    fanaticsSold,
     teacherSource.sold,
     teacherSource.active,
     verifiedOfficialActiveSource.active,

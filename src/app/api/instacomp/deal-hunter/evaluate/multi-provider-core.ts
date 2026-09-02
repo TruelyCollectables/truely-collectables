@@ -6,6 +6,7 @@ import { trustedHistoricalSoldPricing } from "../../../../../lib/deal-hunter-tru
 import { resolveChecklistRegistry } from "../../../../../lib/instacomp-learning-server";
 import { getTeacherExactMarketProviders } from "../../../../../lib/instacomp-teacher-market-provider";
 import { getOpenAiExactEbayMarketProviders } from "../../../../../lib/instacomp-openai-web-market-provider";
+import { getFanaticsExactSoldProvider } from "../../../../../lib/instacomp-fanatics-sold-provider";
 import {
   buildExactIdentityTitle,
   dedupeExactMarketComps,
@@ -495,12 +496,16 @@ export async function POST(request: NextRequest) {
       listingTitle: text(input.listing.title, 1000),
     });
     const exactTitle = buildExactIdentityTitle(locked.ai, text(input.listing.title, 1000));
-    const teacher = await getTeacherExactMarketProviders({ exactTitle, ai: locked.ai });
-    const openAi = teacher.sold.results.length
+    const [teacher, fanaticsSold] = await Promise.all([
+      getTeacherExactMarketProviders({ exactTitle, ai: locked.ai }),
+      getFanaticsExactSoldProvider({ exactTitle, ai: locked.ai }),
+    ]);
+    const openAi = teacher.sold.results.length || fanaticsSold.results.length
       ? null
       : await getOpenAiExactEbayMarketProviders({ exactTitle, ai: locked.ai });
     const market = mergeExactMarketSources([
       { sold: teacher.sold, active: teacher.active },
+      { sold: fanaticsSold, active: { source: "fanatics_active_not_used", label: "Fanatics Active", status: "not_configured", message: "Sales History is sold-only.", results: [] } },
       openAi ? { sold: openAi.sold, active: openAi.active } : null,
     ]);
     const pricingSold = dedupeExactMarketComps(market.sold, 50);
@@ -545,7 +550,7 @@ export async function POST(request: NextRequest) {
           priorFailure: text(resilientPayload?.error, 1000),
         },
       },
-      providers: [teacher.sold, teacher.active, ...(openAi ? [openAi.sold, openAi.active] : [])],
+      providers: [fanaticsSold, teacher.sold, teacher.active, ...(openAi ? [openAi.sold, openAi.active] : [])],
       soldComps: market.sold,
       activeComps: market.active,
       soldStats: market.pricing,
