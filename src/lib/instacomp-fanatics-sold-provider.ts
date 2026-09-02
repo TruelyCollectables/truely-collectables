@@ -1,5 +1,5 @@
 import type { InstaCompAiResult, InstaCompComp, InstaCompProviderResult } from "./instacomp";
-import { filterStrictExactMarketMatches } from "./instacomp-exact-market-provider";
+import { buildExactEbayQueryLadder, filterStrictExactMarketMatches } from "./instacomp-exact-market-provider";
 
 const API = "https://sales-history-api.services.fanaticscollect.com/api/v1/pub/sales";
 const TIMEOUT_MS = 15_000;
@@ -35,15 +35,31 @@ export async function getFanaticsExactSoldProvider(params: {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const url = `${API}?title=${encodeURIComponent(params.exactTitle)}&size=50`;
-    const response = await fetch(url, {
-      headers: { accept: "application/json", "user-agent": "TCOS-InstaComp/1.0" },
-      signal: controller.signal,
-      cache: "no-store",
+    const queries = buildExactEbayQueryLadder({
+      exactTitle: params.exactTitle,
+      fallbackQuery: params.exactTitle,
+      ai: params.ai,
     });
-    if (!response.ok) throw new Error(`Fanatics Sales History HTTP ${response.status}`);
-    const payload = (await response.json()) as any;
-    const rows: FanaticsSale[] = payload?._embedded?.SalesRecords || [];
+    const rows: FanaticsSale[] = [];
+    const seen = new Set<string>();
+    for (const query of queries) {
+      const url = `${API}?title=${encodeURIComponent(query)}&size=50`;
+      const response = await fetch(url, {
+        headers: { accept: "application/json", "user-agent": "TCOS-InstaComp/1.0" },
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`Fanatics Sales History HTTP ${response.status}`);
+      const payload = (await response.json()) as any;
+      const found: FanaticsSale[] = payload?._embedded?.SalesRecords || [];
+      for (const row of found) {
+        const key = String(row.id || row.listingUuid || "").trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        rows.push(row);
+      }
+      if (rows.length >= 50) break;
+    }
     const candidates: InstaCompComp[] = rows.flatMap((row) => {
       const id = String(row.id || "").trim();
       const title = String(row.title || "").trim();
