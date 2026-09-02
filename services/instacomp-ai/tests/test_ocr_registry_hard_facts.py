@@ -284,3 +284,10 @@ def test_visible_candidates_accept_serial_run_when_exact_stamp_is_missing():
     rows = store.visible_candidates(ai)
     assert rows
     assert all(int(row["serial_run"]) == 399 for row in rows)
+
+
+def test_team_wordmark_is_never_promoted_as_player_without_back_name():
+    front = side("front", [obs("WASHINGTON MYSTICS", side="front", x=0.3, y=0.1, confidence=1.0)])
+    back = side("back", [obs("2025 PANINI WNBA PRIZM BASKETBALL", side="back", x=0.3, y=0.1, confidence=1.0)])
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.player is None

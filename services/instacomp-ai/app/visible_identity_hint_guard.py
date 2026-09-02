@@ -85,6 +85,11 @@ def _front_player_candidates(
         normalized = _normalized_words(cleaned)
         if not normalized:
             continue
+        # Team names are not player names. Reject common franchise suffixes
+        # before scoring so a large team wordmark cannot outrank the athlete.
+        team_words = {"mystics", "liberty", "fever", "sky", "sparks", "aces", "lynx", "mercury", "storm", "wings", "dream", "sun", "valkyries"}
+        if set(normalized.split()) & team_words:
+            continue
         score = observation.confidence * (0.7 + min(0.3, observation.box.height * 5))
         candidates.append((score, cleaned, normalized))
     return candidates
