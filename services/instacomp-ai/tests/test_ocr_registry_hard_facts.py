@@ -291,3 +291,34 @@ def test_team_wordmark_is_never_promoted_as_player_without_back_name():
     back = side("back", [obs("2025 PANINI WNBA PRIZM BASKETBALL", side="back", x=0.3, y=0.1, confidence=1.0)])
     identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
     assert identity.player is None
+
+
+def test_noisy_player_text_does_not_allow_team_wordmark_to_become_player():
+    front = side(
+        "front",
+        [
+            obs("WASHINGTON MYSTICS", side="front", x=0.30, y=0.10, confidence=1.0),
+            obs("SON1A C1TR0N", side="front", x=0.28, y=0.16, confidence=0.42),
+        ],
+    )
+    back = side(
+        "back",
+        [
+            obs("No. 148", side="back", x=0.72, y=0.82, confidence=1.0),
+            obs("2025 PANINI - WNBA PRIZM BASKETBALL", side="back", x=0.20, y=0.08, confidence=1.0),
+        ],
+    )
+    identity = build_identity_hints(front=front, back=back, serial=SerialEvidence())
+    assert identity.player is None
+    assert identity.card_number == "148"
+
+
+def test_copyright_corruption_is_not_a_serial_but_real_246_of_399_is():
+    from app.local_vision import parse_serial_evidence
+
+    bad = parse_serial_evidence([obs("Ф8/2/2© 2025 Panini America, Inc.", side="back", x=0.20, y=0.10, confidence=1.0)])
+    assert bad.exact_stamp is None
+    assert bad.visible_denominator is None
+    good = parse_serial_evidence([obs("246/399", side="back", x=0.20, y=0.10, confidence=1.0)])
+    assert good.exact_stamp == "246/399"
+    assert good.visible_denominator == 399
