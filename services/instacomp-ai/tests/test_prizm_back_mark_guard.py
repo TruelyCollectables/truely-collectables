@@ -94,14 +94,14 @@ def test_missing_back_prizm_mark_forces_prizm_family_to_base():
 def test_present_back_prizm_mark_sets_silver_minimum_when_parallel_is_missing():
     evidence = _vision(back_text="PRIZM", parallel=None)
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
-    assert guarded.identity_hints.parallel == "Silver Prizm"
+    assert guarded.identity_hints.parallel is None
     assert any("minimum parallel Silver Prizm" in value for value in guarded.back.pattern.geometry)
 
 
 def test_present_back_prizm_mark_upgrades_base_to_silver_minimum():
     evidence = _vision(back_text="PRIZM", parallel="Base")
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
-    assert guarded.identity_hints.parallel == "Silver Prizm"
+    assert guarded.identity_hints.parallel is None
 
 
 def test_present_back_prizm_mark_preserves_stronger_non_base_evidence():
@@ -145,7 +145,7 @@ def test_model_base_is_upgraded_to_silver_when_back_prizm_is_present():
         },
         guarded,
     )
-    assert merged["identity"]["parallel"] == "Silver Prizm"
+    assert merged["identity"]["parallel"] is None
 
 
 def test_model_color_survives_when_back_prizm_is_present():

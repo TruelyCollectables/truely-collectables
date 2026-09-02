@@ -66,6 +66,12 @@ PLAYER_STOPWORDS = {
 SUBSET_PHRASES = {
     "all american": "All American",
     "crunch time": "Crunch Time",
+    "en fuego": "En Fuego",
+    "fireworks": "Fireworks",
+    "freworks": "Fireworks",
+    "premier level": "Base Set - Premier Level",
+    "concourse": "Base Set - Concourse",
+    "courtside": "Base Set - Courtside",
 }
 
 SET_TITLE_STOPWORDS = {
@@ -331,6 +337,14 @@ def parse_serial_evidence(observations: Iterable[OCRObservation]) -> SerialEvide
         confidence, observation, match = max(exact_candidates, key=lambda value: value[0])
         numerator = int(match.group(1))
         denominator = int(match.group(2))
+        # Impossible fractions and copyright-adjacent OCR fragments are not
+        # physical serial stamps. Registry will validate the denominator later.
+        source_lower = observation.text.lower()
+        invalid_serial = numerator > denominator or (
+            "©" in observation.text and ("panini" in source_lower or "america" in source_lower)
+        )
+        if invalid_serial:
+            return SerialEvidence(stamp_present=False)
         return SerialEvidence(
             stamp_present=True,
             exact_stamp=f"{numerator}/{denominator}",
@@ -594,10 +608,12 @@ def _parallel_hint(
     confidence = float(front.pattern.confidence or 0)
     if confidence < 0.70:
         return None
-    if label == "velocity":
-        return "Velocity Prizm"
-    if label == "cracked_ice":
-        return "Cracked Ice Prizm"
+    # Raw surface geometry is advisory evidence, not card identity. Generic foil,
+    # borders, photography, and scanner reflections repeatedly resemble named
+    # patterns (especially Cracked Ice). The Registry candidate family must be
+    # established from hard printed evidence before a named parallel can lock.
+    # Keep these scores in PatternEvidence for downstream checklist-constrained
+    # discrimination, but never inject a named parallel into identity hints here.
     return None
 
 

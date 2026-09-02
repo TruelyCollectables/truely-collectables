@@ -119,14 +119,16 @@ def apply_prizm_back_mark_rule(
     back = evidence.back
 
     if mark_present:
+        # A back PRIZM mark proves family membership, not the front treatment.
+        # Silver/Green/Blue/etc. must be selected later from Registry-valid
+        # candidates using front color/pattern/serial evidence.
         current_parallel = evidence.identity_hints.parallel
-        resolved_parallel = (
-            _MINIMUM_PRIZM_PARALLEL
-            if _parallel_is_base_or_empty(current_parallel)
-            else current_parallel
-        )
         identity_hints = evidence.identity_hints.model_copy(
-            update={"parallel": resolved_parallel}
+            update={
+                "parallel": current_parallel
+                if not _parallel_is_base_or_empty(current_parallel)
+                else None
+            }
         )
         if back is None:
             return evidence.model_copy(update={"identity_hints": identity_hints})
@@ -205,10 +207,13 @@ def install_prizm_back_mark_guard() -> None:
             model_parallel = identity.get("parallel")
             local_parallel = local_vision.identity_hints.parallel
             if _parallel_is_base_or_empty(model_parallel):
+                # Do not manufacture Silver from the back mark. Preserve an
+                # explicitly observed stronger treatment only; otherwise leave
+                # parallel unresolved for Registry-constrained discrimination.
                 identity["parallel"] = (
                     local_parallel
                     if not _parallel_is_base_or_empty(local_parallel)
-                    else _MINIMUM_PRIZM_PARALLEL
+                    else None
                 )
                 root["identity"] = identity
             return root
