@@ -42,7 +42,7 @@ const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 8;
 // 130point is intentionally excluded from automated teacher browsing.
 // TCOS uses 130point only through the manual screenshot-verification workflow until authorized access exists.
-const TEACHER_MARKET_DOMAINS = ["ebay.com", "psacard.com"];
+const TEACHER_MARKET_DOMAINS = ["ebay.com", "sales-history.fanaticscollect.com", "fanaticscollect.com", "psacard.com", "goldin.co"];
 
 export type TeacherName =
   | "gemini"
@@ -142,6 +142,21 @@ function directEbayItemUrl(value: unknown) {
   }
 }
 
+function directOfficialMarketUrl(value: unknown) {
+  const ebay = directEbayItemUrl(value);
+  if (ebay) return ebay;
+  try {
+    const url = new URL(clean(value));
+    const host = url.hostname.toLowerCase();
+    const allowed = TEACHER_MARKET_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+    if (!allowed) return null;
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function normalizeRows(value: unknown, lane: "sold" | "active") {
   if (!Array.isArray(value)) return [] as TeacherMarketRow[];
   return value
@@ -149,7 +164,7 @@ function normalizeRows(value: unknown, lane: "sold" | "active") {
     .map((raw): TeacherMarketRow | null => {
       const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
       const title = clean(row.title);
-      const url = directEbayItemUrl(row.url);
+      const url = directOfficialMarketUrl(row.url);
       const itemPrice = money(row.itemPrice);
       const shippingPrice = money(row.shippingPrice);
       const soldAt = lane === "sold" ? validDate(row.soldAt) : null;
@@ -182,13 +197,13 @@ function normalizePayload(value: unknown): TeacherPayload {
 function teacherPrompt(exactTitle: string, ai: InstaCompAiResult) {
   return [
     "You are an independent sports-card market teacher for Truely Collectables InstaComp.",
-    "Search the live web. eBay sold/completed listings are the primary target; 130point may be used only to corroborate an eBay sale.",
+    "Search the live web for direct realized-sale evidence from eBay, Fanatics Collect Sales History, PSA Auction Prices Realized, and Goldin reported results. Never browse or automate 130point; TCOS handles 130point only through its separate human screenshot-verification workflow.",
     "For PSA-graded cards, also inspect psacard.com Auction Prices Realized and PSA cert Sales History as independent identity and realized-sale evidence. PSA Estimate and PSA Price Guide values are reference-only and are NEVER sold comps. If PSA corroborates an eBay sale, return the direct eBay item URL only after the exact PSA card identity and PSA grade match.",
     "The local InstaComp AI is a STUDENT and must not be treated as authority. The identity JSON below is the canonical target supplied by the verified InstaComp Registry/workflow.",
     "Never return a similar card. Player, year/season, manufacturer/brand/product, exact set/insert, card number, parallel/variation, print-run denominator, autograph/relic state, raw/graded state, grading company and grade must match whenever applicable.",
     "A /199 card is never a comp for /299. A numbered card is never a comp for an unnumbered card. A different insert/set is never a comp even when player and card number look similar.",
     "Open and inspect the direct listing evidence. Use listing images when available. Seller titles are clues, not ground truth.",
-    "Return only direct ebay.com/itm/<item-id> URLs. Do not invent URLs, prices, shipping, dates, images, or sold status.",
+    "For eBay return direct ebay.com/itm/<item-id> URLs. For Fanatics, PSA, or Goldin return only the direct official result/item URL you actually opened. Do not invent URLs, prices, shipping, dates, images, or sold status.",
     "For sold rows, soldAt is required and shippingPrice must be known; use 0 only when free shipping is explicit.",
     "For active rows, return only currently purchasable exact matches.",
     "If exact proof is unavailable, return an empty array instead of guessing.",
@@ -538,7 +553,15 @@ function strictTeacherRows(
 }
 
 function itemKey(url: string) {
-  return directEbayItemUrl(url) || url;
+  const canonical = directOfficialMarketUrl(url) || url;
+  try {
+    const parsed = new URL(canonical);
+    parsed.search = "";
+    parsed.hash = "";
+    return `${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\/$/, "")}`;
+  } catch {
+    return canonical;
+  }
 }
 
 function teacherVoteFamily(teacher: TeacherName) {
