@@ -15,6 +15,7 @@ from .apple_vision import AppleVisionOCR
 from .checklist import checklist_gateway
 from .cockpit_routes import build_cockpit_router
 from .config import settings
+from .local_registry_store import LocalRegistryStore
 from .images import (
     pair_hash,
     persist_image,
@@ -34,6 +35,7 @@ from .models import (
     LessonRecord,
     MemoryMatch,
 )
+from .registry_routes import build_registry_router
 from .ollama import OllamaReader
 from .printed_evidence import (
     identity_from_printed_evidence,
@@ -47,8 +49,13 @@ settings.ensure_directories()
 database_path = settings.resolve_local_path(settings.database_path)
 image_store_path = settings.resolve_local_path(settings.image_store_path)
 training_export_path = settings.resolve_local_path(settings.training_export_path)
+registry_database_path = settings.resolve_local_path(
+    settings.data_database_path / "checklist_registry.sqlite3"
+)
 store = MemoryStore(database_path)
 store.initialize()
+registry_store = LocalRegistryStore(registry_database_path, Path(settings.service_root))
+registry_store.initialize()
 reader = OllamaReader(settings)
 image_orientation_reader = AppleVisionOCR(
     Path(settings.service_root),
@@ -93,11 +100,39 @@ async def _validate_upright_scan_image(
                 f"{side}:web_orientation_hint:{requested_rotation}",
                 *evidence,
             ]
+        # A back can have several statistically similar OCR rotations even when
+        # its selected 0-degree layout is already readable and the front independently
+        # proves the pair orientation. Do not turn a score tie into an identity veto.
+        # We only accept this bounded rescue when Apple Vision selected 0 degrees,
+        # produced multiple real OCR strings, and did not report no-readable-text.
+        readable_orientation_evidence = [
+            value for value in evidence
+            if value.strip()
+            and ":no_readable_text_for_orientation" not in value
+            and ":ambiguous_" not in value
+            and not value.startswith(f"{side}:geometry_")
+            and not value.startswith(f"{side}:card_")
+            and not value.startswith(f"{side}:image_")
+        ]
+        # A readable 0-degree back is already usable presentation evidence even
+        # when several rotations score similarly. Require two independent OCR
+        # strings and keep this rescue strictly at 0 degrees so it cannot invent
+        # a rotation or identity fact.
+        bounded_zero_degree_rescue = (
+            side == "back"
+            and int(rotation or 0) == 0
+            and confidence < 0.55
+            and len(readable_orientation_evidence) >= 2
+        )
         status = (
             "completed"
-            if confidence >= 0.55 and any(value.strip() for value in evidence)
+            if (confidence >= 0.55 and any(value.strip() for value in evidence))
+            or bounded_zero_degree_rescue
             else "review_required"
         )
+        if bounded_zero_degree_rescue:
+            confidence = 0.55
+            evidence = [f"{side}:readable_zero_degree_tie_rescue", *evidence]
     except Exception as exc:
         # Orientation is a presentation correction, not an identity authority.
         # EXIF normalization and the unchanged source archive still proceed when
@@ -132,6 +167,7 @@ app.include_router(
         checklist_gateway,
     )
 )
+app.include_router(build_registry_router(require_api_key, registry_store))
 app.include_router(
     build_training_router(
         require_api_key,
@@ -788,6 +824,33 @@ async def analyze_scan(
         for value in [printed_text, local_vision.combined_text]
         if value
     ) or None
+
+    # Registry-first treatment discriminator: color is allowed to choose only
+    # among parallels that are legal for the hard visible card family.
+    candidate_ai = {
+        "year": printed_identity.year, "brand": printed_identity.brand or printed_identity.manufacturer,
+        "manufacturer": printed_identity.manufacturer, "setName": printed_identity.set_name,
+        "subset": printed_identity.subset, "player": printed_identity.player,
+        "cardNumber": printed_identity.card_number, "serialNumber": printed_identity.serial_number,
+    }
+    legal_rows = registry_store.visible_candidates(candidate_ai)
+    if legal_rows and not printed_identity.parallel:
+        color_tokens = ("green", "blue", "orange", "red", "gold", "pink", "purple", "black", "silver", "yellow", "cyan")
+        proportions = local_vision.front.colors.proportions
+        scored = []
+        for row in legal_rows:
+            parallel = str(row.get("parallel") or "").casefold()
+            matches = [c for c in color_tokens if c in parallel and proportions.get(c, 0) >= 0.015]
+            score = max((proportions.get(c, 0) for c in matches), default=0.0)
+            if score > 0:
+                scored.append((score, row))
+        scored.sort(key=lambda item: -item[0])
+        if scored:
+            best_score = scored[0][0]
+            winners = [row for score, row in scored if abs(score - best_score) < 0.01]
+            winner_parallels = {str(row.get("parallel") or "") for row in winners}
+            if len(winner_parallels) == 1:
+                printed_identity = printed_identity.model_copy(update={"parallel": next(iter(winner_parallels))})
 
     # PRIMARY ENGINE STEP TWO: bounded printed text and the Checklist
     # Registry. A checklist-known card does not need a teacher model.
