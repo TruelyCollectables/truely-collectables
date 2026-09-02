@@ -2,6 +2,7 @@ import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
 import {
   getConfiguredInstaCompMacKey,
   getConfiguredInstaCompMacUrl,
+  isTrustedInstaCompMacUrl,
 } from "./instacomp-mac-credentials";
 
 export type InstaCompTeacherReceipt = {
@@ -39,10 +40,14 @@ export type InstaCompTeacherLearningBridgeResult = {
   reason: string | null;
 };
 
+export type InstaCompExactMarketHistoryBridgeResult = InstaCompTeacherLearningBridgeResult & {
+  exactMarketHistory: true;
+};
+
 function localMacBaseUrl() {
   const configured = getConfiguredInstaCompMacUrl();
   if (!configured) return null;
-  if (!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(configured)) {
+  if (!isTrustedInstaCompMacUrl(configured)) {
     return null;
   }
   return configured;
@@ -117,6 +122,79 @@ export async function pushInstaCompTeacherReceipt(
       reason: sanitizeInstaCompProviderError(
         error instanceof Error ? error.message : String(error),
       ),
+    };
+  }
+}
+
+export async function pushInstaCompExactMarketHistory(
+  receipt: InstaCompTeacherReceipt,
+): Promise<InstaCompExactMarketHistoryBridgeResult> {
+  const baseUrl = localMacBaseUrl();
+  const key = localMacKey();
+  if (!baseUrl || !key) {
+    return {
+      status: "skipped",
+      receiptId: null,
+      trustedMarketTruth: false,
+      studentTrainingEligible: false,
+      pricingAuthority: false,
+      identityTrainingMutated: false,
+      reason: "The authenticated InstaComp AI Mac learning bridge is not configured.",
+      exactMarketHistory: true,
+    };
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/v1/training/exact-market-history`, {
+      method: "POST",
+      headers: {
+        "X-InstaComp-AI-Key": key,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(receipt),
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok || payload.ok !== true) {
+      return {
+        status: "failed",
+        receiptId: null,
+        trustedMarketTruth: false,
+        studentTrainingEligible: false,
+        pricingAuthority: false,
+        identityTrainingMutated: false,
+        reason: sanitizeInstaCompProviderError(
+          String(payload.detail || payload.error || `Mac exact-market bridge HTTP ${response.status}`),
+        ),
+        exactMarketHistory: true,
+      };
+    }
+
+    const rawId = Number(payload.receipt_id);
+    return {
+      status: payload.status === "duplicate" ? "duplicate" : "saved",
+      receiptId: Number.isInteger(rawId) && rawId > 0 ? rawId : null,
+      trustedMarketTruth: payload.trusted_market_truth === true,
+      studentTrainingEligible: payload.student_training_eligible === true,
+      pricingAuthority: false,
+      identityTrainingMutated: false,
+      reason: null,
+      exactMarketHistory: true,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      receiptId: null,
+      trustedMarketTruth: false,
+      studentTrainingEligible: false,
+      pricingAuthority: false,
+      identityTrainingMutated: false,
+      reason: sanitizeInstaCompProviderError(
+        error instanceof Error ? error.message : String(error),
+      ),
+      exactMarketHistory: true,
     };
   }
 }
