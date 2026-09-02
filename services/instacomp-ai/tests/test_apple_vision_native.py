@@ -154,7 +154,7 @@ def test_detect_rotation_does_not_allow_sideways_ocr_to_win(
     assert seen_rotations == [0, 90, 180, 270]
     assert rotation == 90
     assert confidence >= 0.55
-    assert any("front_sideways_rotation" in value for value in evidence)
+    assert any("front_four_way_rotation:90" in value for value in evidence)
 
 
 def test_ambiguous_front_portrait_scan_keeps_existing_orientation(
@@ -195,10 +195,10 @@ def test_ambiguous_front_portrait_scan_keeps_existing_orientation(
 
     assert rotation == 0
     assert confidence >= 0.55
-    assert any("front_source_preserved" in value for value in evidence)
+    assert any("front_four_way_rotation:0" in value for value in evidence)
 
 
-def test_front_portrait_preserves_source_before_running_ocr_flip(
+def test_front_four_way_tie_is_deterministic(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -233,12 +233,12 @@ def test_front_portrait_preserves_source_before_running_ocr_flip(
         side="front",
     )
 
-    assert rotation == 0
-    assert confidence >= 0.55
-    assert any("front_source_preserved" in value for value in evidence)
+    assert rotation in {0, 180}
+    assert confidence < 0.55
+    assert any("front_four_way_rotation:" in value for value in evidence)
 
 
-def test_front_portrait_never_auto_applies_180_flip(
+def test_front_portrait_applies_180_when_layout_proves_it(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -280,9 +280,9 @@ def test_front_portrait_never_auto_applies_180_flip(
         side="front",
     )
 
-    assert rotation == 0
+    assert rotation == 180
     assert confidence >= 0.55
-    assert any("front_source_preserved" in value for value in evidence)
+    assert any("front_four_way_rotation:180" in value for value in evidence)
 
 
 def test_no_text_front_portrait_scan_keeps_existing_orientation(

@@ -402,64 +402,36 @@ class AppleVisionOCR:
             )
 
         if side == "front":
-            by_rotation = {
-                rotation: (score, observations)
-                for rotation, score, observations in candidates
-            }
-            side_rotation, side_score, side_observations = max(
-                (
-                    (rotation, *by_rotation[rotation])
-                    for rotation in (90, 270)
-                    if rotation in by_rotation
-                ),
-                key=lambda candidate: (candidate[1], -candidate[0]),
-            )
-            portrait_score = max(
-                by_rotation.get(0, (0.0, []))[0],
-                by_rotation.get(180, (0.0, []))[0],
-            )
-            zero_score, zero_observations = by_rotation.get(0, (0.0, []))
-            flip_score, flip_observations = by_rotation.get(180, (0.0, []))
-            zero_layout = self._front_layout_score(zero_observations)
-            flip_layout = self._front_layout_score(flip_observations)
-            if side_score >= max(40.0, portrait_score * 1.25):
-                confidence = max(
-                    0.55,
-                    min(
-                        0.99,
-                        0.55
-                        + (side_score - portrait_score) / max(1.0, side_score),
-                    ),
-                )
+            # Every front rotation competes under one scoring contract.  The old
+            # portrait-vs-sideways branches used different thresholds and could
+            # preserve an upside-down 0-degree source even when 180 was better.
+            ranked: list[tuple[int, float, float, float, list[OCRObservation]]] = []
+            for rotation, ocr_score, observations in candidates:
+                layout_score = self._front_layout_score(observations)
+                combined_score = ocr_score + layout_score
+                ranked.append((rotation, combined_score, ocr_score, layout_score, observations))
+            ranked.sort(key=lambda candidate: (-candidate[1], -candidate[2], candidate[0]))
+            best_rotation, best_total, best_ocr, best_layout, best_observations = ranked[0]
+            second_total = ranked[1][1]
+            if best_total <= 0:
                 evidence = [f"{side}:{value}" for value in geometry_evidence]
-                evidence.append(
-                    f"{side}:front_sideways_rotation:{side_rotation}:score_{side_score:.2f}:portrait_{portrait_score:.2f}"
-                )
-                evidence.extend(
-                    observation.text[:80]
-                    for observation in side_observations
-                    if observation.text.strip()
-                )
-                return side_rotation, confidence, evidence[:6]
-
-            if zero_score <= 0 and zero_layout <= 0:
-                evidence = [f"{side}:{value}" for value in geometry_evidence]
-                evidence.append(
-                    f"{side}:front_review_required:no_upright_text:score_0_{zero_score:.2f}:score_180_{flip_score:.2f}:layout_0_{zero_layout:.2f}:layout_180_{flip_layout:.2f}"
-                )
+                evidence.append(f"{side}:front_review_required:no_upright_text")
                 return 0, 0.0, evidence[:6]
-
-            confidence = 0.99 if zero_score >= 12.0 or zero_layout > 0 else 0.54
+            margin = max(0.0, best_total - second_total)
+            relative_margin = margin / max(1.0, abs(best_total))
+            decisive = margin >= 3.0 or relative_margin >= 0.04
+            # If the source orientation narrowly wins, preserving it is safe: we
+            # are not applying a speculative rotation. A non-zero winner must be
+            # decisive before we physically rotate the canonical image.
+            if best_rotation == 0:
+                decisive = True
+            confidence = max(0.55, min(0.99, 0.55 + relative_margin)) if decisive else max(0.0, min(0.54, relative_margin / 0.04 * 0.54))
             evidence = [f"{side}:{value}" for value in geometry_evidence]
             evidence.append(
-                f"{side}:front_source_preserved:layout_guarded:score_0_{zero_score:.2f}:score_180_{flip_score:.2f}:layout_0_{zero_layout:.2f}:layout_180_{flip_layout:.2f}:side_{side_score:.2f}"
+                f"{side}:front_four_way_rotation:{best_rotation}:total_{best_total:.2f}:ocr_{best_ocr:.2f}:layout_{best_layout:.2f}:margin_{margin:.2f}"
             )
-            evidence.extend(
-                observation.text[:80]
-                for observation in zero_observations
-                if observation.text.strip()
-            )
-            return 0, confidence, evidence[:6]
+            evidence.extend(observation.text[:80] for observation in best_observations if observation.text.strip())
+            return best_rotation, confidence, evidence[:6]
 
         candidates.sort(key=lambda candidate: (-candidate[1], candidate[0]))
         best_rotation, best_score, best_observations = candidates[0]
