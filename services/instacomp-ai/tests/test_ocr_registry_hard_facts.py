@@ -322,3 +322,27 @@ def test_copyright_corruption_is_not_a_serial_but_real_246_of_399_is():
     good = parse_serial_evidence([obs("246/399", side="back", x=0.20, y=0.10, confidence=1.0)])
     assert good.exact_stamp == "246/399"
     assert good.visible_denominator == 399
+
+
+def test_back_title_crop_geometry_cannot_invent_card_number():
+    observations = [
+        OCRObservation(text="No.", confidence=1.0, box=OCRBox(x=0.10, y=0.04, width=0.08, height=0.03), side="back", source="apple_vision:original"),
+        OCRObservation(text="1774", confidence=1.0, box=OCRBox(x=0.12, y=0.03, width=0.08, height=0.05), side="back", source="apple_vision:title_upper"),
+        OCRObservation(text="2025 PANINI - WNBA PRIZM BASKETBALL", confidence=1.0, box=OCRBox(x=0.20, y=0.10, width=0.5, height=0.03), side="back", source="apple_vision:original"),
+    ]
+    identity = build_identity_hints(front=side("front", []), back=side("back", observations), serial=SerialEvidence())
+    assert identity.card_number is None
+
+
+def test_apple_vision_title_crops_are_front_only():
+    from app.apple_vision import AppleVisionOCR
+    from PIL import Image
+    from io import BytesIO
+
+    image = Image.new("RGB", (200, 300), "white")
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG")
+    payload = buffer.getvalue()
+    variants = AppleVisionOCR._variants(payload)
+    assert [name for name, _ in variants] == ["original", "contrast", "title_upper", "title_middle"]
+    # recognize() filters title crops for back images before native OCR runs.

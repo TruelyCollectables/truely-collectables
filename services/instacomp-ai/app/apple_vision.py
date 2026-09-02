@@ -64,6 +64,8 @@ class AppleVisionOCR:
         # for the fresh visual witness used by trusted-memory acceptance.
         try:
             variants = self._variants(image_bytes)
+            if side == "back":
+                variants = [value for value in variants if value[0] not in {"title_upper", "title_middle"}]
         except Exception as exc:
             return [], [
                 f"{side}:apple_vision_preprocess_failed:{type(exc).__name__.lower()}"

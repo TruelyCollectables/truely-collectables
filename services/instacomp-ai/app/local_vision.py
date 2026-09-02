@@ -446,7 +446,14 @@ def _manufacturer_hint(text: str) -> str | None:
 
 
 def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
-    values = list(observations)
+    values = [
+        value for value in observations
+        if not (value.side == "back" and value.source in {"apple_vision:title_upper", "apple_vision:title_middle"})
+    ]
+
+    # Crop-local title OCR is a front-only text witness. Historical back title
+    # crops have unremapped coordinates and must never influence card-number
+    # layout; filter them defensively for archived/replayed evidence.
 
     # Score complete labeled hits instead of returning the first regex match.
     # Biographical copy can contain phrases such as "No. 1 overall pick"; that
