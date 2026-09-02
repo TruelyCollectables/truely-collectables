@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { POST as runIdentityScan } from "../scan/route";
-import { getExactEbayMarketProviders } from "../../../../lib/instacomp-exact-market-provider";
 import { getOpenAiExactEbayMarketProviders } from "../../../../lib/instacomp-openai-web-market-provider";
 import { getTeacherExactMarketProviders } from "../../../../lib/instacomp-teacher-market-provider";
-import { pushInstaCompTeacherReceipt } from "../../../../lib/instacomp-teacher-learning-bridge";
+import {
+  pushInstaCompExactMarketHistory,
+  pushInstaCompTeacherReceipt,
+} from "../../../../lib/instacomp-teacher-learning-bridge";
 import { verifyInstaCompCompetitionImages } from "../../../../lib/instacomp-comp-visual-verification";
 import { sanitizeInstaCompProviderError } from "../../../../lib/instacomp-provider-safety";
 import { loadExactCardMarketHistory } from "../../../../lib/instacomp-market-history";
@@ -218,7 +220,6 @@ async function persistExactMarketSummary(params: {
 function runtimeConfiguration() {
   return {
     openAi: Boolean(String(process.env.OPENAI_API_KEY || "").trim()),
-    serpApi: Boolean(String(process.env.SERPAPI_API_KEY || "").trim()),
     ebay:
       Boolean(String(process.env.EBAY_CLIENT_ID || "").trim()) &&
       Boolean(String(process.env.EBAY_CLIENT_SECRET || "").trim()),
@@ -712,42 +713,6 @@ export async function POST(request: NextRequest) {
         }),
       };
 
-  let serp: Awaited<ReturnType<typeof getExactEbayMarketProviders>> | null = null;
-  let serpFailure: string | null = null;
-  if (!teacherSource.sold.results.length && !openAiSource.sold.results.length) {
-    try {
-      serp = await getExactEbayMarketProviders({
-        exactTitle,
-        fallbackQuery: base.searchQuery || exactTitle,
-        ai,
-      });
-    } catch (error) {
-      serpFailure = sanitizeInstaCompProviderError(
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-  const serpSource: InstaCompExactMarketSource = serp
-    ? { sold: serp.sold, active: serp.active }
-    : {
-        sold: providerError({
-          source: "ebay_sold_serpapi_exact",
-          label: "eBay Sold",
-          message:
-            teacherSource.sold.results.length || openAiSource.sold.results.length
-              ? "SerpApi held as last fallback and was not called."
-              : serpFailure || "SerpApi sold provider failed or was unavailable.",
-        }),
-        active: providerError({
-          source: "ebay_active_serpapi_exact",
-          label: "eBay Active",
-          message:
-            teacherSource.sold.results.length || openAiSource.sold.results.length
-              ? "SerpApi held as last fallback and was not called."
-              : serpFailure || "SerpApi active provider failed or was unavailable.",
-        }),
-      };
-
   const officialEbayActive = (base.providers || []).find(
     (provider) => provider.source === "ebay_active",
   );
@@ -772,38 +737,14 @@ export async function POST(request: NextRequest) {
   if (!visualTarget) {
     return json({ ok: false, error: "The exact-market verifier lost the target front image." }, 500);
   }
-  const serpSoldForReview = forceVisualProof(serpSource.sold);
-  const serpActiveForReview = forceVisualProof(serpSource.active);
   const officialActiveForReview = forceVisualProof(officialActiveSource.active);
-  const [serpSoldReview, serpActiveReview, officialActiveReview] = await Promise.all([
-    verifyInstaCompCompetitionImages({
-      targetFrontImage: visualTarget,
-      targetAi: ai,
-      candidates: serpSoldForReview.results,
-    }),
-    verifyInstaCompCompetitionImages({
-      targetFrontImage: visualTarget,
-      targetAi: ai,
-      candidates: serpActiveForReview.results,
-    }),
+  const [officialActiveReview] = await Promise.all([
     verifyInstaCompCompetitionImages({
       targetFrontImage: visualTarget,
       targetAi: ai,
       candidates: officialActiveForReview.results,
     }),
   ]);
-  const verifiedSerpSource: InstaCompExactMarketSource = {
-    sold: providerAfterVisualReview({
-      provider: serpSource.sold,
-      accepted: serpSoldReview.accepted,
-      rejectedCount: serpSoldReview.rejected.length,
-    }),
-    active: providerAfterVisualReview({
-      provider: serpSource.active,
-      accepted: serpActiveReview.accepted,
-      rejectedCount: serpActiveReview.rejected.length,
-    }),
-  };
   const verifiedOfficialActiveSource: InstaCompExactMarketSource = {
     sold: officialActiveSource.sold,
     active: providerAfterVisualReview({
@@ -814,20 +755,17 @@ export async function POST(request: NextRequest) {
   };
   const summary = mergeExactMarketSources([
     teacherSource,
-    verifiedSerpSource,
+    openAiSource,
     verifiedOfficialActiveSource,
   ]);
   const exactProviders = [
     teacherSource.sold,
     teacherSource.active,
-    verifiedSerpSource.sold,
-    verifiedSerpSource.active,
     verifiedOfficialActiveSource.active,
     openAiSource.sold,
     openAiSource.active,
   ];
   const soldSearchUrl =
-    serp?.sold.searchUrl ||
     openAi?.sold.searchUrl ||
     (base.links?.ebaySoldUrl ? String(base.links.ebaySoldUrl) : null);
   const registryReceipt = ((base as any).checklistRegistry || {}) as Record<string, any>;
@@ -844,7 +782,7 @@ export async function POST(request: NextRequest) {
   const exactMarketEvidence = {
     status: summary.status,
     query: exactTitle,
-    queries: serp?.queries || [exactTitle],
+    queries: [exactTitle],
     soldEvidenceCount: summary.sold.length,
     pricingEligibleSoldCount: summary.pricing.soldCount,
     activeEvidenceCount: summary.active.length,
@@ -933,6 +871,44 @@ export async function POST(request: NextRequest) {
         reason: "No outside teacher run was available to teach InstaComp AI.",
       };
 
+  const exactMarketLearning = teacher
+    ? await pushInstaCompExactMarketHistory({
+        schemaVersion: "tcos.instacomp.teacher-comp-receipt.v1",
+        source: "instacomp",
+        scanId: base.scanId ? String(base.scanId) : null,
+        registryIdentityId,
+        registryFingerprintSha256,
+        canonicalIdentity: ai as unknown as Record<string, unknown>,
+        studentHypothesis: teacher.studentHypothesis as unknown as Record<string, unknown>,
+        teacherConsensus: {
+          configuredTeachers: teacher.configuredTeachers,
+          requiredVotes: teacher.requiredVotes,
+          trusted: teacherTrusted,
+          attempts: teacher.attempts,
+        },
+        acceptedSoldComps: teacherSource.sold.results,
+        discoverySoldComps: teacher.discovery.sold,
+        discoveryActiveComps: teacher.discovery.active,
+        trustedSuggestedPrice: teacherTrusted ? summary.trustedSuggestedPrice : null,
+        pricingEligibleSoldCount: teacherTrusted
+          ? teacherSource.sold.results.length
+          : 0,
+        studentMode: true,
+        pricingAuthority: false,
+        identityTrainingMutationAllowed: false,
+        createdAt: new Date().toISOString(),
+      })
+    : {
+        status: "skipped" as const,
+        receiptId: null,
+        trustedMarketTruth: false,
+        studentTrainingEligible: false,
+        pricingAuthority: false as const,
+        identityTrainingMutated: false as const,
+        reason: "No outside teacher run was available to teach InstaComp AI.",
+        exactMarketHistory: true as const,
+      };
+
   const providerMessages = exactProviders
     .map((provider) => ({
       label: provider.label,
@@ -965,7 +941,7 @@ export async function POST(request: NextRequest) {
     exactMarket: {
       status: summary.status,
       query: exactTitle,
-      queries: serp?.queries || [exactTitle],
+      queries: [exactTitle],
       soldCount: summary.sold.length,
       pricingEligibleSoldCount: summary.pricing.soldCount,
       activeCount: summary.active.length,
@@ -977,6 +953,7 @@ export async function POST(request: NextRequest) {
       active: summary.active,
       providerMessages,
       teacherLearning,
+      exactMarketLearning,
       teacherConsensus: teacher
         ? {
             configuredTeachers: teacher.configuredTeachers,
@@ -1025,22 +1002,12 @@ export async function POST(request: NextRequest) {
               trustedSoldCount: 0,
               error: teacherFailure,
             },
-        serpApi: {
-          soldStatus: serpSource.sold.status,
-          activeStatus: serpSource.active.status,
-          soldAttempts: serp?.sold.attempts || [],
-          activeAttempts: serp?.active.attempts || [],
-        },
         visualProof: {
           configured:
-            serpSoldReview.configured &&
-            serpActiveReview.configured &&
             officialActiveReview.configured,
-          model: serpSoldReview.model,
-          soldReviewed: serpSoldReview.reviewedCount,
-          soldRejected: serpSoldReview.rejected.length,
-          serpActiveReviewed: serpActiveReview.reviewedCount,
-          serpActiveRejected: serpActiveReview.rejected.length,
+          model: officialActiveReview.model,
+          soldReviewed: 0,
+          soldRejected: 0,
           officialActiveReviewed: officialActiveReview.reviewedCount,
           officialActiveRejected: officialActiveReview.rejected.length,
         },

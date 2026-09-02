@@ -6,7 +6,8 @@ import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { loadExactCardMarketHistory } from "../../../../../lib/instacomp-market-history";
 import { trustedHistoricalSoldPricing } from "../../../../../lib/deal-hunter-trusted-sold-history";
 import { resolveChecklistRegistry } from "../../../../../lib/instacomp-learning-server";
-import { getExactEbayMarketProviders } from "../../../../../lib/instacomp-exact-market-provider";
+import { getTeacherExactMarketProviders } from "../../../../../lib/instacomp-teacher-market-provider";
+import { getOpenAiExactEbayMarketProviders } from "../../../../../lib/instacomp-openai-web-market-provider";
 import {
   buildExactIdentityTitle,
   dedupeExactMarketComps,
@@ -299,12 +300,14 @@ async function buildRegistryLockedFallbackScan(params: {
   }
   const canonicalAi = canonicalAiFromRegistry(external.ai, resolution.match);
   const exactTitle = buildExactIdentityTitle(canonicalAi, text(params.listing.title, 1000));
-  const ebay = await getExactEbayMarketProviders({
-    exactTitle,
-    fallbackQuery: text(params.listing.title, 1000) || exactTitle,
-    ai: canonicalAi,
-  });
-  const market = mergeExactMarketSources([ebay]);
+  const teacher = await getTeacherExactMarketProviders({ exactTitle, ai: canonicalAi });
+  const openAi = teacher.sold.results.length
+    ? null
+    : await getOpenAiExactEbayMarketProviders({ exactTitle, ai: canonicalAi });
+  const market = mergeExactMarketSources([
+    { sold: teacher.sold, active: teacher.active },
+    openAi ? { sold: openAi.sold, active: openAi.active } : null,
+  ]);
   const pricingSold = dedupeExactMarketComps(market.sold, 50);
   return {
     ok: true,
@@ -329,8 +332,8 @@ async function buildRegistryLockedFallbackScan(params: {
     },
     exactMarket: {
       status: market.status,
-      query: ebay.query,
-      queries: ebay.queries,
+      query: exactTitle,
+      queries: [exactTitle],
       soldCount: market.sold.length,
       activeCount: market.active.length,
       pricingEligibleSoldCount: pricingSold.length,
@@ -345,7 +348,7 @@ async function buildRegistryLockedFallbackScan(params: {
         originalError: text(params.originalFailure?.error || params.originalFailure?.scan?.error, 800),
       },
     },
-    providers: [ebay.sold, ebay.active],
+    providers: [teacher.sold, teacher.active, ...(openAi ? [openAi.sold, openAi.active] : [])],
     soldComps: market.sold,
     activeComps: market.active,
     soldStats: market.pricing,

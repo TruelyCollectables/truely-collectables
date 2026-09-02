@@ -78,7 +78,9 @@ export function listingItemIdFromUrl(value: string | null | undefined) {
   const ebay = text.match(/\/itm\/(?:[^/?]+\/)?(\d{9,15})(?:[/?]|$)/i);
   if (ebay?.[1]) return ebay[1];
   const mercari = text.match(/\/item\/(m\d+)/i);
-  return mercari?.[1] || null;
+  if (mercari?.[1]) return mercari[1];
+  const fanatics = text.match(/fanaticscollect\.com\/(?:buy-now|auction|item)\/([^/?#]+)/i);
+  return fanatics?.[1] || null;
 }
 
 function observationFingerprint(parts: Array<string | number | null | undefined>) {
