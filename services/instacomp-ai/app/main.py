@@ -22,7 +22,7 @@ from .images import (
     persisted_image_path,
     validate_and_normalize_image,
 )
-from .local_vision import analyze_local_vision
+from .local_vision import analyze_local_vision, analyze_treatment_colors, _decode_image
 from .lora_candidate_runtime import analyze_with_established_reader
 from .models import (
     AnalyzeResponse,
@@ -836,7 +836,14 @@ async def analyze_scan(
     legal_rows = registry_store.visible_candidates(candidate_ai)
     if legal_rows and not printed_identity.parallel:
         color_tokens = ("green", "blue", "orange", "red", "gold", "pink", "purple", "black", "silver", "yellow", "cyan")
-        proportions = local_vision.front.colors.proportions
+        # Use perimeter/treatment color, not whole-image color. The center of a
+        # sports card is mostly player/jersey/photo and must not decide Green vs
+        # Blue vs Orange parallel identity.
+        try:
+            treatment_colors = analyze_treatment_colors(_decode_image(front_image.content))
+            proportions = treatment_colors.proportions
+        except Exception:
+            proportions = {}
         scored = []
         for row in legal_rows:
             parallel = str(row.get("parallel") or "").casefold()

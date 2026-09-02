@@ -184,6 +184,22 @@ def _angle_entropy(angles: list[float]) -> float:
     return min(1.0, entropy / math.log2(12))
 
 
+def analyze_treatment_colors(image: np.ndarray) -> ColorEvidence:
+    """Measure likely foil/border treatment while suppressing player/photo center."""
+    h, w = image.shape[:2]
+    if h < 8 or w < 8:
+        return analyze_colors(image)
+    # Card treatments usually repeat around the perimeter. Exclude the central
+    # portrait/jersey region so team colors cannot dominate parallel identity.
+    border_y = max(1, int(h * 0.18)); border_x = max(1, int(w * 0.18))
+    mask = np.ones((h, w), dtype=bool)
+    mask[border_y:h-border_y, border_x:w-border_x] = False
+    pixels = image[mask]
+    if len(pixels) < 100:
+        return analyze_colors(image)
+    return analyze_colors(pixels.reshape((-1, 1, 3)))
+
+
 def analyze_pattern(image: np.ndarray) -> PatternEvidence:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)

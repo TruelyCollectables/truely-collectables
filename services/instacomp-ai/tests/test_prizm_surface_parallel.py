@@ -102,3 +102,13 @@ def test_numeric_year_and_card_number_are_normalized_before_validation():
     assert identity.year == "2025"
     assert identity.card_number == "122"
     assert identity.player == "Sonia Citron"
+
+
+def test_treatment_color_ignores_center_jersey_color():
+    import numpy as np
+    from app.local_vision import analyze_treatment_colors
+    image = np.zeros((200, 140, 3), dtype=np.uint8)
+    image[:] = (0, 180, 0)  # green perimeter treatment in BGR
+    image[36:164, 25:115] = (220, 0, 0)  # blue central player/photo region
+    evidence = analyze_treatment_colors(image)
+    assert evidence.proportions.get("green", 0) > evidence.proportions.get("blue", 0)

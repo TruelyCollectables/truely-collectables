@@ -604,6 +604,18 @@ class AppleVisionOCR:
             sharpened = contrast.filter(ImageFilter.UnsharpMask(radius=1.5, percent=190, threshold=2))
             variants.append(("contrast", sharpened.convert("RGB")))
 
+            # Front insert titles are often stylized/foil text that full-card OCR
+            # misses. Add enlarged horizontal bands as independent OCR witnesses.
+            # Coordinates remain local to the crop, so these are text witnesses
+            # only; they are never used for layout/orientation geometry.
+            width, height = base.size
+            for name, top, bottom in (("title_upper", 0.0, 0.42), ("title_middle", 0.22, 0.72)):
+                crop = base.crop((0, int(height * top), width, int(height * bottom)))
+                crop = crop.resize((min(2400, crop.width * 2), min(1800, crop.height * 2)), Image.Resampling.LANCZOS)
+                crop = ImageEnhance.Contrast(crop).enhance(1.35)
+                crop = crop.filter(ImageFilter.UnsharpMask(radius=1.2, percent=170, threshold=2))
+                variants.append((name, crop))
+
             outputs: list[tuple[str, bytes]] = []
             for name, image in variants:
                 buffer = BytesIO()
