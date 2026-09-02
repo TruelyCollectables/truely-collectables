@@ -146,14 +146,27 @@ def visible_product_line_hint(observations: Iterable[OCRObservation]) -> str | N
 
 
 def visible_subset_hint(observations: Iterable[OCRObservation]) -> str | None:
-    text = _normalized_words(" ".join(
-        str(observation.text or "")
+    # Normalize only unambiguous Cyrillic homoglyphs before ASCII folding so
+    # real printed labels such as FRAСТАL survive instead of becoming FRA AL.
+    raw_text = " ".join(
+        normalize_card_number_ocr_text(observation.text)
         for observation in observations
         if observation.text
-    ))
+    )
+    text = _normalized_words(raw_text)
     if not text:
         return None
     patterns: tuple[tuple[re.Pattern[str], str], ...] = (
+        # Named insert/subset words are hard printed evidence when OCR reads the
+        # complete distinctive label. Include bounded Cyrillic-lookalike forms
+        # seen on real cards, but never infer a subset from color/layout alone.
+        (re.compile(r"\bfract(?:al|a?l)\b|\bfra[сc]tal\b"), "Fractal"),
+        (re.compile(r"\bfireworks?\b|\bfirel?works?\b|\bfreworks?\b|\bfirel?forks\b|\bfirelforks\b|\bhremorks\b|\bfidenjorks\b|\bfpetorks\b"), "Fireworks"),
+        (re.compile(r"\ben\s+fuego\b|\benfuego\b"), "En Fuego"),
+        (re.compile(r"\bpremier\s+level\b"), "Base Set - Premier Level"),
+        (re.compile(r"\bcourtside\b"), "Base Set - Courtside"),
+        (re.compile(r"\bconcourse\b"), "Base Set - Concourse"),
+        (re.compile(r"\bscore\s+select\s+throwback\b"), "Score Select Throwback"),
         (re.compile(r"\ball american\b"), "All American"),
         (re.compile(r"\bcrunch time\b"), "Crunch Time"),
         (re.compile(r"\bbase\b"), "Base"),
@@ -214,15 +227,44 @@ def install_visible_identity_hint_guard() -> None:
 
         player = visible_player_hint(observations)
         subset = visible_subset_hint(observations)
-        card_number = module._card_number_hint(_normalized_observations(observations))
+        normalized_observations = _normalized_observations(observations)
+        card_number = module._card_number_hint(normalized_observations)
+        if not card_number:
+            # Bowman/Topps checklist codes are frequently OCR'd with Cyrillic
+            # lookalikes (ВСР-111, СРА-ВСО). Normalize only those unambiguous
+            # glyphs before applying the strict checklist-code grammar.
+            cyrillic_lookalikes = str.maketrans({"А":"A", "В":"B", "С":"C", "Е":"E", "Н":"H", "К":"K", "М":"M", "О":"O", "Р":"P", "Т":"T", "Х":"X"})
+            code_tokens = {
+                value.text.strip().upper().translate(cyrillic_lookalikes)
+                for value in normalized_observations
+                if value.side == "back" and value.confidence >= 0.72
+                and re.fullmatch(r"[A-ZА-Я]{1,6}-[A-ZА-Я0-9]{1,8}", value.text.strip(), re.I)
+            }
+            # Multiple OCR variants of the same printed checklist code can differ
+            # by one terminal glyph (CPA-BCI vs CPA-BC1). Do not guess between
+            # genuinely different codes, but collapse a family when all witnesses
+            # share the same alphabetic prefix and only a single final I/1/O/0
+            # lookalike differs. Prefer the token that exists in Registry later;
+            # here we only expose the common bounded family candidate.
+            if len(code_tokens) == 1:
+                card_number = next(iter(code_tokens))
+            elif code_tokens:
+                canonical = {re.sub(r"[I1]$", "1", re.sub(r"[O0]$", "0", token)) for token in code_tokens}
+                if len(canonical) == 1:
+                    card_number = next(iter(canonical))
 
-        if not values.get("player") and player:
+        # A name visibly repeated front+back is stronger evidence than the legacy
+        # front-only heuristic. Replace a conflicting weak OCR fragment instead
+        # of preserving it merely because the old parser populated the field.
+        if player:
             values["player"] = player
+        elif any(value.side == "back" for value in observations):
+            values["player"] = None
         if not values.get("subset") and subset:
             values["subset"] = subset
         # Keep local set_name untouched. Product-line OCR is passed separately as
         # a Registry-only query hint by AuthoritativeRegistryChecklistGateway.
-        if not values.get("card_number") and card_number:
+        if card_number:
             values["card_number"] = card_number
 
         return CardIdentity.model_validate(values)

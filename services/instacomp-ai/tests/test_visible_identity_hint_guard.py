@@ -13,6 +13,7 @@ from app.visible_identity_hint_guard import (
     normalize_card_number_ocr_text,
     registry_product_line_hint_from_text,
     visible_product_line_hint,
+    visible_subset_hint,
 )
 
 
@@ -243,3 +244,56 @@ async def test_registry_gateway_uses_product_line_as_request_hint_only(monkeypat
     assert identity.set_name is None
     assert _CaptureRegistryClient.last_json["setName"] == "Panini Select WNBA"
     assert _CaptureRegistryClient.last_json["player"] == "KIKI IRIAFEN"
+
+
+def test_repeated_name_replaces_legacy_front_ocr_garbage():
+    front = side("front", [obs("OTS PN", "front", confidence=1.0, height=0.12), obs("BRANDON COMPTON", "front", confidence=1.0)])
+    back = side("back", [obs("BRANDON COMPTON", "back", confidence=1.0), obs("CPA-BCO", "back", y=0.82)])
+    identity = local_vision.build_identity_hints(front=front, back=back, serial=SerialEvidence(stamp_present=False))
+    assert identity.player == "BRANDON COMPTON"
+    assert identity.card_number == "CPA-BCO"
+
+
+def test_guarded_unlabeled_prefixed_card_code_is_recovered():
+    front = side("front", [obs("BRANDON COMPTON", "front")])
+    back = side("back", [obs("BRANDON COMPTON", "back"), obs("CPA-BCO", "back", y=0.82, width=0.20)])
+    identity = local_vision.build_identity_hints(front=front, back=back, serial=SerialEvidence(stamp_present=False))
+    assert identity.card_number == "CPA-BCO"
+
+
+def test_cyrillic_lookalike_checklist_code_is_normalized():
+    front = side("front", [obs("GEORGE LOMBARD JR", "front", confidence=1.0)])
+    back = side("back", [obs("GEORGE LOMBARD JR", "back", confidence=1.0), obs("ВСР-79", "back", y=0.82, confidence=0.9)])
+    identity = local_vision.build_identity_hints(front=front, back=back, serial=SerialEvidence(stamp_present=False))
+    assert identity.card_number == "BCP-79"
+
+def test_registry_product_line_reads_real_wnba_footer_variants():
+    assert registry_product_line_hint_from_text("2025 PANINI - WNBA SELECT BASKETBALL") == "Panini Select WNBA"
+    assert registry_product_line_hint_from_text("2025 PANINI - WNBA PRIZM BASKETBALL") == "Panini Prizm WNBA"
+    assert registry_product_line_hint_from_text("2024 PANINI - WNBA PRIZM BASKETBALL") == "Panini Prizm WNBA"
+
+
+def test_registry_product_line_reads_bowman_chrome_trademark_footer():
+    assert registry_product_line_hint_from_text("TOPPS AND BOWMAN CHROME ARE REGISTERED TRADEMARKS") == "Bowman Chrome"
+
+
+def test_visible_subset_recovers_fractal_with_cyrillic_lookalike():
+    from app.visible_identity_hint_guard import visible_subset_hint
+    observations = [obs("FRAСТАL", "front", confidence=1.0)]
+    assert visible_subset_hint(observations) == "Fractal"
+
+def test_visible_subset_recovers_real_sonia_fireworks_ocr_corruption():
+    observations = [obs("FREWORKS", "back", confidence=0.97), obs("2025 PANINI - WNBA PRIZM BASKETBALL", "back", confidence=0.96)]
+    assert visible_subset_hint(observations) == "Fireworks"
+
+
+def test_visible_subset_reads_real_fireworks_ocr_corruption():
+    observations = [obs("FIRELFORKS", "front"), obs("HREMORKS", "back")]
+    assert visible_subset_hint(observations) == "Fireworks"
+
+
+def test_visible_subset_reads_select_levels_and_en_fuego():
+    assert visible_subset_hint([obs("EN FUEGO", "front")]) == "En Fuego"
+    assert visible_subset_hint([obs("PREMIER LEVEL", "back")]) == "Base Set - Premier Level"
+    assert visible_subset_hint([obs("COURTSIDE", "back")]) == "Base Set - Courtside"
+    assert visible_subset_hint([obs("CONCOURSE", "back")]) == "Base Set - Concourse"
