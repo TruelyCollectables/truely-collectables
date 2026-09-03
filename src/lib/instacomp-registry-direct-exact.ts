@@ -132,7 +132,6 @@ function brandAndProductMatch(
     if (!manufacturer || manufacturer !== brandTarget) return false;
   }
 
-  const setTokens = meaningfulTokens(probe.setName);
   const productTokens = new Set(
     meaningfulTokens(
       [release.brand?.name, release.product_name, setName]
@@ -140,10 +139,7 @@ function brandAndProductMatch(
         .join(" "),
     ),
   );
-  if (!setTokens.length) {
-    return productTokens.size > 0;
-  }
-  return setTokens.every((token) => productTokens.has(token));
+  return productTokens.size > 0;
 }
 
 export type DirectRegistryCardRow = {
@@ -188,6 +184,19 @@ export function chooseDirectRegistryExactMatch(
   const instantPrintRun = visibleInstantPrintRun(probe, requestedSerialRun);
   const targetVariation = normalizedText(probe.variation);
   const targetTeam = normalizedText(probe.team);
+  const rawSet = normalizedText(probe.setName);
+  const releaseProductTokens = (release: Record<string, any>) =>
+    new Set(meaningfulTokens([release.brand?.name, release.product_name].filter(Boolean).join(" ")));
+  const parallelOnlySetTokens = new Set([
+    "red", "blue", "green", "gold", "silver", "purple", "orange", "pink",
+    "black", "white", "yellow", "teal", "aqua", "bronze", "copper", "prizm", "prizms",
+  ]);
+  const structuralBaseRequested = ["base", "base card", "base set", "standard", "regular"].includes(
+    normalizedText(probe.setName),
+  );
+  const explicitBaseParallelRequested = ["base", "base card", "standard", "regular"].includes(
+    normalizedText(probe.parallel),
+  );
   const targetSport = normalizedText(probe.sport);
   const targetLeague = normalizedText(probe.league);
   const requireAuto = probe.isAuto === true;
@@ -204,6 +213,23 @@ export function chooseDirectRegistryExactMatch(
     const release = card.release || {};
     if (yearStart(release.release_year || release.season) !== targetYear) continue;
     if (!brandAndProductMatch(probe, release, card.set?.name)) continue;
+    const productOnlySetRequested =
+      !normalizedText(probe.parallel) &&
+      rawSet === normalizedText(release.product_name);
+    if (productOnlySetRequested && normalizedText(card.set?.name) !== "base") continue;
+    if (!["base", "base card", "base set", "standard", "regular"].includes(rawSet)) {
+      const productTokens = releaseProductTokens(release);
+      const registrySetTokens = new Set(meaningfulTokens(card.set?.name));
+      const logicalSetTokens = meaningfulTokens(probe.setName).filter((token) => !productTokens.has(token));
+      const visibleText = normalizedText(probe.registryVisibleText || probe.ocrText);
+      const unverifiedParallelSuffix =
+        !normalizedText(probe.parallel) &&
+        logicalSetTokens.length > 0 &&
+        logicalSetTokens.every((token) => parallelOnlySetTokens.has(token)) &&
+        logicalSetTokens.every((token) => !visibleText.split(" ").includes(token));
+      if (logicalSetTokens.length && !unverifiedParallelSuffix && !logicalSetTokens.every((token) => registrySetTokens.has(token))) continue;
+      if (unverifiedParallelSuffix && registrySetTokens.size && !registrySetTokens.has("base")) continue;
+    }
 
     const players = (card.players || [])
       .map((link) => link?.player?.canonical_name)
@@ -239,6 +265,7 @@ export function chooseDirectRegistryExactMatch(
       if (requireRelic && !registryRelic) continue;
 
       const registryParallel = parallelSignature(identity.parallel?.name || "Base");
+      if ((structuralBaseRequested || explicitBaseParallelRequested || productOnlySetRequested) && registryParallel) continue;
       const serialRun = Number(identity.parallel?.serial_run || 0) || null;
       if (targetParallel) {
         if (registryParallel !== targetParallel) continue;

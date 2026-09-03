@@ -1,10 +1,14 @@
 import fs from "node:fs";
 
 const files = {
-  page: fs.readFileSync("src/app/kingmaker/pending/page.tsx", "utf8"),
+  page: [
+    fs.readFileSync("src/app/kingmaker/pending/page.tsx", "utf8"),
+    fs.readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8"),
+  ].join("\n"),
   scan: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-front-back/route.ts", "utf8"),
   edit: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-card-edit/route.ts", "utf8"),
   status: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-job-status/route.ts", "utf8"),
+  rotation: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts", "utf8"),
 };
 
 const failures = [];
@@ -15,9 +19,11 @@ const forbidText = (file, value, reason) => {
   if (files[file].includes(value)) failures.push(`${file}: ${reason}`);
 };
 
-requireText("page", "rotatedImageFile", "rotation must change the bytes sent to AI");
-requireText("page", 'formData.set("frontImage", frontImage)', "front file must be submitted");
-requireText("page", 'formData.set("backImage", backImage)', "back file must be submitted");
+requireText("rotation", "persistNormalizedInstaCompImagePair", "rotation must persist normalized bytes");
+requireText("rotation", "frontFile: front", "front file must be submitted");
+requireText("rotation", "backFile: back", "back file must be submitted");
+requireText("rotation", 'frontRotation: rotatedSide === "front" ? 90 : 0', "front rotation must be explicit");
+requireText("rotation", 'backRotation: rotatedSide === "back" ? 90 : 0', "back rotation must be explicit");
 requireText("page", "Retry This Card", "failed cards need an attached retry action");
 requireText("page", "Replace Manual Identity with AI", "manual identity replacement must be explicit");
 requireText("page", "job?.error", "durable per-card errors must be displayed");
