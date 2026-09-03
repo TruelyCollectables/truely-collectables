@@ -210,8 +210,7 @@ jobs:
         run: npx tsc --noEmit --pretty false
 
       - name: Remove and prove removal of short-lived Production acceptance credential
-        if: github.event_name != 'pull_request'
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         shell: bash
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
