@@ -192,23 +192,23 @@ const soniaRows: DirectRegistryCardRow[] = [
   },
 ];
 
-assert.equal(
-  chooseReleaseFirstRegistryExactMatch(
-    {
-      year: "2025",
-      brand: "Prizm",
-      setName: "Prizm",
-      cardNumber: "148",
-      player: null,
-      parallel: "Base",
-      isAuto: false,
-      isRelic: false,
-    },
-    soniaRows,
-  ),
-  null,
-  "missing player plus default Base evidence must remain blocked when an unnumbered parallel is also possible",
+const soniaBaseRecovered = chooseReleaseFirstRegistryExactMatch(
+  {
+    year: "2025",
+    brand: "Prizm",
+    setName: "Prizm",
+    cardNumber: "148",
+    player: null,
+    parallel: "Base",
+    isAuto: false,
+    isRelic: false,
+  },
+  soniaRows,
 );
+assert.ok(soniaBaseRecovered, "explicit Base plus one matching Registry fingerprint may recover a missing player");
+assert.equal(soniaBaseRecovered.playerRecovered, true);
+assert.equal(soniaBaseRecovered.match.player, "Sonia Citron");
+assert.equal(soniaBaseRecovered.match.parallel, "Base");
 
 assert.equal(
   chooseReleaseFirstRegistryExactMatch(

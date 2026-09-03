@@ -11,28 +11,19 @@ import {
   verifyInstaCompReleasePayload,
 } from "./check-live-instacomp-release.mjs";
 
-const productionWorkflow = readFileSync(
-  new URL(
-    "../.github/workflows/instacomp-production-release.yml",
-    import.meta.url,
-  ),
+const cloudflareWorkflow = readFileSync(
+  new URL("../.github/workflows/deal-hunter-cloudflare-production-release.yml", import.meta.url),
   "utf8",
 );
 for (const marker of [
-  "GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}",
-  "Detect learning-provenance Production migration release",
-  "Apply and verify learning-provenance Production migration",
-  "scripts/apply-instacomp-learning-provenance-production.mjs",
-  "supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql",
-  "git diff --exit-code -- .",
-  "git restore --source=HEAD -- public/instacomp-release.json",
-  "git status --porcelain --untracked-files=no",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_API_TOKEN",
+  "run-wrangler-deploy-redacted.mjs --config wrangler.jsonc",
+  "run-wrangler-deploy-redacted.mjs --config wrangler.production-route.jsonc",
+  "https://truelycollectables.com/__edge-health",
+  "x-truely-origin",
 ]) {
-  assert.match(
-    productionWorkflow,
-    new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-    `Missing Production migration marker: ${marker}`,
-  );
+  assert.ok(cloudflareWorkflow.includes(marker), `Missing Cloudflare Production release marker: ${marker}`);
 }
 
 const exactCommit = "a".repeat(40);

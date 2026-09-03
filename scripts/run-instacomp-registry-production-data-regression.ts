@@ -4,6 +4,8 @@ import {
   type ChecklistRegistryLookupResult,
 } from "../src/lib/instacomp-learning-server";
 import { buildInstaCompRegistryLockProbe } from "../src/lib/instacomp-registry-lock-request";
+import { shouldAcceptDirectRegistryRecovery } from "../src/lib/instacomp-registry-direct-acceptance";
+import { resolveRegistryDirectExactReleaseFirst } from "../src/lib/instacomp-registry-direct-exact-release-first";
 
 type Expected = {
   key: string;
@@ -17,15 +19,28 @@ type Expected = {
 async function resolveWithBoundedLeadingDigitRecovery(body: Record<string, unknown>) {
   const probe = buildInstaCompRegistryLockProbe(body);
   let resolution = await resolveChecklistRegistry(probe, { evidenceTrusted: false });
+  if (resolution.status !== "internal_exact_match") {
+    const direct = await resolveRegistryDirectExactReleaseFirst(probe);
+    if (shouldAcceptDirectRegistryRecovery({ probe, resolution: direct })) {
+      resolution = direct!;
+    }
+  }
   const observed = String(probe.cardNumber || "").trim();
 
   if (resolution.status !== "internal_exact_match" && /^\d{1,3}$/.test(observed)) {
     const recovered = new Map<string, ChecklistRegistryLookupResult>();
     for (let prefix = 1; prefix <= 9; prefix += 1) {
-      const attempt = await resolveChecklistRegistry(
-        { ...probe, cardNumber: `${prefix}${observed}` },
+      const candidateProbe = { ...probe, cardNumber: `${prefix}${observed}` };
+      let attempt = await resolveChecklistRegistry(
+        candidateProbe,
         { evidenceTrusted: false },
       );
+      if (attempt.status !== "internal_exact_match") {
+        const direct = await resolveRegistryDirectExactReleaseFirst(candidateProbe);
+        if (shouldAcceptDirectRegistryRecovery({ probe: candidateProbe, resolution: direct })) {
+          attempt = direct!;
+        }
+      }
       if (attempt.status === "internal_exact_match" && attempt.match) {
         recovered.set(attempt.match.identityId, attempt);
       }

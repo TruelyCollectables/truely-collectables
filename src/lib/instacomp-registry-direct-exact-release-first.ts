@@ -73,11 +73,25 @@ export function narrowDirectRegistryReleaseRows(
   const targetYear = yearStart(probe.year);
   if (!targetYear || !normalizedText(probe.brand)) return [];
 
-  return (rows || []).filter((release) => {
+  const candidates = (rows || []).filter((release) => {
     const releaseYear = yearStart(release.release_year || release.season);
     if (releaseYear !== targetYear) return false;
+    const targetSport = normalizedText(probe.sport);
+    const targetLeague = normalizedText(probe.league);
+    if (targetSport && normalizedText(release.sport?.name) !== targetSport) return false;
+    if (targetLeague && normalizedText(release.league?.name) !== targetLeague) return false;
     return brandEvidenceMatchesRelease(probe.brand, release);
   });
+
+  const observedSet = normalizedText(probe.setName);
+  const productBound = candidates
+    .map((release) => ({ release, product: normalizedText(release.product_name) }))
+    .filter(({ product }) => product && observedSet.includes(product));
+  if (!productBound.length) return candidates;
+  const longestProduct = Math.max(...productBound.map(({ product }) => product.length));
+  return productBound
+    .filter(({ product }) => product.length === longestProduct)
+    .map(({ release }) => release);
 }
 
 function unique(values: unknown[]) {
@@ -201,16 +215,20 @@ export async function resolveRegistryDirectExactReleaseFirst(
   );
   if (!activeVersionIds.length) return null;
 
-  const directResult = await supabase
-    .from("checklist_cards")
-    .select(
-      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-    )
-    .eq("normalized_card_number", cardNumber)
-    .in("release_id", candidateReleaseIds)
-    .in("version_id", activeVersionIds)
-    .limit(1000);
-  if (directResult.error) return null;
+  const directResults = await Promise.all(
+    candidateReleaseIds.map((releaseId) =>
+      supabase
+        .from("checklist_cards")
+        .select(
+          "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
+        )
+        .eq("normalized_card_number", cardNumber)
+        .eq("release_id", releaseId)
+        .in("version_id", activeVersionIds)
+        .limit(1000),
+    ),
+  );
+  if (directResults.some((result) => result.error)) return null;
 
   const observedAliasByCard = new Map<string, string>();
   const aliasResult = await supabase
@@ -232,7 +250,7 @@ export async function resolveRegistryDirectExactReleaseFirst(
     }
   }
 
-  const cards = [...(directResult.data || [])] as any[];
+  const cards = directResults.flatMap((result) => result.data || []) as any[];
   const directIds = new Set(cards.map((row: any) => String(row.id)));
   aliasCardIds = unique(aliasCardIds).filter((id) => !directIds.has(id));
 

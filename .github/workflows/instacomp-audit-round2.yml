@@ -34,7 +34,7 @@ on:
       - "scripts/write-instacomp-release-manifest.mjs"
       - "scripts/check-live-instacomp-release.mjs"
       - ".github/workflows/instacomp-audit-round2.yml"
-      - ".github/workflows/instacomp-production-release.yml"
+      - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
   workflow_dispatch:
 
 permissions:
@@ -128,17 +128,19 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const manifest = JSON.parse(fs.readFileSync('public/instacomp-release.json', 'utf8'));
-          if (manifest.sourceCommit !== 'BUILD_INJECTED_AT_BUILD') {
-            throw new Error('Committed manifest must remain a fail-closed build template.');
+          if (!/^[0-9a-f]{40}$/.test(String(manifest.sourceCommit || ''))) {
+            throw new Error('Committed manifest must remain bound to an auditable exact source commit.');
           }
-          const workflow = fs.readFileSync('.github/workflows/instacomp-production-release.yml', 'utf8');
+          const workflow = fs.readFileSync('.github/workflows/deal-hunter-cloudflare-production-release.yml', 'utf8');
           for (const marker of [
-            'TCOS_RELEASE_COMMIT="$exact_commit"',
-            'INSTACOMP_EXPECTED_COMMIT="$(cat "$deployed_commit_file")"',
-            'node scripts/write-instacomp-release-manifest.mjs',
-            'node scripts/check-live-instacomp-release.mjs',
+            'CLOUDFLARE_ACCOUNT_ID',
+            'CLOUDFLARE_API_TOKEN',
+            'run-wrangler-deploy-redacted.mjs --config wrangler.jsonc',
+            'run-wrangler-deploy-redacted.mjs --config wrangler.production-route.jsonc',
+            'https://truelycollectables.com/__edge-health',
+            "response.headers.get('x-truely-origin') === 'cloudflare-worker'",
           ]) {
-            if (!workflow.includes(marker)) throw new Error(`Missing release attestation marker: ${marker}`);
+            if (!workflow.includes(marker)) throw new Error(`Missing Cloudflare release marker: ${marker}`);
           }
           const migration = fs.readFileSync(
             'supabase/migrations/20260802224500_instacomp_learning_provenance_receipt.sql',

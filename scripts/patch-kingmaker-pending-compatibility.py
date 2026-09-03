@@ -15,8 +15,15 @@ def replace_once(path: Path, old: str, new: str, label: str) -> None:
     path.write_text(source.replace(old, new, 1), encoding="utf-8")
     print(f"patched {label}: {path}")
 
+def replace_once_or_current(path: Path, old: str, new: str, label: str, markers: tuple[str, ...]) -> None:
+    source = path.read_text("utf-8")
+    if new in source or all(marker in source for marker in markers):
+        print(f"already patched {label}: {path}")
+        return
+    replace_once(path, old, new, label)
 
-pending = ROOT / "src/app/kingmaker/pending/page.tsx"
+
+pending = ROOT / "src/app/kingmaker/pending/PendingClient.tsx"
 rotate_route = ROOT / "src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts"
 
 replace_once(
@@ -26,25 +33,28 @@ replace_once(
     "market evidence type",
 )
 
-replace_once(
+replace_once_or_current(
     pending,
     '''    reliableSoldCompCount?: number;\n    identity?: CardIdentity | null;\n''',
     '''    reliableSoldCompCount?: number;\n    soldCompEvidence?: CompEvidence[];\n    activeCompetition?: CompEvidence[];\n    identity?: CardIdentity | null;\n''',
     "separate sold and active evidence",
+    ("soldCompEvidence?: CompEvidence[]", "activeCompetition?: CompEvidence[]"),
 )
 
-replace_once(
+replace_once_or_current(
     pending,
     '''async function rotateClockwise(file: File, name: string) {\n''',
     '''async function rotatedImageFile(file: File, name: string) {\n''',
     "audited byte-changing rotation helper",
+    ("soldCompEvidence?: CompEvidence[]",),
 )
 
-replace_once(
+replace_once_or_current(
     pending,
     '''      const [front, back] = await Promise.all([\n        side === "front" ? rotateClockwise(frontOriginal, "front") : Promise.resolve(frontOriginal),\n        side === "back" ? rotateClockwise(backOriginal, "back") : Promise.resolve(backOriginal),\n      ]);\n      const session = await getFreshAccountSession(5 * 60, false);\n      if (!session?.access_token) throw new Error("Seller login is required.");\n      const form = new FormData();\n      form.append("inventoryItemId", card.inventoryItemId);\n      form.append("rotatedSide", side);\n      form.append("front", front, front.name);\n      form.append("back", back, back.name);\n      const response = await fetch("/api/account/seller/inventory/instacomp-image-rotate", {\n        method: "POST",\n        headers: { Authorization: `Bearer ${session.access_token}` },\n        body: form,\n      });\n''',
     '''      const [frontImage, backImage] = await Promise.all([\n        side === "front"\n          ? rotatedImageFile(frontOriginal, "front")\n          : Promise.resolve(frontOriginal),\n        side === "back"\n          ? rotatedImageFile(backOriginal, "back")\n          : Promise.resolve(backOriginal),\n      ]);\n      const session = await getFreshAccountSession(5 * 60, false);\n      if (!session?.access_token) throw new Error("Seller login is required.");\n      const formData = new FormData();\n      formData.set("inventoryItemId", card.inventoryItemId);\n      formData.set("rotatedSide", side);\n      formData.set("frontImage", frontImage);\n      formData.set("backImage", backImage);\n      const response = await fetch("/api/account/seller/inventory/instacomp-image-rotate", {\n        method: "POST",\n        headers: { Authorization: `Bearer ${session.access_token}` },\n        body: formData,\n      });\n''',
     "resubmit changed front/back bytes",
+    ("soldCompEvidence?: CompEvidence[]",),
 )
 
 replace_once(
@@ -54,12 +64,16 @@ replace_once(
     "explicit blank-parallel rule",
 )
 
-replace_once(
-    pending,
-    '''          [card.inventoryItemId]: data.parallelDecision?.evidence || "Exact identity remains unresolved. No look-alike parallel was substituted.",\n''',
-    '''          [card.inventoryItemId]: data.parallelDecision?.evidence || "The exact parallel remains unresolved. No Base or look-alike parallel was substituted.",\n''',
-    "fail-closed no-Base substitution message",
-)
+source = pending.read_text("utf-8")
+if "parallelDecision?.evidence" not in source:
+    print(f"obsolete fail-closed no-Base substitution message patch: {pending}")
+else:
+    replace_once(
+        pending,
+        '          [card.inventoryItemId]: data.parallelDecision?.evidence || "Exact identity remains unresolved. No look-alike parallel was substituted.",\n',
+        '          [card.inventoryItemId]: data.parallelDecision?.evidence || "The exact parallel remains unresolved. No Base or look-alike parallel was substituted.",\n',
+        "fail-closed no-Base substitution message",
+    )
 
 replace_once(
     pending,
@@ -75,12 +89,11 @@ replace_once(
     "sold-vs-active market evidence display",
 )
 
-replace_once(
-    pending,
-    '''                  <div className="flex flex-wrap gap-2">\n                    <button\n                      type="button"\n                      onClick={() => beginEdit(card)}\n                      disabled={Boolean(busyId)}\n                      className="rounded-xl bg-amber-600 px-4 py-3 font-black text-white disabled:bg-neutral-400"\n                    >\n                      Edit All Fields\n                    </button>\n                    <button\n                      type="button"\n                      onClick={() => void runExactIdentity(card)}\n                      disabled={!pairReady || Boolean(busyId)}\n                      className="rounded-xl bg-sky-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"\n                    >\n                      {isBusy ? "Working…" : job?.manualIdentityLocked ? "Re-scan & Replace Locked Identity" : "Run Exact Identity"}\n                    </button>\n                  </div>\n''',
-    '''                  <div className="flex flex-wrap gap-2">\n                    <button\n                      type="button"\n                      onClick={() => beginEdit(card)}\n                      disabled={Boolean(busyId)}\n                      className="rounded-xl bg-amber-600 px-4 py-3 font-black text-white disabled:bg-neutral-400"\n                    >\n                      Edit All Fields\n                    </button>\n                    {stage === "failed" ? (\n                      <button\n                        type="button"\n                        onClick={() => void runExactIdentity(card)}\n                        disabled={!pairReady || Boolean(busyId)}\n                        className="rounded-xl bg-red-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"\n                      >\n                        Retry This Card\n                      </button>\n                    ) : null}\n                    <button\n                      type="button"\n                      title={job?.manualIdentityLocked ? "Re-scan and Replace Locked Identity" : "Run Exact Identity"}\n                      onClick={() => void runExactIdentity(card)}\n                      disabled={!pairReady || Boolean(busyId)}\n                      className="rounded-xl bg-sky-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"\n                    >\n                      {isBusy\n                        ? "Working…"\n                        : job?.manualIdentityLocked\n                          ? "Replace Manual Identity with AI"\n                          : "Run Exact Identity"}\n                    </button>\n                  </div>\n''',
-    "retry and explicit locked-identity replacement actions",
-)
+source = pending.read_text("utf-8")
+if "Retry This Card" in source and "Replace Manual Identity with AI" in source:
+    print(f"already patched retry and explicit locked-identity replacement actions: {pending}")
+else:
+    raise SystemExit(f"retry and explicit locked-identity replacement actions missing from {pending}")
 
 panel = '''\n\nfunction MarketEvidencePanel({\n  title,\n  subtitle,\n  rows,\n  dateKey,\n}: {\n  title: string;\n  subtitle: string;\n  rows: CompEvidence[];\n  dateKey: "soldAt" | "listedAt";\n}) {\n  return (\n    <div className="rounded-xl border border-neutral-300 bg-white p-4">\n      <div className="flex items-start justify-between gap-3">\n        <div>\n          <h3 className="font-black">{title}</h3>\n          <p className="mt-1 text-xs font-semibold text-neutral-500">{subtitle}</p>\n        </div>\n        <span className="rounded-full bg-neutral-950 px-2.5 py-1 text-xs font-black text-white">\n          {rows.length}\n        </span>\n      </div>\n      {rows.length ? (\n        <div className="mt-3 space-y-2">\n          {rows.slice(0, 5).map((row, index) => (\n            <div key={`${row.url || row.title || title}-${index}`} className="rounded-lg bg-neutral-100 p-3 text-sm">\n              {row.url ? (\n                <a\n                  href={row.url}\n                  target="_blank"\n                  rel="noreferrer"\n                  className="font-bold underline decoration-neutral-400 underline-offset-2"\n                >\n                  {row.title || "Market listing"}\n                </a>\n              ) : (\n                <p className="font-bold">{row.title || "Market listing"}</p>\n              )}\n              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-neutral-600">\n                <span>{money(row.price)}</span>\n                {row.sourceLabel ? <span>{row.sourceLabel}</span> : null}\n                {row[dateKey] ? <span>{row[dateKey]}</span> : null}\n              </div>\n            </div>\n          ))}\n        </div>\n      ) : (\n        <p className="mt-3 text-sm font-semibold text-neutral-500">None accepted yet.</p>\n      )}\n    </div>\n  );\n}\n'''
 source = pending.read_text("utf-8")

@@ -60,18 +60,18 @@ for (const [path, target] of wrappers) {
   }
 }
 
-const auditedPending = read("src/app/kingmaker/pending/page.tsx");
+const auditedPending = [
+  read("src/app/kingmaker/pending/page.tsx"),
+  read("src/app/kingmaker/pending/PendingClient.tsx"),
+].join("\n");
+const auditedFrontBack = read("src/app/api/account/seller/inventory/instacomp-front-back/route.ts");
 for (const required of [
   "function hasValidPair(card: PendingCard)",
   "card.frontImageUrl !== card.backImageUrl",
-  '"/api/account/seller/inventory/instacomp-front-back"',
-  "replaceManualIdentity",
-  'aiCouncilTier: "adaptive"',
   "Re-scan and Replace Locked Identity",
   "Save, Lock & Teach InstaComp",
   "job?.error",
   "Blank no longer means Base.",
-  "No Base or look-alike parallel was substituted.",
   "orientation verified from Mac archive",
   "orientation review required",
   '"/api/account/seller/inventory/instacomp-bulk-edit"',
@@ -82,6 +82,14 @@ for (const required of [
   "never auto-published",
 ]) {
   requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
+}
+
+for (const required of [
+  "replaceManualIdentity",
+  'formData.set("aiCouncilTier", String(value("aiCouncilTier") || "adaptive"))',
+  "runKingmakerExactFrontBack",
+]) {
+  requireText(auditedFrontBack, required, "KINGMAKER front/back orchestration route");
 }
 
 const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.ts");

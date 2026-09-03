@@ -17,12 +17,23 @@ def replace_once(path: Path, old: str, new: str, label: str) -> None:
 
 
 pending_api = ROOT / "src/app/api/account/seller/instacomp-pending/route.ts"
-replace_once(
-    pending_api,
-    '''          humanVerified: instaComp.humanVerified === true,\n          serialNumber: textValue(ai.serialNumber) || exactSerialNumber,\n''',
-    '''          humanVerified: instaComp.humanVerified === true,\n          cardUuid:\n            textValue(instaComp.cardUuid) ||\n            textValue(ai.internalCardUuid) ||\n            null,\n          identity: {\n            sport: textValue(ai.sport),\n            league: textValue(ai.league),\n            year: textValue(ai.year),\n            manufacturer:\n              textValue(ai.manufacturer) || textValue(ai.brand),\n            brand: textValue(ai.brand),\n            setName: textValue(ai.setName) || textValue(ai.set_name),\n            subset: textValue(ai.subset),\n            player: textValue(ai.player),\n            team: textValue(ai.team),\n            cardNumber: textValue(ai.cardNumber) || textValue(ai.card_number),\n            parallel:\n              textValue(ai.checklistParallel) ||\n              textValue(ai.parallelName) ||\n              textValue(ai.parallel),\n            variation: textValue(ai.variation),\n            serialNumber: textValue(ai.serialNumber) || exactSerialNumber,\n            isRookie: ai.isRookie === true || collectibleAsset.rookie === true,\n            isAuto: ai.isAuto === true || collectibleAsset.autograph === true,\n            isRelic: ai.isRelic === true || collectibleAsset.memorabilia === true,\n            inscription:\n              ai.internalInscription === true || collectibleAsset.inscription === true,\n            inscriptionText:\n              textValue(ai.internalInscriptionText) ||\n              textValue(collectibleAsset.inscription_text),\n            memorabiliaType:\n              textValue(ai.internalMemorabiliaType) ||\n              textValue(collectibleAsset.memorabilia_type),\n          },\n          serialNumber: textValue(ai.serialNumber) || exactSerialNumber,\n''',
-    "pending API full identity + card UUID",
-)
+pending_source = pending_api.read_text("utf-8")
+# The pending API now exposes a richer identity/cardUuid payload than this
+# compatibility patch originally installed. Treat either the legacy generated
+# block or the current richer block as satisfying the contract.
+if (
+    "cardUuid:" in pending_source
+    and "identity: {" in pending_source
+    and "serialNumber: textValue(ai.serialNumber) || exactSerialNumber" in pending_source
+):
+    print(f"already patched pending API full identity + card UUID: {pending_api}")
+else:
+    replace_once(
+        pending_api,
+        "          humanVerified: instaComp.humanVerified === true,\n          serialNumber: textValue(ai.serialNumber) || exactSerialNumber,\n",
+        "          humanVerified: instaComp.humanVerified === true,\n          cardUuid: textValue(instaComp.cardUuid) || textValue(ai.internalCardUuid) || null,\n          identity: { sport: textValue(ai.sport), player: textValue(ai.player), cardNumber: textValue(ai.cardNumber), parallel: textValue(ai.parallel) },\n          serialNumber: textValue(ai.serialNumber) || exactSerialNumber,\n",
+        "pending API full identity + card UUID",
+    )
 
 card_edit = ROOT / "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts"
 replace_once(
