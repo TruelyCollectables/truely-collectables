@@ -385,10 +385,10 @@ const kingmakerScan = readFileSync(
   "src/app/kingmaker/scan/page.tsx",
   "utf8",
 );
-const kingmakerPending = readFileSync(
-  "src/app/kingmaker/pending/page.tsx",
-  "utf8",
-);
+const kingmakerPending = [
+  readFileSync("src/app/kingmaker/pending/page.tsx", "utf8"),
+  readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8"),
+].join("\n");
 const kingmakerFrontBackRoute = readFileSync(
   "src/app/api/account/seller/inventory/instacomp-front-back/route.ts",
   "utf8",
