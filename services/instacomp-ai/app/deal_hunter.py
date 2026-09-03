@@ -703,7 +703,11 @@ class DealHunterScheduler:
             )
         ]
         due.sort(key=priority)
-        maximum = max(1, int(self.settings.deal_hunter_max_candidates_per_run))
+        configured_maximum = int(self.settings.deal_hunter_max_candidates_per_run)
+        # A normal production run is exhaustive. A positive configured cap is
+        # retained only as an emergency guard and must be large enough to cover
+        # the complete built-in discovery surface under normal operation.
+        maximum = len(due) if configured_maximum <= 0 else max(1, configured_maximum)
 
         # Signed baseballs used to compete with every card lane for the same 20
         # slots, which could leave 100+ discovered balls completely unevaluated.

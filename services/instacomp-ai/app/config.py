@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     deal_hunter_interval_minutes: int = 60
     deal_hunter_site_url: str = "https://truelycollectables.com"
     deal_hunter_per_query: int = 20
-    deal_hunter_max_candidates_per_run: int = 40
+    deal_hunter_max_candidates_per_run: int = 500
     deal_hunter_evaluation_concurrency: int = 4
     deal_hunter_feed_pace_seconds: float = 2.0
     deal_hunter_candidate_cooldown_hours: int = 6
