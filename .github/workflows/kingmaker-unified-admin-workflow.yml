@@ -92,7 +92,7 @@ jobs:
           assert '/admin/advanced' in admin and '/admin/advanced' in layout
           assert 'LegacyAdminDashboard' not in admin
           assert 'KingmakerInstaCompQueue' in home
-          assert '/api/account/seller/instacomp-scan/intake' in queue
+          assert '/api/kingmaker/instacomp-scan-intake-v2' in queue
           assert 'cardUuid' in queue
           assert 'multiple' in queue
           assert 'Nothing publishes automatically' in queue
