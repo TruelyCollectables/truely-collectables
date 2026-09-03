@@ -1638,6 +1638,19 @@ export async function revalidateChecklistRegistryReceipt(params: {
     teams: teamResult.data || [],
     identities: [identity],
   };
+  // A Mac identity receipt is only a lookup coordinate. If fresh evidence now
+  // names a different explicit parallel, do not let the stale receipt win just
+  // because its fingerprint is still valid. Fall through to a fresh Registry
+  // resolution so the current listing/image evidence can select the sibling.
+  const receiptParallel = identity.parallel?.name || "Base";
+  const requestedParallel = params.ai.parallel;
+  if (
+    requestedParallel &&
+    !evidenceTextIsUncertain(requestedParallel) &&
+    checklistParallelSignature(requestedParallel) !== checklistParallelSignature(receiptParallel)
+  ) {
+    return null;
+  }
   const match = chooseRegistryMatch(params.ai, [row]);
   if (
     !match ||
