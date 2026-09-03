@@ -4,7 +4,18 @@ export type InstaCompUntrustedListingIdentityHint = {
   cardNumber: string | null;
   brand: string | null;
   setName: string | null;
+  parallel: string | null;
 };
+
+const PARALLEL_RULES: Array<{ pattern: RegExp; parallel: string }> = [
+  { pattern: /\bWNBA\s+Logos?\b/i, parallel: "WNBA Logos Prizm" },
+  { pattern: /\bwhite\s+seismic(?:\s+prizm)?\b/i, parallel: "White Seismic Prizm" },
+  { pattern: /\bblue\s+velocity(?:\s+prizm)?\b/i, parallel: "Blue Velocity Prizm" },
+  { pattern: /\bgreen\s+cracked\s+ice(?:\s+prizm)?\b/i, parallel: "Green Cracked Ice Prizm" },
+  { pattern: /\borange\s+cracked\s+ice(?:\s+prizm)?\b/i, parallel: "Orange Cracked Ice Prizm" },
+  { pattern: /\bcracked\s+ice(?:\s+prizm)?\b/i, parallel: "Cracked Ice Prizm" },
+  { pattern: /\bsilver(?:\s+prizm)?\b/i, parallel: "Silver Prizm" },
+];
 
 type ProductRule = {
   pattern: RegExp;
@@ -74,7 +85,7 @@ export function extractInstaCompUntrustedListingIdentityHint(
 ): InstaCompUntrustedListingIdentityHint {
   const title = String(value || "").trim().slice(0, 1000);
   if (!title) {
-    return { title: null, year: null, cardNumber: null, brand: null, setName: null };
+    return { title: null, year: null, cardNumber: null, brand: null, setName: null, parallel: null };
   }
 
   const year =
@@ -94,11 +105,14 @@ export function extractInstaCompUntrustedListingIdentityHint(
     (/\bTopps\b/i.test(title) ? "Topps" : null) ||
     (/\bPanini\b/i.test(title) ? "Panini" : null);
 
+  const parallel = PARALLEL_RULES.find((rule) => rule.pattern.test(title))?.parallel || null;
+
   return {
     title,
     year,
     cardNumber,
     brand,
     setName: product?.setName || null,
+    parallel,
   };
 }

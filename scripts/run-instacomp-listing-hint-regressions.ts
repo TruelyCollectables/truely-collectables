@@ -59,4 +59,14 @@ const unknown = extractInstaCompUntrustedListingIdentityHint(
 assert.equal(unknown.setName, null, "Unknown product names must remain unresolved.");
 assert.equal(unknown.cardNumber, null, "Unlabeled serial-style numbers must remain unresolved.");
 
-console.log(`InstaComp listing-hint regressions passed (${cases.length + 2}/${cases.length + 2}).`);
+const wnbaLogo = extractInstaCompUntrustedListingIdentityHint(
+  "2025 Prizm WNBA Dominique Malonga Rookie Card WNBA Logo #144 Variation Storm",
+);
+assert.equal(wnbaLogo.parallel, "WNBA Logos Prizm", "WNBA Logo title must narrow the Registry parallel sibling.");
+
+const noParallel = extractInstaCompUntrustedListingIdentityHint(
+  "2025 Panini Prizm WNBA Dominique Malonga Rookie Card #144",
+);
+assert.equal(noParallel.parallel, null, "A title without an explicit finish must not invent a parallel.");
+
+console.log(`InstaComp listing-hint regressions passed (${cases.length + 4}/${cases.length + 4}).`);
