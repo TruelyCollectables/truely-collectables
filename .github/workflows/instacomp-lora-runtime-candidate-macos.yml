@@ -78,7 +78,11 @@ jobs:
       - name: Run complete InstaComp service suite
         run: |
           set -euo pipefail
-          PYTHONPATH=services/instacomp-ai python -m pytest -q services/instacomp-ai/tests
+          # Several macOS-only trainer modules intentionally re-exec into the
+          # installed service .venv at import time. Build the same service
+          # runtime layout used by the physical Mac before collecting all tests.
+          python -m venv --system-site-packages services/instacomp-ai/.venv
+          PYTHONPATH=services/instacomp-ai services/instacomp-ai/.venv/bin/python -m pytest -q services/instacomp-ai/tests
 
       - name: Bootstrap certified isolated MLX runtime
         working-directory: services/instacomp-ai
