@@ -17,6 +17,7 @@ export function sanitizePublicListingDescription(value: unknown) {
       "",
     )
     .replace(/^Imported from eBay listing \d+\.\s*/i, "")
+    .replace(/\bZduplicate\b/gi, "")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")

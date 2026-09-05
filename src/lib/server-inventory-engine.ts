@@ -38,10 +38,10 @@ const PUBLIC_CATALOG_MEMORY_TTL_MS = 30_000;
 const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 5 * 60_000;
 const PUBLIC_CATALOG_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
-// v4 keeps physical-stock deduplication and invalidates older snapshots that
+// v5 keeps physical-stock deduplication and invalidates older snapshots that
 // may contain internal import/debug copy. Public listing copy is sanitized before
 // it can reach customer pages or the Google Merchant feed.
-const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v4";
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v5";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
