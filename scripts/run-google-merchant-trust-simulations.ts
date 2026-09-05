@@ -22,6 +22,12 @@ assert.equal(
   null,
 );
 assert.equal(
+  sanitizePublicListingDescription(
+    "Name/Player: Veronica Burton Set: 2025 Panini Prizm WNBA - Zduplicate Orange Ice Prizms Card number: 70",
+  ),
+  "Name/Player: Veronica Burton Set: 2025 Panini Prizm WNBA - Orange Ice Prizms Card number: 70",
+);
+assert.equal(
   sanitizePublicListingDescription('<div class="ql-editor"><p>Clean <strong>listing</strong> copy &amp; details</p></div>'),
   "Clean listing copy & details",
 );
