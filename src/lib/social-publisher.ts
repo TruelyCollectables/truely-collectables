@@ -421,7 +421,10 @@ async function jsonFetch(url: string, init: RequestInit) {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.error) {
-    const message = payload?.error?.message || payload?.message || payload?.error_description || `HTTP ${response.status}`;
+    let message = payload?.error?.message || payload?.message || payload?.error_description || `HTTP ${response.status}`;
+    if (response.status === 402 && /(^|\.)api\.x\.com$/i.test(new URL(url).hostname)) {
+      message = "X API credits required. Add prepaid API credits in the X Developer Console under Billing → Credits, then retry this post.";
+    }
     throw new Error(String(message).slice(0, 500));
   }
   return payload;
