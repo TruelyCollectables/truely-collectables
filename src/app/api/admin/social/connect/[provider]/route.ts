@@ -78,7 +78,7 @@ export async function GET(request: Request, context: { params: Promise<{ provide
     response_type: "code",
     client_id: String(process.env.X_CLIENT_ID),
     redirect_uri: callback(provider),
-    scope: "tweet.read tweet.write users.read offline.access",
+    scope: "tweet.read tweet.write users.read media.write offline.access",
     state,
     code_challenge: challenge,
     code_challenge_method: "S256",
