@@ -9,7 +9,11 @@ const entries = [
   ["NEXT_PUBLIC_SUPABASE_URL", "https://<project-ref>.supabase.co", "Public Supabase project URL."],
   ["NEXT_PUBLIC_SUPABASE_ANON_KEY", "<supabase-anon-key>", "Browser-safe Supabase anon key."],
   ["SUPABASE_SERVICE_ROLE_KEY", "<server-only-service-role-key>", "Server-only Supabase credential."],
-  ["STRIPE_LIVE_SECRET_KEY", "sk_live_<redacted>", "Server-only Stripe live key."],
+  [
+    "STRIPE_LIVE_SECRET_KEY",
+    "sk_live_<redacted>",
+    "Server-only Stripe live key. This exact variable is required; generic Stripe variables are not accepted for live Checkout.",
+  ],
   ["NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY", "pk_live_<redacted>", "Stripe publishable key."],
   ["STRIPE_LIVE_WEBHOOK_SECRET", "whsec_<redacted>", "Stripe webhook signing secret."],
   ["NEXT_PUBLIC_SITE_URL", "https://truelycollectables.com", "Canonical production origin."],
