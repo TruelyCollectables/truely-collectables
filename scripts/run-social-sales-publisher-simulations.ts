@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import sharp from "sharp";
 
 async function main() {
   process.env.ADMIN_SESSION_SECRET = "social-sales-test-session-secret-1234567890";
@@ -31,9 +30,6 @@ async function main() {
   ]) delete process.env[name];
   for (const provider of publisher.SOCIAL_PROVIDERS) assert.equal(publisher.socialProviderConfigured(provider), false);
 
-  const png = await sharp(Buffer.from('<svg width="120" height="120"><rect width="120" height="120" fill="#000"/><text x="60" y="70" text-anchor="middle" fill="#fff">SALE</text></svg>')).png().toBuffer();
-  assert.ok(png.length > 100);
-
   const root = process.cwd();
   const worker = fs.readFileSync(path.join(root, "cloudflare-worker.ts"), "utf8");
   assert.ok(worker.includes('"/api/cron/social-publisher"'));
@@ -58,7 +54,11 @@ async function main() {
   }
 
   const source = fs.readFileSync(path.join(root, "src/lib/social-publisher.ts"), "utf8");
-  assert.ok(source.includes('"tcos-product-images"'));
+  assert.ok(!source.includes('from "sharp"'));
+  assert.ok(source.includes('/api/social-sale-image/'));
+  const imageRoute = fs.readFileSync(path.join(root, "src/app/api/social-sale-image/[campaignId]/route.ts"), "utf8");
+  assert.ok(imageRoute.includes("ImageResponse"));
+  assert.ok(imageRoute.includes('content-type'));
   assert.ok(source.includes("encryptMarketplaceToken"));
   assert.ok(source.includes("decryptMarketplaceToken"));
   assert.ok(source.includes("https://api.x.com/2/tweets"));

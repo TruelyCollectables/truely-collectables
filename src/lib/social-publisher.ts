@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import sharp from "sharp";
 import { decryptMarketplaceToken, encryptMarketplaceToken } from "./marketplace-token-crypto";
 import { configuredSiteOrigin } from "./site-origin";
 import type { SocialProvider } from "./social-oauth";
@@ -85,15 +84,6 @@ export function socialProviderConfigured(provider: SocialProvider) {
 
 export function socialProviderLabel(provider: SocialProvider) {
   return PROVIDER_LABELS[provider];
-}
-
-function xml(value: unknown) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
 }
 
 function scopeLabel(campaign: CampaignRow) {
@@ -189,41 +179,17 @@ async function loadCampaign(supabase: SupabaseClient, storeId: string, campaignI
   return data as CampaignRow;
 }
 
-async function saleGraphic(params: { supabase: SupabaseClient; storeId: string; campaign: CampaignRow }) {
-  const { supabase, storeId, campaign } = params;
-  const end = shortDate(campaign.ends_at);
-  const subtitle = end ? `${scopeLabel(campaign)} • ENDS ${end.toUpperCase()}` : scopeLabel(campaign);
-  const svg = `<svg width="1200" height="1200" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1200" height="1200" fill="#0a0a0a"/>
-  <rect x="54" y="54" width="1092" height="1092" rx="40" fill="#ffffff"/>
-  <rect x="86" y="86" width="1028" height="190" rx="28" fill="#b91c1c"/>
-  <text x="600" y="170" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="38" font-weight="800" fill="#ffffff" letter-spacing="4">TRUELY COLLECTABLES</text>
-  <text x="600" y="228" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="700" fill="#fee2e2" letter-spacing="3">${xml(scopeLabel(campaign))}</text>
-  <text x="600" y="480" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="184" font-weight="900" fill="#b91c1c">${xml(campaign.percent_off)}%</text>
-  <text x="600" y="570" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="72" font-weight="900" fill="#0a0a0a">OFF</text>
-  <text x="600" y="705" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="52" font-weight="800" fill="#171717">${xml(campaign.name.slice(0, 34))}</text>
-  <text x="600" y="790" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="700" fill="#525252">${xml(subtitle)}</text>
-  <rect x="250" y="875" width="700" height="110" rx="55" fill="#0a0a0a"/>
-  <text x="600" y="945" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="35" font-weight="800" fill="#ffffff">SHOP THE SALE</text>
-  <text x="600" y="1055" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="28" font-weight="700" fill="#737373">TRUELYCOLLECTABLES.COM</text>
-  </svg>`;
-  const png = await sharp(Buffer.from(svg)).png({ quality: 92 }).toBuffer();
-  const bucket = env("SOCIAL_IMAGE_BUCKET") || env("PRODUCT_IMAGE_BUCKET") || "tcos-product-images";
-  const path = `social-sales/${storeId}/${campaign.id}/sale-${String(campaign.percent_off).replace(".", "-")}.png`;
-  const { error } = await supabase.storage.from(bucket).upload(path, png, {
-    contentType: "image/png",
-    upsert: true,
-    cacheControl: "300",
-  });
-  if (error) throw new Error(`Social sale graphic upload failed: ${error.message}`);
-  const imageUrl = supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-  return { imageUrl, storagePath: `${bucket}:${path}` };
+async function saleGraphic(params: { campaign: CampaignRow }) {
+  return {
+    imageUrl: `${configuredSiteOrigin()}/api/social-sale-image/${encodeURIComponent(params.campaign.id)}`,
+    storagePath: null,
+  };
 }
 
 export async function generateSocialCampaign(params: { supabase: SupabaseClient; storeId: string; campaignId: string }) {
   const campaign = await loadCampaign(params.supabase, params.storeId, params.campaignId);
   const [graphic, generated] = await Promise.all([
-    saleGraphic({ supabase: params.supabase, storeId: params.storeId, campaign }),
+    saleGraphic({ campaign }),
     aiDrafts(campaign),
   ]);
   const now = new Date().toISOString();
