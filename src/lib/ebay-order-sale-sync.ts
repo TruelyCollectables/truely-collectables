@@ -17,6 +17,15 @@ export type EbayOrderSaleSyncResult = {
   recorded: number;
   alreadyRecorded: number;
   unmatched: number;
+  unmatchedItems: Array<{
+    itemId: string;
+    orderLineItemId: string;
+    quantity: number;
+    unitPrice: number | null;
+    currency: string;
+    soldAt: string;
+    title: string | null;
+  }>;
   failed: number;
   errors: Array<{ reference: string; error: string }>;
 };
@@ -311,6 +320,7 @@ export async function syncRecentEbayOrderSales(params: {
     recorded: 0,
     alreadyRecorded: 0,
     unmatched: 0,
+    unmatchedItems: [],
     failed: 0,
     errors: [],
   };
@@ -350,6 +360,15 @@ export async function syncRecentEbayOrderSales(params: {
         });
         if (!product?.id) {
           result.unmatched += 1;
+          result.unmatchedItems.push({
+            itemId: sale.itemId,
+            orderLineItemId: sale.orderLineItemId,
+            quantity: sale.quantity,
+            unitPrice: sale.unitPrice,
+            currency: sale.currency,
+            soldAt: sale.soldAt,
+            title: sale.title,
+          });
           continue;
         }
 
