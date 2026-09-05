@@ -138,8 +138,8 @@ export async function GET(request: Request, context: { params: Promise<{ provide
     const token = await json("https://api.x.com/2/oauth2/token", { method: "POST", headers, body });
     const accessToken = String(token.access_token || "");
     const me = await json("https://api.x.com/2/users/me", { headers: { Authorization: `Bearer ${accessToken}` } });
-    await upsertSocialConnection({ supabase, storeId, provider, accountId: String(me.data?.id || ""), accountLabel: me.data?.username ? `@${me.data.username}` : "X", accessToken, refreshToken: token.refresh_token || null, accessTokenExpiresAt: token.expires_in ? new Date(Date.now() + Number(token.expires_in) * 1000).toISOString() : null, scopes: String(token.scope || "tweet.read tweet.write users.read offline.access").split(" ").filter(Boolean), metadata: { username: me.data?.username || null, text_only_v1: true } });
-    const response = redirect(provider, "connected", "X connected. This first version publishes the sale copy/link; media upload can be enabled later without changing campaigns.");
+    await upsertSocialConnection({ supabase, storeId, provider, accountId: String(me.data?.id || ""), accountLabel: me.data?.username ? `@${me.data.username}` : "X", accessToken, refreshToken: token.refresh_token || null, accessTokenExpiresAt: token.expires_in ? new Date(Date.now() + Number(token.expires_in) * 1000).toISOString() : null, scopes: String(token.scope || "tweet.read tweet.write users.read media.write offline.access").split(" ").filter(Boolean), metadata: { username: me.data?.username || null, media_upload_v2: true } });
+    const response = redirect(provider, "connected", "X connected. Sale posts can publish the generated graphic plus campaign copy/link.");
     response.cookies.set("tcos_social_x_pkce", "", { path: "/api/admin/social/callback/x", maxAge: 0 });
     return response;
   } catch (error) {

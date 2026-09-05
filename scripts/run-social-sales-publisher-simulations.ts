@@ -62,6 +62,11 @@ async function main() {
   assert.ok(source.includes("encryptMarketplaceToken"));
   assert.ok(source.includes("decryptMarketplaceToken"));
   assert.ok(source.includes("https://api.x.com/2/tweets"));
+  assert.ok(source.includes("https://api.x.com/2/media/upload"));
+  assert.ok(source.includes('media_category: "tweet_image"'));
+  assert.ok(source.includes('grant_type: "refresh_token"'));
+  const xConnect = fs.readFileSync(path.join(root, "src/app/api/admin/social/connect/[provider]/route.ts"), "utf8");
+  assert.ok(xConnect.includes("tweet.read tweet.write users.read media.write offline.access"));
   assert.ok(source.includes("https://api.pinterest.com/v5/pins"));
   assert.ok(source.includes("https://open.tiktokapis.com/v2/post/publish/content/init/"));
   assert.ok(source.includes("media_publish"));

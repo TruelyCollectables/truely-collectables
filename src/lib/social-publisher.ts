@@ -365,7 +365,7 @@ export async function upsertSocialConnection(params: {
 async function connectionBundle(params: { supabase: SupabaseClient; storeId: string; provider: SocialProvider }) {
   const { data: connection, error } = await params.supabase
     .from("store_social_connections")
-    .select("id,connection_status,provider_account_id,provider_account_label,provider_metadata")
+    .select("id,connection_status,provider_account_id,provider_account_label,provider_metadata,access_token_expires_at,oauth_scope")
     .eq("store_id", params.storeId)
     .eq("provider", params.provider)
     .single();
@@ -377,11 +377,39 @@ async function connectionBundle(params: { supabase: SupabaseClient; storeId: str
     .eq("provider", params.provider)
     .single();
   if (tokenError || !tokens?.encrypted_access_token) throw new Error(`${socialProviderLabel(params.provider)} access token is missing`);
-  return {
-    connection,
-    accessToken: decryptMarketplaceToken(tokens.encrypted_access_token),
-    refreshToken: tokens.encrypted_refresh_token ? decryptMarketplaceToken(tokens.encrypted_refresh_token) : null,
-  };
+
+  let accessToken = decryptMarketplaceToken(tokens.encrypted_access_token);
+  let refreshToken = tokens.encrypted_refresh_token ? decryptMarketplaceToken(tokens.encrypted_refresh_token) : null;
+  const expiresAt = connection.access_token_expires_at ? new Date(String(connection.access_token_expires_at)).getTime() : 0;
+  const needsRefresh = params.provider === "x" && refreshToken && (!expiresAt || expiresAt <= Date.now() + 2 * 60_000);
+  if (needsRefresh) {
+    const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+    if (env("X_CLIENT_SECRET")) headers.Authorization = `Basic ${Buffer.from(`${env("X_CLIENT_ID")}:${env("X_CLIENT_SECRET")}`).toString("base64")}`;
+    const refreshed = await jsonFetch("https://api.x.com/2/oauth2/token", {
+      method: "POST",
+      headers,
+      body: new URLSearchParams({ refresh_token: String(refreshToken), grant_type: "refresh_token", client_id: env("X_CLIENT_ID") }),
+    });
+    accessToken = String(refreshed.access_token || "");
+    refreshToken = refreshed.refresh_token ? String(refreshed.refresh_token) : refreshToken;
+    if (!accessToken) throw new Error("X token refresh returned no access token");
+    const accessTokenExpiresAt = refreshed.expires_in ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString() : null;
+    const scope = String(refreshed.scope || "").split(" ").filter(Boolean);
+    const now = new Date().toISOString();
+    const tokenUpdate = await params.supabase
+      .from("store_social_connection_tokens")
+      .update({ encrypted_access_token: encryptMarketplaceToken(accessToken), encrypted_refresh_token: refreshToken ? encryptMarketplaceToken(refreshToken) : null, updated_at: now })
+      .eq("store_id", params.storeId)
+      .eq("provider", params.provider);
+    if (tokenUpdate.error) throw new Error(tokenUpdate.error.message);
+    const connectionUpdate = await params.supabase
+      .from("store_social_connections")
+      .update({ access_token_expires_at: accessTokenExpiresAt, oauth_scope: scope.length ? scope : connection.oauth_scope || [], last_error: null, updated_at: now })
+      .eq("id", connection.id)
+      .eq("store_id", params.storeId);
+    if (connectionUpdate.error) throw new Error(connectionUpdate.error.message);
+  }
+  return { connection, accessToken, refreshToken };
 }
 
 async function jsonFetch(url: string, init: RequestInit) {
@@ -466,13 +494,33 @@ async function providerPublish(post: SocialPostRow, bundle: Awaited<ReturnType<t
       return { id: String(payload?.data?.publish_id || ""), url: null, metadata: payload };
     }
     case "x": {
+      let mediaId: string | null = null;
+      let mediaMetadata: Record<string, unknown> | null = null;
+      if (post.image_url) {
+        const imageResponse = await fetch(post.image_url, { signal: AbortSignal.timeout(30000) });
+        if (!imageResponse.ok) throw new Error(`X sale image download failed: HTTP ${imageResponse.status}`);
+        const contentType = String(imageResponse.headers.get("content-type") || "image/png").split(";")[0].trim().toLowerCase();
+        if (!["image/jpeg", "image/png", "image/webp", "image/bmp", "image/pjpeg", "image/tiff"].includes(contentType)) throw new Error(`X sale image type is unsupported: ${contentType}`);
+        const bytes = Buffer.from(await imageResponse.arrayBuffer());
+        if (!bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error("X sale image must be between 1 byte and 5 MB");
+        const uploaded = await jsonFetch("https://api.x.com/2/media/upload", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${bundle.accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ media: bytes.toString("base64"), media_category: "tweet_image", media_type: contentType, shared: false }),
+        });
+        mediaId = String(uploaded?.data?.id || "");
+        if (!mediaId) throw new Error("X media upload returned no media ID");
+        mediaMetadata = uploaded;
+      }
+      const body: Record<string, unknown> = { text: text.slice(0, 280) };
+      if (mediaId) body.media = { media_ids: [mediaId] };
       const payload = await jsonFetch("https://api.x.com/2/tweets", {
         method: "POST",
         headers: { Authorization: `Bearer ${bundle.accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.slice(0, 280) }),
+        body: JSON.stringify(body),
       });
       const id = String(payload?.data?.id || "");
-      return { id, url: id ? `https://x.com/i/web/status/${id}` : null, metadata: payload };
+      return { id, url: id ? `https://x.com/i/web/status/${id}` : null, metadata: { post: payload, media: mediaMetadata } };
     }
   }
 }
