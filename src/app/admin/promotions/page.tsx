@@ -16,6 +16,12 @@ export default function PromotionsPage() {
             ← Main Admin
           </Link>
           <Link
+            href="/admin/sales"
+            className="rounded-full border border-red-300 bg-red-50 px-4 py-2 text-sm font-black text-red-800 shadow-sm transition hover:bg-red-100"
+          >
+            Sales & Automatic Discounts
+          </Link>
+          <Link
             href="/admin/instacomp"
             className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:border-neutral-400 hover:bg-neutral-50"
           >

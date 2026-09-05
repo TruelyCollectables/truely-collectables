@@ -5,6 +5,11 @@ export const revalidate = 0;
 
 const oversight = [
   {
+    href: "/admin/sales",
+    title: "Sales & Discounts",
+    description: "Automatic website markdowns for the whole store or selected inventory.",
+  },
+  {
     href: "/admin/promotions",
     title: "Coupons",
     description: "Create and manage Stripe checkout codes.",
@@ -95,7 +100,7 @@ export default function AdminPage() {
               Day-to-day card work is intentionally not duplicated here.
             </p>
           </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {oversight.map((item) => (
               <Link
                 key={item.href}

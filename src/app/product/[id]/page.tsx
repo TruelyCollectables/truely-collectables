@@ -418,6 +418,13 @@ export default async function ProductPage({
                     title: product.title,
                     price: Number(product.price),
                     image_url: product.imageUrl || undefined,
+                    original_price:
+                      product.promotion?.onSale && product.promotion.originalPrice
+                        ? Number(product.promotion.originalPrice)
+                        : undefined,
+                    discount_percent: product.promotion?.onSale
+                      ? Number(product.promotion.discountPercent)
+                      : undefined,
                   }}
                 />
 

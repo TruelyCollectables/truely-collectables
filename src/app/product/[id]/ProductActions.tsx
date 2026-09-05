@@ -10,6 +10,8 @@ type Product = {
   title: string;
   price: number;
   image_url?: string;
+  original_price?: number;
+  discount_percent?: number;
 };
 
 type ProductImageResponse = {
@@ -58,6 +60,8 @@ export default function ProductActions({ product }: { product: Product }) {
       price: Number(product.price),
       quantity: 1,
       image_url: images[0] || product.image_url,
+      original_price: product.original_price,
+      discount_percent: product.discount_percent,
     });
   }
 
