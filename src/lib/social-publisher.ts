@@ -145,6 +145,8 @@ function outputText(payload: any) {
 }
 
 async function aiDrafts(campaign: CampaignRow) {
+  const paidEnabled = /^(1|true|yes)$/i.test(env("SOCIAL_ENABLE_PAID_OPENAI_SOCIAL_AI"));
+  if (!paidEnabled) return null;
   const key = env("OPENAI_API_KEY");
   if (!key) return null;
   const model = env("SOCIAL_POST_OPENAI_MODEL") || env("OPENAI_MODEL") || env("INSTACOMP_OPENAI_FALLBACK_MODEL") || "gpt-4.1-mini";
@@ -293,16 +295,19 @@ export async function getSocialCampaignState(params: { supabase: SupabaseClient;
   return { connections, drafts: draftResult.data || [], attempts: attemptResult.data || [] };
 }
 
-export async function saveSocialDraft(params: { supabase: SupabaseClient; storeId: string; postId: string; title?: unknown; text?: unknown; hashtags?: unknown }) {
+export async function saveSocialDraft(params: { supabase: SupabaseClient; storeId: string; postId: string; title?: unknown; text?: unknown; hashtags?: unknown; generator?: unknown }) {
   const title = params.title == null ? null : String(params.title).trim().slice(0, 100) || null;
   const text = String(params.text || "").trim();
   if (!text) throw new Error("Post text cannot be empty");
   const hashtags = Array.isArray(params.hashtags)
     ? params.hashtags.map(String).map((value) => value.replace(/^#/, "").trim()).filter(Boolean).slice(0, 8)
     : [];
+  const generator = ["template", "template-fallback", "cloudflare-workers-ai", "openai"].includes(String(params.generator || ""))
+    ? String(params.generator)
+    : "template";
   const { data, error } = await params.supabase
     .from("store_social_posts")
-    .update({ title, text_content: text.slice(0, 2200), hashtags, status: "draft", scheduled_for: null, last_error: null, updated_at: new Date().toISOString() })
+    .update({ title, text_content: text.slice(0, 2200), hashtags, generator, status: "draft", scheduled_for: null, last_error: null, updated_at: new Date().toISOString() })
     .eq("store_id", params.storeId)
     .eq("id", params.postId)
     .in("status", ["draft", "failed", "scheduled"])

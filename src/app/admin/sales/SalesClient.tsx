@@ -267,7 +267,16 @@ export default function SalesClient() {
         </section>
       ) : null}
 
-      <SocialPublisherClient campaigns={campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name, percentOff: campaign.percent_off, status: campaign.status }))} />
+      <SocialPublisherClient campaigns={campaigns.map((campaign) => ({
+        id: campaign.id,
+        name: campaign.name,
+        percentOff: campaign.percent_off,
+        status: campaign.status,
+        startsAt: campaign.starts_at,
+        endsAt: campaign.ends_at,
+        scopeType: campaign.scope_type,
+        scope: campaign.scope,
+      }))} />
 
       <section className="mt-8 space-y-4">
         <div><p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">Campaigns</p><h2 className="mt-1 text-2xl font-black">Current and scheduled sales</h2></div>

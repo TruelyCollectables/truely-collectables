@@ -34,6 +34,13 @@ async function main() {
   const worker = fs.readFileSync(path.join(root, "cloudflare-worker.ts"), "utf8");
   assert.ok(worker.includes('"/api/cron/social-publisher"'));
   assert.ok(worker.includes('{ path: "/api/cron/social-publisher", schedule: "*/5 * * * *" }'));
+  assert.ok(worker.includes('"/api/admin/social/ai-copy"'));
+  assert.ok(worker.includes('@cf/google/gemma-4-26b-a4b-it'));
+  assert.ok(worker.includes('AI?: WorkersAiBinding'));
+  for (const configName of ["wrangler.jsonc", "wrangler.production-route.jsonc"]) {
+    const config = JSON.parse(fs.readFileSync(path.join(root, configName), "utf8"));
+    assert.equal(config.ai?.binding, "AI", `${configName} must bind Cloudflare Workers AI`);
+  }
 
   const migration = fs.readFileSync(path.join(root, "supabase/migrations/20260905191000_social_sales_publisher.sql"), "utf8");
   for (const table of ["store_social_connections", "store_social_connection_tokens", "store_social_posts", "store_social_publish_attempts"]) {
@@ -49,6 +56,8 @@ async function main() {
     "src/app/api/admin/social/disconnect/route.ts",
     "src/app/api/admin/social/connect/[provider]/route.ts",
     "src/app/api/admin/social/callback/[provider]/route.ts",
+    "src/app/api/admin/social/ai-auth/route.ts",
+    "src/app/api/admin/social/ai-copy/route.ts",
   ]) {
     assert.ok(fs.readFileSync(path.join(root, route), "utf8").includes("hasValidAdminRequest"), `${route} must enforce admin auth`);
   }
@@ -56,6 +65,7 @@ async function main() {
   const source = fs.readFileSync(path.join(root, "src/lib/social-publisher.ts"), "utf8");
   assert.ok(!source.includes('from "sharp"'));
   assert.ok(source.includes('/api/social-sale-image/'));
+  assert.ok(source.includes('SOCIAL_ENABLE_PAID_OPENAI_SOCIAL_AI'));
   const imageRoute = fs.readFileSync(path.join(root, "src/app/api/social-sale-image/[campaignId]/route.ts"), "utf8");
   assert.ok(imageRoute.includes("ImageResponse"));
   assert.ok(imageRoute.includes('content-type'));

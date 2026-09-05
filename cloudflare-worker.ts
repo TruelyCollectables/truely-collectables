@@ -76,7 +76,12 @@ const cronJobs: readonly CronJob[] = [
   { path: "/api/cron/stripe-reconciliation", schedule: "0 18 * * *" },
 ];
 
+type WorkersAiBinding = {
+  run(model: string, input: Record<string, unknown>): Promise<unknown>;
+};
+
 type WorkerEnv = {
+  AI?: WorkersAiBinding;
   CRON_SECRET?: string;
   TCOS_CRON_SECRET?: string;
   INSTACOMP_AI_LOCAL_URL?: string;
@@ -341,12 +346,132 @@ async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
   }
 }
 
+const SOCIAL_AI_PROVIDERS = ["facebook", "instagram", "threads", "pinterest", "tiktok", "x"] as const;
+type SocialAiProvider = (typeof SOCIAL_AI_PROVIDERS)[number];
+
+const SOCIAL_AI_RULES: Record<SocialAiProvider, { textMax: number; titleMax: number; hashtagMax: number; guidance: string }> = {
+  facebook: { textMax: 1200, titleMax: 0, hashtagMax: 3, guidance: "Facebook: conversational sale copy, strong first line, clear CTA, 0-3 useful hashtags." },
+  instagram: { textMax: 2200, titleMax: 0, hashtagMax: 5, guidance: "Instagram: visual, energetic caption with readable line breaks, clear CTA, 3-5 relevant hashtags; never stuff hashtags." },
+  threads: { textMax: 500, titleMax: 0, hashtagMax: 2, guidance: "Threads: natural conversational voice, concise hook, one CTA, 0-2 hashtags, 500 characters max." },
+  pinterest: { textMax: 500, titleMax: 100, hashtagMax: 3, guidance: "Pinterest: searchable title and accurate description, useful keywords, concise promo details, no invented claims." },
+  tiktok: { textMax: 2200, titleMax: 90, hashtagMax: 5, guidance: "TikTok photo post: punchy title <=90 characters, energetic description, 3-5 relevant hashtags, avoid fake urgency or invented inventory." },
+  x: { textMax: 280, titleMax: 0, hashtagMax: 2, guidance: "X: 280 characters max, immediate hook, shop URL in the post, 1-2 relevant hashtags, no filler." },
+};
+
+function socialScopeLabel(campaign: Record<string, any>) {
+  if (campaign.scopeType === "all") return "the entire store";
+  if (campaign.scopeType === "products") {
+    const count = Array.isArray(campaign.scope?.productIds) ? campaign.scope.productIds.length : 0;
+    return count ? `${count} selected items` : "selected items";
+  }
+  const sections = Array.isArray(campaign.scope?.sections) ? campaign.scope.sections.map(String).filter(Boolean) : [];
+  if (sections.length === 1) return `${sections[0]} inventory`;
+  return "selected inventory";
+}
+
+function socialEndLabel(value: unknown) {
+  const date = new Date(String(value || ""));
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "America/Denver" }).format(date);
+}
+
+function socialAiFallback(provider: SocialAiProvider, campaign: Record<string, any>) {
+  const name = String(campaign.name || "Store Sale").trim();
+  const percent = Number(campaign.percentOff || 0);
+  const scope = socialScopeLabel(campaign);
+  const end = socialEndLabel(campaign.endsAt);
+  const timing = end ? ` through ${end}` : " now";
+  const shop = "https://truelycollectables.com/shop";
+  const generic = `${name}: Save ${percent}% on ${scope}${timing}. No code needed. Shop: ${shop}`;
+  if (provider === "x") return { title: null, text: `${name} 🔥 ${percent}% OFF ${scope.toUpperCase()}${timing}. No code needed. ${shop} #SportsCards #Collectibles`, hashtags: ["SportsCards", "Collectibles"] };
+  if (provider === "instagram") return { title: null, text: `${name} 🔥\n\nSave ${percent}% on ${scope}${timing}. No code needed.\n\nShop Truely Collectables: ${shop}`, hashtags: ["SportsCards", "Collectibles", "CardCollector", "TruelyCollectables"] };
+  if (provider === "threads") return { title: null, text: `${name} 🔥 ${percent}% off ${scope}${timing}. No code needed. ${shop}`, hashtags: ["SportsCards", "Collectibles"] };
+  if (provider === "pinterest") return { title: `${name} — ${percent}% Off`, text: `${name}: save ${percent}% on ${scope}${timing}. Shop sports cards and collectibles from Truely Collectables while the promotion is live.`, hashtags: ["SportsCards", "Collectibles"] };
+  if (provider === "tiktok") return { title: `${name} — ${percent}% Off`, text: `${name} 🔥 Save ${percent}% on ${scope}${timing}. No code needed. Shop Truely Collectables.`, hashtags: ["SportsCards", "Collectibles", "CardTok"] };
+  return { title: null, text: generic, hashtags: ["SportsCards", "Collectibles"] };
+}
+
+function socialAiJson(text: string) {
+  const clean = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const start = clean.indexOf("{");
+  const end = clean.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("AI returned no JSON object");
+  return JSON.parse(clean.slice(start, end + 1)) as Record<string, unknown>;
+}
+
+function trimSocialText(value: unknown, max: number) {
+  const text = String(value || "").trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, Math.max(1, max - 1));
+  const word = cut.lastIndexOf(" ");
+  return `${(word > max * 0.7 ? cut.slice(0, word) : cut).trim()}…`;
+}
+
+async function cloudflareSocialAiCopy(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
+  const authUrl = new URL("/api/admin/social/ai-auth", request.url);
+  const authHeaders = new Headers(request.headers);
+  authHeaders.delete("content-length");
+  authHeaders.delete("content-type");
+  const auth = await handler.fetch(new Request(authUrl, { method: "GET", headers: authHeaders }), env, ctx);
+  if (!auth.ok) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" } });
+
+  const body = await request.json().catch(() => ({})) as Record<string, any>;
+  const provider = String(body.provider || "") as SocialAiProvider;
+  if (!SOCIAL_AI_PROVIDERS.includes(provider)) return readinessJson({ error: "Unknown social provider." }, 400);
+  const campaign = body.campaign && typeof body.campaign === "object" ? body.campaign as Record<string, any> : {};
+  if (!String(campaign.name || "").trim() || !Number.isFinite(Number(campaign.percentOff))) return readinessJson({ error: "Sale details are incomplete." }, 400);
+
+  const rules = SOCIAL_AI_RULES[provider];
+  const fallback = socialAiFallback(provider, campaign);
+  if (!env.AI) return readinessJson({ ...fallback, provider, generator: "template-fallback", guideline: rules.guidance, reason: "workers_ai_binding_unavailable" }, 200);
+
+  const prompt = [
+    "You write high-converting organic social copy for Truely Collectables, a sports-card and collectibles store.",
+    `Platform: ${provider}.`,
+    `Platform rules: ${rules.guidance}`,
+    `Hard text maximum: ${rules.textMax} characters. Hard title maximum: ${rules.titleMax || 0}. Maximum hashtags: ${rules.hashtagMax}.`,
+    `Sale name: ${String(campaign.name).trim()}`,
+    `Discount: ${Number(campaign.percentOff)}% off.`,
+    `Scope: ${socialScopeLabel(campaign)}.`,
+    `Ends: ${socialEndLabel(campaign.endsAt) || "no fixed end date"}.`,
+    "Shop URL: https://truelycollectables.com/shop",
+    `Current draft for optional inspiration: ${String(body.currentText || "").slice(0, 1200)}`,
+    "Never invent inventory, players, scarcity, free shipping, coupon codes, dollar savings, reviews, guarantees, or urgency not supplied above.",
+    "Say no code is needed. Keep the voice energetic, credible, collector-friendly, and specific to the platform.",
+    "Return JSON only with exactly: title (string or null), text (string), hashtags (array of strings without #).",
+  ].join("\n");
+
+  try {
+    const result = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
+      messages: [
+        { role: "system", content: "Return valid JSON only. Follow every hard platform limit." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 900,
+    });
+    const record = result && typeof result === "object" ? result as Record<string, any> : {};
+    const output = typeof record.response === "string" ? record.response : typeof result === "string" ? result : JSON.stringify(result);
+    const parsed = socialAiJson(output);
+    const hashtags = Array.isArray(parsed.hashtags) ? [...new Set(parsed.hashtags.map((value) => String(value).replace(/^#/, "").trim()).filter(Boolean))].slice(0, rules.hashtagMax) : fallback.hashtags;
+    const title = rules.titleMax ? trimSocialText(parsed.title || fallback.title || "", rules.titleMax) || null : null;
+    const text = trimSocialText(parsed.text || fallback.text, rules.textMax);
+    if (!text) throw new Error("AI returned empty post copy");
+    return readinessJson({ provider, title, text, hashtags, generator: "cloudflare-workers-ai", model: "@cf/google/gemma-4-26b-a4b-it", guideline: rules.guidance }, 200);
+  } catch (error) {
+    return readinessJson({ ...fallback, provider, generator: "template-fallback", guideline: rules.guidance, reason: error instanceof Error ? error.message.slice(0, 160) : "workers_ai_failed" }, 200);
+  }
+}
+
 const worker = {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
     const url = new URL(request.url);
     if (url.protocol === "http:") {
       url.protocol = "https:";
       return Response.redirect(url.toString(), 308);
+    }
+    if (request.method === "POST" && url.pathname === "/api/admin/social/ai-copy") {
+      return withCloudflareOrigin(await cloudflareSocialAiCopy(request, env, ctx));
     }
     if (
       request.method === "GET" &&
