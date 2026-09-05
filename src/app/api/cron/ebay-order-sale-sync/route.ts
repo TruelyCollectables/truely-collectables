@@ -19,14 +19,16 @@ function safeLookbackDays(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || secret.length < 16) {
+  const secrets = [process.env.CRON_SECRET, process.env.TCOS_CRON_SECRET].filter(
+    (value): value is string => Boolean(value && value.length >= 16),
+  );
+  if (secrets.length === 0) {
     return Response.json(
       { error: "Scheduled eBay order sale sync is not configured." },
       { status: 503 },
     );
   }
-  if (!authorized(request, secret)) {
+  if (!secrets.some((secret) => authorized(request, secret))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
