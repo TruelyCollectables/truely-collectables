@@ -15,6 +15,7 @@ const DEAL_HUNTER_HOURS = "7,11,15,19,21";
 const INCIDENT_DISABLE_SCHEDULED_JOBS = true;
 const INCIDENT_ALLOWED_SCHEDULED_JOB_PREFIXES = [
   "/api/cron/ebay-order-sale-sync",
+  "/api/cron/social-publisher",
 ] as const;
 
 type CronJob = {
@@ -67,6 +68,7 @@ const cronJobs: readonly CronJob[] = [
     timeZone: DEAL_HUNTER_TIME_ZONE,
   },
   { path: "/api/cron/ebay-order-sale-sync?lookbackDays=2", schedule: "*/5 * * * *" },
+  { path: "/api/cron/social-publisher", schedule: "*/5 * * * *" },
   { path: "/api/cron/ebay-store-fixed-price-sync", schedule: "2,17,32,47 * * * *" },
   { path: "/api/cron/seller-ebay-reconciliation", schedule: "7,22,37,52 * * * *" },
   { path: "/api/cron/sold-collectible-archive", schedule: "11 * * * *" },
