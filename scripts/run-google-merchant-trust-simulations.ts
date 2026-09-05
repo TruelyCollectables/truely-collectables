@@ -45,4 +45,25 @@ for (const file of ["cloudflare-worker.ts", "cloudflare-storefront-entrypoint.ts
   assert.ok(source.includes('url.protocol = "https:"'), `${file} must redirect plaintext requests to HTTPS.`);
 }
 
+
+const requestGate = fs.readFileSync("src/request-gate.ts", "utf8");
+assert.doesNotMatch(
+  requestGate,
+  /response\.headers\.set\("Content-Security-Policy"/,
+  "Request gate must not add a second CSP on top of next.config.ts.",
+);
+assert.doesNotMatch(
+  requestGate,
+  /response\.headers\.set\("X-Content-Type-Options"/,
+  "Request gate must not duplicate global nosniff headers.",
+);
+
+const nextConfig = fs.readFileSync("next.config.ts", "utf8");
+for (const requiredGoogleSource of ["https://apis.google.com", "https://www.gstatic.com"]) {
+  assert.ok(
+    nextConfig.includes(requiredGoogleSource),
+    `Global CSP must allow Google Customer Reviews resource ${requiredGoogleSource}.`,
+  );
+}
+
 console.log("Google Merchant trust simulations passed.");

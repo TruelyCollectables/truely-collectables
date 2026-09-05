@@ -20,37 +20,10 @@ function applySecurityHeaders(response: NextResponse, req: NextRequest) {
     req.nextUrl.pathname.startsWith("/admin") ||
     req.nextUrl.pathname.startsWith("/api");
 
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("X-Frame-Options", "DENY");
-  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
-  response.headers.set("X-DNS-Prefetch-Control", "off");
+  // Global browser security headers are owned by next.config.ts. Keeping a
+  // second copy here produced duplicate CSP/HSTS/nosniff headers in production
+  // and the older middleware CSP blocked Google Customer Reviews resources.
   response.headers.set("X-Permitted-Cross-Domain-Policies", "none");
-  response.headers.set(
-    "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=(), payment=(self)",
-  );
-  response.headers.set(
-    "Content-Security-Policy",
-    [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https:",
-      "font-src 'self' data:",
-      "connect-src 'self' https:",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self' https://checkout.stripe.com",
-    ].join("; "),
-  );
-
-  if (process.env.NODE_ENV === "production") {
-    response.headers.set(
-      "Strict-Transport-Security",
-      "max-age=31536000; includeSubDomains; preload",
-    );
-  }
 
   if (isAdminOrApi) {
     response.headers.set("Cache-Control", "no-store");
