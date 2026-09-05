@@ -421,7 +421,10 @@ async function jsonFetch(url: string, init: RequestInit) {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.error) {
-    const message = payload?.error?.message || payload?.message || payload?.error_description || `HTTP ${response.status}`;
+    let message = payload?.error?.message || payload?.message || payload?.error_description || `HTTP ${response.status}`;
+    if (response.status === 402 && /(^|\.)api\.x\.com$/i.test(new URL(url).hostname)) {
+      message = "X API credits required. Add prepaid API credits in the X Developer Console under Billing → Credits, then retry this post.";
+    }
     throw new Error(String(message).slice(0, 500));
   }
   return payload;
@@ -499,33 +502,7 @@ async function providerPublish(post: SocialPostRow, bundle: Awaited<ReturnType<t
       return { id: String(payload?.data?.publish_id || ""), url: null, metadata: payload };
     }
     case "x": {
-      let mediaId: string | null = null;
-      let mediaMetadata: Record<string, unknown> | null = null;
-      if (post.image_url) {
-        const imageResponse = await fetch(post.image_url, { signal: AbortSignal.timeout(30000) });
-        if (!imageResponse.ok) throw new Error(`X sale image download failed: HTTP ${imageResponse.status}`);
-        const contentType = String(imageResponse.headers.get("content-type") || "image/png").split(";")[0].trim().toLowerCase();
-        if (!["image/jpeg", "image/png", "image/webp", "image/bmp", "image/pjpeg", "image/tiff"].includes(contentType)) throw new Error(`X sale image type is unsupported: ${contentType}`);
-        const bytes = Buffer.from(await imageResponse.arrayBuffer());
-        if (!bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error("X sale image must be between 1 byte and 5 MB");
-        const uploaded = await jsonFetch("https://api.x.com/2/media/upload", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${bundle.accessToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ media: bytes.toString("base64"), media_category: "tweet_image", media_type: contentType, shared: false }),
-        });
-        mediaId = String(uploaded?.data?.id || "");
-        if (!mediaId) throw new Error("X media upload returned no media ID");
-        mediaMetadata = uploaded;
-      }
-      const body: Record<string, unknown> = { text: text.slice(0, 280) };
-      if (mediaId) body.media = { media_ids: [mediaId] };
-      const payload = await jsonFetch("https://api.x.com/2/tweets", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${bundle.accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const id = String(payload?.data?.id || "");
-      return { id, url: id ? `https://x.com/i/web/status/${id}` : null, metadata: { post: payload, media: mediaMetadata } };
+      throw new Error("X is configured for manual Web Intent posting. Use the X composer button in Admin → Sales; the paid X create-post API is disabled.");
     }
   }
 }
@@ -539,6 +516,21 @@ export async function publishSocialPost(params: { supabase: SupabaseClient; stor
     .single();
   if (error || !data) throw new Error(error?.message || "Social post not found");
   const post = data as SocialPostRow;
+  if (post.provider === "x") {
+    const now = new Date().toISOString();
+    await params.supabase
+      .from("store_social_posts")
+      .update({ status: "draft", scheduled_for: null, last_error: null, updated_at: now })
+      .eq("id", post.id)
+      .eq("store_id", params.storeId);
+    return {
+      provider: "x",
+      ok: false,
+      skipped: true,
+      reason: "manual_x_only",
+      error: "X is manual-only. Use the X composer button in Admin → Sales; no paid X posting API request was made.",
+    };
+  }
   if (post.status === "published") return { post, alreadyPublished: true };
   const claimResult = await params.supabase
     .from("store_social_posts")
