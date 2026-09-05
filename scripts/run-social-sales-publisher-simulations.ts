@@ -71,9 +71,12 @@ async function main() {
   assert.ok(imageRoute.includes('content-type'));
   assert.ok(source.includes("encryptMarketplaceToken"));
   assert.ok(source.includes("decryptMarketplaceToken"));
-  assert.ok(source.includes("https://api.x.com/2/tweets"));
-  assert.ok(source.includes("https://api.x.com/2/media/upload"));
-  assert.ok(source.includes('media_category: "tweet_image"'));
+  assert.ok(!source.includes("https://api.x.com/2/tweets"));
+  assert.ok(!source.includes("https://api.x.com/2/media/upload"));
+  assert.ok(source.includes('reason: "manual_x_only"'));
+  const socialUi = fs.readFileSync(path.join(root, "src/app/admin/sales/SocialPublisherClient.tsx"), "utf8");
+  assert.ok(socialUi.includes("https://x.com/intent/tweet"));
+  assert.ok(socialUi.includes("Open X composer — FREE"));
   assert.ok(source.includes('grant_type: "refresh_token"'));
   const xConnect = fs.readFileSync(path.join(root, "src/app/api/admin/social/connect/[provider]/route.ts"), "utf8");
   assert.ok(xConnect.includes("tweet.read tweet.write users.read media.write offline.access"));

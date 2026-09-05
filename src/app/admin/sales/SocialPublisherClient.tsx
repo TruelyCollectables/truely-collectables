@@ -18,7 +18,7 @@ const PLATFORM_HINTS: Record<Provider, string> = {
   threads: "Natural conversation • concise CTA • 0-2 hashtags • <=500 chars",
   pinterest: "Searchable title <=100 • accurate description <=500 • keyword-focused",
   tiktok: "Punchy title <=90 • energetic photo caption • 3-5 relevant hashtags",
-  x: "Immediate hook • shop URL • 1-2 hashtags • <=280 chars",
+  x: "Manual X composer • text prefilled • sale graphic copied to clipboard • <=280 chars • no posting API charge",
 };
 
 function generatorLabel(value: string) {
@@ -51,8 +51,8 @@ export default function SocialPublisherClient({ campaigns }: { campaigns: Campai
     setConnections(data.connections || []);
     setDrafts(data.drafts || []);
     setAttempts(data.attempts || []);
-    const connected = new Set((data.connections || []).filter((item: Connection) => item.connected).map((item: Connection) => item.provider));
-    setSelected((current) => current.filter((id) => (data.drafts || []).some((draft: Draft) => draft.id === id && connected.has(draft.provider))));
+    const connected = new Set((data.connections || []).filter((item: Connection) => item.connected && item.provider !== "x").map((item: Connection) => item.provider));
+    setSelected((current) => current.filter((id) => (data.drafts || []).some((draft: Draft) => draft.id === id && draft.provider !== "x" && connected.has(draft.provider))));
   }, [effectiveCampaignId]);
 
   useEffect(() => {
@@ -82,8 +82,8 @@ export default function SocialPublisherClient({ campaigns }: { campaigns: Campai
       if (!response.ok) throw new Error(data.error || "Social posts could not be generated.");
       setMessage(`Starter drafts are ready${data.generator === "openai" ? " from OpenAI" : " from the no-cost built-in templates"}. Use each AI Generate button to polish copy with free-first Cloudflare Workers AI, then review and post.`);
       await load();
-      const connected = new Set(connections.filter((item) => item.connected).map((item) => item.provider));
-      setSelected((data.drafts || []).filter((draft: Draft) => connected.has(draft.provider) && draft.status !== "published").map((draft: Draft) => draft.id));
+      const connected = new Set(connections.filter((item) => item.connected && item.provider !== "x").map((item) => item.provider));
+      setSelected((data.drafts || []).filter((draft: Draft) => draft.provider !== "x" && connected.has(draft.provider) && draft.status !== "published").map((draft: Draft) => draft.id));
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
@@ -123,6 +123,52 @@ export default function SocialPublisherClient({ campaigns }: { campaigns: Campai
         : `${label}: free AI was unavailable, so a safe built-in draft was generated instead. Review it, then Save edits.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
+  }
+
+  async function openXComposer(draft: Draft) {
+    const popup = window.open("", "truely-x-compose", "popup=yes,width=720,height=760,scrollbars=yes,resizable=yes");
+    if (!popup) { setMessage("Your browser blocked the X composer popup. Allow popups for Truely Collectables and try again."); return; }
+    try {
+      popup.document.title = "Preparing X post…";
+      popup.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px">Preparing your X post…</p>';
+    } catch { /* popup still exists; navigation below can continue */ }
+    setBusy(true); setMessage("");
+    try {
+      const saveResponse = await fetch("/api/admin/social/post", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId: draft.id, title: draft.title, text: draft.text_content, hashtags: draft.hashtags, generator: draft.generator }),
+      });
+      const saveData = await saveResponse.json().catch(() => ({}));
+      if (!saveResponse.ok) throw new Error(saveData.error || "X draft could not be saved.");
+
+      let imageCopied = false;
+      if (draft.image_url && navigator.clipboard?.write) {
+        const ClipboardItemCtor = (window as any).ClipboardItem;
+        if (ClipboardItemCtor) {
+          try {
+            const imageResponse = await fetch(draft.image_url, { cache: "no-store" });
+            if (imageResponse.ok) {
+              const blob = await imageResponse.blob();
+              const type = blob.type || "image/png";
+              await navigator.clipboard.write([new ClipboardItemCtor({ [type]: blob })]);
+              imageCopied = true;
+            }
+          } catch { /* text compose still works when clipboard image permission is unavailable */ }
+        }
+      }
+
+      const intent = new URL("https://x.com/intent/tweet");
+      intent.searchParams.set("text", draft.text_content.slice(0, 280));
+      popup.location.href = intent.toString();
+      setMessage(imageCopied
+        ? "X composer opened with your post text. The sale graphic is copied — press ⌘V in X, review it, then click Post. No X posting API charge."
+        : "X composer opened with your post text. Add the sale graphic manually if you want it, review, then click Post. No X posting API charge.");
+      await load();
+    } catch (error) {
+      try { popup.close(); } catch { /* no-op */ }
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally { setBusy(false); }
   }
 
   async function saveDraft(draft: Draft) {
@@ -201,10 +247,11 @@ export default function SocialPublisherClient({ campaigns }: { campaigns: Campai
         {drafts.length ? <div className="mt-5 space-y-4">
           {drafts.map((draft, index) => {
             const connection = connectionMap.get(draft.provider);
-            const canPublish = Boolean(connection?.connected);
+            const manualX = draft.provider === "x";
+            const canPublish = !manualX && Boolean(connection?.connected);
             return <article key={draft.id} className="rounded-xl border p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex items-center gap-3 text-lg font-black"><input type="checkbox" className="h-5 w-5" disabled={!canPublish || draft.status === "published"} checked={selected.includes(draft.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, draft.id] : current.filter((id) => id !== draft.id))} />{connection?.label || draft.provider}</label><span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-black uppercase">{draft.status}</span></div>
-              {!canPublish ? <p className="mt-2 text-sm font-bold text-amber-700">Draft is ready; connect this account whenever you have it.</p> : null}
+              <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex items-center gap-3 text-lg font-black"><input type="checkbox" className="h-5 w-5" disabled={manualX || !canPublish || draft.status === "published"} checked={selected.includes(draft.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, draft.id] : current.filter((id) => id !== draft.id))} />{connection?.label || draft.provider}</label><span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-black uppercase">{draft.status}</span></div>
+              {manualX ? <p className="mt-2 rounded border border-sky-200 bg-sky-50 p-2 text-sm font-bold text-sky-800">X is manual-only: this site never calls X’s paid create-post API. Open the X composer below, review, and you click Post yourself.</p> : !canPublish ? <p className="mt-2 text-sm font-bold text-amber-700">Draft is ready; connect this account whenever you have it.</p> : null}
               {draft.image_url ? <a className="mt-2 inline-block text-sm font-bold text-red-700 underline" href={draft.image_url} target="_blank" rel="noreferrer">Open generated sale graphic</a> : null}
               <div className="mt-3 grid gap-3">
                 {(draft.provider === "pinterest" || draft.provider === "tiktok") ? <label className="text-sm font-bold">Title<input value={draft.title || ""} onChange={(event) => setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item))} className="mt-1 min-h-10 w-full rounded border px-3" /></label> : null}
@@ -212,13 +259,13 @@ export default function SocialPublisherClient({ campaigns }: { campaigns: Campai
                 <label className="text-sm font-bold">Hashtags<input value={(draft.hashtags || []).join(", ")} onChange={(event) => setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, hashtags: event.target.value.split(",").map((value) => value.trim().replace(/^#/, "")).filter(Boolean) } : item))} className="mt-1 min-h-10 w-full rounded border px-3" /></label>
               </div>
               <p className="mt-3 rounded bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-600"><strong>Platform guide:</strong> {PLATFORM_HINTS[draft.provider]}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" disabled={busy || draft.status === "published" || draft.status === "publishing"} onClick={() => void aiGenerateDraft(draft)} className="rounded bg-violet-700 px-3 py-2 text-sm font-black text-white disabled:opacity-50">✨ AI Generate</button><button type="button" disabled={busy || draft.status === "published" || draft.status === "publishing"} onClick={() => void saveDraft(draft)} className="rounded border px-3 py-2 text-sm font-black disabled:opacity-50">Save edits</button><span className="text-xs font-semibold text-neutral-500">Generated by {generatorLabel(draft.generator)}</span>{draft.provider_post_url ? <a href={draft.provider_post_url} target="_blank" rel="noreferrer" className="text-sm font-bold text-red-700 underline">View published post</a> : null}</div>
+              <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" disabled={busy || draft.status === "published" || draft.status === "publishing"} onClick={() => void aiGenerateDraft(draft)} className="rounded bg-violet-700 px-3 py-2 text-sm font-black text-white disabled:opacity-50">✨ AI Generate</button>{manualX ? <button type="button" disabled={busy || draft.status === "publishing"} onClick={() => void openXComposer(draft)} className="rounded bg-neutral-950 px-3 py-2 text-sm font-black text-white disabled:opacity-50">Open X composer — FREE</button> : null}<button type="button" disabled={busy || draft.status === "published" || draft.status === "publishing"} onClick={() => void saveDraft(draft)} className="rounded border px-3 py-2 text-sm font-black disabled:opacity-50">Save edits</button><span className="text-xs font-semibold text-neutral-500">Generated by {generatorLabel(draft.generator)}</span>{draft.provider_post_url ? <a href={draft.provider_post_url} target="_blank" rel="noreferrer" className="text-sm font-bold text-red-700 underline">View published post</a> : null}</div>
               {draft.last_error ? <p className="mt-2 text-sm font-bold text-red-700">{draft.last_error}</p> : null}
             </article>;
           })}
 
           <div className="rounded-xl border-2 border-neutral-900 bg-neutral-50 p-4">
-            <p className="font-black">{selected.length} connected network{selected.length === 1 ? "" : "s"} selected</p>
+            <p className="font-black">{selected.length} API-posting network{selected.length === 1 ? "" : "s"} selected</p><p className="mt-1 text-xs font-semibold text-neutral-600">X is intentionally excluded from bulk posting/scheduling; use its free manual composer button above.</p>
             <div className="mt-3 flex flex-wrap items-end gap-3"><button type="button" disabled={busy || !selected.length} onClick={() => void publish(false)} className="min-h-11 rounded bg-neutral-950 px-5 font-black text-white disabled:opacity-50">Post selected now</button><label className="font-bold">Schedule for<input type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} className="ml-2 min-h-11 rounded border bg-white px-3" /></label><button type="button" disabled={busy || !selected.length || !scheduledFor} onClick={() => void publish(true)} className="min-h-11 rounded border-2 border-neutral-950 px-5 font-black disabled:opacity-50">Schedule selected</button></div>
           </div>
         </div> : null}
