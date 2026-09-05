@@ -19,6 +19,7 @@ export async function PATCH(request: Request) {
       title: body.title,
       text: body.text,
       hashtags: body.hashtags,
+      generator: body.generator,
     });
     return NextResponse.json({ post });
   } catch (error) {
