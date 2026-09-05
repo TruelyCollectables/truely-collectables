@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import SocialPublisherClient from "./SocialPublisherClient";
 
 type Campaign = {
   id: string;
@@ -149,7 +150,18 @@ export default function SalesClient() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Sale could not be created.");
-      setMessage("Sale campaign created. Website pricing will follow its schedule automatically.");
+      let socialMessage = "";
+      try {
+        const socialResponse = await fetch("/api/admin/social/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ campaignId: data.campaign?.id }),
+        });
+        socialMessage = socialResponse.ok ? " Social drafts and a branded graphic are ready below." : " Social drafts can be generated below when you are ready.";
+      } catch {
+        socialMessage = " Social drafts can be generated below when you are ready.";
+      }
+      setMessage(`Sale campaign created. Website pricing will follow its schedule automatically.${socialMessage}`);
       setSelectedIds([]);
       setPreview(null);
       formElement.reset();
@@ -254,6 +266,8 @@ export default function SalesClient() {
           {preview.affectedCount > 20 ? <p className="mt-3 text-sm font-bold">Showing the first 20 affected items.</p> : null}
         </section>
       ) : null}
+
+      <SocialPublisherClient campaigns={campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name, percentOff: campaign.percent_off, status: campaign.status }))} />
 
       <section className="mt-8 space-y-4">
         <div><p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">Campaigns</p><h2 className="mt-1 text-2xl font-black">Current and scheduled sales</h2></div>
