@@ -185,10 +185,6 @@ export default async function ProductPage({
     sku: product.sku || String(product.legacyProductId),
     mpn: product.ebayItemId || product.sku || String(product.legacyProductId),
     category: product.sport || "Collectibles",
-    brand: {
-      "@type": "Brand",
-      name: "Truely Collectables",
-    },
     url: productUrl,
     offers: {
       "@type": "Offer",

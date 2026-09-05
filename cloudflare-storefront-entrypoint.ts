@@ -186,6 +186,10 @@ function emergencyBrowseResponse() {
 export default {
   async fetch(request: Request, env: any, ctx: ExecutionContextLike) {
     const url = new URL(request.url);
+    if (url.protocol === "http:") {
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 308);
+    }
 
     if (request.method === "GET" && url.pathname === "/__edge-health") {
       return edgeHealthResponse();

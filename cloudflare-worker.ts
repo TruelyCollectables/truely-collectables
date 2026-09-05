@@ -344,6 +344,10 @@ async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
 const worker = {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
     const url = new URL(request.url);
+    if (url.protocol === "http:") {
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 308);
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/api/instacomp/internal-readiness"

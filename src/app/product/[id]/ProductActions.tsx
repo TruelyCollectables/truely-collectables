@@ -109,7 +109,7 @@ export default function ProductActions({ product }: { product: Product }) {
 
             {images.length < 2 ? (
               <div className="flex aspect-[3/4] items-center justify-center rounded border border-dashed bg-white p-3 text-center text-xs font-bold text-neutral-500">
-                Back photo is being synchronized from the source listing.
+                A verified back photo is not currently available for this item.
               </div>
             ) : null}
           </div>
