@@ -4,6 +4,8 @@ export type CartItem = {
   price: number;
   quantity: number;
   image_url?: string;
+  original_price?: number;
+  discount_percent?: number;
 };
 
 export function getCart(): CartItem[] {

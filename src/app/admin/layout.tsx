@@ -14,6 +14,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               Admin Home
             </Link>
             <Link
+              href="/admin/sales"
+              className="rounded-lg px-3 py-2 text-sm font-black text-red-700 transition hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+            >
+              Sales
+            </Link>
+            <Link
+              href="/admin/promotions"
+              className="rounded-lg px-3 py-2 text-sm font-bold text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900"
+            >
+              Coupons
+            </Link>
+            <Link
               href="/admin/advanced"
               className="rounded-lg px-3 py-2 text-sm font-bold text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900"
             >

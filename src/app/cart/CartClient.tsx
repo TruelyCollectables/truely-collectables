@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CheckoutButton from "../components/CheckoutButton";
 import BuyerProtectionOption, {
   type BuyerProtectionCheckoutChoice,
@@ -34,6 +34,8 @@ type CartItem = {
   price: number;
   quantity: number;
   image_url?: string;
+  original_price?: number;
+  discount_percent?: number;
 };
 
 const EMPTY_PROTECTION_CHOICE: BuyerProtectionCheckoutChoice = {
@@ -71,11 +73,57 @@ export default function CartClient(props: { storeDisplayName: string }) {
     useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [couponCode, setCouponCode] = useState("");
+  const pricingRefreshStarted = useRef(false);
 
   function saveCart(updatedCart: CartItem[]) {
     setCart(updatedCart);
     localStorage.setItem("cart", JSON.stringify(updatedCart));
   }
+
+  useEffect(() => {
+    if (pricingRefreshStarted.current || cart.length === 0) return;
+    pricingRefreshStarted.current = true;
+    const controller = new AbortController();
+    void fetch("/api/storefront/cart-pricing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: cart.map((item) => item.id) }),
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then((payload) => {
+        if (!payload?.items || !Array.isArray(payload.items)) return;
+        const currentById = new Map(payload.items.map((item: any) => [Number(item.id), item]));
+        setCart((current) => {
+          const repriced = current.map((item) => {
+            const live = currentById.get(item.id) as any;
+            if (!live || !live.available) return item;
+            const promotion = live.promotion || null;
+            return {
+              ...item,
+              price: Number(live.price),
+              original_price:
+                promotion?.onSale && promotion?.originalPrice
+                  ? Number(promotion.originalPrice)
+                  : undefined,
+              discount_percent:
+                promotion?.onSale ? Number(promotion.discountPercent || 0) : undefined,
+            };
+          });
+          localStorage.setItem("cart", JSON.stringify(repriced));
+          return repriced;
+        });
+      })
+      .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.warn("Cart sale pricing refresh failed", error);
+      });
+    return () => controller.abort();
+  }, [cart]);
 
   function increaseQuantity(id: number) {
     saveCart(
@@ -212,7 +260,13 @@ export default function CartClient(props: { storeDisplayName: string }) {
                   >
                     {item.title}
                   </Link>
-                  <p className="mt-1 text-neutral-600">
+                  {item.original_price && item.discount_percent ? (
+                    <p className="mt-1 text-sm font-bold text-neutral-500">
+                      <span className="line-through">${Number(item.original_price).toFixed(2)}</span>{" "}
+                      <span className="text-red-700">{item.discount_percent}% OFF</span>
+                    </p>
+                  ) : null}
+                  <p className={`mt-1 ${item.discount_percent ? "font-black text-red-700" : "text-neutral-600"}`}>
                     ${Number(item.price).toFixed(2)} each
                   </p>
 

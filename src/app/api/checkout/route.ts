@@ -56,6 +56,7 @@ import {
   resolveCartListingCoupon,
   roundedMoney,
 } from "../../../lib/listing-promotions";
+import { loadLiveStoreSales, resolveStoreSale } from "../../../lib/store-sales";
 
 export const dynamic = "force-dynamic";
 
@@ -176,6 +177,7 @@ export async function POST(request: Request) {
         listingPromotionFromMetadata(item.metadata),
       ]),
     );
+    const storeSales = await loadLiveStoreSales({ supabase, storeId });
     const automaticFreeShippingProductIds = new Set(
       [...promotionByProductId.entries()]
         .filter(([, promotion]) => promotion.automaticFreeShipping)
@@ -210,6 +212,7 @@ export async function POST(request: Request) {
     let subtotal = 0;
     let itemCount = 0;
     let couponDiscountTotal = 0;
+    let automaticSaleDiscountTotal = 0;
 
     for (const cartItem of cart) {
       const product = inventoryItems.find(
@@ -223,8 +226,29 @@ export async function POST(request: Request) {
         );
       }
 
-      const normalPrice = Number(product.price);
       const promotion = promotionByProductId.get(cartItem.id);
+      const listingOriginalPrice =
+        promotion?.onSale && promotion.originalPrice
+          ? Number(promotion.originalPrice)
+          : Number(product.price);
+      const storeSale = resolveStoreSale({
+        campaigns: storeSales,
+        candidate: {
+          productId: product.legacyProductId,
+          title: product.title,
+          player: product.player,
+          section: product.storefrontSection,
+          price: listingOriginalPrice,
+        },
+      });
+      const listingDiscountPercent = promotion?.onSale
+        ? Number(promotion.discountPercent || 0)
+        : 0;
+      const normalPrice =
+        storeSale.campaign && storeSale.discountPercent > listingDiscountPercent
+          ? storeSale.price
+          : Number(product.price);
+      automaticSaleDiscountTotal += Math.max(0, listingOriginalPrice - normalPrice) * cartItem.quantity;
       const couponPercent =
         couponCode &&
         promotion?.discountCouponCode === couponCode &&
@@ -250,6 +274,15 @@ export async function POST(request: Request) {
               sku: product.sku || "",
               coupon_code: couponPercent > 0 ? couponCode || "" : "",
               coupon_discount_percent: String(couponPercent || 0),
+              automatic_sale_campaign_id:
+                storeSale.campaign && storeSale.discountPercent > listingDiscountPercent
+                  ? storeSale.campaign.id
+                  : "",
+              automatic_sale_discount_percent: String(
+                storeSale.campaign && storeSale.discountPercent > listingDiscountPercent
+                  ? storeSale.discountPercent
+                  : listingDiscountPercent,
+              ),
             },
           },
           unit_amount: Math.round(price * 100),
@@ -344,6 +377,7 @@ export async function POST(request: Request) {
       free_shipping_promo_applied: freeShippingPromoApplies ? "true" : "false",
       coupon_code: couponCode || "",
       coupon_discount_total: roundedMoney(couponDiscountTotal).toFixed(2),
+      automatic_sale_discount_total: roundedMoney(automaticSaleDiscountTotal).toFixed(2),
       discount_coupon_applied: discountCouponApplies ? "true" : "false",
       free_shipping_coupon_applied: freeShippingCouponApplies ? "true" : "false",
       base_shipping_amount: baseShippingAmount.toFixed(2),

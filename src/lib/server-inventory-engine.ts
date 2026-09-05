@@ -20,6 +20,11 @@ import {
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
 import { listingPromotionFromMetadata } from "./listing-promotions";
+import {
+  loadLiveStoreSales,
+  resolveStoreSale,
+  type StoreSaleCampaign,
+} from "./store-sales";
 
 const PUBLIC_PRODUCT_PAGE_SIZE = 1000;
 const PUBLIC_PRODUCT_MAX_PAGES = 20;
@@ -246,6 +251,43 @@ function dedupeSharedPhysicalInventory(items: UniversalInventoryItem[]) {
   return [...ungrouped, ...byCardUuid.values()];
 }
 
+function applyDynamicStoreSale(
+  item: UniversalInventoryItem,
+  campaigns: StoreSaleCampaign[],
+): UniversalInventoryItem {
+  const listingOriginalPrice =
+    item.promotion?.onSale && item.promotion.originalPrice
+      ? Number(item.promotion.originalPrice)
+      : Number(item.price);
+  const listingDiscountPercent = item.promotion?.onSale
+    ? Number(item.promotion.discountPercent || 0)
+    : 0;
+  const resolved = resolveStoreSale({
+    campaigns,
+    candidate: {
+      productId: item.legacyProductId,
+      title: item.title,
+      player: item.player,
+      section: item.storefrontSection,
+      price: listingOriginalPrice,
+    },
+  });
+
+  if (!resolved.campaign || resolved.discountPercent <= listingDiscountPercent) {
+    return item;
+  }
+
+  return {
+    ...item,
+    price: resolved.price,
+    promotion: {
+      onSale: true,
+      originalPrice: resolved.originalPrice,
+      discountPercent: resolved.discountPercent,
+    },
+  };
+}
+
 function mapPublicProductRow(
   product: any,
   promotionMetadata?: Record<string, unknown> | null,
@@ -295,6 +337,7 @@ function mapPublicProductRow(
 class PublicStorefrontInventoryEngine extends InventoryEngine {
   private publicProductsPromise: Promise<any[]> | null = null;
   private publicCatalogPromise: Promise<UniversalInventoryItem[]> | null = null;
+  private publicSalesPromise: Promise<StoreSaleCampaign[]> | null = null;
 
   constructor(
     private readonly publicStoreId: string,
@@ -393,6 +436,16 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     );
   }
 
+  private readLiveSales() {
+    if (!this.publicSalesPromise) {
+      this.publicSalesPromise = loadLiveStoreSales({
+        supabase: this.publicDatabase,
+        storeId: this.publicStoreId,
+      });
+    }
+    return this.publicSalesPromise;
+  }
+
   private readPublicCatalog() {
     if (!this.publicCatalogPromise) {
       this.publicCatalogPromise = getCachedPublicCatalog(
@@ -467,9 +520,13 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   ) {
     const requestedFeature = normalizeStorefrontFeature(params.feature);
     const section = params.section || params.sport;
-    const catalog = await this.readPublicCatalog();
+    const [catalog, campaigns] = await Promise.all([
+      this.readPublicCatalog(),
+      this.readLiveSales(),
+    ]);
 
     const items = catalog
+      .map((item) => applyDynamicStoreSale(item, campaigns))
       .filter((item) =>
         matchesStorefrontFilters(item, {
           query: params.query,
@@ -503,19 +560,27 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   async getByLegacyProductId(legacyProductId: number) {
     // Product pages use the same resilient public snapshot as /shop. Checkout
     // remains authoritative and validates live inventory before money moves.
-    const catalog = await this.readPublicCatalog();
+    const [catalog, campaigns] = await Promise.all([
+      this.readPublicCatalog(),
+      this.readLiveSales(),
+    ]);
     const item =
-      catalog.find((candidate) => candidate.legacyProductId === legacyProductId) ||
+      catalog
+        .map((candidate) => applyDynamicStoreSale(candidate, campaigns))
+        .find((candidate) => candidate.legacyProductId === legacyProductId) ||
       null;
     return item && isPublicStorefrontItem(item) ? item : null;
   }
 
   async getByLegacyProductIds(legacyProductIds: number[]) {
     const requested = new Set(legacyProductIds);
-    const catalog = await this.readPublicCatalog();
-    const items = catalog.filter((item) =>
-      requested.has(item.legacyProductId),
-    );
+    const [catalog, campaigns] = await Promise.all([
+      this.readPublicCatalog(),
+      this.readLiveSales(),
+    ]);
+    const items = catalog
+      .map((item) => applyDynamicStoreSale(item, campaigns))
+      .filter((item) => requested.has(item.legacyProductId));
     return items.filter(isPublicStorefrontItem);
   }
 }
