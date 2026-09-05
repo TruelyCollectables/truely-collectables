@@ -1,0 +1,36 @@
+name: Manual eBay Order Sale Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: Completed-order lookback window in days (1-90)
+        required: true
+        default: "30"
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Reconcile completed eBay sales into storefront inventory
+        env:
+          TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+        run: |
+          set -euo pipefail
+          test -n "${TCOS_CRON_SECRET:-}" || { echo "::error::TCOS_CRON_SECRET is missing"; exit 1; }
+          case "${LOOKBACK_DAYS}" in
+            ''|*[!0-9]*) echo "::error::lookback_days must be an integer"; exit 1 ;;
+          esac
+          if [ "${LOOKBACK_DAYS}" -lt 1 ] || [ "${LOOKBACK_DAYS}" -gt 90 ]; then
+            echo "::error::lookback_days must be between 1 and 90"
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 300 \
+            -H "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            "https://truelycollectables.com/api/cron/ebay-order-sale-sync?lookbackDays=${LOOKBACK_DAYS}"
+          echo
