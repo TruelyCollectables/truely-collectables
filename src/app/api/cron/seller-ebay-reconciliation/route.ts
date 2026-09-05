@@ -29,16 +29,18 @@ function validCronAuthorization(request: Request, secret: string) {
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
+  const secrets = [process.env.CRON_SECRET, process.env.TCOS_CRON_SECRET].filter(
+    (value): value is string => Boolean(value && value.length >= 16),
+  );
 
-  if (!secret || secret.length < 16) {
+  if (secrets.length === 0) {
     return Response.json(
       { error: "Scheduled reconciliation is not configured." },
       { status: 503 },
     );
   }
 
-  if (!validCronAuthorization(request, secret)) {
+  if (!secrets.some((secret) => validCronAuthorization(request, secret))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 

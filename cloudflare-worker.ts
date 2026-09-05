@@ -308,7 +308,7 @@ function cronMatches(schedule: string, date: Date, timeZone?: string): boolean {
 }
 
 function cronSecret(env: WorkerEnv) {
-  return String(env.TCOS_CRON_SECRET || env.CRON_SECRET || "").trim();
+  return String(env.CRON_SECRET || env.TCOS_CRON_SECRET || "").trim();
 }
 
 function incidentAllowsScheduledJob(path: string) {
