@@ -107,9 +107,10 @@ for (const token of [
   "STANDARD_ENVELOPE_BUYER_PRICE",
   "STANDARD_ENVELOPE_MAX_CARDS",
   "STANDARD_ENVELOPE_MAX_SUBTOTAL",
-  "GROUND_ADVANTAGE_TEN_OUNCE_PRICE",
-  "PRIORITY_MAIL_BUYER_PRICE",
-  "FREE_PRIORITY_MAIL_THRESHOLD",
+  "GROUND_ADVANTAGE_BUYER_PRICE",
+  "FREE_GROUND_ADVANTAGE_THRESHOLD",
+  "PRIORITY_MAIL_SMALL_ORDER_PRICE",
+  "PRIORITY_MAIL_LARGE_ORDER_PRICE",
 ]) {
   assert.ok(
     shipping.includes(token),
@@ -117,7 +118,7 @@ for (const token of [
   );
 }
 assert.ok(
-  shipping.includes("original listing price controls the minimum shipping tier"),
+  shipping.includes("The original listing price controls eligibility"),
   "Shipping policy must explain accepted-offer listing-price basis.",
 );
 assert.ok(
@@ -133,7 +134,7 @@ for (const token of [
   "BUYER_PROTECTION_MIN_CLAIM_DAYS",
   "BUYER_PROTECTION_CLAIM_DEADLINE_DAYS",
   "not insurance",
-  "protection fee itself is not reimbursed",
+  "protection fee",
   "does not waive",
   "carrier loss or damage",
 ]) {

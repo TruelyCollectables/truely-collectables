@@ -20,6 +20,7 @@ import {
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
 import { listingPromotionFromMetadata } from "./listing-promotions";
+import { sanitizePublicListingDescription, sanitizePublicListingTitle } from "./public-listing-copy";
 import {
   loadLiveStoreSales,
   resolveStoreSale,
@@ -37,10 +38,10 @@ const PUBLIC_CATALOG_MEMORY_TTL_MS = 30_000;
 const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 5 * 60_000;
 const PUBLIC_CATALOG_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
-// v2 adds physical-stock deduplication via card_uuid. Do not reuse a v1 edge
-// snapshot that may contain both CollX provenance and eBay representations of
-// the same owned card.
-const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v3";
+// v4 keeps physical-stock deduplication and invalidates older snapshots that
+// may contain internal import/debug copy. Public listing copy is sanitized before
+// it can reach customer pages or the Google Merchant feed.
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v4";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
@@ -292,8 +293,8 @@ function mapPublicProductRow(
   product: any,
   promotionMetadata?: Record<string, unknown> | null,
 ): UniversalInventoryItem {
-  const title = String(product.title || "Untitled");
-  const description = product.description ? String(product.description) : null;
+  const title = sanitizePublicListingTitle(product.title);
+  const description = sanitizePublicListingDescription(product.description);
   const classification = classifyStorefrontItem({
     title,
     description,

@@ -103,8 +103,8 @@ export default async function ProductImageGallery({
                 Back photo unavailable
               </p>
               <p className="mt-2 text-sm font-semibold leading-6">
-                The source listing does not currently include a verified back
-                image. We will add it automatically when one becomes available.
+                A verified back image is not currently available for this item.
+                Please review the front image and listing details before purchase.
               </p>
             </div>
           </div>
