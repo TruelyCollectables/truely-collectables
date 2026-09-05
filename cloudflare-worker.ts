@@ -13,6 +13,9 @@ import { default as handler } from "./.open-next/worker.js";
 const DEAL_HUNTER_TIME_ZONE = "America/Denver";
 const DEAL_HUNTER_HOURS = "7,11,15,19,21";
 const INCIDENT_DISABLE_SCHEDULED_JOBS = true;
+const INCIDENT_ALLOWED_SCHEDULED_JOB_PREFIXES = [
+  "/api/cron/ebay-order-sale-sync",
+] as const;
 
 type CronJob = {
   path: string;
@@ -72,7 +75,8 @@ const cronJobs: readonly CronJob[] = [
 ];
 
 type WorkerEnv = {
-  CRON_SECRET: string;
+  CRON_SECRET?: string;
+  TCOS_CRON_SECRET?: string;
   INSTACOMP_AI_LOCAL_URL?: string;
   INSTACOMP_AI_LOCAL_KEY?: string;
   INSTACOMP_AI_API_KEY?: string;
@@ -303,15 +307,26 @@ function cronMatches(schedule: string, date: Date, timeZone?: string): boolean {
   );
 }
 
+function cronSecret(env: WorkerEnv) {
+  return String(env.TCOS_CRON_SECRET || env.CRON_SECRET || "").trim();
+}
+
+function incidentAllowsScheduledJob(path: string) {
+  return INCIDENT_ALLOWED_SCHEDULED_JOB_PREFIXES.some((prefix) =>
+    path.startsWith(prefix),
+  );
+}
+
 async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
-  if (!env.CRON_SECRET) {
-    throw new Error("CRON_SECRET is not configured in the Cloudflare Worker.");
+  const secret = cronSecret(env);
+  if (!secret) {
+    throw new Error("TCOS_CRON_SECRET/CRON_SECRET is not configured in the Cloudflare Worker.");
   }
 
   const request = new Request(new URL(path, "https://truelycollectables.internal"), {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${env.CRON_SECRET}`,
+      Authorization: `Bearer ${secret}`,
       "User-Agent": "truely-collectables-cloudflare-cron/1.0",
       "X-TCOS-Scheduler": "cloudflare",
     },
@@ -343,15 +358,22 @@ const worker = {
     _ctx: ExecutionContextLike,
   ) {
     void _ctx;
-    if (INCIDENT_DISABLE_SCHEDULED_JOBS) {
-      console.warn("Cloudflare scheduler paused during storefront database incident.");
-      return;
-    }
-
     const scheduledAt = new Date(controller.scheduledTime);
-    const dueJobs = cronJobs.filter((job) =>
+    let dueJobs = cronJobs.filter((job) =>
       cronMatches(job.schedule, scheduledAt, job.timeZone),
     );
+
+    if (INCIDENT_DISABLE_SCHEDULED_JOBS) {
+      const blockedCount = dueJobs.filter(
+        (job) => !incidentAllowsScheduledJob(job.path),
+      ).length;
+      dueJobs = dueJobs.filter((job) => incidentAllowsScheduledJob(job.path));
+      if (blockedCount > 0) {
+        console.warn(
+          `Cloudflare scheduler kept ${blockedCount} job(s) paused during storefront database incident.`,
+        );
+      }
+    }
 
     if (dueJobs.length === 0) return;
 

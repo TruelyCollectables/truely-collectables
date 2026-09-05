@@ -19,7 +19,7 @@ function safeLookbackDays(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
+  const secret = process.env.TCOS_CRON_SECRET || process.env.CRON_SECRET;
   if (!secret || secret.length < 16) {
     return Response.json(
       { error: "Scheduled eBay order sale sync is not configured." },
