@@ -24,6 +24,10 @@ const contract = read("src/lib/instacomp-api-contract.ts");
 const universal = read(
   "src/app/api/account/seller/inventory/instacomp-universal/route.ts",
 );
+const sellerPricing = read(
+  "src/app/api/account/seller/inventory/instacomp/route.ts",
+);
+const liveScan = read("src/app/api/instacomp/scan/route.ts");
 const layout = read("src/app/seller/instacomp-pending/layout.tsx");
 const dashboard = read(
   "src/app/seller/instacomp-pending/ChecklistReadinessDashboard.tsx",
@@ -83,8 +87,37 @@ requireText(
 );
 requireText(
   universal,
-  'import { POST as runLegacySellerInstaComp } from "../instacomp/route"',
-  "Universal pricing must call the internal pricing engine directly.",
+  'import { POST as runSellerInstaComp } from "../instacomp/route"',
+  "Universal pricing must delegate to the single canonical seller pricing engine.",
+);
+requireText(
+  universal,
+  "return runSellerInstaComp(request);",
+  "Universal pricing must not own a second marketplace-provider stack.",
+);
+for (const [label, source] of [
+  ["seller pricing", sellerPricing],
+  ["universal seller pricing", universal],
+  ["live identity scan", liveScan],
+]) {
+  if (/SERPAPI_API_KEY|serpapi\.com|getExactEbayMarketProviders|getUniversalEbaySerpProviders|fetchSerpApiItems/i.test(source)) {
+    throw new Error(`${label} still contains a live SerpApi dependency.`);
+  }
+}
+requireText(
+  sellerPricing,
+  "getTeacherExactMarketProviders",
+  "Seller pricing must use the outside-teacher exact sold stack.",
+);
+requireText(
+  sellerPricing,
+  "getFanaticsExactSoldProvider",
+  "Seller pricing must use direct Fanatics sold history before discovery fallbacks.",
+);
+requireText(
+  sellerPricing,
+  "getOpenAiExactEbayMarketProviders",
+  "Seller pricing must retain OpenAI Web discovery when trusted sold sources are empty.",
 );
 
 if (existsSync("src/app/seller/instacomp-pending/ChecklistIdentityGuard.tsx")) {
@@ -127,7 +160,8 @@ console.log(
     {
       status: "passed",
       publicPricingRoute: "registry_verified",
-      marketplaceEngine: "universal",
+      marketplaceEngine: "single_seller_engine",
+      serpApiProductionCalls: false,
       browserFetchInterceptor: false,
       perCardRegistryQueue: true,
       versionedReceiptHeaders: true,

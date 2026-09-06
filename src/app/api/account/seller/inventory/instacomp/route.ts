@@ -8,8 +8,9 @@ import {
   type InstaCompAiResult,
 } from "../../../../../../lib/instacomp";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
-import { getExactEbayMarketProviders } from "../../../../../../lib/instacomp-exact-market-provider";
 import { getOpenAiExactEbayMarketProviders } from "../../../../../../lib/instacomp-openai-web-market-provider";
+import { getTeacherExactMarketProviders } from "../../../../../../lib/instacomp-teacher-market-provider";
+import { getFanaticsExactSoldProvider } from "../../../../../../lib/instacomp-fanatics-sold-provider";
 import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
 import {
   assertSafeInstaCompRemoteImageUrl,
@@ -376,61 +377,78 @@ export async function POST(request: NextRequest) {
     }
 
     const fallbackQuery = buildInstaCompQueries(ai).primary;
-    const serpMarket = await getExactEbayMarketProviders({
-      exactTitle: item.title,
-      fallbackQuery,
-      ai,
-    });
+    const fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle: item.title, ai });
+
+    let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
+    let teacherFailure: string | null = null;
+    try {
+      teacher = await getTeacherExactMarketProviders({ exactTitle: item.title, ai });
+    } catch (error) {
+      teacherFailure = sanitizeInstaCompProviderError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const teacherSold = teacher?.sold || {
+      source: "teacher_consensus_exact_sold",
+      label: "Outside AI Teacher Consensus Sold",
+      status: "error",
+      message: teacherFailure || "Outside teacher market search failed.",
+      results: [],
+    };
+    const teacherActive = teacher?.active || {
+      source: "teacher_discovery_active",
+      label: "Outside AI Teacher Active Discovery",
+      status: "error",
+      message: teacherFailure || "Outside teacher market search failed.",
+      results: [],
+    };
+
     const shouldSearchOpenAiWeb =
-      serpMarket.sold.results.length === 0 || serpMarket.active.results.length === 0;
+      fanaticsSold.results.length === 0 && teacherSold.results.length === 0;
     const openAiMarket = shouldSearchOpenAiWeb
-      ? await getOpenAiExactEbayMarketProviders({
-          exactTitle: item.title,
-          ai,
-        })
+      ? await getOpenAiExactEbayMarketProviders({ exactTitle: item.title, ai })
       : null;
-    const mergedSoldCandidates = dedupeEvidence(
+
+    const trustedSoldEvidence = dedupeEvidence(
       [
-        ...evidenceList(serpMarket.sold.results, 50),
-        ...evidenceList(openAiMarket?.sold.results, 20),
+        ...evidenceList(fanaticsSold.results, 20),
+        ...evidenceList(teacherSold.results, 20),
       ],
-      50,
+      40,
     );
-    const mergedActiveCandidates = dedupeEvidence(
+    const discoverySoldCandidates = forceImageVerification(
+      evidenceList(openAiMarket?.sold.results, 20),
+    );
+    const discoveryActiveCandidates = forceImageVerification(
       [
-        ...evidenceList(serpMarket.active.results, 30),
+        ...evidenceList(teacherActive.results, 20),
         ...evidenceList(openAiMarket?.active.results, 20),
-      ],
-      30,
+      ].slice(0, 30),
     );
-    const soldCandidates = forceImageVerification(mergedSoldCandidates);
-    const activeCandidates = forceImageVerification(mergedActiveCandidates);
     const [soldReview, activeReview] = await Promise.all([
       verifyInstaCompCompetitionImages({
         targetFrontImage: files[0],
         targetAi: ai,
-        candidates: soldCandidates,
+        candidates: discoverySoldCandidates,
       }),
       verifyInstaCompCompetitionImages({
         targetFrontImage: files[0],
         targetAi: ai,
-        candidates: activeCandidates,
+        candidates: discoveryActiveCandidates,
       }),
     ]);
 
     const excludedCompUrls = new Set(stringList(currentInstaComp.excludedCompUrls));
+    const acceptedDiscoverySold = dedupeEvidence(
+      evidenceList(soldReview.accepted, 20).filter((row) => !isExcludedEvidence(row)),
+      20,
+    );
     const acceptedSoldEvidence = dedupeEvidence(
-      evidenceList(soldReview.accepted, 50).filter(
-        (row) => row.sourceCategory === "sold" && !isExcludedEvidence(row),
-      ),
+      [...trustedSoldEvidence, ...acceptedDiscoverySold],
       50,
     ).filter((row) => !excludedCompUrls.has(row.url));
     const activeCompetition = dedupeEvidence(
-      evidenceList(activeReview.accepted, 30).filter(
-        (row) =>
-          (row.sourceCategory === "marketplace" || row.sourceCategory === "auction") &&
-          !isExcludedEvidence(row),
-      ),
+      evidenceList(activeReview.accepted, 30).filter((row) => !isExcludedEvidence(row)),
       30,
     ).filter((row) => !excludedCompUrls.has(row.url));
     const soldCompEvidence = acceptedSoldEvidence.filter((row) =>
@@ -466,23 +484,28 @@ export async function POST(request: NextRequest) {
       : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one image-verified exact sold listing.`;
     const checkedAt = new Date().toISOString();
     const providerCoverage = [
-      providerCoverageRow(serpMarket.sold),
-      providerCoverageRow(serpMarket.active),
+      providerCoverageRow(fanaticsSold),
+      providerCoverageRow(teacherSold),
+      providerCoverageRow(teacherActive),
       ...(openAiMarket
         ? [providerCoverageRow(openAiMarket.sold), providerCoverageRow(openAiMarket.active)]
         : []),
     ];
+    const exactMarketQueries = Array.from(
+      new Set([item.title, fallbackQuery].map((value) => String(value || "").trim()).filter(Boolean)),
+    );
+    const existingSourceLinks = recordValue(currentInstaComp.sourceLinks);
     const sourceLinks = {
-      ...recordValue(currentInstaComp.sourceLinks),
-      ebaySoldUrl: serpMarket.sold.searchUrl || null,
-      ebayActiveUrl: serpMarket.active.searchUrl || null,
+      ...existingSourceLinks,
+      ebaySoldUrl: openAiMarket?.sold.searchUrl || existingSourceLinks.ebaySoldUrl || null,
+      ebayActiveUrl: openAiMarket?.active.searchUrl || existingSourceLinks.ebayActiveUrl || null,
     };
 
     const nextMetadata = {
       ...metadata,
       instacomp: {
         ...currentInstaComp,
-        schema: "truely.instacompInventoryScan.v4",
+        schema: "truely.instacompInventoryScan.v5",
         source: "seller_inventory_exact_market_action",
         scanId,
         humanVerified: currentInstaComp.humanVerified === true,
@@ -491,8 +514,8 @@ export async function POST(request: NextRequest) {
         hasBackImage: files.length >= 2 || currentInstaComp.hasBackImage === true,
         ai,
         review,
-        exactStoredTitleQuery: serpMarket.query,
-        exactMarketQueries: serpMarket.queries,
+        exactStoredTitleQuery: item.title,
+        exactMarketQueries,
         openAiWebMarket: openAiMarket
           ? {
               model: openAiMarket.model,
@@ -565,7 +588,7 @@ export async function POST(request: NextRequest) {
       providerProblems: providerCoverage.filter(
         (row) => row.status === "error" || row.status === "not_configured",
       ),
-      exactMarketQueries: serpMarket.queries,
+      exactMarketQueries,
       openAiWebMarket: openAiMarket
         ? {
             model: openAiMarket.model,

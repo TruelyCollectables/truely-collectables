@@ -11,7 +11,6 @@ export type InstaCompTeacherRuntimeConfiguration = {
   cloudflareConfigured: boolean;
   perplexityConfigured: boolean;
   openAiConfigured: boolean;
-  serpApiConfigured: boolean;
   googleCseConfigured: boolean;
   votingTeacherCount: number;
   requiredVotes: number;
@@ -56,7 +55,6 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
   );
   const perplexityConfigured = configured(env.PERPLEXITY_API_KEY);
   const openAiConfigured = configured(env.OPENAI_API_KEY);
-  const serpApiConfigured = configured(env.SERPAPI_API_KEY);
   const googleCseConfigured = Boolean(
     configured(env.GOOGLE_CSE_API_KEY || env.GOOGLE_CUSTOM_SEARCH_API_KEY) &&
       configured(env.GOOGLE_CSE_CX || env.GOOGLE_CUSTOM_SEARCH_CX),
@@ -87,7 +85,6 @@ export function resolveInstaCompTeacherRuntimeConfiguration(
     cloudflareConfigured,
     perplexityConfigured,
     openAiConfigured,
-    serpApiConfigured,
     googleCseConfigured,
     votingTeacherCount,
     requiredVotes,

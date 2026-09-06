@@ -76,7 +76,6 @@ type PipelineDiagnostics = {
   simulated: boolean;
   runtimeConfiguration?: {
     openAi: boolean;
-    serpApi: boolean;
     ebay: boolean;
     supabase: boolean;
   };
@@ -582,7 +581,6 @@ export default function InstaCompLiveScanner() {
             <h3 style={{ marginTop: 0 }}>Runtime and provider diagnostics</h3>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <StatusBox label="OpenAI key" status={runtime?.openAi ? "complete" : "error"} detail={runtime?.openAi ? "Visible to this runtime" : "Missing from this runtime"} />
-              <StatusBox label="SerpApi key" status={runtime?.serpApi ? "complete" : "error"} detail={runtime?.serpApi ? "Visible to this runtime" : "Missing from this runtime"} />
               <StatusBox label="eBay keys" status={runtime?.ebay ? "complete" : "error"} detail={runtime?.ebay ? "Visible to this runtime" : "Missing from this runtime"} />
               <StatusBox label="Supabase" status={runtime?.supabase ? "complete" : "error"} detail={runtime?.supabase ? "Visible to this runtime" : "Missing from this runtime"} />
             </div>
