@@ -1,10 +1,10 @@
-name: KM252 OpenAI Discovery Smoke
+name: KM252 Cloudflare Web Search Smoke
 
 on:
   workflow_dispatch:
     inputs:
       only_n:
-        description: "Comma-separated KM252 card numbers"
+        description: "KM252 card number"
         required: true
         default: "68"
 
@@ -12,26 +12,25 @@ permissions:
   contents: read
 
 jobs:
-  discover:
+  smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 20
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       KM252_ONLY_N: ${{ inputs.only_n }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Run exact OpenAI Web discovery
-        run: npx tsx scripts/km252-openai-discovery-actions.ts
-      - name: Upload discovery artifact
+      - name: Run Cloudflare unified-billing web search smoke
+        run: node scripts/km252-cloudflare-web-smoke.mjs
+      - name: Upload smoke artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: km252-openai-discovery-${{ github.run_id }}
-          path: artifacts/km252-openai-discovery
+          name: km252-cloudflare-smoke-${{ github.run_id }}
+          path: artifacts/km252-cloudflare-smoke
           if-no-files-found: warn
           retention-days: 7
