@@ -11,10 +11,11 @@ export default async function KingmakerPendingPage({
 }) {
   const resolvedSearchParams = (await searchParams) || {};
   const queue = resolvedSearchParams.queue === "verification" ? "verification" : "listings";
+  const batch = typeof resolvedSearchParams.batch === "string" ? resolvedSearchParams.batch.trim() : "";
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.getAll().map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const response = await getPendingCards(
-    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}`, {
+    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}`, {
       headers: cookieHeader ? { cookie: cookieHeader } : undefined,
     }),
   ).catch(() => null);

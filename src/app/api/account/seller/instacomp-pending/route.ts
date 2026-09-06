@@ -381,7 +381,9 @@ export async function GET(request: Request) {
     const isStoreOwnerAccount =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-    const requestedQueue = new URL(request.url).searchParams.get("queue");
+    const requestUrl = new URL(request.url);
+    const requestedQueue = requestUrl.searchParams.get("queue");
+    const requestedBatch = String(requestUrl.searchParams.get("batch") || "").trim();
     const queue: InstaCompPendingQueue =
       requestedQueue === "verification" ? "verification" : "listings";
     const inventoryRows = await readOwnedInventoryPages({
@@ -441,17 +443,31 @@ export async function GET(request: Request) {
         textValue(instaComp.pricingStatus) === "identity_complete_pricing_pending"
       );
     });
+    const scopedInstaCompRows = requestedBatch
+      ? instaCompRows.filter((row: any) => {
+          const metadata = recordValue(row.metadata);
+          const workflow = recordValue(metadata.listingWorkflow);
+          const legacyWorkflow = recordValue(metadata.listing_workflow);
+          const instaComp = recordValue(metadata.instacomp);
+          return (
+            textValue(workflow.reviewBatchId) === requestedBatch ||
+            textValue(legacyWorkflow.reviewBatchId) === requestedBatch ||
+            textValue(instaComp.kingmakerReviewBatchId) === requestedBatch
+          );
+        })
+      : instaCompRows;
+
     const queueCounts = {
-      listings: instaCompRows.filter(
+      listings: scopedInstaCompRows.filter(
         (row: any) =>
           instaCompPendingQueueFromMetadata(row.metadata) === "listings",
       ).length,
-      verification: instaCompRows.filter(
+      verification: scopedInstaCompRows.filter(
         (row: any) =>
           instaCompPendingQueueFromMetadata(row.metadata) === "verification",
       ).length,
     };
-    const rows = instaCompRows.filter((row: any) => {
+    const rows = scopedInstaCompRows.filter((row: any) => {
       const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
       if (rowQueue !== queue) return false;
       if (queue === "verification") return true;
