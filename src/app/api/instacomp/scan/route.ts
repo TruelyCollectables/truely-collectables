@@ -160,7 +160,6 @@ const ALLOWED_SCAN_IMAGE_TYPES = new Set([
 ]);
 const GOOGLE_VISION_API_KEY =
   process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_API_KEY;
-const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
 const PRICECHARTING_API_TOKEN =
   process.env.PRICECHARTING_API_TOKEN ||
   process.env.SPORTSCARDSPRO_API_TOKEN ||
@@ -203,7 +202,7 @@ async function providerFetch(
   });
 }
 
-type ExternalSearchProvider = "google_cse" | "serpapi";
+type ExternalSearchProvider = "google_cse";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY =
@@ -3103,14 +3102,12 @@ function extractCompEventDateIso(value: string) {
 }
 
 function externalProviderLabel(provider: ExternalSearchProvider | null) {
-  if (provider === "serpapi") return "SerpApi";
   if (provider === "google_cse") return "Google CSE";
   return null;
 }
 
 function externalProviderRequestedLimit(provider: ExternalSearchProvider | null) {
   if (provider === "google_cse") return Math.min(EXTERNAL_SEARCH_LIMIT, 10);
-  if (provider === "serpapi") return EXTERNAL_SEARCH_LIMIT;
   return 0;
 }
 
@@ -3171,63 +3168,6 @@ async function fetchGoogleCseItems(
   }
 }
 
-async function fetchSerpApiItems(
-  searchQuery: string
-): Promise<ExternalSearchFetchResult> {
-  if (!SERPAPI_API_KEY) {
-    return {
-      ok: false,
-      items: [],
-      errorMessage: "SerpApi credentials were not available.",
-    };
-  }
-
-  const url = new URL("https://serpapi.com/search.json");
-  url.searchParams.set("engine", "google");
-  url.searchParams.set("api_key", SERPAPI_API_KEY);
-  url.searchParams.set("q", searchQuery);
-  url.searchParams.set("num", String(EXTERNAL_SEARCH_LIMIT));
-  url.searchParams.set("safe", "active");
-
-  try {
-    const response = await providerFetch(url.toString());
-
-    if (!response.ok) {
-      console.error("SerpApi InstaComp™ error:", await response.text());
-
-      return {
-        ok: false,
-        items: [],
-        errorMessage: "SerpApi external comp search failed.",
-      };
-    }
-
-    const data = await response.json();
-    const items = Array.isArray(data?.organic_results)
-      ? data.organic_results
-      : [];
-
-    return {
-      ok: true,
-      items: items.map((item: any) => ({
-        title: String(item?.title || ""),
-        url: String(item?.link || ""),
-        snippet: String(item?.snippet || ""),
-        imageUrl: item?.thumbnail ? String(item.thumbnail) : null,
-      })),
-      errorMessage: null,
-    };
-  } catch (error) {
-    console.error("SerpApi InstaComp™ exception:", error);
-
-    return {
-      ok: false,
-      items: [],
-      errorMessage: "SerpApi external comp search threw an error.",
-    };
-  }
-}
-
 async function getExternalSearchProvider(
   query: string,
   ai: InstaCompAiResult,
@@ -3235,13 +3175,13 @@ async function getExternalSearchProvider(
 ): Promise<InstaCompProviderResult> {
   const hasGoogleCse = Boolean(GOOGLE_CSE_API_KEY && GOOGLE_CSE_CX);
 
-  if (!SERPAPI_API_KEY && !hasGoogleCse) {
+  if (!hasGoogleCse) {
     return {
       source: "external_comp_search",
       label: "External Comp Search",
       status: "not_configured",
       message:
-        "Add GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX or SERPAPI_API_KEY to ingest external comp sources.",
+        "Google CSE is not configured; broad external comp enrichment was skipped. Exact market pricing uses the dedicated post-Registry provider stack.",
       results: [],
       searchUrl,
       diagnostics: {
@@ -3265,18 +3205,14 @@ async function getExternalSearchProvider(
   }
 
   const searchQuery = buildExternalSearchQuery(query);
-  const provider: ExternalSearchProvider = SERPAPI_API_KEY
-    ? "serpapi"
-    : "google_cse";
+  const provider: ExternalSearchProvider = "google_cse";
   const cacheKey = buildExternalSearchCacheKey(query, provider);
   const cachedSearch = await getCachedExternalSearchItems(cacheKey, provider);
   const cacheHit = Boolean(cachedSearch);
 
   const fetched = cachedSearch
     ? null
-    : provider === "serpapi"
-      ? await fetchSerpApiItems(searchQuery)
-      : await fetchGoogleCseItems(searchQuery);
+    : await fetchGoogleCseItems(searchQuery);
 
   if (fetched && !fetched.ok) {
     return {

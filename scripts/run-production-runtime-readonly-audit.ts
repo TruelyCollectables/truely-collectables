@@ -20,7 +20,6 @@ const requiredNames = [
   "STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED",
   "TCOS_LIVE_PAYMENTS_ENABLED",
   "OPENAI_API_KEY",
-  "SERPAPI_API_KEY",
   "EBAY_CLIENT_ID",
   "EBAY_CLIENT_SECRET",
   "EBAY_ENVIRONMENT",
@@ -132,16 +131,6 @@ async function main() {
   await httpCheck(checks, "openai_auth", "https://api.openai.com/v1/models", {
     headers: { Authorization: `Bearer ${env("OPENAI_API_KEY")}` },
     signal: AbortSignal.timeout(30_000),
-  });
-
-  const serpUrl = new URL("https://serpapi.com/search.json");
-  serpUrl.searchParams.set("engine", "ebay");
-  serpUrl.searchParams.set("ebay_domain", "ebay.com");
-  serpUrl.searchParams.set("_nkw", "sports card");
-  serpUrl.searchParams.set("_ipg", "1");
-  serpUrl.searchParams.set("api_key", env("SERPAPI_API_KEY"));
-  await httpCheck(checks, "serpapi_auth", serpUrl, {
-    signal: AbortSignal.timeout(45_000),
   });
 
   await httpCheck(checks, "stripe_auth", "https://api.stripe.com/v1/balance", {
