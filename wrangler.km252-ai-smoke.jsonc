@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "km252-cloudflare-ai-smoke",
+  "main": "./scripts/km252-cloudflare-ai-smoke-worker.mjs",
+  "compatibility_date": "2026-08-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI" }
+}
