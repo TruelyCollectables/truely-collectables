@@ -1,24 +1,12 @@
-name: KM252 Cloudflare AI Binding Smoke
-
+name: KM252 Fanatics Safe Sweep
 on:
   workflow_dispatch:
-    inputs:
-      only_n:
-        description: "KM252 card number"
-        required: true
-        default: "68"
-
 permissions:
   contents: read
-
 jobs:
-  smoke:
+  sweep:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      KM252_ONLY_N: ${{ inputs.only_n }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,31 +14,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm install --no-save --package-lock=false wrangler@latest
-      - name: Start remote Worker with AI binding
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler dev --remote --config wrangler.km252-ai-smoke.jsonc --port 8799 --show-interactive-dev-session false > /tmp/km252-wrangler.log 2>&1 &
-          echo $! > /tmp/km252-wrangler.pid
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8799/health >/tmp/km252-health.json 2>/dev/null; then exit 0; fi
-            sleep 2
-          done
-          sed -n '1,160p' /tmp/km252-wrangler.log
-          exit 1
-      - name: Run Cloudflare AI web-search smoke
-        run: node scripts/km252-cloudflare-ai-smoke-client.mjs
-      - name: Upload smoke artifact
-        if: always()
+      - name: Run rate-limited Fanatics exact-sold sweep
+        run: npx tsx scripts/km252-fanatics-safe-sweep.ts
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: km252-cloudflare-ai-smoke-${{ github.run_id }}
-          path: artifacts/km252-cloudflare-ai-smoke
+          name: km252-fanatics-${{ github.run_id }}
+          path: artifacts/km252-fanatics
           if-no-files-found: warn
           retention-days: 7
-      - name: Stop remote dev
-        if: always()
-        shell: bash
-        run: |
-          if [ -f /tmp/km252-wrangler.pid ]; then kill $(cat /tmp/km252-wrangler.pid) 2>/dev/null || true; fi
