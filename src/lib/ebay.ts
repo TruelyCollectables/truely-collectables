@@ -704,6 +704,51 @@ async function searchFindingCompletedItems(query: string, limit: number) {
     .filter(Boolean) as EbaySoldComp[];
 }
 
+export async function probeEbaySoldDataSources(
+  query: string,
+  limit = 5,
+) {
+  const safeQuery = String(query || "").trim().slice(0, 240);
+  const safeLimit = Math.min(Math.max(Number(limit) || 5, 1), 10);
+  if (!safeQuery) {
+    return {
+      query: safeQuery,
+      marketplaceInsights: { status: "invalid_query" as const, count: 0, message: "Query is required." },
+      findingCompletedItems: { status: "invalid_query" as const, count: 0, message: "Query is required." },
+    };
+  }
+
+  const marketplaceInsights = await searchMarketplaceInsights(safeQuery, safeLimit)
+    .then((comps) => ({
+      status: "live" as const,
+      count: comps.length,
+      message: comps.length ? null : "Marketplace Insights returned no sold items for the probe query.",
+      sample: comps.slice(0, 3).map((comp) => ({ title: comp.title, price: comp.price, soldAt: comp.soldAt })),
+    }))
+    .catch((error) => ({
+      status: "unavailable" as const,
+      count: 0,
+      message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+      sample: [] as Array<{ title: string; price: number; soldAt: string | null }>,
+    }));
+
+  const findingCompletedItems = await searchFindingCompletedItems(safeQuery, safeLimit)
+    .then((comps) => ({
+      status: "live" as const,
+      count: comps.length,
+      message: comps.length ? null : "Finding completed-items returned no sold items for the probe query.",
+      sample: comps.slice(0, 3).map((comp) => ({ title: comp.title, price: comp.price, soldAt: comp.soldAt })),
+    }))
+    .catch((error) => ({
+      status: "unavailable" as const,
+      count: 0,
+      message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+      sample: [] as Array<{ title: string; price: number; soldAt: string | null }>,
+    }));
+
+  return { query: safeQuery, marketplaceInsights, findingCompletedItems };
+}
+
 export async function getSalesComps(input: {
   title: string;
   player?: string | null;
