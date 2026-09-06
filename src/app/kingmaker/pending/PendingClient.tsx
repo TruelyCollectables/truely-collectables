@@ -404,7 +404,7 @@ export default function KingmakerPendingPage({
         };
       }
       const [cardsResult, statusResult] = await Promise.allSettled([
-        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}`, { headers, cache: "no-store" }),
+        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}${typeof window !== "undefined" ? (() => { const batch = new URLSearchParams(window.location.search).get("batch"); return batch ? `&batch=${encodeURIComponent(batch)}` : ""; })() : ""}`, { headers, cache: "no-store" }),
         fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
       ]);
       const cardsResponse = cardsResult.status === "fulfilled" ? cardsResult.value : null;
