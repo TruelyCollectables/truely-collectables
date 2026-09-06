@@ -12,9 +12,13 @@ function safeEqual(left: string, right: string) {
 }
 
 function authorized(request: Request) {
-  const expected = String(process.env.CRON_SECRET || process.env.TCOS_CRON_SECRET || "").trim();
-  const supplied = String(request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  return Boolean(expected && supplied && safeEqual(expected, supplied));
+  const configured = [process.env.CRON_SECRET, process.env.TCOS_CRON_SECRET]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const supplied = String(request.headers.get("authorization") || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+  return Boolean(supplied && configured.some((expected) => safeEqual(expected, supplied)));
 }
 
 export async function GET(request: Request) {
