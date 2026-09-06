@@ -20,7 +20,10 @@ import {
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
 import { listingPromotionFromMetadata } from "./listing-promotions";
-import { sanitizePublicListingDescription, sanitizePublicListingTitle } from "./public-listing-copy";
+import {
+  buildPublicListingDescription,
+  sanitizePublicListingTitle,
+} from "./public-listing-copy";
 import {
   loadLiveStoreSales,
   resolveStoreSale,
@@ -38,10 +41,9 @@ const PUBLIC_CATALOG_MEMORY_TTL_MS = 30_000;
 const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 5 * 60_000;
 const PUBLIC_CATALOG_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
-// v5 keeps physical-stock deduplication and invalidates older snapshots that
-// may contain internal import/debug copy. Public listing copy is sanitized before
-// it can reach customer pages or the Google Merchant feed.
-const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v5";
+// v6 invalidates cached catalog rows so every card gets the improved public
+// description immediately on both storefront pages and the Google Merchant feed.
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v6";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
@@ -67,8 +69,7 @@ const publicCatalogCache = new Map<string, PublicCatalogCacheEntry>();
 function getWorkerDefaultCache(): WorkerCache | null {
   try {
     const cacheStorage = (globalThis as any).caches as
-      | { default?: WorkerCache }
-      | undefined;
+      { default?: WorkerCache } | undefined;
     return cacheStorage?.default || null;
   } catch {
     return null;
@@ -92,8 +93,7 @@ async function readPublicCatalogFromEdgeCache(
     const response = await cache.match(publicCatalogEdgeCacheRequest(storeId));
     if (!response) return null;
     const payload = (await response.json()) as
-      | PublicCatalogEdgeSnapshot
-      | UniversalInventoryItem[];
+      PublicCatalogEdgeSnapshot | UniversalInventoryItem[];
 
     // Backward compatibility with the original short-lived cache payload.
     if (Array.isArray(payload)) {
@@ -184,8 +184,12 @@ function getCachedPublicCatalog(
 }
 
 function validCardUuid(value: unknown) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    normalized,
+  )
     ? normalized
     : null;
 }
@@ -212,9 +216,7 @@ function enforceStrictStorefrontFeatures(item: UniversalInventoryItem) {
 }
 
 function isPublicStorefrontItem(item: UniversalInventoryItem) {
-  return (
-    isLaunchCollectible(item) && !isMergedEbayAliasItemId(item.ebayItemId)
-  );
+  return isLaunchCollectible(item) && !isMergedEbayAliasItemId(item.ebayItemId);
 }
 
 function dedupeSharedPhysicalInventory(items: UniversalInventoryItem[]) {
@@ -274,7 +276,10 @@ function applyDynamicStoreSale(
     },
   });
 
-  if (!resolved.campaign || resolved.discountPercent <= listingDiscountPercent) {
+  if (
+    !resolved.campaign ||
+    resolved.discountPercent <= listingDiscountPercent
+  ) {
     return item;
   }
 
@@ -294,7 +299,12 @@ function mapPublicProductRow(
   promotionMetadata?: Record<string, unknown> | null,
 ): UniversalInventoryItem {
   const title = sanitizePublicListingTitle(product.title);
-  const description = sanitizePublicListingDescription(product.description);
+  const description = buildPublicListingDescription({
+    title,
+    description: product.description,
+    player: product.player,
+    sport: product.sport,
+  });
   const classification = classifyStorefrontItem({
     title,
     description,
@@ -459,10 +469,7 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
             ? Math.max(0, Date.now() - edgeSnapshot.generatedAt)
             : Number.POSITIVE_INFINITY;
 
-          if (
-            edgeSnapshot &&
-            edgeAge <= PUBLIC_CATALOG_EDGE_FRESH_TTL_MS
-          ) {
+          if (edgeSnapshot && edgeAge <= PUBLIC_CATALOG_EDGE_FRESH_TTL_MS) {
             return edgeSnapshot.items;
           }
 
