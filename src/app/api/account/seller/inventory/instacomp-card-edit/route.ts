@@ -125,12 +125,9 @@ export async function POST(request: NextRequest) {
     const body = record(parsedBody);
     const inventoryItemId = clean(body.inventoryItemId, 100);
     const title = clean(body.title, 300);
-    // Structural Base remains identity data only and is suppressed from every
-    // operator/listing title even when a manual correction is submitted.
-    const displayTitle = title
-      .replace(/\bBase\b/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    // Manual seller edits are authoritative. Preserve the title exactly as the
+    // operator typed it; canonical rewriting is an explicit UI action.
+    const displayTitle = title;
     const exactParallel = clean(body.parallel, 120);
     const baseSelected = /^base$/i.test(exactParallel);
     const storedParallel = baseSelected ? null : exactParallel || null;
@@ -237,6 +234,33 @@ export async function POST(request: NextRequest) {
         "InstaComp internal engine is not configured for this runtime.";
     }
 
+    const manualIdentity = {
+      sport: nullableText(body.sport, 100),
+      league: nullableText(body.league, 100),
+      year: nullableText(body.year, 20),
+      manufacturer: nullableText(body.manufacturer, 160),
+      brand: nullableText(body.brand, 160),
+      product: nullableText(body.product, 160),
+      setName: nullableText(body.setName ?? body.set_name, 240),
+      subset: nullableText(body.subset, 160),
+      player: nullableText(body.player, 200),
+      team: nullableText(body.team, 160),
+      cardNumber: nullableText(body.cardNumber ?? body.card_number, 80),
+      parallel: exactParallel,
+      variation: nullableText(body.variation, 160),
+      serialNumber: serialStamp,
+      printRun: normalizedPrintRun,
+      isRookie: booleanValue(body.isRookie),
+      isAuto: booleanValue(body.isAuto),
+      isRelic: booleanValue(body.isRelic),
+      inscription: booleanValue(body.inscription),
+      inscriptionText: nullableText(body.inscriptionText, 300),
+      memorabiliaType: nullableText(body.memorabiliaType, 160),
+      savedAt: editedAt,
+      savedBy: account.id,
+      source: "seller_manual_edit",
+    };
+
     const nextMetadata = {
       ...metadata,
       collectible_asset: {
@@ -261,6 +285,7 @@ export async function POST(request: NextRequest) {
         trustedForIdentity: true,
         manualIdentityEdit: true,
         manualIdentityLocked: true,
+        manualIdentity,
         identityRefreshRequired: false,
         identitySource: "seller_manual_edit",
         identityComplete: true,
@@ -280,8 +305,14 @@ export async function POST(request: NextRequest) {
           ...ai,
           player: nullableText(body.player ?? ai.player, 200),
           year: nullableText(body.year ?? ai.year, 20),
+          manufacturer: nullableText(body.manufacturer ?? ai.manufacturer ?? ai.brand, 160),
           brand: nullableText(body.brand ?? ai.brand, 160),
+          product: nullableText(body.product ?? ai.product, 160),
           setName: nullableText(body.setName ?? ai.setName, 240),
+          set_name: nullableText(body.setName ?? body.set_name ?? ai.set_name ?? ai.setName, 240),
+          subset: nullableText(body.subset ?? ai.subset, 160),
+          league: nullableText(body.league ?? ai.league, 100),
+          variation: nullableText(body.variation ?? ai.variation, 160),
           cardNumber: nullableText(body.cardNumber ?? ai.cardNumber, 80),
           team: nullableText(body.team ?? ai.team, 160),
           sport: nullableText(body.sport ?? ai.sport, 100),
@@ -303,6 +334,7 @@ export async function POST(request: NextRequest) {
           parallelName: storedParallel,
           checklistParallel: exactParallel,
           serialNumber: serialStamp,
+          serial_number: serialStamp,
           printRun: normalizedPrintRun,
         },
       },

@@ -539,6 +539,9 @@ export async function GET(request: Request) {
       const instaComp = recordValue(metadata.instacomp);
       const imageOrientation = recordValue(instaComp.imageOrientation);
       const ai = recordValue(instaComp.ai);
+      const manualIdentity = recordValue(instaComp.manualIdentity);
+      const manualIdentityLocked = instaComp.manualIdentityLocked === true;
+      const primaryIdentity = manualIdentityLocked ? manualIdentity : ai;
       const collectibleAsset = recordValue(metadata.collectible_asset);
       const graderVerification = recordValue(metadata.grader_verification);
       const sellerReview = recordValue(metadata.seller_review);
@@ -571,7 +574,7 @@ export async function GET(request: Request) {
       const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
       const rawTitle = textValue(row.title);
       const generatedTitle =
-        buildIdentityTitle(ai) ||
+        buildIdentityTitle(primaryIdentity) ||
         buildIdentityTitle(recordValue(metadata.card)) ||
         buildIdentityTitle(cardIdentity) ||
         buildIdentityTitle(saleIdentity) ||
@@ -580,7 +583,7 @@ export async function GET(request: Request) {
         buildIdentityTitle(metadata) ||
         null;
       const identitySummary =
-        buildIdentitySummary(ai) ||
+        buildIdentitySummary(primaryIdentity) ||
         buildIdentitySummary(recordValue(metadata.card)) ||
         buildIdentitySummary(cardIdentity) ||
         buildIdentitySummary(saleIdentity) ||
@@ -589,7 +592,7 @@ export async function GET(request: Request) {
         buildIdentitySummary(metadata) ||
         null;
       const identityReadout =
-        buildIdentityReadout(ai) ||
+        buildIdentityReadout(primaryIdentity) ||
         buildIdentityReadout(recordValue(metadata.card)) ||
         buildIdentityReadout(cardIdentity) ||
         buildIdentityReadout(saleIdentity) ||
@@ -597,13 +600,14 @@ export async function GET(request: Request) {
         buildIdentityReadout(recordValue(metadata.collectible_asset)) ||
         buildIdentityReadout(metadata) ||
         null;
-      const displayTitle =
-        identityReadout ||
-        identitySummary ||
-        generatedTitle ||
-        (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
-        rawTitle ||
-        "Untitled item";
+      const displayTitle = manualIdentityLocked
+        ? rawTitle || generatedTitle || identityReadout || identitySummary || "Untitled item"
+        : identityReadout ||
+          identitySummary ||
+          generatedTitle ||
+          (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
+          rawTitle ||
+          "Untitled item";
 
       const suggestedPrice = optionalPrice(
         Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
@@ -690,84 +694,55 @@ export async function GET(request: Request) {
             ? summarizeInstaCompPricingGroup(pricingGroupRows)
             : null,
           identity: {
-            sport: textValue(ai.sport),
-            league: textValue(ai.league),
-            year:
-              textValue(ai.year) ||
-              textValue(cardIdentity.year) ||
-              textValue(saleIdentity.year),
-            manufacturer:
-              textValue(ai.manufacturer) ||
-              textValue(ai.brand) ||
-              textValue(cardIdentity.manufacturer) ||
-              textValue(cardIdentity.brand) ||
-              textValue(saleIdentity.manufacturer) ||
-              textValue(saleIdentity.brand),
-            brand:
-              textValue(ai.brand) ||
-              textValue(cardIdentity.brand) ||
-              textValue(saleIdentity.brand),
-            product:
-              textValue(ai.product) ||
-              textValue(cardIdentity.product) ||
-              textValue(saleIdentity.product),
-            setName:
-              textValue(ai.setName) ||
-              textValue(ai.set_name) ||
-              textValue(cardIdentity.setName) ||
-              textValue(cardIdentity.set_name) ||
-              textValue(saleIdentity.setName) ||
-              textValue(saleIdentity.set_name),
-            subset:
-              identitySubsetValue(ai) ||
-              identitySubsetValue(recordValue(metadata.card)) ||
-              identitySubsetValue(cardIdentity) ||
-              identitySubsetValue(saleIdentity) ||
-              identitySubsetValue(recordValue(metadata.verified_reference)),
-            player:
-              identityPlayerValue(ai) ||
-              identityPlayerValue(cardIdentity) ||
-              identityPlayerValue(saleIdentity),
-            team:
-              textValue(ai.team) ||
-              textValue(cardIdentity.team) ||
-              textValue(saleIdentity.team),
-            cardNumber:
-              textValue(ai.cardNumber) ||
-              textValue(ai.card_number) ||
-              textValue(cardIdentity.cardNumber) ||
-              textValue(cardIdentity.card_number) ||
-              textValue(saleIdentity.cardNumber) ||
-              textValue(saleIdentity.card_number),
-            parallel:
-              textValue(ai.checklistParallel) ||
-              textValue(ai.parallelName) ||
-              textValue(ai.parallel) ||
-              textValue(cardIdentity.parallel) ||
-              textValue(saleIdentity.parallel),
-            variation:
-              textValue(ai.variation) ||
-              textValue(cardIdentity.variation) ||
-              textValue(saleIdentity.variation),
+            sport: manualIdentityLocked ? textValue(primaryIdentity.sport) : textValue(ai.sport),
+            league: manualIdentityLocked ? textValue(primaryIdentity.league) : textValue(ai.league),
+            year: manualIdentityLocked
+              ? textValue(primaryIdentity.year)
+              : textValue(ai.year) || textValue(cardIdentity.year) || textValue(saleIdentity.year),
+            manufacturer: manualIdentityLocked
+              ? textValue(primaryIdentity.manufacturer)
+              : textValue(ai.manufacturer) || textValue(ai.brand) || textValue(cardIdentity.manufacturer) || textValue(cardIdentity.brand) || textValue(saleIdentity.manufacturer) || textValue(saleIdentity.brand),
+            brand: manualIdentityLocked
+              ? textValue(primaryIdentity.brand)
+              : textValue(ai.brand) || textValue(cardIdentity.brand) || textValue(saleIdentity.brand),
+            product: manualIdentityLocked
+              ? textValue(primaryIdentity.product)
+              : textValue(ai.product) || textValue(cardIdentity.product) || textValue(saleIdentity.product),
+            setName: manualIdentityLocked
+              ? textValue(primaryIdentity.setName) || textValue(primaryIdentity.set_name)
+              : textValue(ai.setName) || textValue(ai.set_name) || textValue(cardIdentity.setName) || textValue(cardIdentity.set_name) || textValue(saleIdentity.setName) || textValue(saleIdentity.set_name),
+            subset: manualIdentityLocked
+              ? identitySubsetValue(primaryIdentity)
+              : identitySubsetValue(ai) || identitySubsetValue(recordValue(metadata.card)) || identitySubsetValue(cardIdentity) || identitySubsetValue(saleIdentity) || identitySubsetValue(recordValue(metadata.verified_reference)),
+            player: manualIdentityLocked
+              ? identityPlayerValue(primaryIdentity)
+              : identityPlayerValue(ai) || identityPlayerValue(cardIdentity) || identityPlayerValue(saleIdentity),
+            team: manualIdentityLocked
+              ? textValue(primaryIdentity.team)
+              : textValue(ai.team) || textValue(cardIdentity.team) || textValue(saleIdentity.team),
+            cardNumber: manualIdentityLocked
+              ? textValue(primaryIdentity.cardNumber) || textValue(primaryIdentity.card_number)
+              : textValue(ai.cardNumber) || textValue(ai.card_number) || textValue(cardIdentity.cardNumber) || textValue(cardIdentity.card_number) || textValue(saleIdentity.cardNumber) || textValue(saleIdentity.card_number),
+            parallel: manualIdentityLocked
+              ? textValue(primaryIdentity.parallel)
+              : textValue(ai.checklistParallel) || textValue(ai.parallelName) || textValue(ai.parallel) || textValue(cardIdentity.parallel) || textValue(saleIdentity.parallel),
+            variation: manualIdentityLocked
+              ? textValue(primaryIdentity.variation)
+              : textValue(ai.variation) || textValue(cardIdentity.variation) || textValue(saleIdentity.variation),
             notes: textValue(ai.notes) || buildIdentitySummary(ai) || buildIdentitySummary(cardIdentity) || buildIdentitySummary(saleIdentity),
-            serialNumber:
-              textValue(ai.serialNumber) ||
-              textValue(cardIdentity.serialNumber) ||
-              textValue(saleIdentity.serialNumber) ||
-              exactSerialNumber,
-            isRookie: ai.isRookie === true || collectibleAsset.rookie === true,
-            isAuto: ai.isAuto === true || collectibleAsset.autograph === true,
-            isRelic: ai.isRelic === true || collectibleAsset.memorabilia === true,
-            inscription:
-              ai.internalInscription === true || collectibleAsset.inscription === true,
-            inscriptionText:
-              textValue(ai.internalInscriptionText) ||
-              textValue(collectibleAsset.inscription_text),
-            memorabiliaType:
-              textValue(ai.internalMemorabiliaType) ||
-              textValue(collectibleAsset.memorabilia_type),
+            serialNumber: manualIdentityLocked
+              ? textValue(primaryIdentity.serialNumber)
+              : textValue(ai.serialNumber) || textValue(cardIdentity.serialNumber) || textValue(saleIdentity.serialNumber) || exactSerialNumber,
+            isRookie: manualIdentityLocked ? primaryIdentity.isRookie === true : ai.isRookie === true || collectibleAsset.rookie === true,
+            isAuto: manualIdentityLocked ? primaryIdentity.isAuto === true : ai.isAuto === true || collectibleAsset.autograph === true,
+            isRelic: manualIdentityLocked ? primaryIdentity.isRelic === true : ai.isRelic === true || collectibleAsset.memorabilia === true,
+            inscription: manualIdentityLocked ? primaryIdentity.inscription === true : ai.internalInscription === true || collectibleAsset.inscription === true,
+            inscriptionText: manualIdentityLocked ? textValue(primaryIdentity.inscriptionText) : textValue(ai.internalInscriptionText) || textValue(collectibleAsset.inscription_text),
+            memorabiliaType: manualIdentityLocked ? textValue(primaryIdentity.memorabiliaType) : textValue(ai.internalMemorabiliaType) || textValue(collectibleAsset.memorabilia_type),
           },
-          serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
+          serialNumber: manualIdentityLocked
+            ? textValue(primaryIdentity.serialNumber)
+            : textValue(ai.serialNumber) || exactSerialNumber,
           hasBackImage,
           imageOrientation: {
             verified:

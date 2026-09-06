@@ -109,6 +109,7 @@ type EditState = {
   year: string;
   manufacturer: string;
   brand: string;
+  product: string;
   setName: string;
   subset: string;
   player: string;
@@ -257,7 +258,7 @@ function identityReadout(card: PendingCard) {
 function standardizedTitle(edit: EditState) {
   const setName = /^base$/i.test(edit.setName.trim()) ? "" : edit.setName.trim();
   const parallel = /^base$/i.test(edit.parallel.trim()) ? "" : edit.parallel.trim();
-  const product = edit.brand.trim() || edit.manufacturer.trim();
+  const product = edit.product.trim() || edit.brand.trim() || edit.manufacturer.trim();
   return [
     edit.year.trim(),
     product,
@@ -286,6 +287,7 @@ function initialEdit(card: PendingCard): EditState {
     year: identity.year || "",
     manufacturer: identity.manufacturer || "",
     brand: identity.brand || identity.manufacturer || "",
+    product: identity.product || "",
     setName: identity.setName || "",
     subset: identity.subset || "",
     player: identity.player || "",
@@ -477,7 +479,7 @@ export default function KingmakerPendingPage({
       setPageError("Blank no longer means Base. Enter Base or the exact checklist parallel.");
       return;
     }
-    const finalTitle = standardizedTitle(edit) || edit.title.trim();
+    const finalTitle = edit.title.trim() || standardizedTitle(edit);
     if (!finalTitle) {
       setPageError("The corrected card needs enough identity fields to build a listing title.");
       return;
@@ -1006,7 +1008,7 @@ export default function KingmakerPendingPage({
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-xl font-black">Correct any field</h3>
-                        <p className="mt-1 text-sm font-semibold text-neutral-600">Saving locks this identity as operator-confirmed truth. Structural Base is always removed from the displayed title.</p>
+                        <p className="mt-1 text-sm font-semibold text-neutral-600">Saving makes your values operator-confirmed truth. Your typed Listing Title is saved exactly; use Rebuild Standard Title only when you want KINGMAKER to rewrite it.</p>
                       </div>
                       <button
                         type="button"
@@ -1023,7 +1025,8 @@ export default function KingmakerPendingPage({
                       </div>
                       <Field label="Year" value={edit.year} onChange={(value) => setEditValue(card.inventoryItemId, "year", value)} />
                       <Field label="Manufacturer" value={edit.manufacturer} onChange={(value) => setEditValue(card.inventoryItemId, "manufacturer", value)} />
-                      <Field label="Product / Brand" value={edit.brand} onChange={(value) => setEditValue(card.inventoryItemId, "brand", value)} />
+                      <Field label="Brand" value={edit.brand} onChange={(value) => setEditValue(card.inventoryItemId, "brand", value)} />
+                      <Field label="Product" value={edit.product} placeholder="Prizm, Select, Donruss…" onChange={(value) => setEditValue(card.inventoryItemId, "product", value)} />
                       <Field label="Set / Insert / Level" value={edit.setName} onChange={(value) => setEditValue(card.inventoryItemId, "setName", value)} />
                       <Field label="Subset" value={edit.subset} onChange={(value) => setEditValue(card.inventoryItemId, "subset", value)} />
                       <Field label="Player" value={edit.player} onChange={(value) => setEditValue(card.inventoryItemId, "player", value)} />
@@ -1088,7 +1091,7 @@ export default function KingmakerPendingPage({
                     <button
                       type="button"
                       onClick={() => beginEdit(card)}
-                      disabled={Boolean(busyId)}
+                      disabled={isBusy}
                       className="rounded-xl bg-amber-600 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                     >
                       Edit All Fields
