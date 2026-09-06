@@ -1,0 +1,31 @@
+name: InstaComp eBay Sold Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Probe query"
+        required: false
+        default: "2025 Prizm #72 Kiki Iriafen Silver"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe production eBay sold sources
+        env:
+          TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+          QUERY: ${{ inputs.query }}
+        run: |
+          set -euo pipefail
+          [ -n "${TCOS_CRON_SECRET:-}" ] || { echo "TCOS_CRON_SECRET unavailable"; exit 2; }
+          encoded=$(node -p 'encodeURIComponent(process.env.QUERY || "")')
+          status=$(curl -sS -o /tmp/ebay-sold-readiness.json -w '%{http_code}' \
+            -H "Authorization: Bearer $TCOS_CRON_SECRET" \
+            "https://truelycollectables.com/api/internal/instacomp-ebay-sold-readiness?q=$encoded")
+          node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("/tmp/ebay-sold-readiness.json","utf8")); console.log(JSON.stringify(p,null,2));'
+          test "$status" = "200"
