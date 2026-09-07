@@ -20,6 +20,11 @@ import {
 import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  getConfiguredInstaCompMacKey,
+  getConfiguredInstaCompMacUrl,
+  isTrustedInstaCompMacUrl,
+} from "../../../../../../lib/instacomp-mac-credentials";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
 
 export const runtime = "nodejs";
@@ -215,6 +220,97 @@ function forceImageVerification(values: Evidence[]) {
   }));
 }
 
+type MacMarketResult = {
+  status: "ready" | "failed" | "not_configured";
+  sold: Evidence[];
+  active: Evidence[];
+  providerCoverage: Array<Record<string, any>>;
+  query: string | null;
+  error: string | null;
+};
+
+async function requestMacExactMarket(params: {
+  exactTitle: string;
+  ai: InstaCompAiResult;
+}): Promise<MacMarketResult> {
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  const key = getConfiguredInstaCompMacKey();
+  if (!baseUrl || !key || !isTrustedInstaCompMacUrl(baseUrl)) {
+    return {
+      status: "not_configured",
+      sold: [],
+      active: [],
+      providerCoverage: [],
+      query: null,
+      error: "The authenticated InstaComp Mac market bridge is not configured.",
+    };
+  }
+  try {
+    const aiRecord = params.ai as InstaCompAiResult & Record<string, unknown>;
+    const response = await fetch(`${baseUrl}/v1/market-comp/search`, {
+      method: "POST",
+      headers: {
+        "X-InstaComp-AI-Key": key,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        exact_title: params.exactTitle,
+        identity: {
+          player: params.ai.player,
+          year: params.ai.year,
+          manufacturer: aiRecord.manufacturer,
+          brand: params.ai.brand,
+          product: aiRecord.product || params.ai.setName,
+          setName: params.ai.setName,
+          cardNumber: params.ai.cardNumber,
+          parallel: params.ai.parallel,
+          serialNumber: params.ai.serialNumber,
+          serialRun: aiRecord.serialRun,
+          gradingCompany: params.ai.gradingCompany,
+          gradeValue: params.ai.gradeValue,
+          isAuto: params.ai.isAuto,
+          isRelic: params.ai.isRelic,
+        },
+        max_sold: 50,
+        max_active: 30,
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(190_000),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, any>;
+    if (!response.ok || payload.ok !== true) {
+      return {
+        status: "failed",
+        sold: [],
+        active: [],
+        providerCoverage: Array.isArray(payload.providerCoverage) ? payload.providerCoverage : [],
+        query: typeof payload.query === "string" ? payload.query : null,
+        error: sanitizeInstaCompProviderError(
+          String(payload.detail || payload.error || `Mac market search HTTP ${response.status}`),
+        ),
+      };
+    }
+    return {
+      status: "ready",
+      sold: evidenceList(payload.sold, 50),
+      active: evidenceList(payload.active, 30),
+      providerCoverage: Array.isArray(payload.providerCoverage) ? payload.providerCoverage : [],
+      query: typeof payload.query === "string" ? payload.query : null,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      sold: [],
+      active: [],
+      providerCoverage: [],
+      query: null,
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 function providerCoverageRow(provider: {
   source: string;
   label: string;
@@ -379,34 +475,55 @@ export async function POST(request: NextRequest) {
 
     const fallbackQuery = buildInstaCompQueries(ai).primary;
     const compLinks = buildCompLinks(fallbackQuery);
-    const fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle: item.title, ai });
 
-    let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
-    let teacherFailure: string | null = null;
-    try {
-      teacher = await getTeacherExactMarketProviders({ exactTitle: item.title, ai });
-    } catch (error) {
-      teacherFailure = sanitizeInstaCompProviderError(
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    const teacherSold = teacher?.sold || {
-      source: "teacher_consensus_exact_sold",
-      label: "Outside AI Teacher Consensus Sold",
-      status: "error",
-      message: teacherFailure || "Outside teacher market search failed.",
+    // Mac-first: the user's own InstaComp worker searches the market before any
+    // paid/cloud AI lane. Mercari is active/purchase-side reference only.
+    const macMarket = await requestMacExactMarket({ exactTitle: item.title, ai });
+    const macPricingSold = macMarket.sold.filter((row) =>
+      isPricingEligibleEvidence(row, "sold"),
+    );
+    const macMarketHasPricing = macMarket.status === "ready" && macPricingSold.length > 0;
+
+    let fanaticsSold: any = {
+      source: "fanatics_collect_sales_history",
+      label: "Fanatics Collect Sales History",
+      status: "skipped",
+      message: "Skipped because the Mac-first market search returned exact pricing evidence.",
       results: [],
     };
-    const teacherActive = teacher?.active || {
+    let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
+    let teacherFailure: string | null = null;
+    if (!macMarketHasPricing) {
+      fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle: item.title, ai });
+      try {
+        teacher = await getTeacherExactMarketProviders({ exactTitle: item.title, ai });
+      } catch (error) {
+        teacherFailure = sanitizeInstaCompProviderError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    const teacherSold: any = teacher?.sold || {
+      source: "teacher_consensus_exact_sold",
+      label: "Outside AI Teacher Consensus Sold",
+      status: macMarketHasPricing ? "skipped" : "error",
+      message: macMarketHasPricing
+        ? "Skipped because the Mac-first market search returned exact pricing evidence."
+        : teacherFailure || "Outside teacher market search failed.",
+      results: [],
+    };
+    const teacherActive: any = teacher?.active || {
       source: "teacher_discovery_active",
       label: "Outside AI Teacher Active Discovery",
-      status: "error",
-      message: teacherFailure || "Outside teacher market search failed.",
+      status: macMarketHasPricing ? "skipped" : "error",
+      message: macMarketHasPricing
+        ? "Skipped because the Mac-first market search returned exact pricing evidence."
+        : teacherFailure || "Outside teacher market search failed.",
       results: [],
     };
 
     const shouldSearchOpenAiWeb =
-      fanaticsSold.results.length === 0 && teacherSold.results.length === 0;
+      !macMarketHasPricing && fanaticsSold.results.length === 0 && teacherSold.results.length === 0;
     const openAiMarket = shouldSearchOpenAiWeb
       ? await getOpenAiExactEbayMarketProviders({ exactTitle: item.title, ai })
       : null;
@@ -420,6 +537,7 @@ export async function POST(request: NextRequest) {
     const trustedSoldEvidence = dedupeEvidence(
       [
         ...preservedTrustedSold,
+        ...macMarket.sold,
         ...evidenceList(fanaticsSold.results, 20),
         ...evidenceList(teacherSold.results, 20),
       ],
@@ -433,18 +551,36 @@ export async function POST(request: NextRequest) {
       ...teacherActiveCandidates,
       ...forceImageVerification(evidenceList(openAiMarket?.active.results, 20)),
     ].slice(0, 30);
-    const [soldReview, activeReview] = await Promise.all([
-      verifyInstaCompCompetitionImages({
-        targetFrontImage: files[0],
-        targetAi: ai,
-        candidates: discoverySoldCandidates,
-      }),
-      verifyInstaCompCompetitionImages({
-        targetFrontImage: files[0],
-        targetAi: ai,
-        candidates: discoveryActiveCandidates,
-      }),
-    ]);
+    let soldReview: any = {
+      accepted: [],
+      rejected: [],
+      reviewedCount: 0,
+      titleOverrides: 0,
+      configured: true,
+      model: "mac_local_exact_market_gate",
+    };
+    let activeReview: any = {
+      accepted: [],
+      rejected: [],
+      reviewedCount: 0,
+      titleOverrides: 0,
+      configured: true,
+      model: "mac_local_exact_market_gate",
+    };
+    if (!macMarketHasPricing) {
+      [soldReview, activeReview] = await Promise.all([
+        verifyInstaCompCompetitionImages({
+          targetFrontImage: files[0],
+          targetAi: ai,
+          candidates: discoverySoldCandidates,
+        }),
+        verifyInstaCompCompetitionImages({
+          targetFrontImage: files[0],
+          targetAi: ai,
+          candidates: discoveryActiveCandidates,
+        }),
+      ]);
+    }
 
     const excludedCompUrls = new Set(stringList(currentInstaComp.excludedCompUrls));
     const acceptedDiscoverySold = dedupeEvidence(
@@ -456,7 +592,10 @@ export async function POST(request: NextRequest) {
       50,
     ).filter((row) => !excludedCompUrls.has(row.url));
     const activeCompetition = dedupeEvidence(
-      evidenceList(activeReview.accepted, 30).filter((row) => !isExcludedEvidence(row)),
+      [
+        ...macMarket.active,
+        ...evidenceList(activeReview.accepted, 30).filter((row) => !isExcludedEvidence(row)),
+      ],
       30,
     ).filter((row) => !excludedCompUrls.has(row.url));
     const soldCompEvidence = acceptedSoldEvidence.filter((row) =>
@@ -489,48 +628,72 @@ export async function POST(request: NextRequest) {
       : "seller_price_required";
     const pricingReason = hasReliableSoldComps
       ? pricingAnalysis.explanation
-      : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one image-verified exact sold listing.`;
+      : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one strict exact sold listing.`;
     const checkedAt = new Date().toISOString();
-    const mercariActiveCount = teacherActiveCandidates.filter((row) => /mercari\.com/i.test(row.url)).length;
+    const macCoverage = macMarket.providerCoverage.map((row) => ({
+      source: String(row.source || "mac_market_source"),
+      label: String(row.label || row.source || "Mac market source"),
+      status: String(row.status || "unknown"),
+      resultCount: Math.max(0, Number(row.resultCount || 0) || 0),
+      message:
+        String(row.source || "").includes("mercari")
+          ? `${String(row.message || "Mercari active search completed.")} Purchase-side only; never used as sold-comp evidence.`
+          : String(row.message || ""),
+      searchUrl: typeof row.searchUrl === "string" ? row.searchUrl : null,
+      attempts: Array.isArray(row.attempts) ? row.attempts : [],
+    }));
     const providerCoverage = [
-      providerCoverageRow(fanaticsSold),
-      providerCoverageRow(teacherSold),
-      providerCoverageRow(teacherActive),
       {
-        source: "mercari_active_teacher_discovery",
-        label: "Mercari Active",
-        status: mercariActiveCount ? "live" : teacherActive.status,
-        resultCount: mercariActiveCount,
-        message: mercariActiveCount
-          ? `${mercariActiveCount} strict exact active Mercari listing${mercariActiveCount === 1 ? "" : "s"} found.`
-          : "Mercari is searched as active-market competition; no strict exact active listing was retained on this pass.",
-        searchUrl: compLinks.mercariUrl,
+        source: "mac_local_market_stack",
+        label: "InstaComp Mac Market Search",
+        status: macMarket.status === "ready" ? "live" : macMarket.status,
+        resultCount: macMarket.sold.length + macMarket.active.length,
+        message: macMarketHasPricing
+          ? `${macPricingSold.length} pricing-eligible exact sold comps returned by the Mac-first market worker.`
+          : macMarket.error || "Mac market search returned no pricing-eligible exact sold comps; fallback providers were allowed.",
+        searchUrl: null,
         attempts: [],
       },
-      {
-        source: "130point_manual_verification",
-        label: "130point",
-        status: "manual_verification",
-        resultCount: 0,
-        message: "130point remains a manual screenshot-verification source; automated scraping is intentionally disabled.",
-        searchUrl: compLinks.one30pointUrl,
-        attempts: [],
-      },
-      ...(openAiMarket
-        ? [providerCoverageRow(openAiMarket.sold), providerCoverageRow(openAiMarket.active)]
+      ...macCoverage,
+      ...(!macMarketHasPricing
+        ? [
+            providerCoverageRow(fanaticsSold),
+            providerCoverageRow(teacherSold),
+            providerCoverageRow(teacherActive),
+            ...(openAiMarket
+              ? [providerCoverageRow(openAiMarket.sold), providerCoverageRow(openAiMarket.active)]
+              : []),
+          ]
         : []),
     ];
     const exactMarketQueries = Array.from(
-      new Set([item.title, fallbackQuery].map((value) => String(value || "").trim()).filter(Boolean)),
+      new Set(
+        [item.title, fallbackQuery, macMarket.query]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
     );
     const existingSourceLinks = recordValue(currentInstaComp.sourceLinks);
+    const coverageLink = (source: string) =>
+      macCoverage.find((row) => row.source === source)?.searchUrl || null;
     const sourceLinks = {
       ...existingSourceLinks,
-      ebaySoldUrl: openAiMarket?.sold.searchUrl || existingSourceLinks.ebaySoldUrl || null,
-      ebayActiveUrl: openAiMarket?.active.searchUrl || existingSourceLinks.ebayActiveUrl || compLinks.ebayActiveUrl,
-      one30pointUrl: compLinks.one30pointUrl,
-      mercariUrl: compLinks.mercariUrl,
-      fanaticsUrl: compLinks.fanaticsUrl,
+      ebaySoldUrl:
+        coverageLink("mac_chrome_ebay_sold") ||
+        openAiMarket?.sold.searchUrl ||
+        existingSourceLinks.ebaySoldUrl ||
+        null,
+      ebayActiveUrl:
+        openAiMarket?.active.searchUrl ||
+        existingSourceLinks.ebayActiveUrl ||
+        compLinks.ebayActiveUrl,
+      one30pointUrl:
+        coverageLink("mac_chrome_130point_sold") ||
+        "https://130point.com/search?new=sold",
+      mercariUrl:
+        coverageLink("mac_chrome_mercari_active") || compLinks.mercariUrl,
+      fanaticsUrl:
+        coverageLink("fanatics_collect_sales_history") || compLinks.fanaticsUrl,
       broadCardMarketUrl: compLinks.broadCardMarketUrl,
     };
 
@@ -549,6 +712,17 @@ export async function POST(request: NextRequest) {
         review,
         exactStoredTitleQuery: item.title,
         exactMarketQueries,
+        macMarketSearch: {
+          status: macMarket.status,
+          query: macMarket.query,
+          pricingEligibleSoldCount: macPricingSold.length,
+          soldEvidenceCount: macMarket.sold.length,
+          activePurchaseReferenceCount: macMarket.active.length,
+          providerCoverage: macCoverage,
+          error: macMarket.error,
+          sourceAuthority: "mac_local_browser_and_direct_market_feeds",
+          trainingAllowed: false,
+        },
         openAiWebMarket: openAiMarket
           ? {
               model: openAiMarket.model,
@@ -619,9 +793,18 @@ export async function POST(request: NextRequest) {
       activePricingEvidenceCount: activePricingEvidence.length,
       sourceLinks,
       providerCoverage,
+      macMarketSearch: {
+        status: macMarket.status,
+        query: macMarket.query,
+        pricingEligibleSoldCount: macPricingSold.length,
+        soldEvidenceCount: macMarket.sold.length,
+        activePurchaseReferenceCount: macMarket.active.length,
+        error: macMarket.error,
+        usedForPricing: macMarketHasPricing,
+      },
       teacherAttempts: teacher?.attempts || [],
-      providerProblems: providerCoverage.filter(
-        (row) => row.status === "error" || row.status === "not_configured",
+      providerProblems: providerCoverage.filter((row) =>
+        ["error", "failed", "not_configured", "challenge"].includes(String(row.status)),
       ),
       exactMarketQueries,
       openAiWebMarket: openAiMarket

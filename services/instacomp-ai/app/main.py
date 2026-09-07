@@ -42,6 +42,7 @@ from .printed_evidence import (
 from .settings_routes import build_settings_router
 from .storage import MemoryStore
 from .training_routes import build_training_router
+from .market_comp_routes import build_market_comp_router
 
 settings.ensure_directories()
 database_path = settings.resolve_local_path(settings.database_path)
@@ -140,6 +141,7 @@ app.include_router(
         training_export_path=training_export_path,
     )
 )
+app.include_router(build_market_comp_router(require_api_key))
 
 
 def _slug(value: object) -> str:
