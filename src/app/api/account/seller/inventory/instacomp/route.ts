@@ -9,7 +9,6 @@ import {
   type InstaCompAiResult,
 } from "../../../../../../lib/instacomp";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
-import { getOpenAiExactEbayMarketProviders } from "../../../../../../lib/instacomp-openai-web-market-provider";
 import { getTeacherExactMarketProviders } from "../../../../../../lib/instacomp-teacher-market-provider";
 import { getFanaticsExactSoldProvider } from "../../../../../../lib/instacomp-fanatics-sold-provider";
 import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
@@ -208,16 +207,6 @@ function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active") {
   if (!Number.isFinite(row.shippingPrice) || Number(row.shippingPrice) < 0) return false;
   if (lane === "sold" && !row.soldAt) return false;
   return true;
-}
-
-function forceImageVerification(values: Evidence[]) {
-  return values.map((row) => ({
-    ...row,
-    flags: Array.from(new Set([...row.flags, "guidance comp", "strict exact title awaiting image proof"])).slice(
-      0,
-      20,
-    ),
-  }));
 }
 
 type MacMarketResult = {
@@ -683,11 +672,8 @@ export async function POST(request: NextRequest) {
       results: [],
     };
 
-    const shouldSearchOpenAiWeb =
-      !macMarketHasPricing && fanaticsSold.results.length === 0 && teacherSold.results.length === 0;
-    const openAiMarket = shouldSearchOpenAiWeb
-      ? await getOpenAiExactEbayMarketProviders({ exactTitle: item.title, ai })
-      : null;
+    // OpenAI Web is intentionally excluded from exact-market search. A no-comp
+    // result must remain a no-comp result rather than triggering paid AI search.
 
     const preservedTrustedSold =
       currentInstaComp.trustedForPricing === true && useStoredIdentity
@@ -704,14 +690,9 @@ export async function POST(request: NextRequest) {
       ],
       50,
     );
-    const discoverySoldCandidates = forceImageVerification(
-      evidenceList(openAiMarket?.sold.results, 20),
-    );
+    const discoverySoldCandidates: Evidence[] = [];
     const teacherActiveCandidates = evidenceList(teacherActive.results, 20);
-    const discoveryActiveCandidates = [
-      ...teacherActiveCandidates,
-      ...forceImageVerification(evidenceList(openAiMarket?.active.results, 20)),
-    ].slice(0, 30);
+    const discoveryActiveCandidates = teacherActiveCandidates.slice(0, 30);
     let soldReview: any = {
       accepted: [],
       rejected: [],
@@ -825,7 +806,7 @@ export async function POST(request: NextRequest) {
         resultCount: macMarket.sold.length + macMarket.active.length,
         message: macMarketHasPricing
           ? `${macPricingSold.length} pricing-eligible exact sold comps returned by the Mac-first market worker.`
-          : macMarket.error || "Mac market search returned no pricing-eligible exact sold comps; fallback providers were allowed.",
+          : macMarket.error || "Mac market search returned no pricing-eligible exact sold comps. OpenAI Web fallback is disabled.",
         searchUrl: null,
         attempts: [],
       },
@@ -835,9 +816,6 @@ export async function POST(request: NextRequest) {
             providerCoverageRow(fanaticsSold),
             providerCoverageRow(teacherSold),
             providerCoverageRow(teacherActive),
-            ...(openAiMarket
-              ? [providerCoverageRow(openAiMarket.sold), providerCoverageRow(openAiMarket.active)]
-              : []),
           ]
         : []),
     ];
@@ -855,11 +833,10 @@ export async function POST(request: NextRequest) {
       ...existingSourceLinks,
       ebaySoldUrl:
         coverageLink("mac_chrome_ebay_sold") ||
-        openAiMarket?.sold.searchUrl ||
         existingSourceLinks.ebaySoldUrl ||
         null,
       ebayActiveUrl:
-        openAiMarket?.active.searchUrl ||
+        coverageLink("mac_chrome_ebay_active") ||
         existingSourceLinks.ebayActiveUrl ||
         compLinks.ebayActiveUrl,
       one30pointUrl:
@@ -902,15 +879,7 @@ export async function POST(request: NextRequest) {
           sourceAuthority: "mac_local_browser_and_direct_market_feeds",
           trainingAllowed: marketLearning?.student_training_eligible === true,
         },
-        openAiWebMarket: openAiMarket
-          ? {
-              model: openAiMarket.model,
-              responseId: openAiMarket.responseId,
-              citedItemIds: openAiMarket.citedItemIds,
-              notes: openAiMarket.notes,
-              cached: openAiMarket.cached,
-            }
-          : null,
+        openAiWebMarket: null,
         marketPrice: suggestedPrice,
         suggestedPrice,
         pricingStatus,
@@ -992,15 +961,7 @@ export async function POST(request: NextRequest) {
         ["error", "failed", "not_configured", "challenge"].includes(String(row.status)),
       ),
       exactMarketQueries,
-      openAiWebMarket: openAiMarket
-        ? {
-            model: openAiMarket.model,
-            responseId: openAiMarket.responseId,
-            citedItemIds: openAiMarket.citedItemIds,
-            notes: openAiMarket.notes,
-            cached: openAiMarket.cached,
-          }
-        : null,
+      openAiWebMarket: null,
       exactMarketVisualReview: {
         soldReviewed: soldReview.reviewedCount,
         activeReviewed: activeReview.reviewedCount,
