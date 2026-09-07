@@ -854,8 +854,10 @@ export async function GET(request: Request) {
       const feeProfile = pendingChannelFeeProfile();
       const storedEbayPrice = optionalPrice(dualEbay.price);
       const storedWebsitePrice = optionalPrice(dualWebsite.price);
+      const savedListingPrice = optionalPrice(instaComp.listingPrice);
+      const savedListingPriceSource = textValue(instaComp.listingPriceSource);
       const channelAnchor =
-        storedEbayPrice || optionalPrice(instaComp.listingPrice) || suggestedPrice;
+        storedEbayPrice || savedListingPrice || suggestedPrice;
       const calculatedChannels = calculateDualMarketplacePricing(
         channelAnchor || 0,
         feeProfile,
@@ -1161,9 +1163,13 @@ export async function GET(request: Request) {
             ebayStatus: textValue(dualEbay.status) || "draft",
             calculatedFrom: storedEbayPrice
               ? "saved_ebay_price"
-              : suggestedPrice
-                ? "instacomp"
-                : "seller_price_required",
+              : savedListingPrice
+                ? savedListingPriceSource === "kingmaker_manual"
+                  ? "seller_manual"
+                  : "saved_listing_price"
+                : suggestedPrice
+                  ? "instacomp"
+                  : "seller_price_required",
           },
           soldCompEvidence: localCertifiedPricing
             ? Array.isArray(localCertifiedPricing.exactSoldComps)

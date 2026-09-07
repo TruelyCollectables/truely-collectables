@@ -77,6 +77,7 @@ type PendingCard = {
     identityReadout?: string | null;
     suggestedPrice?: number | null;
     listingPrice?: number | null;
+    listingPriceSource?: string | null;
     channelPricing?: {
       ebayPrice: number;
       ebayEstimatedFees: number;
@@ -383,6 +384,7 @@ export default function KingmakerPendingPage({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
+  const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState("");
@@ -553,6 +555,20 @@ export default function KingmakerPendingPage({
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function saveManualPrice(card: PendingCard) {
+    const raw = String(manualPrices[card.inventoryItemId] || "").trim();
+    if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) {
+      setPageError("Manual price must be a positive dollar amount with no more than 2 decimal places.");
+      return;
+    }
+    const selectedPrice = Number(raw);
+    if (!Number.isFinite(selectedPrice) || selectedPrice <= 0) {
+      setPageError("Manual price must be greater than $0.00.");
+      return;
+    }
+    await savePrice(card, selectedPrice, "kingmaker_manual");
   }
 
   async function savePrice(card: PendingCard, price: number, source: string) {
@@ -1057,6 +1073,8 @@ export default function KingmakerPendingPage({
             const activeCompetition = card.instaComp.activeCompetition || [];
             const suggested = Number(card.instaComp.suggestedPrice || 0);
             const channelPricing = card.instaComp.channelPricing || null;
+            const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
+            const sellerManualPrice = listingPriceSource === "kingmaker_manual";
             const websiteListed = String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
             const ebayListed = String(channelPricing?.ebayStatus || "").toLowerCase() === "active";
             const groupQuantity = Math.max(
@@ -1203,12 +1221,55 @@ export default function KingmakerPendingPage({
                   })}
                 </div>
 
+                {queue === "listings" ? (
+                  <div className="border-t-2 border-neutral-900 bg-amber-50 p-4">
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div>
+                        <p className="font-black">Manual seller price</p>
+                        <p className="text-sm font-semibold text-neutral-600">
+                          Set any price you want. This overrides the listing price only; it does not rewrite InstaComp market truth.
+                        </p>
+                        <p className="mt-1 text-xs font-bold text-neutral-500">
+                          Current draft price: {money(card.price || card.instaComp.listingPrice)}{sellerManualPrice ? " · SELLER MANUAL" : ""}
+                        </p>
+                      </div>
+                      <div className="flex min-w-[280px] flex-wrap items-end gap-2">
+                        <label className="min-w-[160px] flex-1 text-sm font-black">
+                          Manual price
+                          <div className="mt-1 flex items-center rounded-xl border-2 border-amber-700 bg-white px-3">
+                            <span className="font-black text-neutral-500">$</span>
+                            <input
+                              type="number"
+                              aria-label={`Manual price for ${card.title}`}
+                              inputMode="decimal"
+                              min="0.01"
+                              step="0.01"
+                              value={manualPrices[card.inventoryItemId] || ""}
+                              onChange={(event) => setManualPrices((current) => ({ ...current, [card.inventoryItemId]: event.target.value }))}
+                              placeholder={String(card.price || card.instaComp.listingPrice || card.instaComp.suggestedPrice || "")}
+                              className="w-full bg-transparent p-2 font-black text-neutral-950 outline-none"
+                            />
+                          </div>
+                        </label>
+                        <button
+                          type="button"
+                          disabled={isBusy || !String(manualPrices[card.inventoryItemId] || "").trim()}
+                          onClick={() => void saveManualPrice(card)}
+                          className="rounded-xl bg-amber-700 px-4 py-3 font-black text-white disabled:opacity-40"
+                        >
+                          Save Manual Price
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 {priceChoices.length ? (
                   <div className="border-t-2 border-neutral-900 bg-emerald-50 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="font-black">Exact-comp pricing</p>
-                        <p className="text-sm font-semibold text-neutral-600">Current draft price: {money(card.price || card.instaComp.listingPrice)}</p>
+                        <p className="font-black">Exact-comp pricing presets</p>
+                        <p className="text-sm font-semibold text-neutral-600">Use these only when you want InstaComp-based pricing.</p>
                       </div>
                       <div className="grid min-w-[300px] flex-1 gap-2 sm:grid-cols-4 lg:max-w-4xl">
                         {priceChoices.map(({ label, value, source }) => (
@@ -1233,7 +1294,7 @@ export default function KingmakerPendingPage({
                     <div className="flex flex-wrap items-end justify-between gap-3">
                       <div>
                         <p className="text-lg font-black">Channel selling prices · QTY {groupQuantity}</p>
-                        <p className="text-sm font-semibold text-neutral-600">Calculated from the selected InstaComp/base price before you publish.</p>
+                        <p className="text-sm font-semibold text-neutral-600">Calculated from the selected base price before you publish. Manual seller overrides are respected.</p>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs font-black">
                         <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing.websiteStatus || "draft"}</span>
@@ -1242,7 +1303,7 @@ export default function KingmakerPendingPage({
                     </div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                       <div className="rounded-xl border-2 border-violet-700 bg-white p-3">
-                        <p className="text-xs font-black uppercase text-violet-700">InstaComp</p>
+                        <p className="text-xs font-black uppercase text-violet-700">{sellerManualPrice ? "Seller Manual" : "InstaComp"}</p>
                         <p className="text-2xl font-black">{money(card.instaComp.listingPrice || card.instaComp.suggestedPrice)}</p>
                       </div>
                       <div className="rounded-xl border-2 border-blue-700 bg-white p-3">
