@@ -40,6 +40,21 @@ type CompEvidence = {
   listedAt?: string | null;
 };
 
+type PhysicalInventoryMember = {
+  inventoryItemId: string;
+  scanId?: string | null;
+  cardUuid?: string | null;
+  identity?: CardIdentity | null;
+  frontImageUrl?: string | null;
+  backImageUrl?: string | null;
+  inventoryLifecycle?: {
+    state?: string | null;
+    disposition?: string | null;
+    receivedAt?: string | null;
+    scanId?: string | null;
+  } | null;
+};
+
 type PendingCard = {
   inventoryItemId: string;
   title: string;
@@ -52,6 +67,7 @@ type PendingCard = {
   commercialGroup?: {
     mergeable: boolean;
     memberInventoryItemIds: string[];
+    members?: PhysicalInventoryMember[];
     pendingRows: number;
     pendingQuantity: number;
     activeRows: number;
@@ -61,7 +77,14 @@ type PendingCard = {
   backImageUrl: string | null;
   storedImageCount: number;
   activationReadiness?: { ready?: boolean; blockers?: string[] } | null;
+  inventoryLifecycle?: {
+    state?: string | null;
+    disposition?: string | null;
+    receivedAt?: string | null;
+    scanId?: string | null;
+  } | null;
   instaComp: {
+    scanId?: string | null;
     cardUuid?: string | null;
     pricingGroupKey?: string | null;
     duplicateGroup?: {
@@ -124,7 +147,11 @@ type PurchaseMatchRecord = {
 };
 
 type PurchaseMatchState = {
-  status: "no_match" | "possible_match" | "pending_purchase" | "received" | string;
+  status: "no_match" | "scan_required" | "possible_match" | "pending_purchase" | "received" | string;
+  inventoryItemId?: string | null;
+  scanId?: string | null;
+  inventoryState?: string | null;
+  disposition?: string | null;
   confidence?: number | null;
   reason?: string | null;
   match?: PurchaseMatchRecord | null;
@@ -175,6 +202,7 @@ type EditState = {
 
 type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
 type PendingQueue = "listings" | "verification";
+type ListingFolder = "pending" | "website" | "ebay" | "both" | "investment";
 type ChannelAction = "publish-website" | "publish-ebay" | "publish-both";
 
 function queueFromLocation(): PendingQueue | null {
@@ -184,12 +212,33 @@ function queueFromLocation(): PendingQueue | null {
   return null;
 }
 
+function folderFromLocation(): ListingFolder {
+  if (typeof window === "undefined") return "pending";
+  const folder = new URLSearchParams(window.location.search).get("folder");
+  return folder === "website" || folder === "ebay" || folder === "both" || folder === "investment"
+    ? folder
+    : "pending";
+}
+
 function message(error: unknown) {
   return error instanceof Error ? error.message : "The operation failed.";
 }
 
 function hasValidPair(card: PendingCard) {
   return Boolean(card.frontImageUrl && card.backImageUrl && card.frontImageUrl !== card.backImageUrl);
+}
+
+function physicalMembersForCard(card: PendingCard): PhysicalInventoryMember[] {
+  if (card.commercialGroup?.members?.length) return card.commercialGroup.members;
+  return [{
+    inventoryItemId: card.inventoryItemId,
+    scanId: card.instaComp.scanId || null,
+    cardUuid: card.instaComp.cardUuid || null,
+    identity: card.instaComp.identity || null,
+    frontImageUrl: card.frontImageUrl,
+    backImageUrl: card.backImageUrl,
+    inventoryLifecycle: card.inventoryLifecycle || null,
+  }];
 }
 
 function displayPattern(value: string | null) {
@@ -390,15 +439,20 @@ function Field({
 
 export default function KingmakerPendingPage({
   initialQueue,
+  initialFolder = "pending",
   initialCards = [],
   initialQueueCounts = { listings: 0, verification: 0 },
+  initialFolderCounts = { pending: 0, website: 0, ebay: 0, both: 0, investment: 0 },
 }: {
   initialQueue: PendingQueue;
+  initialFolder?: ListingFolder;
   initialCards?: PendingCard[];
   initialQueueCounts?: { listings: number; verification: number };
+  initialFolderCounts?: Record<ListingFolder, number>;
 }) {
   const [cards, setCards] = useState<PendingCard[]>(initialCards);
   const [queueCounts, setQueueCounts] = useState(initialQueueCounts);
+  const [folderCounts, setFolderCounts] = useState(initialFolderCounts);
   const [jobs, setJobs] = useState<Record<string, JobStatus>>({});
   const [localStage, setLocalStage] = useState<Record<string, LocalStage>>({});
   const [localError, setLocalError] = useState<Record<string, string>>({});
@@ -408,6 +462,7 @@ export default function KingmakerPendingPage({
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
+  const [channelPriceEdits, setChannelPriceEdits] = useState<Record<string, { website: string; ebay: string }>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState("");
@@ -415,19 +470,23 @@ export default function KingmakerPendingPage({
   const [purchaseMatches, setPurchaseMatches] = useState<Record<string, PurchaseMatchState>>({});
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
+  const [folder, setFolder] = useState<ListingFolder>(initialFolder);
 
   useEffect(() => {
     const queueFromUrl = queueFromLocation();
     if (queueFromUrl) setQueue(queueFromUrl);
+    setFolder(folderFromLocation());
   }, []);
 
-  const load = useCallback(async (activeQueue: PendingQueue) => {
+  const load = useCallback(async (activeQueue: PendingQueue, activeFolder: ListingFolder = folderFromLocation()) => {
+    const requestedFolder = activeQueue === "verification" ? "pending" : activeFolder;
     setLoading(true);
     setPageError("");
     let accessTokenHint: string | null = null;
     if (typeof window !== "undefined") {
       (window as any).__kingmakerPendingDebug = {
         queue: activeQueue,
+          folder: requestedFolder,
           stage: "starting",
           itemCount: null,
           queueCounts: null,
@@ -459,6 +518,7 @@ export default function KingmakerPendingPage({
       if (typeof window !== "undefined") {
         (window as any).__kingmakerPendingDebug = {
           queue: activeQueue,
+          folder: requestedFolder,
           stage: "fetching",
           itemCount: null,
           queueCounts: null,
@@ -466,7 +526,7 @@ export default function KingmakerPendingPage({
         };
       }
       const [cardsResult, statusResult] = await Promise.allSettled([
-        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}${typeof window !== "undefined" ? (() => { const batch = new URLSearchParams(window.location.search).get("batch"); return batch ? `&batch=${encodeURIComponent(batch)}` : ""; })() : ""}`, { headers, cache: "no-store" }),
+        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}&folder=${requestedFolder}${typeof window !== "undefined" ? (() => { const batch = new URLSearchParams(window.location.search).get("batch"); return batch ? `&batch=${encodeURIComponent(batch)}` : ""; })() : ""}`, { headers, cache: "no-store" }),
         fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
       ]);
       const cardsResponse = cardsResult.status === "fulfilled" ? cardsResult.value : null;
@@ -485,9 +545,17 @@ export default function KingmakerPendingPage({
         listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
       });
+      setFolderCounts({
+        pending: Math.max(0, Number(cardsData.folderCounts?.pending || 0)),
+        website: Math.max(0, Number(cardsData.folderCounts?.website || 0)),
+        ebay: Math.max(0, Number(cardsData.folderCounts?.ebay || 0)),
+        both: Math.max(0, Number(cardsData.folderCounts?.both || 0)),
+        investment: Math.max(0, Number(cardsData.folderCounts?.investment || 0)),
+      });
       if (typeof window !== "undefined") {
         (window as any).__kingmakerPendingDebug = {
           queue: activeQueue,
+          folder: requestedFolder,
           stage: "loaded",
           itemCount: Array.isArray(cardsData.items) ? cardsData.items.length : -1,
           queueCounts: {
@@ -505,6 +573,7 @@ export default function KingmakerPendingPage({
       if (typeof window !== "undefined") {
         (window as any).__kingmakerPendingDebug = {
           queue: activeQueue,
+          folder: requestedFolder,
           stage: "error",
           error: message(error),
           itemCount: null,
@@ -519,14 +588,21 @@ export default function KingmakerPendingPage({
   }, []);
 
   useEffect(() => {
-    void load(queue);
-  }, [load, queue]);
+    void load(queue, folder);
+  }, [load, queue, folder]);
 
   useEffect(() => {
     let cancelled = false;
-    const eligible = cards.filter((card) =>
-      Boolean(card.instaComp.cardUuid && card.instaComp.identity?.player && card.instaComp.identity?.cardNumber),
-    );
+    const eligible = cards
+      .flatMap((card) => physicalMembersForCard(card))
+      .filter((member) =>
+        Boolean(
+          member.inventoryItemId &&
+          member.scanId &&
+          member.identity?.player &&
+          member.identity?.cardNumber,
+        ),
+      );
     if (!eligible.length) {
       setPurchaseMatches({});
       return () => { cancelled = true; };
@@ -542,10 +618,11 @@ export default function KingmakerPendingPage({
             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
-            items: eligible.map((card) => ({
-              cardUuid: card.instaComp.cardUuid,
-              inventoryItemId: card.inventoryItemId,
-              identity: card.instaComp.identity,
+            items: eligible.map((member) => ({
+              cardUuid: member.cardUuid || "",
+              inventoryItemId: member.inventoryItemId,
+              scanId: member.scanId,
+              identity: member.identity,
             })),
           }),
         });
@@ -553,13 +630,13 @@ export default function KingmakerPendingPage({
         if (!response.ok || data.ok !== true || !Array.isArray(data.results)) return;
         const next: Record<string, PurchaseMatchState> = {};
         for (const row of data.results) {
-          if (row?.cardUuid) next[String(row.cardUuid)] = row as PurchaseMatchState;
+          if (row?.inventoryItemId) next[String(row.inventoryItemId)] = row as PurchaseMatchState;
         }
         if (cancelled) return;
         setPurchaseMatches(next);
         const pending = data.results.filter((row: any) => row?.status === "pending_purchase");
         if (pending.length) {
-          setNotice(`PURCHASE MATCH FOUND — ${pending.length} scanned card${pending.length === 1 ? "" : "s"} waiting to be received into inventory.`);
+          setNotice(`PURCHASE MATCH FOUND — ${pending.length} scanned physical card${pending.length === 1 ? "" : "s"} waiting to be received.`);
         }
       } catch {
         // Acquisition matching is additive and must never block normal KINGMAKER work.
@@ -568,12 +645,18 @@ export default function KingmakerPendingPage({
     return () => { cancelled = true; };
   }, [cards]);
 
-  async function receivePurchase(card: PendingCard) {
-    const cardUuid = card.instaComp.cardUuid || "";
-    const purchase = cardUuid ? purchaseMatches[cardUuid] : null;
+  async function receivePurchase(
+    card: PendingCard,
+    member: PhysicalInventoryMember,
+    disposition: "resale" | "investment_stash",
+  ) {
+    const purchase = purchaseMatches[member.inventoryItemId] || null;
     const acquisitionItemId = Number(purchase?.match?.acquisitionItemId || 0);
-    if (!cardUuid || acquisitionItemId <= 0) return;
-    setBusyId(card.inventoryItemId);
+    if (!member.scanId || acquisitionItemId <= 0) {
+      setPageError("RECEIVE BLOCKED: this physical copy does not have a verified scan + purchase reservation.");
+      return;
+    }
+    setBusyId(member.inventoryItemId);
     setPageError("");
     try {
       const session = await getFreshAccountSession(5 * 60, false);
@@ -585,9 +668,11 @@ export default function KingmakerPendingPage({
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          cardUuid,
-          inventoryItemId: card.inventoryItemId,
+          cardUuid: member.cardUuid || card.instaComp.cardUuid || "",
+          inventoryItemId: member.inventoryItemId,
+          scanId: member.scanId,
           acquisitionItemId,
+          disposition,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -596,9 +681,47 @@ export default function KingmakerPendingPage({
       }
       setPurchaseMatches((current) => ({
         ...current,
-        [cardUuid]: { ...purchase!, status: "received", match: data.match || purchase?.match },
+        [member.inventoryItemId]: {
+          ...purchase!,
+          status: "received",
+          disposition,
+          inventoryState: data.inventoryState,
+          match: data.match || purchase?.match,
+        },
       }));
-      setNotice(`${card.title}: RECEIVED INTO INVENTORY · ${data.match?.source || purchase?.match?.source || "Purchase"} · ${money(data.match?.allocatedCost || purchase?.match?.allocatedCost)} cost basis.`);
+      setNotice(
+        `${card.title}: RECEIVED · ${data.match?.source || purchase?.match?.source || "Purchase"} · ${money(data.match?.allocatedCost || purchase?.match?.allocatedCost)} cost · ${disposition === "investment_stash" ? "INVESTMENT STASH" : "RESALE INVENTORY"}.`,
+      );
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function moveInventoryDisposition(
+    card: PendingCard,
+    member: PhysicalInventoryMember,
+    disposition: "resale" | "investment_stash",
+  ) {
+    setBusyId(member.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-inventory-disposition", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ inventoryItemId: member.inventoryItemId, disposition }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not move inventory.");
+      setNotice(`${card.title}: moved to ${disposition === "investment_stash" ? "Investment Stash" : "Resale Pending"}.`);
+      await load(queue, folderFromLocation());
     } catch (error) {
       setPageError(message(error));
     } finally {
@@ -677,6 +800,50 @@ export default function KingmakerPendingPage({
       return;
     }
     await savePrice(card, selectedPrice, "kingmaker_manual");
+  }
+
+  async function saveChannelPrices(card: PendingCard) {
+    const current = channelPriceEdits[card.inventoryItemId];
+    const websiteRaw = String(current?.website ?? card.instaComp.channelPricing?.websitePrice ?? "").trim();
+    const ebayRaw = String(current?.ebay ?? card.instaComp.channelPricing?.ebayPrice ?? "").trim();
+    const websitePrice = Number(websiteRaw);
+    const ebayPrice = Number(ebayRaw);
+    if (!Number.isFinite(websitePrice) || websitePrice <= 0 || !Number.isFinite(ebayPrice) || ebayPrice <= 0) {
+      setPageError("Enter a positive Website price and eBay price. These are the exact seller prices that will publish.");
+      return;
+    }
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-pending/channel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: "save",
+          inventoryItemId: card.inventoryItemId,
+          websitePrice,
+          ebayPrice,
+          manualChannelPrices: true,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || data.errors?.join("; ") || "Could not save channel prices.");
+      setChannelPriceEdits((state) => ({
+        ...state,
+        [card.inventoryItemId]: { website: String(data.websitePrice || websitePrice), ebay: String(data.ebayPrice || ebayPrice) },
+      }));
+      setNotice(`${card.title}: seller channel prices locked · Website ${money(data.websitePrice || websitePrice)} · eBay ${money(data.ebayPrice || ebayPrice)}.`);
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function savePrice(card: PendingCard, price: number, source: string) {
@@ -785,6 +952,32 @@ export default function KingmakerPendingPage({
       setPageError("Select one or more exact-card groups first.");
       return;
     }
+    const pendingPurchaseTargets = targets.filter((card) =>
+      physicalMembersForCard(card).some(
+        (member) => purchaseMatches[member.inventoryItemId]?.status === "pending_purchase",
+      ),
+    );
+    if (pendingPurchaseTargets.length) {
+      setPageError(
+        `LISTING BLOCKED: receive the matched physical purchase${pendingPurchaseTargets.length === 1 ? "" : "s"} into Resale Inventory first.`,
+      );
+      return;
+    }
+    const investmentTargets = targets.filter((card) =>
+      physicalMembersForCard(card).some((member) => {
+        const match = purchaseMatches[member.inventoryItemId];
+        return (
+          match?.disposition === "investment_stash" ||
+          member.inventoryLifecycle?.disposition === "investment_stash"
+        );
+      }),
+    );
+    if (investmentTargets.length) {
+      setPageError(
+        `LISTING BLOCKED: move ${investmentTargets.length} investment-stash group${investmentTargets.length === 1 ? "" : "s"} to Resale Inventory first.`,
+      );
+      return;
+    }
     const label =
       action === "publish-website"
         ? "website"
@@ -803,6 +996,9 @@ export default function KingmakerPendingPage({
       const failures: string[] = [];
       for (const card of targets) {
         const channel = card.instaComp.channelPricing;
+        const edited = channelPriceEdits[card.inventoryItemId];
+        const websitePrice = Number(edited?.website || channel?.websitePrice || 0);
+        const ebayPrice = Number(edited?.ebay || channel?.ebayPrice || 0);
         const response = await fetch("/api/account/seller/instacomp-pending/channel", {
           method: "POST",
           headers: {
@@ -812,8 +1008,9 @@ export default function KingmakerPendingPage({
           body: JSON.stringify({
             action,
             inventoryItemId: card.inventoryItemId,
-            ebayPrice: channel?.ebayPrice || undefined,
-            websitePrice: channel?.websitePrice || undefined,
+            ebayPrice: ebayPrice || undefined,
+            websitePrice: websitePrice || undefined,
+            manualChannelPrices: Boolean(edited),
           }),
         });
         const data = await response.json().catch(() => ({}));
@@ -827,7 +1024,7 @@ export default function KingmakerPendingPage({
       setNotice(`Published ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}.${failureSummary}`);
       if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
       setSelectedIds(new Set());
-      await load(queue || queueFromLocation());
+      await load(queue || queueFromLocation() || "listings", folderFromLocation());
     } catch (error) {
       setPageError(message(error));
     } finally {
@@ -1019,17 +1216,31 @@ export default function KingmakerPendingPage({
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">KINGMAKER / Master Listings</p>
             <h1 className="mt-1 text-3xl font-black">
-              {queue === "verification" ? "Pending verification" : "Master listing workspace"}
+              {queue === "verification"
+                ? "Pending verification"
+                : folder === "pending"
+                  ? "Resale inventory — pending listing"
+                  : folder === "website"
+                    ? "Listed on website only"
+                    : folder === "ebay"
+                      ? "Listed on eBay only"
+                      : folder === "both"
+                        ? "Listed on website + eBay"
+                        : "Investment stash"}
             </h1>
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
               {queue === "verification"
-                ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify, price, or return them to listings."
-                : "Uploaded fronts and backs are normalized automatically, then InstaComp verifies identity and gathers exact comps. Edit one card or select many for bulk listing updates. Nothing publishes automatically."}
+                ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify them."
+                : folder === "investment"
+                  ? "Received physical cards held for investment. Every card keeps its scan, purchase date, source, and cost basis until you move it back to resale."
+                  : folder === "pending"
+                    ? "Scanned and received resale inventory stays here until it is listed. InstaComp is a market recommendation; you control the actual website and eBay prices."
+                    : "Listed inventory is separated by live channel so cards no longer clutter the pending workspace."}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => void load(queue || queueFromLocation())}
+            onClick={() => void load(queue || queueFromLocation() || "listings", folderFromLocation())}
             disabled={loading || Boolean(busyId)}
             className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:opacity-50"
           >
@@ -1037,10 +1248,13 @@ export default function KingmakerPendingPage({
           </button>
         </div>
 
-        <nav className="mt-5 flex flex-wrap gap-2" aria-label="Master listing queues">
+        <nav className="mt-5 flex flex-wrap gap-2" aria-label="Inventory lifecycle folders">
           {([
-            ["listings", "Pending Listings", queueCounts.listings],
-            ["verification", "Pending Verification", queueCounts.verification],
+            ["pending", "Resale Pending", folderCounts.pending],
+            ["website", "Website Only", folderCounts.website],
+            ["ebay", "eBay Only", folderCounts.ebay],
+            ["both", "Listed Both", folderCounts.both],
+            ["investment", "Investment Stash", folderCounts.investment],
           ] as const).map(([value, label, count]) => (
             <button
               key={value}
@@ -1049,13 +1263,15 @@ export default function KingmakerPendingPage({
                 setSelectedIds(new Set());
                 setEditingId(null);
                 const nextUrl = new URL(window.location.href);
-                nextUrl.searchParams.set("queue", value);
+                nextUrl.searchParams.set("queue", "listings");
+                nextUrl.searchParams.set("folder", value);
                 router.replace(`${nextUrl.pathname}${nextUrl.search}`);
-                setQueue(value);
+                setQueue("listings");
+                setFolder(value);
               }}
-              aria-pressed={queue === value}
+              aria-pressed={queue === "listings" && folder === value}
               className={`rounded-xl border-2 px-4 py-3 font-black ${
-                queue === value
+                queue === "listings" && folder === value
                   ? "border-neutral-950 bg-neutral-950 text-white"
                   : "border-neutral-400 bg-white text-neutral-950"
               }`}
@@ -1063,6 +1279,25 @@ export default function KingmakerPendingPage({
               {label} · {count}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedIds(new Set());
+              setEditingId(null);
+              const nextUrl = new URL(window.location.href);
+              nextUrl.searchParams.set("queue", "verification");
+              router.replace(`${nextUrl.pathname}${nextUrl.search}`);
+              setQueue("verification");
+            }}
+            aria-pressed={queue === "verification"}
+            className={`rounded-xl border-2 px-4 py-3 font-black ${
+              queue === "verification"
+                ? "border-amber-700 bg-amber-600 text-white"
+                : "border-neutral-400 bg-white text-neutral-950"
+            }`}
+          >
+            Pending Verification · {queueCounts.verification}
+          </button>
         </nav>
 
         {pageError ? <div className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 p-4 font-bold text-red-900">{pageError}</div> : null}
@@ -1071,12 +1306,24 @@ export default function KingmakerPendingPage({
         {!loading && !cards.length ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
             <p className="text-xl font-black">
-              {queue === "verification" ? "No cards pending verification" : "No master listing drafts"}
+              {queue === "verification"
+                ? "No cards pending verification"
+                : folder === "pending"
+                  ? "No resale cards waiting to be listed"
+                  : folder === "website"
+                    ? "No website-only listings"
+                    : folder === "ebay"
+                      ? "No eBay-only listings"
+                      : folder === "both"
+                        ? "No cards listed on both channels"
+                        : "Investment stash is empty"}
             </p>
             <p className="mt-2 text-neutral-600">
               {queue === "verification"
-                ? "Held cards will remain available here without crowding the new-listing queue."
-                : "Drop the next front/back pair on the KINGMAKER home page."}
+                ? "Held cards will remain available here without crowding inventory."
+                : folder === "investment"
+                  ? "Receive a scanned purchase into Investment Stash to hold it here."
+                  : "Cards move between these folders automatically as their channel status changes."}
             </p>
           </div>
         ) : null}
@@ -1181,13 +1428,19 @@ export default function KingmakerPendingPage({
             const activeCompetition = card.instaComp.activeCompetition || [];
             const suggested = Number(card.instaComp.suggestedPrice || 0);
             const channelPricing = card.instaComp.channelPricing || null;
-            const purchaseMatch = card.instaComp.cardUuid
-              ? purchaseMatches[card.instaComp.cardUuid] || null
-              : null;
-            const purchaseRecord = purchaseMatch?.match || null;
-            const pendingPurchase = purchaseMatch?.status === "pending_purchase";
-            const receivedPurchase = purchaseMatch?.status === "received";
-            const possiblePurchase = purchaseMatch?.status === "possible_match";
+            const channelEdit = channelPriceEdits[card.inventoryItemId];
+            const websitePriceInput = channelEdit?.website ?? (Number(channelPricing?.websitePrice || 0) > 0 ? String(channelPricing?.websitePrice) : "");
+            const ebayPriceInput = channelEdit?.ebay ?? (Number(channelPricing?.ebayPrice || 0) > 0 ? String(channelPricing?.ebayPrice) : "");
+            const publishWebsitePrice = Number(websitePriceInput || 0);
+            const publishEbayPrice = Number(ebayPriceInput || 0);
+            const physicalMembers = physicalMembersForCard(card);
+            const purchaseMembers = physicalMembers
+              .map((member) => ({ member, purchase: purchaseMatches[member.inventoryItemId] || null }))
+              .filter((entry) => Boolean(entry.purchase));
+            const pendingPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "pending_purchase");
+            const receivedPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "received");
+            const possiblePurchase = purchaseMembers.some((entry) => entry.purchase?.status === "possible_match");
+            const scanRequired = physicalMembers.some((member) => !member.scanId);
             const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
             const sellerManualPrice = listingPriceSource === "kingmaker_manual";
             const websiteListed = String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
@@ -1279,36 +1532,91 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
-                {purchaseRecord && (pendingPurchase || receivedPurchase || possiblePurchase) ? (
+                {(purchaseMembers.length > 0 || scanRequired) ? (
                   <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : receivedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : receivedPurchase ? "text-emerald-950" : "text-amber-950"}`}>
-                          {pendingPurchase ? "PURCHASE MATCH FOUND — RECEIVE BEFORE LISTING" : receivedPurchase ? "PURCHASE RECEIVED — COST BASIS ATTACHED" : "POSSIBLE PURCHASE MATCH — REVIEW"}
-                        </p>
-                        <p className="mt-1 text-sm font-bold text-neutral-700">
-                          KINGMAKER matched this scanned physical card against the Mac-local acquisition ledger.
-                        </p>
-                      </div>
-                      {pendingPurchase ? (
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() => void receivePurchase(card)}
-                          className="rounded-xl border-2 border-neutral-950 bg-neutral-950 px-5 py-3 font-black text-white disabled:opacity-40"
-                        >
-                          {isBusy ? "Receiving…" : "Receive Into Inventory"}
-                        </button>
-                      ) : null}
+                    <div>
+                      <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : receivedPurchase ? "text-emerald-950" : "text-amber-950"}`}>
+                        {pendingPurchase
+                          ? "PURCHASE MATCH FOUND — CHOOSE WHERE THIS PHYSICAL CARD GOES"
+                          : receivedPurchase
+                            ? "PHYSICAL INVENTORY RECEIVED — COST BASIS ATTACHED"
+                            : scanRequired
+                              ? "RECEIVE BLOCKED — PHYSICAL SCAN REQUIRED"
+                              : "POSSIBLE PURCHASE MATCH — REVIEW"}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-neutral-700">
+                        A purchase record is not inventory. Each physical copy must have its own InstaComp scan before KINGMAKER can receive it.
+                      </p>
                     </div>
-                    <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Source</p><p className="font-black">{purchaseRecord.source || "Misc"}</p></div>
-                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">What we paid</p><p className="font-black">{money(purchaseRecord.allocatedCost)}</p></div>
-                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Purchased</p><p className="font-black">{purchaseRecord.purchaseDate || "Date unavailable"}</p></div>
-                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Order / Purchase ID</p><p className="break-all font-black">{purchaseRecord.orderNumber || purchaseRecord.purchaseId}</p></div>
-                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Seller</p><p className="font-bold">{purchaseRecord.seller || "Not captured"}</p></div>
-                      <div className="rounded-xl border border-neutral-300 bg-white p-3 sm:col-span-2"><p className="text-xs font-black uppercase text-neutral-500">Purchase listing / lot</p><p className="font-bold">{purchaseRecord.sourceLot || purchaseRecord.title || "Not captured"}</p></div>
-                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Match confidence</p><p className="font-black">{purchaseMatch?.confidence ? `${Math.round(Number(purchaseMatch.confidence) * 100)}%` : "Stored match"}</p></div>
+
+                    <div className="mt-4 space-y-3">
+                      {physicalMembers.map((member, index) => {
+                        const purchase = purchaseMatches[member.inventoryItemId] || null;
+                        const purchaseRecord = purchase?.match || null;
+                        const memberPending = purchase?.status === "pending_purchase";
+                        const memberReceived = purchase?.status === "received";
+                        const memberPossible = purchase?.status === "possible_match";
+                        const memberDisposition = purchase?.disposition || member.inventoryLifecycle?.disposition || null;
+                        return (
+                          <div key={member.inventoryItemId} className="rounded-xl border-2 border-neutral-900 bg-white p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="font-black">Physical copy {index + 1} · ID {member.inventoryItemId.slice(0, 8)}</p>
+                                <p className="mt-1 break-all text-xs font-mono text-neutral-500">
+                                  {member.scanId ? `SCAN ${member.scanId}` : "NO VERIFIED SCAN ID"}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {memberPending ? <span className="rounded-full bg-orange-200 px-3 py-1 text-xs font-black text-orange-950">PENDING PURCHASE</span> : null}
+                                {memberReceived ? <span className="rounded-full bg-emerald-200 px-3 py-1 text-xs font-black text-emerald-950">RECEIVED · {memberDisposition === "investment_stash" ? "INVESTMENT STASH" : "RESALE"}</span> : null}
+                                {memberPossible ? <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">POSSIBLE MATCH</span> : null}
+                                {!member.scanId ? <span className="rounded-full bg-red-200 px-3 py-1 text-xs font-black text-red-950">SCAN REQUIRED</span> : null}
+                              </div>
+                            </div>
+
+                            {purchaseRecord ? (
+                              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Source</p><p className="font-black">{purchaseRecord.source || "Misc"}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">What we paid</p><p className="font-black">{money(purchaseRecord.allocatedCost)}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Purchased</p><p className="font-black">{purchaseRecord.purchaseDate || "Date unavailable"}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Order / Purchase ID</p><p className="break-all font-black">{purchaseRecord.orderNumber || purchaseRecord.purchaseId}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Seller</p><p className="font-bold">{purchaseRecord.seller || "Not captured"}</p></div>
+                                <div className="sm:col-span-2"><p className="text-xs font-black uppercase text-neutral-500">Purchase listing / lot</p><p className="font-bold">{purchaseRecord.sourceLot || purchaseRecord.title || "Not captured"}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Match confidence</p><p className="font-black">{purchase?.confidence ? `${Math.round(Number(purchase.confidence) * 100)}%` : "Stored match"}</p></div>
+                              </div>
+                            ) : null}
+
+                            {memberPending ? (
+                              <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-200 pt-3">
+                                <button
+                                  type="button"
+                                  disabled={Boolean(busyId)}
+                                  onClick={() => void receivePurchase(card, member, "resale")}
+                                  className="rounded-xl bg-emerald-700 px-4 py-2 font-black text-white disabled:opacity-40"
+                                >
+                                  Receive → Resale Inventory
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={Boolean(busyId)}
+                                  onClick={() => void receivePurchase(card, member, "investment_stash")}
+                                  className="rounded-xl bg-amber-700 px-4 py-2 font-black text-white disabled:opacity-40"
+                                >
+                                  Receive → Investment Stash
+                                </button>
+                              </div>
+                            ) : memberReceived ? (
+                              <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-200 pt-3">
+                                {memberDisposition === "investment_stash" ? (
+                                  <button type="button" disabled={Boolean(busyId)} onClick={() => void moveInventoryDisposition(card, member, "resale")} className="rounded-xl bg-emerald-700 px-4 py-2 font-black text-white disabled:opacity-40">Move → Resale Pending</button>
+                                ) : (
+                                  <button type="button" disabled={Boolean(busyId)} onClick={() => void moveInventoryDisposition(card, member, "investment_stash")} className="rounded-xl bg-amber-700 px-4 py-2 font-black text-white disabled:opacity-40">Move → Investment Stash</button>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ) : null}
@@ -1451,44 +1759,86 @@ export default function KingmakerPendingPage({
                   </div>
                 ) : null}
 
-                {channelPricing && channelPricing.ebayPrice > 0 ? (
+                {queue === "listings" && folder !== "investment" ? (
                   <div className="border-t-2 border-neutral-900 bg-sky-50 p-4">
-                    <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-lg font-black">Channel selling prices · QTY {groupQuantity}</p>
-                        <p className="text-sm font-semibold text-neutral-600">Calculated from the selected base price before you publish. Manual seller overrides are respected.</p>
+                        <p className="text-lg font-black">Seller-controlled channel prices · QTY {groupQuantity}</p>
+                        <p className="mt-1 text-sm font-semibold text-neutral-700">
+                          InstaComp is the market recommendation only. The exact Website and eBay prices you enter below are the prices KINGMAKER will publish.
+                        </p>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs font-black">
-                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing.websiteStatus || "draft"}</span>
-                        <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">eBay: {channelPricing.ebayStatus || "draft"}</span>
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing?.websiteStatus || "draft"}</span>
+                        <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">eBay: {channelPricing?.ebayStatus || "draft"}</span>
                       </div>
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr_1fr_auto]">
                       <div className="rounded-xl border-2 border-violet-700 bg-white p-3">
-                        <p className="text-xs font-black uppercase text-violet-700">{sellerManualPrice ? "Seller Manual" : "InstaComp"}</p>
-                        <p className="text-2xl font-black">{money(card.instaComp.listingPrice || card.instaComp.suggestedPrice)}</p>
+                        <p className="text-xs font-black uppercase text-violet-700">InstaComp recommendation</p>
+                        <p className="text-2xl font-black">{money(card.instaComp.suggestedPrice)}</p>
+                        <p className="mt-1 text-xs font-bold text-neutral-500">Reference only — does not overwrite seller channel prices.</p>
                       </div>
-                      <div className="rounded-xl border-2 border-blue-700 bg-white p-3">
-                        <p className="text-xs font-black uppercase text-blue-700">eBay price</p>
-                        <p className="text-2xl font-black">{money(channelPricing.ebayPrice)}</p>
-                        <p className="mt-1 text-xs font-bold text-neutral-600">Fees {money(channelPricing.ebayEstimatedFees)} · net {money(channelPricing.ebayEstimatedNet)}</p>
-                      </div>
-                      <div className="rounded-xl border-2 border-emerald-700 bg-white p-3">
-                        <p className="text-xs font-black uppercase text-emerald-700">Website price</p>
-                        <p className="text-2xl font-black">{money(channelPricing.websitePrice)}</p>
-                        <p className="mt-1 text-xs font-bold text-neutral-600">Fees {money(channelPricing.websiteEstimatedFees)} · net {money(channelPricing.websiteEstimatedNet)}</p>
-                      </div>
-                      <div className="rounded-xl border-2 border-neutral-400 bg-white p-3">
-                        <p className="text-xs font-black uppercase text-neutral-600">Buyer saves</p>
-                        <p className="text-2xl font-black">{money(channelPricing.customerSavings)}</p>
-                        <p className="mt-1 text-xs font-bold text-neutral-600">{Number(channelPricing.customerSavingsPercent || 0).toFixed(1)}% vs eBay</p>
-                      </div>
-                      <div className="rounded-xl border-2 border-neutral-400 bg-white p-3">
-                        <p className="text-xs font-black uppercase text-neutral-600">Website net edge</p>
-                        <p className="text-2xl font-black">{money(channelPricing.netDifference)}</p>
-                        <p className="mt-1 text-xs font-bold text-neutral-600">Website net minus eBay net</p>
-                      </div>
+                      <label className="rounded-xl border-2 border-emerald-700 bg-white p-3 text-sm font-black">
+                        Exact Website price
+                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                          <span className="font-black text-neutral-500">$</span>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={websitePriceInput}
+                            onChange={(event) => setChannelPriceEdits((current) => ({
+                              ...current,
+                              [card.inventoryItemId]: {
+                                website: event.target.value,
+                                ebay: current[card.inventoryItemId]?.ebay ?? ebayPriceInput,
+                              },
+                            }))}
+                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                          />
+                        </div>
+                        {channelPricing ? <p className="mt-2 text-xs text-neutral-600">Estimated fees {money(channelPricing.websiteEstimatedFees)} · net {money(channelPricing.websiteEstimatedNet)}</p> : null}
+                      </label>
+                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-sm font-black">
+                        Exact eBay price
+                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                          <span className="font-black text-neutral-500">$</span>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={ebayPriceInput}
+                            onChange={(event) => setChannelPriceEdits((current) => ({
+                              ...current,
+                              [card.inventoryItemId]: {
+                                website: current[card.inventoryItemId]?.website ?? websitePriceInput,
+                                ebay: event.target.value,
+                              },
+                            }))}
+                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                          />
+                        </div>
+                        {channelPricing ? <p className="mt-2 text-xs text-neutral-600">Estimated fees {money(channelPricing.ebayEstimatedFees)} · net {money(channelPricing.ebayEstimatedNet)}</p> : null}
+                      </label>
+                      <button
+                        type="button"
+                        disabled={Boolean(busyId) || publishWebsitePrice <= 0 || publishEbayPrice <= 0}
+                        onClick={() => void saveChannelPrices(card)}
+                        className="self-stretch rounded-xl bg-sky-800 px-5 py-3 font-black text-white disabled:opacity-40"
+                      >
+                        Save Exact Channel Prices
+                      </button>
                     </div>
+                    {channelPricing ? (
+                      <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-neutral-600">
+                        <span>Buyer difference: {money(channelPricing.customerSavings)}</span>
+                        <span>Website net edge: {money(channelPricing.netDifference)}</span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1577,7 +1927,7 @@ export default function KingmakerPendingPage({
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-neutral-900 p-4">
                   <p className="text-sm font-bold">Stored image rows: {card.storedImageCount || 0} · commercial listing quantity {groupQuantity}{groupQuantity > 1 ? " from exact raw duplicate scans" : ""} · nothing auto-publishes</p>
                   <div className="flex flex-wrap gap-2">
-                    {queue === "listings" ? (
+                    {queue === "listings" && folder !== "investment" ? (
                       <>
                         <button
                           type="button"
@@ -1590,23 +1940,23 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-website")}
-                          disabled={!channelPricing?.websitePrice || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || Boolean(busyId)}
                           className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
-                          List Website · {money(channelPricing?.websitePrice)}
+                          List Website · {money(publishWebsitePrice)}
                         </button>
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-ebay")}
-                          disabled={!channelPricing?.ebayPrice || Boolean(busyId)}
+                          disabled={publishEbayPrice <= 0 || Boolean(busyId)}
                           className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
-                          List eBay · {money(channelPricing?.ebayPrice)}
+                          List eBay · {money(publishEbayPrice)}
                         </button>
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-both")}
-                          disabled={!channelPricing?.websitePrice || !channelPricing?.ebayPrice || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || Boolean(busyId)}
                           className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           List Both

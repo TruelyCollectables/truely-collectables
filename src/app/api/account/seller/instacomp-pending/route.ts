@@ -22,6 +22,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type InstaCompListingFolder = "pending" | "website" | "ebay" | "both" | "investment";
+
 const LOCAL_CERTIFIED_PRICING_PATH =
   process.env.INSTACOMP_CERTIFIED_PRICING_PATH ||
   "/Volumes/InstaCompAI/training/audits/km252-instacomp-final-v17-20260907.json";
@@ -164,6 +166,22 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function listingFolderFromMetadata(metadataValue: unknown): InstaCompListingFolder {
+  const metadata = recordValue(metadataValue);
+  const lifecycle = recordValue(metadata.inventory_lifecycle);
+  if (
+    textValue(lifecycle.disposition) === "investment_stash" ||
+    textValue(lifecycle.state) === "investment_stash"
+  ) return "investment";
+  const dual = recordValue(metadata.dual_marketplace);
+  const websiteActive = textValue(recordValue(dual.website).status) === "active";
+  const ebayActive = textValue(recordValue(dual.ebay).status) === "active";
+  if (websiteActive && ebayActive) return "both";
+  if (websiteActive) return "website";
+  if (ebayActive) return "ebay";
+  return "pending";
 }
 
 function environmentNumber(name: string, fallback: number) {
@@ -562,8 +580,16 @@ export async function GET(request: Request) {
     const requestUrl = new URL(request.url);
     const requestedQueue = requestUrl.searchParams.get("queue");
     const requestedBatch = String(requestUrl.searchParams.get("batch") || "").trim();
+    const requestedFolder = requestUrl.searchParams.get("folder");
     const queue: InstaCompPendingQueue =
       requestedQueue === "verification" ? "verification" : "listings";
+    const folder: InstaCompListingFolder =
+      requestedFolder === "website" ||
+      requestedFolder === "ebay" ||
+      requestedFolder === "both" ||
+      requestedFolder === "investment"
+        ? requestedFolder
+        : "pending";
     const inventoryRows = await readOwnedInventoryPages({
       supabase,
       storeId,
@@ -573,6 +599,7 @@ export async function GET(request: Request) {
       draftOnly: false,
     });
     const instaCompRows = inventoryRows.filter((row: any) => {
+      if (row.status === "archived" || row.status === "sold") return false;
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
       const cardIdentity = recordValue(metadata.card_identity);
@@ -656,10 +683,21 @@ export async function GET(request: Request) {
           instaCompPendingQueueFromMetadata(row.metadata) === "verification",
       ).length,
     };
+    const listingRows = scopedInstaCompRows.filter(
+      (row: any) => instaCompPendingQueueFromMetadata(row.metadata) === "listings",
+    );
+    const folderCounts = {
+      pending: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "pending").length,
+      website: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "website").length,
+      ebay: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "ebay").length,
+      both: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "both").length,
+      investment: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "investment").length,
+    };
     const rows = scopedInstaCompRows.filter((row: any) => {
       const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
       if (rowQueue !== queue) return false;
       if (queue === "verification") return true;
+      if (listingFolderFromMetadata(row.metadata) !== folder) return false;
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
       return (
@@ -929,6 +967,12 @@ export async function GET(request: Request) {
           identityConfirmed: sellerReview.identity_confirmed === true,
           confirmedAt: textValue(sellerReview.confirmed_at),
           confirmedBy: textValue(sellerReview.confirmed_by),
+        },
+        inventoryLifecycle: {
+          state: textValue(recordValue(metadata.inventory_lifecycle).state),
+          disposition: textValue(recordValue(metadata.inventory_lifecycle).disposition),
+          receivedAt: textValue(recordValue(metadata.inventory_lifecycle).receivedAt),
+          scanId: textValue(recordValue(metadata.inventory_lifecycle).scanId),
         },
         instaComp: {
           source: textValue(instaComp.source),
@@ -1229,6 +1273,15 @@ export async function GET(request: Request) {
                   commercialGroup: {
                     mergeable: Boolean(groupKey),
                     memberInventoryItemIds: [item.inventoryItemId],
+                    members: [{
+                      inventoryItemId: item.inventoryItemId,
+                      scanId: item.instaComp.scanId || null,
+                      cardUuid: item.instaComp.cardUuid || null,
+                      identity: item.instaComp.identity || null,
+                      frontImageUrl: item.frontImageUrl || null,
+                      backImageUrl: item.backImageUrl || null,
+                      inventoryLifecycle: item.inventoryLifecycle || null,
+                    }],
                     pendingRows: 1,
                     pendingQuantity: Math.max(1, Number(item.quantity || 1)),
                     activeRows: Number(item.instaComp.duplicateGroup?.activeRows || 0),
@@ -1245,6 +1298,15 @@ export async function GET(request: Request) {
               existing.commercialGroup.memberInventoryItemIds.push(
                 item.inventoryItemId,
               );
+              existing.commercialGroup.members.push({
+                inventoryItemId: item.inventoryItemId,
+                scanId: item.instaComp.scanId || null,
+                cardUuid: item.instaComp.cardUuid || null,
+                identity: item.instaComp.identity || null,
+                frontImageUrl: item.frontImageUrl || null,
+                backImageUrl: item.backImageUrl || null,
+                inventoryLifecycle: item.inventoryLifecycle || null,
+              });
               existing.commercialGroup.pendingRows += 1;
               existing.commercialGroup.pendingQuantity += Math.max(
                 1,
@@ -1270,6 +1332,15 @@ export async function GET(request: Request) {
             commercialGroup: {
               mergeable: false,
               memberInventoryItemIds: [item.inventoryItemId],
+              members: [{
+                inventoryItemId: item.inventoryItemId,
+                scanId: item.instaComp.scanId || null,
+                cardUuid: item.instaComp.cardUuid || null,
+                identity: item.instaComp.identity || null,
+                frontImageUrl: item.frontImageUrl || null,
+                backImageUrl: item.backImageUrl || null,
+                inventoryLifecycle: item.inventoryLifecycle || null,
+              }],
               pendingRows: 1,
               pendingQuantity: Math.max(1, Number(item.quantity || 1)),
               activeRows: Number(item.instaComp.duplicateGroup?.activeRows || 0),
@@ -1285,7 +1356,9 @@ export async function GET(request: Request) {
         count: commercialItems.length,
         physicalRowCount: items.length,
         queue,
+        folder,
         queueCounts,
+        folderCounts,
         imageAudit: {
           itemCount: items.length,
           withStoredBackImage: items.filter(

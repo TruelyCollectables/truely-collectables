@@ -45,11 +45,15 @@ export default async function KingmakerPendingPage({
 }) {
   const resolvedSearchParams = (await searchParams) || {};
   const queue = resolvedSearchParams.queue === "verification" ? "verification" : "listings";
+  const rawFolder = typeof resolvedSearchParams.folder === "string" ? resolvedSearchParams.folder : "pending";
+  const folder = rawFolder === "website" || rawFolder === "ebay" || rawFolder === "both" || rawFolder === "investment"
+    ? rawFolder
+    : "pending";
   const batch = typeof resolvedSearchParams.batch === "string" ? resolvedSearchParams.batch.trim() : "";
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.getAll().map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const response = await getPendingCards(
-    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}`, {
+    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${folder}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}`, {
       headers: cookieHeader ? { cookie: cookieHeader } : undefined,
     }),
   ).catch(() => null);
@@ -61,10 +65,18 @@ export default async function KingmakerPendingPage({
   return (
     <KingmakerPendingClient
       initialQueue={queue}
+      initialFolder={folder}
       initialCards={items as never}
       initialQueueCounts={{
         listings: Math.max(0, Number(data.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(data.queueCounts?.verification || 0)),
+      }}
+      initialFolderCounts={{
+        pending: Math.max(0, Number(data.folderCounts?.pending || 0)),
+        website: Math.max(0, Number(data.folderCounts?.website || 0)),
+        ebay: Math.max(0, Number(data.folderCounts?.ebay || 0)),
+        both: Math.max(0, Number(data.folderCounts?.both || 0)),
+        investment: Math.max(0, Number(data.folderCounts?.investment || 0)),
       }}
     />
   );

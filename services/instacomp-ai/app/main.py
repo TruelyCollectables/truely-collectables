@@ -43,6 +43,7 @@ from .settings_routes import build_settings_router
 from .storage import MemoryStore
 from .training_routes import build_training_router
 from .market_comp_routes import build_market_comp_router
+from .kingmaker_accounting_routes import build_kingmaker_accounting_router
 
 settings.ensure_directories()
 database_path = settings.resolve_local_path(settings.database_path)
@@ -142,6 +143,13 @@ app.include_router(
     )
 )
 app.include_router(build_market_comp_router(require_api_key, database_path))
+app.include_router(
+    build_kingmaker_accounting_router(
+        require_api_key,
+        database_path.parent / "database" / "kingmaker_accounting.sqlite3",
+        database_path,
+    )
+)
 
 
 def _slug(value: object) -> str:

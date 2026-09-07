@@ -13,6 +13,7 @@ import { publishEbayInventoryItem } from "../../../../../../lib/ebay-inventory-p
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -230,6 +231,43 @@ export async function POST(request: Request) {
         });
     if (!groupRows.some((row) => row.id === requested.id)) groupRows.unshift(requested);
 
+    if (action !== "save") {
+      let readiness: any;
+      try {
+        readiness = await postInstaCompMacAccounting(
+          "/v1/kingmaker/accounting/listing-readiness",
+          { inventory_item_ids: groupRows.map((row) => String(row.id)) },
+          15_000,
+        );
+      } catch (error) {
+        return Response.json(
+          {
+            success: false,
+            code: "MAC_INVENTORY_LEDGER_UNAVAILABLE",
+            error: `Listing blocked because the Mac-local physical inventory ledger could not be verified: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          { status: 503 },
+        );
+      }
+      if (readiness?.ready !== true) {
+        const blocked = Array.isArray(readiness?.blocked) ? readiness.blocked : [];
+        const reasons = blocked.map((row: any) =>
+          row?.reason === "investment_stash_not_for_sale"
+            ? `${String(row.inventoryItemId || "card").slice(0, 8)} is in Investment Stash`
+            : `${String(row.inventoryItemId || "card").slice(0, 8)} has a matched purchase that has not been received`,
+        );
+        return Response.json(
+          {
+            success: false,
+            code: "PHYSICAL_INVENTORY_NOT_READY",
+            error: `Physical inventory is not ready to list${reasons.length ? `: ${reasons.join("; ")}` : "."}`,
+            blocked,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const liveRows = groupRows.filter(liveChannelRow);
     if (liveRows.length > 1) {
       return Response.json(
@@ -352,7 +390,8 @@ export async function POST(request: Request) {
           ...pricing,
           feeProfile: fees,
           calculatedAt: now,
-          source: "kingmaker_pending",
+          source: body.manualChannelPrices === true ? "seller_manual_channel" : "kingmaker_pending",
+          sellerPriceOverride: body.manualChannelPrices === true,
         },
         website: {
           ...storedWebsite,

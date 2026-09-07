@@ -17,10 +17,11 @@ export async function POST(request: Request) {
           .slice(0, 500)
           .map((item: any) => ({
             card_uuid: String(item?.cardUuid || ""),
-            inventory_item_id: item?.inventoryItemId ? String(item.inventoryItemId) : null,
+            inventory_item_id: item?.inventoryItemId ? String(item.inventoryItemId) : "",
+            scan_id: item?.scanId ? String(item.scanId) : "",
             identity: item?.identity && typeof item.identity === "object" ? item.identity : {},
           }))
-          .filter((item: any) => Boolean(item.card_uuid))
+          .filter((item: any) => Boolean(item.inventory_item_id && item.scan_id))
       : null;
     const data = bulkItems
       ? await postInstaCompMacAccounting(
@@ -30,7 +31,8 @@ export async function POST(request: Request) {
         )
       : await postInstaCompMacAccounting("/v1/kingmaker/accounting/purchase-match", {
           card_uuid: String(body.cardUuid || ""),
-          inventory_item_id: body.inventoryItemId ? String(body.inventoryItemId) : null,
+          inventory_item_id: body.inventoryItemId ? String(body.inventoryItemId) : "",
+          scan_id: body.scanId ? String(body.scanId) : "",
           identity: body.identity && typeof body.identity === "object" ? body.identity : {},
         });
     return Response.json(data, { headers: { "Cache-Control": "no-store" } });
