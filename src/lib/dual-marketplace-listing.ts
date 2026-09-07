@@ -166,25 +166,34 @@ export function cardIdentityFromMetadata(
 ): DualMarketplaceCardIdentity {
   const root = record(metadata);
   const instacomp = record(root.instacomp);
-  const ai = record(instacomp.ai);
+  const automatic = record(instacomp.ai);
+  const manual = record(instacomp.manualIdentity);
+  const ai =
+    instacomp.manualIdentityLocked === true && Object.keys(manual).length
+      ? manual
+      : automatic;
+  const asset = record(root.collectible_asset);
 
   return {
-    player: text(ai.player),
+    player: text(ai.player || ai.playerName),
     year: text(ai.year, 20),
-    brand: text(ai.brand),
-    setName: text(ai.setName),
-    cardNumber: text(ai.cardNumber, 80),
-    parallel: text(ai.parallel),
-    serialNumber: text(ai.serialNumber, 80),
-    gradingCompany: text(ai.gradingCompany, 120),
-    gradeValue: text(ai.gradeValue, 40),
-    certificationNumber: text(ai.certificationNumber, 40),
+    brand: text(ai.brand || ai.manufacturer),
+    setName: text(ai.setName || ai.set_name || ai.product),
+    cardNumber: text(ai.cardNumber || ai.card_number, 80),
+    parallel: text(ai.parallel || ai.checklistParallel || ai.parallelName),
+    serialNumber: text(ai.serialNumber || asset.exact_serial_number, 80),
+    gradingCompany: text(ai.gradingCompany || asset.grading_company, 120),
+    gradeValue: text(ai.gradeValue || asset.grading_grade, 40),
+    certificationNumber: text(
+      ai.certificationNumber || ai.gradingCertNumber || asset.grading_cert_number,
+      40,
+    ),
     team: text(ai.team),
     sport: text(ai.sport, 100),
     conditionGuess: text(ai.conditionGuess, 120),
-    isRookie: booleanValue(ai.isRookie),
-    isAuto: booleanValue(ai.isAuto),
-    isRelic: booleanValue(ai.isRelic),
+    isRookie: booleanValue(ai.isRookie || asset.rookie),
+    isAuto: booleanValue(ai.isAuto || asset.autograph),
+    isRelic: booleanValue(ai.isRelic || asset.memorabilia),
   };
 }
 
