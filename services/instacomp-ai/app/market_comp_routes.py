@@ -27,7 +27,7 @@ _LOT_RE = re.compile(r"\b(?:lot of|pick your|pick choose|choose your|u pick|you 
 _GRADER_RE = re.compile(r"\b(?:PSA|BGS|SGC|CGC|CSG|HGA|TAG)\b(?:\s*(?:AUTH|AUTHENTIC|[0-9](?:\.5)?))?", re.I)
 _AUTO_RE = re.compile(r"\b(?:auto(?:graph)?|autographed|signature|signed)\b", re.I)
 _RELIC_RE = re.compile(r"\b(?:relic|patch|memorabilia|game[- ]used|jersey)\b", re.I)
-_SERIAL_RE = re.compile(r"(?<!\d)(\d{1,6})\s*/\s*(\d{1,6})(?!\d)")
+_SERIAL_RE = re.compile(r"(?<!\d)(?:(\d{1,6})\s*)?/\s*(\d{1,6})(?!\d)")
 _PARALLEL_WORDS = {
     "silver", "green", "red", "blue", "purple", "pink", "orange", "gold", "black", "white",
     "ice", "velocity", "seismic", "wave", "shimmer", "flash", "mojo", "pandora", "refractor",
@@ -43,6 +43,9 @@ class MarketCompRequest(BaseModel):
     registry_fingerprint_sha256: str | None = Field(default=None, max_length=160)
     research_id: str | None = Field(default=None, max_length=200)
     operator_certified_identity: bool = False
+    include_130point: bool = True
+    include_active: bool = True
+    include_fanatics: bool = True
     max_sold: int = Field(default=50, ge=1, le=100)
     max_active: int = Field(default=30, ge=1, le=60)
 
@@ -87,7 +90,8 @@ def _query(identity: dict[str, Any], fallback: str) -> str:
     if identity["parallel"] and _norm(identity["parallel"]) not in {"base", "base set"}:
         parts.append(identity["parallel"])
     if identity["serial_number"]:
-        parts.append(identity["serial_number"])
+        denominator = _denominator(identity["serial_number"])
+        parts.append(f"/{denominator}" if denominator else identity["serial_number"])
     value = " ".join(dict.fromkeys(p for p in map(_text, parts) if p))
     return value or _text(fallback) or "sports card"
 
@@ -111,9 +115,16 @@ def _parallel_patterns(parallel: str) -> list[re.Pattern[str]]:
     return patterns
 
 
+def _serial_denominators(value: str) -> list[str]:
+    # Avoid treating season notation such as 2025/26 as a print run. Both
+    # seller shorthand (/25) and full serials (07/25) are valid evidence.
+    without_seasons = re.sub(r"\b(?:19|20)\d{2}\s*[-/]\s*\d{2,4}\b", " ", value or "")
+    return [match.group(2) for match in _SERIAL_RE.finditer(without_seasons)]
+
+
 def _denominator(value: str) -> str | None:
-    match = _SERIAL_RE.search(value)
-    return match.group(2) if match else None
+    denominators = _serial_denominators(value)
+    return denominators[-1] if denominators else None
 
 
 def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -143,7 +154,7 @@ def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, lis
         if patterns and not any(pattern.search(title) for pattern in patterns):
             reasons.append("parallel_mismatch")
     target_denominator = _denominator(identity["serial_number"])
-    title_denominators = {m.group(2) for m in _SERIAL_RE.finditer(title)}
+    title_denominators = set(_serial_denominators(title))
     if target_denominator:
         if target_denominator not in title_denominators:
             reasons.append("serial_run_mismatch")
@@ -409,7 +420,7 @@ def _evidence(row: dict[str, Any], *, source: str, label: str, category: str, pr
         "shippingPrice": round(shipping_value, 2) if shipping_value is not None else None,
         "priceIncludesShipping": shipping_value is not None, "currency": "USD", "url": row.get("url"),
         "imageUrl": row.get("image_url"), "source": source, "sourceLabel": label, "sourceCategory": category,
-        "matchScore": 500 if pricing_eligible else 350, "flags": ["Mac local exact-card gate", "retained for market learning", *(exact_reasons or []), *( ["pricing eligible"] if pricing_eligible else ["reference only"] )],
+        "matchScore": 500 if pricing_eligible else 350, "flags": ["Mac local exact-card gate", "retained for market learning", *(exact_reasons or []), *( ["pricing eligible"] if pricing_eligible else ["reference only", "not used for pricing"] )],
         "soldAt": row.get("sold_at") if category == "sold" else None, "listedAt": None,
         "observedAt": datetime.now(timezone.utc).isoformat(),
     }
@@ -456,10 +467,45 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         query = _query(identity, request.exact_title)
         async with _BROWSER_LOCK:
             ebay_task = asyncio.create_task(_search_ebay(query))
-            fanatics_task = asyncio.create_task(_search_fanatics(query))
-            ebay, fanatics = await asyncio.gather(ebay_task, fanatics_task)
-            point = await _search_130point(query)
-            ebay_active = await _search_ebay_active(query)
+            fanatics_task = (
+                asyncio.create_task(_search_fanatics(query))
+                if request.include_fanatics
+                else None
+            )
+            ebay = await ebay_task
+            fanatics = (
+                await fanatics_task
+                if fanatics_task is not None
+                else ([], {
+                    "source": "fanatics_collect_sales_history",
+                    "label": "Fanatics Collect Sales History",
+                    "status": "not_configured",
+                    "resultCount": 0,
+                    "message": "Skipped for this direct-market request.",
+                })
+            )
+            point = (
+                await _search_130point(query)
+                if request.include_130point
+                else ([], {
+                    "source": "mac_chrome_130point_sold",
+                    "label": "130point Sold · Mac Chrome",
+                    "status": "not_configured",
+                    "resultCount": 0,
+                    "message": "Skipped for this direct-market request.",
+                })
+            )
+            ebay_active = (
+                await _search_ebay_active(query)
+                if request.include_active
+                else ([], {
+                    "source": "mac_chrome_ebay_active",
+                    "label": "eBay Active · Mac Chrome",
+                    "status": "not_configured",
+                    "resultCount": 0,
+                    "message": "Skipped for this direct-market request.",
+                })
+            )
 
         ebay_rows, ebay_coverage = ebay
         point_rows, point_coverage = point

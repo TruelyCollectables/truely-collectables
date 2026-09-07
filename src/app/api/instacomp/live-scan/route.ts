@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { POST as runIdentityScan } from "../scan/route";
 import { getTeacherExactMarketProviders } from "../../../../lib/instacomp-teacher-market-provider";
 import { getFanaticsExactSoldProvider } from "../../../../lib/instacomp-fanatics-sold-provider";
+import { getInstaCompMacExactSoldProvider } from "../../../../lib/instacomp-mac-market-provider";
 import {
   pushInstaCompExactMarketHistory,
   pushInstaCompTeacherReceipt,
@@ -659,7 +660,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle, ai });
+  const [fanaticsSold, macDirectSold] = await Promise.all([
+    getFanaticsExactSoldProvider({ exactTitle, ai }),
+    getInstaCompMacExactSoldProvider({
+      exactTitle,
+      ai,
+      scanId: base.scanId ? String(base.scanId) : null,
+      registryIdentityId: memoryRegistryIdentityId,
+      registryFingerprintSha256: memoryRegistryFingerprintSha256,
+      operatorCertifiedIdentity: memoryRegistryReceipt.matched === true,
+    }),
+  ]);
 
   let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
   let teacherFailure: string | null = null;
@@ -728,11 +739,13 @@ export async function POST(request: NextRequest) {
     }),
   };
   const summary = mergeExactMarketSources([
+    { sold: macDirectSold, active: { source: "mac_local_active_not_used", label: "Mac Direct Active", status: "not_configured", message: "The live scan uses the Mac direct-market bridge for sold evidence only; official eBay Browse remains the active-listing source.", results: [] } },
     { sold: fanaticsSold, active: { source: "fanatics_active_not_used", label: "Fanatics Active", status: "not_configured", message: "Sales History is sold-only.", results: [] } },
     teacherSource,
     verifiedOfficialActiveSource,
   ]);
   const exactProviders = [
+    macDirectSold,
     fanaticsSold,
     teacherSource.sold,
     teacherSource.active,
@@ -885,9 +898,11 @@ export async function POST(request: NextRequest) {
     .filter((provider) => provider.status !== "live" || provider.message);
   const note = summary.pricing.soldCount
     ? `${summary.pricing.soldCount} strict exact, delivered-price sold comp${summary.pricing.soldCount === 1 ? "" : "s"} support the InstaComp price. ${summary.active.length} exact active listing${summary.active.length === 1 ? "" : "s"} were retained as evidence; ${summary.pricing.activeCount} had complete delivered pricing.`
-    : summary.status === "provider_error"
-      ? "No trusted price was created because the exact sold providers failed or returned unusable evidence."
-      : "Zero strict exact sold comps were found. Active listings are shown separately and cannot create a trusted InstaComp price.";
+    : summary.sold.length
+      ? `${summary.sold.length} strict exact sold comp${summary.sold.length === 1 ? " was" : "s were"} found, but none had a verified realized delivered price that is safe to use for pricing. The sold evidence is shown instead of being mislabeled as no comps.`
+      : summary.status === "provider_error"
+        ? "No trusted price was created because the exact sold providers failed or returned unusable evidence."
+        : "Zero strict exact sold comps were found. Active listings are shown separately and cannot create a trusted InstaComp price.";
 
   return json({
     ...base,
@@ -948,6 +963,11 @@ export async function POST(request: NextRequest) {
         soldCount: summary.sold.length,
         activeCount: summary.active.length,
         point130Verification,
+        macDirectSold: {
+          status: macDirectSold.status,
+          resultCount: macDirectSold.results.length,
+          message: macDirectSold.message,
+        },
         teachers: teacher
           ? {
               configuredTeachers: teacher.configuredTeachers,

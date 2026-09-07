@@ -1560,6 +1560,9 @@ function compGuidanceLabel(comp: ActiveComp) {
 
 function compPriceBasisLabel(comp: ActiveComp) {
   if (isHistoricalSoldComp(comp)) return "historical sold comp - not priced";
+  if (comp.flags?.includes("not used for pricing")) {
+    return "sold evidence - realized price unverified";
+  }
   if (comp.sourceCategory === "sold") return "sold comp";
   if (comp.flags?.includes("serial #")) return "exact serial";
   if (comp.flags?.includes("numbered run")) return "same print run";
@@ -2412,8 +2415,14 @@ function primaryCompStats(result: ScanResponse | null | undefined) {
 function primaryCompEvidenceComps(result: ScanResponse | null | undefined) {
   if (!result) return [];
 
+  const exactSoldEvidence = (result.soldComps || []).filter(
+    (comp) =>
+      comp.sourceCategory === "sold" &&
+      roundedPositiveMoney(comp.price) !== null
+  );
+
   return uniqueComps([
-    ...(result.soldComps || []).filter(isUsableMarketComp),
+    ...exactSoldEvidence,
     ...primaryCompComps(result),
     ...effectiveMarketValueComps(result),
   ]);
@@ -2455,6 +2464,18 @@ function compPriceBasisForResult(result: ScanResponse | null | undefined) {
     return `${historicalSoldComps.length} historical sold comp${
       historicalSoldComps.length === 1 ? "" : "s"
     } - not priced`;
+  }
+
+  const exactSoldEvidence = (result.soldComps || []).filter(
+    (comp) =>
+      comp.sourceCategory === "sold" &&
+      roundedPositiveMoney(comp.price) !== null
+  );
+
+  if (exactSoldEvidence.length) {
+    return `${exactSoldEvidence.length} exact sold comp${
+      exactSoldEvidence.length === 1 ? "" : "s"
+    } found - realized price not verified`;
   }
 
   return "No usable comps";
