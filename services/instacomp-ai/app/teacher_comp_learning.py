@@ -177,6 +177,7 @@ def _observation_payload(
         "scanId": receipt.get("scanId"),
         "registryIdentityId": receipt.get("registryIdentityId"),
         "registryFingerprintSha256": receipt.get("registryFingerprintSha256"),
+        "operatorCertifiedIdentity": receipt.get("operatorCertifiedIdentity") is True,
         "eventClass": event_class,
         "observationType": observation_type,
         "source": _source(observation, _text(receipt.get("source"), 80) or "instacomp"),
@@ -214,10 +215,17 @@ def _market_observations_from_receipt(receipt: dict[str, Any], fingerprint: str)
             observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="REJECTED" if rejected else "OBSERVED", observation_type="SOLD_COMP_CANDIDATE", observation=comp))
     for comp in _list(receipt.get("discoveryActiveComps")):
         if isinstance(comp, dict):
-            observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="OBSERVED", observation_type="ACTIVE_ASK", observation=comp))
+            rejected = bool(comp.get("rejected") or comp.get("rejectionReason") or comp.get("rejection_reason"))
+            observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="REJECTED" if rejected else "OBSERVED", observation_type="ACTIVE_ASK", observation=comp))
     for comp in _list(receipt.get("acceptedSoldComps")):
         if isinstance(comp, dict):
             observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="VERIFIED_PRICING" if receipt.get("teacherConsensus", {}).get("trusted") is True else "OBSERVED", observation_type="ACCEPTED_SOLD_COMP", observation=comp))
+    for comp in _list(receipt.get("acceptedActiveComps")):
+        if isinstance(comp, dict):
+            observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="VERIFIED_IDENTITY" if receipt.get("teacherConsensus", {}).get("trusted") is True else "OBSERVED", observation_type="ACCEPTED_ACTIVE_ASK", observation=comp))
+    for comp in _list(receipt.get("rejectedMarketCandidates")):
+        if isinstance(comp, dict):
+            observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="REJECTED", observation_type="REJECTED_MARKET_CANDIDATE", observation=comp))
     decision_payload = _dict(receipt.get("decisionRecord") or receipt.get("decision_record"))
     if decision_payload or receipt.get("decision"):
         observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="DECISION", observation_type="INSTACOMP_DECISION", observation=decision_payload))
@@ -250,7 +258,12 @@ def _insert_market_observations(path: Path, observations: list[dict[str, Any]]) 
         for observation in observations:
             fingerprint = _market_observation_fingerprint(observation)
             verified_pricing = observation["eventClass"] == "VERIFIED_PRICING"
-            pricing_training_eligible = bool(verified_pricing and observation.get("registryIdentityId") and observation.get("registryFingerprintSha256"))
+            verified_active_ask = observation["eventClass"] == "VERIFIED_IDENTITY" and observation.get("observationType") == "ACCEPTED_ACTIVE_ASK"
+            identity_bound = bool(
+                (observation.get("registryIdentityId") and observation.get("registryFingerprintSha256"))
+                or observation.get("operatorCertifiedIdentity") is True
+            )
+            pricing_training_eligible = bool(identity_bound and (verified_pricing or verified_active_ask))
             cursor = db.execute("""
                 INSERT OR IGNORE INTO instacomp_market_observations (
                     observation_fingerprint, parent_observation_fingerprint, receipt_fingerprint,
@@ -351,12 +364,20 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
     accepted_sold = body.get("acceptedSoldComps") or body.get("accepted_sold_comps") or []
     if not isinstance(accepted_sold, list):
         accepted_sold = []
+    accepted_active = body.get("acceptedActiveComps") or body.get("accepted_active_comps") or []
+    if not isinstance(accepted_active, list):
+        accepted_active = []
+    rejected_market = body.get("rejectedMarketCandidates") or body.get("rejected_market_candidates") or []
+    if not isinstance(rejected_market, list):
+        rejected_market = []
 
     pricing_eligible_count = int(
         _number(body.get("pricingEligibleSoldCount") or body.get("pricing_eligible_sold_count")) or 0
     )
     trusted_sold_count = min(len(accepted_sold), max(0, pricing_eligible_count))
     consensus_trusted = consensus.get("trusted") is True
+    local_deterministic = body.get("localDeterministicMarketTruth") is True or body.get("local_deterministic_market_truth") is True
+    operator_certified_identity = body.get("operatorCertifiedIdentity") is True or body.get("operator_certified_identity") is True
 
     registry_identity_id = _text(
         body.get("registryIdentityId") or body.get("registry_identity_id"), 160
@@ -401,15 +422,25 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
     # teachers reached the vote threshold, a canonical Registry identity binds
     # the lesson to one exact card, and at least one pricing-eligible exact sold
     # comp survived the deterministic firewall.
-    trusted_market_truth = bool(
+    independently_bound = bool(
+        (registry_identity_id and registry_fingerprint_sha256)
+        or operator_certified_identity
+    )
+    teacher_trusted = bool(
         consensus_trusted
         and len(configured) >= 2
         and required_votes >= expected_required_votes
         and trusted_sold_count > 0
-        and registry_identity_id
-        and registry_fingerprint_sha256
+        and independently_bound
         and canonical_identity_complete
     )
+    local_trusted = bool(
+        local_deterministic
+        and trusted_sold_count > 0
+        and independently_bound
+        and canonical_identity_complete
+    )
+    trusted_market_truth = teacher_trusted or local_trusted
 
     normalized = {
         "schemaVersion": RECEIPT_SCHEMA_VERSION,
@@ -417,6 +448,8 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
         "scanId": _text(body.get("scanId") or body.get("scan_id"), 120) or None,
         "registryIdentityId": registry_identity_id,
         "registryFingerprintSha256": registry_fingerprint_sha256,
+        "operatorCertifiedIdentity": operator_certified_identity,
+        "localDeterministicMarketTruth": local_deterministic,
         "canonicalIdentity": canonical_identity,
         "studentHypothesis": student_hypothesis,
         "teacherConsensus": {
@@ -426,6 +459,8 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
             "trusted": trusted_market_truth,
         },
         "acceptedSoldComps": accepted_sold[:50],
+        "acceptedActiveComps": accepted_active[:100],
+        "rejectedMarketCandidates": rejected_market[:200],
         "discoverySoldComps": (
             body.get("discoverySoldComps")
             if isinstance(body.get("discoverySoldComps"), list)
@@ -439,6 +474,8 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
         "trustedSuggestedPrice": _number(
             body.get("trustedSuggestedPrice") or body.get("trusted_suggested_price")
         ),
+        "competitiveActiveLow": _number(body.get("competitiveActiveLow") or body.get("competitive_active_low")),
+        "competitiveActiveMedian": _number(body.get("competitiveActiveMedian") or body.get("competitive_active_median")),
         "researchId": _text(body.get("researchId") or body.get("research_id"), 160) or None,
         "decision": _text(body.get("decision"), 60) or None,
         "decisionRecord": body.get("decisionRecord") if isinstance(body.get("decisionRecord"), dict) else (body.get("decision_record") if isinstance(body.get("decision_record"), dict) else {}),
@@ -532,6 +569,11 @@ def record_teacher_comp_receipt(path: Path, body: dict[str, Any]) -> dict[str, A
         "identity_training_mutated": False,
         "market_observations_saved": saved_observations,
     }
+
+
+def record_exact_market_history(path: Path, body: dict[str, Any]) -> dict[str, Any]:
+    """Persist exact-card market evidence in the Mac-backed comp-learning store."""
+    return record_teacher_comp_receipt(path, body)
 
 
 def teacher_comp_learning_stats(path: Path) -> dict[str, Any]:

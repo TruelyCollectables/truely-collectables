@@ -224,14 +224,21 @@ type MacMarketResult = {
   status: "ready" | "failed" | "not_configured";
   sold: Evidence[];
   active: Evidence[];
+  rejected: Array<Record<string, any>>;
   providerCoverage: Array<Record<string, any>>;
   query: string | null;
+  learning: Record<string, any> | null;
   error: string | null;
 };
 
 async function requestMacExactMarket(params: {
   exactTitle: string;
   ai: InstaCompAiResult;
+  scanId: string | null;
+  registryIdentityId: string | null;
+  registryFingerprintSha256: string | null;
+  operatorCertifiedIdentity: boolean;
+  researchId: string;
 }): Promise<MacMarketResult> {
   const baseUrl = getConfiguredInstaCompMacUrl();
   const key = getConfiguredInstaCompMacKey();
@@ -240,8 +247,10 @@ async function requestMacExactMarket(params: {
       status: "not_configured",
       sold: [],
       active: [],
+      rejected: [],
       providerCoverage: [],
       query: null,
+      learning: null,
       error: "The authenticated InstaComp Mac market bridge is not configured.",
     };
   }
@@ -272,6 +281,11 @@ async function requestMacExactMarket(params: {
           isAuto: params.ai.isAuto,
           isRelic: params.ai.isRelic,
         },
+        scan_id: params.scanId,
+        registry_identity_id: params.registryIdentityId,
+        registry_fingerprint_sha256: params.registryFingerprintSha256,
+        research_id: params.researchId,
+        operator_certified_identity: params.operatorCertifiedIdentity,
         max_sold: 50,
         max_active: 30,
       }),
@@ -284,8 +298,10 @@ async function requestMacExactMarket(params: {
         status: "failed",
         sold: [],
         active: [],
+        rejected: Array.isArray(payload.rejected) ? payload.rejected : [],
         providerCoverage: Array.isArray(payload.providerCoverage) ? payload.providerCoverage : [],
         query: typeof payload.query === "string" ? payload.query : null,
+        learning: payload.learning && typeof payload.learning === "object" ? payload.learning : null,
         error: sanitizeInstaCompProviderError(
           String(payload.detail || payload.error || `Mac market search HTTP ${response.status}`),
         ),
@@ -295,8 +311,10 @@ async function requestMacExactMarket(params: {
       status: "ready",
       sold: evidenceList(payload.sold, 50),
       active: evidenceList(payload.active, 30),
+      rejected: Array.isArray(payload.rejected) ? payload.rejected : [],
       providerCoverage: Array.isArray(payload.providerCoverage) ? payload.providerCoverage : [],
       query: typeof payload.query === "string" ? payload.query : null,
+      learning: payload.learning && typeof payload.learning === "object" ? payload.learning : null,
       error: null,
     };
   } catch (error) {
@@ -304,12 +322,124 @@ async function requestMacExactMarket(params: {
       status: "failed",
       sold: [],
       active: [],
+      rejected: [],
       providerCoverage: [],
       query: null,
+      learning: null,
       error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
     };
   }
 }
+
+function competitiveStats(values: Evidence[]) {
+  const totals = values
+    .map((row) => Number(row.price))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+  if (!totals.length) return { low: null, median: null };
+  const middle = Math.floor(totals.length / 2);
+  const median = totals.length % 2
+    ? totals[middle]
+    : (totals[middle - 1] + totals[middle]) / 2;
+  return {
+    low: Math.round(totals[0] * 100) / 100,
+    median: Math.round(median * 100) / 100,
+  };
+}
+
+async function persistMacMarketLearning(params: {
+  exactTitle: string;
+  ai: InstaCompAiResult;
+  scanId: string | null;
+  registryIdentityId: string | null;
+  registryFingerprintSha256: string | null;
+  operatorCertifiedIdentity: boolean;
+  localDeterministicMarketTruth: boolean;
+  researchId: string;
+  acceptedSold: Evidence[];
+  acceptedActive: Evidence[];
+  rejected: Array<Record<string, any>>;
+  suggestedPrice: number;
+}) {
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  const key = getConfiguredInstaCompMacKey();
+  if (!baseUrl || !key || !isTrustedInstaCompMacUrl(baseUrl)) {
+    return { status: "not_configured", student_training_eligible: false };
+  }
+  const aiRecord = params.ai as InstaCompAiResult & Record<string, unknown>;
+  const competitive = competitiveStats(params.acceptedActive);
+  try {
+    const response = await fetch(`${baseUrl}/v1/training/exact-market-history`, {
+      method: "POST",
+      headers: {
+        "X-InstaComp-AI-Key": key,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        schemaVersion: "tcos.instacomp.teacher-comp-receipt.v1",
+        source: "kingmaker_mac_exact_market_final",
+        sourceAuthority: "mac_local_browser_and_direct_market_feeds",
+        localDeterministicMarketTruth: params.localDeterministicMarketTruth,
+        operatorCertifiedIdentity: params.operatorCertifiedIdentity,
+        scanId: params.scanId,
+        researchId: params.researchId,
+        registryIdentityId: params.registryIdentityId,
+        registryFingerprintSha256: params.registryFingerprintSha256,
+        canonicalIdentity: {
+          player: params.ai.player,
+          year: params.ai.year,
+          brand: params.ai.brand,
+          setName: params.ai.setName,
+          cardNumber: params.ai.cardNumber,
+          parallel: params.ai.parallel,
+          serialNumber: params.ai.serialNumber,
+          gradingCompany: params.ai.gradingCompany,
+          gradeValue: params.ai.gradeValue,
+          isRookie: params.ai.isRookie,
+          isAuto: params.ai.isAuto,
+          isRelic: params.ai.isRelic,
+          manufacturer: aiRecord.manufacturer || null,
+          product: aiRecord.product || null,
+        },
+        teacherConsensus: {
+          configuredTeachers: ["mac_deterministic_exact_gate", "human_certified_identity"],
+          requiredVotes: 2,
+          trusted: params.operatorCertifiedIdentity,
+        },
+        acceptedSoldComps: params.acceptedSold,
+        discoverySoldComps: params.acceptedSold,
+        acceptedActiveComps: params.acceptedActive,
+        discoveryActiveComps: params.acceptedActive,
+        rejectedMarketCandidates: params.rejected,
+        trustedSuggestedPrice: params.suggestedPrice,
+        pricingEligibleSoldCount: params.acceptedSold.length,
+        competitiveActiveLow: competitive.low,
+        competitiveActiveMedian: competitive.median,
+        decision: "INSTACOMP_PRICE",
+        decisionRecord: {
+          decision: "INSTACOMP_PRICE",
+          price: params.suggestedPrice,
+          activeLow: competitive.low,
+          activeMedian: competitive.median,
+        },
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, any>;
+    return response.ok
+      ? payload
+      : { status: "failed", student_training_eligible: false, error: sanitizeInstaCompProviderError(String(payload.detail || payload.error || `Mac learning HTTP ${response.status}`)) };
+  } catch (error) {
+    return {
+      status: "failed",
+      student_training_eligible: false,
+      error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 
 function providerCoverageRow(provider: {
   source: string;
@@ -475,10 +605,41 @@ export async function POST(request: NextRequest) {
 
     const fallbackQuery = buildInstaCompQueries(ai).primary;
     const compLinks = buildCompLinks(fallbackQuery);
+    const aiRecord = ai as InstaCompAiResult & Record<string, unknown>;
+    const registryIdentityId =
+      String(
+        currentInstaComp.registryIdentityId ||
+          currentInstaComp.registry_identity_id ||
+          aiRecord.registryIdentityId ||
+          aiRecord.registry_identity_id ||
+          aiRecord.internalCardUuid ||
+          "",
+      ).trim() || null;
+    const registryFingerprintSha256 =
+      String(
+        currentInstaComp.registryFingerprintSha256 ||
+          currentInstaComp.registry_fingerprint_sha256 ||
+          aiRecord.registryFingerprintSha256 ||
+          aiRecord.checklistFingerprintSha256 ||
+          "",
+      ).trim() || null;
+    const operatorCertifiedIdentity =
+      useStoredIdentity &&
+      (currentInstaComp.humanVerified === true ||
+        currentInstaComp.manualIdentityLocked === true ||
+        currentInstaComp.trustedForIdentity === true);
 
     // Mac-first: the user's own InstaComp worker searches the market before any
     // paid/cloud AI lane. Mercari is active/purchase-side reference only.
-    const macMarket = await requestMacExactMarket({ exactTitle: item.title, ai });
+    const macMarket = await requestMacExactMarket({
+      exactTitle: item.title,
+      ai,
+      scanId,
+      registryIdentityId,
+      registryFingerprintSha256,
+      operatorCertifiedIdentity,
+      researchId: scanId || item.id,
+    });
     const macPricingSold = macMarket.sold.filter((row) =>
       isPricingEligibleEvidence(row, "sold"),
     );
@@ -629,6 +790,20 @@ export async function POST(request: NextRequest) {
     const pricingReason = hasReliableSoldComps
       ? pricingAnalysis.explanation
       : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one strict exact sold listing.`;
+    const marketLearning = await persistMacMarketLearning({
+      exactTitle: item.title,
+      ai,
+      scanId,
+      registryIdentityId,
+      registryFingerprintSha256,
+      operatorCertifiedIdentity,
+      localDeterministicMarketTruth: macMarketHasPricing,
+      researchId: scanId || item.id,
+      acceptedSold: soldCompEvidence,
+      acceptedActive: activeCompetition,
+      rejected: [...macMarket.rejected, ...rejectedCandidates],
+      suggestedPrice,
+    });
     const checkedAt = new Date().toISOString();
     const macCoverage = macMarket.providerCoverage.map((row) => ({
       source: String(row.source || "mac_market_source"),
@@ -718,10 +893,14 @@ export async function POST(request: NextRequest) {
           pricingEligibleSoldCount: macPricingSold.length,
           soldEvidenceCount: macMarket.sold.length,
           activePurchaseReferenceCount: macMarket.active.length,
+          activeMarketReferenceCount: macMarket.active.length,
+          rejectedMarketCandidateCount: macMarket.rejected.length,
           providerCoverage: macCoverage,
+          rawLearningReceipt: macMarket.learning,
+          finalLearningReceipt: marketLearning,
           error: macMarket.error,
           sourceAuthority: "mac_local_browser_and_direct_market_feeds",
-          trainingAllowed: false,
+          trainingAllowed: marketLearning?.student_training_eligible === true,
         },
         openAiWebMarket: openAiMarket
           ? {
@@ -799,9 +978,15 @@ export async function POST(request: NextRequest) {
         pricingEligibleSoldCount: macPricingSold.length,
         soldEvidenceCount: macMarket.sold.length,
         activePurchaseReferenceCount: macMarket.active.length,
+        activeMarketReferenceCount: macMarket.active.length,
+        rejectedMarketCandidateCount: macMarket.rejected.length,
         error: macMarket.error,
         usedForPricing: macMarketHasPricing,
+        rawLearningReceipt: macMarket.learning,
+        finalLearningReceipt: marketLearning,
+        trainingAllowed: marketLearning?.student_training_eligible === true,
       },
+      marketLearning,
       teacherAttempts: teacher?.attempts || [],
       providerProblems: providerCoverage.filter((row) =>
         ["error", "failed", "not_configured", "challenge"].includes(String(row.status)),

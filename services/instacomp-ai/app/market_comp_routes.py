@@ -6,12 +6,15 @@ import re
 import statistics
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from .teacher_comp_learning import record_exact_market_history
 
 _BROWSER_LOCK = asyncio.Lock()
 _CHROME_TIMEOUT_SECONDS = 35
@@ -35,6 +38,11 @@ _PARALLEL_WORDS = {
 class MarketCompRequest(BaseModel):
     exact_title: str = Field(default="", max_length=300)
     identity: dict[str, Any] = Field(default_factory=dict)
+    scan_id: str | None = Field(default=None, max_length=160)
+    registry_identity_id: str | None = Field(default=None, max_length=200)
+    registry_fingerprint_sha256: str | None = Field(default=None, max_length=160)
+    research_id: str | None = Field(default=None, max_length=200)
+    operator_certified_identity: bool = False
     max_sold: int = Field(default=50, ge=1, le=100)
     max_active: int = Field(default=30, ge=1, le=60)
 
@@ -237,6 +245,9 @@ async def _chrome_json(url: str, javascript: str, wait_seconds: int = 4) -> dict
 
 _EBAY_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/itm/"]')){let title=(a.innerText||'').replace(/\s*Opens in a new window or tab\s*/gi,' ').trim();const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);if(!m||seen.has(m[1])||title.length<8||/^shop on ebay$/i.test(title)||m[1]==='123456')continue;let e=a;let text='';for(let i=0;i<7&&e;i++,e=e.parentElement){const v=(e.innerText||'').trim();if(/Sold\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(v)&&/\$\s*\d/.test(v)){text=v;break}}if(!text)continue;seen.add(m[1]);const img=(a.closest('li,div')?.querySelector('img')?.src||null);rows.push({title,url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=80)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
 
+_EBAY_ACTIVE_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/itm/"]')){let title=(a.innerText||'').replace(/\s*Opens in a new window or tab\s*/gi,' ').trim();const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);if(!m||seen.has(m[1])||title.length<8||/^shop on ebay$/i.test(title)||m[1]==='123456')continue;let e=a;let text='';for(let i=0;i<7&&e;i++,e=e.parentElement){const v=(e.innerText||'').trim();if(/\$\s*\d/.test(v)&&!(/Sold\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(v))){text=v;break}}if(!text)continue;seen.add(m[1]);const img=(a.closest('li,div')?.querySelector('img')?.src||null);rows.push({title,url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=80)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
+
+
 _MERCARI_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/item/"]')){const m=a.href.match(/\/item\/(m\d+)/i);if(!m||seen.has(m[1]))continue;const text=(a.innerText||a.closest('li,article,div')?.innerText||'').trim();if(!text||!/\$\s*\d/.test(text))continue;seen.add(m[1]);const img=(a.querySelector('img')?.src||a.closest('li,article,div')?.querySelector('img')?.src||null);rows.push({url:`https://www.mercari.com/us/item/${m[1]}/`,text,imageUrl:img});if(rows.length>=60)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
 
 _130POINT_RESULT_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href]')){const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);const text=(a.innerText||'').trim();if(!m||seen.has(m[1])||!/USD/.test(text)||!/\b\d{2}\s+[A-Z][a-z]{2}\s+\d{2}\s+\d{2}:\d{2}:\d{2}\b/.test(text))continue;seen.add(m[1]);const img=(a.querySelector('img')?.src||a.closest('li,article,div')?.querySelector('img')?.src||null);rows.push({url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=100)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
@@ -295,6 +306,29 @@ async def _search_ebay(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]
         return [], {"source": "mac_chrome_ebay_sold", "label": "eBay Sold · Mac Chrome", "status": "challenge" if "challenge" in str(exc) else "error", "resultCount": 0, "searchUrl": url, "message": str(exc)[:300]}
 
 
+async def _search_ebay_active(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    url = f"https://www.ebay.com/sch/i.html?_nkw={quote(query)}&_sacat=0&LH_BIN=1"
+    try:
+        payload = await _chrome_json(url, _EBAY_ACTIVE_JS, 4)
+        rows = []
+        for raw in payload.get("rows") or []:
+            title, text, link = _text(raw.get("title")), _text(raw.get("text")), _text(raw.get("url"))
+            prices = _money_values(text)
+            if not title or not link or not prices:
+                continue
+            shipping = 0.0 if re.search(r"Free delivery|Free shipping", text, re.I) else None
+            shipping_match = re.search(r"(?:\+|shipping[: ]*)\s*\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)", text, re.I)
+            if shipping_match:
+                shipping = float(shipping_match.group(1).replace(",", ""))
+            rows.append({
+                "title": title, "url": link, "item_price": prices[0], "shipping_price": shipping,
+                "image_url": raw.get("imageUrl"), "raw_text": text[:1500],
+            })
+        return rows, {"source": "mac_chrome_ebay_active", "label": "eBay Active · Mac Chrome", "status": "live" if rows else "no_matches", "resultCount": len(rows), "searchUrl": url, "message": f"{len(rows)} active rows read directly from the public eBay current-listings page."}
+    except Exception as exc:
+        return [], {"source": "mac_chrome_ebay_active", "label": "eBay Active · Mac Chrome", "status": "challenge" if "challenge" in str(exc) else "error", "resultCount": 0, "searchUrl": url, "message": str(exc)[:300]}
+
+
 async def _search_130point(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         raw = await asyncio.to_thread(_run_osascript, _chrome_130point_script(query), 35)
@@ -328,7 +362,12 @@ async def _search_mercari(query: str) -> tuple[list[dict[str, Any]], dict[str, A
             title = next((line for line in lines if not line.startswith("$")), "")
             prices = _money_values(str(entry.get("text") or ""))
             if title and prices and entry.get("url"):
-                rows.append({"title": title, "url": entry["url"], "item_price": prices[0], "shipping_price": None, "image_url": entry.get("imageUrl")})
+                raw_text = str(entry.get("text") or "")
+                shipping = 0.0 if re.search(r"Free shipping|shipping included", raw_text, re.I) else None
+                shipping_match = re.search(r"(?:\+|shipping[: ]*)\s*\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)", raw_text, re.I)
+                if shipping_match:
+                    shipping = float(shipping_match.group(1).replace(",", ""))
+                rows.append({"title": title, "url": entry["url"], "item_price": prices[0], "shipping_price": shipping, "image_url": entry.get("imageUrl"), "raw_text": raw_text[:1200]})
         return rows, {"source": "mac_chrome_mercari_active", "label": "Mercari Active · Mac Chrome", "status": "live" if rows else "no_matches", "resultCount": len(rows), "searchUrl": url, "message": f"{len(rows)} active rows read directly from Mercari public search."}
     except Exception as exc:
         return [], {"source": "mac_chrome_mercari_active", "label": "Mercari Active · Mac Chrome", "status": "challenge" if "challenge" in str(exc) else "error", "resultCount": 0, "searchUrl": url, "message": str(exc)[:300]}
@@ -370,7 +409,7 @@ def _evidence(row: dict[str, Any], *, source: str, label: str, category: str, pr
         "shippingPrice": round(shipping_value, 2) if shipping_value is not None else None,
         "priceIncludesShipping": shipping_value is not None, "currency": "USD", "url": row.get("url"),
         "imageUrl": row.get("image_url"), "source": source, "sourceLabel": label, "sourceCategory": category,
-        "matchScore": 500 if pricing_eligible else 350, "flags": ["Mac local exact-card gate", "training disabled", *(exact_reasons or []), *( ["pricing eligible"] if pricing_eligible else ["reference only"] )],
+        "matchScore": 500 if pricing_eligible else 350, "flags": ["Mac local exact-card gate", "retained for market learning", *(exact_reasons or []), *( ["pricing eligible"] if pricing_eligible else ["reference only"] )],
         "soldAt": row.get("sold_at") if category == "sold" else None, "listedAt": None,
         "observedAt": datetime.now(timezone.utc).isoformat(),
     }
@@ -405,7 +444,7 @@ def _market_summary(sold: list[dict[str, Any]], active: list[dict[str, Any]]) ->
     }
 
 
-def build_market_comp_router(require_api_key: Callable[..., None]) -> APIRouter:
+def build_market_comp_router(require_api_key: Callable[..., None], database_path: Path | None = None) -> APIRouter:
     router = APIRouter(prefix="/v1/market-comp", tags=["market-comp"], dependencies=[Depends(require_api_key)])
 
     @router.post("/search")
@@ -420,10 +459,12 @@ def build_market_comp_router(require_api_key: Callable[..., None]) -> APIRouter:
             fanatics_task = asyncio.create_task(_search_fanatics(query))
             ebay, fanatics = await asyncio.gather(ebay_task, fanatics_task)
             point = await _search_130point(query)
+            ebay_active = await _search_ebay_active(query)
             mercari = await _search_mercari(query)
 
         ebay_rows, ebay_coverage = ebay
         point_rows, point_coverage = point
+        ebay_active_rows, ebay_active_coverage = ebay_active
         mercari_rows, mercari_coverage = mercari
         fanatics_rows, fanatics_coverage = fanatics
 
@@ -462,16 +503,57 @@ def build_market_comp_router(require_api_key: Callable[..., None]) -> APIRouter:
             sold.append(_evidence(row, source="mac_fanatics_exact_sold", label="Fanatics Exact Sold · Mac", category="sold", pricing_eligible=True, exact_reasons=["paid Fanatics realized sale"]))
 
         active: list[dict[str, Any]] = []
+        for row in ebay_active_rows:
+            ok, reasons = _strong_exact_title(row["title"], identity)
+            if not ok:
+                rejected.append({"source": "eBay Active", "marketplace": "eBay", "title": row["title"], "url": row["url"], "rejectionReason": "; ".join(reasons), "reasons": reasons})
+                continue
+            eligible = row.get("shipping_price") is not None
+            active.append(_evidence(row, source="mac_ebay_exact_active", label="eBay Exact Active · Mac Chrome", category="marketplace", pricing_eligible=eligible, exact_reasons=["direct eBay active listing", "competitive ask"] ))
+
         for row in mercari_rows:
             ok, reasons = _strong_exact_title(row["title"], identity)
             if not ok:
-                rejected.append({"source": "Mercari", "title": row["title"], "url": row["url"], "reasons": reasons})
+                rejected.append({"source": "Mercari", "marketplace": "Mercari", "title": row["title"], "url": row["url"], "rejectionReason": "; ".join(reasons), "reasons": reasons})
                 continue
-            active.append(_evidence(row, source="mac_mercari_exact_active", label="Mercari Exact Active · Mac Chrome", category="marketplace", pricing_eligible=False, exact_reasons=["direct Mercari active listing"]))
+            active.append(_evidence(row, source="mac_mercari_exact_active", label="Mercari Exact Active · Mac Chrome", category="marketplace", pricing_eligible=False, exact_reasons=["direct Mercari active listing", "purchase-side only"]))
 
         sold = _dedupe(sold, request.max_sold)
         active = _dedupe(active, request.max_active)
         summary = _market_summary(sold, active)
+        learning = {"status": "not_configured", "market_observations_saved": 0, "student_training_eligible": False}
+        if database_path is not None:
+            try:
+                accepted_sold = [row for row in sold if "pricing eligible" in (row.get("flags") or [])]
+                receipt = {
+                    "schemaVersion": "tcos.instacomp.teacher-comp-receipt.v1",
+                    "source": "mac_local_market_search_raw",
+                    "sourceAuthority": "mac_local_browser_and_direct_market_feeds",
+                    "localDeterministicMarketTruth": False,
+                    "operatorCertifiedIdentity": request.operator_certified_identity,
+                    "scanId": request.scan_id,
+                    "researchId": request.research_id or request.scan_id,
+                    "registryIdentityId": request.registry_identity_id,
+                    "registryFingerprintSha256": request.registry_fingerprint_sha256,
+                    "canonicalIdentity": {
+                        "player": identity["player"], "year": identity["year"], "brand": identity["brand"] or identity["manufacturer"],
+                        "setName": identity["set_name"] or identity["product"], "cardNumber": identity["card_number"],
+                        "parallel": identity["parallel"], "isAuto": identity["is_auto"], "isRelic": identity["is_relic"],
+                    },
+                    "teacherConsensus": {"configuredTeachers": [], "requiredVotes": 2, "trusted": False},
+                    "acceptedSoldComps": accepted_sold,
+                    "acceptedActiveComps": active,
+                    "discoverySoldComps": sold,
+                    "discoveryActiveComps": active,
+                    "rejectedMarketCandidates": rejected[:100],
+                    "pricingEligibleSoldCount": 0,
+                    "trustedSuggestedPrice": None,
+                    "competitiveActiveLow": summary.get("activeLow"),
+                    "competitiveActiveMedian": summary.get("activeMedian"),
+                }
+                learning = record_exact_market_history(database_path, receipt)
+            except Exception as exc:
+                learning = {"status": "failed", "error": str(exc)[:300], "market_observations_saved": 0, "student_training_eligible": False}
         return {
             "schemaVersion": "tcos.instacomp-ai.market-comp.v1",
             "ok": True,
@@ -480,10 +562,11 @@ def build_market_comp_router(require_api_key: Callable[..., None]) -> APIRouter:
             "sold": sold,
             "active": active,
             "rejected": rejected[:100],
-            "providerCoverage": [ebay_coverage, point_coverage, mercari_coverage, fanatics_coverage],
+            "providerCoverage": [ebay_coverage, point_coverage, ebay_active_coverage, mercari_coverage, fanatics_coverage],
             "marketSummary": summary,
             "pricingEligibleSoldCount": summary["pricingEligibleSoldCount"],
-            "trainingAllowed": False,
+            "learning": learning,
+            "trainingAllowed": bool(learning.get("student_training_eligible")),
             "sourceAuthority": "mac_local_browser_and_direct_market_feeds",
         }
 

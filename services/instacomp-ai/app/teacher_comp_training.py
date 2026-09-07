@@ -48,6 +48,8 @@ def build_teacher_comp_training_example(row: dict[str, Any]) -> dict[str, Any]:
     accepted = receipt.get("acceptedSoldComps") or []
     discovery_sold = receipt.get("discoverySoldComps") or []
     discovery_active = receipt.get("discoveryActiveComps") or []
+    accepted_active = receipt.get("acceptedActiveComps") or []
+    rejected_market = receipt.get("rejectedMarketCandidates") or []
     student_hypothesis = receipt.get("studentHypothesis")
     if not isinstance(student_hypothesis, dict):
         student_hypothesis = None
@@ -57,6 +59,10 @@ def build_teacher_comp_training_example(row: dict[str, Any]) -> dict[str, Any]:
         discovery_sold = []
     if not isinstance(discovery_active, list):
         discovery_active = []
+    if not isinstance(accepted_active, list):
+        accepted_active = []
+    if not isinstance(rejected_market, list):
+        rejected_market = []
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -68,12 +74,16 @@ def build_teacher_comp_training_example(row: dict[str, Any]) -> dict[str, Any]:
             "canonical_identity": identity,
             "sold_candidates": discovery_sold[:100],
             "active_candidates": discovery_active[:100],
+            "rejected_market_candidates": rejected_market[:100],
             "student_pre_teacher_hypothesis": student_hypothesis,
         },
         "target": {
             "accepted_exact_sold_comps": accepted[:50],
             "trusted_suggested_price": receipt.get("trustedSuggestedPrice"),
             "pricing_eligible_sold_count": int(receipt.get("pricingEligibleSoldCount") or 0),
+            "accepted_exact_active_asks": accepted_active[:100],
+            "competitive_active_low": receipt.get("competitiveActiveLow"),
+            "competitive_active_median": receipt.get("competitiveActiveMedian"),
             "teacher_consensus": {
                 "configured_teachers": list(consensus.get("configuredTeachers") or []),
                 "required_votes": int(consensus.get("requiredVotes") or 2),

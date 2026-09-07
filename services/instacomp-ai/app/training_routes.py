@@ -23,6 +23,7 @@ from .teacher_comp_learning import (
     append_market_observation_outcome,
     load_market_observations,
     load_teacher_comp_receipts,
+    record_exact_market_history,
     record_teacher_comp_receipt,
     teacher_comp_learning_stats,
 )
@@ -115,6 +116,31 @@ def build_training_router(require_api_key: Callable, store: MemoryStore, *, imag
             except ValueError as exc:
                 dataset_refresh = {"status": "failed", "reason": str(exc)}
         return {**result, "dataset_refresh": dataset_refresh}
+
+    @router.post("/exact-market-history")
+    async def exact_market_history(body: dict[str, Any] = Body(...)):
+        try:
+            result = record_exact_market_history(store.path, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        dataset_refresh: dict[str, Any] = {
+            "status": "skipped",
+            "reason": "Market evidence was retained but is not yet trusted for student pricing training.",
+        }
+        if result.get("student_training_eligible") is True:
+            try:
+                dataset_refresh = {
+                    "status": "saved",
+                    **export_teacher_comp_training_dataset(
+                        load_teacher_comp_receipts(store.path, limit=2000),
+                        destination_root=training_export_path,
+                        validation_percent=15,
+                    ),
+                }
+            except ValueError as exc:
+                dataset_refresh = {"status": "failed", "reason": str(exc)}
+        return {**result, "exact_market_history": True, "dataset_refresh": dataset_refresh}
 
     @router.get("/manual-instacomp/contract")
     async def manual_instacomp_contract():

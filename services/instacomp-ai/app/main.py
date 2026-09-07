@@ -141,7 +141,7 @@ app.include_router(
         training_export_path=training_export_path,
     )
 )
-app.include_router(build_market_comp_router(require_api_key))
+app.include_router(build_market_comp_router(require_api_key, database_path))
 
 
 def _slug(value: object) -> str:
