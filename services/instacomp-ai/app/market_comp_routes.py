@@ -460,12 +460,10 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
             ebay, fanatics = await asyncio.gather(ebay_task, fanatics_task)
             point = await _search_130point(query)
             ebay_active = await _search_ebay_active(query)
-            mercari = await _search_mercari(query)
 
         ebay_rows, ebay_coverage = ebay
         point_rows, point_coverage = point
         ebay_active_rows, ebay_active_coverage = ebay_active
-        mercari_rows, mercari_coverage = mercari
         fanatics_rows, fanatics_coverage = fanatics
 
         ebay_by_id = {_item_id(row["url"]): row for row in ebay_rows if _item_id(row["url"])}
@@ -511,13 +509,6 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
             eligible = row.get("shipping_price") is not None
             active.append(_evidence(row, source="mac_ebay_exact_active", label="eBay Exact Active · Mac Chrome", category="marketplace", pricing_eligible=eligible, exact_reasons=["direct eBay active listing", "competitive ask"] ))
 
-        for row in mercari_rows:
-            ok, reasons = _strong_exact_title(row["title"], identity)
-            if not ok:
-                rejected.append({"source": "Mercari", "marketplace": "Mercari", "title": row["title"], "url": row["url"], "rejectionReason": "; ".join(reasons), "reasons": reasons})
-                continue
-            active.append(_evidence(row, source="mac_mercari_exact_active", label="Mercari Exact Active · Mac Chrome", category="marketplace", pricing_eligible=False, exact_reasons=["direct Mercari active listing", "purchase-side only"]))
-
         sold = _dedupe(sold, request.max_sold)
         active = _dedupe(active, request.max_active)
         summary = _market_summary(sold, active)
@@ -562,7 +553,7 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
             "sold": sold,
             "active": active,
             "rejected": rejected[:100],
-            "providerCoverage": [ebay_coverage, point_coverage, ebay_active_coverage, mercari_coverage, fanatics_coverage],
+            "providerCoverage": [ebay_coverage, point_coverage, ebay_active_coverage, fanatics_coverage],
             "marketSummary": summary,
             "pricingEligibleSoldCount": summary["pricingEligibleSoldCount"],
             "learning": learning,
