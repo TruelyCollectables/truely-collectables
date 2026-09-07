@@ -107,6 +107,29 @@ type PendingCard = {
   };
 };
 
+type PurchaseMatchRecord = {
+  acquisitionItemId: number;
+  purchaseId: string;
+  source: string;
+  purchaseDate?: string | null;
+  title?: string | null;
+  seller?: string | null;
+  orderNumber?: string | null;
+  sourceLot?: string | null;
+  listingUrl?: string | null;
+  allocatedCost: number;
+  serialFamily?: string | null;
+  parallel?: string | null;
+  status?: string | null;
+};
+
+type PurchaseMatchState = {
+  status: "no_match" | "possible_match" | "pending_purchase" | "received" | string;
+  confidence?: number | null;
+  reason?: string | null;
+  match?: PurchaseMatchRecord | null;
+};
+
 type JobStatus = {
   status: string;
   stage: string | null;
@@ -389,6 +412,7 @@ export default function KingmakerPendingPage({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState("");
   const [notice, setNotice] = useState("");
+  const [purchaseMatches, setPurchaseMatches] = useState<Record<string, PurchaseMatchState>>({});
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
 
@@ -497,6 +521,90 @@ export default function KingmakerPendingPage({
   useEffect(() => {
     void load(queue);
   }, [load, queue]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const eligible = cards.filter((card) =>
+      Boolean(card.instaComp.cardUuid && card.instaComp.identity?.player && card.instaComp.identity?.cardNumber),
+    );
+    if (!eligible.length) {
+      setPurchaseMatches({});
+      return () => { cancelled = true; };
+    }
+    void (async () => {
+      try {
+        const session = await getFreshAccountSession(5 * 60, false);
+        if (!session?.access_token) return;
+        const response = await fetch("/api/account/seller/instacomp-purchase-match", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            items: eligible.map((card) => ({
+              cardUuid: card.instaComp.cardUuid,
+              inventoryItemId: card.inventoryItemId,
+              identity: card.instaComp.identity,
+            })),
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.ok !== true || !Array.isArray(data.results)) return;
+        const next: Record<string, PurchaseMatchState> = {};
+        for (const row of data.results) {
+          if (row?.cardUuid) next[String(row.cardUuid)] = row as PurchaseMatchState;
+        }
+        if (cancelled) return;
+        setPurchaseMatches(next);
+        const pending = data.results.filter((row: any) => row?.status === "pending_purchase");
+        if (pending.length) {
+          setNotice(`PURCHASE MATCH FOUND — ${pending.length} scanned card${pending.length === 1 ? "" : "s"} waiting to be received into inventory.`);
+        }
+      } catch {
+        // Acquisition matching is additive and must never block normal KINGMAKER work.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cards]);
+
+  async function receivePurchase(card: PendingCard) {
+    const cardUuid = card.instaComp.cardUuid || "";
+    const purchase = cardUuid ? purchaseMatches[cardUuid] : null;
+    const acquisitionItemId = Number(purchase?.match?.acquisitionItemId || 0);
+    if (!cardUuid || acquisitionItemId <= 0) return;
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-purchase-receive", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          cardUuid,
+          inventoryItemId: card.inventoryItemId,
+          acquisitionItemId,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true || data.status !== "received") {
+        throw new Error(data.error || data.detail || "Could not receive the matched purchase.");
+      }
+      setPurchaseMatches((current) => ({
+        ...current,
+        [cardUuid]: { ...purchase!, status: "received", match: data.match || purchase?.match },
+      }));
+      setNotice(`${card.title}: RECEIVED INTO INVENTORY · ${data.match?.source || purchase?.match?.source || "Purchase"} · ${money(data.match?.allocatedCost || purchase?.match?.allocatedCost)} cost basis.`);
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   function setEditValue<K extends keyof EditState>(id: string, key: K, value: EditState[K]) {
     setEdits((current) => ({
@@ -1073,6 +1181,13 @@ export default function KingmakerPendingPage({
             const activeCompetition = card.instaComp.activeCompetition || [];
             const suggested = Number(card.instaComp.suggestedPrice || 0);
             const channelPricing = card.instaComp.channelPricing || null;
+            const purchaseMatch = card.instaComp.cardUuid
+              ? purchaseMatches[card.instaComp.cardUuid] || null
+              : null;
+            const purchaseRecord = purchaseMatch?.match || null;
+            const pendingPurchase = purchaseMatch?.status === "pending_purchase";
+            const receivedPurchase = purchaseMatch?.status === "received";
+            const possiblePurchase = purchaseMatch?.status === "possible_match";
             const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
             const sellerManualPrice = listingPriceSource === "kingmaker_manual";
             const websiteListed = String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
@@ -1129,6 +1244,19 @@ export default function KingmakerPendingPage({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {pendingPurchase ? (
+                      <span className="rounded-full bg-orange-400 px-3 py-1 text-xs font-black text-orange-950">
+                        PENDING PURCHASE · MATCH FOUND
+                      </span>
+                    ) : receivedPurchase ? (
+                      <span className="rounded-full bg-emerald-300 px-3 py-1 text-xs font-black text-emerald-950">
+                        RECEIVED INVENTORY
+                      </span>
+                    ) : possiblePurchase ? (
+                      <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">
+                        POSSIBLE PURCHASE MATCH
+                      </span>
+                    ) : null}
                     {queue === "verification" ? (
                       <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
                         PENDING VERIFICATION
@@ -1150,6 +1278,40 @@ export default function KingmakerPendingPage({
                     ) : null}
                   </div>
                 </div>
+
+                {purchaseRecord && (pendingPurchase || receivedPurchase || possiblePurchase) ? (
+                  <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : receivedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : receivedPurchase ? "text-emerald-950" : "text-amber-950"}`}>
+                          {pendingPurchase ? "PURCHASE MATCH FOUND — RECEIVE BEFORE LISTING" : receivedPurchase ? "PURCHASE RECEIVED — COST BASIS ATTACHED" : "POSSIBLE PURCHASE MATCH — REVIEW"}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-neutral-700">
+                          KINGMAKER matched this scanned physical card against the Mac-local acquisition ledger.
+                        </p>
+                      </div>
+                      {pendingPurchase ? (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void receivePurchase(card)}
+                          className="rounded-xl border-2 border-neutral-950 bg-neutral-950 px-5 py-3 font-black text-white disabled:opacity-40"
+                        >
+                          {isBusy ? "Receiving…" : "Receive Into Inventory"}
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Source</p><p className="font-black">{purchaseRecord.source || "Misc"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">What we paid</p><p className="font-black">{money(purchaseRecord.allocatedCost)}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Purchased</p><p className="font-black">{purchaseRecord.purchaseDate || "Date unavailable"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Order / Purchase ID</p><p className="break-all font-black">{purchaseRecord.orderNumber || purchaseRecord.purchaseId}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Seller</p><p className="font-bold">{purchaseRecord.seller || "Not captured"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3 sm:col-span-2"><p className="text-xs font-black uppercase text-neutral-500">Purchase listing / lot</p><p className="font-bold">{purchaseRecord.sourceLot || purchaseRecord.title || "Not captured"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Match confidence</p><p className="font-black">{purchaseMatch?.confidence ? `${Math.round(Number(purchaseMatch.confidence) * 100)}%` : "Stored match"}</p></div>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="border-b-2 border-neutral-900 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 font-black">
