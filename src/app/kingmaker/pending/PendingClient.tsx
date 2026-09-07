@@ -1057,6 +1057,8 @@ export default function KingmakerPendingPage({
             const activeCompetition = card.instaComp.activeCompetition || [];
             const suggested = Number(card.instaComp.suggestedPrice || 0);
             const channelPricing = card.instaComp.channelPricing || null;
+            const websiteListed = String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
+            const ebayListed = String(channelPricing?.ebayStatus || "").toLowerCase() === "active";
             const groupQuantity = Math.max(
               1,
               Number(card.commercialGroup?.totalQuantity || card.quantity || 1),
@@ -1117,6 +1119,17 @@ export default function KingmakerPendingPage({
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
                       {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
                     </span>
+                    <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${websiteListed ? "border-emerald-300 bg-emerald-300 text-emerald-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
+                      {websiteListed ? "✓ WEBSITE LISTED" : "WEBSITE NOT LISTED"}
+                    </span>
+                    <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${ebayListed ? "border-blue-300 bg-blue-300 text-blue-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
+                      {ebayListed ? "✓ EBAY LISTED" : "EBAY NOT LISTED"}
+                    </span>
+                    {websiteListed && ebayListed ? (
+                      <span className="rounded-full border-2 border-amber-200 bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
+                        ✓ LISTED BOTH
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
