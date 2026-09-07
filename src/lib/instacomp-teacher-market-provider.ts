@@ -42,7 +42,7 @@ const TEACHER_TIMEOUT_MS = 120_000;
 const MAX_ROWS_PER_TEACHER = 8;
 // 130point is intentionally excluded from automated teacher browsing.
 // TCOS uses 130point only through the manual screenshot-verification workflow until authorized access exists.
-const TEACHER_MARKET_DOMAINS = ["ebay.com", "sales-history.fanaticscollect.com", "fanaticscollect.com", "psacard.com", "goldin.co"];
+const TEACHER_MARKET_DOMAINS = ["ebay.com", "mercari.com", "sales-history.fanaticscollect.com", "fanaticscollect.com", "psacard.com", "goldin.co"];
 
 export type TeacherName =
   | "gemini"
@@ -197,13 +197,13 @@ function normalizePayload(value: unknown): TeacherPayload {
 function teacherPrompt(exactTitle: string, ai: InstaCompAiResult) {
   return [
     "You are an independent sports-card market teacher for Truely Collectables InstaComp.",
-    "Search the live web for direct realized-sale evidence from eBay, Fanatics Collect Sales History, PSA Auction Prices Realized, and Goldin reported results. Never browse or automate 130point; TCOS handles 130point only through its separate human screenshot-verification workflow.",
+    "Search the live web for direct realized-sale evidence from eBay, Fanatics Collect Sales History, PSA Auction Prices Realized, and Goldin reported results. Also search Mercari for currently active exact-card listings as marketplace competition. Never browse or automate 130point; TCOS handles 130point only through its separate human screenshot-verification workflow.",
     "For PSA-graded cards, also inspect psacard.com Auction Prices Realized and PSA cert Sales History as independent identity and realized-sale evidence. PSA Estimate and PSA Price Guide values are reference-only and are NEVER sold comps. If PSA corroborates an eBay sale, return the direct eBay item URL only after the exact PSA card identity and PSA grade match.",
     "The local InstaComp AI is a STUDENT and must not be treated as authority. The identity JSON below is the canonical target supplied by the verified InstaComp Registry/workflow.",
     "Never return a similar card. Player, year/season, manufacturer/brand/product, exact set/insert, card number, parallel/variation, print-run denominator, autograph/relic state, raw/graded state, grading company and grade must match whenever applicable.",
     "A /199 card is never a comp for /299. A numbered card is never a comp for an unnumbered card. A different insert/set is never a comp even when player and card number look similar.",
     "Open and inspect the direct listing evidence. Use listing images when available. Seller titles are clues, not ground truth.",
-    "For eBay return direct ebay.com/itm/<item-id> URLs. For Fanatics, PSA, or Goldin return only the direct official result/item URL you actually opened. Do not invent URLs, prices, shipping, dates, images, or sold status.",
+    "For eBay return direct ebay.com/itm/<item-id> URLs. For Mercari return only a direct mercari.com item URL that you actually opened and only in the active lane unless a sold date is explicitly proven. For Fanatics, PSA, or Goldin return only the direct official result/item URL you actually opened. Do not invent URLs, prices, shipping, dates, images, or sold status.",
     "For sold rows, soldAt is required and shippingPrice must be known; use 0 only when free shipping is explicit.",
     "For active rows, return only currently purchasable exact matches.",
     "If exact proof is unavailable, return an empty array instead of guessing.",

@@ -522,7 +522,7 @@ export default function KingmakerPendingPage({
     }
     setBusyId(card.inventoryItemId);
     setPageError("");
-    setNotice("");
+    setNotice(`Running InstaComp on ${card.title}…`);
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
@@ -607,7 +607,7 @@ export default function KingmakerPendingPage({
       setNotice(
         Number(data.suggestedPrice || 0) > 0
           ? `${card.title}: InstaComp ${money(data.suggestedPrice)} from ${Number(data.reliableSoldCompCount || 0)} exact sold comp${Number(data.reliableSoldCompCount || 0) === 1 ? "" : "s"}.`
-          : `${card.title}: no exact sold comps passed; seller pricing is required.`,
+          : `${card.title}: no exact sold comps passed. ${Array.isArray(data.providerProblems) && data.providerProblems.length ? `Provider issue: ${data.providerProblems.slice(0, 2).map((row: any) => `${row.label}: ${row.message || row.status}`).join(" · ")}` : "Seller pricing is required."}`,
       );
       await load(queue || queueFromLocation());
     } catch (error) {
@@ -1348,7 +1348,7 @@ export default function KingmakerPendingPage({
                           disabled={!pairReady || Boolean(busyId)}
                           className="rounded-xl bg-violet-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
-                          Run InstaComp
+                          {busyId === card.inventoryItemId ? "Running InstaComp…" : "Run InstaComp"}
                         </button>
                         <button
                           type="button"

@@ -4,6 +4,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import {
+  buildCompLinks,
   buildInstaCompQueries,
   type InstaCompAiResult,
 } from "../../../../../../lib/instacomp";
@@ -377,6 +378,7 @@ export async function POST(request: NextRequest) {
     }
 
     const fallbackQuery = buildInstaCompQueries(ai).primary;
+    const compLinks = buildCompLinks(fallbackQuery);
     const fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle: item.title, ai });
 
     let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
@@ -409,22 +411,28 @@ export async function POST(request: NextRequest) {
       ? await getOpenAiExactEbayMarketProviders({ exactTitle: item.title, ai })
       : null;
 
+    const preservedTrustedSold =
+      currentInstaComp.trustedForPricing === true && useStoredIdentity
+        ? evidenceList(currentInstaComp.soldCompEvidence, 50).filter((row) =>
+            isPricingEligibleEvidence(row, "sold"),
+          )
+        : [];
     const trustedSoldEvidence = dedupeEvidence(
       [
+        ...preservedTrustedSold,
         ...evidenceList(fanaticsSold.results, 20),
         ...evidenceList(teacherSold.results, 20),
       ],
-      40,
+      50,
     );
     const discoverySoldCandidates = forceImageVerification(
       evidenceList(openAiMarket?.sold.results, 20),
     );
-    const discoveryActiveCandidates = forceImageVerification(
-      [
-        ...evidenceList(teacherActive.results, 20),
-        ...evidenceList(openAiMarket?.active.results, 20),
-      ].slice(0, 30),
-    );
+    const teacherActiveCandidates = evidenceList(teacherActive.results, 20);
+    const discoveryActiveCandidates = [
+      ...teacherActiveCandidates,
+      ...forceImageVerification(evidenceList(openAiMarket?.active.results, 20)),
+    ].slice(0, 30);
     const [soldReview, activeReview] = await Promise.all([
       verifyInstaCompCompetitionImages({
         targetFrontImage: files[0],
@@ -483,10 +491,31 @@ export async function POST(request: NextRequest) {
       ? pricingAnalysis.explanation
       : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one image-verified exact sold listing.`;
     const checkedAt = new Date().toISOString();
+    const mercariActiveCount = teacherActiveCandidates.filter((row) => /mercari\.com/i.test(row.url)).length;
     const providerCoverage = [
       providerCoverageRow(fanaticsSold),
       providerCoverageRow(teacherSold),
       providerCoverageRow(teacherActive),
+      {
+        source: "mercari_active_teacher_discovery",
+        label: "Mercari Active",
+        status: mercariActiveCount ? "live" : teacherActive.status,
+        resultCount: mercariActiveCount,
+        message: mercariActiveCount
+          ? `${mercariActiveCount} strict exact active Mercari listing${mercariActiveCount === 1 ? "" : "s"} found.`
+          : "Mercari is searched as active-market competition; no strict exact active listing was retained on this pass.",
+        searchUrl: compLinks.mercariUrl,
+        attempts: [],
+      },
+      {
+        source: "130point_manual_verification",
+        label: "130point",
+        status: "manual_verification",
+        resultCount: 0,
+        message: "130point remains a manual screenshot-verification source; automated scraping is intentionally disabled.",
+        searchUrl: compLinks.one30pointUrl,
+        attempts: [],
+      },
       ...(openAiMarket
         ? [providerCoverageRow(openAiMarket.sold), providerCoverageRow(openAiMarket.active)]
         : []),
@@ -498,7 +527,11 @@ export async function POST(request: NextRequest) {
     const sourceLinks = {
       ...existingSourceLinks,
       ebaySoldUrl: openAiMarket?.sold.searchUrl || existingSourceLinks.ebaySoldUrl || null,
-      ebayActiveUrl: openAiMarket?.active.searchUrl || existingSourceLinks.ebayActiveUrl || null,
+      ebayActiveUrl: openAiMarket?.active.searchUrl || existingSourceLinks.ebayActiveUrl || compLinks.ebayActiveUrl,
+      one30pointUrl: compLinks.one30pointUrl,
+      mercariUrl: compLinks.mercariUrl,
+      fanaticsUrl: compLinks.fanaticsUrl,
+      broadCardMarketUrl: compLinks.broadCardMarketUrl,
     };
 
     const nextMetadata = {
@@ -543,6 +576,7 @@ export async function POST(request: NextRequest) {
           ? currentInstaComp.excludedCompEvidence
           : [],
         providerCoverage,
+        teacherAttempts: teacher?.attempts || [],
         sourceLinks,
         exactMarketVisualReview: {
           soldReviewed: soldReview.reviewedCount,
@@ -585,6 +619,7 @@ export async function POST(request: NextRequest) {
       activePricingEvidenceCount: activePricingEvidence.length,
       sourceLinks,
       providerCoverage,
+      teacherAttempts: teacher?.attempts || [],
       providerProblems: providerCoverage.filter(
         (row) => row.status === "error" || row.status === "not_configured",
       ),
