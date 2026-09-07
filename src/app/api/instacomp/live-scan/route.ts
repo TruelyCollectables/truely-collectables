@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { POST as runIdentityScan } from "../scan/route";
-import { getOpenAiExactEbayMarketProviders } from "../../../../lib/instacomp-openai-web-market-provider";
 import { getTeacherExactMarketProviders } from "../../../../lib/instacomp-teacher-market-provider";
 import { getFanaticsExactSoldProvider } from "../../../../lib/instacomp-fanatics-sold-provider";
 import {
@@ -686,35 +685,7 @@ export async function POST(request: NextRequest) {
         }),
       };
 
-  let openAi: Awaited<ReturnType<typeof getOpenAiExactEbayMarketProviders>> | null = null;
-  let openAiFailure: string | null = null;
-  if (!teacherSource.sold.results.length && !fanaticsSold.results.length) {
-    try {
-      openAi = await getOpenAiExactEbayMarketProviders({ exactTitle, ai });
-    } catch (error) {
-      openAiFailure = sanitizeInstaCompProviderError(
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-  const openAiSource: InstaCompExactMarketSource = openAi
-    ? { sold: openAi.sold, active: openAi.active }
-    : {
-        sold: providerError({
-          source: "openai_web_ebay_sold_exact",
-          label: "eBay Sold via OpenAI Web",
-          message: teacherSource.sold.results.length
-            ? "Skipped because outside teacher consensus already supplied trusted exact sold evidence."
-            : openAiFailure || "OpenAI exact sold provider failed or was unavailable.",
-        }),
-        active: providerError({
-          source: "openai_web_ebay_active_exact",
-          label: "eBay Active via OpenAI Web",
-          message: teacherSource.sold.results.length
-            ? "Skipped because outside teacher consensus already supplied trusted exact sold evidence."
-            : openAiFailure || "OpenAI exact active provider failed or was unavailable.",
-        }),
-      };
+  // Paid OpenAI web-market fallback is disabled. No-comp results stay no-comp.
 
   const officialEbayActive = (base.providers || []).find(
     (provider) => provider.source === "ebay_active",
@@ -759,7 +730,6 @@ export async function POST(request: NextRequest) {
   const summary = mergeExactMarketSources([
     { sold: fanaticsSold, active: { source: "fanatics_active_not_used", label: "Fanatics Active", status: "not_configured", message: "Sales History is sold-only.", results: [] } },
     teacherSource,
-    openAiSource,
     verifiedOfficialActiveSource,
   ]);
   const exactProviders = [
@@ -767,12 +737,9 @@ export async function POST(request: NextRequest) {
     teacherSource.sold,
     teacherSource.active,
     verifiedOfficialActiveSource.active,
-    openAiSource.sold,
-    openAiSource.active,
   ];
   const soldSearchUrl =
-    openAi?.sold.searchUrl ||
-    (base.links?.ebaySoldUrl ? String(base.links.ebaySoldUrl) : null);
+    base.links?.ebaySoldUrl ? String(base.links.ebaySoldUrl) : null;
   const registryReceipt = ((base as any).checklistRegistry || {}) as Record<string, any>;
   const registryIdentityId = String(registryReceipt.identityId || "").trim() || null;
   const registryFingerprintSha256 =
@@ -806,14 +773,8 @@ export async function POST(request: NextRequest) {
         }
       : null,
     discoveryCandidates: {
-      sold: [
-        ...(teacher?.discovery.sold || []),
-        ...openAiSource.sold.results,
-      ].slice(0, 20),
-      active: [
-        ...(teacher?.discovery.active || []),
-        ...openAiSource.active.results,
-      ].slice(0, 20),
+      sold: [...(teacher?.discovery.sold || [])].slice(0, 20),
+      active: [...(teacher?.discovery.active || [])].slice(0, 20),
     },
     providers: exactProviders.map((provider) => ({
       source: provider.source,
@@ -967,14 +928,8 @@ export async function POST(request: NextRequest) {
           }
         : null,
       discoveryCandidates: {
-        sold: [
-          ...(teacher?.discovery.sold || []),
-          ...openAiSource.sold.results,
-        ],
-        active: [
-          ...(teacher?.discovery.active || []),
-          ...openAiSource.active.results,
-        ],
+        sold: [...(teacher?.discovery.sold || [])],
+        active: [...(teacher?.discovery.active || [])],
         trustedForPricing: false,
       },
     },
@@ -1017,11 +972,8 @@ export async function POST(request: NextRequest) {
           officialActiveRejected: officialActiveReview.rejected.length,
         },
         openAiWeb: {
-          soldStatus: openAiSource.sold.status,
-          activeStatus: openAiSource.active.status,
-          model: openAi?.model || null,
-          cached: openAi?.cached || false,
-          responseId: openAi?.responseId || null,
+          status: "disabled",
+          reason: "Paid OpenAI web-market fallback is disabled.",
         },
       },
       persistence,

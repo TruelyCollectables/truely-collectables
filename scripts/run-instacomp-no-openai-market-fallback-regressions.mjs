@@ -1,28 +1,37 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const routePath = "src/app/api/account/seller/inventory/instacomp/route.ts";
-const source = fs.readFileSync(routePath, "utf8");
+const exactMarketRoutes = [
+  "src/app/api/account/seller/inventory/instacomp/route.ts",
+  "src/app/api/instacomp/live-scan/route.ts",
+  "src/app/api/instacomp/deal-hunter/evaluate/resilient-core.ts",
+  "src/app/api/instacomp/deal-hunter/evaluate/multi-provider-core.ts",
+];
 
+for (const routePath of exactMarketRoutes) {
+  const source = fs.readFileSync(routePath, "utf8");
+  assert.equal(
+    source.includes("getOpenAiExactEbayMarketProviders"),
+    false,
+    `${routePath} must not import or call the OpenAI web-market provider`,
+  );
+}
+
+const kingmaker = fs.readFileSync(exactMarketRoutes[0], "utf8");
 assert.equal(
-  source.includes("getOpenAiExactEbayMarketProviders"),
-  false,
-  "KINGMAKER InstaComp must not import or call the OpenAI web-market provider",
-);
-assert.equal(
-  source.includes("shouldSearchOpenAiWeb"),
+  kingmaker.includes("shouldSearchOpenAiWeb"),
   false,
   "KINGMAKER InstaComp must not retain an OpenAI web fallback gate",
 );
 assert.match(
-  source,
+  kingmaker,
   /OpenAI Web fallback is disabled/,
-  "no-comp behavior should explicitly remain local/non-OpenAI",
+  "KINGMAKER no-comp behavior should explicitly remain non-OpenAI",
 );
 assert.match(
-  source,
+  kingmaker,
   /openAiWebMarket:\s*null/,
-  "response metadata should record that OpenAI web market was not used",
+  "KINGMAKER response metadata should record that OpenAI web market was not used",
 );
 
-console.log("KINGMAKER InstaComp OpenAI-market fallback regression passed.");
+console.log("InstaComp exact-market OpenAI fallback regression passed for all production routes.");
