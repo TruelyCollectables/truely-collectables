@@ -699,7 +699,8 @@ export default function KingmakerPendingPage({
           completed += 1;
         }
       }
-      setNotice(`Published ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}.`);
+      const failureSummary = failures.length ? ` ${failures[0]}` : "";
+      setNotice(`Published ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}.${failureSummary}`);
       if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
       setSelectedIds(new Set());
       await load(queue || queueFromLocation());

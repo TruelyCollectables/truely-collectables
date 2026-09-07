@@ -390,11 +390,60 @@ export async function POST(request: Request) {
       },
     };
 
+    let linkedProductId = keeper.legacy_product_id ? Number(keeper.legacy_product_id) : null;
+    if ((action === "publish-website" || action === "publish-both") && !linkedProductId) {
+      const { data: existingProducts, error: existingProductError } = await supabase
+        .from("products")
+        .select("id")
+        .eq("store_id", storeId)
+        .eq("sku", sku)
+        .limit(2);
+      if (existingProductError) throw existingProductError;
+      if ((existingProducts || []).length > 1) {
+        return Response.json(
+          {
+            success: false,
+            error: "Multiple website product rows already use this KINGMAKER SKU. Publishing stopped to prevent duplicate inventory.",
+            code: "MULTIPLE_WEBSITE_PRODUCTS_FOR_SKU",
+            productIds: (existingProducts || []).map((row: any) => row.id),
+          },
+          { status: 409 },
+        );
+      }
+      if ((existingProducts || []).length === 1) {
+        linkedProductId = Number(existingProducts![0].id);
+      } else {
+        const { data: createdProduct, error: createProductError } = await supabase
+          .from("products")
+          .insert({
+            store_id: storeId,
+            seller_account_id: keeper.seller_account_id || account.id,
+            sku,
+            title: websiteTitle,
+            description: websiteDescription,
+            player: generated.identity.player,
+            sport: generated.identity.sport,
+            price: websitePrice,
+            quantity: 0,
+            image_url: imageUrls[0] || null,
+            listing_status: "draft",
+            archived_at: null,
+          })
+          .select("id")
+          .single();
+        if (createProductError || !createdProduct?.id) {
+          throw createProductError || new Error("Could not create the linked website product record.");
+        }
+        linkedProductId = Number(createdProduct.id);
+      }
+    }
+
     const { error: keeperSaveError } = await supabase
       .from("inventory_items")
       .update({
         sku,
         quantity: totalQuantity,
+        legacy_product_id: linkedProductId,
         metadata: nextMetadata,
         updated_at: now,
       })
@@ -402,12 +451,12 @@ export async function POST(request: Request) {
       .eq("id", keeper.id);
     if (keeperSaveError) throw keeperSaveError;
 
-    if (keeper.legacy_product_id) {
+    if (linkedProductId) {
       const { error: skuError } = await supabase
         .from("products")
         .update({ sku })
         .eq("store_id", storeId)
-        .eq("id", keeper.legacy_product_id);
+        .eq("id", linkedProductId);
       if (skuError) throw skuError;
     }
 
@@ -464,12 +513,12 @@ export async function POST(request: Request) {
             .eq("store_id", storeId)
             .eq("id", keeper.id)
             .throwOnError();
-          if (keeper.legacy_product_id) {
+          if (linkedProductId) {
             await supabase
               .from("products")
               .update({ ebay_item_id: ebayResult.listingId, last_seen_at: new Date().toISOString() })
               .eq("store_id", storeId)
-              .eq("id", keeper.legacy_product_id)
+              .eq("id", linkedProductId)
               .throwOnError();
           }
         } catch (error) {
@@ -480,8 +529,8 @@ export async function POST(request: Request) {
 
     if (action === "publish-website" || action === "publish-both") {
       try {
-        if (!keeper.legacy_product_id) {
-          throw new Error("Website publish requires the linked product record.");
+        if (!linkedProductId) {
+          throw new Error("Website product linkage could not be established.");
         }
         const { error: inventoryError } = await supabase
           .from("inventory_items")
@@ -522,9 +571,10 @@ export async function POST(request: Request) {
             quantity: totalQuantity,
             image_url: imageUrls[0] || null,
             archived_at: null,
+            listing_status: "live",
           })
           .eq("store_id", storeId)
-          .eq("id", keeper.legacy_product_id);
+          .eq("id", linkedProductId);
         if (productError) throw productError;
         websitePublished = true;
       } catch (error) {
@@ -565,6 +615,7 @@ export async function POST(request: Request) {
         ebayPublished: Boolean(ebayResult),
         ebayListingId: ebayResult?.listingId || null,
         ebayOfferId: ebayResult?.offerId || null,
+        websiteProductId: linkedProductId,
         errors,
       },
       { status: success ? 200 : anyPublished ? 207 : 409 },
