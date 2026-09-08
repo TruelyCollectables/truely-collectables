@@ -630,6 +630,34 @@ function warningMessages(value: unknown) {
   return errorDetails({ warnings: Array.isArray(value) ? value : [] });
 }
 
+function sanitizedPackageWeightAndSize(value: any) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const next: Record<string, unknown> = {};
+  const dimensions = value.dimensions && typeof value.dimensions === "object"
+    ? value.dimensions
+    : null;
+  if (dimensions) {
+    const height = Number(dimensions.height);
+    const length = Number(dimensions.length);
+    const width = Number(dimensions.width);
+    const unit = cleanText(dimensions.unit, 20);
+    if ([height, length, width].every((part) => Number.isFinite(part) && part > 0) && unit) {
+      next.dimensions = { height, length, width, unit };
+    }
+  }
+  const weight = value.weight && typeof value.weight === "object" ? value.weight : null;
+  if (weight) {
+    const amount = Number(weight.value);
+    const unit = cleanText(weight.unit, 20);
+    if (Number.isFinite(amount) && amount > 0 && unit) {
+      next.weight = { value: amount, unit };
+    }
+  }
+  const packageType = cleanText(value.packageType, 40);
+  if (packageType) next.packageType = packageType;
+  return Object.keys(next).length ? next : undefined;
+}
+
 
 export async function reviseExistingEbayInventoryItem(params: EbaySellerTokenSource & {
   revision: EbayExistingRevisionInput;
@@ -720,7 +748,7 @@ export async function reviseExistingEbayInventoryItem(params: EbaySellerTokenSou
       conditionDescriptors: Array.isArray(currentItem?.conditionDescriptors)
         ? currentItem.conditionDescriptors
         : undefined,
-      packageWeightAndSize: currentItem?.packageWeightAndSize,
+      packageWeightAndSize: sanitizedPackageWeightAndSize(currentItem?.packageWeightAndSize),
       product: {
         ...currentProduct,
         title: nextTitle,
