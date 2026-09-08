@@ -73,17 +73,19 @@ const actorParseIndex = callbackRoute.indexOf("parseOAuthActor(state, storeId)")
 const tokenExchangeIndex = callbackRoute.indexOf(
   'exchangeEbayAuthorizationCode({',
 );
-const adminTokenInsertIndex = callbackRoute.indexOf('.from("ebay_tokens").insert');
 
 assert.ok(missingStateGuardIndex >= 0, "Callback must reject missing OAuth state.");
 assert.ok(actorParseIndex > missingStateGuardIndex, "Callback must parse signed state after checking presence.");
 assert.ok(tokenExchangeIndex > actorParseIndex, "Callback must validate signed state before exchanging the code.");
-assert.ok(adminTokenInsertIndex > tokenExchangeIndex, "Admin token storage must happen only after state validation and token exchange.");
-assert.match(callbackRoute, /grant_type:\s*"authorization_code"/);
+assert.match(callbackRoute, /mode:\s*"oauth_exchange"/);
 assert.match(callbackRoute, /postInstaCompMacAccounting/);
+assert.doesNotMatch(callbackRoute, /\.from\("ebay_tokens"\)\.insert/);
+assert.doesNotMatch(callbackRoute, /encryptMarketplaceToken/);
+assert.match(callbackRoute, /data\.tokenStored !== true/);
+assert.match(callbackRoute, /mac_local:TCOS-Current-Review\/ebay-seller-token\.json/);
 assert.match(callbackRoute, /preserveExistingSellerConnectionAfterOAuthFailure/);
 assert.match(callbackRoute, /sellerState\.storeId !== activeStoreId/);
 assert.match(callbackRoute, /adminState\.storeId !== activeStoreId/);
 assert.match(callbackRoute, /store_id:\s*actor\.state\.storeId/);
 
-console.log("eBay OAuth state security simulations passed: signed state, same-runtime exchange ordering, Mac fallback, and reconnect preservation verified");
+console.log("eBay OAuth state security simulations passed: signed state, Mac-local exchange ordering, no cloud token storage, and reconnect preservation verified");
