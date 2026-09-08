@@ -25,8 +25,8 @@ function getSupabaseClient() {
 function sellerMarketplaceEbayAuthHeaders(params: {
   status: "requested" | "misconfigured" | "blocked" | "failed";
   storeSyncStatus: "enabled" | "disabled" | "unknown";
-  connectionStatus: "connect_requested" | "not_requested";
-  syncStatus: "not_started" | "unknown";
+  connectionStatus: string;
+  syncStatus: string;
 }) {
   return {
     "X-TCOS-Seller-Marketplace-Ebay-Auth-Mutation": "start_oauth",
@@ -92,6 +92,32 @@ export async function POST(request: Request) {
       status: "active",
     });
 
+    const now = new Date().toISOString();
+    const { data: existingConnection, error: existingConnectionError } = await supabase
+      .from("seller_marketplace_connections")
+      .select("connection_status,sync_status,last_sync_error,provider_metadata")
+      .eq("account_id", account.id)
+      .eq("store_id", storeId)
+      .eq("provider", "ebay")
+      .maybeSingle();
+    if (existingConnectionError) throw existingConnectionError;
+
+    const preserveLiveConnection =
+      existingConnection?.connection_status === "connected" ||
+      existingConnection?.connection_status === "sync_paused";
+    const connectionStatus = preserveLiveConnection
+      ? existingConnection.connection_status
+      : "connect_requested";
+    const syncStatus = preserveLiveConnection
+      ? existingConnection.sync_status || "not_started"
+      : "not_started";
+    const providerMetadata =
+      existingConnection?.provider_metadata &&
+      typeof existingConnection.provider_metadata === "object" &&
+      !Array.isArray(existingConnection.provider_metadata)
+        ? existingConnection.provider_metadata
+        : {};
+
     const { error: connectionError } = await supabase
       .from("seller_marketplace_connections")
       .upsert(
@@ -99,13 +125,18 @@ export async function POST(request: Request) {
         account_id: account.id,
         store_id: storeId,
         provider: "ebay",
-        connection_status: "connect_requested",
-        sync_status: "not_started",
+        connection_status: connectionStatus,
+        sync_status: syncStatus,
         oauth_scope: EBAY_SCOPE.split(" "),
-        last_sync_error: null,
-        updated_at: new Date().toISOString(),
+        last_sync_error: preserveLiveConnection
+          ? existingConnection.last_sync_error
+          : null,
+        updated_at: now,
         provider_metadata: {
+          ...providerMetadata,
           request_source: "seller_ebay_oauth_start",
+          oauth_requested_at: now,
+          oauth_reconnect_pending: true,
         },
       },
       { onConflict: "store_id,account_id,provider" },
@@ -140,8 +171,8 @@ export async function POST(request: Request) {
       headers: sellerMarketplaceEbayAuthHeaders({
         status: "requested",
         storeSyncStatus,
-        connectionStatus: "connect_requested",
-        syncStatus: "not_started",
+        connectionStatus,
+        syncStatus,
       }),
     });
   } catch (error: any) {

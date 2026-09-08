@@ -36,6 +36,59 @@ function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
+function record(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : {};
+}
+
+async function preserveExistingSellerConnectionAfterOAuthFailure(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  accountId: string;
+  storeId: string;
+  errorMessage: string;
+}) {
+  const { data: connection } = await params.supabase
+    .from("seller_marketplace_connections")
+    .select("id,connection_status,sync_status,last_sync_error,provider_metadata")
+    .eq("account_id", params.accountId)
+    .eq("store_id", params.storeId)
+    .eq("provider", "ebay")
+    .maybeSingle();
+
+  if (
+    !connection?.id ||
+    !["connected", "sync_paused"].includes(String(connection.connection_status || ""))
+  ) {
+    return false;
+  }
+
+  const { count } = await params.supabase
+    .from("seller_marketplace_connection_tokens")
+    .select("connection_id", { count: "exact", head: true })
+    .eq("connection_id", connection.id)
+    .eq("account_id", params.accountId)
+    .eq("store_id", params.storeId)
+    .eq("provider", "ebay");
+  if (!count) return false;
+
+  const now = new Date().toISOString();
+  await params.supabase
+    .from("seller_marketplace_connections")
+    .update({
+      provider_metadata: {
+        ...record(connection.provider_metadata),
+        oauth_reconnect_pending: false,
+        last_oauth_error: params.errorMessage,
+        last_oauth_error_at: now,
+      },
+      updated_at: now,
+    })
+    .eq("id", connection.id);
+
+  return true;
+}
+
 function sellerRedirect(
   _request: Request,
   status: "connected" | "error",
@@ -125,6 +178,20 @@ export async function GET(request: Request) {
 
   if (!code) {
     if (actor.type === "seller") {
+      const preserved = await preserveExistingSellerConnectionAfterOAuthFailure({
+        supabase,
+        accountId: actor.state.accountId,
+        storeId: actor.state.storeId,
+        errorMessage: callbackError,
+      });
+      if (preserved) {
+        return sellerRedirect(
+          request,
+          "connected",
+          "Existing eBay connection kept; reconnect was not completed.",
+        );
+      }
+
       await supabase
         .from("seller_marketplace_connections")
         .update({
@@ -153,6 +220,20 @@ export async function GET(request: Request) {
     const errorMessage =
       error instanceof Error ? error.message : "eBay authorization token exchange failed.";
     if (actor.type === "seller") {
+      const preserved = await preserveExistingSellerConnectionAfterOAuthFailure({
+        supabase,
+        accountId: actor.state.accountId,
+        storeId: actor.state.storeId,
+        errorMessage,
+      });
+      if (preserved) {
+        return sellerRedirect(
+          request,
+          "connected",
+          "Existing eBay connection kept; reconnect failed safely. Start a fresh reconnect if needed.",
+        );
+      }
+
       await supabase
         .from("seller_marketplace_connections")
         .update({
@@ -174,6 +255,20 @@ export async function GET(request: Request) {
         data.error_description ||
         data.error ||
         "eBay seller authorization failed";
+
+      const preserved = await preserveExistingSellerConnectionAfterOAuthFailure({
+        supabase,
+        accountId: actor.state.accountId,
+        storeId: actor.state.storeId,
+        errorMessage,
+      });
+      if (preserved) {
+        return sellerRedirect(
+          request,
+          "connected",
+          "Existing eBay connection kept; reconnect failed safely. Start a fresh reconnect if needed.",
+        );
+      }
 
       await supabase
         .from("seller_marketplace_connections")
@@ -233,6 +328,9 @@ export async function GET(request: Request) {
           updated_at: new Date().toISOString(),
           provider_metadata: {
             callback_source: "ebay_oauth_callback",
+            oauth_reconnect_pending: false,
+            last_oauth_error: null,
+            last_oauth_error_at: null,
             ebay_environment: storeSettings.ebayEnvironment,
             ebay_identity_verified_at: identity
               ? new Date().toISOString()
