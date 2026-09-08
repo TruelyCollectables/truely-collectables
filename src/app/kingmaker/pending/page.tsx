@@ -46,14 +46,15 @@ export default async function KingmakerPendingPage({
   const resolvedSearchParams = (await searchParams) || {};
   const queue = resolvedSearchParams.queue === "verification" ? "verification" : "listings";
   const rawFolder = typeof resolvedSearchParams.folder === "string" ? resolvedSearchParams.folder : "pending";
-  const folder = rawFolder === "website" || rawFolder === "ebay" || rawFolder === "both" || rawFolder === "investment"
+  const folder = rawFolder === "receipt" || rawFolder === "website" || rawFolder === "ebay" || rawFolder === "both" || rawFolder === "investment"
     ? rawFolder
     : "pending";
+  const dataFolder = folder === "receipt" ? "pending" : folder;
   const batch = typeof resolvedSearchParams.batch === "string" ? resolvedSearchParams.batch.trim() : "";
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.getAll().map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const response = await getPendingCards(
-    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${folder}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}`, {
+    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${dataFolder}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}`, {
       headers: cookieHeader ? { cookie: cookieHeader } : undefined,
     }),
   ).catch(() => null);

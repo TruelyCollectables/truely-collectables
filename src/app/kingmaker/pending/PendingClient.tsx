@@ -202,7 +202,8 @@ type EditState = {
 
 type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
 type PendingQueue = "listings" | "verification";
-type ListingFolder = "pending" | "website" | "ebay" | "both" | "investment";
+type ListingFolder = "receipt" | "pending" | "website" | "ebay" | "both" | "investment";
+type CountedListingFolder = Exclude<ListingFolder, "receipt">;
 type ChannelAction = "publish-website" | "publish-ebay" | "publish-both";
 
 function queueFromLocation(): PendingQueue | null {
@@ -215,7 +216,7 @@ function queueFromLocation(): PendingQueue | null {
 function folderFromLocation(): ListingFolder {
   if (typeof window === "undefined") return "pending";
   const folder = new URLSearchParams(window.location.search).get("folder");
-  return folder === "website" || folder === "ebay" || folder === "both" || folder === "investment"
+  return folder === "receipt" || folder === "website" || folder === "ebay" || folder === "both" || folder === "investment"
     ? folder
     : "pending";
 }
@@ -448,7 +449,7 @@ export default function KingmakerPendingPage({
   initialFolder?: ListingFolder;
   initialCards?: PendingCard[];
   initialQueueCounts?: { listings: number; verification: number };
-  initialFolderCounts?: Record<ListingFolder, number>;
+  initialFolderCounts?: Record<CountedListingFolder, number>;
 }) {
   const [cards, setCards] = useState<PendingCard[]>(initialCards);
   const [queueCounts, setQueueCounts] = useState(initialQueueCounts);
@@ -479,7 +480,7 @@ export default function KingmakerPendingPage({
   }, []);
 
   const load = useCallback(async (activeQueue: PendingQueue, activeFolder: ListingFolder = folderFromLocation()) => {
-    const requestedFolder = activeQueue === "verification" ? "pending" : activeFolder;
+    const requestedFolder = activeQueue === "verification" || activeFolder === "receipt" ? "pending" : activeFolder;
     setLoading(true);
     setPageError("");
     let accessTokenHint: string | null = null;
@@ -1209,6 +1210,15 @@ export default function KingmakerPendingPage({
     }
   }
 
+  const pendingReceiptCount = Object.values(purchaseMatches).filter((purchase) => purchase?.status === "pending_purchase").length;
+  const visibleCards = folder === "receipt"
+    ? cards.filter((card) =>
+        physicalMembersForCard(card).some(
+          (member) => purchaseMatches[member.inventoryItemId]?.status === "pending_purchase",
+        ),
+      )
+    : cards;
+
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950">
       <div className="mx-auto max-w-6xl">
@@ -1218,8 +1228,10 @@ export default function KingmakerPendingPage({
             <h1 className="mt-1 text-3xl font-black">
               {queue === "verification"
                 ? "Pending verification"
-                : folder === "pending"
-                  ? "Resale inventory — pending listing"
+                : folder === "receipt"
+                  ? "Pending receipt — matched purchases"
+                  : folder === "pending"
+                    ? "Resale inventory — pending listing"
                   : folder === "website"
                     ? "Listed on website only"
                     : folder === "ebay"
@@ -1231,9 +1243,11 @@ export default function KingmakerPendingPage({
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
               {queue === "verification"
                 ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify them."
-                : folder === "investment"
-                  ? "Received physical cards held for investment. Every card keeps its scan, purchase date, source, and cost basis until you move it back to resale."
-                  : folder === "pending"
+                : folder === "receipt"
+                  ? "Only scanned physical cards with a real Mac-local pending purchase reservation appear here. Receive each one into Resale Inventory or Investment Stash."
+                  : folder === "investment"
+                    ? "Received physical cards held for investment. Every card keeps its scan, purchase date, source, and cost basis until you move it back to resale."
+                    : folder === "pending"
                     ? "Scanned and received resale inventory stays here until it is listed. InstaComp is a market recommendation; you control the actual website and eBay prices."
                     : "Listed inventory is separated by live channel so cards no longer clutter the pending workspace."}
             </p>
@@ -1250,6 +1264,7 @@ export default function KingmakerPendingPage({
 
         <nav className="mt-5 flex flex-wrap gap-2" aria-label="Inventory lifecycle folders">
           {([
+            ["receipt", "Pending Receipt", pendingReceiptCount],
             ["pending", "Resale Pending", folderCounts.pending],
             ["website", "Website Only", folderCounts.website],
             ["ebay", "eBay Only", folderCounts.ebay],
@@ -1333,10 +1348,10 @@ export default function KingmakerPendingPage({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-black">Bulk edit</h2>
-                <p className="text-sm font-semibold text-neutral-600">{selectedIds.size} of {cards.length} selected</p>
+                <p className="text-sm font-semibold text-neutral-600">{selectedIds.size} of {visibleCards.length} selected</p>
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setSelectedIds(new Set(cards.map((card) => card.inventoryItemId)))} className="rounded-lg border-2 border-neutral-900 px-3 py-2 text-sm font-black">Select all</button>
+                <button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.inventoryItemId)))} className="rounded-lg border-2 border-neutral-900 px-3 py-2 text-sm font-black">Select all</button>
                 <button type="button" onClick={() => setSelectedIds(new Set())} className="rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-black">Clear</button>
                 <button
                   type="button"
@@ -1407,8 +1422,14 @@ export default function KingmakerPendingPage({
           </section>
         ) : null}
 
+        {folder === "receipt" && !loading && visibleCards.length === 0 ? (
+          <div className="mt-6 rounded-2xl border-2 border-neutral-900 bg-white p-6 font-black shadow-[6px_6px_0_#111]">
+            No scanned purchases are waiting to be received right now.
+          </div>
+        ) : null}
+
         <section className="mt-6 space-y-6">
-          {cards.map((card) => {
+          {visibleCards.map((card) => {
             const job = jobs[card.inventoryItemId];
             const pairReady = hasValidPair(card);
             const isBusy = busyId === card.inventoryItemId;
@@ -1532,7 +1553,7 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
-                {(purchaseMembers.length > 0 || scanRequired) ? (
+                {(pendingPurchase || receivedPurchase || possiblePurchase || scanRequired) ? (
                   <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : receivedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
                     <div>
                       <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : receivedPurchase ? "text-emerald-950" : "text-amber-950"}`}>

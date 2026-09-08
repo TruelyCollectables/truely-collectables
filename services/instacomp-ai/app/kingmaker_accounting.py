@@ -461,6 +461,15 @@ class KingmakerAccounting:
                 return {"status":"no_match","reason":"no_compatible_purchase","match":None}
             score,reasons,row=ranked[0]
             payload=self._purchase_row_payload(row)
+            if score < 0.70:
+                return {
+                    "status":"no_match",
+                    "inventoryItemId": inventory_item_id,
+                    "scanId": scan["scanId"],
+                    "confidence":round(score,3),
+                    "reason":"candidate_below_review_threshold:" + ",".join(reasons),
+                    "match":None,
+                }
             if score < 0.85:
                 return {
                     "status":"possible_match",
