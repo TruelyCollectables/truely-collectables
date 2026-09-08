@@ -176,6 +176,10 @@ class KingmakerAccounting:
             ):
                 if name not in columns:
                     db.execute(f"ALTER TABLE acquisition_items ADD COLUMN {name} {kind}")
+            receipt_columns = {row[1] for row in db.execute("PRAGMA table_info(physical_inventory_receipts)")}
+            for name, kind in (("receipt_mode", "TEXT"), ("linked_at", "TEXT")):
+                if name not in receipt_columns:
+                    db.execute(f"ALTER TABLE physical_inventory_receipts ADD COLUMN {name} {kind}")
 
     def record_acquisition_item(self, item: dict[str, Any]) -> None:
         self.initialize()
@@ -441,6 +445,8 @@ class KingmakerAccounting:
                     "inventoryItemId": str(existing["inventory_item_id"]),
                     "confidence": float(existing["match_confidence"]),
                     "reason": existing["match_reason"],
+                    "receiptMode": existing["receipt_mode"] if "receipt_mode" in existing.keys() else None,
+                    "linkedAt": existing["linked_at"] if "linked_at" in existing.keys() else None,
                     "match": payload,
                 }
 
@@ -527,7 +533,7 @@ class KingmakerAccounting:
                 raise ValueError("Inventory cannot be received without verified scan evidence")
             inventory_state = "investment_stash" if destination == "investment_stash" else "resale_ready"
             db.execute(
-                "UPDATE physical_inventory_receipts SET status='received', disposition=?, inventory_state=?, received_at=? WHERE id=?",
+                "UPDATE physical_inventory_receipts SET status='received', disposition=?, inventory_state=?, received_at=?, receipt_mode='received_new', linked_at=NULL WHERE id=?",
                 (destination,inventory_state,now,int(receipt["id"])),
             )
             db.execute("UPDATE acquisition_items SET status='received' WHERE id=?", (int(acquisition_item_id),))
@@ -539,6 +545,56 @@ class KingmakerAccounting:
             "inventoryItemId":inventory_item_id,
             "scanId":scan["scanId"],
             "receivedAt":now,
+            "receiptMode":"received_new",
+            "match":self._purchase_row_payload(row),
+        }
+
+    def link_purchase_to_existing_inventory(
+        self,
+        card_uuid: str,
+        inventory_item_id: str | None,
+        acquisition_item_id: int,
+        scan_id: str | None,
+        disposition: str = "resale",
+    ) -> dict[str, Any]:
+        """Attach purchase history to an already-existing scanned physical inventory row.
+
+        This never creates a new physical item and never changes commercial quantity.
+        """
+        self.initialize()
+        inventory_item_id = str(inventory_item_id or "").strip()
+        scan_id = str(scan_id or "").strip()
+        destination = str(disposition or "resale").strip().lower()
+        if destination not in {"resale", "investment_stash"}:
+            raise ValueError("Inventory destination must be resale or investment_stash")
+        if not inventory_item_id or int(acquisition_item_id or 0) <= 0:
+            raise ValueError("A scanned existing inventory item and acquisition_item_id are required")
+        scan = self._verified_scan(scan_id)
+        now = _utc_now()
+        with self._connect() as db:
+            receipt = db.execute(
+                "SELECT * FROM physical_inventory_receipts WHERE inventory_item_id=? AND scan_id=? AND acquisition_item_id=?",
+                (inventory_item_id, scan["scanId"], int(acquisition_item_id)),
+            ).fetchone()
+            if not receipt:
+                raise ValueError("Purchase reservation was not found for this scanned physical card")
+            if not str(receipt["scan_verified_at"] or "").strip():
+                raise ValueError("Existing inventory cannot be linked without verified scan evidence")
+            inventory_state = "investment_stash" if destination == "investment_stash" else "resale_ready"
+            db.execute(
+                "UPDATE physical_inventory_receipts SET status='linked_existing', disposition=?, inventory_state=?, receipt_mode='linked_existing', linked_at=?, received_at=NULL WHERE id=?",
+                (destination, inventory_state, now, int(receipt["id"])),
+            )
+            db.execute("UPDATE acquisition_items SET status='linked_existing' WHERE id=?", (int(acquisition_item_id),))
+            row = db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
+        return {
+            "status":"linked_existing",
+            "inventoryState":inventory_state,
+            "disposition":destination,
+            "inventoryItemId":inventory_item_id,
+            "scanId":scan["scanId"],
+            "linkedAt":now,
+            "receiptMode":"linked_existing",
             "match":self._purchase_row_payload(row),
         }
 
@@ -550,7 +606,7 @@ class KingmakerAccounting:
         placeholders = ",".join("?" for _ in ids)
         with self._connect() as db:
             rows = db.execute(
-                f"SELECT inventory_item_id,scan_id,status,disposition,inventory_state,acquisition_item_id FROM physical_inventory_receipts WHERE inventory_item_id IN ({placeholders})",
+                f"SELECT inventory_item_id,scan_id,status,disposition,inventory_state,acquisition_item_id,receipt_mode FROM physical_inventory_receipts WHERE inventory_item_id IN ({placeholders})",
                 ids,
             ).fetchall()
         tracked = []
@@ -563,10 +619,11 @@ class KingmakerAccounting:
                 "disposition": row["disposition"],
                 "inventoryState": str(row["inventory_state"]),
                 "acquisitionItemId": int(row["acquisition_item_id"]),
+                "receiptMode": row["receipt_mode"],
             }
             tracked.append(item)
-            if item["status"] != "received":
-                blocked.append({**item, "reason": "matched_purchase_not_received"})
+            if item["status"] not in {"received", "linked_existing"}:
+                blocked.append({**item, "reason": "matched_purchase_not_received_or_linked"})
             elif item["disposition"] == "investment_stash" or item["inventoryState"] == "investment_stash":
                 blocked.append({**item, "reason": "investment_stash_not_for_sale"})
         return {"ready": len(blocked) == 0, "blocked": blocked, "tracked": tracked}
@@ -582,8 +639,8 @@ class KingmakerAccounting:
                 "SELECT * FROM physical_inventory_receipts WHERE inventory_item_id=?",
                 (inventory_item_id,),
             ).fetchone()
-            if not receipt or str(receipt["status"]) != "received":
-                raise ValueError("Only received scanned inventory can change destination")
+            if not receipt or str(receipt["status"]) not in {"received", "linked_existing"}:
+                raise ValueError("Only received or purchase-linked scanned inventory can change destination")
             inventory_state = "investment_stash" if destination == "investment_stash" else "resale_ready"
             db.execute(
                 "UPDATE physical_inventory_receipts SET disposition=?, inventory_state=? WHERE id=?",
@@ -591,10 +648,11 @@ class KingmakerAccounting:
             )
             purchase=db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(receipt["acquisition_item_id"]),)).fetchone()
         return {
-            "status":"received",
+            "status":str(receipt["status"]),
             "inventoryState":inventory_state,
             "disposition":destination,
             "inventoryItemId":inventory_item_id,
             "scanId":str(receipt["scan_id"]),
+            "receiptMode":receipt["receipt_mode"] if "receipt_mode" in receipt.keys() else None,
             "match":self._purchase_row_payload(purchase),
         }

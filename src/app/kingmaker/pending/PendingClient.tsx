@@ -147,11 +147,13 @@ type PurchaseMatchRecord = {
 };
 
 type PurchaseMatchState = {
-  status: "no_match" | "scan_required" | "possible_match" | "pending_purchase" | "received" | string;
+  status: "no_match" | "scan_required" | "possible_match" | "pending_purchase" | "received" | "linked_existing" | string;
   inventoryItemId?: string | null;
   scanId?: string | null;
   inventoryState?: string | null;
   disposition?: string | null;
+  receiptMode?: string | null;
+  linkedAt?: string | null;
   confidence?: number | null;
   reason?: string | null;
   match?: PurchaseMatchRecord | null;
@@ -701,6 +703,62 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function linkExistingPurchase(
+    card: PendingCard,
+    member: PhysicalInventoryMember,
+  ) {
+    const purchase = purchaseMatches[member.inventoryItemId] || null;
+    const acquisitionItemId = Number(purchase?.match?.acquisitionItemId || 0);
+    if (!member.scanId || acquisitionItemId <= 0) {
+      setPageError("LINK BLOCKED: this physical copy does not have a verified scan + purchase reservation.");
+      return;
+    }
+    setBusyId(member.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-purchase-link", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          cardUuid: member.cardUuid || card.instaComp.cardUuid || "",
+          inventoryItemId: member.inventoryItemId,
+          scanId: member.scanId,
+          acquisitionItemId,
+          disposition: "resale",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true || data.status !== "linked_existing") {
+        throw new Error(data.error || data.detail || "Could not link the purchase to existing inventory.");
+      }
+      setPurchaseMatches((current) => ({
+        ...current,
+        [member.inventoryItemId]: {
+          ...purchase!,
+          status: "linked_existing",
+          disposition: data.disposition || "resale",
+          inventoryState: data.inventoryState || "resale_ready",
+          receiptMode: "linked_existing",
+          linkedAt: data.linkedAt || null,
+          match: data.match || purchase?.match,
+        },
+      }));
+      setNotice(
+        `${card.title}: PURCHASE LINKED TO EXISTING INVENTORY · quantity unchanged · ${money(data.match?.allocatedCost || purchase?.match?.allocatedCost)} cost basis attached.`,
+      );
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function moveInventoryDisposition(
     card: PendingCard,
     member: PhysicalInventoryMember,
@@ -960,7 +1018,7 @@ export default function KingmakerPendingPage({
     );
     if (pendingPurchaseTargets.length) {
       setPageError(
-        `LISTING BLOCKED: receive the matched physical purchase${pendingPurchaseTargets.length === 1 ? "" : "s"} into Resale Inventory first.`,
+        `LISTING BLOCKED: link the purchase to existing inventory or receive the new physical purchase${pendingPurchaseTargets.length === 1 ? "" : "s"} into Resale Inventory first.`,
       );
       return;
     }
@@ -1459,7 +1517,9 @@ export default function KingmakerPendingPage({
               .map((member) => ({ member, purchase: purchaseMatches[member.inventoryItemId] || null }))
               .filter((entry) => Boolean(entry.purchase));
             const pendingPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "pending_purchase");
+            const linkedExistingPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "linked_existing");
             const receivedPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "received");
+            const accountedPurchase = linkedExistingPurchase || receivedPurchase;
             const possiblePurchase = purchaseMembers.some((entry) => entry.purchase?.status === "possible_match");
             const scanRequired = physicalMembers.some((member) => !member.scanId);
             const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
@@ -1522,6 +1582,10 @@ export default function KingmakerPendingPage({
                       <span className="rounded-full bg-orange-400 px-3 py-1 text-xs font-black text-orange-950">
                         PENDING PURCHASE · MATCH FOUND
                       </span>
+                    ) : linkedExistingPurchase ? (
+                      <span className="rounded-full bg-cyan-200 px-3 py-1 text-xs font-black text-cyan-950">
+                        PURCHASE LINKED · EXISTING INVENTORY
+                      </span>
                     ) : receivedPurchase ? (
                       <span className="rounded-full bg-emerald-300 px-3 py-1 text-xs font-black text-emerald-950">
                         RECEIVED INVENTORY
@@ -1553,20 +1617,22 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
-                {(pendingPurchase || receivedPurchase || possiblePurchase || scanRequired) ? (
-                  <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : receivedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
+                {(pendingPurchase || accountedPurchase || possiblePurchase || scanRequired) ? (
+                  <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : accountedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
                     <div>
-                      <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : receivedPurchase ? "text-emerald-950" : "text-amber-950"}`}>
+                      <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : accountedPurchase ? "text-emerald-950" : "text-amber-950"}`}>
                         {pendingPurchase
-                          ? "PURCHASE MATCH FOUND — CHOOSE WHERE THIS PHYSICAL CARD GOES"
-                          : receivedPurchase
-                            ? "PHYSICAL INVENTORY RECEIVED — COST BASIS ATTACHED"
-                            : scanRequired
-                              ? "RECEIVE BLOCKED — PHYSICAL SCAN REQUIRED"
-                              : "POSSIBLE PURCHASE MATCH — REVIEW"}
+                          ? "PURCHASE MATCH FOUND — IS THIS ALREADY IN KINGMAKER OR A NEW ARRIVAL?"
+                          : linkedExistingPurchase
+                            ? "EXISTING INVENTORY — PURCHASE HISTORY LINKED"
+                            : receivedPurchase
+                              ? "NEW PHYSICAL INVENTORY RECEIVED — COST BASIS ATTACHED"
+                              : scanRequired
+                                ? "RECEIVE BLOCKED — PHYSICAL SCAN REQUIRED"
+                                : "POSSIBLE PURCHASE MATCH — REVIEW"}
                       </p>
                       <p className="mt-1 text-sm font-bold text-neutral-700">
-                        A purchase record is not inventory. Each physical copy must have its own InstaComp scan before KINGMAKER can receive it.
+                        If this physical card was already scanned into KINGMAKER, link the purchase only. Use Receive only when you are actually receiving a newly arrived card.
                       </p>
                     </div>
 
@@ -1575,7 +1641,9 @@ export default function KingmakerPendingPage({
                         const purchase = purchaseMatches[member.inventoryItemId] || null;
                         const purchaseRecord = purchase?.match || null;
                         const memberPending = purchase?.status === "pending_purchase";
+                        const memberLinkedExisting = purchase?.status === "linked_existing";
                         const memberReceived = purchase?.status === "received";
+                        const memberAccounted = memberLinkedExisting || memberReceived;
                         const memberPossible = purchase?.status === "possible_match";
                         const memberDisposition = purchase?.disposition || member.inventoryLifecycle?.disposition || null;
                         return (
@@ -1589,7 +1657,8 @@ export default function KingmakerPendingPage({
                               </div>
                               <div className="flex flex-wrap gap-2">
                                 {memberPending ? <span className="rounded-full bg-orange-200 px-3 py-1 text-xs font-black text-orange-950">PENDING PURCHASE</span> : null}
-                                {memberReceived ? <span className="rounded-full bg-emerald-200 px-3 py-1 text-xs font-black text-emerald-950">RECEIVED · {memberDisposition === "investment_stash" ? "INVESTMENT STASH" : "RESALE"}</span> : null}
+                                {memberLinkedExisting ? <span className="rounded-full bg-cyan-200 px-3 py-1 text-xs font-black text-cyan-950">EXISTING INVENTORY · PURCHASE LINKED</span> : null}
+                                {memberReceived ? <span className="rounded-full bg-emerald-200 px-3 py-1 text-xs font-black text-emerald-950">RECEIVED NEW · {memberDisposition === "investment_stash" ? "INVESTMENT STASH" : "RESALE"}</span> : null}
                                 {memberPossible ? <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">POSSIBLE MATCH</span> : null}
                                 {!member.scanId ? <span className="rounded-full bg-red-200 px-3 py-1 text-xs font-black text-red-950">SCAN REQUIRED</span> : null}
                               </div>
@@ -1608,25 +1677,37 @@ export default function KingmakerPendingPage({
                             ) : null}
 
                             {memberPending ? (
-                              <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-200 pt-3">
+                              <div className="mt-3 border-t border-neutral-200 pt-3">
+                                <p className="mb-2 text-xs font-black uppercase tracking-wide text-neutral-600">Already scanned before today?</p>
                                 <button
                                   type="button"
                                   disabled={Boolean(busyId)}
-                                  onClick={() => void receivePurchase(card, member, "resale")}
-                                  className="rounded-xl bg-emerald-700 px-4 py-2 font-black text-white disabled:opacity-40"
+                                  onClick={() => void linkExistingPurchase(card, member)}
+                                  className="rounded-xl border-2 border-neutral-950 bg-cyan-200 px-4 py-2 font-black text-cyan-950 disabled:opacity-40"
                                 >
-                                  Receive → Resale Inventory
+                                  Already in KINGMAKER → Link Purchase Only
                                 </button>
-                                <button
-                                  type="button"
-                                  disabled={Boolean(busyId)}
-                                  onClick={() => void receivePurchase(card, member, "investment_stash")}
-                                  className="rounded-xl bg-amber-700 px-4 py-2 font-black text-white disabled:opacity-40"
-                                >
-                                  Receive → Investment Stash
-                                </button>
+                                <p className="mt-3 mb-2 text-xs font-black uppercase tracking-wide text-neutral-600">Actually receiving this card now?</p>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(busyId)}
+                                    onClick={() => void receivePurchase(card, member, "resale")}
+                                    className="rounded-xl bg-emerald-700 px-4 py-2 font-black text-white disabled:opacity-40"
+                                  >
+                                    New Arrival → Receive to Resale
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(busyId)}
+                                    onClick={() => void receivePurchase(card, member, "investment_stash")}
+                                    className="rounded-xl bg-amber-700 px-4 py-2 font-black text-white disabled:opacity-40"
+                                  >
+                                    New Arrival → Receive to Investment Stash
+                                  </button>
+                                </div>
                               </div>
-                            ) : memberReceived ? (
+                            ) : memberAccounted ? (
                               <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-200 pt-3">
                                 {memberDisposition === "investment_stash" ? (
                                   <button type="button" disabled={Boolean(busyId)} onClick={() => void moveInventoryDisposition(card, member, "resale")} className="rounded-xl bg-emerald-700 px-4 py-2 font-black text-white disabled:opacity-40">Move → Resale Pending</button>

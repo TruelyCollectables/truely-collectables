@@ -24,6 +24,14 @@ class PurchaseReceiveRequest(BaseModel):
     disposition: str = Field(pattern="^(resale|investment_stash)$")
 
 
+class PurchaseLinkExistingRequest(BaseModel):
+    card_uuid: str = Field(default="", max_length=200)
+    inventory_item_id: str = Field(min_length=1, max_length=200)
+    scan_id: str = Field(min_length=1, max_length=200)
+    acquisition_item_id: int = Field(gt=0)
+    disposition: str = Field(default="resale", pattern="^(resale|investment_stash)$")
+
+
 class InventoryDispositionRequest(BaseModel):
     inventory_item_id: str = Field(min_length=1, max_length=200)
     disposition: str = Field(pattern="^(resale|investment_stash)$")
@@ -89,6 +97,20 @@ def build_kingmaker_accounting_router(
     async def receive_purchase(request: PurchaseReceiveRequest):
         try:
             result = accounting.receive_into_inventory(
+                request.card_uuid,
+                request.inventory_item_id,
+                request.acquisition_item_id,
+                request.scan_id,
+                request.disposition,
+            )
+            return {"ok": True, **result}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/link-existing")
+    async def link_existing_purchase(request: PurchaseLinkExistingRequest):
+        try:
+            result = accounting.link_purchase_to_existing_inventory(
                 request.card_uuid,
                 request.inventory_item_id,
                 request.acquisition_item_id,
