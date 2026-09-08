@@ -25,6 +25,9 @@ forbid(runner, "createSupabaseServerClient", "Mac eBay runner must not read cred
 requireText(runner, "ebay-seller-token.json");
 requireText(runner, 'mode === "inventory_snapshot"');
 requireText(runner, "persistLocalToken(data)");
+requireText(runner, '"GetMyeBaySelling"', "Mac inventory snapshot must enumerate active eBay listings through the Trading API.");
+requireText(runner, 'source: "trading_api_get_my_ebay_selling"');
+forbid(runner, 'fetchPaged(accessToken, "/sell/inventory/v1/offer"', "Mac inventory snapshot must not fail globally on one malformed Inventory API SKU.");
 
 forbid(callback, "encryptMarketplaceToken", "OAuth callback must not persist eBay credentials in cloud tables.");
 forbid(callback, '.from("ebay_tokens").insert', "OAuth callback must not write the legacy eBay token table.");

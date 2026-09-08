@@ -30,6 +30,7 @@ const PAYMENT_POLICY = "252035124017";
 const NO_RETURNS_POLICY = "252035125017";
 const STANDARD_ENVELOPE_POLICY = "256363993017";
 const GROUND_ADVANTAGE_POLICY = "256363912017";
+const BASE_SCOPE = "https://api.ebay.com/oauth/api_scope";
 const INVENTORY_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.inventory";
 const ACCOUNT_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.account.readonly";
 const TOKEN_PATH = String(process.env.KINGMAKER_EBAY_TOKEN_PATH || "").trim() ||
@@ -121,86 +122,137 @@ async function refreshAccessToken(refreshToken: string, scopes = [INVENTORY_SCOP
     scope: scopes.join(" "),
   }));
 }
-async function ebayGet(accessToken: string, path: string) {
-  const response = await fetch(`${apiRoot()}${path}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "Accept-Language": "en-US",
-      "Content-Language": "en-US",
-      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-    },
-    signal: AbortSignal.timeout(30_000),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = Array.isArray(data?.errors)
-      ? data.errors.map((row: any) => row?.longMessage || row?.message).filter(Boolean).join(" ")
-      : "";
-    throw new Error(message || `eBay inventory HTTP ${response.status}`);
-  }
-  return data as Record<string, any>;
+function tradingXmlBlocks(xml: string, tag: string) {
+  return Array.from(
+    xml.matchAll(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "gi")),
+    (match) => match[1],
+  );
 }
-async function fetchPaged(accessToken: string, path: string, collection: string) {
-  const rows: any[] = [];
-  const limit = 200;
-  for (let offset = 0; offset < 100_000; offset += limit) {
-    const separator = path.includes("?") ? "&" : "?";
-    const page = await ebayGet(accessToken, `${path}${separator}limit=${limit}&offset=${offset}`);
-    const batch = Array.isArray(page?.[collection]) ? page[collection] : [];
-    rows.push(...batch);
-    const total = Number(page?.total || 0);
-    if (batch.length < limit || (total > 0 && rows.length >= total)) break;
+function tradingNumber(value: string, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+function tradingAspects(itemXml: string) {
+  const aspects: Record<string, string[]> = {};
+  const specifics = tradingXmlText(itemXml, "ItemSpecifics");
+  if (!specifics) return aspects;
+  for (const pair of tradingXmlBlocks(specifics, "NameValueList")) {
+    const name = tradingXmlText(pair, "Name").trim();
+    const values = tradingXmlBlocks(pair, "Value")
+      .map((value) => tradingXmlText(`<Value>${value}</Value>`, "Value").trim())
+      .filter(Boolean);
+    if (name && values.length) aspects[name] = values;
   }
-  return rows;
+  return aspects;
+}
+function firstTradingAspect(aspects: Record<string, string[]>, name: string) {
+  return String(aspects[name]?.[0] || "").trim();
+}
+function parseTradingSnapshotItem(itemXml: string, syncedAt: string) {
+  const listingId = tradingXmlText(itemXml, "ItemID").trim();
+  if (!listingId) return null;
+  const listingType = tradingXmlText(itemXml, "ListingType").trim();
+  if (listingType && !["FixedPriceItem", "StoresFixedPrice"].includes(listingType)) return null;
+  const sellingStatus = tradingXmlText(itemXml, "SellingStatus");
+  const currentPrice = tradingXmlText(sellingStatus, "CurrentPrice") || tradingXmlText(itemXml, "StartPrice");
+  const price = Math.max(0, tradingNumber(currentPrice, 0));
+  const available = tradingXmlText(itemXml, "QuantityAvailable");
+  const quantity = Math.max(
+    0,
+    Math.floor(
+      available
+        ? tradingNumber(available, 0)
+        : tradingNumber(tradingXmlText(itemXml, "Quantity"), 0) -
+            tradingNumber(tradingXmlText(sellingStatus, "QuantitySold"), 0),
+    ),
+  );
+  const picture = tradingXmlText(itemXml, "PictureDetails");
+  const imageUrls = Array.from(
+    new Set(
+      [
+        tradingXmlText(picture, "GalleryURL"),
+        ...tradingXmlBlocks(picture, "PictureURL").map((value) =>
+          tradingXmlText(`<PictureURL>${value}</PictureURL>`, "PictureURL"),
+        ),
+      ]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const aspects = tradingAspects(itemXml);
+  const category = tradingXmlText(itemXml, "PrimaryCategory");
+  const sku = tradingXmlText(itemXml, "SKU").trim() || `legacy-ebay-${listingId}`;
+  return {
+    inventoryItemId: `ebay:${listingId}`,
+    legacyProductId: null,
+    ownershipScope: "store",
+    canEdit: true,
+    sku,
+    offerId: null,
+    ebayItemId: listingId,
+    title: tradingXmlText(itemXml, "Title").trim() || sku,
+    description: tradingXmlText(itemXml, "Description"),
+    player: firstTradingAspect(aspects, "Player") || null,
+    sport: firstTradingAspect(aspects, "Sport") || null,
+    category: tradingXmlText(category, "CategoryID").trim() || "other_collectable",
+    condition:
+      tradingXmlText(itemXml, "ConditionDisplayName").trim() ||
+      firstTradingAspect(aspects, "Condition") ||
+      "unknown",
+    status: "active",
+    quantity,
+    price,
+    imageUrl: imageUrls[0] || null,
+    imageUrls,
+    authenticity: {},
+    under20SellerProtectionOptIn: false,
+    updatedAt: syncedAt,
+    createdAt: null,
+    syncedAt,
+  };
 }
 async function inventorySnapshot(refreshToken: string) {
-  const token = await refreshAccessToken(refreshToken, [INVENTORY_SCOPE]);
-  const accessToken = String(token.access_token);
-  const [inventoryItems, offers] = await Promise.all([
-    fetchPaged(accessToken, "/sell/inventory/v1/inventory_item", "inventoryItems"),
-    fetchPaged(accessToken, "/sell/inventory/v1/offer", "offers"),
-  ]);
-  const itemsBySku = new Map(inventoryItems.map((row: any) => [String(row?.sku || ""), row]));
+  const token = await refreshAccessToken(refreshToken, [BASE_SCOPE, INVENTORY_SCOPE]);
+  const accessToken = String(token.access_token || "");
   const syncedAt = new Date().toISOString();
-  const listings = offers
-    .filter((offer: any) => String(offer?.listing?.listingId || "").trim())
-    .map((offer: any) => {
-      const sku = String(offer?.sku || "").trim();
-      const item: any = itemsBySku.get(sku) || {};
-      const product = item?.product && typeof item.product === "object" ? item.product : {};
-      const aspects = product?.aspects && typeof product.aspects === "object" ? product.aspects : {};
-      const first = (name: string) => Array.isArray(aspects?.[name]) ? String(aspects[name][0] || "") : "";
-      const listingId = String(offer?.listing?.listingId || "").trim();
-      const published = String(offer?.status || "").toUpperCase() === "PUBLISHED";
-      return {
-        inventoryItemId: `ebay:${listingId}`,
-        legacyProductId: null,
-        ownershipScope: "store",
-        canEdit: true,
-        sku,
-        offerId: String(offer?.offerId || "").trim() || null,
-        ebayItemId: listingId,
-        title: String(product?.title || sku || `eBay ${listingId}`),
-        description: String(offer?.listingDescription || product?.description || ""),
-        player: first("Player") || null,
-        sport: first("Sport") || null,
-        category: String(offer?.categoryId || "other_collectable"),
-        condition: String(item?.condition || "unknown"),
-        status: published ? "active" : "draft",
-        quantity: Math.max(0, Number(offer?.availableQuantity ?? item?.availability?.shipToLocationAvailability?.quantity ?? 0) || 0),
-        price: Math.max(0, Number(offer?.pricingSummary?.price?.value || 0) || 0),
-        imageUrl: Array.isArray(product?.imageUrls) ? String(product.imageUrls[0] || "") || null : null,
-        imageUrls: Array.isArray(product?.imageUrls) ? product.imageUrls.map(String).filter(Boolean) : [],
-        authenticity: {},
-        under20SellerProtectionOptIn: false,
-        updatedAt: syncedAt,
-        createdAt: null,
-        syncedAt,
-      };
-    });
-  return { listings, inventoryItemCount: inventoryItems.length, offerCount: offers.length, syncedAt };
+  const listings: any[] = [];
+  let totalPages = 1;
+  let totalEntries = 0;
+  let pagesRead = 0;
+  for (let page = 1; page <= Math.min(totalPages, 100); page += 1) {
+    const xml = await tradingCall(
+      accessToken,
+      "GetMyeBaySelling",
+      `<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
+  <HideVariations>true</HideVariations>
+  <ActiveList>
+    <Include>true</Include>
+    <ListingType>FixedPriceItem</ListingType>
+    <Pagination><EntriesPerPage>200</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination>
+  </ActiveList>
+</GetMyeBaySellingRequest>`,
+    );
+    const activeList = tradingXmlText(xml, "ActiveList");
+    totalPages = Math.max(1, Math.floor(tradingNumber(tradingXmlText(activeList, "TotalNumberOfPages"), 1)));
+    totalEntries = Math.max(0, Math.floor(tradingNumber(tradingXmlText(activeList, "TotalNumberOfEntries"), 0)));
+    pagesRead = page;
+    const itemArray = tradingXmlText(activeList, "ItemArray");
+    for (const itemXml of tradingXmlBlocks(itemArray, "Item")) {
+      const listing = parseTradingSnapshotItem(itemXml, syncedAt);
+      if (listing) listings.push(listing);
+    }
+  }
+  return {
+    listings,
+    inventoryItemCount: listings.length,
+    offerCount: listings.length,
+    totalEntries,
+    pagesRead,
+    source: "trading_api_get_my_ebay_selling",
+    syncedAt,
+  };
 }
 
 
