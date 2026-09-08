@@ -119,3 +119,36 @@ async def test_ebay_or_best_offer_is_evidence_not_realized_price(monkeypatch):
     assert rows[0]["best_offer_unknown"] is True
     assert rows[0]["item_price"] == 4.99
     assert rows[0]["shipping_price"] == 1.36
+
+
+def test_structural_set_words_are_not_treated_as_parallel_finish():
+    identity = market._canonical_identity({
+        "year": "2025",
+        "manufacturer": "Panini",
+        "product": "Select WNBA",
+        "setName": "Concourse - Silver",
+        "subset": "Base Set - Concourse",
+        "player": "Aaliyah Edwards",
+        "cardNumber": "32",
+        "parallel": "Set - Concourse - Silver",
+        "isAuto": False,
+        "isRelic": False,
+    })
+    assert identity["parallel"] == "silver"
+    ok, reasons = market._strong_exact_title(
+        "2025 Panini Select WNBA Concourse Aaliyah Edwards #32 Silver Prizm",
+        identity,
+    )
+    assert ok, reasons
+
+
+def test_premier_level_prefix_keeps_pink_flash_finish():
+    identity = market._canonical_identity({
+        "year": "2025",
+        "product": "Select WNBA",
+        "subset": "Base Set - Premier Level",
+        "player": "Marina Mabrey",
+        "cardNumber": "137",
+        "parallel": "Set - Premier Level - Pink Flash",
+    })
+    assert identity["parallel"] == "pink flash"

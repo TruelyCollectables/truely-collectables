@@ -261,6 +261,7 @@ async function requestMacExactMarket(params: {
           brand: params.ai.brand,
           product: aiRecord.product || params.ai.setName,
           setName: params.ai.setName,
+          subset: aiRecord.subset || null,
           cardNumber: params.ai.cardNumber,
           parallel: params.ai.parallel,
           serialNumber: params.ai.serialNumber,

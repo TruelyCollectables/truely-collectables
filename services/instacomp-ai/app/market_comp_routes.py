@@ -65,17 +65,33 @@ def _identity_value(identity: dict[str, Any], *names: str) -> Any:
     return None
 
 
+def _parallel_finish(value: Any, subset: Any = None) -> str:
+    raw = _text(value)
+    normalized = _norm(raw)
+    if normalized in {"", "base", "base set"}:
+        return "Base" if normalized else ""
+    structural = {"set", "base", "parallel", "variation", "concourse", "courtside", "premier", "level"}
+    structural.update(_norm(subset).split())
+    tokens = [token for token in normalized.split() if token not in structural]
+    if not tokens:
+        return "Base" if "base" in normalized.split() else ""
+    return " ".join(tokens)
+
+
 def _canonical_identity(identity: dict[str, Any]) -> dict[str, Any]:
+    subset = _text(_identity_value(identity, "subset", "insert", "insertName", "insert_name"))
+    raw_parallel = _text(_identity_value(identity, "parallel", "variation"))
     return {
         "year": _text(_identity_value(identity, "year")),
         "manufacturer": _text(_identity_value(identity, "manufacturer")),
         "brand": _text(_identity_value(identity, "brand")),
         "product": _text(_identity_value(identity, "product", "setName", "set_name")),
         "set_name": _text(_identity_value(identity, "setName", "set_name", "product")),
-        "subset": _text(_identity_value(identity, "subset", "insert", "insertName", "insert_name")),
+        "subset": subset,
         "player": _text(_identity_value(identity, "player", "playerName", "player_name")),
         "card_number": _text(_identity_value(identity, "cardNumber", "card_number")).lstrip("#"),
-        "parallel": _text(_identity_value(identity, "parallel", "variation")),
+        "parallel": _parallel_finish(raw_parallel, subset),
+        "parallel_raw": raw_parallel,
         "serial_number": _text(_identity_value(identity, "serialNumber", "serial_number", "serialRun", "serial_run")),
         "grading_company": _text(_identity_value(identity, "gradingCompany", "grading_company")),
         "grade_value": _text(_identity_value(identity, "gradeValue", "grade_value", "grade")),
