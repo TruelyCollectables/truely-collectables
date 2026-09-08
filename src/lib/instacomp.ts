@@ -11,8 +11,11 @@ import {
 export type InstaCompAiResult = {
   player: string | null;
   year: string | null;
+  manufacturer?: string | null;
   brand: string | null;
+  product?: string | null;
   setName: string | null;
+  subset?: string | null;
   cardNumber: string | null;
   parallel: string | null;
   serialNumber: string | null;

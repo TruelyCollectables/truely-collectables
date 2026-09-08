@@ -52,6 +52,10 @@ import {
 import { detectGradingDetails } from "../../../../lib/grading-cert";
 import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
 import { extractInstaCompUntrustedListingIdentityHint } from "../../../../lib/instacomp-listing-identity-hint";
+import {
+  buildEvidenceFirstRegistryProbe,
+  registryMatchEvidenceConflicts,
+} from "../../../../lib/instacomp-registry-evidence-guard";
 import { readValidatedInstaCompImage } from "../../../../lib/instacomp-image-safety";
 import {
   formatUntrustedOcrEvidence,
@@ -4319,28 +4323,51 @@ async function identifyCardWithConfiguredProviderFailover(params: {
       ...internalReceipt.frontVisibleText,
       ...internalReceipt.backVisibleText,
     ].join(" ");
-    const registryProbeAi = {
-      ...evidenceAi,
+    const registryProbeAi = buildEvidenceFirstRegistryProbe({
+      evidenceAi,
+      listingIdentityHint,
       registryVisibleText,
       // Internal resolver-only marker: the scanner council has already
       // adjudicated hard parallel identity. It is never accepted from listing
       // hints or OCR and is only true for a conflict-free council.
       parallelEvidenceAdjudicated: evidenceConsensus.status === "consensus_confirmed",
-      ...(listingIdentityHint.year ? { year: listingIdentityHint.year } : {}),
-      ...(listingIdentityHint.brand ? { brand: listingIdentityHint.brand } : {}),
-      ...(listingIdentityHint.setName ? { setName: listingIdentityHint.setName } : {}),
-      ...(listingIdentityHint.cardNumber ? { cardNumber: listingIdentityHint.cardNumber } : {}),
-    };
+    });
     const receiptResolution = await revalidateChecklistRegistryReceipt({
       ai: registryProbeAi,
       identityId: internalReceipt.internalChecklistIdentityId,
       fingerprintSha256: internalReceipt.internalChecklistFingerprintSha256,
     });
-    const checklistResolution =
+    const rawChecklistResolution =
       receiptResolution ||
       (await resolveChecklistRegistry(registryProbeAi, {
         evidenceTrusted: evidenceConsensus.trustedForIdentity,
       }));
+    const rawRegistryMatch =
+      rawChecklistResolution.status === "internal_exact_match"
+        ? rawChecklistResolution.match
+        : null;
+    const registryConflictReasons = rawRegistryMatch
+      ? registryMatchEvidenceConflicts({
+          registryMatch: rawRegistryMatch,
+          evidenceAi,
+          parallelEvidenceAdjudicated:
+            evidenceConsensus.status === "consensus_confirmed",
+        })
+      : [];
+    const checklistResolution = registryConflictReasons.length
+      ? {
+          ...rawChecklistResolution,
+          status: "internal_set_present_no_exact_match" as const,
+          match: null,
+          reasons: Array.from(
+            new Set([
+              ...rawChecklistResolution.reasons,
+              ...registryConflictReasons,
+              "registry_match_rejected_because_it_conflicts_with_fresh_physical_evidence",
+            ]),
+          ),
+        }
+      : rawChecklistResolution;
     const registryMatch =
       checklistResolution.status === "internal_exact_match"
         ? checklistResolution.match

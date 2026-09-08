@@ -113,6 +113,10 @@ type PendingCard = {
       netDifference: number;
       websiteStatus?: string | null;
       ebayStatus?: string | null;
+      ebayCardCondition?: string | null;
+      ebayCategoryId?: string | null;
+      ebayLastError?: string | null;
+      ebayLastAttemptAt?: string | null;
       calculatedFrom?: string | null;
     } | null;
     reliableSoldCompCount?: number;
@@ -127,6 +131,8 @@ type PendingCard = {
     soldCompEvidence?: CompEvidence[];
     activeCompetition?: CompEvidence[];
     identity?: CardIdentity | null;
+    gradingCompany?: string | null;
+    gradingGrade?: string | null;
   };
 };
 
@@ -466,6 +472,7 @@ export default function KingmakerPendingPage({
   const [bulkCondition, setBulkCondition] = useState("");
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
   const [channelPriceEdits, setChannelPriceEdits] = useState<Record<string, { website: string; ebay: string }>>({});
+  const [channelConditionEdits, setChannelConditionEdits] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState("");
@@ -867,6 +874,9 @@ export default function KingmakerPendingPage({
     const ebayRaw = String(current?.ebay ?? card.instaComp.channelPricing?.ebayPrice ?? "").trim();
     const websitePrice = Number(websiteRaw);
     const ebayPrice = Number(ebayRaw);
+    const cardCondition = String(
+      channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? "",
+    ).trim();
     if (!Number.isFinite(websitePrice) || websitePrice <= 0 || !Number.isFinite(ebayPrice) || ebayPrice <= 0) {
       setPageError("Enter a positive Website price and eBay price. These are the exact seller prices that will publish.");
       return;
@@ -887,6 +897,7 @@ export default function KingmakerPendingPage({
           inventoryItemId: card.inventoryItemId,
           websitePrice,
           ebayPrice,
+          cardCondition: cardCondition || undefined,
           manualChannelPrices: true,
         }),
       });
@@ -896,7 +907,11 @@ export default function KingmakerPendingPage({
         ...state,
         [card.inventoryItemId]: { website: String(data.websitePrice || websitePrice), ebay: String(data.ebayPrice || ebayPrice) },
       }));
-      setNotice(`${card.title}: seller channel prices locked · Website ${money(data.websitePrice || websitePrice)} · eBay ${money(data.ebayPrice || ebayPrice)}.`);
+      setChannelConditionEdits((state) => ({
+        ...state,
+        [card.inventoryItemId]: String(data.cardCondition || cardCondition || ""),
+      }));
+      setNotice(`${card.title}: seller channel prices locked · Website ${money(data.websitePrice || websitePrice)} · eBay ${money(data.ebayPrice || ebayPrice)}${cardCondition ? ` · Card Condition ${cardCondition}` : ""}.`);
       await load(queue, folderFromLocation());
     } catch (error) {
       setPageError(message(error));
@@ -1011,6 +1026,21 @@ export default function KingmakerPendingPage({
       setPageError("Select one or more exact-card groups first.");
       return;
     }
+    if (action === "publish-ebay" || action === "publish-both") {
+      const missingRawCondition = targets.filter((card) => {
+        if (card.instaComp.gradingCompany) return false;
+        const condition = String(
+          channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? "",
+        ).trim();
+        return !condition;
+      });
+      if (missingRawCondition.length) {
+        setPageError(
+          `EBAY BLOCKED: choose eBay Card Condition for ${missingRawCondition.length} ungraded card${missingRawCondition.length === 1 ? "" : "s"} before publishing.`,
+        );
+        return;
+      }
+    }
     const pendingPurchaseTargets = targets.filter((card) =>
       physicalMembersForCard(card).some(
         (member) => purchaseMatches[member.inventoryItemId]?.status === "pending_purchase",
@@ -1058,6 +1088,9 @@ export default function KingmakerPendingPage({
         const edited = channelPriceEdits[card.inventoryItemId];
         const websitePrice = Number(edited?.website || channel?.websitePrice || 0);
         const ebayPrice = Number(edited?.ebay || channel?.ebayPrice || 0);
+        const cardCondition = String(
+          channelConditionEdits[card.inventoryItemId] ?? channel?.ebayCardCondition ?? "",
+        ).trim();
         const response = await fetch("/api/account/seller/instacomp-pending/channel", {
           method: "POST",
           headers: {
@@ -1069,6 +1102,7 @@ export default function KingmakerPendingPage({
             inventoryItemId: card.inventoryItemId,
             ebayPrice: ebayPrice || undefined,
             websitePrice: websitePrice || undefined,
+            cardCondition: cardCondition || undefined,
             manualChannelPrices: Boolean(edited),
           }),
         });
@@ -1510,8 +1544,14 @@ export default function KingmakerPendingPage({
             const channelEdit = channelPriceEdits[card.inventoryItemId];
             const websitePriceInput = channelEdit?.website ?? (Number(channelPricing?.websitePrice || 0) > 0 ? String(channelPricing?.websitePrice) : "");
             const ebayPriceInput = channelEdit?.ebay ?? (Number(channelPricing?.ebayPrice || 0) > 0 ? String(channelPricing?.ebayPrice) : "");
+            const ebayCardCondition = channelConditionEdits[card.inventoryItemId] ?? channelPricing?.ebayCardCondition ?? "";
+            const ebayCardConditionOptions = channelPricing?.ebayCategoryId === "183454"
+              ? ["Near Mint or Better", "Lightly Played (Excellent)", "Moderately Played (Very Good)", "Heavily Played (Poor)"]
+              : ["Near Mint or Better", "Excellent", "Very Good", "Poor"];
             const publishWebsitePrice = Number(websitePriceInput || 0);
             const publishEbayPrice = Number(ebayPriceInput || 0);
+            const ebayCardConditionRequired = !card.instaComp.gradingCompany;
+            const ebayCardConditionReady = !ebayCardConditionRequired || Boolean(ebayCardCondition.trim());
             const physicalMembers = physicalMembersForCard(card);
             const purchaseMembers = physicalMembers
               .map((member) => ({ member, purchase: purchaseMatches[member.inventoryItemId] || null }))
@@ -1874,10 +1914,13 @@ export default function KingmakerPendingPage({
                       <div className="flex flex-wrap gap-2 text-xs font-black">
                         <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing?.websiteStatus || "draft"}</span>
                         <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">eBay: {channelPricing?.ebayStatus || "draft"}</span>
+                        {ebayCardConditionRequired && !ebayCardConditionReady ? (
+                          <span className="rounded-full bg-red-100 px-3 py-1 text-red-900">eBay blocked: choose Card Condition</span>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr_1fr_auto]">
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr_1fr_1fr_auto]">
                       <div className="rounded-xl border-2 border-violet-700 bg-white p-3">
                         <p className="text-xs font-black uppercase text-violet-700">InstaComp recommendation</p>
                         <p className="text-2xl font-black">{money(card.instaComp.suggestedPrice)}</p>
@@ -1927,6 +1970,23 @@ export default function KingmakerPendingPage({
                         </div>
                         {channelPricing ? <p className="mt-2 text-xs text-neutral-600">Estimated fees {money(channelPricing.ebayEstimatedFees)} · net {money(channelPricing.ebayEstimatedNet)}</p> : null}
                       </label>
+                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-sm font-black">
+                        eBay Card Condition
+                        <select
+                          value={ebayCardCondition}
+                          onChange={(event) => setChannelConditionEdits((current) => ({
+                            ...current,
+                            [card.inventoryItemId]: event.target.value,
+                          }))}
+                          className="mt-2 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-sm font-black text-neutral-950 outline-none focus:border-blue-700"
+                        >
+                          <option value="">Choose condition…</option>
+                          {ebayCardConditionOptions.map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>
+                        <p className="mt-2 text-xs font-bold text-neutral-600">Required by eBay for ungraded trading cards. KINGMAKER will not guess it.</p>
+                      </label>
                       <button
                         type="button"
                         disabled={Boolean(busyId) || publishWebsitePrice <= 0 || publishEbayPrice <= 0}
@@ -1937,10 +1997,17 @@ export default function KingmakerPendingPage({
                       </button>
                     </div>
                     {channelPricing ? (
-                      <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-neutral-600">
-                        <span>Buyer difference: {money(channelPricing.customerSavings)}</span>
-                        <span>Website net edge: {money(channelPricing.netDifference)}</span>
-                      </div>
+                      <>
+                        <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-neutral-600">
+                          <span>Buyer difference: {money(channelPricing.customerSavings)}</span>
+                          <span>Website net edge: {money(channelPricing.netDifference)}</span>
+                        </div>
+                        {channelPricing.ebayLastError ? (
+                          <div className="mt-3 rounded-xl border-2 border-red-700 bg-red-50 p-3 text-sm font-black text-red-900">
+                            Last eBay publish failure: {channelPricing.ebayLastError}
+                          </div>
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                 ) : null}
@@ -2051,7 +2118,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-ebay")}
-                          disabled={publishEbayPrice <= 0 || Boolean(busyId)}
+                          disabled={publishEbayPrice <= 0 || !ebayCardConditionReady || Boolean(busyId)}
                           className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {ebayListed ? "Update eBay" : "List eBay"} · {money(publishEbayPrice)}
@@ -2059,7 +2126,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-both")}
-                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || !ebayCardConditionReady || Boolean(busyId)}
                           className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {websiteListed || ebayListed ? "Update / List Both" : "List Both"}

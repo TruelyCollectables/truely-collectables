@@ -1236,6 +1236,10 @@ export async function GET(request: Request) {
             ebayStatus:
               textValue(dualEbay.status) ||
               (textValue(product?.ebay_item_id) ? "linked" : "draft"),
+            ebayCardCondition: textValue(dualEbay.cardCondition),
+            ebayCategoryId: textValue(dualEbay.categoryId) || "261328",
+            ebayLastError: textValue(dualEbay.lastError),
+            ebayLastAttemptAt: textValue(dualEbay.lastAttemptAt),
             calculatedFrom: storedEbayPrice
               ? "saved_ebay_price"
               : savedListingPrice

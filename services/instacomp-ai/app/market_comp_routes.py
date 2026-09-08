@@ -72,6 +72,7 @@ def _canonical_identity(identity: dict[str, Any]) -> dict[str, Any]:
         "brand": _text(_identity_value(identity, "brand")),
         "product": _text(_identity_value(identity, "product", "setName", "set_name")),
         "set_name": _text(_identity_value(identity, "setName", "set_name", "product")),
+        "subset": _text(_identity_value(identity, "subset", "insert", "insertName", "insert_name")),
         "player": _text(_identity_value(identity, "player", "playerName", "player_name")),
         "card_number": _text(_identity_value(identity, "cardNumber", "card_number")).lstrip("#"),
         "parallel": _text(_identity_value(identity, "parallel", "variation")),
@@ -83,17 +84,70 @@ def _canonical_identity(identity: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _canonical_card_number(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _text(value).lower())
+
+
+def _unique_search_parts(values: list[Any]) -> list[str]:
+    output: list[str] = []
+    normalized: list[str] = []
+    for raw in values:
+        value = _text(raw)
+        key = _norm(value)
+        if not value or not key:
+            continue
+        # Avoid junk such as "Donruss Donruss WNBA" while preserving
+        # genuinely different identity fields. Prefer the more specific term.
+        hard_identifier = value.startswith("#") or value.startswith("/")
+        replacement = None if hard_identifier else next((i for i, existing in enumerate(normalized) if existing != key and existing in key), None)
+        if replacement is not None:
+            output[replacement] = value
+            normalized[replacement] = key
+            continue
+        if any(key == existing or (not hard_identifier and key in existing) for existing in normalized):
+            continue
+        output.append(value)
+        normalized.append(key)
+    return output
+
+
+def _query_ladder(identity: dict[str, Any], fallback: str) -> list[str]:
+    denominator = _denominator(identity["serial_number"])
+    parallel = identity["parallel"] if _norm(identity["parallel"]) not in {"", "base", "base set"} else ""
+    card = f"#{identity['card_number']}" if identity["card_number"] else ""
+    features = ["Auto" if identity["is_auto"] else "", "Relic" if identity["is_relic"] else ""]
+    logical_set = identity.get("subset") or (identity["set_name"] if _norm(identity["set_name"]) != _norm(identity["product"]) else "")
+    candidates = [
+        _text(fallback),
+        " ".join(_unique_search_parts([identity["year"], identity["manufacturer"], identity["product"] or identity["brand"], logical_set, identity["player"], card, parallel, f"/{denominator}" if denominator else "", *features])),
+        " ".join(_unique_search_parts([identity["year"], identity["product"] or identity["brand"], logical_set, identity["player"], card, parallel, f"/{denominator}" if denominator else ""])),
+        " ".join(_unique_search_parts([identity["player"], card, logical_set, parallel, f"/{denominator}" if denominator else "", *features])),
+        " ".join(_unique_search_parts([identity["player"], card, parallel, f"/{denominator}" if denominator else ""])),
+    ]
+    output: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate = _text(candidate)
+        key = _norm(candidate)
+        if len(candidate) < 4 or key in seen:
+            continue
+        seen.add(key)
+        output.append(candidate)
+    return output[:5] or ["sports card"]
+
+
 def _query(identity: dict[str, Any], fallback: str) -> str:
-    parts = [identity["year"], identity["manufacturer"], identity["brand"], identity["product"], identity["player"]]
-    if identity["card_number"]:
-        parts.append(f"#{identity['card_number']}")
-    if identity["parallel"] and _norm(identity["parallel"]) not in {"base", "base set"}:
-        parts.append(identity["parallel"])
-    if identity["serial_number"]:
-        denominator = _denominator(identity["serial_number"])
-        parts.append(f"/{denominator}" if denominator else identity["serial_number"])
-    value = " ".join(dict.fromkeys(p for p in map(_text, parts) if p))
-    return value or _text(fallback) or "sports card"
+    return _query_ladder(identity, fallback)[0]
+
+
+def _card_number_pattern(value: str) -> re.Pattern[str] | None:
+    canonical = _canonical_card_number(value)
+    if not canonical:
+        return None
+    if canonical.isdigit():
+        return re.compile(rf"(?:#\s*|card\s*(?:no\.?|number|#)?\s*|no\.?\s*){re.escape(canonical)}\b", re.I)
+    flexible = r"[\s\-_.]*".join(re.escape(char) for char in canonical)
+    return re.compile(rf"(?<![A-Za-z0-9])#?\s*{flexible}(?![A-Za-z0-9])", re.I)
 
 
 def _parallel_patterns(parallel: str) -> list[re.Pattern[str]]:
@@ -111,7 +165,7 @@ def _parallel_patterns(parallel: str) -> list[re.Pattern[str]]:
     for alias in aliases:
         words = [re.escape(word) for word in alias.split() if word not in {"prizm", "prizms", "prism"}]
         if words:
-            patterns.append(re.compile(r"\b" + r"\s+".join(words) + r"\b", re.I))
+            patterns.append(re.compile(r"\b" + r"[\s/_+.-]+".join(words) + r"\b", re.I))
     return patterns
 
 
@@ -137,12 +191,16 @@ def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, lis
             reasons.append(f"missing_player_token:{token}")
     if identity["year"] and identity["year"] not in title:
         reasons.append("year_mismatch")
-    number = re.escape(identity["card_number"])
-    if number and not re.search(rf"(?:#\s*|card\s*#?\s*){number}\b", title, re.I):
+    number_pattern = _card_number_pattern(identity["card_number"])
+    if number_pattern and not number_pattern.search(title):
         reasons.append("card_number_mismatch")
     product_tokens = [t for t in _norm(identity["product"] or identity["brand"]).split() if len(t) >= 4 and t not in {"wnba", "base", "card"}]
     if product_tokens and not any(t in normalized.split() for t in product_tokens):
         reasons.append("product_mismatch")
+    logical_set = identity.get("subset") or (identity["set_name"] if _norm(identity["set_name"]) != _norm(identity["product"]) else "")
+    set_tokens = [t for t in _norm(logical_set).split() if len(t) >= 4 and t not in {"base", "card", "cards", "set", "wnba"}]
+    if set_tokens and not all(t in normalized.split() for t in set_tokens):
+        reasons.append("set_or_insert_mismatch")
     target_parallel = _norm(identity["parallel"])
     if target_parallel in {"", "base", "base set"}:
         title_words = set(normalized.split())
@@ -309,12 +367,70 @@ async def _search_ebay(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]
             rows.append({
                 "title": title, "url": link, "item_price": prices[0], "shipping_price": shipping,
                 "sold_at": _date_iso(date_match.group(1)), "image_url": raw.get("imageUrl"),
-                "best_offer_unknown": bool(re.search(r"Best offer accepted", text, re.I)),
+                "best_offer_unknown": bool(re.search(r"\bbest offer\b", text, re.I)),
                 "raw_text": text[:1500],
             })
         return rows, {"source": "mac_chrome_ebay_sold", "label": "eBay Sold · Mac Chrome", "status": "live" if rows else "no_matches", "resultCount": len(rows), "searchUrl": url, "message": f"{len(rows)} sold rows read directly from the public eBay sold-results page."}
     except Exception as exc:
         return [], {"source": "mac_chrome_ebay_sold", "label": "eBay Sold · Mac Chrome", "status": "challenge" if "challenge" in str(exc) else "error", "resultCount": 0, "searchUrl": url, "message": str(exc)[:300]}
+
+
+async def _search_ebay_ladder(queries: list[str], identity: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    attempts: list[dict[str, Any]] = []
+    first_coverage: dict[str, Any] | None = None
+    for query in queries[:4]:
+        rows, coverage = await _search_ebay(query)
+        if first_coverage is None:
+            first_coverage = coverage
+        added = 0
+        for row in rows:
+            key = _item_id(_text(row.get("url"))) or _text(row.get("url")).lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(row)
+            added += 1
+        exact_count = sum(1 for row in merged if _strong_exact_title(_text(row.get("title")), identity)[0])
+        attempts.append({
+            "query": query,
+            "status": coverage.get("status"),
+            "rawCount": len(rows),
+            "newCount": added,
+            "cumulativeRawCount": len(merged),
+            "exactCount": exact_count,
+            "searchUrl": coverage.get("searchUrl"),
+            "message": coverage.get("message"),
+        })
+        # A successful strict hit proves the query family is working. eBay's
+        # first result page already contains all matches for that query, so do
+        # not burn browser time on broader searches unless zero exact cards pass.
+        if exact_count > 0:
+            break
+    coverage = dict(first_coverage or {
+        "source": "mac_chrome_ebay_sold",
+        "label": "eBay Sold · Mac Chrome",
+        "status": "no_matches",
+        "resultCount": 0,
+        "message": "No eBay sold search was attempted.",
+    })
+    coverage["resultCount"] = len(merged)
+    coverage["attemptCount"] = len(attempts)
+    coverage["attempts"] = attempts
+    coverage["message"] = (
+        f"{len(merged)} unique sold rows read across {len(attempts)} query attempt"
+        f"{'s' if len(attempts) != 1 else ''}; "
+        f"{attempts[-1]['exactCount'] if attempts else 0} strict exact result"
+        f"{'s' if (attempts[-1]['exactCount'] if attempts else 0) != 1 else ''} passed."
+    )
+    if merged:
+        coverage["status"] = "live"
+    elif attempts and all(attempt.get("status") in {"error", "challenge"} for attempt in attempts):
+        coverage["status"] = attempts[-1].get("status") or "error"
+    else:
+        coverage["status"] = "no_matches"
+    return merged, coverage
 
 
 async def _search_ebay_active(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -464,9 +580,10 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         missing = [field for field in ("year", "player", "card_number") if not identity[field]]
         if missing:
             raise HTTPException(status_code=400, detail=f"Exact market search requires: {', '.join(missing)}")
-        query = _query(identity, request.exact_title)
+        queries = _query_ladder(identity, request.exact_title)
+        query = queries[0]
         async with _BROWSER_LOCK:
-            ebay_task = asyncio.create_task(_search_ebay(query))
+            ebay_task = asyncio.create_task(_search_ebay_ladder(queries, identity))
             fanatics_task = (
                 asyncio.create_task(_search_fanatics(query))
                 if request.include_fanatics
@@ -558,6 +675,19 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         sold = _dedupe(sold, request.max_sold)
         active = _dedupe(active, request.max_active)
         summary = _market_summary(sold, active)
+        rejection_reason_counts: dict[str, int] = {}
+        for row in rejected:
+            for reason in row.get("reasons") or []:
+                rejection_reason_counts[reason] = rejection_reason_counts.get(reason, 0) + 1
+        diagnostics = {
+            "queries": queries,
+            "ebaySearchAttempts": ebay_coverage.get("attempts") or [],
+            "retrievedSoldCandidates": len(ebay_rows) + len(point_rows) + len(fanatics_rows),
+            "acceptedSoldEvidence": len(sold),
+            "pricingEligibleSoldEvidence": summary["pricingEligibleSoldCount"],
+            "rejectedCandidateCount": len(rejected),
+            "rejectionReasonCounts": dict(sorted(rejection_reason_counts.items(), key=lambda item: (-item[1], item[0]))),
+        }
         learning = {"status": "not_configured", "market_observations_saved": 0, "student_training_eligible": False}
         if database_path is not None:
             try:
@@ -595,11 +725,13 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
             "schemaVersion": "tcos.instacomp-ai.market-comp.v1",
             "ok": True,
             "query": query,
+            "queries": queries,
             "identity": identity,
             "sold": sold,
             "active": active,
             "rejected": rejected[:100],
             "providerCoverage": [ebay_coverage, point_coverage, ebay_active_coverage, fanatics_coverage],
+            "diagnostics": diagnostics,
             "marketSummary": summary,
             "pricingEligibleSoldCount": summary["pricingEligibleSoldCount"],
             "learning": learning,

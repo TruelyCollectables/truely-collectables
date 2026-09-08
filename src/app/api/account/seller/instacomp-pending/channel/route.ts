@@ -161,6 +161,52 @@ async function archiveDuplicateDrafts(params: {
   return duplicates.length;
 }
 
+export async function GET(request: Request) {
+  try {
+    const account = await getAuthenticatedAccountFromRequest(request);
+    if (!account) {
+      return Response.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    await ensureAccountStoreMembership({
+      accountId: account.id,
+      role: "seller",
+      status: "active",
+    });
+    if (!OWNER_EMAILS.has(String(account.email || "").toLowerCase())) {
+      return Response.json(
+        { success: false, error: "eBay publishing readiness is limited to the store-owner account." },
+        { status: 403 },
+      );
+    }
+    const macEbay = await postInstaCompMacAccounting(
+      "/v1/kingmaker/accounting/ebay-bridge",
+      { mode: "readiness" },
+      30_000,
+    );
+    const readiness = record(macEbay.readiness);
+    return Response.json({
+      success: true,
+      ebay: {
+        connected: readiness.connected === true,
+        ready: readiness.ready === true,
+        marketplaceId: text(readiness.marketplaceId, 40) || "EBAY_US",
+        merchantLocationConfigured: Boolean(text(readiness.merchantLocationKey, 120)),
+        fulfillmentPolicyConfigured: Boolean(text(readiness.fulfillmentPolicyId, 120)),
+        paymentPolicyConfigured: Boolean(text(readiness.paymentPolicyId, 120)),
+        returnPolicyConfigured: Boolean(text(readiness.returnPolicyId, 120)),
+        missing: Array.isArray(readiness.missing) ? readiness.missing.map(String) : [],
+        error: text(readiness.error, 1000),
+        source: "mac_local_ebay_bridge",
+      },
+    });
+  } catch (error) {
+    return Response.json(
+      { success: false, error: error instanceof Error ? error.message : "Could not check eBay publishing readiness." },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -583,6 +629,7 @@ export async function POST(request: Request) {
               listingId: ebayResult.listingId,
               offerId: ebayResult.offerId,
               publishedAt: new Date().toISOString(),
+              lastAttemptAt: new Date().toISOString(),
               warnings: ebayResult.warnings || [],
               lastError: null,
             },
@@ -605,6 +652,26 @@ export async function POST(request: Request) {
           errors.push(error instanceof Error ? error.message : "eBay publishing failed.");
         }
       }
+    }
+
+    if ((action === "publish-ebay" || action === "publish-both") && !ebayResult && errors.length) {
+      const latestDual = record(nextMetadata.dual_marketplace);
+      const ebayError = errors[errors.length - 1];
+      nextMetadata.dual_marketplace = {
+        ...latestDual,
+        ebay: {
+          ...record(latestDual.ebay),
+          status: "draft",
+          lastError: ebayError,
+          lastAttemptAt: new Date().toISOString(),
+        },
+      };
+      await supabase
+        .from("inventory_items")
+        .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+        .eq("store_id", storeId)
+        .eq("id", keeper.id)
+        .throwOnError();
     }
 
     if (action === "publish-website" || action === "publish-both") {
@@ -690,6 +757,8 @@ export async function POST(request: Request) {
         suggestedPrice: money(instaComp.suggestedPrice) || null,
         ebayPrice,
         websitePrice,
+        cardCondition: cardCondition || null,
+        ebayCategoryId: text(record(record(nextMetadata.dual_marketplace).ebay).categoryId, 40) || generated.ebayCategoryId,
         pricing,
         websitePublished,
         ebayPublished: Boolean(ebayResult),

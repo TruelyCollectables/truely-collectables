@@ -9,6 +9,7 @@ from . import checklist as checklist_module
 from .checklist import _bounded_ocr, _registry_base_url, _registry_headers, _text
 from .models import CardIdentity, ChecklistOutcome, ChecklistResult
 from .visible_identity_hint_guard import registry_product_line_hint_from_text
+from .local_checklist_registry import resolve_local_registry_exact
 
 
 class AuthoritativeRegistryChecklistGateway:
@@ -77,7 +78,31 @@ class AuthoritativeRegistryChecklistGateway:
             "registry_transport_errors": [],
             "registry_attempts": 0,
             "registry_max_attempts": self.max_attempts,
+            "local_registry": None,
+            "registry_authority": None,
         }
+
+        # The Mac Registry is the first identity authority on the user's own
+        # InstaComp service. It contains operator-protected supplements for
+        # physical card identifiers (for example LS-YG) that public checklist
+        # sources sometimes flatten into a numeric checklist row. Only a unique
+        # exact local match is accepted; ambiguity fails closed to the central
+        # resolver/review path.
+        if identity.card_number:
+            local_result, local_diagnostics = resolve_local_registry_exact(identity)
+            diagnostics["local_registry"] = local_diagnostics
+            if local_result is not None and local_result.outcome == ChecklistOutcome.EXACT_MATCH:
+                diagnostics["registry_authority"] = "mac_local_sqlite"
+                diagnostics["registry_status"] = "exact_match"
+                diagnostics["registry_resolver_status"] = "mac_local_exact_match"
+                diagnostics["registry_reasons"] = list(local_result.reasons)
+                diagnostics["registry_candidate_count"] = local_result.candidate_count
+                diagnostics["registry_identity_id"] = local_result.identity_id
+                for receipt in local_result.source_receipts:
+                    if receipt.startswith("registry_fingerprint:"):
+                        diagnostics["registry_fingerprint_sha256"] = receipt.split(":", 1)[1]
+                        break
+                return local_result, diagnostics
 
         if not base_url:
             result = ChecklistResult(
@@ -169,6 +194,7 @@ class AuthoritativeRegistryChecklistGateway:
             return result, diagnostics
 
         data = response.json() if response.content else {}
+        diagnostics["registry_authority"] = "central_registry_fallback"
         diagnostics["registry_http_status"] = response.status_code
         diagnostics["registry_raw_response"] = data
         diagnostics["registry_status"] = _text(data.get("status"))
