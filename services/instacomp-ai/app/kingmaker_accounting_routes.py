@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .kingmaker_accounting import KingmakerAccounting
-from .kingmaker_commercial_inventory import KingmakerCommercialInventory
+from .kingmaker_commercial_inventory import KingmakerCommercialInventory, fetch_ebay_seller_snapshot
 
 
 class PurchaseMatchRequest(BaseModel):
@@ -207,7 +207,7 @@ def build_kingmaker_accounting_router(
     async def commercial_inventory_route(request: CommercialInventoryRequest):
         try:
             if request.action == "list":
-                snapshot = _run_local_ebay_bridge({"mode": "inventory_snapshot"})
+                snapshot = fetch_ebay_seller_snapshot()
                 listings = snapshot.get("listings") if isinstance(snapshot.get("listings"), list) else []
                 commercial_inventory.absorb_ebay_snapshot(
                     listings,
@@ -227,8 +227,7 @@ def build_kingmaker_accounting_router(
                         "storeOwnedCount": len(items),
                     },
                     "ebaySnapshot": {
-                        "inventoryItemCount": int(snapshot.get("inventoryItemCount") or 0),
-                        "offerCount": int(snapshot.get("offerCount") or 0),
+                        "listingCount": int(snapshot.get("listingCount") or 0),
                         "syncedAt": snapshot.get("syncedAt"),
                     },
                 }

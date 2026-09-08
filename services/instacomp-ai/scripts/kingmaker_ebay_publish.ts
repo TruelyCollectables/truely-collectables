@@ -127,6 +127,8 @@ async function ebayGet(accessToken: string, path: string) {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
       "Content-Type": "application/json",
+      "Accept-Language": "en-US",
+      "Content-Language": "en-US",
       "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
     },
     signal: AbortSignal.timeout(30_000),
@@ -201,6 +203,79 @@ async function inventorySnapshot(refreshToken: string) {
   return { listings, inventoryItemCount: inventoryItems.length, offerCount: offers.length, syncedAt };
 }
 
+
+function escapeTradingXml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function tradingXmlText(xml: string, tag: string) {
+  const match = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i").exec(xml);
+  let value = String(match?.[1] || "").trim();
+  if (value.startsWith("<![CDATA[") && value.endsWith("]]>") ) {
+    value = value.slice(9, -3);
+  }
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+async function tradingCall(accessToken: string, callName: string, requestXml: string) {
+  const response = await fetch(`${apiRoot()}/ws/api.dll`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/xml",
+      "X-EBAY-API-CALL-NAME": callName,
+      "X-EBAY-API-COMPATIBILITY-LEVEL": "1363",
+      "X-EBAY-API-SITEID": "0",
+      "X-EBAY-API-IAF-TOKEN": accessToken,
+    },
+    body: requestXml,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const xml = await response.text();
+  const ack = tradingXmlText(xml, "Ack") || "Failure";
+  if (!response.ok || !["Success", "Warning"].includes(ack)) {
+    const detail = tradingXmlText(xml, "LongMessage") || tradingXmlText(xml, "ShortMessage") || `eBay ${callName} HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+  return xml;
+}
+
+async function reviseLegacyTradingListing(refreshToken: string, revision: EbayExistingRevisionInput) {
+  const listingId = String(revision.listingId || "").trim();
+  const sku = String(revision.sku || "").trim();
+  if (!listingId) throw new Error("An exact existing eBay listing ID is required for a legacy revision.");
+  const token = await refreshAccessToken(refreshToken, [INVENTORY_SCOPE]);
+  const fields = [`<ItemID>${escapeTradingXml(listingId)}</ItemID>`];
+  if (revision.title != null) fields.push(`<Title>${escapeTradingXml(String(revision.title).slice(0, 80))}</Title>`);
+  if (revision.description != null) fields.push(`<Description>${escapeTradingXml(String(revision.description))}</Description>`);
+  if (revision.quantity != null) {
+    const quantity = Math.max(0, Math.floor(Number(revision.quantity) || 0));
+    if (quantity < 1) throw new Error("eBay quantity must be at least 1 for a live legacy revision.");
+    fields.push(`<Quantity>${quantity}</Quantity>`);
+  }
+  if (revision.price != null) {
+    const price = Math.round((Number(revision.price) || 0) * 100) / 100;
+    if (price <= 0) throw new Error("eBay price must be greater than 0 for a live legacy revision.");
+    fields.push(`<StartPrice>${price.toFixed(2)}</StartPrice>`);
+  }
+  await tradingCall(
+    String(token.access_token || ""),
+    "ReviseFixedPriceItem",
+    `<?xml version="1.0" encoding="utf-8"?><ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents"><Item>${fields.join("")}</Item></ReviseFixedPriceItemRequest>`,
+  );
+  return { offerId: "legacy-trading", listingId, sku, updated: true as const, warnings: [] as string[] };
+}
+
 async function main() {
   const raw = await readStdin();
   const payload = JSON.parse(raw || "{}") as RunnerPayload;
@@ -244,10 +319,24 @@ async function main() {
   }
   if (mode === "revise") {
     if (!payload.revision) throw new Error("KINGMAKER eBay revision payload is missing.");
-    const result = await reviseExistingEbayInventoryItem({
-      refreshToken: tokenRecord.refreshToken,
-      revision: payload.revision,
-    });
+    const legacySku = String(payload.revision.sku || "").startsWith("legacy-ebay-");
+    let result;
+    if (legacySku) {
+      result = await reviseLegacyTradingListing(tokenRecord.refreshToken, payload.revision);
+    } else {
+      try {
+        result = await reviseExistingEbayInventoryItem({
+          refreshToken: tokenRecord.refreshToken,
+          revision: payload.revision,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const exactListingId = String(payload.revision.listingId || "").trim();
+        const missingInventoryModel = /not found|does not exist|inventory item.*(?:missing|exist)|status 404|http 404|could not find the existing published ebay offer/i.test(message);
+        if (!exactListingId || !missingInventoryModel) throw error;
+        result = await reviseLegacyTradingListing(tokenRecord.refreshToken, payload.revision);
+      }
+    }
     process.stdout.write(JSON.stringify({ ok: true, mode, ...result }));
     return;
   }

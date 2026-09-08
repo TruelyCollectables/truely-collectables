@@ -169,7 +169,7 @@ export default function SellerInventoryAdminPage() {
     let cancelled = false;
 
     void (async () => {
-      const freshSession = await getFreshAccountSession(5 * 60, true);
+      const freshSession = await getFreshAccountSession(5 * 60, false);
       if (cancelled) return;
       setSession(freshSession);
       setAuthChecked(true);

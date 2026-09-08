@@ -1,14 +1,159 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+import base64
 import json
 import sqlite3
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def _ebay_access_token() -> str:
+    support = Path.home() / "Library/Application Support/TCOS-Current-Review"
+    env_path = support / ".env.local"
+    token_path = support / "ebay-seller-token.json"
+    if not env_path.exists() or not token_path.exists():
+        raise ValueError("Mac-local eBay credentials are not configured")
+    env = _read_env_file(env_path)
+    client_id = str(env.get("EBAY_CLIENT_ID") or "").strip()
+    client_secret = str(env.get("EBAY_CLIENT_SECRET") or "").strip()
+    token_record = json.loads(token_path.read_text(encoding="utf-8"))
+    refresh_token = str(token_record.get("refreshToken") or "").strip()
+    if not client_id or not client_secret or not refresh_token:
+        raise ValueError("Mac-local eBay credentials are incomplete")
+    api_root = "https://api.sandbox.ebay.com" if str(env.get("EBAY_ENVIRONMENT") or "production").lower() == "sandbox" else "https://api.ebay.com"
+    body = urllib.parse.urlencode({
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": "https://api.ebay.com/oauth/api_scope/sell.inventory",
+    }).encode("utf-8")
+    encoded = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    request = urllib.request.Request(
+        f"{api_root}/identity/v1/oauth2/token",
+        data=body,
+        method="POST",
+        headers={"Authorization": f"Basic {encoded}", "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.load(response)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:1000]
+        raise ValueError(f"eBay token refresh failed: {detail}") from exc
+    access_token = str(data.get("access_token") or "").strip()
+    if not access_token:
+        raise ValueError("eBay token refresh did not return an access token")
+    return access_token
+
+
+def fetch_ebay_seller_snapshot() -> dict[str, Any]:
+    access_token = _ebay_access_token()
+    namespace = {"e": "urn:ebay:apis:eBLBaseComponents"}
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(days=119)
+    listings: list[dict[str, Any]] = []
+    page_number = 1
+    total_pages = 1
+    while page_number <= total_pages:
+        xml_body = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
+            '<DetailLevel>ReturnAll</DetailLevel>'
+            f'<EndTimeFrom>{now.strftime("%Y-%m-%dT%H:%M:%S.000Z")}</EndTimeFrom>'
+            f'<EndTimeTo>{end.strftime("%Y-%m-%dT%H:%M:%S.000Z")}</EndTimeTo>'
+            f'<Pagination><EntriesPerPage>200</EntriesPerPage><PageNumber>{page_number}</PageNumber></Pagination>'
+            '</GetSellerListRequest>'
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            "https://api.ebay.com/ws/api.dll",
+            data=xml_body,
+            method="POST",
+            headers={
+                "X-EBAY-API-CALL-NAME": "GetSellerList",
+                "X-EBAY-API-SITEID": "0",
+                "X-EBAY-API-COMPATIBILITY-LEVEL": "1363",
+                "X-EBAY-API-IAF-TOKEN": access_token,
+                "Content-Type": "text/xml",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                root = ET.fromstring(response.read())
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:2000]
+            raise ValueError(f"eBay seller-list request failed: {detail}") from exc
+        ack = str(root.findtext("e:Ack", default="", namespaces=namespace))
+        if ack not in {"Success", "Warning"}:
+            errors = []
+            for node in root.findall("e:Errors", namespace):
+                message = node.findtext("e:LongMessage", default="", namespaces=namespace) or node.findtext("e:ShortMessage", default="", namespaces=namespace)
+                if message:
+                    errors.append(str(message))
+            raise ValueError("eBay seller-list request failed: " + " ".join(errors))
+        total_pages = max(1, int(root.findtext("e:PaginationResult/e:TotalNumberOfPages", default="1", namespaces=namespace) or 1))
+        for item in root.findall("e:ItemArray/e:Item", namespace):
+            listing_id = str(item.findtext("e:ItemID", default="", namespaces=namespace)).strip()
+            native_sku = str(item.findtext("e:SKU", default="", namespaces=namespace)).strip()
+            if not listing_id:
+                continue
+            sku = native_sku or f"legacy-ebay-{listing_id}"
+            listing_status = str(item.findtext("e:SellingStatus/e:ListingStatus", default="Active", namespaces=namespace)).strip()
+            quantity = int(float(item.findtext("e:Quantity", default="0", namespaces=namespace) or 0))
+            sold = int(float(item.findtext("e:SellingStatus/e:QuantitySold", default="0", namespaces=namespace) or 0))
+            available = max(0, quantity - sold)
+            price = float(item.findtext("e:SellingStatus/e:CurrentPrice", default="0", namespaces=namespace) or 0)
+            specifics: dict[str, str] = {}
+            for nv in item.findall("e:ItemSpecifics/e:NameValueList", namespace):
+                name = str(nv.findtext("e:Name", default="", namespaces=namespace)).strip()
+                value = str(nv.findtext("e:Value", default="", namespaces=namespace)).strip()
+                if name and value and name not in specifics:
+                    specifics[name] = value
+            pictures = [str(node.text or "").strip() for node in item.findall("e:PictureDetails/e:PictureURL", namespace) if str(node.text or "").strip()]
+            title = str(item.findtext("e:Title", default=sku, namespaces=namespace)).strip() or sku
+            description = str(item.findtext("e:Description", default="", namespaces=namespace))
+            category_name = str(item.findtext("e:PrimaryCategory/e:CategoryName", default="", namespaces=namespace)).strip()
+            category_id = str(item.findtext("e:PrimaryCategory/e:CategoryID", default="", namespaces=namespace)).strip()
+            condition = str(item.findtext("e:ConditionDisplayName", default="", namespaces=namespace)).strip()
+            listings.append({
+                "inventoryItemId": f"ebay:{listing_id}", "legacyProductId": None,
+                "ownershipScope": "store", "canEdit": True, "sku": sku,
+                "offerId": None, "ebayItemId": listing_id, "title": title,
+                "description": description,
+                "player": specifics.get("Player") or specifics.get("Player/Athlete") or None,
+                "sport": specifics.get("Sport") or None,
+                "category": category_name or category_id or "other_collectable",
+                "condition": condition or "unknown",
+                "status": "active" if listing_status.lower() == "active" else "draft",
+                "quantity": available, "price": max(0.0, round(price, 2)),
+                "imageUrl": pictures[0] if pictures else None, "imageUrls": pictures,
+                "authenticity": {}, "under20SellerProtectionOptIn": False,
+                "nativeSku": native_sku or None,
+                "updatedAt": _now(),
+                "createdAt": str(item.findtext("e:ListingDetails/e:StartTime", default="", namespaces=namespace)).strip() or None,
+                "syncedAt": _now(),
+            })
+        page_number += 1
+    synced_at = _now()
+    return {"listings": listings, "listingCount": len(listings), "syncedAt": synced_at}
 
 
 class KingmakerCommercialInventory:
