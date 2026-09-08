@@ -197,26 +197,35 @@ async function loadInventoryRows(params: {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
   const ownerAccount = isStoreOwnerSellerAccount(params.accountEmail);
-  let query = supabase
-    .from("inventory_items")
-    .select(
-      "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,updated_at,created_at",
-    )
-    .eq("store_id", storeId)
-    .order("updated_at", { ascending: false });
+  const rows: InventoryRow[] = [];
+  const pageSize = 1000;
 
-  query = ownerAccount
-    ? query.or(
-        `seller_account_id.eq.${params.accountId},seller_account_id.is.null`,
+  for (let offset = 0; offset < 10_000; offset += pageSize) {
+    let query = supabase
+      .from("inventory_items")
+      .select(
+        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,updated_at,created_at",
       )
-    : query.eq("seller_account_id", params.accountId);
+      .eq("store_id", storeId)
+      .order("updated_at", { ascending: false })
+      .range(offset, offset + pageSize - 1);
 
-  const { data, error } = await query;
-  if (error) throw error;
+    query = ownerAccount
+      ? query.or(
+          `seller_account_id.eq.${params.accountId},seller_account_id.is.null`,
+        )
+      : query.eq("seller_account_id", params.accountId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const page = (data || []) as InventoryRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
 
   return {
     ownerAccount,
-    rows: (data || []) as InventoryRow[],
+    rows,
     storeId,
     supabase,
   };
