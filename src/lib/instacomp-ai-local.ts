@@ -640,16 +640,26 @@ export async function analyzeWithInstaCompAiLocalSecondary(params: {
 }
 
 
-export async function confirmInstaCompAiLocalLesson(params: {
+export type InstaCompAiLocalLessonState =
+  | "operator_confirmed"
+  | "rejected"
+  | "quarantined";
+
+export async function recordInstaCompAiLocalLesson(params: {
   scanId: string;
   identity: InstaCompAiLocalLessonIdentity;
   operatorId: string;
+  state: InstaCompAiLocalLessonState;
+  verificationSource?: string;
   notes?: string | null;
   timeoutMs?: number;
 }) {
   if (!hasConfiguredInstaCompAiLocal()) {
     throw new Error("InstaComp internal engine is not configured for this runtime.");
   }
+  const operatorId = params.operatorId.trim().slice(0, 200);
+  if (!operatorId) throw new Error("A local lesson operator ID is required.");
+
   const headers = requestHeaders();
   headers.set("content-type", "application/json");
   const response = await fetch(`${baseUrl()}/v1/lessons`, {
@@ -657,17 +667,24 @@ export async function confirmInstaCompAiLocalLesson(params: {
     headers,
     body: JSON.stringify({
       scan_id: safeScanId(params.scanId),
-      state: "operator_confirmed",
+      state: params.state,
       identity: params.identity,
-      verification_source: "seller_manual_edit",
-      operator_id: params.operatorId.trim().slice(0, 200),
+      verification_source:
+        text(params.verificationSource)?.slice(0, 200) || "seller_manual_edit",
+      operator_id: operatorId,
       notes: text(params.notes)?.slice(0, 4000) || null,
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(params.timeoutMs ?? 30_000),
   });
   const payload = (await response.json().catch(() => null)) as
-    | { lesson_id?: unknown; trusted?: unknown; detail?: unknown }
+    | {
+        lesson_id?: unknown;
+        training_example_id?: unknown;
+        trusted?: unknown;
+        state?: unknown;
+        detail?: unknown;
+      }
     | null;
   if (!response.ok) {
     throw new Error(
@@ -676,10 +693,36 @@ export async function confirmInstaCompAiLocalLesson(params: {
     );
   }
   const lessonId = text(payload?.lesson_id);
-  if (!lessonId || payload?.trusted !== true) {
+  if (!lessonId) throw new Error("InstaComp internal lesson returned no lesson ID.");
+  const trusted = payload?.trusted === true;
+  if (params.state === "operator_confirmed" && !trusted) {
     throw new Error("InstaComp did not confirm the seller correction as trusted memory.");
   }
-  return { lessonId, trusted: true as const };
+  return {
+    lessonId,
+    trainingExampleId: text(payload?.training_example_id),
+    state: text(payload?.state) || params.state,
+    trusted,
+  };
+}
+
+export async function confirmInstaCompAiLocalLesson(params: {
+  scanId: string;
+  identity: InstaCompAiLocalLessonIdentity;
+  operatorId: string;
+  notes?: string | null;
+  timeoutMs?: number;
+}) {
+  const lesson = await recordInstaCompAiLocalLesson({
+    ...params,
+    state: "operator_confirmed",
+    verificationSource: "seller_manual_edit",
+  });
+  return {
+    lessonId: lesson.lessonId,
+    trainingExampleId: lesson.trainingExampleId,
+    trusted: true as const,
+  };
 }
 
 export async function getInstaCompAiLocalScanArchive(

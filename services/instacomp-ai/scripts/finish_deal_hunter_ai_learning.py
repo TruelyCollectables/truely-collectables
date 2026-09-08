@@ -247,7 +247,6 @@ def main() -> int:
     parser.add_argument("--image-resize-shape", type=int, nargs=2, default=(768, 768))
     parser.add_argument("--required-examples", type=int, default=30)
     parser.add_argument("--max-tokens", type=int, default=768)
-    parser.add_argument("--allow-vercel-env-pull", action="store_true")
     parser.add_argument(
         "--validation-only",
         action="store_true",
@@ -265,36 +264,16 @@ def main() -> int:
         raise SystemExit("--max-tokens must be greater than zero")
 
     if not args.validation_only:
-        train_command = [
-            str(_service_python()),
-            str(TRAIN_FULL),
-            "--epochs",
-            str(args.epochs),
-            "--image-resize-shape",
-            str(args.image_resize_shape[0]),
-            str(args.image_resize_shape[1]),
-        ]
-        if args.allow_vercel_env_pull:
-            train_command.append("--allow-vercel-env-pull")
-
-        train_code = _run(train_command)
-        if train_code != 0:
-            failure = {
-                "schema_version": "tcos.instacomp-ai.deal-hunter-learning-completion.v1",
-                "created_at": utc_now(),
-                "status": "training_or_inventory_sync_failed",
-                "complete": False,
-                "train_exit_code": train_code,
-                "automatic_deployment": False,
-            }
-            _write_completion(failure)
-            return train_code
-    else:
-        print(
-            "VALIDATION ONLY: reusing the existing successful full-inventory training receipt; "
-            "no inventory sync or LoRA retraining will run.",
-            flush=True,
+        raise SystemExit(
+            "RETIRED: this finisher may validate a Mac-local curriculum candidate only. "
+            "Supabase/full-inventory training is disabled; use the Mac-local teacher/student or unseen curriculum trainer first."
         )
+
+    print(
+        "VALIDATION ONLY: validating the existing Mac-local curriculum training receipt; "
+        "no inventory sync or Supabase-backed LoRA training will run.",
+        flush=True,
+    )
 
     training_receipt = _read_json(TRAINING_RECEIPT)
     adapter, training_dataset = _training_gate(training_receipt, args.required_examples)

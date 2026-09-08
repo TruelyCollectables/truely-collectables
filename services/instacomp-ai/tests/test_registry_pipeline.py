@@ -41,7 +41,7 @@ class FakeClient:
 
 @pytest.mark.asyncio
 async def test_registry_exact_match_requires_id_and_fingerprint(monkeypatch):
-    monkeypatch.setenv("INSTACOMP_AI_REGISTRY_URL", "https://example.test")
+    monkeypatch.setenv("INSTACOMP_AI_REGISTRY_URL", "http://127.0.0.1:8787")
     response = FakeResponse(
         200,
         {
@@ -77,7 +77,7 @@ async def test_registry_exact_match_requires_id_and_fingerprint(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_registry_match_without_fingerprint_stays_blocked(monkeypatch):
-    monkeypatch.setenv("INSTACOMP_AI_REGISTRY_URL", "https://example.test")
+    monkeypatch.setenv("INSTACOMP_AI_REGISTRY_URL", "http://127.0.0.1:8787")
     response = FakeResponse(
         200,
         {

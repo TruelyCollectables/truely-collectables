@@ -1,64 +1,43 @@
-name: InstaComp Inventory Training Snapshot 20260812
+name: InstaComp Local Learning Authority Gate
 
 on:
   push:
-    branches:
-      - main
-      - fix/instacomp-direct-db-snapshot-20260812
+    branches: [main]
     paths:
       - '.github/workflows/instacomp-inventory-training-snapshot-20260812.yml'
-      - 'services/instacomp-ai/scripts/export_inventory_training_snapshot.py'
-      - 'services/instacomp-ai/scripts/export_inventory_training_snapshot_reliable.py'
-      - 'services/instacomp-ai/scripts/inventory_training_git_snapshot.py'
-      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_snapshot_only.py'
-      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth_guarded.py'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth*.py'
+      - 'services/instacomp-ai/scripts/export_inventory_training_snapshot*.py'
+      - 'services/instacomp-ai/scripts/train_lora_*inventory.py'
+      - 'services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh'
+      - 'services/instacomp-ai/scripts/finish_deal_hunter_ai_learning.py'
+      - 'services/instacomp-ai/tests/test_learning_local_authority.py'
   workflow_dispatch:
-  schedule:
-    - cron: '17 */6 * * *'
 
 permissions:
-  contents: write
-
-concurrency:
-  group: instacomp-inventory-training-snapshot
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  snapshot:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SNAPSHOT_BRANCH: generated/instacomp-inventory-training-snapshot
-      SNAPSHOT_PATH: services/instacomp-ai/data/training/inventory-training-production-snapshot.enc.json
+  authority-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          fetch-depth: 0
-
-      - name: Export encrypted authoritative inventory through direct DB API
+          python-version: '3.13'
+      - name: Install InstaComp dependencies
+        working-directory: services/instacomp-ai
+        run: python -m pip install -r requirements.txt
+      - name: Prove retired Supabase training entrypoints remain fail-closed
+        working-directory: services/instacomp-ai
+        run: python -m pytest -q tests/test_learning_local_authority.py
+      - name: Prove active unseen cycle has no Supabase inventory-training launcher
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${SUPABASE_ACCESS_TOKEN:-}"
-          python3 services/instacomp-ai/scripts/export_inventory_training_snapshot_reliable.py \
-            --output /tmp/inventory-training-production-snapshot.enc.json
-
-      - name: Publish encrypted snapshot to generated Git branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'TruelyCollectables Automation'
-          git config user.email 'david@truelycollectables.com'
-          git fetch origin "${SNAPSHOT_BRANCH}" || true
-          git checkout -B "${SNAPSHOT_BRANCH}" "${GITHUB_SHA}"
-          mkdir -p "$(dirname "${SNAPSHOT_PATH}")"
-          cp /tmp/inventory-training-production-snapshot.enc.json "${SNAPSHOT_PATH}"
-          git add -f "${SNAPSHOT_PATH}"
-          if git diff --cached --quiet; then
-            echo 'Encrypted snapshot bytes unchanged; generated branch already current.'
-          else
-            git commit -m "Refresh encrypted InstaComp inventory training snapshot"
-          fi
-          git push --force origin "HEAD:refs/heads/${SNAPSHOT_BRANCH}"
-          echo "ENCRYPTED_SNAPSHOT_PUBLISHED_BRANCH=${SNAPSHOT_BRANCH}"
+          cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+          ! grep -q 'sync_all_inventory_training_truth' "$cycle"
+          ! grep -q 'allow-vercel-env-pull' services/instacomp-ai/scripts/finish_deal_hunter_ai_learning.py
+          grep -q 'Mac-local trusted lesson SQLite' "$cycle"
+          grep -q 'validation-only' "$cycle"
+          echo 'PASS Supabase inventory training is retired; CI performs architecture checks only.'

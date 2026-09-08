@@ -5,7 +5,7 @@ import { hardenInstaCompMarketPayload } from "../../../../lib/instacomp-market-e
 import {
   findFreshInstaCompCache,
   materializeInstaCompCacheReplay,
-  saveInstaCompLearningCache,
+  saveInstaCompCacheMirror,
   sha256File,
   type CacheRow,
   type ScanActor,
@@ -68,7 +68,7 @@ function cachedPayload(
     ok: true,
     scanId: replay.scanId,
     knowledge: {
-      mode: "tenant_scoped_exact_image_cache",
+      mode: "tenant_scoped_response_cache_mac_revalidated",
       cacheHit: true,
       cacheId: row.id,
       knowledgeEntryId: row.knowledge_entry_id,
@@ -82,7 +82,7 @@ function cachedPayload(
     },
     note: [
       replayPayload.note,
-      "Tenant-scoped exact-image identity evidence was reused, but this request received a new permanent scan record and learning observation.",
+      "Tenant-scoped response cache was reused only after fresh Mac Registry UUID/fingerprint revalidation; this request received a new storefront scan audit row.",
     ]
       .filter(Boolean)
       .join(" "),
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json(cachedPayload(cache, replay), {
           headers: {
-            "x-instacomp-learning": "tenant-scoped-cache-hit-new-scan",
+            "x-instacomp-cache": "tenant-scoped-cache-hit-mac-revalidated",
             "cache-control": "private, no-store",
           },
         });
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
       string,
       any
     >;
-    const learning = await saveInstaCompLearningCache({
+    const cacheMirror = await saveInstaCompCacheMirror({
       scanId: String(rawPayload.scanId),
       frontHash,
       backHash,
@@ -204,34 +204,32 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        ...learning.payload,
+        ...cacheMirror.payload,
         scanId: String(rawPayload.scanId),
         knowledge: {
           mode:
-            learning.registryMatch &&
-            learning.cache?.confirmation_status === "catalog_confirmed"
+            cacheMirror.registryMatch
               ? "checklist_registry_confirmed"
               : "new_learning_observation",
           cacheHit: false,
-          cacheId: learning.cache?.id || null,
-          knowledgeEntryId: learning.cache?.knowledge_entry_id || null,
+          cacheId: cacheMirror.cache?.id || null,
+          knowledgeEntryId: null,
           confirmationStatus:
-            learning.cache?.confirmation_status || "scanner_observed",
-          registryMatch: learning.registryMatch,
-          marketExpiresAt: learning.cache?.market_expires_at || null,
-          persistenceWarnings: learning.warnings,
+            "scanner_observed",
+          registryMatch: cacheMirror.registryMatch,
+          marketExpiresAt: cacheMirror.cache?.market_expires_at || null,
+          persistenceWarnings: cacheMirror.warnings,
         },
       },
       {
         status: coreResponse.status,
         headers: {
-          "x-instacomp-learning":
-            learning.registryMatch &&
-            learning.cache?.confirmation_status === "catalog_confirmed"
-              ? "registry-confirmed"
-              : learning.warnings.length
-                ? "observation-recorded-with-warnings"
-                : "observation-recorded",
+          "x-instacomp-cache":
+            cacheMirror.registryMatch
+              ? "mac-registry-revalidated-cache-mirror"
+              : cacheMirror.warnings.length
+                ? "cache-mirror-with-warnings"
+                : "cache-mirror",
           "cache-control": "private, no-store",
         },
       },

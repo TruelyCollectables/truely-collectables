@@ -1,21 +1,12 @@
-import { createClient } from "@supabase/supabase-js";
 import type {
   ChecklistRegistryLookupResult,
   RegistryMatch,
 } from "./instacomp-learning-server";
 import {
   chooseDirectRegistryExactMatch,
+  resolveRegistryDirectExact,
   type DirectRegistryCardRow,
 } from "./instacomp-registry-direct-exact";
-
-function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 function normalizedText(value: unknown) {
   return String(value ?? "")
@@ -169,173 +160,7 @@ export function chooseReleaseFirstRegistryExactMatch(
 export async function resolveRegistryDirectExactReleaseFirst(
   probe: Record<string, any>,
 ): Promise<ChecklistRegistryLookupResult | null> {
-  const supabase = serviceClient();
-  const targetYear = yearStart(probe.year);
-  const cardNumber = normalizedCardNumber(probe.cardNumber);
-  if (
-    !supabase ||
-    !targetYear ||
-    !cardNumber ||
-    !normalizedText(probe.brand)
-  ) {
-    return null;
-  }
-
-  // Narrow on year before loading version IDs. Production currently has well
-  // over one thousand active Registry versions; putting every UUID into one
-  // PostgREST .in(version_id, ...) query creates an oversized request and can
-  // fail before an otherwise exact card is examined.
-  const releaseResult = await supabase
-    .from("checklist_releases")
-    .select(
-      "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
-    )
-    .or(`release_year.like.${targetYear}%,season.like.${targetYear}%`)
-    .limit(1000);
-  if (releaseResult.error) return null;
-
-  const candidateReleases = narrowDirectRegistryReleaseRows(
-    probe,
-    (releaseResult.data || []) as DirectReleaseRow[],
-  );
-  const candidateReleaseIds = unique(candidateReleases.map((row) => row.id));
-  if (!candidateReleaseIds.length) return null;
-
-  const versionResult = await supabase
-    .from("checklist_versions")
-    .select("id,release_id")
-    .in("release_id", candidateReleaseIds)
-    .eq("is_active", true)
-    .eq("status", "live")
-    .limit(1000);
-  if (versionResult.error) return null;
-
-  const activeVersionIds = unique(
-    (versionResult.data || []).map((row: any) => row.id),
-  );
-  if (!activeVersionIds.length) return null;
-
-  const directResults = await Promise.all(
-    candidateReleaseIds.map((releaseId) =>
-      supabase
-        .from("checklist_cards")
-        .select(
-          "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-        )
-        .eq("normalized_card_number", cardNumber)
-        .eq("release_id", releaseId)
-        .in("version_id", activeVersionIds)
-        .limit(1000),
-    ),
-  );
-  if (directResults.some((result) => result.error)) return null;
-
-  const observedAliasByCard = new Map<string, string>();
-  const aliasResult = await supabase
-    .from("checklist_card_number_aliases")
-    .select("card_id,alias,normalized_alias")
-    .eq("normalized_alias", cardNumber)
-    .limit(100);
-
-  let aliasCardIds: string[] = [];
-  if (!aliasResult.error) {
-    for (const row of aliasResult.data || []) {
-      const cardId = String((row as any).card_id || "");
-      if (!cardId) continue;
-      aliasCardIds.push(cardId);
-      observedAliasByCard.set(
-        cardId,
-        String((row as any).alias || probe.cardNumber || ""),
-      );
-    }
-  }
-
-  const cards = directResults.flatMap((result) => result.data || []) as any[];
-  const directIds = new Set(cards.map((row: any) => String(row.id)));
-  aliasCardIds = unique(aliasCardIds).filter((id) => !directIds.has(id));
-
-  if (aliasCardIds.length) {
-    const aliasedCards = await supabase
-      .from("checklist_cards")
-      .select(
-        "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-      )
-      .in("id", aliasCardIds)
-      .in("release_id", candidateReleaseIds)
-      .in("version_id", activeVersionIds)
-      .limit(100);
-    if (!aliasedCards.error) cards.push(...(aliasedCards.data || []));
-  }
-
-  if (!cards.length) return null;
-
-  const cardIds = unique(cards.map((row: any) => row.id));
-  const setIds = unique(cards.map((row: any) => row.set_id));
-
-  const [setResult, playerResult, teamResult, identityResult] = await Promise.all([
-    supabase.from("checklist_sets").select("id,name").in("id", setIds),
-    supabase
-      .from("checklist_card_players")
-      .select("card_id,player:checklist_players(canonical_name)")
-      .in("card_id", cardIds),
-    supabase
-      .from("checklist_card_teams")
-      .select("card_id,team:checklist_teams(canonical_name)")
-      .in("card_id", cardIds),
-    supabase
-      .from("checklist_card_identities")
-      .select(
-        "id,card_id,fingerprint_sha256,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
-      )
-      .in("card_id", cardIds),
-  ]);
-
-  if (
-    setResult.error ||
-    playerResult.error ||
-    teamResult.error ||
-    identityResult.error
-  ) {
-    return null;
-  }
-
-  const releases = byId(candidateReleases);
-  const sets = byId(setResult.data || []);
-  const players = grouped(playerResult.data || []);
-  const teams = grouped(teamResult.data || []);
-  const identities = grouped(identityResult.data || []);
-
-  const rows: DirectRegistryCardRow[] = cards.map((card: any) => ({
-    ...card,
-    release: releases.get(String(card.release_id)) || null,
-    set: sets.get(String(card.set_id)) || null,
-    players: players.get(String(card.id)) || [],
-    teams: teams.get(String(card.id)) || [],
-    identities: identities.get(String(card.id)) || [],
-    observed_alias: observedAliasByCard.get(String(card.id)) || null,
-  }));
-
-  const chosen = chooseReleaseFirstRegistryExactMatch(probe, rows);
-  if (!chosen) return null;
-
-  return {
-    status: "internal_exact_match",
-    match: chosen.match,
-    reasons: [
-      chosen.playerRecovered
-        ? "release_first_unique_fingerprint_player_recovery"
-        : "release_first_bounded_direct_registry_exact_recovery",
-    ],
-    candidateCount: 1,
-    coveredReleaseIds: unique(
-      cards.map((card: any) => card.release_id),
-    ),
-    coveredVersionIds: unique(
-      cards.map((card: any) => card.version_id),
-    ),
-    coveredSetIds: unique(cards.map((card: any) => card.set_id)),
-    sourceTier: "internal",
-    externalLookupEligible: false,
-    externalLookupAttempted: false,
-  };
+  // The historical release-first PostgREST implementation is retained only as
+  // pure matching helpers above. Runtime identity authority is the Mac Registry.
+  return resolveRegistryDirectExact(probe);
 }

@@ -15,6 +15,7 @@ from .apple_vision import AppleVisionOCR
 from .checklist import checklist_gateway
 from .cockpit_routes import build_cockpit_router
 from .config import settings
+from .local_registry_store import LocalRegistryStore
 from .images import (
     pair_hash,
     persist_image,
@@ -35,6 +36,7 @@ from .models import (
     MemoryMatch,
 )
 from .ollama import OllamaReader
+from .registry_routes import build_registry_router
 from .printed_evidence import (
     identity_from_printed_evidence,
     parse_printed_evidence,
@@ -49,8 +51,11 @@ settings.ensure_directories()
 database_path = settings.resolve_local_path(settings.database_path)
 image_store_path = settings.resolve_local_path(settings.image_store_path)
 training_export_path = settings.resolve_local_path(settings.training_export_path)
+registry_database_path = settings.resolve_local_path(settings.data_database_path / "checklist_registry.sqlite3")
 store = MemoryStore(database_path)
 store.initialize()
+registry_store = LocalRegistryStore(registry_database_path, Path(settings.service_root))
+registry_store.initialize()
 reader = OllamaReader(settings)
 image_orientation_reader = AppleVisionOCR(
     Path(settings.service_root),
@@ -142,6 +147,7 @@ app.include_router(
         training_export_path=training_export_path,
     )
 )
+app.include_router(build_registry_router(require_api_key, registry_store))
 app.include_router(build_market_comp_router(require_api_key, database_path))
 app.include_router(
     build_kingmaker_accounting_router(

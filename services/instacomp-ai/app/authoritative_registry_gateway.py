@@ -86,7 +86,7 @@ class AuthoritativeRegistryChecklistGateway:
         # InstaComp service. It contains operator-protected supplements for
         # physical card identifiers (for example LS-YG) that public checklist
         # sources sometimes flatten into a numeric checklist row. Only a unique
-        # exact local match is accepted; ambiguity fails closed to the central
+        # exact local match is accepted; ambiguity fails closed to the Mac-local
         # resolver/review path.
         if identity.card_number:
             local_result, local_diagnostics = resolve_local_registry_exact(identity)
@@ -194,7 +194,7 @@ class AuthoritativeRegistryChecklistGateway:
             return result, diagnostics
 
         data = response.json() if response.content else {}
-        diagnostics["registry_authority"] = "central_registry_fallback"
+        diagnostics["registry_authority"] = "mac_local_registry_http"
         diagnostics["registry_http_status"] = response.status_code
         diagnostics["registry_raw_response"] = data
         diagnostics["registry_status"] = _text(data.get("status"))

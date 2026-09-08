@@ -1,11 +1,5 @@
 import {
-  buildTcosCardKnowledgeDraft,
-  trustStatusForConfirmedCount,
-  type TcosCardKnowledgeResultPayload,
-} from "../../../../../../lib/instacomp-card-knowledge";
-import {
   INSTACOMP_JOB_ITEM_TABLE,
-  InstaCompJobServerError,
   type InstaCompJobActor,
   getAccessibleInstaCompJob,
   instaCompJobErrorResponse,
@@ -15,16 +9,12 @@ import {
   requireUuid,
   throwInstaCompDatabaseError,
 } from "../../../../../../lib/instacomp-job-server";
+import { recordInstaCompAiLocalLesson } from "../../../../../../lib/instacomp-ai-local";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type RouteContext = {
-  params: Promise<{ id: string }>;
-};
-
-const KNOWLEDGE_ENTRY_TABLE = "tcos_card_knowledge_entries";
-const KNOWLEDGE_OBSERVATION_TABLE = "tcos_card_knowledge_observations";
+type RouteContext = { params: Promise<{ id: string }> };
 
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -34,7 +24,6 @@ function objectRecord(value: unknown) {
 
 function cleanUuidList(value: unknown) {
   if (!Array.isArray(value)) return [];
-
   return value
     .map((item) => {
       try {
@@ -46,232 +35,108 @@ function cleanUuidList(value: unknown) {
     .filter((item): item is string => Boolean(item));
 }
 
-function isKnowledgeSchemaMissing(error: { code?: string; message?: string }) {
-  const message = error.message?.toLowerCase() || "";
-
-  return (
-    error.code === "42P01" ||
-    error.code === "42703" ||
-    message.includes(KNOWLEDGE_ENTRY_TABLE) ||
-    message.includes(KNOWLEDGE_OBSERVATION_TABLE) ||
-    message.includes("knowledge_entry_id") ||
-    message.includes("knowledge_saved_at") ||
-    message.includes("submitted_by_account_id") ||
-    message.includes("submitted_by_actor_type") ||
-    message.includes("submitted_store_id") ||
-    message.includes("latest_submitted_by_account_id") ||
-    message.includes("latest_submitted_by_actor_type")
-  );
+function localOperatorId(actor: InstaCompJobActor) {
+  return actor.type === "seller"
+    ? `seller:${actor.sellerAccountId}`
+    : `store-owner:${actor.storeId}`;
 }
 
-function schemaError() {
-  return new InstaCompJobServerError(
-    "TCOS Card Knowledge Base tables are not installed yet. Apply supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql, then process the saved lot again.",
-    503,
-    "INSTACOMP_KNOWLEDGE_SCHEMA_MISSING",
-  );
-}
-
-async function refreshTrustStatus(params: {
-  supabase: ReturnType<typeof requireInstaCompJobSupabase>;
-  entryId: string;
-  now: string;
-}) {
-  const { count, error: countError } = await params.supabase
-    .from(KNOWLEDGE_OBSERVATION_TABLE)
-    .select("id", { count: "exact", head: true })
-    .eq("knowledge_entry_id", params.entryId)
-    .eq("confirmation_status", "operator_confirmed");
-
-  if (countError) {
-    if (isKnowledgeSchemaMissing(countError)) throw schemaError();
-    throwInstaCompDatabaseError(countError);
-  }
-
-  const confirmedCount = count || 0;
-  const trustStatus = trustStatusForConfirmedCount(confirmedCount);
-  const updates = {
-    confirmed_count: confirmedCount,
-    trust_status: trustStatus,
-    trusted_at: trustStatus === "tcos_trusted" ? params.now : null,
-    last_seen_at: params.now,
+function lessonIdentity(ai: Record<string, any>) {
+  const parallel = String(ai.parallel || "").trim();
+  return {
+    sport: String(ai.sport || "").trim() || null,
+    league: String(ai.league || "").trim() || null,
+    year: String(ai.year || "").trim() || null,
+    manufacturer: String(ai.manufacturer || ai.brand || "").trim() || null,
+    brand: String(ai.brand || "").trim() || null,
+    set_name: String(ai.setName || ai.set_name || "").trim() || null,
+    subset: String(ai.subset || "").trim() || null,
+    player: String(ai.player || "").trim() || null,
+    team: String(ai.team || "").trim() || null,
+    card_number: String(ai.cardNumber || ai.card_number || "").trim() || null,
+    parallel: parallel && !/^base$/i.test(parallel) ? parallel : null,
+    variation: String(ai.variation || "").trim() || null,
+    serial_number: String(ai.serialNumber || ai.serial_number || "").trim() || null,
+    rookie: ai.isRookie === true,
+    autograph: ai.isAuto === true,
+    memorabilia: ai.isRelic === true,
   };
-  const { data, error } = await params.supabase
-    .from(KNOWLEDGE_ENTRY_TABLE)
-    .update(updates)
-    .eq("id", params.entryId)
-    .select("id,identity_fingerprint,title,confirmed_count,trust_status")
-    .single();
-
-  if (error) {
-    if (isKnowledgeSchemaMissing(error)) throw schemaError();
-    throwInstaCompDatabaseError(error);
-  }
-
-  return data as Record<string, any>;
 }
 
-async function processItemIntoKnowledgeBase(params: {
+async function processItem(params: {
   supabase: ReturnType<typeof requireInstaCompJobSupabase>;
   actor: InstaCompJobActor;
   job: Record<string, any>;
   item: Record<string, any>;
-  now: string;
 }) {
-  const resultPayload = objectRecord(
-    params.item.result_payload,
-  ) as TcosCardKnowledgeResultPayload;
-  const draft = buildTcosCardKnowledgeDraft({
-    resultPayload,
-    fallbackTitle: params.item.front_original_filename,
-  });
+  const resultPayload = objectRecord(params.item.result_payload);
+  const ai = objectRecord(resultPayload.ai);
+  if (resultPayload.ok !== true || !Object.keys(ai).length) {
+    return { status: "skipped" as const, reason: "missing scan result identity" };
+  }
 
-  if (!resultPayload.ok || !draft) {
+  const internalScanId = String(ai.internalScanId || "").trim();
+  if (!/^[0-9a-z-]{1,100}$/i.test(internalScanId)) {
+    return { status: "skipped" as const, reason: "missing Mac-local scan receipt" };
+  }
+
+  const priorReceipt = objectRecord(resultPayload.localLearningReceipt);
+  if (
+    priorReceipt.authority === "mac_local" &&
+    priorReceipt.internalScanId === internalScanId &&
+    String(priorReceipt.lessonId || "").trim()
+  ) {
     return {
-      status: "skipped" as const,
-      reason: "missing scan result identity",
+      status: "processed" as const,
+      duplicateObservation: true,
+      entry: {
+        id: String(priorReceipt.lessonId),
+        trust_status: "mac_operator_confirmed",
+        confirmed_count: 1,
+        authority: "mac_local",
+      },
     };
   }
 
-  const ai = objectRecord(resultPayload.ai);
-  const stats = objectRecord(resultPayload.stats);
-  const soldStats = objectRecord(resultPayload.soldStats);
-  const submittedByAccountId =
-    params.actor.type === "seller" ? params.actor.sellerAccountId : null;
-  const submittedByActorType = params.actor.type;
-  const upsertPayload = {
-    identity_fingerprint: draft.identityFingerprint,
-    title: draft.title,
-    year: draft.year,
-    brand: draft.brand,
-    set_name: draft.setName,
-    card_number: draft.cardNumber,
-    player: draft.player,
-    parallel: draft.parallel,
-    variation: draft.variation,
-    serial_run: draft.serialRun,
-    serial_number: draft.serialNumber,
-    team: draft.team,
-    sport: draft.sport,
-    is_rookie: draft.isRookie,
-    is_auto: draft.isAuto,
-    is_relic: draft.isRelic,
-    latest_scan_job_id: params.job.id,
-    latest_scan_item_id: params.item.id,
-    latest_scan_id: resultPayload.scanId || null,
-    latest_submitted_by_account_id: submittedByAccountId,
-    latest_submitted_by_actor_type: submittedByActorType,
-    latest_submitted_at: params.now,
-    front_image_sha256: params.item.front_image_sha256 || null,
-    back_image_sha256: params.item.back_image_sha256 || null,
-    front_storage_path: params.item.front_storage_path || null,
-    back_storage_path: params.item.back_storage_path || null,
-    ai_result: ai,
-    operator_corrections: objectRecord(resultPayload.operatorCorrections),
-    catalog_evidence: objectRecord(resultPayload.catalogEvidence),
-    consensus: objectRecord(resultPayload.consensus),
-    market_snapshot: {
-      stats,
-      soldStats,
-      suggestedPrice: stats.suggestedPrice ?? null,
-    },
-    source_coverage: Array.isArray(resultPayload.sourceCoverage)
-      ? resultPayload.sourceCoverage
-      : [],
-    result_payload: resultPayload,
-    last_seen_at: params.now,
-  };
-
-  const { data: entry, error: entryError } = await params.supabase
-    .from(KNOWLEDGE_ENTRY_TABLE)
-    .upsert(upsertPayload, { onConflict: "identity_fingerprint" })
-    .select("id,identity_fingerprint,title,confirmed_count,trust_status")
-    .single();
-
-  if (entryError) {
-    if (isKnowledgeSchemaMissing(entryError)) throw schemaError();
-    throwInstaCompDatabaseError(entryError);
-  }
-
-  const { data: existingObservation, error: existingObservationError } =
-    await params.supabase
-      .from(KNOWLEDGE_OBSERVATION_TABLE)
-      .select("id,knowledge_entry_id")
-      .eq("source_scan_item_id", params.item.id)
-      .maybeSingle();
-
-  if (existingObservationError) {
-    if (isKnowledgeSchemaMissing(existingObservationError)) throw schemaError();
-    throwInstaCompDatabaseError(existingObservationError);
-  }
-
-  const oldEntryId =
-    existingObservation?.knowledge_entry_id &&
-    existingObservation.knowledge_entry_id !== entry.id
-      ? String(existingObservation.knowledge_entry_id)
-      : null;
-  const { error: observationError } = await params.supabase
-    .from(KNOWLEDGE_OBSERVATION_TABLE)
-    .upsert(
-      {
-        knowledge_entry_id: entry.id,
-        source_scan_job_id: params.job.id,
-        source_scan_item_id: params.item.id,
-        source_scan_id: resultPayload.scanId || null,
-        confirmation_status: "operator_confirmed",
-        submitted_by_account_id: submittedByAccountId,
-        submitted_by_actor_type: submittedByActorType,
-        submitted_store_id: params.actor.storeId,
-        title: draft.title,
-        front_image_sha256: params.item.front_image_sha256 || null,
-        back_image_sha256: params.item.back_image_sha256 || null,
-        ai_result: ai,
-        operator_corrections: objectRecord(resultPayload.operatorCorrections),
-        catalog_evidence: objectRecord(resultPayload.catalogEvidence),
-        consensus: objectRecord(resultPayload.consensus),
-        result_payload: resultPayload,
-        observed_at: params.now,
-      },
-      { onConflict: "source_scan_item_id" },
-    );
-
-  if (observationError) {
-    if (isKnowledgeSchemaMissing(observationError)) throw schemaError();
-    throwInstaCompDatabaseError(observationError);
-  }
-
-  const refreshedEntry = await refreshTrustStatus({
-    supabase: params.supabase,
-    entryId: entry.id,
-    now: params.now,
+  const lesson = await recordInstaCompAiLocalLesson({
+    scanId: internalScanId,
+    state: "operator_confirmed",
+    operatorId: localOperatorId(params.actor),
+    verificationSource: "saved_lot_operator_confirmation",
+    notes: `Saved InstaComp lot ${params.job.id}, item ${params.item.id}. Mac-local lesson is authoritative; Supabase stores only this audit receipt.`,
+    identity: lessonIdentity(ai),
   });
 
-  if (oldEntryId) {
-    await refreshTrustStatus({
-      supabase: params.supabase,
-      entryId: oldEntryId,
-      now: params.now,
-    });
-  }
-
-  const { error: itemUpdateError } = await params.supabase
+  const savedAt = new Date().toISOString();
+  const localLearningReceipt = {
+    schema: "tcos.instacomp.macLearningReceipt.v1",
+    authority: "mac_local",
+    lessonId: lesson.lessonId,
+    trainingExampleId: lesson.trainingExampleId,
+    internalScanId,
+    trusted: lesson.trusted,
+    state: lesson.state,
+    savedAt,
+  };
+  const { error: updateError } = await params.supabase
     .from(INSTACOMP_JOB_ITEM_TABLE)
     .update({
-      knowledge_entry_id: entry.id,
-      knowledge_saved_at: params.now,
+      result_payload: { ...resultPayload, localLearningReceipt },
+      knowledge_saved_at: savedAt,
     })
     .eq("id", params.item.id)
     .eq("job_id", params.job.id);
-
-  if (itemUpdateError) {
-    if (isKnowledgeSchemaMissing(itemUpdateError)) throw schemaError();
-    throwInstaCompDatabaseError(itemUpdateError);
-  }
+  if (updateError) throwInstaCompDatabaseError(updateError);
 
   return {
     status: "processed" as const,
-    entry: refreshedEntry,
-    duplicateObservation: Boolean(existingObservation),
+    duplicateObservation: false,
+    entry: {
+      id: lesson.lessonId,
+      trust_status: lesson.trusted ? "mac_operator_confirmed" : "mac_review_recorded",
+      confirmed_count: lesson.trusted ? 1 : 0,
+      authority: "mac_local",
+    },
   };
 }
 
@@ -293,71 +158,46 @@ export async function POST(request: Request, context: RouteContext) {
     let query = supabase
       .from(INSTACOMP_JOB_ITEM_TABLE)
       .select(
-        [
-          "id",
-          "job_id",
-          "status",
-          "front_original_filename",
-          "front_storage_path",
-          "back_storage_path",
-          "front_image_sha256",
-          "back_image_sha256",
-          "result_payload",
-        ].join(","),
+        "id,job_id,status,front_original_filename,result_payload,knowledge_saved_at",
       )
       .eq("job_id", job.id)
       .in("status", ["completed", "review_required"])
       .order("position", { ascending: true })
       .limit(500);
-
-    if (requestedItemIds.length) {
-      query = query.in("id", requestedItemIds);
-    }
+    if (requestedItemIds.length) query = query.in("id", requestedItemIds);
 
     const { data: items, error: itemsError } = await query;
+    if (itemsError) throwInstaCompDatabaseError(itemsError);
 
-    if (itemsError) {
-      if (isKnowledgeSchemaMissing(itemsError)) throw schemaError();
-      throwInstaCompDatabaseError(itemsError);
-    }
-
-    const now = new Date().toISOString();
     const processed: Array<Record<string, any>> = [];
     const skipped: Array<Record<string, any>> = [];
-
-    for (const item of ((items || []) as Array<Record<string, any>>)) {
-      const result = await processItemIntoKnowledgeBase({
-        supabase,
-        actor,
-        job,
-        item: item as Record<string, any>,
-        now,
-      });
-
-      if (result.status === "processed") {
-        processed.push({
-          itemId: item.id,
-          entry: result.entry,
-          duplicateObservation: result.duplicateObservation,
-        });
-      } else {
+    for (const item of (items || []) as Array<Record<string, any>>) {
+      try {
+        const result = await processItem({ supabase, actor, job, item });
+        if (result.status === "processed") {
+          processed.push({
+            itemId: item.id,
+            entry: result.entry,
+            duplicateObservation: result.duplicateObservation,
+          });
+        } else {
+          skipped.push({ itemId: item.id, reason: result.reason });
+        }
+      } catch (error) {
         skipped.push({
           itemId: item.id,
-          reason: result.reason,
+          reason: error instanceof Error ? error.message : "Mac-local lesson storage failed",
         });
       }
     }
 
-    const trustedCount = processed.filter(
-      (item) => item.entry?.trust_status === "tcos_trusted",
-    ).length;
-
     return Response.json({
       ok: true,
+      authority: "mac_local",
       processedCount: processed.length,
       skippedCount: skipped.length,
-      trustedCount,
-      learningCount: processed.length - trustedCount,
+      trustedCount: processed.filter((item) => item.entry?.trust_status === "mac_operator_confirmed").length,
+      learningCount: 0,
       processed,
       skipped,
     });

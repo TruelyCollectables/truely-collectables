@@ -9,7 +9,7 @@ import httpx
 import benchmark_lora_unseen_holdout_v7 as v7
 
 SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v8"
-SCOPED_FAST_ROUTE = "/api/instacomp/registry-holdout-lock-player-card"
+SCOPED_FAST_ROUTE = "/api/instacomp/registry-lock"
 RECOVERY_CONCURRENCY = 3
 RECOVERY_MAX_ATTEMPTS = 300
 RECOVERY_HTTP_TIMEOUT_SECONDS = 5.0
@@ -300,7 +300,7 @@ def _self_test() -> int:
     assert _should_attempt_recovery({"reason": "registry_input_incomplete"}, ready)
     assert not _should_attempt_recovery({"reason": "registry_input_incomplete"}, incomplete)
     assert not _should_attempt_recovery({"reason": "registry_no_exact_match"}, ready)
-    assert SCOPED_FAST_ROUTE.endswith("registry-holdout-lock-player-card")
+    assert SCOPED_FAST_ROUTE.endswith("registry-lock")
     assert RECOVERY_CONCURRENCY < v7.PREFLIGHT_CONCURRENCY
     assert RECOVERY_MAX_ATTEMPTS < 500
     assert RECOVERY_HTTP_TIMEOUT_SECONDS < v7.v6.FAST_HTTP_TIMEOUT_SECONDS
@@ -328,7 +328,7 @@ def _self_test() -> int:
     assert v7.v6.v5._CANONICAL_AUTHORITATIVE_HOLDOUT is v7._bounded_authoritative_holdout
 
     print("PASS unseen V8 recovers only server input_incomplete on locally V20-ready truth")
-    print("PASS unseen V8 routes bootstrap/recovery through indexed player-card Registry lookup")
+    print("PASS unseen V8 routes bootstrap/recovery through the authoritative Mac Registry lookup")
     print("PASS unseen V8 keeps stale-coordinate compatibility recovery bounded")
     print("PASS unseen V8 bounds recovery concurrency, attempts, HTTP time, and item time")
     print("PASS unseen V8 requires the bootstrap UUID/fingerprint to pass CURRENT canonical receipt revalidation")

@@ -7,6 +7,7 @@ import {
 import { getInstaCompAiLocalScanArchive } from "../../../../../../lib/instacomp-ai-local";
 import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../../../lib/instacomp-checklist-first-server";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../../../lib/instacomp-provider-safety";
+import { postInstaCompMacRegistry } from "../../../../../../lib/instacomp-mac-registry-client";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { getInstaCompServiceToken } from "../../../../../../lib/tcos-profit-hunter-secrets";
@@ -202,32 +203,29 @@ async function digest(file: File) {
     .digest("hex");
 }
 
-async function registryCoverage(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
-) {
-  const [versionsResult, cardsResult] = await Promise.all([
-    supabase
-      .from("checklist_versions")
-      .select("id", { count: "exact", head: true })
-      .eq("is_active", true)
-      .eq("status", "live"),
-    supabase
-      .from("checklist_cards")
-      .select("id,version:checklist_versions!inner(id,is_active,status)", {
-        count: "exact",
-        head: true,
-      })
-      .eq("version.is_active", true)
-      .eq("version.status", "live"),
-  ]);
-  if (versionsResult.error) throw versionsResult.error;
-  if (cardsResult.error) throw cardsResult.error;
-  return {
-    authenticated: true,
-    activeLiveVersions: Number(versionsResult.count || 0),
-    activeLiveCards: Number(cardsResult.count || 0),
-    lookupScope: "all active/live checklist versions and their card rows",
-  };
+async function registryCoverage() {
+  try {
+    const data = await postInstaCompMacRegistry("/api/instacomp/registry-stats", {}, 10_000);
+    return {
+      available: true,
+      authenticated: true,
+      authority: "mac_local_registry",
+      activeLiveVersions: Number(data.activeReleases || 0),
+      activeLiveCards: Number(data.activeIdentities || 0),
+      lookupScope: "Mac-local authoritative Registry identities",
+      error: null,
+    };
+  } catch (error) {
+    return {
+      available: false,
+      authenticated: false,
+      authority: "mac_local_registry",
+      activeLiveVersions: 0,
+      activeLiveCards: 0,
+      lookupScope: "Mac-local authoritative Registry identities",
+      error: error instanceof Error ? error.message : "Mac Registry coverage could not be read.",
+    };
+  }
 }
 
 async function requireSeller(request: Request) {
@@ -270,7 +268,7 @@ export async function GET(request: Request) {
 
     const [{ data: rows, error }, coverage] = await Promise.all([
       query,
-      registryCoverage(supabase),
+      registryCoverage(),
     ]);
     if (error) throw error;
 

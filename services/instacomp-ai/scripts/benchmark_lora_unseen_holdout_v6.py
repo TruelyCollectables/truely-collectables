@@ -8,7 +8,7 @@ import httpx
 import benchmark_lora_unseen_holdout_v5 as v5
 
 SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v6"
-FAST_ROUTE = "/api/instacomp/registry-holdout-lock-fast"
+FAST_ROUTE = "/api/instacomp/registry-lock"
 FAST_CONCURRENCY = 8
 FAST_HTTP_TIMEOUT_SECONDS = 10.0
 FAST_ITEM_TIMEOUT_SECONDS = 14.0
@@ -162,7 +162,7 @@ def _self_test() -> int:
     }
     ordered = _ready_first_order([incomplete_item, ready_item])
     assert [item["row_id"] for item in ordered] == ["ready", "incomplete"]
-    assert FAST_ROUTE.endswith("registry-holdout-lock-fast")
+    assert FAST_ROUTE.endswith("registry-lock")
     assert FAST_CONCURRENCY >= 2
     assert FAST_HTTP_TIMEOUT_SECONDS < v5.BOOTSTRAP_HTTP_TIMEOUT_SECONDS
     assert FAST_ITEM_TIMEOUT_SECONDS < v5.BOOTSTRAP_ITEM_TIMEOUT_SECONDS
@@ -189,7 +189,7 @@ def _self_test() -> int:
     assert _exact_response_rejection_reason(broken, teacher).endswith("brand")
 
     print("PASS unseen V6 spends bootstrap budget on V20-ready truth before repair rows")
-    print("PASS unseen V6 uses active-version-only fast Registry endpoint without bootstrap vision")
+    print("PASS unseen V6 uses the authoritative Mac Registry endpoint without bootstrap vision")
     print("PASS unseen V6 exposes exact-response rejection reasons instead of silently dropping matches")
     print("PASS unseen V6 keeps canonical V5 receipt handoff and V20 physical admission unchanged")
     return 0

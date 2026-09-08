@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from .config import settings
 from .models import CardIdentity, ChecklistOutcome, ChecklistResult
 
 
@@ -30,26 +31,21 @@ def _bounded_ocr(value: str | None) -> str | None:
 
 
 def _registry_base_url() -> str | None:
-    explicit = os.getenv("INSTACOMP_AI_REGISTRY_URL", "").strip().rstrip("/")
-    if explicit:
-        return explicit
-
-    # Older Mac installs predate INSTACOMP_AI_REGISTRY_URL but already carry the
-    # central Sentinel import URL. Recover only its HTTPS origin; never retain
-    # credentials, paths, query strings, or fragments from the fallback value.
-    central = os.getenv("INSTACOMP_AI_SENTINEL_CENTRAL_IMPORT_URL", "").strip()
-    if central:
-        try:
-            parsed = urlsplit(central)
-        except ValueError:
-            parsed = None
-        if parsed and parsed.scheme == "https" and parsed.netloc:
-            return f"https://{parsed.netloc}".rstrip("/")
-
-    # Truely Collectables is this service's canonical central Registry. Keeping
-    # the project default here prevents an upgraded existing .env from silently
-    # losing Registry authority just because the newer key was absent.
-    return "https://truelycollectables.com"
+    explicit = (os.getenv("INSTACOMP_AI_REGISTRY_URL", "").strip() or settings.registry_url.strip()).rstrip("/")
+    if not explicit:
+        # Mac-local Registry authority is mandatory. Never recover a cloud URL
+        # from Sentinel settings and never default to the production website.
+        return None
+    try:
+        parsed = urlsplit(explicit)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    # The authoritative Registry bridge must be local to this Mac service.
+    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        return None
+    return explicit
 
 
 def _registry_headers() -> dict[str, str]:

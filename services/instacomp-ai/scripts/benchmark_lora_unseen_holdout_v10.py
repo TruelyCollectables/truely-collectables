@@ -10,12 +10,27 @@ import httpx
 import benchmark_lora_unseen_holdout_v9 as v9
 
 SCHEMA = "tcos.instacomp-ai.lora-unseen-holdout-benchmark.v10"
-LIVE_PREFLIGHT_ROUTE = "/api/instacomp/registry-holdout-lock-player-card"
+LIVE_PREFLIGHT_ROUTE = "/api/instacomp/registry-lock"
 LIVE_PREFLIGHT_HTTP_TIMEOUT_SECONDS = 4.0
 LIVE_PREFLIGHT_PROBES = (
-    ("Napheesa Collier", "5"),
-    ("Caitlin Clark", "8"),
-    ("Aliyah Boston", "3"),
+    {
+        "year": "2025", "manufacturer": "Panini", "brand": "Donruss",
+        "setName": "Road To The Finals Second Round", "player": "Napheesa Collier",
+        "cardNumber": "5", "parallel": "Base", "sport": "Basketball", "league": "WNBA",
+        "isAuto": False, "isRelic": False,
+    },
+    {
+        "year": "2025", "manufacturer": "Panini", "brand": "Prizm",
+        "setName": "Top Tier", "player": "Caitlin Clark",
+        "cardNumber": "8", "parallel": "Base", "sport": "Basketball", "league": "WNBA",
+        "isAuto": False, "isRelic": False,
+    },
+    {
+        "year": "2025", "manufacturer": "Panini", "brand": "Prizm",
+        "setName": "Fireworks", "player": "Aliyah Boston",
+        "cardNumber": "3", "parallel": "Pink Pulsar", "serialNumber": "/75",
+        "sport": "Basketball", "league": "WNBA", "isAuto": False, "isRelic": False,
+    },
 )
 LIVE_PREFLIGHT_REQUIRED_HEALTHY = 3
 TRANSIENT_HTTP_STATUSES = frozenset(
@@ -90,12 +105,14 @@ def _live_registry_preflight() -> bool:
 
     try:
         with httpx.Client(timeout=timeout, limits=limits, follow_redirects=True) as client:
-            for index, (player, card_number) in enumerate(LIVE_PREFLIGHT_PROBES, start=1):
+            for index, probe in enumerate(LIVE_PREFLIGHT_PROBES, start=1):
+                player = str(probe.get("player") or "")
+                card_number = str(probe.get("cardNumber") or "")
                 try:
                     response = client.post(
                         url,
                         headers=_registry_headers(),
-                        json={"player": player, "cardNumber": card_number},
+                        json=probe,
                     )
                 except httpx.HTTPError as error:
                     print(
@@ -139,7 +156,7 @@ def _live_registry_preflight() -> bool:
 
     print(
         "PASS UNSEEN REGISTRY LIVE PREFLIGHT: "
-        f"healthy={healthy}/{len(LIVE_PREFLIGHT_PROBES)}; player/card RPC is serving database-backed responses",
+        f"healthy={healthy}/{len(LIVE_PREFLIGHT_PROBES)}; Mac Registry is serving database-backed responses",
         flush=True,
     )
     return True
@@ -179,12 +196,12 @@ def _self_test() -> int:
     assert not _preflight_response_health(504, {"ok": False})[0]
     assert not _preflight_response_health(401, {"ok": False})[0]
 
-    assert LIVE_PREFLIGHT_ROUTE.endswith("registry-holdout-lock-player-card")
+    assert LIVE_PREFLIGHT_ROUTE.endswith("registry-lock")
     assert LIVE_PREFLIGHT_HTTP_TIMEOUT_SECONDS <= 4.0
     assert len(LIVE_PREFLIGHT_PROBES) == LIVE_PREFLIGHT_REQUIRED_HEALTHY == 3
-    assert len({probe for probe in LIVE_PREFLIGHT_PROBES}) == len(LIVE_PREFLIGHT_PROBES)
+    assert len({(probe["player"], probe["cardNumber"], probe["setName"], probe["parallel"]) for probe in LIVE_PREFLIGHT_PROBES}) == len(LIVE_PREFLIGHT_PROBES)
 
-    print("PASS unseen V10 blocks the exam until three database-backed player/card Registry probes succeed")
+    print("PASS unseen V10 blocks the exam until three full-coordinate Mac Registry probes succeed")
     print("PASS unseen V10 treats 429/5xx/52x overload responses as systemic Registry failures")
     print("PASS unseen V10 preserves every V9/V8/V20 authority, receipt, physical, unseen-image, and diversity gate")
     return 0

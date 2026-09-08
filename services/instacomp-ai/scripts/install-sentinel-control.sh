@@ -154,7 +154,7 @@ fi
 set_local_env INSTACOMP_AI_HOST "127.0.0.1"
 set_local_env INSTACOMP_AI_PORT "8787"
 set_local_env INSTACOMP_AI_API_KEY "$local_key"
-set_local_env INSTACOMP_AI_REGISTRY_URL "$site_url"
+set_local_env INSTACOMP_AI_REGISTRY_URL "http://127.0.0.1:8787"
 set_local_env INSTACOMP_AI_SENTINEL_ENABLED "true"
 set_local_env INSTACOMP_AI_SENTINEL_INTERVAL_SECONDS "86400"
 set_local_env INSTACOMP_AI_SENTINEL_CHECKPOINT_SECONDS "300"

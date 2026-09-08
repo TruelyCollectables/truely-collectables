@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { InstaCompCatalogEvidenceSnapshot } from "./instacomp-catalog-identity";
+import { postInstaCompMacRegistry } from "./instacomp-mac-registry-client";
 
 export type ScanActor = {
   type: "admin" | "seller";
@@ -79,8 +80,6 @@ export type InstaCompEvidenceIdentityDecision = {
 };
 
 const CACHE_TABLE = "instacomp_scan_knowledge_cache";
-const OBSERVATION_TABLE = "tcos_card_knowledge_observations";
-const ENTRY_TABLE = "tcos_card_knowledge_entries";
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -651,6 +650,25 @@ export function sanitizeInstaCompCachePayload(payload: Record<string, any>) {
   return sanitized;
 }
 
+function cachedMacRegistryReceipt(payload: Record<string, any>) {
+  const checklistRegistry = record(payload.checklistRegistry);
+  const identityId = String(
+    checklistRegistry.identityId || checklistRegistry.registryIdentityId || "",
+  ).trim();
+  const fingerprintSha256 = String(
+    checklistRegistry.fingerprintSha256 ||
+      checklistRegistry.registryFingerprintSha256 ||
+      "",
+  ).trim().toLowerCase();
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identityId) ||
+    !/^[0-9a-f]{64}$/.test(fingerprintSha256)
+  ) {
+    return null;
+  }
+  return { identityId, fingerprintSha256 };
+}
+
 export async function findFreshInstaCompCache(params: {
   frontHash: string;
   backHash: string | null;
@@ -677,20 +695,36 @@ export async function findFreshInstaCompCache(params: {
 
   if (error) {
     if (["42P01", "42703", "PGRST205"].includes(String(error.code || ""))) return null;
-    console.error("InstaComp learning cache lookup failed:", error);
+    console.error("InstaComp response-cache lookup failed:", error);
     return null;
   }
 
   const row = data as CacheRow | null;
-  if (!row) return null;
-  if (!["operator_confirmed", "catalog_confirmed"].includes(row.confirmation_status)) {
+  if (!row || !row.response_payload || row.response_payload.ok === false) return null;
+  const responsePayload = sanitizeInstaCompCachePayload(row.response_payload);
+  const receipt = cachedMacRegistryReceipt(responsePayload);
+  if (!receipt) return null;
+
+  // Supabase is only a tenant-scoped response cache. Reuse is authorized fresh
+  // on every hit by the Mac Registry UUID + fingerprint; a cache status can
+  // never make identity true by itself.
+  const revalidated = await revalidateChecklistRegistryReceipt({
+    ai: record(responsePayload.ai),
+    identityId: receipt.identityId,
+    fingerprintSha256: receipt.fingerprintSha256,
+  });
+  if (revalidated?.status !== "internal_exact_match" || !revalidated.match) {
     return null;
   }
-  if (!row.response_payload || row.response_payload.ok === false) return null;
 
   return {
     ...row,
-    response_payload: sanitizeInstaCompCachePayload(row.response_payload),
+    knowledge_entry_id: null,
+    confirmation_status: "scanner_observed",
+    trusted_for_pricing:
+      row.trusted_for_pricing === true &&
+      record(responsePayload.review).trustedForPricing === true,
+    response_payload: responsePayload,
   } satisfies CacheRow;
 }
 
@@ -1170,15 +1204,148 @@ function checklistSetCoverageMatches(
   return [...targetSetTokens].every((token) => registrySetTokens.has(token));
 }
 
+function macRegistryMatchFromResponse(data: Record<string, unknown>): RegistryMatch | null {
+  const identityId = String(data.registryIdentityId || data.identityId || "").trim();
+  const fingerprintSha256 = String(
+    data.registryFingerprintSha256 || data.fingerprintSha256 || "",
+  ).trim().toLowerCase();
+  const locked = record(data.lockedFields);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identityId) ||
+    !/^[0-9a-f]{64}$/.test(fingerprintSha256)
+  ) {
+    return null;
+  }
+  const serialRunRaw = Number(locked.serialRun ?? locked.serial_run);
+  const serialRun = Number.isInteger(serialRunRaw) && serialRunRaw > 0 ? serialRunRaw : null;
+  return {
+    identityId,
+    fingerprintSha256,
+    sourceLabel: "InstaComp Mac Registry",
+    score: 100,
+    manufacturer: String(locked.manufacturer || "").trim() || null,
+    brand: String(locked.brand || "").trim() || null,
+    product: String(locked.setName || locked.product || "").trim() || null,
+    player: String(locked.player || "").trim() || null,
+    year: String(locked.year || "").trim() || null,
+    setName: String(locked.subset || locked.setName || "").trim() || null,
+    cardNumber: String(locked.cardNumber || locked.card_number || "").trim() || null,
+    parallel: String(locked.parallel || "").trim() || null,
+    variation: String(locked.variation || "").trim() || null,
+    serialRun,
+    team: String(locked.team || "").trim() || null,
+    sport: String(locked.sport || "").trim() || null,
+    league: String(locked.league || "").trim() || null,
+    languageCode: null,
+    configurationExclusivity: null,
+    isAuto: locked.isAuto === true,
+    isRelic: locked.isRelic === true,
+    matchedEvidence: Array.isArray(data.reasons)
+      ? data.reasons.map((value) => String(value)).filter(Boolean)
+      : [],
+  };
+}
+
+function macRegistryProbe(ai: Record<string, any>) {
+  return {
+    year: ai.year || null,
+    manufacturer: ai.manufacturer || ai.brand || null,
+    brand: ai.brand || null,
+    setName: ai.setName || ai.product || null,
+    subset: ai.subset || null,
+    cardNumber: ai.cardNumber || null,
+    player: ai.player || null,
+    team: ai.team || null,
+    sport: ai.sport || null,
+    league: ai.league || null,
+    serialNumber: ai.serialNumber || null,
+    serialRun: ai.serialRun || null,
+    isAuto: typeof ai.isAuto === "boolean" ? ai.isAuto : null,
+    isRelic: typeof ai.isRelic === "boolean" ? ai.isRelic : null,
+    parallel: ai.parallel || null,
+    variation: ai.variation || null,
+    registryVisibleText: ai.registryVisibleText || ai.ocrText || null,
+  };
+}
+
+function macRegistryResolutionFromResponse(
+  data: Record<string, unknown>,
+  options: { evidenceTrusted: boolean },
+): ChecklistRegistryLookupResult {
+  const resolverStatus = String(data.resolverStatus || "lookup_unavailable") as ChecklistRegistryLookupStatus;
+  const rawReasons = Array.isArray(data.reasons)
+    ? data.reasons.map((value) => String(value)).filter(Boolean)
+    : [];
+  const exact = resolverStatus === "internal_exact_match";
+  const match = exact ? macRegistryMatchFromResponse(data) : null;
+  if (exact && !match) {
+    return {
+      status: "lookup_unavailable",
+      match: null,
+      reasons: ["mac_registry_exact_response_missing_uuid_or_fingerprint"],
+      candidateCount: 0,
+      coveredReleaseIds: [],
+      coveredVersionIds: [],
+      coveredSetIds: [],
+      sourceTier: "none",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
+  }
+  if (
+    !options.evidenceTrusted &&
+    (resolverStatus === "internal_set_absent" || String(data.status || "") === "set_absent")
+  ) {
+    return {
+      status: "input_incomplete",
+      match: null,
+      reasons: [
+        "set_not_found_internally_but_visible_set_identity_is_not_trusted_enough_for_external_fallback",
+      ],
+      candidateCount: 0,
+      coveredReleaseIds: [],
+      coveredVersionIds: [],
+      coveredSetIds: [],
+      sourceTier: "none",
+      externalLookupEligible: false,
+      externalLookupAttempted: false,
+    };
+  }
+  const allowed: ChecklistRegistryLookupStatus[] = [
+    "internal_exact_match",
+    "internal_set_present_no_exact_match",
+    "internal_set_absent",
+    "input_incomplete",
+    "lookup_unavailable",
+  ];
+  const status = allowed.includes(resolverStatus) ? resolverStatus : "lookup_unavailable";
+  return {
+    status,
+    match,
+    reasons: rawReasons.length ? rawReasons : [
+      status === "lookup_unavailable" ? "mac_registry_lookup_unavailable" : "mac_registry_resolved",
+    ],
+    candidateCount: Number(data.candidateCount || (match ? 1 : 0)) || 0,
+    coveredReleaseIds: [],
+    coveredVersionIds: [],
+    coveredSetIds: [],
+    sourceTier:
+      status === "internal_exact_match" || status === "internal_set_present_no_exact_match"
+        ? "internal"
+        : "none",
+    externalLookupEligible: options.evidenceTrusted && status === "internal_set_absent",
+    externalLookupAttempted: false,
+  };
+}
+
 export async function resolveChecklistRegistry(
   ai: Record<string, any>,
   options: { evidenceTrusted?: boolean } = {},
 ): Promise<ChecklistRegistryLookupResult> {
   const year = yearStart(ai.year);
-  const brand = normalizedText(ai.brand);
-  const setTokens = meaningfulTokens(ai.setName);
-  const requiredSetEvidence = [ai.year, ai.brand, ai.setName];
-
+  const brand = normalizedText(ai.brand || ai.manufacturer);
+  const setTokens = meaningfulTokens(ai.setName || ai.product);
+  const requiredSetEvidence = [ai.year, ai.brand || ai.manufacturer, ai.setName || ai.product];
   if (
     !year ||
     !brand ||
@@ -1198,368 +1365,31 @@ export async function resolveChecklistRegistry(
       externalLookupAttempted: false,
     };
   }
-
-  const supabase = serviceClient();
-  const unavailable = (
-    reason: string,
-    coveredReleaseIds: string[] = [],
-    coveredVersionIds: string[] = [],
-    coveredSetIds: string[] = [],
-    sourceTier: "internal" | "none" = "none",
-  ): ChecklistRegistryLookupResult => ({
-    status: "lookup_unavailable",
-    match: null,
-    reasons: [reason],
-    candidateCount: 0,
-    coveredReleaseIds,
-    coveredVersionIds,
-    coveredSetIds,
-    sourceTier,
-    externalLookupEligible: false,
-    externalLookupAttempted: false,
-  });
-  const queryCode = (error: any) => String(error?.code || "unknown");
-  const unique = (values: unknown[]) =>
-    Array.from(
-      new Set(values.map((value) => String(value || "")).filter(Boolean)),
+  try {
+    const data = await postInstaCompMacRegistry(
+      "/api/instacomp/registry-lock",
+      macRegistryProbe(ai),
+      20_000,
     );
-
-  // Resolve active Registry scope without relationship fan-out. The previous
-  // 5,000-row checklist_sets join multiplied release/version relationships and
-  // could hit Production statement_timeout before a card number was examined.
-  const [versionResult, releaseResult] = await Promise.all([
-    supabase
-      .from("checklist_versions")
-      .select("id")
-      .eq("is_active", true)
-      .eq("status", "live")
-      .limit(5000),
-    supabase
-      .from("checklist_releases")
-      .select(
-        "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
-      )
-      .limit(5000),
-  ]);
-  if (versionResult.error) {
-    console.error("Checklist Registry active-version lookup failed:", versionResult.error);
-    return unavailable(
-      `internal_checklist_version_lookup_failed:${queryCode(versionResult.error)}`,
-    );
-  }
-  if (releaseResult.error) {
-    console.error("Checklist Registry release lookup failed:", releaseResult.error);
-    return unavailable(
-      `internal_checklist_release_lookup_failed:${queryCode(releaseResult.error)}`,
-    );
-  }
-
-  const activeVersionIds = new Set(
-    (versionResult.data || []).map((row: any) => String(row.id)).filter(Boolean),
-  );
-  const releaseRows = releaseResult.data || [];
-  const releaseById = new Map(
-    releaseRows.map((row: any) => [String(row.id), row]),
-  );
-  // Keep exact and adjacent years in the bounded candidate pool so the existing
-  // adjacent-year recovery semantics remain unchanged, then apply full set-name
-  // and manufacturer evidence after the small set rows are loaded.
-  // Product-line-only OCR such as PRIZM is release evidence, not a logical
-  // checklist-set name. Narrow the bounded set query to matching product
-  // releases before looking for Base versus a visible insert/subset. This
-  // avoids year-wide set truncation while preserving exact-card uniqueness.
-  const releaseRowsForCoverage = isProductLineOnlySetEvidence(ai.setName)
-    ? releaseRows.filter((release: any) =>
-        releaseSupportsProductLineSetEvidence(ai, release),
-      )
-    : releaseRows;
-  const candidateReleaseIds = unique(
-    releaseRowsForCoverage
-      .filter((release: any) =>
-        yearMatches(year, release.release_year || release.season, true),
-      )
-      .map((release: any) => release.id),
-  );
-
-  if (!candidateReleaseIds.length || !activeVersionIds.size) {
-    if (options.evidenceTrusted !== true) {
-      return {
-        status: "input_incomplete",
-        match: null,
-        reasons: [
-          "set_not_found_internally_but_visible_set_identity_is_not_trusted_enough_for_external_fallback",
-        ],
-        candidateCount: 0,
-        coveredReleaseIds: [],
-        coveredVersionIds: [],
-        coveredSetIds: [],
-        sourceTier: "none",
-        externalLookupEligible: false,
-        externalLookupAttempted: false,
-      };
-    }
+    return macRegistryResolutionFromResponse(data, {
+      evidenceTrusted: options.evidenceTrusted === true,
+    });
+  } catch (error) {
     return {
-      status: "internal_set_absent",
+      status: "lookup_unavailable",
       match: null,
-      reasons: ["internal_checklist_does_not_contain_this_particular_set"],
+      reasons: [
+        `mac_registry_bridge_unavailable:${String(error instanceof Error ? error.message : error).slice(0, 240)}`,
+      ],
       candidateCount: 0,
       coveredReleaseIds: [],
       coveredVersionIds: [],
       coveredSetIds: [],
       sourceTier: "none",
-      externalLookupEligible: true,
-      externalLookupAttempted: false,
-    };
-  }
-
-  const setResult = await supabase
-    .from("checklist_sets")
-    .select("id,name,normalized_name,release_id,version_id")
-    .in("release_id", candidateReleaseIds)
-    .limit(5000);
-  if (setResult.error) {
-    console.error("Checklist Registry bounded set lookup failed:", setResult.error);
-    return unavailable(
-      `internal_checklist_lookup_failed:${queryCode(setResult.error)}`,
-    );
-  }
-
-  const scopedSetRows = (setResult.data || [])
-    .filter((row: any) => activeVersionIds.has(String(row.version_id)))
-    .map((row: any) => ({
-      ...row,
-      version: { id: row.version_id, is_active: true, status: "live" },
-      release: releaseById.get(String(row.release_id)) || null,
-    }));
-  const softVisibleSetRows = isProductLineOnlySetEvidence(ai.setName)
-    ? scopedSetRows.filter((row: any) =>
-        visibleTextSupportsLogicalSet(row.name, ai.registryVisibleText),
-      )
-    : [];
-  const setRowsForCoverage = softVisibleSetRows.length
-    ? softVisibleSetRows
-    : scopedSetRows;
-
-  const exactCoveredSets = setRowsForCoverage.filter((row: any) =>
-    checklistSetCoverageMatches(ai, row),
-  );
-  const adjacentCoveredSets = exactCoveredSets.length
-    ? []
-    : setRowsForCoverage.filter((row: any) =>
-        checklistSetCoverageMatches(ai, row, {
-          allowAdjacentYearRecovery: true,
-        }),
-      );
-  const coveredSets = exactCoveredSets.length
-    ? exactCoveredSets
-    : adjacentCoveredSets;
-  const usedAdjacentYearRecovery =
-    exactCoveredSets.length === 0 && adjacentCoveredSets.length > 0;
-  const coveredReleaseIds = unique(
-    coveredSets.map((row: any) => row.release_id),
-  );
-  const coveredVersionIds = unique(
-    coveredSets.map((row: any) => row.version_id),
-  );
-  const coveredSetIds = unique(coveredSets.map((row: any) => row.id));
-
-  if (!coveredSetIds.length) {
-    if (options.evidenceTrusted !== true) {
-      return {
-        status: "input_incomplete",
-        match: null,
-        reasons: [
-          "set_not_found_internally_but_visible_set_identity_is_not_trusted_enough_for_external_fallback",
-        ],
-        candidateCount: 0,
-        coveredReleaseIds: [],
-        coveredVersionIds: [],
-        coveredSetIds: [],
-        sourceTier: "none",
-        externalLookupEligible: false,
-        externalLookupAttempted: false,
-      };
-    }
-
-    return {
-      status: "internal_set_absent",
-      match: null,
-      reasons: ["internal_checklist_does_not_contain_this_particular_set"],
-      candidateCount: 0,
-      coveredReleaseIds: [],
-      coveredVersionIds: [],
-      coveredSetIds: [],
-      sourceTier: "none",
-      externalLookupEligible: true,
-      externalLookupAttempted: false,
-    };
-  }
-
-  const cardNumber = normalizedCardNumber(ai.cardNumber);
-  const player = normalizedText(ai.player);
-  if (
-    !cardNumber ||
-    !player ||
-    evidenceTextIsUncertain(ai.cardNumber) ||
-    evidenceTextIsUncertain(ai.player)
-  ) {
-    return {
-      status: "internal_set_present_no_exact_match",
-      match: null,
-      reasons: ["internal_set_present_but_visible_player_or_card_number_is_missing_or_uncertain"],
-      candidateCount: 0,
-      coveredReleaseIds,
-      coveredVersionIds,
-      coveredSetIds,
-      sourceTier: "internal",
       externalLookupEligible: false,
       externalLookupAttempted: false,
     };
   }
-
-  // ID-first exact-card lookup: fetch the tiny card set using the dedicated
-  // normalized-card-number index, then expand only those IDs. Never fan out
-  // players, teams, identities, and parallels in one PostgREST statement.
-  const cardResult = await supabase
-    .from("checklist_cards")
-    .select(
-      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-    )
-    .eq("normalized_card_number", cardNumber)
-    .in("release_id", coveredReleaseIds)
-    .in("version_id", coveredVersionIds)
-    .in("set_id", coveredSetIds)
-    .limit(250);
-
-  if (cardResult.error) {
-    console.error("Checklist Registry bounded exact-card lookup failed:", cardResult.error);
-    return unavailable(
-      `internal_checklist_card_lookup_failed:${queryCode(cardResult.error)}`,
-      coveredReleaseIds,
-      coveredVersionIds,
-      coveredSetIds,
-      "internal",
-    );
-  }
-
-  const cards = cardResult.data || [];
-  if (!cards.length) {
-    return {
-      status: "internal_set_present_no_exact_match",
-      match: null,
-      reasons: ["internal_set_present_but_card_number_not_found"],
-      candidateCount: 0,
-      coveredReleaseIds,
-      coveredVersionIds,
-      coveredSetIds,
-      sourceTier: "internal",
-      externalLookupEligible: false,
-      externalLookupAttempted: false,
-    };
-  }
-
-  const cardIds = unique(cards.map((card: any) => card.id));
-  const [playerResult, teamResult, identityResult] = await Promise.all([
-    supabase
-      .from("checklist_card_players")
-      .select("card_id,display_order,player:checklist_players(canonical_name)")
-      .in("card_id", cardIds),
-    supabase
-      .from("checklist_card_teams")
-      .select("card_id,display_order,team:checklist_teams(canonical_name)")
-      .in("card_id", cardIds),
-    supabase
-      .from("checklist_card_identities")
-      .select(
-        "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
-      )
-      .in("card_id", cardIds),
-  ]);
-  const detailError =
-    playerResult.error || teamResult.error || identityResult.error;
-  if (detailError) {
-    console.error("Checklist Registry bounded card-detail lookup failed:", detailError);
-    return unavailable(
-      `internal_checklist_card_detail_lookup_failed:${queryCode(detailError)}`,
-      coveredReleaseIds,
-      coveredVersionIds,
-      coveredSetIds,
-      "internal",
-    );
-  }
-
-  const setById = new Map(
-    coveredSets.map((row: any) => [String(row.id), row]),
-  );
-  const groupByCard = (rows: any[]) => {
-    const grouped = new Map<string, any[]>();
-    for (const row of rows || []) {
-      const key = String(row.card_id);
-      const bucket = grouped.get(key) || [];
-      bucket.push(row);
-      grouped.set(key, bucket);
-    }
-    return grouped;
-  };
-  const playersByCard = groupByCard(playerResult.data || []);
-  const teamsByCard = groupByCard(teamResult.data || []);
-  const identitiesByCard = groupByCard(identityResult.data || []);
-  const cardRows = cards.map((card: any) => ({
-    ...card,
-    version: { id: card.version_id, is_active: true, status: "live" },
-    set: setById.get(String(card.set_id)) || null,
-    release: releaseById.get(String(card.release_id)) || null,
-    players: playersByCard.get(String(card.id)) || [],
-    teams: teamsByCard.get(String(card.id)) || [],
-    identities: identitiesByCard.get(String(card.id)) || [],
-  }));
-
-  const candidateCount = cardRows.reduce(
-    (total: number, card: any) =>
-      total + (Array.isArray(card.identities) ? card.identities.length : 0),
-    0,
-  );
-  // Keep OCR alias normalization local to product-line-only evidence. The
-  // exact matcher should see PRISM and PRIZM as the same Panini product-line
-  // token without introducing fuzzy matching for any logical checklist set.
-  const matchAi = isProductLineOnlySetEvidence(ai.setName)
-    ? { ...ai, setName: normalizedProductLineTokens(ai.setName).join(" ") }
-    : ai;
-  const match = chooseRegistryMatch(matchAi, cardRows, {
-    allowAdjacentYearRecovery: usedAdjacentYearRecovery,
-  });
-
-  if (match) {
-    return {
-      status: "internal_exact_match",
-      match,
-      reasons: ["one_internal_checklist_identity_matches_all_available_visible_evidence"],
-      candidateCount: 1,
-      coveredReleaseIds,
-      coveredVersionIds,
-      coveredSetIds,
-      sourceTier: "internal",
-      externalLookupEligible: false,
-      externalLookupAttempted: false,
-    };
-  }
-
-  return {
-    status: "internal_set_present_no_exact_match",
-    match: null,
-    reasons: [
-      cardRows.length
-        ? "internal_set_present_but_no_unique_identity_matches_every_visible_fact"
-        : "internal_set_present_but_card_number_not_found",
-    ],
-    candidateCount,
-    coveredReleaseIds,
-    coveredVersionIds,
-    coveredSetIds,
-    sourceTier: "internal",
-    externalLookupEligible: false,
-    externalLookupAttempted: false,
-  };
 }
 
 export async function revalidateChecklistRegistryReceipt(params: {
@@ -1575,102 +1405,34 @@ export async function revalidateChecklistRegistryReceipt(params: {
   ) {
     return null;
   }
-
-  const supabase = serviceClient();
-  const identityResult = await supabase
-    .from("checklist_card_identities")
-    .select(
-      "id,card_id,fingerprint_sha256,canonical_key,variation,autograph_status,memorabilia_status,configuration_exclusivity,metadata,parallel:checklist_parallels(name,serial_run)",
-    )
-    .eq("id", identityId)
-    .maybeSingle();
-  if (identityResult.error || !identityResult.data) return null;
-  const identity = identityResult.data as any;
-  if (String(identity.fingerprint_sha256 || "").toLowerCase() !== fingerprintSha256) {
+  try {
+    const data = await postInstaCompMacRegistry(
+      "/api/instacomp/registry-lock",
+      {
+        ...macRegistryProbe(params.ai),
+        registryIdentityId: identityId,
+        registryFingerprintSha256: fingerprintSha256,
+        expectedRegistryIdentityId: identityId,
+        expectedRegistryFingerprintSha256: fingerprintSha256,
+      },
+      20_000,
+    );
+    const resolution = macRegistryResolutionFromResponse(data, { evidenceTrusted: true });
+    if (
+      resolution.status !== "internal_exact_match" ||
+      !resolution.match ||
+      resolution.match.identityId !== identityId ||
+      resolution.match.fingerprintSha256.toLowerCase() !== fingerprintSha256
+    ) {
+      return null;
+    }
+    return {
+      ...resolution,
+      reasons: ["current_mac_registry_revalidated_uuid_fingerprint_against_visible_evidence"],
+    };
+  } catch {
     return null;
   }
-
-  const cardResult = await supabase
-    .from("checklist_cards")
-    .select(
-      "id,release_id,version_id,set_id,card_number,normalized_card_number,variation,autograph_status,memorabilia_status",
-    )
-    .eq("id", identity.card_id)
-    .maybeSingle();
-  if (cardResult.error || !cardResult.data) return null;
-  const card = cardResult.data as any;
-
-  const [versionResult, setResult, releaseResult, playerResult, teamResult] = await Promise.all([
-    supabase.from("checklist_versions").select("id,is_active,status").eq("id", card.version_id).maybeSingle(),
-    supabase.from("checklist_sets").select("id,name,normalized_name,release_id,version_id").eq("id", card.set_id).maybeSingle(),
-    supabase
-      .from("checklist_releases")
-      .select(
-        "id,product_name,release_year,season,manufacturer:checklist_manufacturers(name),brand:checklist_brands(name),sport:checklist_sports(name),league:checklist_leagues(name)",
-      )
-      .eq("id", card.release_id)
-      .maybeSingle(),
-    supabase
-      .from("checklist_card_players")
-      .select("card_id,display_order,player:checklist_players(canonical_name)")
-      .eq("card_id", card.id),
-    supabase
-      .from("checklist_card_teams")
-      .select("card_id,display_order,team:checklist_teams(canonical_name)")
-      .eq("card_id", card.id),
-  ]);
-  if (
-    versionResult.error || setResult.error || releaseResult.error ||
-    playerResult.error || teamResult.error ||
-    !versionResult.data || !setResult.data || !releaseResult.data
-  ) {
-    return null;
-  }
-  const version = versionResult.data as any;
-  if (version.is_active !== true || String(version.status || "") !== "live") return null;
-
-  const row = {
-    ...card,
-    version,
-    set: setResult.data,
-    release: releaseResult.data,
-    players: playerResult.data || [],
-    teams: teamResult.data || [],
-    identities: [identity],
-  };
-  // A Mac identity receipt is only a lookup coordinate. If fresh evidence now
-  // names a different explicit parallel, do not let the stale receipt win just
-  // because its fingerprint is still valid. Fall through to a fresh Registry
-  // resolution so the current listing/image evidence can select the sibling.
-  const receiptParallel = identity.parallel?.name || "Base";
-  const requestedParallel = params.ai.parallel;
-  if (
-    requestedParallel &&
-    !evidenceTextIsUncertain(requestedParallel) &&
-    checklistParallelSignature(requestedParallel) !== checklistParallelSignature(receiptParallel)
-  ) {
-    return null;
-  }
-  const match = chooseRegistryMatch(params.ai, [row]);
-  if (
-    !match ||
-    match.identityId !== identityId ||
-    match.fingerprintSha256.toLowerCase() !== fingerprintSha256
-  ) {
-    return null;
-  }
-  return {
-    status: "internal_exact_match",
-    match,
-    reasons: ["current_registry_revalidated_exact_mac_identity_receipt_against_visible_evidence"],
-    candidateCount: 1,
-    coveredReleaseIds: [String(card.release_id)],
-    coveredVersionIds: [String(card.version_id)],
-    coveredSetIds: [String(card.set_id)],
-    sourceTier: "internal",
-    externalLookupEligible: false,
-    externalLookupAttempted: false,
-  };
 }
 
 export async function findChecklistRegistryMatch(ai: Record<string, any>) {
@@ -1804,7 +1566,7 @@ export function buildInstaCompEvidenceIdentityDecision(params: {
   };
 }
 
-export async function saveInstaCompLearningCache(params: {
+export async function saveInstaCompCacheMirror(params: {
   scanId: string;
   frontHash: string;
   backHash: string | null;
@@ -1819,6 +1581,8 @@ export async function saveInstaCompLearningCache(params: {
     params.actor,
   );
 
+  // Storefront scan hashes remain an allowed audit/display mirror. They are not
+  // consulted by the Mac learning corpus as identity or training authority.
   const { error: hashError } = await supabase
     .from("instacomp_scans")
     .update({
@@ -1826,129 +1590,30 @@ export async function saveInstaCompLearningCache(params: {
       back_image_sha256: params.backHash,
     })
     .eq("id", params.scanId);
-  if (hashError) warnings.push(`scan_hash_update_failed:${hashError.message}`);
+  if (hashError) warnings.push(`scan_hash_mirror_failed:${hashError.message}`);
 
-  const { data: scanRow, error: scanReadError } = await supabase
-    .from("instacomp_scans")
-    .select("*")
-    .eq("id", params.scanId)
-    .maybeSingle();
-  if (scanReadError) warnings.push(`scan_read_failed:${scanReadError.message}`);
-
-  if (scanRow) {
-    const { error: recordError } = await supabase.rpc(
-      "tcos_instacomp_record_scan_knowledge_payload",
-      { p_scan: scanRow },
-    );
-    if (recordError) warnings.push(`knowledge_observation_failed:${recordError.message}`);
-  }
-
-  const promotionDecision = decideInstaCompLearningPromotion(params.payload);
-  const registryCandidate = promotionDecision.allowed
-    ? await findChecklistRegistryMatch(params.payload.ai || {})
-    : null;
-  const registryMatch =
-    registryCandidate &&
-    promotionDecision.identityId === registryCandidate.identityId
-      ? registryCandidate
-      : null;
-  let effectivePromotionDecision = promotionDecision;
-
-  if (promotionDecision.allowed && !registryMatch) {
-    effectivePromotionDecision = {
-      allowed: false,
-      reason: "identity_review_required",
-      identityId: promotionDecision.identityId,
-      reviewReasons: [
-        ...promotionDecision.reviewReasons,
-        "registry_revalidation_failed_or_identity_changed",
-      ],
-      explanation:
-        "Reusable catalog knowledge was blocked because the live registry no longer reproduced the trusted identity.",
-    };
-    warnings.push("catalog_promotion_blocked:registry_revalidation_failed_or_identity_changed");
-  }
-
-  const existingChecklistRegistry = record(params.payload.checklistRegistry);
-  const payload: Record<string, any> = registryMatch
-    ? {
-        ...params.payload,
-        catalogEvidence: buildChecklistRegistryCatalogEvidence(registryMatch),
-        checklistRegistry: {
-          ...existingChecklistRegistry,
-          matched: true,
-          identityId: registryMatch.identityId,
-          fingerprintSha256: registryMatch.fingerprintSha256,
-          score: registryMatch.score,
-          trustedForKnowledge: true,
-        },
-        knowledgePromotionDecision: effectivePromotionDecision,
-      }
-    : {
-        ...params.payload,
-        catalogEvidence: quarantineInstaCompCatalogEvidence(
-          params.payload.catalogEvidence,
-          effectivePromotionDecision.reviewReasons,
-        ),
-        checklistRegistry: Object.keys(existingChecklistRegistry).length
-          ? {
-              ...existingChecklistRegistry,
-              trustedForKnowledge: false,
-            }
-          : null,
-        knowledgePromotionDecision: effectivePromotionDecision,
-      };
-
-  const { data: observation, error: observationReadError } = await supabase
-    .from(OBSERVATION_TABLE)
-    .select("knowledge_entry_id")
-    .eq("observation_key", `scan:${params.scanId}`)
-    .maybeSingle();
-  if (observationReadError) {
-    warnings.push(`knowledge_observation_read_failed:${observationReadError.message}`);
-  }
-
-  const entryId = observation?.knowledge_entry_id || null;
-  let registryPersisted = false;
-
-  if (entryId && registryMatch) {
-    const { error: observationUpdateError } = await supabase
-      .from(OBSERVATION_TABLE)
-      .update({
-        confirmation_status: "catalog_confirmed",
-        catalog_evidence: payload.catalogEvidence,
-        result_payload: sanitizeInstaCompCachePayload(payload),
-      })
-      .eq("observation_key", `scan:${params.scanId}`);
-    const { error: entryUpdateError } = await supabase
-      .from(ENTRY_TABLE)
-      .update({
-        catalog_evidence: payload.catalogEvidence,
-        result_payload: sanitizeInstaCompCachePayload(payload),
-      })
-      .eq("id", entryId);
-    const { error: refreshError } = await supabase.rpc(
-      "tcos_instacomp_refresh_knowledge_entry",
-      { p_entry_id: entryId },
-    );
-
-    if (observationUpdateError) {
-      warnings.push(`catalog_observation_persist_failed:${observationUpdateError.message}`);
+  const payload = sanitizeInstaCompCachePayload(params.payload);
+  const receipt = cachedMacRegistryReceipt(payload);
+  let registryMatch: RegistryMatch | null = null;
+  if (receipt) {
+    const revalidated = await revalidateChecklistRegistryReceipt({
+      ai: record(payload.ai),
+      identityId: receipt.identityId,
+      fingerprintSha256: receipt.fingerprintSha256,
+    });
+    registryMatch =
+      revalidated?.status === "internal_exact_match" ? revalidated.match : null;
+    if (!registryMatch) {
+      warnings.push("cache_identity_not_revalidated_by_mac_registry");
     }
-    if (entryUpdateError) {
-      warnings.push(`catalog_entry_persist_failed:${entryUpdateError.message}`);
-    }
-    if (refreshError) warnings.push(`catalog_entry_refresh_failed:${refreshError.message}`);
-    registryPersisted = !observationUpdateError && !entryUpdateError && !refreshError;
+  } else {
+    warnings.push("cache_missing_mac_registry_receipt");
   }
 
   const confidence = asNumber(payload.ai?.confidence);
-  const trustedForPricing = payload.review?.trustedForPricing === true;
-  const confirmationStatus = registryPersisted
-    ? "catalog_confirmed"
-    : "scanner_observed";
+  const trustedForPricing =
+    Boolean(registryMatch) && record(payload.review).trustedForPricing === true;
   const expiresAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
-  const cachePayload = sanitizeInstaCompCachePayload(payload);
 
   const { data: cache, error } = await supabase
     .from(CACHE_TABLE)
@@ -1956,13 +1621,15 @@ export async function saveInstaCompLearningCache(params: {
       {
         image_fingerprint: imageFingerprint,
         scan_id: params.scanId,
-        knowledge_entry_id: entryId,
+        knowledge_entry_id: null,
         front_image_sha256: params.frontHash,
         back_image_sha256: params.backHash,
-        response_payload: cachePayload,
+        response_payload: payload,
         identity_confidence: confidence,
         trusted_for_pricing: trustedForPricing,
-        confirmation_status: confirmationStatus,
+        // Cache status is intentionally non-authoritative. Mac UUID/fingerprint
+        // revalidation is required again before every reuse.
+        confirmation_status: "scanner_observed",
         submitted_by_account_id:
           params.actor.type === "seller" ? params.actor.sellerAccountId || null : null,
         submitted_by_actor_type: params.actor.type,
@@ -2089,82 +1756,4 @@ export async function materializeInstaCompCacheReplay(params: {
       scanId: String(data.id),
     },
   };
-}
-
-export async function recordInstaCompCacheReplay(params: {
-  cacheId: string;
-  actor: ScanActor;
-}) {
-  const supabase = serviceClient();
-  let lookup = supabase.from(CACHE_TABLE).select("id").eq("id", params.cacheId);
-  lookup = scopeCacheQuery(lookup, params.actor);
-  const { data: scopedCache, error: lookupError } = await lookup.maybeSingle();
-  if (lookupError || !scopedCache) return null;
-
-  const observationKey = `cache-replay:${params.cacheId}:${randomUUID()}`;
-  const { data, error } = await supabase.rpc("tcos_instacomp_record_cache_replay", {
-    p_cache_id: params.cacheId,
-    p_observation_key: observationKey,
-    p_submitted_by_account_id:
-      params.actor.type === "seller" ? params.actor.sellerAccountId || null : null,
-    p_submitted_by_actor_type: params.actor.type,
-    p_submitted_store_id: params.actor.storeId,
-  });
-
-  if (error) {
-    console.error("Could not record InstaComp cache replay:", error);
-    return null;
-  }
-
-  return data;
-}
-
-export async function confirmInstaCompKnowledge(params: {
-  scanId: string;
-  corrections: Record<string, unknown>;
-  status: "operator_confirmed" | "operator_rejected" | "needs_more_info";
-}) {
-  const supabase = serviceClient();
-  const { data: scan, error: scanError } = await supabase
-    .from("instacomp_scans")
-    .select("raw_ai_result,raw_comp_results")
-    .eq("id", params.scanId)
-    .maybeSingle();
-
-  if (scanError) {
-    throw new Error(scanError.message || "Could not load InstaComp scan evidence.");
-  }
-  if (!scan) throw new Error("InstaComp scan not found.");
-
-  const rawCompResults = record(scan.raw_comp_results);
-  const confirmationDecision = decideInstaCompOperatorConfirmation({
-    payload: {
-    ai: record(scan.raw_ai_result),
-    consensus: record(rawCompResults.consensus),
-    compSearchDecision: record(rawCompResults.compSearchDecision),
-    checklistRegistry: record(rawCompResults.checklistRegistry),
-    catalogEvidence: record(rawCompResults.catalogEvidence),
-  },
-    corrections: params.corrections,
-    status: params.status,
-  });
-
-  if (!confirmationDecision.allowed) {
-    const missing = confirmationDecision.missingCorrections.join(", ");
-    throw new Error(
-      `${confirmationDecision.explanation} Missing: ${missing}.`,
-    );
-  }
-
-  const { data, error } = await supabase.rpc(
-    "tcos_instacomp_confirm_scan_knowledge",
-    {
-      p_scan_id: params.scanId,
-      p_corrections: params.corrections,
-      p_confirmation_status: params.status,
-    },
-  );
-
-  if (error) throw new Error(error.message || "Could not confirm InstaComp knowledge.");
-  return data;
 }

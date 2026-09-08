@@ -9,6 +9,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
+HOLDOUT_ROUTE = "/api/instacomp/registry-lock"
+
 import httpx
 
 import benchmark_lora_unseen_holdout_v4 as v4
@@ -143,7 +145,7 @@ async def _bootstrap_one(
     payload = _bootstrap_payload(identity, ocr_text=_bounded_ocr(ocr))
     try:
         response = await client.post(
-            f"{base_url}/api/instacomp/registry-holdout-lock",
+            f"{base_url}{HOLDOUT_ROUTE}",
             headers=_registry_headers(),
             json=payload,
         )

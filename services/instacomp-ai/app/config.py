@@ -22,7 +22,11 @@ class Settings(BaseSettings):
     port: int = 8787
     database_path: Path = Path("./data/instacomp_ai.sqlite3")
     image_store_path: Path = Path("./data/images")
+    # Mac-local learning state is physically separate from storefront/runtime state.
+    training_database_path: Path = Path("/Volumes/InstaCompAI/instacomp-ai-data/instacomp_ai.sqlite3")
+    training_image_store_path: Path = Path("/Volumes/InstaCompAI/instacomp-ai-data/images")
     training_export_path: Path = Path("./data/training/exports")
+    data_datasets_path: Path = Path("./data/datasets")
     backup_default_destination: Path = Path("./backups")
     backup_allowed_roots: str = ""
     local_cache_source_path: str = ""
@@ -47,6 +51,11 @@ class Settings(BaseSettings):
     teacher_vision_image_max_edge: int = 768
     teacher_vision_hard_example_multiplier: int = 3
     teacher_vision_keep_alive: str = "30m"
+    teacher_student_min_train_examples: int = 512
+    teacher_student_min_hard_examples: int = 64
+    teacher_student_graduation_ids_path: Path = Path("/Volumes/InstaCompAI/training/teacher-student/graduation-frozen-ids.json")
+    teacher_student_graduation_target: int = 50
+    teacher_student_incumbent_adapter_path: Path = Path("/Volumes/InstaCompAI/training/adapters/instacomp-20260814T135158Z")
 
     # The trained LoRA is an opt-in evidence reader only. It can never lock
     # identity or pricing by itself; the central Checklist Registry still must
@@ -55,6 +64,7 @@ class Settings(BaseSettings):
     lora_candidate_url: str = "http://127.0.0.1:8791"
     lora_candidate_timeout_seconds: float = 120.0
     api_key: str | None = None
+    registry_url: str = ""
 
     # Mac-owned Deal Hunter scheduler. The existing LaunchAgent keeps the
     # InstaComp service alive; this scheduler owns discovery cadence, durable

@@ -13,7 +13,6 @@ service_python="$service_root/.venv/bin/python"
 benchmark_launcher="$service_root/scripts/run-unseen-holdout-benchmark-from-main.sh"
 curriculum="$service_root/scripts/train_lora_from_unseen_benchmarks_v4.py"
 resume_gate="$service_root/scripts/find_resumable_unseen_benchmark.py"
-inventory_sync="$service_root/scripts/sync_all_inventory_training_truth_guarded.py"
 finisher="$service_root/scripts/finish_deal_hunter_ai_learning.py"
 staged="$service_root/scripts/run-staged-learning-from-main.sh"
 enable_candidate="$service_root/scripts/enable-lora-candidate-macos.sh"
@@ -37,7 +36,7 @@ if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]]; th
   exit 2
 fi
 [[ -x "$service_python" ]] || { echo "Missing service Python: $service_python" >&2; exit 2; }
-for required in "$benchmark_launcher" "$curriculum" "$resume_gate" "$inventory_sync" "$finisher" "$staged" "$enable_candidate"; do
+for required in "$benchmark_launcher" "$curriculum" "$resume_gate" "$finisher" "$staged" "$enable_candidate"; do
   [[ -f "$required" ]] || { echo "Missing learning-cycle component: $required" >&2; exit 2; }
 done
 if ! [[ "$max_learning_rounds" =~ ^[0-9]+$ ]] || (( max_learning_rounds < 1 || max_learning_rounds > 5 )); then
@@ -162,12 +161,7 @@ for (( round=1; round<=max_learning_rounds; round++ )); do
   rollback_dir="$(mktemp -d "${TMPDIR:-/tmp}/instacomp-unseen-rollback.XXXXXX")"
   backup_known_good "$rollback_dir"
 
-  echo "INFO Refreshing authoritative inventory/checklist-backed trusted corpus before training"
-  if ! "$service_python" "$inventory_sync"; then
-    restore_known_good "$rollback_dir"
-    rm -rf "$rollback_dir"
-    exit 20
-  fi
+  echo "INFO Training corpus authority: Mac-local trusted lesson SQLite + current Registry receipts; no Supabase inventory sync is permitted"
 
   echo "INFO Training a new warm-start adapter from Registry-verified misses across completed 100-card exams"
   if ! "$service_python" "$curriculum" --epochs 1 --learning-rate 0.00005 --curriculum-multiplier 3; then

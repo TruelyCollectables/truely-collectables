@@ -81,8 +81,8 @@ class LocalSettingsManager:
             "host": self.settings.host,
             "port": self.settings.port,
             "api_key_configured": bool(self.settings.api_key),
-            "central_registry_configured": bool(
-                os.getenv("INSTACOMP_AI_REGISTRY_URL", "").strip()
+            "mac_registry_configured": bool(
+                self.settings.registry_url.strip() or os.getenv("INSTACOMP_AI_REGISTRY_URL", "").strip()
             ),
         }
 
@@ -119,7 +119,7 @@ class LocalSettingsManager:
             "previous_env_backup_created": previous_backup is not None,
             "restart_requested": request.restart_service,
             "warnings": warnings,
-            "canonical_identity_authority": "central_checklist_registry",
+            "canonical_identity_authority": "mac_local_registry",
         }
         receipt_path = self.receipt_root / f"settings-{stamp}.json"
         self._atomic_json(receipt_path, receipt)
@@ -161,7 +161,7 @@ class LocalSettingsManager:
         if not request.local_cache_source_path:
             warnings.append(
                 "Optional local checklist cache source is not configured. "
-                "Canonical identity still comes from the central Checklist Registry."
+                "Canonical identity remains fail-closed on the Mac-local Registry."
             )
         else:
             cache_source = self._resolve_user_path(request.local_cache_source_path)

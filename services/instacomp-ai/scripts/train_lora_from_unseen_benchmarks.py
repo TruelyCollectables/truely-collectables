@@ -29,7 +29,6 @@ from app.training import _dataset_row, _split, latest_training_examples, trainin
 
 SCHEMA = "tcos.instacomp-ai.unseen-miss-curriculum.v1"
 TRAINING_RECEIPT = SERVICE_ROOT / "data/training/full-inventory-lora-latest.json"
-INVENTORY_RECEIPT = SERVICE_ROOT / "data/training/inventory-training-import-latest.json"
 DEFAULT_EPOCHS = 1
 DEFAULT_LEARNING_RATE = 5e-5
 DEFAULT_CURRICULUM_MULTIPLIER = 3
@@ -156,26 +155,27 @@ def _miss_expectations(
     return expectations, sources
 
 
-def _inventory_coverage() -> dict[str, Any]:
-    if not INVENTORY_RECEIPT.is_file():
-        raise RuntimeError(
-            f"Inventory training receipt missing: {INVENTORY_RECEIPT}. Run the guarded inventory truth sync first."
-        )
-    receipt = _read_json(INVENTORY_RECEIPT)
-    training = receipt.get("training") if isinstance(receipt.get("training"), dict) else {}
-    coverage = float(training.get("inventory_training_coverage_percent") or 0.0)
-    learned = int(training.get("inventory_eligible_learned") or 0)
-    eligible = int(training.get("inventory_eligible_total") or 0)
-    outstanding = int(training.get("inventory_training_outstanding") or 0)
-    if coverage != 100.0 or eligible <= 0 or learned != eligible or outstanding != 0:
-        raise RuntimeError(
-            f"Inventory truth coverage is not complete: coverage={coverage:.2f}% learned={learned}/{eligible} outstanding={outstanding}"
-        )
+def _local_training_coverage(examples: list[Any]) -> dict[str, Any]:
+    trusted = [example for example in examples if bool(getattr(example, "trusted", False))]
+    registry_receipted = sum(
+        1
+        for example in trusted
+        if str(getattr(example, "registry_identity_id", None) or "").strip()
+        and _valid_sha(getattr(example, "registry_fingerprint_sha256", None))
+    )
+    image_backed = sum(
+        1
+        for example in trusted
+        if str(getattr(example, "front_sha256", None) or "").strip()
+    )
+    if not trusted:
+        raise RuntimeError("Mac-local trusted training corpus is empty; refusing unseen curriculum training")
     return {
-        "coverage": coverage,
-        "learned": learned,
-        "eligible": eligible,
-        "outstanding": outstanding,
+        "authority": "mac_local_sqlite",
+        "trusted_examples": len(trusted),
+        "registry_receipted_examples": registry_receipted,
+        "image_backed_examples": image_backed,
+        "supabase_training_authority": False,
     }
 
 
@@ -489,11 +489,11 @@ def main() -> int:
     if newest.get("graduation_gate_passed") is True:
         raise SystemExit("Current adapter already passed the 100-card graduation gate; no curriculum retraining is needed.")
 
-    inventory = _inventory_coverage()
     settings.ensure_directories()
-    store = MemoryStore(settings.resolve_local_path(settings.database_path))
+    store = MemoryStore(settings.resolve_local_path(settings.training_database_path))
     store.initialize()
     latest = latest_training_examples(store.list_training_examples(trusted_only=True, limit=100_000))
+    inventory = _local_training_coverage(latest)
     readiness = training_readiness(latest)
     if not readiness.get("ready_for_production_candidate"):
         raise SystemExit(f"Current trusted corpus is not production-candidate ready: {readiness}")
@@ -511,7 +511,7 @@ def main() -> int:
     dataset, manifest = _export_curriculum_dataset(
         latest,
         force_train_ids=force_ids,
-        image_store_path=settings.resolve_local_path(settings.image_store_path),
+        image_store_path=settings.resolve_local_path(settings.training_image_store_path),
         destination_root=settings.resolve_local_path(settings.training_export_path),
         multiplier=args.curriculum_multiplier,
     )

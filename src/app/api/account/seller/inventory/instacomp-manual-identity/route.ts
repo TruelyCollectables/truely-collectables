@@ -2,7 +2,7 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { confirmInstaCompKnowledge } from "../../../../../../lib/instacomp-learning-server";
+import { confirmInstaCompAiLocalLesson } from "../../../../../../lib/instacomp-ai-local";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -312,40 +312,47 @@ export async function POST(request: Request) {
       .eq("status", "draft");
     if (saveError) throw saveError;
 
-    const scanId = text(previousInstaComp.scanId, 100);
+    const internalScanId =
+      text(previousAi.internalScanId, 100) ||
+      text(previousInstaComp.internalScanId, 100);
     let learning: JsonRecord = {
       attempted: false,
       promoted: false,
-      scanId,
+      authority: "mac_local",
+      internalScanId,
       checkedAt: new Date().toISOString(),
-      error: scanId ? null : "No scan ID was available for knowledge promotion.",
+      error: internalScanId
+        ? null
+        : "No Mac-local scan ID was available for operator lesson storage.",
     };
 
-    if (scanId) {
+    if (internalScanId) {
       try {
-        const receipt = await confirmInstaCompKnowledge({
-          scanId,
-          status: "operator_confirmed",
-          corrections: {
+        const receipt = await confirmInstaCompAiLocalLesson({
+          scanId: internalScanId,
+          operatorId: scoped.account.id,
+          notes: `KINGMAKER manual identity confirmation for ${inventoryItemId}: ${title}`,
+          identity: {
             player,
             year,
-            brand: manufacturer,
             manufacturer,
-            setName,
-            cardNumber,
-            parallel: parallelChoice.supplied,
+            brand: manufacturer,
+            set_name: setName,
+            card_number: cardNumber,
+            parallel: storedParallel,
             variation,
-            serialNumber,
+            serial_number: serialNumber,
             sport,
             team,
-            isAuto,
-            isRelic,
+            autograph: isAuto,
+            memorabilia: isRelic,
           },
         });
         learning = {
           attempted: true,
           promoted: true,
-          scanId,
+          authority: "mac_local",
+          internalScanId,
           checkedAt: new Date().toISOString(),
           receipt,
           error: null,
@@ -354,12 +361,13 @@ export async function POST(request: Request) {
         learning = {
           attempted: true,
           promoted: false,
-          scanId,
+          authority: "mac_local",
+          internalScanId,
           checkedAt: new Date().toISOString(),
           error:
             error instanceof Error
               ? error.message
-              : "Knowledge promotion failed.",
+              : "Mac-local lesson storage failed.",
         };
       }
     }

@@ -272,6 +272,16 @@ type ScanResponse = {
     reviewReasons: string[];
   };
   operatorCorrections?: OperatorCorrectionSnapshot | null;
+  localLearningReceipt?: {
+    schema?: string;
+    authority?: string;
+    lessonId?: string | null;
+    trainingExampleId?: string | null;
+    internalScanId?: string | null;
+    trusted?: boolean;
+    state?: string | null;
+    savedAt?: string | null;
+  } | null;
 };
 
 type OperatorCorrectionSnapshot = {
@@ -3871,10 +3881,25 @@ export default function InstaCompScanner({
               persistentClientId: item.client_item_id,
               persistentJobId: job.id,
               persistentItemId: item.id,
-              knowledgeEntryId: null,
-              knowledgeSavedAt: null,
-              knowledgeTrustStatus: null,
-              knowledgeConfirmedCount: null,
+              knowledgeEntryId:
+                storedResult?.localLearningReceipt?.authority === "mac_local"
+                  ? String(storedResult.localLearningReceipt.lessonId || "") || null
+                  : null,
+              knowledgeSavedAt:
+                storedResult?.localLearningReceipt?.authority === "mac_local"
+                  ? storedResult.localLearningReceipt.savedAt || null
+                  : null,
+              knowledgeTrustStatus:
+                storedResult?.localLearningReceipt?.authority === "mac_local"
+                  ? storedResult.localLearningReceipt.trusted === true
+                    ? "mac_operator_confirmed"
+                    : "mac_review_recorded"
+                  : null,
+              knowledgeConfirmedCount:
+                storedResult?.localLearningReceipt?.authority === "mac_local" &&
+                storedResult.localLearningReceipt.trusted === true
+                  ? 1
+                  : null,
               frontStoragePath: item.front_storage_path,
               backStoragePath: item.back_storage_path || null,
               pairingConfidence:
@@ -4033,7 +4058,7 @@ export default function InstaCompScanner({
     (card) => card.knowledgeEntryId
   ).length;
   const batchKnowledgeTrustedCount = batchCards.filter(
-    (card) => card.knowledgeTrustStatus === "tcos_trusted"
+    (card) => card.knowledgeTrustStatus === "mac_operator_confirmed"
   ).length;
   const batchCreatedInstaCompDraftHref = batchDraftCreatedCount
     ? sellerInventoryInstaCompDraftHref()
@@ -6954,7 +6979,7 @@ export default function InstaCompScanner({
   function swapBatchCardImages(cardId: string) {
     if (batchKnowledgeSaving) {
       setBatchError(
-        "Finish TCOS Card DB processing before swapping row images."
+        "Finish Mac-local lesson confirmation before swapping row images."
       );
       return;
     }
@@ -8172,7 +8197,7 @@ export default function InstaCompScanner({
 
   async function saveSelectedBatchCorrections() {
     const busyReason = batchKnowledgeSaving
-      ? "Finish TCOS Card DB processing before saving selected corrections."
+      ? "Finish Mac-local lesson confirmation before saving selected corrections."
       : batchBusyBlockedReason("saving selected corrections");
 
     if (busyReason) {
@@ -8240,7 +8265,7 @@ export default function InstaCompScanner({
 
   async function refreshBatchCardComps(cardId: string) {
     const busyReason = batchKnowledgeSaving
-      ? "Finish TCOS Card DB processing before refreshing row comps."
+      ? "Finish Mac-local lesson confirmation before refreshing row comps."
       : batchBusyBlockedReason("refreshing row comps");
 
     if (busyReason) {
@@ -8303,7 +8328,7 @@ export default function InstaCompScanner({
 
   async function refreshSelectedBatchComps() {
     const busyReason = batchKnowledgeSaving
-      ? "Finish TCOS Card DB processing before refreshing selected comps."
+      ? "Finish Mac-local lesson confirmation before refreshing selected comps."
       : batchBusyBlockedReason("refreshing selected comps");
 
     if (busyReason) {
@@ -8384,8 +8409,8 @@ export default function InstaCompScanner({
 
   async function processSavedLotToKnowledgeBase() {
     const busyReason = batchKnowledgeSaving
-      ? "TCOS Card DB processing is already running."
-      : batchBusyBlockedReason("processing the saved lot into the TCOS Card DB");
+      ? "Mac-local lesson confirmation is already running."
+      : batchBusyBlockedReason("confirming the saved lot into Mac-local InstaComp memory");
 
     if (busyReason) {
       setBatchError(busyReason);
@@ -8394,7 +8419,7 @@ export default function InstaCompScanner({
 
     if (!persistentJob?.id) {
       setBatchError(
-        "Run Batch InstaComp™ first so there is a saved lot to process into the TCOS Card DB."
+        "Run Batch InstaComp™ first so there is a saved lot to confirm into Mac-local InstaComp memory."
       );
       return;
     }
@@ -8404,7 +8429,7 @@ export default function InstaCompScanner({
       .map((card) => card.persistentItemId as string);
 
     if (!itemIds.length) {
-      setBatchError("No completed saved-lot rows are ready for the TCOS Card DB.");
+      setBatchError("No completed saved-lot rows are ready for Mac-local lesson confirmation.");
       return;
     }
 
@@ -8413,7 +8438,7 @@ export default function InstaCompScanner({
     setBatchDraftMessage(
       `Processing ${itemIds.length} confirmed card row${
         itemIds.length === 1 ? "" : "s"
-      } into the TCOS Card DB...`
+      } into Mac-local InstaComp memory...`
     );
 
     try {
@@ -8453,11 +8478,9 @@ export default function InstaCompScanner({
       );
 
       setBatchDraftMessage(
-        `TCOS Card DB processed ${data.processedCount || 0} row${
+        `Mac-local InstaComp memory confirmed ${data.processedCount || 0} row${
           data.processedCount === 1 ? "" : "s"
-        }. Trusted ${data.trustedCount || 0}; learning ${
-          data.learningCount || 0
-        }. A card becomes TCOS trusted on the 3rd confirmed sighting.`
+        }. Trusted local lessons: ${data.trustedCount || 0}. Supabase stores audit receipts only.`
       );
 
       if (data.skippedCount) {
@@ -8468,7 +8491,7 @@ export default function InstaCompScanner({
         );
       }
     } catch (error: any) {
-      setBatchError(error?.message || "Could not process this lot into the TCOS Card DB.");
+      setBatchError(error?.message || "Could not confirm this lot into Mac-local InstaComp memory.");
       setBatchDraftMessage(null);
     } finally {
       setBatchKnowledgeSaving(false);
@@ -11863,11 +11886,11 @@ export default function InstaCompScanner({
                   ? "not-allowed"
                   : "pointer",
             }}
-            title="Save completed rows from this saved InstaComp™ lot into the TCOS Card DB. They become trusted only after 3 confirmed sightings."
+            title="Confirm completed rows from this saved InstaComp™ lot into Mac-local InstaComp memory. Supabase stores only the audit receipt."
           >
             {batchKnowledgeSaving
-              ? "Processing TCOS DB..."
-              : `Process Saved Lot to TCOS DB (${batchDoneCount})`}
+              ? "Confirming Mac memory..."
+              : `Confirm Saved Lot to Mac Memory (${batchDoneCount})`}
           </button>
 
           <button
@@ -12368,7 +12391,7 @@ export default function InstaCompScanner({
               : ""}
             {batchDraftCreatedCount ? ` - ${batchDraftCreatedCount} drafts` : ""}
             {batchKnowledgeSavedCount
-              ? ` - ${batchKnowledgeSavedCount} TCOS DB`
+              ? ` - ${batchKnowledgeSavedCount} Mac memory`
               : ""}
             {batchKnowledgeTrustedCount
               ? ` - ${batchKnowledgeTrustedCount} TCOS trusted`
@@ -15415,29 +15438,29 @@ function BatchCardRow({
                   <span
                     style={{
                       border:
-                        card.knowledgeTrustStatus === "tcos_trusted"
+                        card.knowledgeTrustStatus === "mac_operator_confirmed"
                           ? "1px solid #047857"
                           : "1px solid #1d4ed8",
                       borderRadius: 999,
                       background:
-                        card.knowledgeTrustStatus === "tcos_trusted"
+                        card.knowledgeTrustStatus === "mac_operator_confirmed"
                           ? "#ecfdf5"
                           : "#eff6ff",
                       color:
-                        card.knowledgeTrustStatus === "tcos_trusted"
+                        card.knowledgeTrustStatus === "mac_operator_confirmed"
                           ? "#065f46"
                           : "#1d4ed8",
                       fontSize: 12,
                       fontWeight: 900,
                       padding: "3px 8px",
                     }}
-                    title="TCOS trusts a card identity after 3 confirmed sightings."
+                    title="This identity was explicitly confirmed into Mac-local InstaComp memory."
                   >
-                    TCOS DB:{" "}
-                    {card.knowledgeTrustStatus === "tcos_trusted"
-                      ? "trusted"
-                      : "learning"}{" "}
-                    ({card.knowledgeConfirmedCount || 0}/3)
+                    Mac memory:{" "}
+                    {card.knowledgeTrustStatus === "mac_operator_confirmed"
+                      ? "confirmed"
+                      : "review recorded"}{" "}
+
                   </span>
                 ) : null}
               </div>
