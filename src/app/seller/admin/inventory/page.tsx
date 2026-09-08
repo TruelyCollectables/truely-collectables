@@ -130,13 +130,15 @@ export default function SellerInventoryAdminPage() {
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
 
-  async function loadInventory(options?: { preserveSelection?: boolean }) {
+  async function loadInventory(options?: { preserveSelection?: boolean; refreshEbay?: boolean }) {
     setLoading(true);
     setError("");
 
     try {
       const response = await fetchWithAccountSession(
-        "/api/account/seller/inventory-admin",
+        options?.refreshEbay
+          ? "/api/account/seller/inventory-admin?refresh=1"
+          : "/api/account/seller/inventory-admin",
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -553,7 +555,7 @@ export default function SellerInventoryAdminPage() {
               <button type="button" onClick={togglePageSelection} className="rounded-xl border border-neutral-300 px-4 py-3 text-sm font-black hover:bg-neutral-50">
                 {allPageSelected ? "Clear Page" : "Select Page"}
               </button>
-              <button type="button" onClick={() => void loadInventory()} disabled={loading || saving} className="rounded-xl border border-neutral-300 px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50">
+              <button type="button" onClick={() => void loadInventory({ preserveSelection: true, refreshEbay: true })} disabled={loading || saving} className="rounded-xl border border-neutral-300 px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50">
                 {loading ? "Refreshing..." : "Refresh"}
               </button>
               <button type="button" onClick={() => void saveSelected()} disabled={saving || selectedIds.length === 0} className="rounded-xl bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800 disabled:bg-neutral-500">

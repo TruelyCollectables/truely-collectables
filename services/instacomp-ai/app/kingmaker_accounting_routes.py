@@ -93,7 +93,7 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class CommercialInventoryRequest(BaseModel):
-    action: str = Field(default="list", pattern="^(list|update)$")
+    action: str = Field(default="list", pattern="^(list|refresh|update)$")
     items: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
 
 
@@ -206,14 +206,21 @@ def build_kingmaker_accounting_router(
     @router.post("/commercial-inventory")
     async def commercial_inventory_route(request: CommercialInventoryRequest):
         try:
-            if request.action == "list":
-                snapshot = fetch_ebay_seller_snapshot()
-                listings = snapshot.get("listings") if isinstance(snapshot.get("listings"), list) else []
-                commercial_inventory.absorb_ebay_snapshot(
-                    listings,
-                    str(snapshot.get("syncedAt") or "").strip() or None,
-                )
+            if request.action in {"list", "refresh"}:
                 items = commercial_inventory.list_items()
+                snapshot: dict[str, Any] | None = None
+                if request.action == "refresh" or not items:
+                    snapshot = fetch_ebay_seller_snapshot()
+                    listings = snapshot.get("listings") if isinstance(snapshot.get("listings"), list) else []
+                    commercial_inventory.absorb_ebay_snapshot(
+                        listings,
+                        str(snapshot.get("syncedAt") or "").strip() or None,
+                    )
+                    items = commercial_inventory.list_items()
+                latest_sync = max(
+                    (str(item.get("updatedAt") or "") for item in items),
+                    default="",
+                ) or None
                 return {
                     "ok": True,
                     "sourceOfTruth": "mac_local",
@@ -227,8 +234,9 @@ def build_kingmaker_accounting_router(
                         "storeOwnedCount": len(items),
                     },
                     "ebaySnapshot": {
-                        "listingCount": int(snapshot.get("listingCount") or 0),
-                        "syncedAt": snapshot.get("syncedAt"),
+                        "listingCount": int(snapshot.get("listingCount") or len(items)) if snapshot else len(items),
+                        "syncedAt": snapshot.get("syncedAt") if snapshot else latest_sync,
+                        "refreshed": snapshot is not None,
                     },
                 }
 

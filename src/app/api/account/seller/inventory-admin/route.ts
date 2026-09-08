@@ -56,9 +56,11 @@ export async function GET(request: Request) {
     const auth = await requireStoreOwner(request);
     if (auth.response || !auth.account) return auth.response!;
 
+    const requestUrl = new URL(request.url);
+    const refreshEbay = requestUrl.searchParams.get("refresh") === "1";
     const mac = await postInstaCompMacAccounting(
       "/v1/kingmaker/accounting/commercial-inventory",
-      { action: "list" },
+      { action: refreshEbay ? "refresh" : "list" },
       120_000,
     );
 
