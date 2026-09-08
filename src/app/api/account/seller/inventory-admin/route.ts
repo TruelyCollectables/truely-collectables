@@ -258,19 +258,37 @@ export async function GET(request: Request) {
           ),
       ),
     );
-    const { data: productData, error: productError } =
-      legacyProductIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
+    const productData: ProductRow[] = [];
+    const productLookupChunkSize = 400;
+    const productLookupConcurrency = 4;
+    const productIdChunks: number[][] = [];
+
+    for (let offset = 0; offset < legacyProductIds.length; offset += productLookupChunkSize) {
+      productIdChunks.push(
+        legacyProductIds.slice(offset, offset + productLookupChunkSize),
+      );
+    }
+
+    for (let offset = 0; offset < productIdChunks.length; offset += productLookupConcurrency) {
+      const batch = productIdChunks.slice(offset, offset + productLookupConcurrency);
+      const results = await Promise.all(
+        batch.map((ids) =>
+          supabase
             .from("products")
             .select("id,player,sport,image_url,ebay_item_id")
             .eq("store_id", storeId)
-            .in("id", legacyProductIds);
+            .in("id", ids),
+        ),
+      );
 
-    if (productError) throw productError;
+      for (const result of results) {
+        if (result.error) throw result.error;
+        productData.push(...((result.data || []) as ProductRow[]));
+      }
+    }
 
     const productsById = new Map(
-      ((productData || []) as ProductRow[]).map((product) => [product.id, product]),
+      productData.map((product) => [product.id, product]),
     );
     const items = rows.map((row) =>
       mapItem({
