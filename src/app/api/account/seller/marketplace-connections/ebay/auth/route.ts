@@ -159,6 +159,7 @@ export async function POST(request: Request) {
     const authorizationUrl =
       `${authBase}?client_id=${clientId}` +
       `&response_type=code` +
+      `&prompt=login` +
       `&redirect_uri=${EBAY_REDIRECT_URI}` +
       `&scope=${encodeURIComponent(EBAY_SCOPE)}` +
       `&state=${encodeURIComponent(state)}`;
