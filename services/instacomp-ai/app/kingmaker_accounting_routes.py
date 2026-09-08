@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .kingmaker_accounting import KingmakerAccounting
+from .kingmaker_commercial_inventory import KingmakerCommercialInventory
 
 
 class PurchaseMatchRequest(BaseModel):
@@ -37,7 +38,7 @@ class PurchaseLinkExistingRequest(BaseModel):
 
 
 class EbayBridgeRequest(BaseModel):
-    mode: str = Field(default="readiness", pattern="^(readiness|publish|revise|oauth_exchange)$")
+    mode: str = Field(default="readiness", pattern="^(readiness|publish|revise|oauth_exchange|inventory_snapshot)$")
     item: dict[str, Any] | None = None
     revision: dict[str, Any] | None = None
     code: str | None = Field(default=None, max_length=4096)
@@ -91,6 +92,11 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+class CommercialInventoryRequest(BaseModel):
+    action: str = Field(default="list", pattern="^(list|update)$")
+    items: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+
+
 class InventoryDispositionRequest(BaseModel):
     inventory_item_id: str = Field(min_length=1, max_length=200)
     disposition: str = Field(pattern="^(resale|investment_stash)$")
@@ -123,6 +129,8 @@ def build_kingmaker_accounting_router(
     )
     accounting = KingmakerAccounting(database_path, scan_database_path)
     accounting.initialize()
+    commercial_inventory = KingmakerCommercialInventory(database_path.with_name("kingmaker_commercial_inventory.sqlite3"))
+    commercial_inventory.initialize()
 
     @router.post("/purchase-match")
     async def purchase_match(request: PurchaseMatchRequest):
@@ -191,6 +199,103 @@ def build_kingmaker_accounting_router(
                 "redirectUri": request.redirect_uri,
             })
             return {"ok": True, **result}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+    @router.post("/commercial-inventory")
+    async def commercial_inventory_route(request: CommercialInventoryRequest):
+        try:
+            if request.action == "list":
+                snapshot = _run_local_ebay_bridge({"mode": "inventory_snapshot"})
+                listings = snapshot.get("listings") if isinstance(snapshot.get("listings"), list) else []
+                commercial_inventory.absorb_ebay_snapshot(
+                    listings,
+                    str(snapshot.get("syncedAt") or "").strip() or None,
+                )
+                items = commercial_inventory.list_items()
+                return {
+                    "ok": True,
+                    "sourceOfTruth": "mac_local",
+                    "items": items,
+                    "summary": {
+                        "totalItems": len(items),
+                        "totalQuantity": sum(max(0, int(item.get("quantity") or 0)) for item in items),
+                        "activeCount": sum(1 for item in items if item.get("status") == "active"),
+                        "draftCount": sum(1 for item in items if item.get("status") == "draft"),
+                        "archivedCount": sum(1 for item in items if item.get("status") == "archived"),
+                        "storeOwnedCount": len(items),
+                    },
+                    "ebaySnapshot": {
+                        "inventoryItemCount": int(snapshot.get("inventoryItemCount") or 0),
+                        "offerCount": int(snapshot.get("offerCount") or 0),
+                        "syncedAt": snapshot.get("syncedAt"),
+                    },
+                }
+
+            results: list[dict[str, Any]] = []
+            for edit in request.items:
+                inventory_item_id = str(edit.get("inventoryItemId") or "").strip()
+                current = commercial_inventory.get_item(inventory_item_id) if inventory_item_id else None
+                if current is None:
+                    results.append({
+                        "inventoryItemId": inventory_item_id,
+                        "legacyProductId": None,
+                        "success": False,
+                        "status": 404,
+                        "message": "Mac-local commercial inventory item was not found.",
+                    })
+                    continue
+                update_ebay = edit.get("updateEbay") is True
+                try:
+                    requested_status = str(edit.get("status", current.get("status") or "draft"))
+                    if update_ebay and requested_status != "active":
+                        raise ValueError("Use the dedicated channel lifecycle control to end/archive an eBay listing; in-place eBay revision requires active status.")
+                    if update_ebay:
+                        _run_local_ebay_bridge({
+                            "mode": "revise",
+                            "revision": {
+                                "sku": current.get("sku"),
+                                "listingId": current.get("ebayItemId"),
+                                "title": edit.get("title", current.get("title")),
+                                "description": edit.get("description", current.get("description")),
+                                "quantity": edit.get("quantity", current.get("quantity")),
+                                "price": edit.get("price", current.get("price")),
+                            },
+                        })
+                    commercial_inventory.apply_local_edit(inventory_item_id, edit, update_ebay)
+                    results.append({
+                        "inventoryItemId": inventory_item_id,
+                        "legacyProductId": None,
+                        "success": True,
+                        "status": 200,
+                        "message": (
+                            "Mac-local inventory saved and the existing eBay listing was updated in place."
+                            if update_ebay
+                            else "Mac-local inventory saved."
+                        ),
+                    })
+                except Exception as exc:
+                    results.append({
+                        "inventoryItemId": inventory_item_id,
+                        "legacyProductId": None,
+                        "success": False,
+                        "status": 502 if update_ebay else 400,
+                        "message": str(exc),
+                    })
+            success_count = sum(1 for result in results if result.get("success") is True)
+            return {
+                "ok": True,
+                "sourceOfTruth": "mac_local",
+                "success": success_count == len(results),
+                "summary": {
+                    "requestedCount": len(request.items),
+                    "processedCount": len(results),
+                    "successCount": success_count,
+                    "failureCount": len(results) - success_count,
+                },
+                "results": results,
+            }
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

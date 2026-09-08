@@ -1,65 +1,10 @@
-import {
-  ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
-} from "../../../../../lib/account-auth";
-import {
-  extractAuthenticityProfile,
-  mergeAuthenticityIntoMetadata,
-  sanitizeAuthenticityProfile,
-  validateAuthenticityProfile,
-  type AuthenticityProfile,
-} from "../../../../../lib/authenticity";
-import {
-  getUnder20SellerProtectionOptIn,
-  mergeUnder20SellerProtectionOptIn,
-} from "../../../../../lib/shipping";
-import {
-  canManageSellerInventoryRow,
-  isStoreOwnerSellerAccount,
-} from "../../../../../lib/seller-inventory-access";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
 import { postInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
-import {
-  inventoryEngine,
-  InventoryEngineError,
-  type InventoryStatus,
-} from "../../../../../modules/inventory";
+import { isStoreOwnerSellerAccount } from "../../../../../lib/seller-inventory-access";
 
 export const dynamic = "force-dynamic";
 
-const EDITABLE_STATUSES = new Set<InventoryStatus>([
-  "draft",
-  "active",
-  "archived",
-]);
-
 const MAX_BULK_EDITS = 100;
-
-type InventoryRow = {
-  id: string;
-  legacy_product_id: number | null;
-  seller_account_id: string | null;
-  sku: string | null;
-  title: string | null;
-  description: string | null;
-  category: string | null;
-  condition: string | null;
-  status: string | null;
-  quantity: number | null;
-  price: number | string | null;
-  metadata: Record<string, unknown> | null;
-  updated_at: string | null;
-  created_at: string | null;
-};
-
-type ProductRow = {
-  id: number;
-  player: string | null;
-  sport: string | null;
-  image_url: string | null;
-  ebay_item_id: string | null;
-};
 
 type InventoryAdminEdit = {
   inventoryItemId?: unknown;
@@ -78,73 +23,8 @@ type InventoryAdminEdit = {
   updateEbay?: unknown;
 };
 
-function getSupabaseClient() {
-  return createSupabaseServerClient({ admin: true });
-}
-
-function textValue(value: unknown, maxLength: number) {
-  const text = String(value ?? "").trim();
-  return text ? text.slice(0, maxLength) : null;
-}
-
-function requiredText(value: unknown, maxLength: number) {
-  return String(value ?? "").trim().slice(0, maxLength);
-}
-
-function moneyValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed)
-    ? Math.max(0, Math.round(parsed * 100) / 100)
-    : 0;
-}
-
-function quantityValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
-}
-
-function statusValue(value: unknown): InventoryStatus | null {
-  const status = String(value || "").trim() as InventoryStatus;
-  return EDITABLE_STATUSES.has(status) ? status : null;
-}
-
-function imageUrlValue(value: unknown) {
-  const text = textValue(value, 2000);
-  if (!text) return null;
-
-  try {
-    const parsed = new URL(text);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? parsed.toString()
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function isMissingInventorySchema(error: { code?: string; message?: string }) {
-  const message = error.message?.toLowerCase() || "";
-  return (
-    error.code === "42P01" ||
-    error.code === "42703" ||
-    message.includes("inventory_items") ||
-    message.includes("products")
-  );
-}
-
-function unavailableResponse() {
-  return Response.json(
-    {
-      error:
-        "Seller inventory administration is unavailable until the inventory migrations are applied.",
-    },
-    { status: 503 },
-  );
-}
-
 function normalizeEdits(value: unknown): InventoryAdminEdit[] {
   if (!Array.isArray(value)) return [];
-
   const byId = new Map<string, InventoryAdminEdit>();
   for (const raw of value.slice(0, MAX_BULK_EDITS)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
@@ -153,520 +33,103 @@ function normalizeEdits(value: unknown): InventoryAdminEdit[] {
     if (!inventoryItemId) continue;
     byId.set(inventoryItemId, { ...edit, inventoryItemId });
   }
-
   return Array.from(byId.values());
 }
 
-function mapItem(params: {
-  row: InventoryRow;
-  product: ProductRow | null;
-  accountId: string;
-  ownerAccount: boolean;
-}) {
-  const { row, product, accountId, ownerAccount } = params;
-  const ownershipScope = row.seller_account_id === accountId ? "seller" : "store";
-
-  return {
-    inventoryItemId: row.id,
-    legacyProductId: row.legacy_product_id,
-    ownershipScope,
-    canEdit: ownershipScope === "seller" || ownerAccount,
-    title: row.title || "Untitled item",
-    player: product?.player || null,
-    sport: product?.sport || null,
-    sku: row.sku || null,
-    description: row.description || null,
-    category: row.category || "other_collectable",
-    condition: row.condition || "unknown",
-    status: row.status || "draft",
-    quantity: Number(row.quantity || 0),
-    price: moneyValue(row.price),
-    imageUrl: product?.image_url || null,
-    ebayItemId: product?.ebay_item_id || null,
-    authenticity: extractAuthenticityProfile(row.metadata),
-    under20SellerProtectionOptIn: getUnder20SellerProtectionOptIn(row.metadata),
-    updatedAt: row.updated_at,
-    createdAt: row.created_at,
-  };
-}
-
-async function loadInventoryRows(params: {
-  accountId: string;
-  accountEmail: string | null;
-}) {
-  const supabase = getSupabaseClient();
-  const storeId = getActiveStoreId();
-  const ownerAccount = isStoreOwnerSellerAccount(params.accountEmail);
-  const rows: InventoryRow[] = [];
-  const pageSize = 1000;
-
-  for (let offset = 0; offset < 10_000; offset += pageSize) {
-    let query = supabase
-      .from("inventory_items")
-      .select(
-        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,updated_at,created_at",
-      )
-      .eq("store_id", storeId)
-      .order("updated_at", { ascending: false })
-      .range(offset, offset + pageSize - 1);
-
-    query = ownerAccount
-      ? query.or(
-          `seller_account_id.eq.${params.accountId},seller_account_id.is.null`,
-        )
-      : query.eq("seller_account_id", params.accountId);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    const page = (data || []) as InventoryRow[];
-    rows.push(...page);
-    if (page.length < pageSize) break;
+async function requireStoreOwner(request: Request) {
+  const account = await getAuthenticatedAccountFromRequest(request);
+  if (!account) return { account: null, response: Response.json({ error: "Unauthorized" }, { status: 401 }) };
+  if (!isStoreOwnerSellerAccount(account.email)) {
+    return {
+      account,
+      response: Response.json(
+        { error: "Seller Inventory Admin is restricted to the Truely Collectables store owner." },
+        { status: 403 },
+      ),
+    };
   }
-
-  return {
-    ownerAccount,
-    rows,
-    storeId,
-    supabase,
-  };
+  return { account, response: null };
 }
 
 export async function GET(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
-    if (!account) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireStoreOwner(request);
+    if (auth.response || !auth.account) return auth.response!;
 
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
-
-    const { ownerAccount, rows, storeId, supabase } = await loadInventoryRows({
-      accountId: account.id,
-      accountEmail: account.email,
-    });
-    const legacyProductIds = Array.from(
-      new Set(
-        rows
-          .map((row) => row.legacy_product_id)
-          .filter(
-            (value): value is number =>
-              typeof value === "number" && Number.isInteger(value) && value > 0,
-          ),
-      ),
-    );
-    const productData: ProductRow[] = [];
-    const productLookupChunkSize = 400;
-    const productLookupConcurrency = 4;
-    const productIdChunks: number[][] = [];
-
-    for (let offset = 0; offset < legacyProductIds.length; offset += productLookupChunkSize) {
-      productIdChunks.push(
-        legacyProductIds.slice(offset, offset + productLookupChunkSize),
-      );
-    }
-
-    for (let offset = 0; offset < productIdChunks.length; offset += productLookupConcurrency) {
-      const batch = productIdChunks.slice(offset, offset + productLookupConcurrency);
-      const results = await Promise.all(
-        batch.map((ids) =>
-          supabase
-            .from("products")
-            .select("id,player,sport,image_url,ebay_item_id")
-            .eq("store_id", storeId)
-            .in("id", ids),
-        ),
-      );
-
-      for (const result of results) {
-        if (result.error) throw result.error;
-        productData.push(...((result.data || []) as ProductRow[]));
-      }
-    }
-
-    const productsById = new Map(
-      productData.map((product) => [product.id, product]),
-    );
-    const items = rows.map((row) =>
-      mapItem({
-        row,
-        product: row.legacy_product_id
-          ? productsById.get(row.legacy_product_id) || null
-          : null,
-        accountId: account.id,
-        ownerAccount,
-      }),
+    const mac = await postInstaCompMacAccounting(
+      "/v1/kingmaker/accounting/commercial-inventory",
+      { action: "list" },
+      120_000,
     );
 
     return Response.json({
       success: true,
-      account: {
-        email: account.email,
-        isStoreOwner: ownerAccount,
-      },
-      summary: {
-        totalItems: items.length,
-        totalQuantity: items.reduce(
-          (total, item) => total + Math.max(0, Number(item.quantity || 0)),
-          0,
-        ),
-        activeCount: items.filter((item) => item.status === "active").length,
-        draftCount: items.filter((item) => item.status === "draft").length,
-        archivedCount: items.filter((item) => item.status === "archived").length,
-        storeOwnedCount: items.filter(
-          (item) => item.ownershipScope === "store",
-        ).length,
-      },
-      items,
+      sourceOfTruth: "mac_local",
+      account: { email: auth.account.email, isStoreOwner: true },
+      summary: mac.summary || null,
+      items: Array.isArray(mac.items) ? mac.items : [],
+      ebaySnapshot: mac.ebaySnapshot || null,
       boundaries: {
-        editsTcosStorefront: true,
-        publishesToEbay: false,
+        inventoryAuthority: "mac_local",
+        ebayCredentialAuthority: "mac_local",
+        editsMacInventory: true,
         revisesExistingEbayListings: true,
+        createsReplacementEbayListings: false,
         buysPostage: false,
         createsOrders: false,
       },
     });
   } catch (error: any) {
-    if (isMissingInventorySchema(error)) return unavailableResponse();
-
     return Response.json(
-      { error: error.message || "Could not load seller inventory administration." },
-      { status: 500 },
+      { error: error?.message || "Could not load Mac-local seller inventory administration." },
+      { status: 502 },
     );
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
-    if (!account) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
+    const auth = await requireStoreOwner(request);
+    if (auth.response || !auth.account) return auth.response!;
 
     const body = await request.json().catch(() => ({}));
     const edits = normalizeEdits(body.items);
-    if (edits.length === 0) {
+    if (!edits.length) {
       return Response.json(
         { error: "Select and edit at least one inventory listing." },
         { status: 400 },
       );
     }
 
-    const { ownerAccount, rows, storeId, supabase } = await loadInventoryRows({
-      accountId: account.id,
-      accountEmail: account.email,
-    });
-    const rowsById = new Map(rows.map((row) => [row.id, row]));
-    const results: Array<{
-      inventoryItemId: string;
-      legacyProductId: number | null;
-      success: boolean;
-      status: number;
-      message: string;
-    }> = [];
-
-    for (const edit of edits) {
-      const inventoryItemId = String(edit.inventoryItemId || "").trim();
-      const row = rowsById.get(inventoryItemId);
-
-      if (!row) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: null,
-          success: false,
-          status: 404,
-          message: "Inventory listing was not found or is not owned by this seller.",
-        });
-        continue;
-      }
-
-      if (
-        !canManageSellerInventoryRow({
-          accountId: account.id,
-          accountEmail: account.email,
-          sellerAccountId: row.seller_account_id,
-        })
-      ) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 403,
-          message: "Seller ownership does not permit editing this listing.",
-        });
-        continue;
-      }
-
-      if (!row.legacy_product_id) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: null,
-          success: false,
-          status: 409,
-          message: "Listing is missing its linked product record.",
-        });
-        continue;
-      }
-
-      const currentStatus = String(row.status || "draft");
-      if (currentStatus === "sold" || currentStatus === "reserved") {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 409,
-          message: "Sold or reserved inventory is read-only in this workspace.",
-        });
-        continue;
-      }
-
-      const current = await inventoryEngine.getByLegacyProductId(
-        row.legacy_product_id,
-      );
-      if (!current || current.inventoryItemId !== row.id) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 404,
-          message: "Linked product could not be loaded.",
-        });
-        continue;
-      }
-
-      if (
-        !canManageSellerInventoryRow({
-          accountId: account.id,
-          accountEmail: account.email,
-          sellerAccountId: current.sellerAccountId,
-        })
-      ) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 403,
-          message: "Linked product ownership does not permit this edit.",
-        });
-        continue;
-      }
-
-      const title = requiredText(edit.title ?? current.title, 200);
-      const player = textValue(edit.player ?? current.player, 120);
-      const sport = textValue(edit.sport ?? current.sport, 120);
-      const price = moneyValue(edit.price ?? current.price);
-      const requestedStatus = statusValue(edit.status ?? current.status);
-      let quantity = quantityValue(edit.quantity ?? current.quantity);
-      const description = textValue(edit.description ?? current.description, 8000);
-      const category =
-        requiredText(edit.category ?? row.category ?? "other_collectable", 120) ||
-        "other_collectable";
-      const condition =
-        requiredText(edit.condition ?? row.condition ?? "unknown", 120) ||
-        "unknown";
-      const suppliedImageUrl = edit.imageUrl === undefined
-        ? current.imageUrl
-        : imageUrlValue(edit.imageUrl);
-      const rawImageText = textValue(edit.imageUrl, 2000);
-      const authenticity = sanitizeAuthenticityProfile(
-        edit.authenticity ?? extractAuthenticityProfile(row.metadata),
-      ) as AuthenticityProfile;
-      const authenticityError = validateAuthenticityProfile(authenticity);
-      const protectionOptIn =
-        edit.under20SellerProtectionOptIn === undefined
-          ? getUnder20SellerProtectionOptIn(row.metadata)
-          : edit.under20SellerProtectionOptIn === true;
-
-      if (!title) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 400,
-          message: "Title is required.",
-        });
-        continue;
-      }
-
-      if (!requestedStatus) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 400,
-          message: "Status must be draft, active, or archived.",
-        });
-        continue;
-      }
-
-      if (rawImageText && !suppliedImageUrl) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 400,
-          message: "Image URL must use HTTP or HTTPS.",
-        });
-        continue;
-      }
-
-      if (authenticityError) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 400,
-          message: authenticityError,
-        });
-        continue;
-      }
-
-      if (requestedStatus === "archived") quantity = 0;
-      if (requestedStatus === "active" && quantity <= 0) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 409,
-          message: "Active listings must have quantity above zero.",
-        });
-        continue;
-      }
-
-      if (requestedStatus === "active" && price <= 0) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status: 409,
-          message: "Active listings must have a positive price.",
-        });
-        continue;
-      }
-
-      try {
-        await inventoryEngine.updateProduct(row.legacy_product_id, {
-          title,
-          description,
-          player,
-          sport,
-          price,
-          quantity,
-          status: requestedStatus,
-          imageUrl: suppliedImageUrl,
-          authenticity,
-        });
-
-        const nextMetadata = mergeUnder20SellerProtectionOptIn(
-          mergeAuthenticityIntoMetadata(row.metadata, authenticity),
-          protectionOptIn,
-        );
-        const { error: rowUpdateError } = await supabase
-          .from("inventory_items")
-          .update({
-            category,
-            condition,
-            metadata: nextMetadata,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", row.id)
-          .eq("store_id", storeId);
-
-        if (rowUpdateError) throw rowUpdateError;
-
-        let ebayUpdated = false;
-        if (edit.updateEbay === true) {
-          if (!current.ebayItemId) {
-            throw new Error("TCOS saved the listing, but no existing eBay listing ID is linked to this inventory item.");
-          }
-          if (!current.sku) {
-            throw new Error("TCOS saved the listing, but the existing eBay listing cannot be revised without its SKU.");
-          }
-          try {
-            await postInstaCompMacAccounting(
-              "/v1/kingmaker/accounting/ebay-bridge",
-              {
-                mode: "revise",
-                revision: {
-                  sku: current.sku,
-                  listingId: current.ebayItemId,
-                  title,
-                  description,
-                  quantity,
-                  price,
-                },
-              },
-              120_000,
-            );
-            ebayUpdated = true;
-          } catch (ebayError) {
-            const detail = ebayError instanceof Error ? ebayError.message : String(ebayError);
-            results.push({
-              inventoryItemId,
-              legacyProductId: row.legacy_product_id,
-              success: false,
-              status: 502,
-              message: `TCOS saved successfully, but the existing eBay listing was not updated: ${detail}`,
-            });
-            continue;
-          }
-        }
-
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: true,
-          status: 200,
-          message: ebayUpdated
-            ? "Listing saved in TCOS and the existing eBay listing was updated in place."
-            : "Listing saved in TCOS inventory.",
-        });
-      } catch (error: any) {
-        results.push({
-          inventoryItemId,
-          legacyProductId: row.legacy_product_id,
-          success: false,
-          status:
-            error instanceof InventoryEngineError ? error.statusCode : 500,
-          message: error.message || "Could not save this listing.",
-        });
-      }
-    }
-
-    const successCount = results.filter((result) => result.success).length;
-    const failureCount = results.length - successCount;
+    const mac = await postInstaCompMacAccounting(
+      "/v1/kingmaker/accounting/commercial-inventory",
+      { action: "update", items: edits },
+      120_000,
+    );
 
     return Response.json({
-      success: failureCount === 0,
-      ownerAccount,
-      summary: {
+      success: mac.success === true,
+      sourceOfTruth: "mac_local",
+      ownerAccount: true,
+      summary: mac.summary || {
         requestedCount: edits.length,
-        processedCount: results.length,
-        successCount,
-        failureCount,
+        processedCount: 0,
+        successCount: 0,
+        failureCount: edits.length,
       },
-      results,
+      results: Array.isArray(mac.results) ? mac.results : [],
       boundaries: {
-        editsTcosStorefront: true,
-        publishesToEbay: false,
+        inventoryAuthority: "mac_local",
+        ebayCredentialAuthority: "mac_local",
+        editsMacInventory: true,
         revisesExistingEbayListings: true,
+        createsReplacementEbayListings: false,
       },
     });
   } catch (error: any) {
-    if (isMissingInventorySchema(error)) return unavailableResponse();
-
     return Response.json(
-      { error: error.message || "Could not save seller inventory edits." },
-      { status: 500 },
+      { error: error?.message || "Could not save Mac-local seller inventory edits." },
+      { status: 502 },
     );
   }
 }

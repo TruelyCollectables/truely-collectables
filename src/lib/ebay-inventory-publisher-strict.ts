@@ -12,6 +12,13 @@ import {
 } from "./ebay-inventory-publisher-audited";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+
+type EbayPublisherAuthority = {
+  supabase?: SupabaseClient | null;
+  storeId?: string | null;
+  refreshToken?: string | null;
+};
+
 const SPORTS_AND_NONSPORT_RAW_CONDITIONS = new Set([
   "Near Mint or Better",
   "Excellent",
@@ -42,17 +49,13 @@ export type {
 };
 
 
-export async function reviseExistingEbayInventoryItem(params: {
-  supabase: SupabaseClient;
-  storeId: string;
+export async function reviseExistingEbayInventoryItem(params: EbayPublisherAuthority & {
   revision: EbayExistingRevisionInput;
 }): Promise<EbayExistingRevisionResult> {
   return reviseAuditedExistingEbayInventoryItem(params);
 }
 
-export async function publishEbayInventoryItem(params: {
-  supabase: SupabaseClient;
-  storeId: string;
+export async function publishEbayInventoryItem(params: EbayPublisherAuthority & {
   item: EbayInventoryPublishInput;
 }): Promise<EbayInventoryPublishResult> {
   if (params.item.condition === "USED_VERY_GOOD") {

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  encryptMarketplaceToken,
   parseAdminMarketplaceOAuthState,
   parseSellerMarketplaceOAuthState,
 } from "../../../../lib/marketplace-token-crypto";
@@ -45,41 +44,7 @@ async function exchangeEbayAuthorizationCode(params: {
   code: string;
   ebayEnvironment: string;
 }) {
-  const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
-  const clientSecret = String(process.env.EBAY_CLIENT_SECRET || "").trim();
-
-  if (clientId && clientSecret) {
-    const tokenBase =
-      params.ebayEnvironment === "sandbox"
-        ? "https://api.sandbox.ebay.com"
-        : "https://api.ebay.com";
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-    const response = await fetch(`${tokenBase}/identity/v1/oauth2/token`, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: params.code,
-        redirect_uri: EBAY_REDIRECT_URI,
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data?.refresh_token) {
-      throw new Error(
-        String(
-          data?.error_description ||
-            data?.error ||
-            `eBay OAuth token exchange failed with HTTP ${response.status}.`,
-        ),
-      );
-    }
-    return data as Record<string, any>;
-  }
-
+  void params.ebayEnvironment;
   return await postInstaCompMacAccounting(
     "/v1/kingmaker/accounting/ebay-bridge",
     { mode: "oauth_exchange", code: params.code, redirect_uri: EBAY_REDIRECT_URI },
@@ -108,14 +73,16 @@ async function preserveExistingSellerConnectionAfterOAuthFailure(params: {
     return false;
   }
 
-  const { count } = await params.supabase
-    .from("seller_marketplace_connection_tokens")
-    .select("connection_id", { count: "exact", head: true })
-    .eq("connection_id", connection.id)
-    .eq("account_id", params.accountId)
-    .eq("store_id", params.storeId)
-    .eq("provider", "ebay");
-  if (!count) return false;
+  try {
+    const bridge = await postInstaCompMacAccounting(
+      "/v1/kingmaker/accounting/ebay-bridge",
+      { mode: "readiness" },
+      45_000,
+    );
+    if (bridge?.readiness?.ready !== true) return false;
+  } catch {
+    return false;
+  }
 
   const now = new Date().toISOString();
   await params.supabase
@@ -294,7 +261,7 @@ export async function GET(request: Request) {
   }
 
   if (actor.type === "seller") {
-    if (!data.refresh_token) {
+    if (data.tokenStored !== true) {
       const errorMessage =
         data.error_description ||
         data.error ||
@@ -364,7 +331,7 @@ export async function GET(request: Request) {
           connection_status: "connected",
           sync_status: "not_started",
           oauth_scope: oauthScope,
-          token_storage_key: `seller_marketplace_connection_tokens:${actor.state.storeId}:${actor.state.accountId}:ebay`,
+          token_storage_key: "mac_local:TCOS-Current-Review/ebay-seller-token.json",
           access_token_expires_at: accessTokenExpiresAt,
           refresh_token_expires_at: refreshTokenExpiresAt,
           token_last_rotated_at: new Date().toISOString(),
@@ -398,56 +365,19 @@ export async function GET(request: Request) {
       );
     }
 
-    const { error: tokenError } = await supabase
-      .from("seller_marketplace_connection_tokens")
-      .upsert(
-        {
-          connection_id: connection.id,
-          account_id: actor.state.accountId,
-          store_id: actor.state.storeId,
-          provider: "ebay",
-          encrypted_refresh_token: encryptMarketplaceToken(data.refresh_token),
-          encrypted_access_token: data.access_token
-            ? encryptMarketplaceToken(data.access_token)
-            : null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "store_id,account_id,provider" },
-      );
-
-    if (tokenError) {
-      await supabase
-        .from("seller_marketplace_connections")
-        .update({
-          connection_status: "error",
-          last_sync_error: tokenError.message,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", connection.id);
-
-      return sellerRedirect(request, "error", tokenError.message);
-    }
-
-    return sellerRedirect(request, "connected");
-  }
-
-  if (!data.refresh_token) {
-    return adminRedirect(
-      "error",
-      data.error_description ||
-        data.error ||
-        "eBay authorization did not return a refresh token.",
+    return sellerRedirect(
+      request,
+      "connected",
+      "eBay connected. Seller credentials are stored on the Mac-local KINGMAKER authority.",
     );
   }
 
-  const { error: tokenInsertError } = await supabase.from("ebay_tokens").insert({
-    store_id: actor.state.storeId,
-    refresh_token: data.refresh_token,
-  });
-
-  if (tokenInsertError) {
-    return adminRedirect("error", tokenInsertError.message);
+  if (data.tokenStored !== true) {
+    return adminRedirect(
+      "error",
+      data.error_description || data.error || "eBay authorization did not persist the Mac-local seller token.",
+    );
   }
 
-  return adminRedirect("connected");
+  return adminRedirect("connected", "eBay credentials are stored on the Mac-local KINGMAKER authority.");
 }

@@ -231,26 +231,33 @@ async function requestAccessToken(params: {
   };
 }
 
-async function getSellerAccessToken(params: {
-  supabase: SupabaseClient;
-  storeId: string;
-}) {
-  const cacheKey = `${params.storeId}:${ebayApiRoot()}`;
+type EbaySellerTokenSource = {
+  refreshToken?: string | null;
+  supabase?: SupabaseClient | null;
+  storeId?: string | null;
+};
+
+async function getSellerAccessToken(params: EbaySellerTokenSource) {
+  const cacheKey = `${cleanText(params.storeId, 120) || "mac-local"}:${ebayApiRoot()}`;
   const cached = tokenCache.get(cacheKey);
 
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached;
 
-  const { data, error } = await params.supabase
-    .from("ebay_tokens")
-    .select("refresh_token")
-    .eq("store_id", params.storeId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  let refreshToken = cleanText(params.refreshToken, 4096);
+  if (!refreshToken && params.supabase && params.storeId) {
+    const { data, error } = await params.supabase
+      .from("ebay_tokens")
+      .select("refresh_token")
+      .eq("store_id", params.storeId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    refreshToken = cleanText(data?.refresh_token, 4096);
+  }
 
-  if (error) throw error;
-  if (!data?.refresh_token) {
-    throw new Error("The active store is not connected to an eBay seller account.");
+  if (!refreshToken) {
+    throw new Error("The Mac-local eBay seller token is not configured.");
   }
 
   const inventoryScope = "https://api.ebay.com/oauth/api_scope/sell.inventory";
@@ -260,13 +267,13 @@ async function getSellerAccessToken(params: {
 
   try {
     token = await requestAccessToken({
-      refreshToken: String(data.refresh_token),
+      refreshToken,
       scopes: [inventoryScope, accountScope],
     });
   } catch {
     accountScopeAvailable = false;
     token = await requestAccessToken({
-      refreshToken: String(data.refresh_token),
+      refreshToken,
       scopes: [inventoryScope],
     });
   }
@@ -438,10 +445,7 @@ async function resolveEbaySetup(params: {
   };
 }
 
-export async function getEbayPublishingReadiness(params: {
-  supabase: SupabaseClient;
-  storeId: string;
-}): Promise<EbaySetupReadiness> {
+export async function getEbayPublishingReadiness(params: EbaySellerTokenSource): Promise<EbaySetupReadiness> {
   const marketplaceId =
     cleanText(process.env.EBAY_MARKETPLACE_ID, 40) || DEFAULT_MARKETPLACE_ID;
 
@@ -627,19 +631,14 @@ function warningMessages(value: unknown) {
 }
 
 
-export async function reviseExistingEbayInventoryItem(params: {
-  supabase: SupabaseClient;
-  storeId: string;
+export async function reviseExistingEbayInventoryItem(params: EbaySellerTokenSource & {
   revision: EbayExistingRevisionInput;
 }): Promise<EbayExistingRevisionResult> {
   const sku = cleanText(params.revision.sku, 120);
   const expectedListingId = cleanText(params.revision.listingId, 120);
   if (!sku) throw new Error("An existing eBay SKU is required for revision.");
 
-  const token = await getSellerAccessToken({
-    supabase: params.supabase,
-    storeId: params.storeId,
-  });
+  const token = await getSellerAccessToken(params);
   const setup = await resolveEbaySetup(token);
   const currentItem = await ebayRequest<any>({
     accessToken: token.accessToken,
@@ -768,9 +767,7 @@ export async function reviseExistingEbayInventoryItem(params: {
   };
 }
 
-export async function publishEbayInventoryItem(params: {
-  supabase: SupabaseClient;
-  storeId: string;
+export async function publishEbayInventoryItem(params: EbaySellerTokenSource & {
   item: EbayInventoryPublishInput;
 }): Promise<EbayInventoryPublishResult> {
   const rawTitle = String(params.item.title || "").trim();
@@ -799,10 +796,7 @@ export async function publishEbayInventoryItem(params: {
     aspects.Type = ["Sports Trading Card"];
   }
 
-  const token = await getSellerAccessToken({
-    supabase: params.supabase,
-    storeId: params.storeId,
-  });
+  const token = await getSellerAccessToken(params);
   const setup = await resolveEbaySetup(token);
   const descriptors = await conditionDescriptors({
     accessToken: token.accessToken,

@@ -1,5 +1,6 @@
-import { createSupabaseServerClient } from "../../../src/lib/supabase-server";
-import { getActiveStoreId } from "../../../src/lib/stores";
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import {
   getEbayPublishingReadiness,
   publishEbayInventoryItem,
@@ -8,12 +9,20 @@ import {
   type EbayInventoryPublishInput,
 } from "../../../src/lib/ebay-inventory-publisher";
 
+type RunnerMode = "readiness" | "publish" | "revise" | "oauth_exchange" | "inventory_snapshot";
 type RunnerPayload = {
-  mode?: "readiness" | "publish" | "revise" | "oauth_exchange";
+  mode?: RunnerMode;
   item?: EbayInventoryPublishInput;
   revision?: EbayExistingRevisionInput;
   code?: string;
   redirectUri?: string;
+};
+type LocalTokenRecord = {
+  schema: "tcos.kingmaker.ebay-token.v1";
+  refreshToken: string;
+  scope: string[];
+  refreshTokenExpiresAt: string | null;
+  updatedAt: string;
 };
 
 const HEADQUARTERS_LOCATION = "dd4bd05a-0aee-4342-830e-dd227c1fca28";
@@ -21,7 +30,16 @@ const PAYMENT_POLICY = "252035124017";
 const NO_RETURNS_POLICY = "252035125017";
 const STANDARD_ENVELOPE_POLICY = "256363993017";
 const GROUND_ADVANTAGE_POLICY = "256363912017";
+const INVENTORY_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.inventory";
+const ACCOUNT_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.account.readonly";
+const TOKEN_PATH = String(process.env.KINGMAKER_EBAY_TOKEN_PATH || "").trim() ||
+  join(homedir(), "Library/Application Support/TCOS-Current-Review/ebay-seller-token.json");
 
+function apiRoot() {
+  return String(process.env.EBAY_ENVIRONMENT || "production").toLowerCase() === "sandbox"
+    ? "https://api.sandbox.ebay.com"
+    : "https://api.ebay.com";
+}
 function applyVerifiedStoreDefaults(price = 0) {
   process.env.EBAY_MARKETPLACE_ID ||= "EBAY_US";
   process.env.EBAY_MERCHANT_LOCATION_KEY ||= HEADQUARTERS_LOCATION;
@@ -36,71 +54,212 @@ async function readStdin() {
   for await (const chunk of process.stdin) raw += chunk;
   return raw;
 }
+function readLocalToken(): LocalTokenRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(TOKEN_PATH, "utf8"));
+  } catch {
+    throw new Error("The Mac-local eBay seller token is not configured. Reconnect eBay once from TCOS.");
+  }
+  const record = parsed as Partial<LocalTokenRecord>;
+  const refreshToken = String(record?.refreshToken || "").trim();
+  if (!refreshToken) throw new Error("The Mac-local eBay seller token file is invalid. Reconnect eBay once from TCOS.");
+  return {
+    schema: "tcos.kingmaker.ebay-token.v1",
+    refreshToken,
+    scope: Array.isArray(record.scope) ? record.scope.map(String).filter(Boolean) : [],
+    refreshTokenExpiresAt: record.refreshTokenExpiresAt ? String(record.refreshTokenExpiresAt) : null,
+    updatedAt: String(record.updatedAt || ""),
+  };
+}
+function persistLocalToken(data: Record<string, any>) {
+  const refreshToken = String(data.refresh_token || "").trim();
+  if (!refreshToken) throw new Error("eBay authorization did not return a refresh token.");
+  const now = Date.now();
+  const expiresSeconds = Number(data.refresh_token_expires_in || 0);
+  const record: LocalTokenRecord = {
+    schema: "tcos.kingmaker.ebay-token.v1",
+    refreshToken,
+    scope: String(data.scope || "").split(" ").map((value) => value.trim()).filter(Boolean),
+    refreshTokenExpiresAt: expiresSeconds > 0 ? new Date(now + expiresSeconds * 1000).toISOString() : null,
+    updatedAt: new Date(now).toISOString(),
+  };
+  mkdirSync(dirname(TOKEN_PATH), { recursive: true });
+  const temp = `${TOKEN_PATH}.tmp-${process.pid}`;
+  writeFileSync(temp, JSON.stringify(record, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+  chmodSync(temp, 0o600);
+  renameSync(temp, TOKEN_PATH);
+  chmodSync(TOKEN_PATH, 0o600);
+  return record;
+}
+function clientCredentials() {
+  const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
+  const clientSecret = String(process.env.EBAY_CLIENT_SECRET || "").trim();
+  if (!clientId || !clientSecret) throw new Error("Mac-local eBay app credentials are unavailable.");
+  return Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+}
+async function tokenRequest(body: URLSearchParams) {
+  const response = await fetch(`${apiRoot()}/identity/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${clientCredentials()}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data?.access_token) {
+    throw new Error(String(data?.error_description || data?.error || `eBay token HTTP ${response.status}`));
+  }
+  return data as Record<string, any>;
+}
+async function refreshAccessToken(refreshToken: string, scopes = [INVENTORY_SCOPE, ACCOUNT_SCOPE]) {
+  return tokenRequest(new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    scope: scopes.join(" "),
+  }));
+}
+async function ebayGet(accessToken: string, path: string) {
+  const response = await fetch(`${apiRoot()}${path}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = Array.isArray(data?.errors)
+      ? data.errors.map((row: any) => row?.longMessage || row?.message).filter(Boolean).join(" ")
+      : "";
+    throw new Error(message || `eBay inventory HTTP ${response.status}`);
+  }
+  return data as Record<string, any>;
+}
+async function fetchPaged(accessToken: string, path: string, collection: string) {
+  const rows: any[] = [];
+  const limit = 200;
+  for (let offset = 0; offset < 100_000; offset += limit) {
+    const separator = path.includes("?") ? "&" : "?";
+    const page = await ebayGet(accessToken, `${path}${separator}limit=${limit}&offset=${offset}`);
+    const batch = Array.isArray(page?.[collection]) ? page[collection] : [];
+    rows.push(...batch);
+    const total = Number(page?.total || 0);
+    if (batch.length < limit || (total > 0 && rows.length >= total)) break;
+  }
+  return rows;
+}
+async function inventorySnapshot(refreshToken: string) {
+  const token = await refreshAccessToken(refreshToken, [INVENTORY_SCOPE]);
+  const accessToken = String(token.access_token);
+  const [inventoryItems, offers] = await Promise.all([
+    fetchPaged(accessToken, "/sell/inventory/v1/inventory_item", "inventoryItems"),
+    fetchPaged(accessToken, "/sell/inventory/v1/offer", "offers"),
+  ]);
+  const itemsBySku = new Map(inventoryItems.map((row: any) => [String(row?.sku || ""), row]));
+  const syncedAt = new Date().toISOString();
+  const listings = offers
+    .filter((offer: any) => String(offer?.listing?.listingId || "").trim())
+    .map((offer: any) => {
+      const sku = String(offer?.sku || "").trim();
+      const item: any = itemsBySku.get(sku) || {};
+      const product = item?.product && typeof item.product === "object" ? item.product : {};
+      const aspects = product?.aspects && typeof product.aspects === "object" ? product.aspects : {};
+      const first = (name: string) => Array.isArray(aspects?.[name]) ? String(aspects[name][0] || "") : "";
+      const listingId = String(offer?.listing?.listingId || "").trim();
+      const published = String(offer?.status || "").toUpperCase() === "PUBLISHED";
+      return {
+        inventoryItemId: `ebay:${listingId}`,
+        legacyProductId: null,
+        ownershipScope: "store",
+        canEdit: true,
+        sku,
+        offerId: String(offer?.offerId || "").trim() || null,
+        ebayItemId: listingId,
+        title: String(product?.title || sku || `eBay ${listingId}`),
+        description: String(offer?.listingDescription || product?.description || ""),
+        player: first("Player") || null,
+        sport: first("Sport") || null,
+        category: String(offer?.categoryId || "other_collectable"),
+        condition: String(item?.condition || "unknown"),
+        status: published ? "active" : "draft",
+        quantity: Math.max(0, Number(offer?.availableQuantity ?? item?.availability?.shipToLocationAvailability?.quantity ?? 0) || 0),
+        price: Math.max(0, Number(offer?.pricingSummary?.price?.value || 0) || 0),
+        imageUrl: Array.isArray(product?.imageUrls) ? String(product.imageUrls[0] || "") || null : null,
+        imageUrls: Array.isArray(product?.imageUrls) ? product.imageUrls.map(String).filter(Boolean) : [],
+        authenticity: {},
+        under20SellerProtectionOptIn: false,
+        updatedAt: syncedAt,
+        createdAt: null,
+        syncedAt,
+      };
+    });
+  return { listings, inventoryItemCount: inventoryItems.length, offerCount: offers.length, syncedAt };
+}
 
 async function main() {
   const raw = await readStdin();
   const payload = JSON.parse(raw || "{}") as RunnerPayload;
   const mode = payload.mode || "publish";
-  const item = payload.item;
-  applyVerifiedStoreDefaults(Number(item?.price || 0));
-
-  const supabase = createSupabaseServerClient({ admin: true });
-  const storeId = getActiveStoreId();
-
-  if (mode === "readiness") {
-    const readiness = await getEbayPublishingReadiness({ supabase, storeId });
-    process.stdout.write(JSON.stringify({ ok: true, mode, readiness }));
-    return;
-  }
+  const price = Number(payload.item?.price ?? payload.revision?.price ?? 0);
+  applyVerifiedStoreDefaults(price);
 
   if (mode === "oauth_exchange") {
     const code = String(payload.code || "").trim();
     const redirectUri = String(payload.redirectUri || "").trim();
-    const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
-    const clientSecret = String(process.env.EBAY_CLIENT_SECRET || "").trim();
     if (!code || !redirectUri) throw new Error("eBay OAuth code and redirect URI are required.");
-    if (!clientId || !clientSecret) throw new Error("Mac-local eBay app credentials are unavailable.");
-    const apiRoot = String(process.env.EBAY_ENVIRONMENT || "production").toLowerCase() === "sandbox"
-      ? "https://api.sandbox.ebay.com"
-      : "https://api.ebay.com";
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-    const response = await fetch(`${apiRoot}/identity/v1/oauth2/token`, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data?.refresh_token) {
-      throw new Error(String(data?.error_description || data?.error || "eBay OAuth token exchange failed."));
-    }
-    process.stdout.write(JSON.stringify({ ok: true, mode, ...data }));
+    const data = await tokenRequest(new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+    }));
+    const record = persistLocalToken(data);
+    process.stdout.write(JSON.stringify({
+      ok: true,
+      mode,
+      tokenStored: true,
+      access_token: String(data.access_token || ""),
+      expires_in: Number(data.expires_in || 0),
+      refresh_token_expires_in: Number(data.refresh_token_expires_in || 0),
+      scope: record.scope.join(" "),
+      refreshTokenExpiresAt: record.refreshTokenExpiresAt,
+    }));
     return;
   }
 
+  const tokenRecord = readLocalToken();
+  if (mode === "readiness") {
+    const readiness = await getEbayPublishingReadiness({ refreshToken: tokenRecord.refreshToken });
+    process.stdout.write(JSON.stringify({ ok: true, mode, readiness }));
+    return;
+  }
+  if (mode === "inventory_snapshot") {
+    const snapshot = await inventorySnapshot(tokenRecord.refreshToken);
+    process.stdout.write(JSON.stringify({ ok: true, mode, ...snapshot }));
+    return;
+  }
   if (mode === "revise") {
     if (!payload.revision) throw new Error("KINGMAKER eBay revision payload is missing.");
     const result = await reviseExistingEbayInventoryItem({
-      supabase,
-      storeId,
+      refreshToken: tokenRecord.refreshToken,
       revision: payload.revision,
     });
     process.stdout.write(JSON.stringify({ ok: true, mode, ...result }));
     return;
   }
-
-  if (!item) throw new Error("KINGMAKER eBay publish payload is missing the listing item.");
-  const result = await publishEbayInventoryItem({ supabase, storeId, item });
+  if (!payload.item) throw new Error("KINGMAKER eBay publish payload is missing the listing item.");
+  const result = await publishEbayInventoryItem({
+    refreshToken: tokenRecord.refreshToken,
+    item: payload.item,
+  });
   process.stdout.write(JSON.stringify({ ok: true, mode, ...result }));
 }
 
 main().catch((error) => {
-  process.stdout.write(JSON.stringify({
-    ok: false,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  process.stdout.write(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }));
   process.exitCode = 1;
 });
