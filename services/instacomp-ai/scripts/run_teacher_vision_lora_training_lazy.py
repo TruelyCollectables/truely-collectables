@@ -17,10 +17,14 @@ def _bootstrap_service_runtime() -> None:
     if sys.platform != "darwin":
         return
     try:
-        already_in_service_venv = Path(sys.prefix).resolve() == SERVICE_VENV.resolve()
+        current_prefix = Path(sys.prefix).resolve()
+        base_prefix = Path(sys.base_prefix).resolve()
+        already_in_service_venv = current_prefix == SERVICE_VENV.resolve()
+        already_in_virtualenv = current_prefix != base_prefix
     except OSError:
         already_in_service_venv = False
-    if already_in_service_venv:
+        already_in_virtualenv = sys.prefix != sys.base_prefix
+    if already_in_service_venv or already_in_virtualenv:
         return
     if not SERVICE_PYTHON.is_file():
         raise SystemExit(

@@ -487,7 +487,9 @@ for (const forbidden of ["rotatedImageFile", "Rotate 90°", "instacomp-image-rot
   );
 }
 for (const required of [
-  '.eq("status", "draft")',
+  '.in("status", ["draft", "active"])',
+  "getAuthenticatedAccountFromRequest",
+  "ensureAccountStoreMembership",
   "updatedCount",
   "published: false",
   "category",
@@ -499,6 +501,12 @@ for (const required of [
     `KINGMAKER bulk edit route is missing ${required}`,
   );
 }
+assert(
+  !kingmakerBulkEditRoute.includes("/channel") &&
+    !kingmakerBulkEditRoute.includes("ebay-bridge") &&
+    !kingmakerBulkEditRoute.includes("publishEbay"),
+  "KINGMAKER metadata bulk edit route must not publish or revise channels",
+);
 assert(
   !kingmakerPending.includes("failed: 100"),
   "KINGMAKER Pending Listings restored fake Failed 100 percent progress",
@@ -556,8 +564,6 @@ console.log(
       publishFirewall: true,
       kingmakerFrontBackJobCertified: true,
       manualIdentityLockCertified: true,
-      livePhysicalAcceptancePassed: false,
-      betaOnePassed: false,
     },
     null,
     2,

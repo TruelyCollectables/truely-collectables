@@ -38,7 +38,7 @@ _CONTROL_HTML = r"""<!doctype html>
   <header class="authority">
     <span class="badge">LOCAL OWNER CONTROL PLANE</span>
     <h1>InstaComp AI 1.0 Beta</h1>
-    <p>Local AI reads evidence and maintains private learning memory. The authenticated central Checklist Registry remains the only canonical identity authority. This console cannot publish listings or mutate seller inventory.</p>
+    <p>Local AI reads evidence and maintains private learning memory. The local Mac database is the canonical identity authority, and Supabase is only a downstream replication/display boundary where explicitly allowed. This console cannot publish listings or mutate seller inventory.</p>
     <p class="warning">Beta 1.0 is not passed until the physical Mac acceptance mission succeeds.</p>
   </header>
 
@@ -175,7 +175,7 @@ def build_cockpit_router(require_api_key, store, reader, checklist_gateway) -> A
             "ollama": "ready" if ollama_ready else "unavailable",
             "ollama_model": settings.ollama_model,
             "central_registry": "ready" if registry_ready else "not_configured",
-            "canonical_identity_authority": "central_checklist_registry",
+            "canonical_identity_authority": "local_mac_database",
             "local_cache_is_authoritative": False,
             "seller_mutations_allowed": False,
             "beta_1_0_passed": False,

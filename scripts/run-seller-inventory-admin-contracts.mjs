@@ -35,10 +35,15 @@ assert.match(
   /item\.legacyProductId && item\.status === "active" && item\.quantity > 0 && item\.imageUrl/,
 );
 assert.match(files.route, /MAX_BULK_EDITS = 100/);
-assert.match(files.route, /canManageSellerInventoryRow/);
+assert.match(files.route, /getAuthenticatedAccountFromRequest/);
 assert.match(files.route, /isStoreOwnerSellerAccount/);
-assert.match(files.route, /publishesToEbay: false/);
-assert.match(files.route, /Sold or reserved inventory is read-only/);
+assert.match(files.route, /Seller Inventory Admin is restricted to the Truely Collectables store owner/);
+assert.match(files.route, /postInstaCompMacAccounting/);
+assert.match(files.route, /sourceOfTruth: "mac_local"/);
+assert.match(files.route, /inventoryAuthority: "mac_local"/);
+assert.match(files.route, /ebayCredentialAuthority: "mac_local"/);
+assert.match(files.route, /createsReplacementEbayListings: false/);
+assert.match(files.route, /refreshEbay \? "refresh" : "list"/);
 assert.match(files.access, /sales@truelycollectables\.com/);
 assert.match(files.access, /params\.sellerAccountId === params\.accountId/);
 

@@ -31,11 +31,13 @@ def test_macos_installer_rejects_python_314_and_prefers_313() -> None:
     assert "Python 3.14 is not supported" in installer
 
 
-def test_registry_token_supports_service_and_seller_channels(monkeypatch) -> None:
-    monkeypatch.setenv("INSTACOMP_AI_REGISTRY_TOKEN", "physical-mac-test-token")
+def test_registry_auth_is_mac_local_only(monkeypatch) -> None:
+    monkeypatch.setenv("INSTACOMP_AI_REGISTRY_URL", "http://127.0.0.1:8787")
+    monkeypatch.setenv("INSTACOMP_AI_API_KEY", "physical-mac-test-key")
+    monkeypatch.setenv("INSTACOMP_AI_REGISTRY_TOKEN", "must-not-be-used")
+    monkeypatch.setenv("INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN", "must-not-be-used-either")
     headers = checklist._registry_headers()
-    assert headers["authorization"] == "Bearer physical-mac-test-token"
-    assert (
-        headers["x-tcos-instacomp-service-token"]
-        == "physical-mac-test-token"
-    )
+    assert headers["x-instacomp-ai-key"] == "physical-mac-test-key"
+    assert "authorization" not in headers
+    assert "x-tcos-instacomp-service-token" not in headers
+    assert "x-instacomp-sentinel-archive-token" not in headers

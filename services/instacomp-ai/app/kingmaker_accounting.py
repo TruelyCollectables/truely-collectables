@@ -390,7 +390,7 @@ class KingmakerAccounting:
         finally:
             db.close()
 
-    def _verified_scan(self, scan_id: str) -> dict[str, Any]:
+    def _verified_scan(self, scan_id: str, expected_card_uuid: str | None = None) -> dict[str, Any]:
         scan_id = str(scan_id or "").strip()
         if not scan_id:
             raise ValueError("A real InstaComp scan is required before purchase receiving")
@@ -401,8 +401,16 @@ class KingmakerAccounting:
             ).fetchone()
         if not row:
             raise ValueError("The InstaComp scan could not be verified on the Mac")
-        if not str(row["front_sha256"] or "").strip() or not str(row["back_sha256"] or "").strip():
+        front_sha = str(row["front_sha256"] or "").strip()
+        back_sha = str(row["back_sha256"] or "").strip()
+        if not front_sha or not back_sha:
             raise ValueError("Both a scanned front and scanned back are required before receiving inventory")
+        if front_sha == back_sha:
+            raise ValueError("Front and back scan evidence must be two distinct card images")
+        expected_uuid = str(expected_card_uuid or "").strip()
+        scan_uuid = str(row["card_uuid"] or "").strip()
+        if expected_uuid and scan_uuid and scan_uuid != expected_uuid:
+            raise ValueError("The InstaComp scan belongs to a different card UUID")
         return {
             "scanId": str(row["scan_id"]),
             "scanCardUuid": str(row["card_uuid"] or "") or None,
@@ -426,7 +434,7 @@ class KingmakerAccounting:
         if not inventory_item_id:
             return {"status": "no_match", "reason": "physical_inventory_item_required", "match": None}
         try:
-            scan = self._verified_scan(str(scan_id or ""))
+            scan = self._verified_scan(str(scan_id or ""), card_uuid)
         except ValueError as exc:
             return {"status": "scan_required", "reason": str(exc), "match": None}
 
@@ -513,41 +521,51 @@ class KingmakerAccounting:
         disposition: str,
     ) -> dict[str, Any]:
         self.initialize()
-        inventory_item_id=str(inventory_item_id or "").strip()
-        scan_id=str(scan_id or "").strip()
-        destination=str(disposition or "").strip().lower()
+        inventory_item_id = str(inventory_item_id or "").strip()
+        requested_scan_id = str(scan_id or "").strip()
+        requested_card_uuid = str(card_uuid or "").strip()
+        destination = str(disposition or "").strip().lower()
         if destination not in {"resale", "investment_stash"}:
             raise ValueError("Inventory destination must be resale or investment_stash")
         if not inventory_item_id or int(acquisition_item_id or 0) <= 0:
             raise ValueError("A scanned physical inventory item and acquisition_item_id are required")
-        scan=self._verified_scan(scan_id)
-        now=_utc_now()
+        now = _utc_now()
         with self._connect() as db:
-            receipt=db.execute(
-                "SELECT * FROM physical_inventory_receipts WHERE inventory_item_id=? AND scan_id=? AND acquisition_item_id=?",
-                (inventory_item_id,scan["scanId"],int(acquisition_item_id)),
+            receipt = db.execute(
+                "SELECT * FROM physical_inventory_receipts WHERE inventory_item_id=? AND acquisition_item_id=?",
+                (inventory_item_id, int(acquisition_item_id)),
             ).fetchone()
             if not receipt:
                 raise ValueError("Purchase reservation was not found for this scanned physical card")
+            bound_scan_id = str(receipt["scan_id"] or "").strip()
+            bound_card_uuid = str(receipt["card_uuid"] or "").strip()
+            if requested_scan_id and requested_scan_id != bound_scan_id:
+                raise ValueError("The requested scan does not match the Mac-local purchase reservation")
+            if requested_card_uuid and bound_card_uuid and requested_card_uuid != bound_card_uuid:
+                raise ValueError("The requested card UUID does not match the Mac-local purchase reservation")
+            scan = self._verified_scan(bound_scan_id, bound_card_uuid or requested_card_uuid)
             if not str(receipt["scan_verified_at"] or "").strip():
                 raise ValueError("Inventory cannot be received without verified scan evidence")
+            receipt_status = str(receipt["status"] or "").strip()
+            receipt_mode = str(receipt["receipt_mode"] or "").strip()
+            current_destination = str(receipt["disposition"] or "").strip()
+            if receipt_status == "linked_existing" or receipt_mode == "linked_existing":
+                raise ValueError("This scanned physical card is already linked to existing inventory and cannot be received as a new arrival")
+            if receipt_status == "received" or receipt_mode == "received_new":
+                if current_destination and current_destination != destination:
+                    raise ValueError("This card is already received; use inventory disposition to change resale/investment destination")
+                row = db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
+                return {"status":"received","inventoryState":str(receipt["inventory_state"]),"disposition":current_destination or destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"receivedAt":receipt["received_at"],"receiptMode":"received_new","match":self._purchase_row_payload(row)}
+            if receipt_status != "pending_purchase":
+                raise ValueError("Only a pending purchase reservation can be received into inventory")
             inventory_state = "investment_stash" if destination == "investment_stash" else "resale_ready"
             db.execute(
                 "UPDATE physical_inventory_receipts SET status='received', disposition=?, inventory_state=?, received_at=?, receipt_mode='received_new', linked_at=NULL WHERE id=?",
-                (destination,inventory_state,now,int(receipt["id"])),
+                (destination, inventory_state, now, int(receipt["id"])),
             )
             db.execute("UPDATE acquisition_items SET status='received' WHERE id=?", (int(acquisition_item_id),))
-            row=db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
-        return {
-            "status":"received",
-            "inventoryState":inventory_state,
-            "disposition":destination,
-            "inventoryItemId":inventory_item_id,
-            "scanId":scan["scanId"],
-            "receivedAt":now,
-            "receiptMode":"received_new",
-            "match":self._purchase_row_payload(row),
-        }
+            row = db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
+        return {"status":"received","inventoryState":inventory_state,"disposition":destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"receivedAt":now,"receiptMode":"received_new","match":self._purchase_row_payload(row)}
 
     def link_purchase_to_existing_inventory(
         self,
@@ -557,29 +575,45 @@ class KingmakerAccounting:
         scan_id: str | None,
         disposition: str = "resale",
     ) -> dict[str, Any]:
-        """Attach purchase history to an already-existing scanned physical inventory row.
-
-        This never creates a new physical item and never changes commercial quantity.
-        """
+        """Attach purchase history to an already-existing scanned physical inventory row without changing commercial quantity."""
         self.initialize()
         inventory_item_id = str(inventory_item_id or "").strip()
-        scan_id = str(scan_id or "").strip()
+        requested_scan_id = str(scan_id or "").strip()
+        requested_card_uuid = str(card_uuid or "").strip()
         destination = str(disposition or "resale").strip().lower()
         if destination not in {"resale", "investment_stash"}:
             raise ValueError("Inventory destination must be resale or investment_stash")
         if not inventory_item_id or int(acquisition_item_id or 0) <= 0:
             raise ValueError("A scanned existing inventory item and acquisition_item_id are required")
-        scan = self._verified_scan(scan_id)
         now = _utc_now()
         with self._connect() as db:
             receipt = db.execute(
-                "SELECT * FROM physical_inventory_receipts WHERE inventory_item_id=? AND scan_id=? AND acquisition_item_id=?",
-                (inventory_item_id, scan["scanId"], int(acquisition_item_id)),
+                "SELECT * FROM physical_inventory_receipts WHERE inventory_item_id=? AND acquisition_item_id=?",
+                (inventory_item_id, int(acquisition_item_id)),
             ).fetchone()
             if not receipt:
                 raise ValueError("Purchase reservation was not found for this scanned physical card")
+            bound_scan_id = str(receipt["scan_id"] or "").strip()
+            bound_card_uuid = str(receipt["card_uuid"] or "").strip()
+            if requested_scan_id and requested_scan_id != bound_scan_id:
+                raise ValueError("The requested scan does not match the Mac-local purchase reservation")
+            if requested_card_uuid and bound_card_uuid and requested_card_uuid != bound_card_uuid:
+                raise ValueError("The requested card UUID does not match the Mac-local purchase reservation")
+            scan = self._verified_scan(bound_scan_id, bound_card_uuid or requested_card_uuid)
             if not str(receipt["scan_verified_at"] or "").strip():
                 raise ValueError("Existing inventory cannot be linked without verified scan evidence")
+            receipt_status = str(receipt["status"] or "").strip()
+            receipt_mode = str(receipt["receipt_mode"] or "").strip()
+            current_destination = str(receipt["disposition"] or "").strip()
+            if receipt_status == "received" or receipt_mode == "received_new":
+                raise ValueError("This scanned physical card is already received as a new arrival and cannot be relinked as existing inventory")
+            if receipt_status == "linked_existing" or receipt_mode == "linked_existing":
+                if current_destination and current_destination != destination:
+                    raise ValueError("This card is already linked; use inventory disposition to change resale/investment destination")
+                row = db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
+                return {"status":"linked_existing","inventoryState":str(receipt["inventory_state"]),"disposition":current_destination or destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"linkedAt":receipt["linked_at"],"receiptMode":"linked_existing","match":self._purchase_row_payload(row)}
+            if receipt_status != "pending_purchase":
+                raise ValueError("Only a pending purchase reservation can be linked to existing inventory")
             inventory_state = "investment_stash" if destination == "investment_stash" else "resale_ready"
             db.execute(
                 "UPDATE physical_inventory_receipts SET status='linked_existing', disposition=?, inventory_state=?, receipt_mode='linked_existing', linked_at=?, received_at=NULL WHERE id=?",
@@ -587,16 +621,7 @@ class KingmakerAccounting:
             )
             db.execute("UPDATE acquisition_items SET status='linked_existing' WHERE id=?", (int(acquisition_item_id),))
             row = db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
-        return {
-            "status":"linked_existing",
-            "inventoryState":inventory_state,
-            "disposition":destination,
-            "inventoryItemId":inventory_item_id,
-            "scanId":scan["scanId"],
-            "linkedAt":now,
-            "receiptMode":"linked_existing",
-            "match":self._purchase_row_payload(row),
-        }
+        return {"status":"linked_existing","inventoryState":inventory_state,"disposition":destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"linkedAt":now,"receiptMode":"linked_existing","match":self._purchase_row_payload(row)}
 
     def listing_readiness(self, inventory_item_ids: list[str]) -> dict[str, Any]:
         self.initialize()

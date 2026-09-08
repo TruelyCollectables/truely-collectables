@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     training_database_path: Path = Path("/Volumes/InstaCompAI/instacomp-ai-data/instacomp_ai.sqlite3")
     training_image_store_path: Path = Path("/Volumes/InstaCompAI/instacomp-ai-data/images")
     training_export_path: Path = Path("./data/training/exports")
+    data_database_path: Path = Path("./data/database")
     data_datasets_path: Path = Path("./data/datasets")
     backup_default_destination: Path = Path("./backups")
     backup_allowed_roots: str = ""
@@ -58,7 +59,7 @@ class Settings(BaseSettings):
     teacher_student_incumbent_adapter_path: Path = Path("/Volumes/InstaCompAI/training/adapters/instacomp-20260814T135158Z")
 
     # The trained LoRA is an opt-in evidence reader only. It can never lock
-    # identity or pricing by itself; the central Checklist Registry still must
+    # identity or pricing by itself; the local Mac database still must
     # return one exact UUID + fingerprint. Disabled is the rollback/default.
     lora_candidate_enabled: bool = False
     lora_candidate_url: str = "http://127.0.0.1:8791"
@@ -110,6 +111,7 @@ class Settings(BaseSettings):
         self.resolve_local_path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         self.resolve_local_path(self.image_store_path).mkdir(parents=True, exist_ok=True)
         self.resolve_local_path(self.training_export_path).mkdir(parents=True, exist_ok=True)
+        self.resolve_local_path(self.data_database_path).mkdir(parents=True, exist_ok=True)
         self.resolve_local_path(self.backup_default_destination).mkdir(
             parents=True,
             exist_ok=True,

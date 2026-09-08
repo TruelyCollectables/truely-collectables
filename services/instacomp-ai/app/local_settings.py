@@ -119,7 +119,7 @@ class LocalSettingsManager:
             "previous_env_backup_created": previous_backup is not None,
             "restart_requested": request.restart_service,
             "warnings": warnings,
-            "canonical_identity_authority": "mac_local_registry",
+            "canonical_identity_authority": "local_mac_database",
         }
         receipt_path = self.receipt_root / f"settings-{stamp}.json"
         self._atomic_json(receipt_path, receipt)

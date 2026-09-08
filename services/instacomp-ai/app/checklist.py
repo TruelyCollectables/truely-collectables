@@ -49,24 +49,21 @@ def _registry_base_url() -> str | None:
 
 
 def _registry_headers() -> dict[str, str]:
+    """Authenticate only to the protected Registry running on this Mac.
+
+    Remote Registry credentials are intentionally unsupported: identity authority
+    must never fall back to a cloud service when the local Registry is absent.
+    """
     headers = {
         "content-type": "application/json",
         "x-instacomp-client": "mac-mini-local-v1",
     }
-    token = os.getenv("INSTACOMP_AI_REGISTRY_TOKEN", "").strip()
-    if token:
-        # Keep bearer support for seller-session compatibility while also sending
-        # the dedicated internal-service header expected by the website route.
-        headers["authorization"] = f"Bearer {token}"
-        headers["x-tcos-instacomp-service-token"] = token
+    base_url = _registry_base_url()
+    if not base_url:
         return headers
-
-    # The Mac and central site already share a dedicated Sentinel credential.
-    # Use it only as a read-only Registry-lock authentication fallback so older
-    # installs do not require another manually synchronized secret.
-    archive_token = os.getenv("INSTACOMP_AI_SENTINEL_ARCHIVE_TOKEN", "").strip()
-    if archive_token:
-        headers["x-instacomp-sentinel-archive-token"] = archive_token
+    local_key = os.getenv("INSTACOMP_AI_API_KEY", "").strip() or str(settings.api_key or "").strip()
+    if local_key:
+        headers["x-instacomp-ai-key"] = local_key
     return headers
 
 

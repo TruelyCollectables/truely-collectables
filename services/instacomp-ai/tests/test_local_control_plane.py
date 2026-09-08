@@ -58,7 +58,7 @@ def test_local_settings_are_atomic_and_receipted(tmp_path: Path) -> None:
             encoding="utf-8"
         )
     )
-    assert receipt["canonical_identity_authority"] == "central_checklist_registry"
+    assert receipt["canonical_identity_authority"] == "local_mac_database"
     assert "keep-secret" not in json.dumps(receipt)
 
 
@@ -146,7 +146,7 @@ class FakeRegistry:
         return True
 
 
-def test_cockpit_declares_central_registry_authority() -> None:
+def test_cockpit_declares_local_mac_registry_authority() -> None:
     app = FastAPI()
     app.include_router(
         build_cockpit_router(
@@ -160,19 +160,19 @@ def test_cockpit_declares_central_registry_authority() -> None:
 
     page = client.get("/control")
     assert page.status_code == 200
-    assert "central Checklist Registry" in page.text
+    assert "local Mac database" in page.text
     assert "cannot publish listings" in page.text
 
     status = client.get("/v1/control/status")
     assert status.status_code == 200
     payload = status.json()
-    assert payload["canonical_identity_authority"] == "central_checklist_registry"
+    assert payload["canonical_identity_authority"] == "local_mac_database"
     assert payload["local_cache_is_authoritative"] is False
     assert payload["seller_mutations_allowed"] is False
     assert payload["beta_1_0_passed"] is False
 
 
-def test_current_scanner_keeps_central_registry_boundary() -> None:
+def test_current_scanner_keeps_local_mac_registry_boundary() -> None:
     root = Path(__file__).resolve().parents[1]
     main_source = (root / "app" / "main.py").read_text(encoding="utf-8")
     checklist_source = (root / "app" / "checklist.py").read_text(encoding="utf-8")
@@ -185,4 +185,7 @@ def test_current_scanner_keeps_central_registry_boundary() -> None:
     assert "/api/instacomp/checklist-lookup" in checklist_source
     assert "registry_identity:" in checklist_source
     assert "registry_fingerprint:" in checklist_source
-    assert "from .registry" not in main_source
+    assert "from .registry_routes import build_registry_router" in main_source
+    assert "app.include_router(build_registry_router" in main_source
+    assert 'parsed.hostname not in {"127.0.0.1", "localhost", "::1"}' in checklist_source
+    assert "truelycollectables.com" not in checklist_source

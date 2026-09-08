@@ -247,12 +247,18 @@ def test_direct_db_export_shrinks_on_postgres_statement_timeout(monkeypatch: pyt
     assert payload["row_counts"]["inventory_items"] == 1
 
 
-def test_snapshot_workflow_only_publishes_encrypted_exporter_output():
+def test_snapshot_workflow_is_retired_and_enforces_local_learning_authority():
     workflow = WORKFLOW.read_text("utf-8")
     exporter = EXPORTER_SCRIPT.read_text("utf-8")
-    assert "inventory-training-production-snapshot.enc.json" in workflow
-    assert "export_inventory_training_snapshot.py" in workflow
-    assert "git add -f" in workflow
+    assert "InstaComp Local Learning Authority Gate" in workflow
+    assert "test_learning_local_authority.py" in workflow
+    assert "PASS Supabase inventory training is retired" in workflow
+    assert "inventory-training-production-snapshot.enc.json" not in workflow
+    assert "python scripts/export_inventory_training_snapshot.py" not in workflow
+    assert "actions/upload-artifact" not in workflow
+    assert "git add -f" not in workflow
+    # The exporter remains only as a retired compatibility fixture; its own safety
+    # properties stay tested so accidental manual use cannot silently weaken it.
     assert "DEFAULT_BATCH_SIZE = 50" in exporter
     assert "MIN_BATCH_SIZE = 10" in exporter
     assert "where id >" in exporter
