@@ -332,7 +332,7 @@ export default function SellerInventoryAdminPage() {
     setError("");
   }
 
-  async function saveSelected(ids = selectedIds) {
+  async function saveSelected(ids = selectedIds, updateEbay = false) {
     const editableIds = ids.filter((id) => {
       const item = drafts[id];
       return item && isEditableItem(item);
@@ -356,7 +356,10 @@ export default function SellerInventoryAdminPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            items: editableIds.map((id) => drafts[id]),
+            items: editableIds.map((id) => ({
+              ...drafts[id],
+              updateEbay: updateEbay && Boolean(drafts[id]?.ebayItemId),
+            })),
           }),
         },
       );
@@ -477,10 +480,10 @@ export default function SellerInventoryAdminPage() {
         </section>
 
         <section className="rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sm font-semibold text-sky-950">
-          These controls update TCOS and the Truely Collectables storefront. They do
-          not silently revise an external eBay listing, buy postage, or create an
-          order. Open the direct eBay link when a marketplace-side revision is also
-          required.
+          These controls update TCOS and the Truely Collectables storefront. Existing
+          eBay-linked listings can now be revised directly through TCOS without CollX;
+          revisions update the same live eBay offer and never create a replacement
+          listing. Postage and order creation remain separate actions.
           {isStoreOwner ? (
             <strong className="ml-1">
               Your owner account can also manage store-owned inventory rows.
@@ -555,6 +558,14 @@ export default function SellerInventoryAdminPage() {
               </button>
               <button type="button" onClick={() => void saveSelected()} disabled={saving || selectedIds.length === 0} className="rounded-xl bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800 disabled:bg-neutral-500">
                 {saving ? "Saving..." : `Save Selected Edits (${selectedIds.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveSelected(selectedIds, true)}
+                disabled={saving || selectedIds.length === 0 || !selectedIds.some((id) => Boolean(drafts[id]?.ebayItemId))}
+                className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-600 disabled:bg-neutral-500"
+              >
+                {saving ? "Updating..." : "Save Selected + Update eBay"}
               </button>
             </div>
           </div>
@@ -661,7 +672,17 @@ export default function SellerInventoryAdminPage() {
                         <a href={`https://www.ebay.com/itm/${encodeURIComponent(item.ebayItemId)}`} target="_blank" rel="noreferrer" className="rounded-xl border border-neutral-300 px-3 py-2 text-sm font-black hover:bg-neutral-50">Open eBay</a>
                       ) : null}
                       <button type="button" onClick={() => resetDraft(item.inventoryItemId)} disabled={!editable} className="rounded-xl border border-neutral-300 px-3 py-2 text-sm font-black hover:bg-neutral-50 disabled:opacity-40">Reset</button>
-                      <button type="button" onClick={() => void saveSelected([item.inventoryItemId])} disabled={!editable || saving} className="rounded-xl bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:bg-neutral-500">Save Listing</button>
+                      <button type="button" onClick={() => void saveSelected([item.inventoryItemId])} disabled={!editable || saving} className="rounded-xl bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:bg-neutral-500">Save TCOS</button>
+                      {item.ebayItemId ? (
+                        <button
+                          type="button"
+                          onClick={() => void saveSelected([item.inventoryItemId], true)}
+                          disabled={!editable || saving}
+                          className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-600 disabled:bg-neutral-500"
+                        >
+                          Update eBay
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 

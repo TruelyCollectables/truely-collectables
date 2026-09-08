@@ -5,6 +5,7 @@ from typing import Any, Callable
 import json
 import os
 import subprocess
+import shutil
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -36,8 +37,9 @@ class PurchaseLinkExistingRequest(BaseModel):
 
 
 class EbayBridgeRequest(BaseModel):
-    mode: str = Field(default="readiness", pattern="^(readiness|publish)$")
+    mode: str = Field(default="readiness", pattern="^(readiness|publish|revise)$")
     item: dict[str, Any] | None = None
+    revision: dict[str, Any] | None = None
 
 
 def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
@@ -53,8 +55,11 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     env["NODE_PATH"] = os.pathsep.join(
         [str(node_shims), str(repo_root / "node_modules"), str(env.get("NODE_PATH") or "")]
     ).rstrip(os.pathsep)
+    node_binary = shutil.which("node") or "/opt/homebrew/bin/node"
+    if not Path(node_binary).exists():
+        raise ValueError("The Mac-local Node runtime required for eBay publishing is unavailable")
     command = [
-        "node",
+        node_binary,
         f"--env-file={local_env}",
         "--import",
         "tsx",
@@ -179,6 +184,7 @@ def build_kingmaker_accounting_router(
             result = _run_local_ebay_bridge({
                 "mode": request.mode,
                 "item": request.item,
+                "revision": request.revision,
             })
             return {"ok": True, **result}
         except Exception as exc:

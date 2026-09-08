@@ -62,6 +62,23 @@ export type EbayInventoryPublishResult = {
   warnings: string[];
 };
 
+export type EbayExistingRevisionInput = {
+  sku: string;
+  listingId?: string | null;
+  title?: string | null;
+  description?: string | null;
+  quantity?: number | null;
+  price?: number | null;
+};
+
+export type EbayExistingRevisionResult = {
+  offerId: string;
+  listingId: string;
+  sku: string;
+  updated: true;
+  warnings: string[];
+};
+
 class EbaySetupError extends Error {
   constructor(
     message: string,
@@ -607,6 +624,148 @@ async function conditionDescriptors(params: {
 
 function warningMessages(value: unknown) {
   return errorDetails({ warnings: Array.isArray(value) ? value : [] });
+}
+
+
+export async function reviseExistingEbayInventoryItem(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  revision: EbayExistingRevisionInput;
+}): Promise<EbayExistingRevisionResult> {
+  const sku = cleanText(params.revision.sku, 120);
+  const expectedListingId = cleanText(params.revision.listingId, 120);
+  if (!sku) throw new Error("An existing eBay SKU is required for revision.");
+
+  const token = await getSellerAccessToken({
+    supabase: params.supabase,
+    storeId: params.storeId,
+  });
+  const setup = await resolveEbaySetup(token);
+  const currentItem = await ebayRequest<any>({
+    accessToken: token.accessToken,
+    marketplaceId: setup.marketplaceId,
+    path: `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+  });
+  const offersResponse = await ebayRequest<any>({
+    accessToken: token.accessToken,
+    marketplaceId: setup.marketplaceId,
+    path: `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
+  });
+  const offers = Array.isArray(offersResponse?.offers) ? offersResponse.offers : [];
+  const fixedOffers = offers.filter(
+    (offer: any) =>
+      String(offer?.marketplaceId || "") === setup.marketplaceId &&
+      String(offer?.format || "FIXED_PRICE") === "FIXED_PRICE",
+  );
+  const existingOffer = expectedListingId
+    ? fixedOffers.find(
+        (offer: any) => String(offer?.listing?.listingId || "") === expectedListingId,
+      )
+    : fixedOffers.find((offer: any) => String(offer?.status || "").toUpperCase() === "PUBLISHED") ||
+      fixedOffers[0];
+  const offerId = cleanText(existingOffer?.offerId, 120);
+  const listingId = cleanText(existingOffer?.listing?.listingId, 120);
+  if (!offerId || !listingId) {
+    throw new Error(
+      "TCOS could not find the existing published eBay offer for this SKU. Revision stopped so a duplicate listing cannot be created.",
+    );
+  }
+  if (expectedListingId && listingId !== expectedListingId) {
+    throw new Error(
+      `The eBay offer for SKU ${sku} belongs to listing ${listingId}, not expected listing ${expectedListingId}. Revision stopped to prevent a cross-listing edit.`,
+    );
+  }
+
+  const currentProduct = currentItem?.product && typeof currentItem.product === "object"
+    ? currentItem.product
+    : {};
+  const nextTitle = cleanText(params.revision.title, 80) || cleanText(currentProduct.title, 80);
+  const requestedDescription = cleanText(params.revision.description, 100_000);
+  const nextListingDescription = requestedDescription ||
+    cleanText(existingOffer?.listingDescription, 100_000) ||
+    cleanText(currentProduct.description, 100_000);
+  if (!nextTitle || !nextListingDescription) {
+    throw new Error("The existing eBay listing is missing a title or description required for revision.");
+  }
+  assertSafeEbayListingContent(nextListingDescription);
+  const nextProductDescription = plainTextFromEbayHtml(nextListingDescription, 4_000);
+  const currentQuantity = positiveQuantity(
+    existingOffer?.availableQuantity ??
+      currentItem?.availability?.shipToLocationAvailability?.quantity ??
+      0,
+  );
+  const requestedQuantity = params.revision.quantity == null
+    ? currentQuantity
+    : positiveQuantity(params.revision.quantity);
+  const currentPrice = money(existingOffer?.pricingSummary?.price?.value);
+  const requestedPrice = params.revision.price == null
+    ? currentPrice
+    : money(params.revision.price);
+  if (requestedQuantity < 1) throw new Error("eBay quantity must be at least 1 for a live revision.");
+  if (requestedPrice <= 0) throw new Error("eBay price must be greater than 0 for a live revision.");
+
+  await ebayRequest<unknown>({
+    accessToken: token.accessToken,
+    marketplaceId: setup.marketplaceId,
+    method: "PUT",
+    path: `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+    body: {
+      availability: {
+        ...(currentItem?.availability || {}),
+        shipToLocationAvailability: {
+          ...(currentItem?.availability?.shipToLocationAvailability || {}),
+          quantity: requestedQuantity,
+        },
+      },
+      condition: currentItem?.condition,
+      conditionDescriptors: Array.isArray(currentItem?.conditionDescriptors)
+        ? currentItem.conditionDescriptors
+        : undefined,
+      packageWeightAndSize: currentItem?.packageWeightAndSize,
+      product: {
+        ...currentProduct,
+        title: nextTitle,
+        description: nextProductDescription,
+      },
+    },
+  });
+
+  const offerPayload: Record<string, unknown> = {
+    sku,
+    marketplaceId: setup.marketplaceId,
+    format: String(existingOffer?.format || "FIXED_PRICE"),
+    availableQuantity: requestedQuantity,
+    categoryId: cleanText(existingOffer?.categoryId, 32),
+    merchantLocationKey: cleanText(existingOffer?.merchantLocationKey, 50) || setup.merchantLocationKey,
+    listingDescription: nextListingDescription,
+    listingDuration: cleanText(existingOffer?.listingDuration, 40) || "GTC",
+    listingPolicies: existingOffer?.listingPolicies || {
+      fulfillmentPolicyId: setup.fulfillmentPolicyId,
+      paymentPolicyId: setup.paymentPolicyId,
+      returnPolicyId: setup.returnPolicyId,
+    },
+    pricingSummary: {
+      ...(existingOffer?.pricingSummary || {}),
+      price: { currency: "USD", value: requestedPrice.toFixed(2) },
+    },
+  };
+  if (!offerPayload.categoryId) throw new Error("The existing eBay offer is missing its category ID.");
+
+  const updateResponse = await ebayRequest<any>({
+    accessToken: token.accessToken,
+    marketplaceId: setup.marketplaceId,
+    method: "PUT",
+    path: `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
+    body: offerPayload,
+  });
+
+  return {
+    offerId,
+    listingId,
+    sku,
+    updated: true,
+    warnings: warningMessages(updateResponse?.warnings),
+  };
 }
 
 export async function publishEbayInventoryItem(params: {

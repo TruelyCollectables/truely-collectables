@@ -19,6 +19,7 @@ import {
 } from "../../../../../lib/seller-inventory-access";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { postInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
 import {
   inventoryEngine,
   InventoryEngineError,
@@ -74,6 +75,7 @@ type InventoryAdminEdit = {
   description?: unknown;
   authenticity?: unknown;
   under20SellerProtectionOptIn?: unknown;
+  updateEbay?: unknown;
 };
 
 function getSupabaseClient() {
@@ -295,6 +297,7 @@ export async function GET(request: Request) {
       boundaries: {
         editsTcosStorefront: true,
         publishesToEbay: false,
+        revisesExistingEbayListings: true,
         buysPostage: false,
         createsOrders: false,
       },
@@ -553,12 +556,52 @@ export async function POST(request: Request) {
 
         if (rowUpdateError) throw rowUpdateError;
 
+        let ebayUpdated = false;
+        if (edit.updateEbay === true) {
+          if (!current.ebayItemId) {
+            throw new Error("TCOS saved the listing, but no existing eBay listing ID is linked to this inventory item.");
+          }
+          if (!current.sku) {
+            throw new Error("TCOS saved the listing, but the existing eBay listing cannot be revised without its SKU.");
+          }
+          try {
+            await postInstaCompMacAccounting(
+              "/v1/kingmaker/accounting/ebay-bridge",
+              {
+                mode: "revise",
+                revision: {
+                  sku: current.sku,
+                  listingId: current.ebayItemId,
+                  title,
+                  description,
+                  quantity,
+                  price,
+                },
+              },
+              120_000,
+            );
+            ebayUpdated = true;
+          } catch (ebayError) {
+            const detail = ebayError instanceof Error ? ebayError.message : String(ebayError);
+            results.push({
+              inventoryItemId,
+              legacyProductId: row.legacy_product_id,
+              success: false,
+              status: 502,
+              message: `TCOS saved successfully, but the existing eBay listing was not updated: ${detail}`,
+            });
+            continue;
+          }
+        }
+
         results.push({
           inventoryItemId,
           legacyProductId: row.legacy_product_id,
           success: true,
           status: 200,
-          message: "Listing saved in TCOS inventory.",
+          message: ebayUpdated
+            ? "Listing saved in TCOS and the existing eBay listing was updated in place."
+            : "Listing saved in TCOS inventory.",
         });
       } catch (error: any) {
         results.push({
@@ -588,6 +631,7 @@ export async function POST(request: Request) {
       boundaries: {
         editsTcosStorefront: true,
         publishesToEbay: false,
+        revisesExistingEbayListings: true,
       },
     });
   } catch (error: any) {

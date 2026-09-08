@@ -168,7 +168,10 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function listingFolderFromMetadata(metadataValue: unknown): InstaCompListingFolder {
+function listingFolderFromMetadata(
+  metadataValue: unknown,
+  legacyEbayLinked = false,
+): InstaCompListingFolder {
   const metadata = recordValue(metadataValue);
   const lifecycle = recordValue(metadata.inventory_lifecycle);
   if (
@@ -177,7 +180,8 @@ function listingFolderFromMetadata(metadataValue: unknown): InstaCompListingFold
   ) return "investment";
   const dual = recordValue(metadata.dual_marketplace);
   const websiteActive = textValue(recordValue(dual.website).status) === "active";
-  const ebayActive = textValue(recordValue(dual.ebay).status) === "active";
+  const ebayActive =
+    textValue(recordValue(dual.ebay).status) === "active" || legacyEbayLinked;
   if (websiteActive && ebayActive) return "both";
   if (websiteActive) return "website";
   if (ebayActive) return "ebay";
@@ -686,18 +690,43 @@ export async function GET(request: Request) {
     const listingRows = scopedInstaCompRows.filter(
       (row: any) => instaCompPendingQueueFromMetadata(row.metadata) === "listings",
     );
+    const listingProductIds = Array.from(
+      new Set(
+        listingRows
+          .map((row: any) => row.legacy_product_id)
+          .filter((value: unknown): value is number => typeof value === "number"),
+      ),
+    );
+    const { data: linkedEbayProducts, error: linkedEbayProductError } =
+      listingProductIds.length === 0
+        ? { data: [], error: null }
+        : await supabase
+            .from("products")
+            .select("id,ebay_item_id")
+            .eq("store_id", storeId)
+            .in("id", listingProductIds);
+    if (linkedEbayProductError) throw linkedEbayProductError;
+    const legacyEbayLinkedProductIds = new Set(
+      (linkedEbayProducts || [])
+        .filter((product: any) => Boolean(textValue(product.ebay_item_id)))
+        .map((product: any) => Number(product.id)),
+    );
+    const rowHasLegacyEbayListing = (row: any) =>
+      typeof row.legacy_product_id === "number" &&
+      legacyEbayLinkedProductIds.has(Number(row.legacy_product_id));
+
     const folderCounts = {
-      pending: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "pending").length,
-      website: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "website").length,
-      ebay: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "ebay").length,
-      both: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "both").length,
-      investment: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata) === "investment").length,
+      pending: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "pending").length,
+      website: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "website").length,
+      ebay: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "ebay").length,
+      both: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "both").length,
+      investment: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "investment").length,
     };
     const rows = scopedInstaCompRows.filter((row: any) => {
       const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
       if (rowQueue !== queue) return false;
       if (queue === "verification") return true;
-      if (listingFolderFromMetadata(row.metadata) !== folder) return false;
+      if (listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) !== folder) return false;
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
       return (
@@ -773,7 +802,7 @@ export async function GET(request: Request) {
         ? { data: [], error: null }
         : await supabase
             .from("products")
-            .select("id,card_uuid,image_url,price,quantity,archived_at")
+            .select("id,card_uuid,image_url,price,quantity,archived_at,ebay_item_id")
             .eq("store_id", storeId)
             .in("id", productIds);
     if (productError) throw productError;
@@ -1204,7 +1233,9 @@ export async function GET(request: Request) {
           channelPricing: {
             ...channelPricing,
             websiteStatus: textValue(dualWebsite.status) || "draft",
-            ebayStatus: textValue(dualEbay.status) || "draft",
+            ebayStatus:
+              textValue(dualEbay.status) ||
+              (textValue(product?.ebay_item_id) ? "linked" : "draft"),
             calculatedFrom: storedEbayPrice
               ? "saved_ebay_price"
               : savedListingPrice

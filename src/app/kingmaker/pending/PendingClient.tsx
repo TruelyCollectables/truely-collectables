@@ -1465,7 +1465,7 @@ export default function KingmakerPendingPage({
                   onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-ebay")}
                   className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
                 >
-                  List Selected → eBay
+                  List/Update Selected → eBay
                 </button>
                 <button
                   type="button"
@@ -1525,7 +1525,8 @@ export default function KingmakerPendingPage({
             const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
             const sellerManualPrice = listingPriceSource === "kingmaker_manual";
             const websiteListed = String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
-            const ebayListed = String(channelPricing?.ebayStatus || "").toLowerCase() === "active";
+            const ebayStatus = String(channelPricing?.ebayStatus || "").toLowerCase();
+            const ebayListed = ebayStatus === "active" || ebayStatus === "linked";
             const groupQuantity = Math.max(
               1,
               Number(card.commercialGroup?.totalQuantity || card.quantity || 1),
@@ -2053,7 +2054,7 @@ export default function KingmakerPendingPage({
                           disabled={publishEbayPrice <= 0 || Boolean(busyId)}
                           className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
-                          List eBay · {money(publishEbayPrice)}
+                          {ebayListed ? "Update eBay" : "List eBay"} · {money(publishEbayPrice)}
                         </button>
                         <button
                           type="button"
@@ -2061,7 +2062,7 @@ export default function KingmakerPendingPage({
                           disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || Boolean(busyId)}
                           className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
-                          List Both
+                          {websiteListed || ebayListed ? "Update / List Both" : "List Both"}
                         </button>
                       </>
                     ) : null}

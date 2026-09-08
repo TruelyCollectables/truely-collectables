@@ -3,6 +3,9 @@ import "server-only";
 import {
   getEbayPublishingReadiness,
   publishEbayInventoryItem as publishAuditedEbayInventoryItem,
+  reviseExistingEbayInventoryItem as reviseAuditedExistingEbayInventoryItem,
+  type EbayExistingRevisionInput,
+  type EbayExistingRevisionResult,
   type EbayInventoryPublishInput,
   type EbayInventoryPublishResult,
   type EbaySetupReadiness,
@@ -31,10 +34,21 @@ function exactRawConditionSet(categoryId: string) {
 
 export { getEbayPublishingReadiness };
 export type {
+  EbayExistingRevisionInput,
+  EbayExistingRevisionResult,
   EbayInventoryPublishInput,
   EbayInventoryPublishResult,
   EbaySetupReadiness,
 };
+
+
+export async function reviseExistingEbayInventoryItem(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  revision: EbayExistingRevisionInput;
+}): Promise<EbayExistingRevisionResult> {
+  return reviseAuditedExistingEbayInventoryItem(params);
+}
 
 export async function publishEbayInventoryItem(params: {
   supabase: SupabaseClient;

@@ -3,12 +3,15 @@ import { getActiveStoreId } from "../../../src/lib/stores";
 import {
   getEbayPublishingReadiness,
   publishEbayInventoryItem,
+  reviseExistingEbayInventoryItem,
+  type EbayExistingRevisionInput,
   type EbayInventoryPublishInput,
 } from "../../../src/lib/ebay-inventory-publisher";
 
 type RunnerPayload = {
-  mode?: "readiness" | "publish";
+  mode?: "readiness" | "publish" | "revise";
   item?: EbayInventoryPublishInput;
+  revision?: EbayExistingRevisionInput;
 };
 
 const HEADQUARTERS_LOCATION = "dd4bd05a-0aee-4342-830e-dd227c1fca28";
@@ -45,6 +48,17 @@ async function main() {
   if (mode === "readiness") {
     const readiness = await getEbayPublishingReadiness({ supabase, storeId });
     process.stdout.write(JSON.stringify({ ok: true, mode, readiness }));
+    return;
+  }
+
+  if (mode === "revise") {
+    if (!payload.revision) throw new Error("KINGMAKER eBay revision payload is missing.");
+    const result = await reviseExistingEbayInventoryItem({
+      supabase,
+      storeId,
+      revision: payload.revision,
+    });
+    process.stdout.write(JSON.stringify({ ok: true, mode, ...result }));
     return;
   }
 

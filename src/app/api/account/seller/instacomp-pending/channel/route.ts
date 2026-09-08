@@ -300,6 +300,17 @@ export async function POST(request: Request) {
       return Response.json({ success: false, error: "Group quantity is zero." }, { status: 409 });
     }
 
+    let linkedProductId = keeper.legacy_product_id ? Number(keeper.legacy_product_id) : null;
+    const { data: linkedProduct, error: linkedProductError } = linkedProductId
+      ? await supabase
+          .from("products")
+          .select("id,sku,ebay_item_id")
+          .eq("store_id", storeId)
+          .eq("id", linkedProductId)
+          .maybeSingle()
+      : { data: null, error: null };
+    if (linkedProductError) throw linkedProductError;
+
     const { data: images, error: imageError } = await supabase
       .from("inventory_images")
       .select("inventory_item_id,image_url,sort_order,is_primary")
@@ -318,13 +329,6 @@ export async function POST(request: Request) {
           .filter((value): value is string => Boolean(value)),
       ),
     ).slice(0, 24);
-    if (imageUrls.length < 2 && action !== "save") {
-      return Response.json(
-        { success: false, error: "A stored front and back image are required before publishing." },
-        { status: 409 },
-      );
-    }
-
     const metadata = record(keeper.metadata);
     const instaComp = record(metadata.instacomp);
     const dual = record(metadata.dual_marketplace);
@@ -358,7 +362,18 @@ export async function POST(request: Request) {
       money(body.websitePrice) || money(storedWebsite.price) || automaticPricing.websitePrice;
     const pricing = calculateCustomWebsitePricing(ebayPrice, websitePrice, fees);
     const now = new Date().toISOString();
-    const sku = generatedSku(keeper);
+    const sku = text(keeper.sku, 120) || text(linkedProduct?.sku, 120) || generatedSku(keeper);
+    const existingEbayListingId =
+      text(storedEbay.listingId, 120) || text(linkedProduct?.ebay_item_id, 120);
+    const needsNewEbayListing =
+      (action === "publish-ebay" || action === "publish-both") && !existingEbayListingId;
+    const needsWebsitePublication = action === "publish-website" || action === "publish-both";
+    if (imageUrls.length < 2 && (needsNewEbayListing || needsWebsitePublication)) {
+      return Response.json(
+        { success: false, error: "A stored front and back image are required before publishing a new channel listing." },
+        { status: 409 },
+      );
+    }
 
     const websiteTitle = text(body.websiteTitle, 200) || text(storedWebsite.title, 200) || generated.websiteTitle;
     const websiteDescription =
@@ -428,7 +443,6 @@ export async function POST(request: Request) {
       },
     };
 
-    let linkedProductId = keeper.legacy_product_id ? Number(keeper.legacy_product_id) : null;
     if ((action === "publish-website" || action === "publish-both") && !linkedProductId) {
       const { data: existingProducts, error: existingProductError } = await supabase
         .from("products")
@@ -505,8 +519,8 @@ export async function POST(request: Request) {
     if (action === "publish-ebay" || action === "publish-both") {
       if (!isOwner) {
         errors.push("eBay publish from this KINGMAKER flow is currently limited to the store-owner account.");
-      } else if (!cardCondition && generated.ebayCondition === "USED_VERY_GOOD") {
-        errors.push("Review and save the raw card condition before publishing to eBay.");
+      } else if (!existingEbayListingId && !cardCondition && generated.ebayCondition === "USED_VERY_GOOD") {
+        errors.push("Review and save the raw card condition before publishing a new eBay listing.");
       } else {
         try {
           assertSafeEbayListingContent(ebayDescription || "");
@@ -528,16 +542,33 @@ export async function POST(request: Request) {
             certificationNumber: generated.certificationNumber,
             bestOfferEnabled,
           };
-          const macEbay = await postInstaCompMacAccounting(
-            "/v1/kingmaker/accounting/ebay-bridge",
-            { mode: "publish", item: ebayItem },
-            150_000,
-          );
+          const macEbay = existingEbayListingId
+            ? await postInstaCompMacAccounting(
+                "/v1/kingmaker/accounting/ebay-bridge",
+                {
+                  mode: "revise",
+                  revision: {
+                    sku,
+                    listingId: existingEbayListingId,
+                    title: ebayTitle || generated.ebayTitle,
+                    description: ebayDescription || generated.ebayDescription,
+                    quantity: totalQuantity,
+                    price: ebayPrice,
+                  },
+                },
+                150_000,
+              )
+            : await postInstaCompMacAccounting(
+                "/v1/kingmaker/accounting/ebay-bridge",
+                { mode: "publish", item: ebayItem },
+                150_000,
+              );
           ebayResult = {
             listingId: String(macEbay.listingId || ""),
             offerId: String(macEbay.offerId || ""),
-            createdOffer: macEbay.createdOffer === true,
-            publishedOffer: macEbay.publishedOffer === true,
+            createdOffer: existingEbayListingId ? false : macEbay.createdOffer === true,
+            publishedOffer: existingEbayListingId ? false : macEbay.publishedOffer === true,
+            revisedExisting: Boolean(existingEbayListingId),
             warnings: Array.isArray(macEbay.warnings) ? macEbay.warnings : [],
           };
           if (!ebayResult.listingId || !ebayResult.offerId) {
@@ -662,6 +693,7 @@ export async function POST(request: Request) {
         pricing,
         websitePublished,
         ebayPublished: Boolean(ebayResult),
+        ebayUpdated: ebayResult?.revisedExisting === true,
         ebayListingId: ebayResult?.listingId || null,
         ebayOfferId: ebayResult?.offerId || null,
         websiteProductId: linkedProductId,
