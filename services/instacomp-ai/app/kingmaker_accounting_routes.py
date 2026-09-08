@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable
+import json
+import os
+import subprocess
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -30,6 +33,55 @@ class PurchaseLinkExistingRequest(BaseModel):
     scan_id: str = Field(min_length=1, max_length=200)
     acquisition_item_id: int = Field(gt=0)
     disposition: str = Field(default="resale", pattern="^(resale|investment_stash)$")
+
+
+class EbayBridgeRequest(BaseModel):
+    mode: str = Field(default="readiness", pattern="^(readiness|publish)$")
+    item: dict[str, Any] | None = None
+
+
+def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
+    repo_root = Path(__file__).resolve().parents[3]
+    runner = repo_root / "services/instacomp-ai/scripts/kingmaker_ebay_publish.ts"
+    local_env = Path.home() / "Library/Application Support/TCOS-Current-Review/.env.local"
+    node_shims = repo_root / "services/instacomp-ai/node-shims"
+    if not runner.exists():
+        raise ValueError("The Mac-local KINGMAKER eBay runner is missing")
+    if not local_env.exists():
+        raise ValueError("The Mac-local TCOS production environment is unavailable")
+    env = os.environ.copy()
+    env["NODE_PATH"] = os.pathsep.join(
+        [str(node_shims), str(repo_root / "node_modules"), str(env.get("NODE_PATH") or "")]
+    ).rstrip(os.pathsep)
+    command = [
+        "node",
+        f"--env-file={local_env}",
+        "--import",
+        "tsx",
+        str(runner),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=repo_root,
+            env=env,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("The Mac-local eBay publisher timed out") from exc
+    raw = str(completed.stdout or "").strip()
+    try:
+        data = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        raise ValueError("The Mac-local eBay publisher returned invalid output") from exc
+    if completed.returncode != 0 or data.get("ok") is not True:
+        detail = str(data.get("error") or "The Mac-local eBay publisher failed")
+        raise ValueError(detail)
+    return data
 
 
 class InventoryDispositionRequest(BaseModel):
@@ -117,6 +169,17 @@ def build_kingmaker_accounting_router(
                 request.scan_id,
                 request.disposition,
             )
+            return {"ok": True, **result}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/ebay-bridge")
+    async def ebay_bridge(request: EbayBridgeRequest):
+        try:
+            result = _run_local_ebay_bridge({
+                "mode": request.mode,
+                "item": request.item,
+            })
             return {"ok": True, **result}
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

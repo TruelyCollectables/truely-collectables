@@ -9,7 +9,6 @@ import {
 } from "../../../../../../lib/dual-marketplace-pricing";
 import { createDualMarketplaceListingDraft } from "../../../../../../lib/dual-marketplace-listing";
 import { assertSafeEbayListingContent } from "../../../../../../lib/ebay-listing-content";
-import { publishEbayInventoryItem } from "../../../../../../lib/ebay-inventory-publisher";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
@@ -511,28 +510,39 @@ export async function POST(request: Request) {
       } else {
         try {
           assertSafeEbayListingContent(ebayDescription || "");
-          ebayResult = await publishEbayInventoryItem({
-            supabase,
-            storeId,
-            item: {
-              sku,
-              title: ebayTitle || generated.ebayTitle,
-              description: ebayDescription || generated.ebayDescription,
-              quantity: totalQuantity,
-              price: ebayPrice,
-              imageUrls,
-              aspects: record(record(nextMetadata.dual_marketplace).ebay).aspects as Record<string, string[]>,
-              categoryId:
-                text(record(record(nextMetadata.dual_marketplace).ebay).categoryId, 40) ||
-                generated.ebayCategoryId,
-              condition: generated.ebayCondition,
-              cardCondition: cardCondition || "",
-              grader: generated.grader,
-              grade: generated.grade,
-              certificationNumber: generated.certificationNumber,
-              bestOfferEnabled,
-            },
-          });
+          const ebayItem = {
+            sku,
+            title: ebayTitle || generated.ebayTitle,
+            description: ebayDescription || generated.ebayDescription,
+            quantity: totalQuantity,
+            price: ebayPrice,
+            imageUrls,
+            aspects: record(record(nextMetadata.dual_marketplace).ebay).aspects as Record<string, string[]>,
+            categoryId:
+              text(record(record(nextMetadata.dual_marketplace).ebay).categoryId, 40) ||
+              generated.ebayCategoryId,
+            condition: generated.ebayCondition,
+            cardCondition: cardCondition || "",
+            grader: generated.grader,
+            grade: generated.grade,
+            certificationNumber: generated.certificationNumber,
+            bestOfferEnabled,
+          };
+          const macEbay = await postInstaCompMacAccounting(
+            "/v1/kingmaker/accounting/ebay-bridge",
+            { mode: "publish", item: ebayItem },
+            150_000,
+          );
+          ebayResult = {
+            listingId: String(macEbay.listingId || ""),
+            offerId: String(macEbay.offerId || ""),
+            createdOffer: macEbay.createdOffer === true,
+            publishedOffer: macEbay.publishedOffer === true,
+            warnings: Array.isArray(macEbay.warnings) ? macEbay.warnings : [],
+          };
+          if (!ebayResult.listingId || !ebayResult.offerId) {
+            throw new Error("The Mac-local eBay publisher did not return a listing ID and offer ID.");
+          }
           const latestDual = record(nextMetadata.dual_marketplace);
           nextMetadata.dual_marketplace = {
             ...latestDual,
