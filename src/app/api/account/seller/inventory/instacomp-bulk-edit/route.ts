@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       .from("inventory_items")
       .select("id,metadata")
       .eq("store_id", storeId)
-      .eq("status", "draft")
+      .in("status", ["draft", "active"])
       .in("id", ids);
     query = isOwner
       ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     const eligibleRows = rows || [];
     if (eligibleRows.length !== ids.length) {
       return Response.json(
-        { error: `Only ${eligibleRows.length} of ${ids.length} selected drafts were eligible for editing.` },
+        { error: `Only ${eligibleRows.length} of ${ids.length} selected listings were eligible for editing.` },
         { status: 409 },
       );
     }
