@@ -37,9 +37,11 @@ class PurchaseLinkExistingRequest(BaseModel):
 
 
 class EbayBridgeRequest(BaseModel):
-    mode: str = Field(default="readiness", pattern="^(readiness|publish|revise)$")
+    mode: str = Field(default="readiness", pattern="^(readiness|publish|revise|oauth_exchange)$")
     item: dict[str, Any] | None = None
     revision: dict[str, Any] | None = None
+    code: str | None = Field(default=None, max_length=4096)
+    redirect_uri: str | None = Field(default=None, max_length=512)
 
 
 def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
@@ -185,6 +187,8 @@ def build_kingmaker_accounting_router(
                 "mode": request.mode,
                 "item": request.item,
                 "revision": request.revision,
+                "code": request.code,
+                "redirectUri": request.redirect_uri,
             })
             return {"ok": True, **result}
         except Exception as exc:

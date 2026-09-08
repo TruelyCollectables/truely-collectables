@@ -9,9 +9,11 @@ import {
 } from "../../../src/lib/ebay-inventory-publisher";
 
 type RunnerPayload = {
-  mode?: "readiness" | "publish" | "revise";
+  mode?: "readiness" | "publish" | "revise" | "oauth_exchange";
   item?: EbayInventoryPublishInput;
   revision?: EbayExistingRevisionInput;
+  code?: string;
+  redirectUri?: string;
 };
 
 const HEADQUARTERS_LOCATION = "dd4bd05a-0aee-4342-830e-dd227c1fca28";
@@ -48,6 +50,34 @@ async function main() {
   if (mode === "readiness") {
     const readiness = await getEbayPublishingReadiness({ supabase, storeId });
     process.stdout.write(JSON.stringify({ ok: true, mode, readiness }));
+    return;
+  }
+
+  if (mode === "oauth_exchange") {
+    const code = String(payload.code || "").trim();
+    const redirectUri = String(payload.redirectUri || "").trim();
+    const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
+    const clientSecret = String(process.env.EBAY_CLIENT_SECRET || "").trim();
+    if (!code || !redirectUri) throw new Error("eBay OAuth code and redirect URI are required.");
+    if (!clientId || !clientSecret) throw new Error("Mac-local eBay app credentials are unavailable.");
+    const apiRoot = String(process.env.EBAY_ENVIRONMENT || "production").toLowerCase() === "sandbox"
+      ? "https://api.sandbox.ebay.com"
+      : "https://api.ebay.com";
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    const response = await fetch(`${apiRoot}/identity/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.refresh_token) {
+      throw new Error(String(data?.error_description || data?.error || "eBay OAuth token exchange failed."));
+    }
+    process.stdout.write(JSON.stringify({ ok: true, mode, ...data }));
     return;
   }
 

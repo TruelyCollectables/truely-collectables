@@ -5,6 +5,7 @@ import {
   parseSellerMarketplaceOAuthState,
 } from "../../../../lib/marketplace-token-crypto";
 import { fetchSellerEbayIdentity } from "../../../../lib/seller-ebay";
+import { postInstaCompMacAccounting } from "../../../../lib/instacomp-mac-accounting-client";
 import { configuredSiteOrigin } from "../../../../lib/site-origin";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getStoreSettings } from "../../../../lib/store-settings";
@@ -82,16 +83,6 @@ function parseOAuthActor(state: string, activeStoreId: string): OAuthActor {
 }
 
 export async function GET(request: Request) {
-  const clientId = process.env.EBAY_CLIENT_ID;
-  const clientSecret = process.env.EBAY_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    return NextResponse.json(
-      { error: "Missing eBay client credentials" },
-      { status: 500 },
-    );
-  }
-
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
   const storeSettings = await getStoreSettings(supabase, storeId);
@@ -151,29 +142,34 @@ export async function GET(request: Request) {
     return adminRedirect("error", callbackError);
   }
 
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
-    "base64",
-  );
-  const tokenBase =
-    storeSettings.ebayEnvironment === "sandbox"
-      ? "https://api.sandbox.ebay.com"
-      : "https://api.ebay.com";
-  const response = await fetch(`${tokenBase}/identity/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: EBAY_REDIRECT_URI,
-    }),
-  });
-  const data = await response.json();
+  let data: Record<string, any>;
+  try {
+    data = await postInstaCompMacAccounting(
+      "/v1/kingmaker/accounting/ebay-bridge",
+      { mode: "oauth_exchange", code, redirect_uri: EBAY_REDIRECT_URI },
+      45_000,
+    );
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "eBay authorization token exchange failed.";
+    if (actor.type === "seller") {
+      await supabase
+        .from("seller_marketplace_connections")
+        .update({
+          connection_status: "error",
+          last_sync_error: errorMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("account_id", actor.state.accountId)
+        .eq("store_id", actor.state.storeId)
+        .eq("provider", "ebay");
+      return sellerRedirect(request, "error", errorMessage);
+    }
+    return adminRedirect("error", errorMessage);
+  }
 
   if (actor.type === "seller") {
-    if (!response.ok || !data.refresh_token) {
+    if (!data.refresh_token) {
       const errorMessage =
         data.error_description ||
         data.error ||
@@ -293,7 +289,7 @@ export async function GET(request: Request) {
     return sellerRedirect(request, "connected");
   }
 
-  if (!response.ok || !data.refresh_token) {
+  if (!data.refresh_token) {
     return adminRedirect(
       "error",
       data.error_description ||
