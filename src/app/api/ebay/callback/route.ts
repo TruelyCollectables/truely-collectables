@@ -42,6 +42,52 @@ function record(value: unknown): Record<string, any> {
     : {};
 }
 
+async function exchangeEbayAuthorizationCode(params: {
+  code: string;
+  ebayEnvironment: string;
+}) {
+  const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
+  const clientSecret = String(process.env.EBAY_CLIENT_SECRET || "").trim();
+
+  if (clientId && clientSecret) {
+    const tokenBase =
+      params.ebayEnvironment === "sandbox"
+        ? "https://api.sandbox.ebay.com"
+        : "https://api.ebay.com";
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    const response = await fetch(`${tokenBase}/identity/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: params.code,
+        redirect_uri: EBAY_REDIRECT_URI,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.refresh_token) {
+      throw new Error(
+        String(
+          data?.error_description ||
+            data?.error ||
+            `eBay OAuth token exchange failed with HTTP ${response.status}.`,
+        ),
+      );
+    }
+    return data as Record<string, any>;
+  }
+
+  return await postInstaCompMacAccounting(
+    "/v1/kingmaker/accounting/ebay-bridge",
+    { mode: "oauth_exchange", code: params.code, redirect_uri: EBAY_REDIRECT_URI },
+    45_000,
+  );
+}
+
 async function preserveExistingSellerConnectionAfterOAuthFailure(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
   accountId: string;
@@ -211,11 +257,10 @@ export async function GET(request: Request) {
 
   let data: Record<string, any>;
   try {
-    data = await postInstaCompMacAccounting(
-      "/v1/kingmaker/accounting/ebay-bridge",
-      { mode: "oauth_exchange", code, redirect_uri: EBAY_REDIRECT_URI },
-      45_000,
-    );
+    data = await exchangeEbayAuthorizationCode({
+      code,
+      ebayEnvironment: storeSettings.ebayEnvironment,
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "eBay authorization token exchange failed.";
