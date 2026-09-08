@@ -12,6 +12,7 @@ const pendingClient = read("src/app/kingmaker/pending/PendingClient.tsx");
 const pendingRoute = read("src/app/api/account/seller/instacomp-pending/route.ts");
 const channelRoute = read("src/app/api/account/seller/instacomp-pending/channel/route.ts");
 const strictPublisher = read("src/lib/ebay-inventory-publisher-strict.ts");
+const auditedPublisher = read("src/lib/ebay-inventory-publisher-audited.ts");
 
 assert(
   pendingClient.includes("eBay Card Condition"),
@@ -51,6 +52,12 @@ assert(
     strictPublisher.includes('"Very Good"') &&
     strictPublisher.includes('"Poor"'),
   "sports-card condition choices must stay aligned with the strict publisher contract.",
+);
+
+assert(
+  auditedPublisher.includes("Number(row?.errorId) === 25713") &&
+    auditedPublisher.includes("if (!offerDoesNotExist) throw error"),
+  "new eBay SKUs must treat error 25713 as no existing offer and continue to create one.",
 );
 
 console.log("PASS KINGMAKER eBay raw-card condition regressions");

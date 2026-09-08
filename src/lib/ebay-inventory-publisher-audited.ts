@@ -835,11 +835,27 @@ export async function publishEbayInventoryItem(params: {
     },
   });
 
-  const offersResponse = await ebayRequest<any>({
-    accessToken: token.accessToken,
-    marketplaceId: setup.marketplaceId,
-    path: `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
-  });
+  let offersResponse: any = { offers: [] };
+  try {
+    offersResponse = await ebayRequest<any>({
+      accessToken: token.accessToken,
+      marketplaceId: setup.marketplaceId,
+      path: `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
+    });
+  } catch (error) {
+    const ebayError = error as Error & { status?: number; ebayData?: any };
+    const ebayErrors = Array.isArray(ebayError.ebayData?.errors)
+      ? ebayError.ebayData.errors
+      : [];
+    const offerDoesNotExist =
+      ebayError.status === 404 &&
+      ebayErrors.some(
+        (row: any) =>
+          Number(row?.errorId) === 25713 ||
+          /this offer is not available/i.test(String(row?.message || "")),
+      );
+    if (!offerDoesNotExist) throw error;
+  }
   const offers = Array.isArray(offersResponse?.offers) ? offersResponse.offers : [];
   const existingOffer = offers.find(
     (offer: any) =>
