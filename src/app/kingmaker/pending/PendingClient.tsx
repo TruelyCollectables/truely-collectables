@@ -470,6 +470,7 @@ export default function KingmakerPendingPage({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
+  const [bulkEbayCardCondition, setBulkEbayCardCondition] = useState("");
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
   const [channelPriceEdits, setChannelPriceEdits] = useState<Record<string, { website: string; ebay: string }>>({});
   const [channelConditionEdits, setChannelConditionEdits] = useState<Record<string, string>>({});
@@ -1137,8 +1138,8 @@ export default function KingmakerPendingPage({
   async function applyBulkEdits() {
     const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
     if (!selected.length) return;
-    if (!bulkCategory.trim() && !bulkCondition.trim()) {
-      setPageError("Choose a category or condition to apply to the selected cards.");
+    if (!bulkCategory.trim() && !bulkCondition.trim() && !bulkEbayCardCondition.trim()) {
+      setPageError("Choose a category, inventory condition, or eBay Card Condition to apply to the selected cards.");
       return;
     }
     setBusyId("bulk");
@@ -1158,11 +1159,12 @@ export default function KingmakerPendingPage({
           ))),
           category: bulkCategory.trim() || undefined,
           condition: bulkCondition.trim() || undefined,
+          ebayCardCondition: bulkEbayCardCondition.trim() || undefined,
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success !== true) throw new Error(data.error || "Bulk edit failed.");
-      setNotice(`${data.updatedCount} selected card${data.updatedCount === 1 ? "" : "s"} updated and saved.`);
+      setNotice(`${data.updatedCount} selected card${data.updatedCount === 1 ? "" : "s"} updated and saved.${data.cardConditionUpdatedCount ? ` eBay Card Condition saved on ${data.cardConditionUpdatedCount} raw card${data.cardConditionUpdatedCount === 1 ? "" : "s"}.` : ""}${data.gradedSkippedCount ? ` ${data.gradedSkippedCount} graded card${data.gradedSkippedCount === 1 ? " was" : "s were"} left unchanged for eBay Card Condition.` : ""}`);
       await load(queue || queueFromLocation());
     } catch (error) {
       setPageError(message(error));
@@ -1455,9 +1457,23 @@ export default function KingmakerPendingPage({
                 </button>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
               <Field label="Category (optional)" value={bulkCategory} onChange={setBulkCategory} placeholder="Trading Card Singles" />
-              <Field label="Condition (optional)" value={bulkCondition} onChange={setBulkCondition} placeholder="Ungraded" />
+              <Field label="Inventory condition (optional)" value={bulkCondition} onChange={setBulkCondition} placeholder="Ungraded" />
+              <label className="text-sm font-bold">
+                eBay Card Condition (optional)
+                <select
+                  value={bulkEbayCardCondition}
+                  onChange={(event) => setBulkEbayCardCondition(event.target.value)}
+                  className="mt-1 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-neutral-950 focus:border-neutral-950 focus:outline-none"
+                >
+                  <option value="">Leave unchanged</option>
+                  <option value="Near Mint or Better">Near Mint or Better</option>
+                  <option value="Excellent">Excellent</option>
+                  <option value="Very Good">Very Good</option>
+                  <option value="Poor">Poor</option>
+                </select>
+              </label>
               <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkEdits()} className="self-end rounded-xl bg-amber-600 px-5 py-3 font-black text-white disabled:opacity-40">Apply fields</button>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
