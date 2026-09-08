@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -109,7 +110,7 @@ def decision_learning_manifest() -> dict[str, Any]:
 
 def initialize_decision_learning(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.execute("PRAGMA journal_mode=WAL")
         db.executescript("""
             CREATE TABLE IF NOT EXISTS deal_hunter_learning_lessons (
@@ -139,13 +140,13 @@ def initialize_decision_learning(path: Path) -> None:
 
 def record_decision_learning_event(path: Path, *, event_type: str, candidate_key: str | None = None, payload: dict[str, Any] | None = None, trusted: bool = True) -> None:
     initialize_decision_learning(path)
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.execute("INSERT INTO deal_hunter_learning_events (candidate_key, event_type, trusted, payload_json, created_at) VALUES (?, ?, ?, ?, ?)", (candidate_key, str(event_type).strip().upper(), int(bool(trusted)), json.dumps(payload or {}, sort_keys=True), utc_now_iso()))
 
 
 def load_decision_lessons(path: Path) -> list[dict[str, Any]]:
     initialize_decision_learning(path)
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.row_factory = sqlite3.Row
         rows = db.execute("SELECT lesson_key, category, rule_text, rationale, trusted, verification_source, policy_version, updated_at FROM deal_hunter_learning_lessons WHERE trusted=1 ORDER BY lesson_key").fetchall()
     return [dict(row) for row in rows]
@@ -160,7 +161,7 @@ SHOE_NEGATIVE_FEEDBACK = {
 
 def load_decision_learning_events(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
     initialize_decision_learning(path)
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.row_factory = sqlite3.Row
         rows = db.execute(
             "SELECT candidate_key, event_type, trusted, payload_json, created_at "

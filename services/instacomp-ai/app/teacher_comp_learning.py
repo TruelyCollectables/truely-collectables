@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,7 @@ def _number(value: object) -> float | None:
 
 def initialize_teacher_comp_learning(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.execute("PRAGMA journal_mode=WAL")
         db.executescript(
             """
@@ -254,7 +255,7 @@ def _insert_market_observations(path: Path, observations: list[dict[str, Any]]) 
         return 0
     initialize_teacher_comp_learning(path)
     saved = 0
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         for observation in observations:
             fingerprint = _market_observation_fingerprint(observation)
             verified_pricing = observation["eventClass"] == "VERIFIED_PRICING"
@@ -304,7 +305,7 @@ def load_market_observations(path: Path, *, identity: dict[str, Any] | None = No
                 params.append(value)
                 break
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.row_factory = sqlite3.Row
         rows = db.execute(f"""
             SELECT * FROM instacomp_market_observations
@@ -322,7 +323,7 @@ def load_market_observations(path: Path, *, identity: dict[str, Any] | None = No
 
 def append_market_observation_outcome(path: Path, *, prior_observation_fingerprint: str, outcome: dict[str, Any]) -> dict[str, Any]:
     initialize_teacher_comp_learning(path)
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.row_factory = sqlite3.Row
         prior = db.execute("SELECT * FROM instacomp_market_observations WHERE observation_fingerprint = ?", (prior_observation_fingerprint,)).fetchone()
     if prior is None:
@@ -507,7 +508,7 @@ def record_teacher_comp_receipt(path: Path, body: dict[str, Any]) -> dict[str, A
     consensus = receipt["teacherConsensus"]
     trusted = consensus.get("trusted") is True
 
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         existing = db.execute(
             "SELECT id FROM teacher_comp_receipts WHERE receipt_fingerprint = ?",
             (fingerprint,),
@@ -578,7 +579,7 @@ def record_exact_market_history(path: Path, body: dict[str, Any]) -> dict[str, A
 
 def teacher_comp_learning_stats(path: Path) -> dict[str, Any]:
     initialize_teacher_comp_learning(path)
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         total = int(db.execute("SELECT COUNT(*) FROM teacher_comp_receipts").fetchone()[0])
         trusted = int(
             db.execute(
@@ -610,7 +611,7 @@ def teacher_comp_learning_stats(path: Path) -> dict[str, Any]:
 def load_teacher_comp_receipts(path: Path, *, limit: int = 100) -> list[dict[str, Any]]:
     initialize_teacher_comp_learning(path)
     bounded = max(1, min(int(limit), 2000))
-    with sqlite3.connect(path, timeout=30) as db:
+    with closing(sqlite3.connect(path, timeout=30)) as db, db:
         db.row_factory = sqlite3.Row
         rows = db.execute(
             """
