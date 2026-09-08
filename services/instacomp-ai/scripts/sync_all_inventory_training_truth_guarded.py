@@ -210,6 +210,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit('RETIRED: Supabase-backed inventory training is disabled. InstaComp learning authority is Mac-local.')
 
 # No-op refresh marker to force a fresh authoritative inventory snapshot.

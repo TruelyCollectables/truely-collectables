@@ -12,7 +12,8 @@ requireText(ui, "Manual seller price", "KINGMAKER must show a manual seller pric
 requireText(ui, "Save Manual Price", "KINGMAKER must expose a manual price save action.");
 requireText(ui, 'savePrice(card, selectedPrice, "kingmaker_manual")', "Manual price must persist with an explicit seller-manual source.");
 requireText(ui, "selectedPrice <= 0", "Manual price must reject zero and negative values.");
-requireText(ui, 'sellerManualPrice ? "Seller Manual" : "InstaComp"', "Manual overrides must not be labeled as InstaComp truth.");
+requireText(ui, 'sellerManualPrice ? " · SELLER MANUAL" : ""', "Manual overrides must be visibly labeled as seller-manual.");
+requireText(ui, "it does not rewrite InstaComp market truth", "Manual price copy must preserve the InstaComp truth boundary.");
 if (/max=["']\d/.test(ui.slice(ui.indexOf("Manual seller price"), ui.indexOf("Save Manual Price") + 200))) {
   throw new Error("Manual seller price must not have an arbitrary upper price cap.");
 }

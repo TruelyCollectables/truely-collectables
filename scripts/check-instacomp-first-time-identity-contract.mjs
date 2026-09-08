@@ -30,14 +30,16 @@ const exact = read(
 );
 for (const required of [
   "readInstaCompCoreVisualEvidence",
-  "filterCandidatesByProduct",
-  "resolveInstaCompChecklistFirstFromRegistry",
   "resolveChecklistParallelFromVision",
   "year_product_player_card_then_color_pattern_serial",
   "archiveWithMacBestEffort",
-  "cardUuid: selectedRegistryIdentityId",
-  "registryFingerprintSha256: selectedRegistryFingerprintSha256",
-  "pricingGroupKey:",
+  "const identityComplete = Boolean(macCandidate);",
+  "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
+  "macCandidate?.fingerprintSha256 || null",
+  'source: "checklist_registry"',
+  "trustedForIdentity: Boolean(macCandidate)",
+  "pricingGroupKey: selectedRegistryFingerprintSha256",
+  '"identity_review_required"',
   "status: identityComplete ? 200 : 202",
 ]) {
   requireText(exact, required, `Exact route is missing: ${required}`);
@@ -47,6 +49,11 @@ for (const forbidden of [
   "getInstaCompServiceToken",
   "scanPayload?.ai",
   "Identity scan failed.",
+  "const identityComplete = true;",
+  "checklist_disabled_visual_ai_only",
+  "visual_ai_identity_locked_without_checklist",
+  "resolveInstaCompChecklistFirstFromRegistry",
+  "Build-contract compatibility breadcrumbs",
 ]) {
   forbidText(
     exact,

@@ -8,6 +8,7 @@ const files = {
     "utf8",
   ),
   accountLogin: await readFile("src/app/account/login/page.tsx", "utf8"),
+  accountLoginClient: await readFile("src/app/account/login/AccountLoginClient.tsx", "utf8"),
   page: await readFile("src/app/seller/admin/inventory/page.tsx", "utf8"),
   route: await readFile(
     "src/app/api/account/seller/inventory-admin/route.ts",
@@ -19,10 +20,11 @@ const files = {
 assert.match(files.accountLayout, /AccountSellerAdminBar/);
 assert.match(files.accountBar, /href="\/seller\/admin\/inventory"/);
 assert.match(files.accountBar, /Inventory Admin/);
-assert.match(files.accountLogin, /safeAccountReturnPath/);
-assert.match(files.accountLogin, /new URL\(candidate, window\.location\.origin\)/);
-assert.match(files.accountLogin, /resolved\.origin !== window\.location\.origin/);
-assert.match(files.accountLogin, /router\.push\(safeAccountReturnPath\(\)\)/);
+assert.match(files.accountLogin, /AccountLoginClient/);
+assert.match(files.accountLoginClient, /safeAccountReturnPath/);
+assert.match(files.accountLoginClient, /new URL\(candidate, window\.location\.origin\)/);
+assert.match(files.accountLoginClient, /resolved\.origin !== window\.location\.origin/);
+assert.match(files.accountLoginClient, /router\.push\(safeAccountReturnPath\(\)\)/);
 assert.match(files.page, /Save Selected Edits/);
 assert.match(files.page, /Apply Values to/);
 assert.match(files.page, /Edit complete listing/);

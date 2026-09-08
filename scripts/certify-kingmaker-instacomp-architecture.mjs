@@ -96,6 +96,11 @@ const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.t
 for (const required of [
   "fetchInstaCompAiLocalScanImage",
   "canonicalImagesRecovered: true",
+  "const identityComplete = Boolean(macCandidate);",
+  "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
+  "trustedForIdentity: Boolean(macCandidate)",
+  'source: "checklist_registry"',
+  '"identity_review_required"',
   "completedMacOrientation(scan, params.webOrientation)",
   "frontRotation: null",
   "backRotation: null",
@@ -111,6 +116,16 @@ for (const required of [
 ]) {
   requireText(exactScan, required, "Mac-canonical orientation handoff");
 }
+for (const forbidden of [
+  "const identityComplete = true;",
+  "checklist_disabled_visual_ai_only",
+  "visual_ai_identity_locked_without_checklist",
+  "resolveInstaCompChecklistFirstFromRegistry",
+  "Build-contract compatibility breadcrumbs",
+]) {
+  rejectText(exactScan, forbidden, "Registry trust boundary");
+}
+
 const activationFirewall = read("src/lib/inventory-activation.ts");
 for (const required of [
   "instacomp_orientation_review_required",

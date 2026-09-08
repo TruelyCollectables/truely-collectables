@@ -12,6 +12,7 @@ function requireText(source, value, label) {
 
 const route = read("src/app/api/admin/card-listing-images/route.ts");
 const page = read("src/app/kingmaker/instacomp-audit/page.tsx");
+const accountSession = read("src/app/account/account-session.ts");
 
 requireText(
   route,
@@ -36,13 +37,28 @@ requireText(
 );
 requireText(
   page,
-  'Authorization: `Bearer ${session.access_token}`',
-  "seller bearer token on image request",
+  'fetchWithAccountSession',
+  "seller-authenticated fetch helper on image request",
+);
+requireText(
+  accountSession,
+  'headers.set("Authorization", `Bearer ${accessToken}`)',
+  "seller bearer token propagation inside account fetch helper",
 );
 requireText(
   page,
-  "const nextFront = text(data.frontImageUrl);",
-  "immediate rotated URL rendering",
+  "await load();",
+  "post-orientation workbench reload",
+);
+requireText(
+  page,
+  '["front", item.imageAudit.frontImageUrl]',
+  "reloaded front image rendering",
+);
+requireText(
+  page,
+  '["back", item.imageAudit.backImageUrl]',
+  "reloaded back image rendering",
 );
 
 console.log(

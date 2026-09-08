@@ -462,4 +462,4 @@ target.build_snapshot = _build_snapshot_via_rest
 
 
 if __name__ == "__main__":
-    raise SystemExit(target.main())
+    raise SystemExit('RETIRED: Supabase-backed inventory training is disabled. InstaComp learning authority is Mac-local.')

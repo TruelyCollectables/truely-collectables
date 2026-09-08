@@ -58,6 +58,7 @@ const routeSource = readFileSync(
   "utf8",
 );
 const pageSource = readFileSync("src/app/kingmaker/pending/page.tsx", "utf8");
+const clientSource = readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8");
 const migrationSource = readFileSync(
   "scripts/move-legacy-instacomp-to-pending-verification.mjs",
   "utf8",
@@ -66,8 +67,8 @@ const migrationSource = readFileSync(
 assert.match(routeSource, /for \(let from = 0; ; from \+= 1000\)/);
 assert.match(routeSource, /queueCounts/);
 assert.match(routeSource, /requestedQueue === "verification"/);
-assert.match(pageSource, /Pending Listings/);
-assert.match(pageSource, /Pending Verification/);
+assert.match(clientSource, /Resale Pending/);
+assert.match(clientSource, /Pending Verification/);
 assert.match(pageSource, /instacomp-pending\?queue=\$\{queue\}/);
 assert.match(migrationSource, /--expected-count=/);
 assert.match(migrationSource, /--approved/);
