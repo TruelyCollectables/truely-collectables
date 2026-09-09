@@ -4,6 +4,8 @@ import importlib.util
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 
 def load_repair_module():
     path = Path(__file__).resolve().parents[1] / "scripts" / "repair_registry_semantic_duplicates.py"
@@ -77,14 +79,9 @@ def test_semantic_repair_keeps_newest_source_and_installs_guard(tmp_path: Path):
     ).fetchall()
     assert [row[0] for row in active] == ["new"]
 
-    add_row(db, identity="third", fingerprint="thirdfp", source="newsha")
-    # The persistent semantic unique index prevents a third active copy.
-    try:
-        db.commit()
-    except sqlite3.IntegrityError:
-        db.rollback()
-    else:
-        raise AssertionError("semantic unique guard accepted a duplicate active identity")
+    with pytest.raises(sqlite3.IntegrityError):
+        add_row(db, identity="third", fingerprint="thirdfp", source="newsha")
+    db.rollback()
     db.close()
 
 
