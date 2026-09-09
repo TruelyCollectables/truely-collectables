@@ -513,6 +513,7 @@ class ChecklistSentinel:
                 )
                 try:
                     target_timeout = self._effective_target_timeout(target)
+                    target_started_at = datetime.now(timezone.utc).isoformat()
                     result = await asyncio.wait_for(
                         self._process_target(
                             job_id=job_id,
@@ -526,13 +527,33 @@ class ChecklistSentinel:
                         counters[key] += int(result.get(key, 0))
                 except asyncio.CancelledError:
                     raise
+                except asyncio.TimeoutError:
+                    timeout_import = self._recover_timeout_after_registry_import(
+                        target=target,
+                        target_started_at=target_started_at,
+                        target_timeout=target_timeout,
+                    )
+                    if timeout_import is not None:
+                        counters["downloaded"] += int(timeout_import.get("downloaded", 0))
+                        counters["imported"] += int(timeout_import.get("imported", 0))
+                    else:
+                        counters["failed"] += 1
+                        self.store.mark_target(
+                            target["target_key"],
+                            "failed",
+                            retry_after_seconds=6 * 60 * 60,
+                            metadata={
+                                "last_error": f"Target exceeded {target_timeout:.0f}s without a successful Registry import.",
+                                "timeout_seconds": target_timeout,
+                            },
+                        )
                 except Exception as error:
                     counters["failed"] += 1
                     self.store.mark_target(
                         target["target_key"],
                         "failed",
                         retry_after_seconds=6 * 60 * 60,
-                        metadata={"last_error": str(error)[:1000]},
+                        metadata={"last_error": str(error)[:1000] or error.__class__.__name__},
                     )
                 counters["processed"] += 1
                 progress = counters["processed"] * 100.0 / total
@@ -629,6 +650,79 @@ class ChecklistSentinel:
             return False
         match = re.search(r"(?:^|:)inserted=(\d+)(?:$|:)", str(receipt))
         return bool(match and int(match.group(1)) > 0)
+
+    def _recover_timeout_after_registry_import(
+        self,
+        *,
+        target: dict[str, Any],
+        target_started_at: str,
+        target_timeout: float,
+    ) -> dict[str, int] | None:
+        """Convert a watchdog timeout after a committed Registry import into safe retry/recovery."""
+        with self.registry_store.connection() as db:
+            imports = db.execute(
+                """
+                SELECT source_sha256, imported_at, registry_receipt
+                FROM checklist_registry_imports
+                WHERE target_key=? AND import_status='imported' AND imported_at>=?
+                ORDER BY imported_at ASC
+                """,
+                (target["target_key"], target_started_at),
+            ).fetchall()
+        if not imports:
+            return None
+
+        download_rows: dict[str, dict[str, Any]] = {}
+        shas = [str(row["source_sha256"] or "") for row in imports if row["source_sha256"]]
+        if shas:
+            placeholders = ",".join("?" for _ in shas)
+            with self.store.connection() as db:
+                rows = db.execute(
+                    f"""SELECT * FROM checklist_sentinel_downloads
+                    WHERE target_key=? AND status='imported_registry'
+                      AND sha256 IN ({placeholders})
+                    ORDER BY created_at ASC""",
+                    [target["target_key"], *shas],
+                ).fetchall()
+            download_rows = {str(row["sha256"]): dict(row) for row in rows}
+
+        receipts: list[str] = []
+        recovered_download_id: str | None = None
+        progress_imports = 0
+        for row in imports:
+            sha = str(row["source_sha256"] or "")
+            download = download_rows.get(sha)
+            receipt = str((download or {}).get("registry_receipt") or row["registry_receipt"] or "")
+            if receipt:
+                receipts.append(receipt)
+            if download is not None:
+                recovered_download_id = str(download["download_id"])
+            if self._inventory_import_added_rows(receipt):
+                progress_imports += 1
+
+        if progress_imports:
+            status = "recovered"
+            retry_after = self.interval_seconds
+            reason = "target_timeout_after_registry_progress"
+        else:
+            status = "pending"
+            retry_after = 6 * 60 * 60
+            reason = "target_timeout_after_registry_import_no_new_rows"
+        self.store.mark_target(
+            target["target_key"],
+            status,
+            retry_after_seconds=retry_after,
+            recovered_download_id=recovered_download_id,
+            metadata={
+                "reason": reason,
+                "timeout_seconds": target_timeout,
+                "successful_registry_imports": len(imports),
+                "registry_progress_imports": progress_imports,
+                "registry_receipts": receipts[-5:],
+                "registry_required": True,
+            },
+        )
+        return {"downloaded": len(imports), "imported": progress_imports}
 
     @staticmethod
     def _inventory_multi_release_target(target: dict[str, Any]) -> bool:
@@ -842,9 +936,12 @@ class ChecklistSentinel:
                         break
                 lead_count += 1
 
-            await asyncio.sleep(self.search_delay_seconds)
+            # A verified Registry import that added identities has completed this
+            # target. Do not burn the remaining watchdog budget sleeping before
+            # returning the successful receipt to the job runner.
             if recovered_download_id:
                 break
+            await asyncio.sleep(self.search_delay_seconds)
 
         if recovered_download_id:
             self.store.mark_target(

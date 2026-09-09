@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 
@@ -279,3 +280,139 @@ def test_inventory_gap_target_timeout_is_bounded() -> None:
     assert sentinel._effective_target_timeout({"scope": "inventory-gap"}) == 180.0
     assert sentinel._effective_target_timeout({"scope": "scan-recovery"}) == 180.0
     assert sentinel._effective_target_timeout({"scope": "mainstream-2000plus-priority"}) == 600.0
+
+
+@pytest.mark.asyncio
+async def test_inventory_registry_progress_returns_before_search_delay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service_root = tmp_path / "services" / "instacomp-ai"
+    data = service_root / "data"
+    data.mkdir(parents=True)
+    monkeypatch.setenv("INSTACOMP_AI_SENTINEL_ENABLED", "false")
+    sentinel = ChecklistSentinel(database_path=data / "instacomp.sqlite3", service_root=service_root)
+    await sentinel.start()
+    target = {
+        "target_key": "inventory-gap-v2|baseball|2024|topps|chrome-logofractor",
+        "sport": "baseball", "year": 2024, "season": "2024",
+        "manufacturer": "Topps", "product": "Chrome Logofractor",
+        "scope": "inventory-gap", "priority": 1,
+    }
+    sentinel.store.upsert_targets([target])
+    sources = [s for s in sentinel.store.list_sources(enabled_only=True) if s["source_id"] == "topps"]
+
+    async def fake_import(**_kwargs):
+        return "imported_registry", "release:test:covered=10:inserted=10"
+
+    monkeypatch.setattr(sentinel, "_import_to_registry", fake_import)
+    sentinel.search_delay_seconds = 60.0
+    job_id, _ = sentinel.store.acquire_job("test-progress", stale_seconds=60)
+    assert job_id
+    result = await asyncio.wait_for(
+        sentinel._process_target(
+            job_id=job_id,
+            target=sentinel.store.targets_by_keys([target["target_key"]])[0],
+            sources=sources,
+            client=FakeSourceClient(),
+        ),
+        timeout=0.5,
+    )
+    assert result["imported"] == 1
+    row = sentinel.store.targets_by_keys([target["target_key"]])[0]
+    assert row["status"] == "recovered"
+    await sentinel.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("inserted", "expected_target_status", "expected_imported", "expected_job_status"),
+    [
+        (0, "pending", 0, "completed_no_registry_progress"),
+        (10, "recovered", 1, "completed"),
+    ],
+)
+async def test_target_timeout_after_registry_import_is_not_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inserted: int,
+    expected_target_status: str,
+    expected_imported: int,
+    expected_job_status: str,
+) -> None:
+    service_root = tmp_path / "services" / "instacomp-ai"
+    data = service_root / "data"
+    data.mkdir(parents=True)
+    monkeypatch.setenv("INSTACOMP_AI_SENTINEL_ENABLED", "false")
+    sentinel = ChecklistSentinel(database_path=data / "instacomp.sqlite3", service_root=service_root)
+    await sentinel.start()
+    sentinel.registry_store.initialize()
+    sentinel.checkpoint_seconds = 3600
+    target = {
+        "target_key": "inventory-gap-v2|basketball|2024|panini|prizm",
+        "sport": "basketball", "year": 2024, "season": "2024",
+        "manufacturer": "Panini", "product": "Prizm",
+        "scope": "inventory-gap", "priority": 1,
+    }
+    sentinel.store.upsert_targets([target])
+    monkeypatch.setattr(sentinel, "_effective_target_timeout", lambda _target: 0.03)
+
+    async def fake_process_target(*, job_id, target, sources, client):
+        sha = f"{inserted + 1:064x}"
+        finding_id = sentinel.store.record_finding(
+            job_id=job_id,
+            target_key=target["target_key"],
+            source_id="panini",
+            url="https://example.test/prizm-checklist.xlsx",
+            title="2024 Panini Prizm Basketball Checklist",
+            domain="example.test",
+            trust_score=100,
+            exact_match=True,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            status="validated_candidate",
+            reason="exact",
+        )
+        receipt = f"release:test:covered=10:inserted={inserted}"
+        download_id = sentinel.store.record_download(
+            finding_id=finding_id,
+            target_key=target["target_key"],
+            source_url="https://example.test/prizm-checklist.xlsx",
+            local_path="/tmp/prizm-checklist.xlsx",
+            sha256=sha,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            byte_count=123,
+            status="imported_registry",
+            registry_receipt=receipt,
+        )
+        assert download_id
+        from app.sentinel_store import iso_now
+        with sentinel.registry_store.connection() as db:
+            db.execute(
+                """INSERT OR REPLACE INTO checklist_registry_imports
+                (source_sha256,source_url,source_name,target_key,source_path,authority,
+                 content_type,byte_count,registry_receipt,imported_at,plan_json,import_status,import_error)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)""",
+                (
+                    sha, "https://example.test/prizm-checklist.xlsx", "test", target["target_key"],
+                    "/tmp/prizm-checklist.xlsx", "test", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    123, "release:test", iso_now(), "{}", "imported",
+                ),
+            )
+        await asyncio.sleep(1)
+        return {"found": 0, "downloaded": 1, "imported": 1, "duplicates": 0}
+
+    monkeypatch.setattr(sentinel, "_process_target", fake_process_target)
+    job_id, _ = sentinel.store.acquire_job("timeout-import", stale_seconds=60)
+    assert job_id
+    await sentinel._run(job_id, [target["target_key"]])
+    job = sentinel.store.latest_job()
+    assert job is not None
+    assert job["status"] == expected_job_status
+    assert job["failed_count"] == 0
+    assert job["downloaded_count"] == 1
+    assert job["imported_count"] == expected_imported
+    row = sentinel.store.targets_by_keys([target["target_key"]])[0]
+    assert row["status"] == expected_target_status
+    assert row["metadata"]["successful_registry_imports"] == 1
+    assert row["metadata"]["registry_progress_imports"] == expected_imported
+    assert "last_error" not in row["metadata"]
+    await sentinel.stop()
