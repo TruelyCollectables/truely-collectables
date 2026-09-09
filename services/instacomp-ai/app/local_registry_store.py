@@ -58,6 +58,31 @@ def normalized_player_identity(value: object) -> str:
     return normalized_text(_strip_player_metadata(value))
 
 
+def registry_semantic_key(row: object) -> tuple[object, ...]:
+    """Canonical card identity independent of source bytes or parser fingerprints."""
+    def value(name: str) -> object:
+        try:
+            return row[name]  # type: ignore[index]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    return (
+        normalized_text(value("release_id")),
+        normalized_card_number(value("normalized_card_number")),
+        normalized_text(value("player")),
+        normalized_text(value("set_name")),
+        normalized_text(value("parallel") or "Base"),
+        normalized_text(value("variation")),
+        int(value("serial_run")) if str(value("serial_run") or "").isdigit() else -1,
+        int(bool(value("is_auto"))),
+        int(bool(value("is_relic"))),
+        normalized_text(value("sport")),
+        normalized_text(value("league")),
+        normalized_text(value("language_code")),
+        normalized_text(value("configuration_exclusivity")),
+    )
+
+
 def _prefer_exact_set_family(rows, target_set: object):
     """Prefer an exact legal set family over substring/prefix sibling families.
 
@@ -623,6 +648,61 @@ class LocalRegistryStore:
                 )
         return entries
 
+    def upsert_semantic_entry(self, db: sqlite3.Connection, entry: dict[str, object]) -> str:
+        """Insert or refresh one official identity without duplicating semantic truth."""
+        incoming_key = registry_semantic_key(entry)
+        candidates = db.execute(
+            """SELECT * FROM checklist_registry_entries
+            WHERE active=1 AND source_label != 'InstaComp Registry Gap Supplement'
+              AND release_id=? AND normalized_card_number=?""",
+            (entry["release_id"], entry["normalized_card_number"]),
+        ).fetchall()
+        semantic_matches = [row for row in candidates if registry_semantic_key(row) == incoming_key]
+        if len(semantic_matches) > 1:
+            raise RuntimeError(
+                "Registry already contains multiple active semantic identities for "
+                f"{entry['release_id']} card {entry['normalized_card_number']}; run semantic repair."
+            )
+
+        fingerprint_row = db.execute(
+            "SELECT * FROM checklist_registry_entries WHERE fingerprint_sha256=? LIMIT 1",
+            (entry["fingerprint_sha256"],),
+        ).fetchone()
+        if fingerprint_row is not None and registry_semantic_key(fingerprint_row) != incoming_key:
+            raise RuntimeError(
+                "Registry fingerprint integrity conflict for "
+                f"{entry['fingerprint_sha256']}: fingerprint maps to different semantic identity"
+            )
+
+        existing = semantic_matches[0] if semantic_matches else None
+        if existing is None and fingerprint_row is not None:
+            existing = fingerprint_row
+
+        if existing is not None:
+            # Keep the first canonical identity_id/fingerprint stable for downstream
+            # references, while refreshing provenance and parser-derived metadata.
+            refresh_fields = [
+                key for key in entry.keys()
+                if key not in {"identity_id", "fingerprint_sha256"}
+            ]
+            params = {key: entry[key] for key in refresh_fields}
+            params["where_identity_id"] = existing["identity_id"]
+            db.execute(
+                "UPDATE checklist_registry_entries SET "
+                + ",".join(f"{key}=:{key}" for key in refresh_fields)
+                + " WHERE identity_id=:where_identity_id",
+                params,
+            )
+            return "refreshed"
+
+        columns = list(entry.keys())
+        db.execute(
+            f"INSERT INTO checklist_registry_entries ({','.join(columns)}) "
+            f"VALUES ({','.join(':'+key for key in columns)})",
+            entry,
+        )
+        return "inserted"
+
 
     def insert_supplemental_identity(
         self,
@@ -787,54 +867,11 @@ class LocalRegistryStore:
                         "DELETE FROM checklist_registry_entries WHERE source_sha256 = ?",
                         (source_sha,),
                     )
-                    # Import rows one at a time so duplicate fingerprints can be
-                    # classified safely. Equivalent identities are idempotent; a
-                    # fingerprint attached to contradictory identity fields is a
-                    # hard integrity failure and the whole source transaction rolls back.
+                    # Import rows one at a time through semantic upsert. Publisher
+                    # byte/fingerprint churn may change an artifact without changing
+                    # card truth; preserve the canonical identity and refresh provenance.
                     for entry in flattened:
-                        existing = db.execute(
-                            "SELECT * FROM checklist_registry_entries WHERE fingerprint_sha256 = ?",
-                            (entry["fingerprint_sha256"],),
-                        ).fetchone()
-                        if existing is not None:
-                            identity_fields = (
-                                "normalized_card_number", "manufacturer", "brand", "product",
-                                "player", "year", "set_name", "parallel", "variation",
-                                "serial_run", "team", "sport", "league", "is_auto", "is_relic",
-                            )
-                            conflicts = [
-                                field for field in identity_fields
-                                if normalized_text(existing[field]) != normalized_text(entry.get(field))
-                            ]
-                            if conflicts:
-                                raise RuntimeError(
-                                    "Registry fingerprint integrity conflict for "
-                                    f"{entry['fingerprint_sha256']}: contradictory fields "
-                                    + ",".join(conflicts)
-                                )
-                            continue
-                        db.execute(
-                        """
-                        INSERT INTO checklist_registry_entries (
-                            identity_id, fingerprint_sha256, source_sha256, release_id,
-                            version_id, set_id, card_id, normalized_card_number,
-                            manufacturer, brand, product, player, year, set_name,
-                            card_number, parallel, variation, serial_run, team, sport,
-                            league, language_code, configuration_exclusivity, is_auto,
-                            is_relic, source_label, score, matched_evidence_json, active
-                        ) VALUES (
-                            :identity_id, :fingerprint_sha256, :source_sha256,
-                            :release_id, :version_id, :set_id, :card_id,
-                            :normalized_card_number, :manufacturer, :brand, :product,
-                            :player, :year, :set_name, :card_number, :parallel,
-                            :variation, :serial_run, :team, :sport, :league,
-                            :language_code, :configuration_exclusivity, :is_auto,
-                            :is_relic, :source_label, :score, :matched_evidence_json,
-                            :active
-                        )
-                        """,
-                        entry,
-                    )
+                        self.upsert_semantic_entry(db, entry)
                 imported += 1
             except Exception as error:
                 message = str(error)

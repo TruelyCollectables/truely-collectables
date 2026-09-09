@@ -22,7 +22,7 @@ from .sentinel_sources import (
     targets_from_payload,
 )
 from .sentinel_store import SentinelStore
-from .local_registry_store import LocalRegistryStore
+from .local_registry_store import LocalRegistryStore, registry_semantic_key
 from .inventory_checklist_targets import write_inventory_target_snapshot
 
 
@@ -1003,10 +1003,16 @@ class ChecklistSentinel:
                 db.execute("DELETE FROM checklist_registry_imports WHERE source_sha256=?", (sha256,))
                 db.execute("""INSERT INTO checklist_registry_imports (source_sha256,source_url,source_name,target_key,source_path,authority,content_type,byte_count,registry_receipt,imported_at,plan_json,import_status,import_error) VALUES (?,?,?,?,?,?,?,?,?,?,?,'imported',NULL)""", (sha256,source_url,local_path.stem[:120],target["target_key"],str(local_path),"official_manufacturer_or_approved_checklist_source",content_type,local_path.stat().st_size,release_id,datetime.now(timezone.utc).isoformat(),json.dumps(plan,sort_keys=True)))
                 columns = list(entries[0].keys())
-                before_insert = db.total_changes
-                insert_prefix = "INSERT OR IGNORE" if inventory_gap else "INSERT"
-                db.executemany(f"{insert_prefix} INTO checklist_registry_entries ({','.join(columns)}) VALUES ({','.join(':'+c for c in columns)})", entries)
-                inserted_entries = db.total_changes - before_insert
+                if inventory_gap:
+                    for entry in entries:
+                        if self.registry_store.upsert_semantic_entry(db, entry) == "inserted":
+                            inserted_entries += 1
+                else:
+                    db.executemany(
+                        f"INSERT INTO checklist_registry_entries ({','.join(columns)}) VALUES ({','.join(':'+c for c in columns)})",
+                        entries,
+                    )
+                    inserted_entries = len(entries)
                 # Gap supplements survive ordinary release refreshes, but once an
                 # approved checklist source contains the same exact identity the
                 # temporary supplement must yield to that stronger provenance.
@@ -1039,16 +1045,16 @@ class ChecklistSentinel:
                 """)
             with self.registry_store.connection() as db:
                 if inventory_gap:
-                    fingerprints = list(dict.fromkeys(str(entry.get("fingerprint_sha256") or "") for entry in entries if entry.get("fingerprint_sha256")))
-                    actual = 0
-                    for offset in range(0, len(fingerprints), 500):
-                        chunk = fingerprints[offset:offset + 500]
-                        placeholders = ",".join("?" for _ in chunk)
-                        actual += int(db.execute(
-                            f"SELECT COUNT(*) FROM checklist_registry_entries WHERE active=1 AND fingerprint_sha256 IN ({placeholders})",
-                            chunk,
-                        ).fetchone()[0])
-                    expected = len(fingerprints)
+                    expected_keys = {registry_semantic_key(entry) for entry in entries}
+                    active_rows = db.execute(
+                        """SELECT * FROM checklist_registry_entries
+                        WHERE release_id=? AND active=1
+                          AND source_label != 'InstaComp Registry Gap Supplement'""",
+                        (release_id,),
+                    ).fetchall()
+                    active_keys = {registry_semantic_key(row) for row in active_rows}
+                    actual = len(expected_keys & active_keys)
+                    expected = len(expected_keys)
                 else:
                     actual = int(db.execute("SELECT COUNT(*) FROM checklist_registry_entries WHERE release_id=? AND active=1", (release_id,)).fetchone()[0])
                     expected = len(entries)
