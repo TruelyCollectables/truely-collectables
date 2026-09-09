@@ -13,6 +13,7 @@ DEFAULT_REGISTRY = SERVICE_ROOT / "data" / "database" / "checklist_registry.sqli
 SUPPLEMENT_LABEL = "InstaComp Registry Gap Supplement"
 REPAIR_SCHEMA = "instacomp.registrySemanticRepair.v1"
 INDEX_NAME = "checklist_registry_semantic_active_unique"
+TRIGGER_NAME = "checklist_registry_semantic_upsert"
 
 
 def iso_now() -> str:
@@ -127,7 +128,77 @@ def ensure_receipt_table(db: sqlite3.Connection) -> None:
     )
 
 
-def install_unique_guard(db: sqlite3.Connection) -> None:
+def semantic_match_sql(existing_alias: str = "e", incoming_alias: str = "NEW") -> str:
+    e = existing_alias
+    n = incoming_alias
+    return f"""
+        {e}.active=1
+        AND {e}.source_label != '{SUPPLEMENT_LABEL}'
+        AND {e}.release_id={n}.release_id
+        AND {e}.normalized_card_number={n}.normalized_card_number
+        AND lower(trim(coalesce({e}.player,'')))=lower(trim(coalesce({n}.player,'')))
+        AND lower(trim(coalesce({e}.set_name,'')))=lower(trim(coalesce({n}.set_name,'')))
+        AND lower(trim(coalesce({e}.parallel,'Base')))=lower(trim(coalesce({n}.parallel,'Base')))
+        AND lower(trim(coalesce({e}.variation,'')))=lower(trim(coalesce({n}.variation,'')))
+        AND coalesce({e}.serial_run,-1)=coalesce({n}.serial_run,-1)
+        AND coalesce({e}.is_auto,0)=coalesce({n}.is_auto,0)
+        AND coalesce({e}.is_relic,0)=coalesce({n}.is_relic,0)
+        AND lower(trim(coalesce({e}.language_code,'')))=lower(trim(coalesce({n}.language_code,'')))
+        AND lower(trim(coalesce({e}.configuration_exclusivity,'')))=lower(trim(coalesce({n}.configuration_exclusivity,'')))
+    """
+
+
+def install_semantic_guard(db: sqlite3.Connection) -> None:
+    match = semantic_match_sql()
+    db.execute(f"DROP TRIGGER IF EXISTS {TRIGGER_NAME}")
+    db.executescript(
+        f"""
+        CREATE TRIGGER {TRIGGER_NAME}
+        BEFORE INSERT ON checklist_registry_entries
+        WHEN NEW.active=1
+          AND NEW.source_label != '{SUPPLEMENT_LABEL}'
+          AND EXISTS (
+            SELECT 1 FROM checklist_registry_entries e
+            WHERE {match}
+              AND e.identity_id != NEW.identity_id
+          )
+        BEGIN
+          UPDATE checklist_registry_entries
+          SET fingerprint_sha256=NEW.fingerprint_sha256,
+              source_sha256=NEW.source_sha256,
+              version_id=NEW.version_id,
+              set_id=NEW.set_id,
+              card_id=NEW.card_id,
+              manufacturer=NEW.manufacturer,
+              brand=NEW.brand,
+              product=NEW.product,
+              player=NEW.player,
+              year=NEW.year,
+              set_name=NEW.set_name,
+              card_number=NEW.card_number,
+              parallel=NEW.parallel,
+              variation=NEW.variation,
+              serial_run=NEW.serial_run,
+              team=NEW.team,
+              sport=NEW.sport,
+              league=NEW.league,
+              language_code=NEW.language_code,
+              configuration_exclusivity=NEW.configuration_exclusivity,
+              is_auto=NEW.is_auto,
+              is_relic=NEW.is_relic,
+              source_label=NEW.source_label,
+              score=NEW.score,
+              matched_evidence_json=NEW.matched_evidence_json,
+              active=1
+          WHERE identity_id = (
+            SELECT e.identity_id FROM checklist_registry_entries e
+            WHERE {match}
+            ORDER BY e.identity_id LIMIT 1
+          );
+          SELECT RAISE(IGNORE);
+        END;
+        """
+    )
     db.execute(
         f"""CREATE UNIQUE INDEX IF NOT EXISTS {INDEX_NAME}
         ON checklist_registry_entries (
@@ -158,12 +229,13 @@ def apply_repair(db: sqlite3.Connection, audit: dict[str, Any]) -> dict[str, Any
                 f"UPDATE checklist_registry_entries SET active=0 WHERE active=1 AND identity_id IN ({placeholders})",
                 chunk,
             )
-        install_unique_guard(db)
+        install_semantic_guard(db)
         ensure_receipt_table(db)
         receipt = dict(audit)
         receipt.pop("deactivate_identity_ids", None)
         receipt["applied_at"] = iso_now()
         receipt["index_name"] = INDEX_NAME
+        receipt["trigger_name"] = TRIGGER_NAME
         repair_id = "semantic-dedupe-" + receipt["applied_at"].replace(":", "").replace("+00:00", "Z")
         db.execute(
             "INSERT INTO checklist_registry_repairs (repair_id,created_at,schema_name,details_json) VALUES (?,?,?,?)",
