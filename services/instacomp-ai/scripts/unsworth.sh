@@ -488,6 +488,41 @@ external_learning_scheduler() {
   done
 }
 
+checklist_registry_bridge_run_once() {
+  local rc
+  log "Checklist Registry Bridge: resolving trusted Sentinel downloads into Mac-local Registry"
+  "$SERVICE/.venv/bin/python" "$SERVICE/scripts/sentinel_pending_registry_bridge.py" --limit 50 --min-age-seconds 120 \
+    >>"$LOG_ROOT/checklist-registry-bridge.log" 2>>"$LOG_ROOT/checklist-registry-bridge.err.log"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    log "Checklist Registry Bridge: worker FAILED rc=$rc"
+    notify_restart "checklist-registry-bridge" "$rc"
+    return "$rc"
+  fi
+  log "Checklist Registry Bridge: pass completed"
+  return 0
+}
+
+checklist_registry_bridge_scheduler() {
+  local stamp="$STATE_ROOT/checklist-registry-bridge-last-run-epoch" interval=300
+  while true; do
+    local now last=0
+    now=$(date +%s)
+    [ -f "$stamp" ] && last=$(cat "$stamp" 2>/dev/null || echo 0)
+    [[ "$last" =~ ^[0-9]+$ ]] || last=0
+    if [ $((now-last)) -ge "$interval" ]; then
+      if checklist_registry_bridge_run_once; then
+        date +%s > "$stamp"
+      else
+        sleep 120
+        continue
+      fi
+    fi
+    sleep 30
+  done
+}
+
+
 checklist_learning_run_once() {
   local rc
   log "Checklist Learning: ingesting new/changed Mac-local registry releases"
@@ -624,6 +659,7 @@ start_loop "deal-hunter-scheduler" deal_hunter_scheduler
 start_loop "truely-ebay-inventory" /bin/bash "$STATE_ROOT/truely-ebay-inventory-employee.sh"
 start_loop "dagdanky-inventory-scheduler" dagdanky_inventory_scheduler
 start_loop "external-learning-scheduler" external_learning_scheduler
+start_loop "checklist-registry-bridge-scheduler" checklist_registry_bridge_scheduler
 start_loop "checklist-learning-scheduler" checklist_learning_scheduler
 start_loop "teacher-student-scheduler" teacher_student_scheduler
 start_loop "daily-operations-report" /bin/bash "$STATE_ROOT/unsworth-daily-report-employee.sh"

@@ -218,6 +218,23 @@ class SentinelStore:
                 (iso_now(), status, error, iso_now(), source_id),
             )
 
+    def interrupt_running_jobs(self, reason: str) -> int:
+        with self.connection() as db:
+            before = db.total_changes
+            db.execute(
+                """
+                UPDATE checklist_sentinel_jobs
+                SET status = 'interrupted',
+                    completed_at = ?,
+                    heartbeat_at = ?,
+                    current_target_key = NULL,
+                    error = COALESCE(error, ?)
+                WHERE status = 'running'
+                """,
+                (iso_now(), iso_now(), reason[:1000]),
+            )
+            return db.total_changes - before
+
     def upsert_targets(self, targets: list[dict[str, Any]]) -> int:
         now = iso_now()
         changed = 0
@@ -263,6 +280,74 @@ class SentinelStore:
                 )
                 changed += db.total_changes - before
         return changed
+
+    def sync_inventory_targets(self, targets: list[dict[str, Any]]) -> dict[str, int]:
+        """Make the live inventory-gap set authoritative without deleting history."""
+        self.upsert_targets(targets)
+        keys = [str(t.get("target_key") or "").strip() for t in targets]
+        keys = [key for key in keys if key.startswith("inventory-gap-v2|")]
+        now = iso_now()
+        with self.connection() as db:
+            if keys:
+                placeholders = ",".join("?" for _ in keys)
+                db.execute(
+                    f"""UPDATE checklist_sentinel_targets
+                    SET status='retired', next_search_at=NULL, updated_at=?
+                    WHERE (target_key LIKE 'inventory-gap|%' OR target_key LIKE 'inventory-gap-v2|%')
+                      AND target_key NOT IN ({placeholders})""",
+                    [now, *keys],
+                )
+                retired = db.total_changes
+                before = db.total_changes
+                # A recovered target can legitimately remain in the inventory-gap
+                # snapshot when the imported release did not contain the exact
+                # missing subset/parallel. Keep searching, but do not immediately
+                # hammer the same release again. Preserve the recovered artifact
+                # pointer for provenance and reopen on a six-hour backoff.
+                reopen_at = (utc_now() + timedelta(hours=6)).isoformat()
+                recent_import_cutoff = (utc_now() - timedelta(hours=6)).isoformat()
+                # Repair stale state left by pre-backoff builds: if a target is
+                # already pending/due but a successful Registry import happened
+                # for it within the last six hours, restore that artifact pointer
+                # and push the next crawl out instead of immediately repeating it.
+                db.execute(
+                    f"""UPDATE checklist_sentinel_targets AS t
+                    SET recovered_download_id = (
+                            SELECT d.download_id FROM checklist_sentinel_downloads AS d
+                            WHERE d.target_key=t.target_key
+                              AND d.status='imported_registry'
+                              AND d.created_at>=?
+                            ORDER BY d.created_at DESC LIMIT 1
+                        ),
+                        next_search_at=?, updated_at=?
+                    WHERE t.target_key IN ({placeholders})
+                      AND t.status='pending'
+                      AND (t.next_search_at IS NULL OR t.next_search_at<=?)
+                      AND EXISTS (
+                          SELECT 1 FROM checklist_sentinel_downloads AS d
+                          WHERE d.target_key=t.target_key
+                            AND d.status='imported_registry'
+                            AND d.created_at>=?
+                      )""",
+                    [recent_import_cutoff, reopen_at, now, *keys, now, recent_import_cutoff],
+                )
+                db.execute(
+                    f"""UPDATE checklist_sentinel_targets
+                    SET status='pending', next_search_at=?, updated_at=?
+                    WHERE target_key IN ({placeholders}) AND status IN ('recovered','retired')""",
+                    [reopen_at, now, *keys],
+                )
+                reopened = db.total_changes - before
+            else:
+                before = db.total_changes
+                db.execute(
+                    """UPDATE checklist_sentinel_targets SET status='retired', next_search_at=NULL, updated_at=?
+                    WHERE target_key LIKE 'inventory-gap|%' OR target_key LIKE 'inventory-gap-v2|%'""",
+                    (now,),
+                )
+                retired = db.total_changes - before
+                reopened = 0
+        return {"active": len(keys), "retired": retired, "reopened": reopened}
 
     def requeue_targets(
         self,
@@ -331,15 +416,34 @@ class SentinelStore:
         with self.connection() as db:
             rows = db.execute(
                 """
-                SELECT * FROM checklist_sentinel_targets
-                WHERE status IN ('pending', 'no_result', 'lead_only', 'failed')
-                  AND (next_search_at IS NULL OR next_search_at <= ?)
-                ORDER BY priority ASC, COALESCE(year, 9999) DESC, attempts ASC, target_key
+                SELECT t.* FROM checklist_sentinel_targets t
+                WHERE t.status IN ('pending', 'no_result', 'lead_only', 'failed')
+                  AND (t.next_search_at IS NULL OR t.next_search_at <= ?)
+                ORDER BY CASE WHEN t.target_key LIKE 'inventory-gap-v2|%' THEN 0 ELSE 1 END ASC,
+                         t.priority ASC,
+                         CASE WHEN t.target_key LIKE 'inventory-gap-v2|%'
+                              THEN COALESCE(CAST(json_extract(t.metadata_json,'$.inventory_gap_cards') AS INTEGER), 0)
+                              ELSE 0 END DESC,
+                         COALESCE(CAST(substr(t.year,1,4) AS INTEGER), 0) DESC,
+                         t.attempts ASC, t.target_key
                 LIMIT ?
                 """,
                 (now, limit),
             ).fetchall()
         return [self._target_row(row) for row in rows]
+
+    def targets_by_keys(self, target_keys: list[str]) -> list[dict[str, Any]]:
+        keys = list(dict.fromkeys(str(k).strip() for k in target_keys if str(k).strip()))
+        if not keys:
+            return []
+        placeholders = ",".join("?" for _ in keys)
+        with self.connection() as db:
+            rows = db.execute(
+                f"SELECT * FROM checklist_sentinel_targets WHERE target_key IN ({placeholders})",
+                keys,
+            ).fetchall()
+        by_key = {row["target_key"]: self._target_row(row) for row in rows}
+        return [by_key[key] for key in keys if key in by_key]
 
     def list_targets(self, limit: int = 500, status: str | None = None) -> list[dict[str, Any]]:
         with self.connection() as db:
@@ -507,8 +611,21 @@ class SentinelStore:
             ).fetchone()
         return self._job_row(row) if row else None
 
-    def due_for_run(self, interval_seconds: int) -> bool:
+    def due_for_run(self, interval_seconds: int, stale_seconds: int | None = None) -> bool:
+        now = utc_now()
         with self.connection() as db:
+            if stale_seconds is not None:
+                stale_before = (now - timedelta(seconds=max(1, int(stale_seconds)))).isoformat()
+                db.execute(
+                    """
+                    UPDATE checklist_sentinel_jobs
+                    SET status = 'interrupted', completed_at = ?, heartbeat_at = ?,
+                        current_target_key = NULL,
+                        error = COALESCE(error, 'Stale heartbeat reclaimed by scheduler; safe resume enabled.')
+                    WHERE status = 'running' AND heartbeat_at < ?
+                    """,
+                    (now.isoformat(), now.isoformat(), stale_before),
+                )
             running = db.execute(
                 "SELECT 1 FROM checklist_sentinel_jobs WHERE status = 'running' LIMIT 1"
             ).fetchone()
@@ -624,6 +741,13 @@ class SentinelStore:
                 ),
             )
         return download_id
+
+    def update_download_status(self, download_id: str, status: str, registry_receipt: str | None = None) -> None:
+        with self.connection() as db:
+            db.execute(
+                "UPDATE checklist_sentinel_downloads SET status = ?, registry_receipt = ? WHERE download_id = ?",
+                (status, registry_receipt, download_id),
+            )
 
     def mark_target(
         self,

@@ -75,3 +75,54 @@ def test_requeue_targets_only_forces_unresolved_due_now(tmp_path: Path) -> None:
     assert recovered["attempts"] == 7
     assert recovered["next_search_at"] == future
     assert recovered["recovered_download_id"] == "download-proof"
+
+
+def test_inventory_sync_reopens_recovered_with_backoff_and_keeps_provenance(tmp_path: Path) -> None:
+    store = SentinelStore(tmp_path / "sentinel.sqlite3")
+    store.initialize()
+    target = {
+        "target_key": "inventory-gap-v2|basketball|2017-18|panini|hoops",
+        "sport": "basketball", "year": 2017, "season": "2017-18",
+        "manufacturer": "Panini", "product": "Hoops",
+        "scope": "inventory-gap", "priority": 1,
+    }
+    store.upsert_targets([target])
+    store.mark_target(target["target_key"], "recovered", retry_after_seconds=86400, recovered_download_id="download-proof")
+    before = iso_now()
+    result = store.sync_inventory_targets([target])
+    row = store.targets_by_keys([target["target_key"]])[0]
+    assert result["reopened"] == 1
+    assert row["status"] == "pending"
+    assert row["recovered_download_id"] == "download-proof"
+    assert row["next_search_at"] > before
+
+
+def test_inventory_sync_repairs_recent_import_stale_pending_state(tmp_path: Path) -> None:
+    store = SentinelStore(tmp_path / "sentinel.sqlite3")
+    store.initialize()
+    target = {
+        "target_key": "inventory-gap-v2|basketball|2017-18|panini|hoops",
+        "sport": "basketball", "year": 2017, "season": "2017-18",
+        "manufacturer": "Panini", "product": "Hoops",
+        "scope": "inventory-gap", "priority": 1,
+    }
+    store.upsert_targets([target])
+    with store.connection() as db:
+        db.execute("""
+            INSERT INTO checklist_sentinel_downloads
+            (download_id,finding_id,target_key,source_url,local_path,sha256,content_type,byte_count,status,registry_receipt,created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            "recent-proof", "finding-proof", target["target_key"],
+            "https://example.test/checklist.xls", "/tmp/checklist.xls", "abc123",
+            "application/vnd.ms-excel", 123, "imported_registry",
+            "release:test:covered=10:inserted=10", iso_now(),
+        ))
+        db.execute("UPDATE checklist_sentinel_targets SET status='pending', next_search_at=?, recovered_download_id=NULL WHERE target_key=?",
+                   ("2000-01-01T00:00:00+00:00", target["target_key"]))
+    before = iso_now()
+    store.sync_inventory_targets([target])
+    row = store.targets_by_keys([target["target_key"]])[0]
+    assert row["status"] == "pending"
+    assert row["recovered_download_id"] == "recent-proof"
+    assert row["next_search_at"] > before

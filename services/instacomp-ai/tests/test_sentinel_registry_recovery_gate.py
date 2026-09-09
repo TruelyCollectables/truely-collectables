@@ -43,9 +43,9 @@ class FakeClient:
         return DownloadedFile(
             url=url,
             content=self.content,
-            content_type="text/html",
+            content_type="application/pdf",
             sha256=hashlib.sha256(self.content).hexdigest(),
-            extension=".html",
+            extension=".pdf",
         )
 
 

@@ -22,6 +22,7 @@ from fastapi import (
     Query,
     UploadFile,
 )
+from starlette.requests import Request
 
 from .sentinel import ChecklistSentinel
 from .sentinel_sources import targets_from_payload
@@ -68,7 +69,8 @@ def _pending_backlog_ready(
     except (TypeError, ValueError):
         pending = 0
     running = str(latest.get("status") or "") == "running"
-    return pending > 0 and has_due_targets and not running
+    auto_drain = os.getenv("INSTACOMP_AI_SENTINEL_BACKLOG_DRAIN_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+    return auto_drain and pending > 0 and has_due_targets and not running
 
 
 def build_sentinel_router(
@@ -90,6 +92,14 @@ def build_sentinel_router(
     backlog_drain_task: asyncio.Task[None] | None = None
 
     async def _drain_pending_backlog() -> None:
+        # Keep API startup fast, but never drain a stale inventory queue. The
+        # background drain owns the first live inventory refresh and blocks its
+        # own work selection until that refresh is complete.
+        try:
+            await sentinel.refresh_inventory_targets()
+            await sentinel.refresh_targets()
+        except Exception:
+            pass
         while not backlog_drain_stop.is_set():
             try:
                 snapshot = sentinel.status()
@@ -139,15 +149,21 @@ def build_sentinel_router(
         return sentinel.status()
 
     @protected.post("/run")
-    async def run_now(
-        trigger: str = Body(default="manual-api", embed=True),
-    ) -> dict[str, Any]:
-        return await sentinel.trigger(trigger=trigger[:100])
+    async def run_now(payload: Any = Body(default=None)) -> dict[str, Any]:
+        trigger = "manual-api"
+        target_keys = None
+        if isinstance(payload, dict):
+            trigger = str(payload.get("trigger") or trigger)
+            raw_keys = payload.get("target_keys") or payload.get("targetKeys")
+            if isinstance(raw_keys, list):
+                target_keys = [str(value).strip() for value in raw_keys if str(value).strip()][:500]
+        return await sentinel.trigger(trigger=trigger[:100], target_keys=target_keys)
 
     @protected.post("/refresh-targets")
     async def refresh_targets() -> dict[str, Any]:
+        inventory = await sentinel.refresh_inventory_targets()
         counts = await sentinel.refresh_targets()
-        return {"ok": True, "targets": counts}
+        return {"ok": True, "inventory": inventory, "targets": counts}
 
     @protected.post("/targets")
     async def add_targets(payload: Any = Body(...)) -> dict[str, Any]:
@@ -238,23 +254,9 @@ def build_sentinel_router(
         "/v1/checklist-sentinel/registry-import-relay",
         tags=["InstaComp AI Checklist Sentinel"],
     )
-    async def registry_import_relay(
-        file: UploadFile = File(...),
-        target_key: str = Form(alias="targetKey"),
-        sport: str = Form(default=""),
-        year: str = Form(default=""),
-        season: str = Form(default=""),
-        manufacturer: str = Form(default=""),
-        product: str = Form(default=""),
-        source_url: str = Form(alias="sourceUrl"),
-        sha256: str = Form(...),
-        source: str = Form(default="instacomp-ai-checklist-sentinel"),
-        archive_token_header: str | None = Header(
-            default=None,
-            alias="x-instacomp-sentinel-archive-token",
-        ),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
+    async def registry_import_relay(request: Request) -> dict[str, Any]:
+        archive_token_header = request.headers.get("x-instacomp-sentinel-archive-token")
+        authorization = request.headers.get("authorization")
         if not _archive_token_valid(archive_token_header, authorization):
             raise HTTPException(
                 status_code=401,
@@ -280,40 +282,104 @@ def build_sentinel_router(
                 detail="Sentinel archive authentication is not configured.",
             )
 
-        expected_sha = sha256.strip().lower()
-        if len(expected_sha) != 64 or any(
-            ch not in "0123456789abcdef" for ch in expected_sha
-        ):
+        content_type = (request.headers.get("content-type") or "").lower()
+        payload: dict[str, Any]
+        source_file: UploadFile | None = None
+        if content_type.startswith("multipart/form-data"):
+            form = await request.form()
+            payload = {
+                "targetKey": form.get("targetKey"),
+                "sport": form.get("sport"),
+                "year": form.get("year"),
+                "season": form.get("season"),
+                "manufacturer": form.get("manufacturer"),
+                "product": form.get("product"),
+                "sourceUrl": form.get("sourceUrl"),
+                "sha256": form.get("sha256"),
+                "source": form.get("source"),
+            }
+            candidate = form.get("sourceFile") or form.get("file")
+            if candidate is not None and hasattr(candidate, "read"):
+                source_file = candidate  # type: ignore[assignment]
+        else:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            payload = {
+                "targetKey": body.get("targetKey") or body.get("target_key"),
+                "sport": body.get("sport"),
+                "year": body.get("year"),
+                "season": body.get("season"),
+                "manufacturer": body.get("manufacturer"),
+                "product": body.get("product"),
+                "sourceUrl": body.get("sourceUrl") or body.get("source_url"),
+                "sha256": body.get("sha256"),
+                "source": body.get("source"),
+            }
+
+        target_key = str(payload.get("targetKey") or "").strip()
+        sport = str(payload.get("sport") or "").strip()
+        year = str(payload.get("year") or "").strip()
+        season = str(payload.get("season") or "").strip()
+        manufacturer = str(payload.get("manufacturer") or "").strip()
+        product = str(payload.get("product") or "").strip()
+        source_url = str(payload.get("sourceUrl") or "").strip()
+        sha256 = str(payload.get("sha256") or "").strip().lower()
+        source = str(payload.get("source") or "instacomp-ai-checklist-sentinel").strip()
+
+        if len(sha256) != 64 or any(ch not in "0123456789abcdef" for ch in sha256):
             raise HTTPException(status_code=400, detail="Invalid SHA-256 receipt.")
 
-        digest = hashlib.sha256()
         byte_count = 0
-        chunks: list[bytes] = []
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            byte_count += len(chunk)
-            if byte_count > _MAX_RELAY_BYTES:
+        source_bytes: bytes
+        content_type = "application/octet-stream"
+        file_name = "checklist-source.bin"
+        if source_file is not None:
+            digest = hashlib.sha256()
+            chunks: list[bytes] = []
+            while True:
+                chunk = await source_file.read(1024 * 1024)
+                if not chunk:
+                    break
+                byte_count += len(chunk)
+                if byte_count > _MAX_RELAY_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Checklist source exceeds 50 MB limit.",
+                    )
+                digest.update(chunk)
+                chunks.append(bytes(chunk))
+            if byte_count <= 0:
+                raise HTTPException(status_code=400, detail="Checklist source is empty.")
+            actual_sha = digest.hexdigest()
+            if actual_sha != sha256:
                 raise HTTPException(
-                    status_code=413,
-                    detail="Checklist source exceeds 50 MB limit.",
+                    status_code=409,
+                    detail="Local checklist SHA-256 receipt mismatch.",
                 )
-            digest.update(chunk)
-            chunks.append(bytes(chunk))
-
-        if byte_count <= 0:
-            raise HTTPException(status_code=400, detail="Checklist source is empty.")
-        actual_sha = digest.hexdigest()
-        if actual_sha != expected_sha:
-            raise HTTPException(
-                status_code=409,
-                detail="Local checklist SHA-256 receipt mismatch.",
-            )
-
-        source_bytes = b"".join(chunks)
-        content_type = (file.content_type or "application/octet-stream")[:200]
-        file_name = (file.filename or "checklist-source.bin")[:300]
+            source_bytes = b"".join(chunks)
+            content_type = (source_file.content_type or "application/octet-stream")[:200]
+            file_name = (source_file.filename or "checklist-source.bin")[:300]
+        else:
+            if not source_url:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Checklist sourceUrl is required when sourceFile is omitted.",
+                )
+            source_fetch = await fetchVerifiedSource(source_url, 0)
+            source_bytes = source_fetch.bytes
+            byte_count = source_fetch.byteCount
+            content_type = source_fetch.contentType[:200]
+            file_name = safeFileName(source_fetch.finalUrl.rsplit("/", 1)[-1] or "checklist-source", content_type)
+            actual_sha = createHash("sha256").update(source_bytes).digest("hex")
+            if actual_sha != sha256:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Fetched checklist SHA-256 did not match the receipt.",
+                )
         payload = {
             "targetKey": target_key[:500],
             "sport": sport[:120],
@@ -322,7 +388,7 @@ def build_sentinel_router(
             "manufacturer": manufacturer[:200],
             "product": product[:300],
             "sourceUrl": source_url[:4000],
-            "sha256": expected_sha,
+            "sha256": sha256,
             "source": source[:120],
             "byteCount": str(byte_count),
             "contentType": content_type,
