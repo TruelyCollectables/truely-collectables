@@ -4,6 +4,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import {
+  archiveInstaCompAiLocalSupervisedScan,
   confirmInstaCompAiLocalLesson,
   hasConfiguredInstaCompAiLocal,
   type InstaCompAiLocalLessonIdentity,
@@ -32,6 +33,128 @@ function nullableText(value: unknown, max = 300) {
 
 function booleanValue(value: unknown) {
   return value === true;
+}
+
+
+type StoredLearningImage = {
+  image_url: string | null;
+  alt_text: string | null;
+  sort_order: number | null;
+  is_primary: boolean | null;
+};
+
+function trustedStorageHost() {
+  const configured =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+  try {
+    return new URL(configured).host.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function learningImagePair(rows: StoredLearningImage[], metadata: JsonRecord) {
+  const sorted = [...rows]
+    .filter((row) => Boolean(nullableText(row.image_url, 2000)))
+    .sort((left, right) => {
+      if (left.is_primary === true && right.is_primary !== true) return -1;
+      if (right.is_primary === true && left.is_primary !== true) return 1;
+      return Number(left.sort_order || 0) - Number(right.sort_order || 0);
+    });
+  const frontRow =
+    sorted.find((row) => row.is_primary === true) ||
+    sorted.find((row) => /\bfront\b/i.test(row.alt_text || "")) ||
+    sorted[0] ||
+    null;
+  const backRow =
+    sorted.find((row) => /\bback\b/i.test(row.alt_text || "")) ||
+    sorted.find(
+      (row) => row !== frontRow && row.image_url !== frontRow?.image_url,
+    ) ||
+    null;
+  const instaComp = record(metadata.instacomp);
+  const recovered = record(instaComp.recoveredImageUrls);
+  const sourceImages = Array.isArray(instaComp.sourceImageUrls)
+    ? instaComp.sourceImageUrls
+    : [];
+  const front =
+    nullableText(frontRow?.image_url, 2000) ||
+    nullableText(recovered.front, 2000) ||
+    nullableText(sourceImages[0], 2000);
+  const back =
+    nullableText(backRow?.image_url, 2000) ||
+    nullableText(recovered.back, 2000) ||
+    nullableText(sourceImages[1], 2000);
+  return front && back && front !== back ? { front, back } : null;
+}
+
+async function learningImageBlob(url: string, side: "front" | "back") {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Stored ${side} image URL is invalid.`);
+  }
+  const storageHost = trustedStorageHost();
+  if (
+    parsed.protocol !== "https:" ||
+    !storageHost ||
+    parsed.host.toLowerCase() !== storageHost ||
+    !parsed.pathname.startsWith("/storage/v1/object/")
+  ) {
+    throw new Error(
+      `Stored ${side} image is not in the trusted Supabase storage origin.`,
+    );
+  }
+  const response = await fetch(parsed, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Stored ${side} image returned HTTP ${response.status}.`);
+  }
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength < 1_000 || bytes.byteLength > 12 * 1024 * 1024) {
+    throw new Error(`Stored ${side} image has an invalid size.`);
+  }
+  const contentType = response.headers.get("content-type") || "image/jpeg";
+  if (!contentType.toLowerCase().startsWith("image/")) {
+    throw new Error(`Stored ${side} image is not an image response.`);
+  }
+  return new Blob([bytes], { type: contentType });
+}
+
+async function recoverMissingInternalScanReceipt(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  inventoryItemId: string;
+  cardUuid: string | null;
+  metadata: JsonRecord;
+}) {
+  const { data, error } = await params.supabase
+    .from("inventory_images")
+    .select("image_url,alt_text,sort_order,is_primary")
+    .eq("inventory_item_id", params.inventoryItemId)
+    .order("sort_order", { ascending: true });
+  if (error) throw error;
+  const pair = learningImagePair(
+    (data || []) as StoredLearningImage[],
+    params.metadata,
+  );
+  if (!pair) {
+    throw new Error(
+      "No distinct stored front/back image pair is available to reconstruct the Mac-local learning receipt.",
+    );
+  }
+  const [front, back] = await Promise.all([
+    learningImageBlob(pair.front, "front"),
+    learningImageBlob(pair.back, "back"),
+  ]);
+  const archive = await archiveInstaCompAiLocalSupervisedScan({
+    front,
+    back,
+    cardUuid: params.cardUuid,
+  });
+  return { scanId: archive.scan_id, cardUuid: archive.card_uuid };
 }
 
 function exactSerialStamp(value: unknown) {
@@ -164,7 +287,7 @@ export async function POST(request: NextRequest) {
 
     let query = supabase
       .from("inventory_items")
-      .select("id,seller_account_id,status,metadata,description,category,condition")
+      .select("id,seller_account_id,card_uuid,status,metadata,description,category,condition")
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
       .eq("status", "draft");
@@ -198,6 +321,10 @@ export async function POST(request: NextRequest) {
     const sellerReview = record(metadata.seller_review);
     const editedAt = new Date().toISOString();
     const internalScanId = clean(ai.internalScanId, 100);
+    const internalEngineConfigured = hasConfiguredInstaCompAiLocal();
+    let effectiveInternalScanId = internalScanId;
+    let recoveredInternalCardUuid: string | null = null;
+    let learningReceiptRecovered = false;
 
     let learningStatus:
       | "stored"
@@ -206,10 +333,32 @@ export async function POST(request: NextRequest) {
     let learningLessonId: string | null = null;
     let learningError: string | null = null;
 
-    if (internalScanId && hasConfiguredInstaCompAiLocal()) {
+    if (!effectiveInternalScanId && internalEngineConfigured) {
+      try {
+        const recoveredReceipt = await recoverMissingInternalScanReceipt({
+          supabase,
+          inventoryItemId,
+          cardUuid: nullableText(item.card_uuid, 100),
+          metadata,
+        });
+        effectiveInternalScanId = recoveredReceipt.scanId;
+        recoveredInternalCardUuid = recoveredReceipt.cardUuid;
+        learningReceiptRecovered = true;
+      } catch (error) {
+        learningError =
+          error instanceof Error
+            ? error.message.slice(0, 500)
+            : "The missing Mac-local scan receipt could not be reconstructed.";
+        if (!/no distinct stored front\/back image pair/i.test(learningError)) {
+          learningStatus = "pending_internal_connection";
+        }
+      }
+    }
+
+    if (effectiveInternalScanId && internalEngineConfigured) {
       try {
         const lesson = await confirmInstaCompAiLocalLesson({
-          scanId: internalScanId,
+          scanId: effectiveInternalScanId,
           identity: sellerLessonIdentity({
             ai,
             body,
@@ -221,6 +370,7 @@ export async function POST(request: NextRequest) {
         });
         learningStatus = "stored";
         learningLessonId = lesson.lessonId;
+        learningError = null;
       } catch (error) {
         learningStatus = "pending_internal_connection";
         learningError =
@@ -228,10 +378,13 @@ export async function POST(request: NextRequest) {
             ? error.message.slice(0, 500)
             : "InstaComp internal lesson could not be stored.";
       }
-    } else if (internalScanId) {
+    } else if (effectiveInternalScanId && !internalEngineConfigured) {
       learningStatus = "pending_internal_connection";
       learningError =
         "InstaComp internal engine is not configured for this runtime.";
+    } else if (!learningError) {
+      learningError =
+        "No Mac-local scan receipt or recoverable stored front/back image pair is available for this correction.";
     }
 
     const manualIdentity = {
@@ -303,6 +456,9 @@ export async function POST(request: NextRequest) {
         lastErrorCode: null,
         ai: {
           ...ai,
+          internalScanId: effectiveInternalScanId || null,
+          internalCardUuid:
+            recoveredInternalCardUuid || nullableText(ai.internalCardUuid, 100),
           player: nullableText(body.player ?? ai.player, 200),
           year: nullableText(body.year ?? ai.year, 20),
           manufacturer: nullableText(body.manufacturer ?? ai.manufacturer ?? ai.brand, 160),
@@ -349,6 +505,9 @@ export async function POST(request: NextRequest) {
         condition: nextCondition,
         metadata: nextMetadata,
         updated_at: editedAt,
+        ...(!item.card_uuid && recoveredInternalCardUuid
+          ? { card_uuid: recoveredInternalCardUuid }
+          : {}),
       })
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
@@ -369,6 +528,8 @@ export async function POST(request: NextRequest) {
       learningStatus,
       learningLessonId,
       learningError,
+      learningReceiptRecovered,
+      internalScanId: effectiveInternalScanId || null,
       published: false,
     });
   } catch (error) {

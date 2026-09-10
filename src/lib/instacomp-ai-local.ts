@@ -640,6 +640,71 @@ export async function analyzeWithInstaCompAiLocalSecondary(params: {
 }
 
 
+export type InstaCompAiLocalSupervisedArchive = {
+  schema_version: "tcos.instacomp-ai.supervised-archive.v1";
+  scan_id: string;
+  card_uuid: string;
+  status: "supervised_archive_pending_lesson";
+  front_sha256: string;
+  back_sha256: string;
+  image_pair_sha256: string;
+  identity_created: false;
+  nothing_published: true;
+};
+
+export async function archiveInstaCompAiLocalSupervisedScan(params: {
+  front: Blob;
+  back: Blob;
+  cardUuid?: string | null;
+  timeoutMs?: number;
+}): Promise<InstaCompAiLocalSupervisedArchive> {
+  if (!hasConfiguredInstaCompAiLocal()) {
+    throw new Error("InstaComp internal engine is not configured for this runtime.");
+  }
+  const body = new FormData();
+  body.append("front", params.front, "front.jpg");
+  body.append("back", params.back, "back.jpg");
+  if (params.cardUuid) body.append("card_uuid", safeCardUuid(params.cardUuid));
+
+  const response = await fetch(`${baseUrl()}/v1/scans/supervised-archive`, {
+    method: "POST",
+    headers: requestHeaders(),
+    body,
+    cache: "no-store",
+    signal: AbortSignal.timeout(params.timeoutMs ?? 45_000),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | InstaCompAiLocalSupervisedArchive
+    | { detail?: unknown }
+    | null;
+  if (!response.ok) {
+    const detail = payload && "detail" in payload ? payload.detail : null;
+    throw new Error(
+      `InstaComp supervised archive failed with HTTP ${response.status}${
+        detail ? `: ${String(detail)}` : ""
+      }`,
+    );
+  }
+
+  const archive = payload as InstaCompAiLocalSupervisedArchive;
+  if (
+    !archive?.scan_id ||
+    !archive?.card_uuid ||
+    archive.status !== "supervised_archive_pending_lesson" ||
+    !archive.front_sha256 ||
+    !archive.back_sha256 ||
+    archive.front_sha256 === archive.back_sha256
+  ) {
+    throw new Error("InstaComp supervised archive returned an incomplete receipt.");
+  }
+  return {
+    ...archive,
+    scan_id: safeScanId(archive.scan_id),
+    card_uuid: safeCardUuid(archive.card_uuid),
+  };
+}
+
+
 export type InstaCompAiLocalLessonState =
   | "operator_confirmed"
   | "rejected"
