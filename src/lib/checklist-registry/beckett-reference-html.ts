@@ -271,10 +271,35 @@ function dedupeRows(rows: ReturnType<typeof extractRows>) {
 function targetMatchesPage(artifact: ChecklistSourceArtifact, title: string) {
   const target = artifact.targetContext || {};
   const haystack = comparable(`${title} ${artifact.sourceUrl}`);
-  const required = [target.year || target.season, target.manufacturer, target.product]
-    .flatMap((value) => comparable(value).split("-").filter(Boolean))
+  const yearTokens = comparable(target.year || target.season).split("-").filter(Boolean);
+  const productKey = comparable(target.product);
+  const productTokens = productKey.split("-").filter(Boolean)
+    .filter((token) => token.length >= 2 && !["cards", "card", "set", "hockey"].includes(token));
+  const manufacturerKey = comparable(target.manufacturer);
+  const houseBrands: Record<string, string[]> = {
+    "upper-deck": [
+      "sp", "sp-authentic", "sp-game-used", "spx", "metal-universe",
+      "credentials", "synergy", "o-pee-chee", "o-pee-chee-platinum", "artifacts",
+    ],
+    panini: ["donruss-optic"],
+    topps: ["bowman"],
+  };
+  const houseBrandWithoutPublisher = (houseBrands[manufacturerKey] || [])
+    .some((product) => productKey === product || productKey.startsWith(`${product}-`));
+  const manufacturerTokens = houseBrandWithoutPublisher
+    ? []
+    : manufacturerKey.split("-").filter(Boolean);
+  const required = [...yearTokens, ...manufacturerTokens, ...productTokens]
     .filter((token) => token.length >= 2 && !["cards", "card", "set"].includes(token));
-  return required.every((token) => haystack.includes(token));
+  if (!required.every((token) => haystack.includes(token))) return false;
+
+  const sportAliases: Record<string, string[]> = {
+    baseball: ["baseball"], basketball: ["basketball"], football: ["football"],
+    hockey: ["hockey"], soccer: ["soccer", "premier-league", "uefa"],
+    wrestling: ["wrestling", "wwe"], racing: ["racing", "nascar"], golf: ["golf"],
+  };
+  const aliases = sportAliases[comparable(target.sport)];
+  return !aliases || aliases.some((alias) => haystack.includes(alias));
 }
 
 function releaseSlug(artifact: ChecklistSourceArtifact) {
