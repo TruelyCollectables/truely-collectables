@@ -114,10 +114,13 @@ requireText(
   "getFanaticsExactSoldProvider",
   "Seller pricing must use direct Fanatics sold history before discovery fallbacks.",
 );
+if (sellerPricing.includes("getOpenAiExactEbayMarketProviders")) {
+  throw new Error("Seller pricing must not fall back to OpenAI Web for exact-market pricing.");
+}
 requireText(
   sellerPricing,
-  "getOpenAiExactEbayMarketProviders",
-  "Seller pricing must retain OpenAI Web discovery when trusted sold sources are empty.",
+  "OpenAI Web is intentionally excluded from exact-market search.",
+  "Seller pricing must preserve the fail-closed no-comp boundary instead of triggering paid OpenAI Web search.",
 );
 
 if (existsSync("src/app/seller/instacomp-pending/ChecklistIdentityGuard.tsx")) {
