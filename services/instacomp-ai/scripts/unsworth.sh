@@ -142,7 +142,10 @@ instacomp_api_watch() {
     /bin/bash "$API_SERVICE/scripts/run-local.sh" >>"$out" 2>>"$err" &
     local api_pid=$!
     local ready=0
-    for _attempt in $(seq 1 45); do
+    # Cold startup can legitimately spend a few minutes opening/indexing the
+    # large local Checklist Registry before uvicorn binds 8787. Do not kill a
+    # healthy importing worker after only 45 seconds.
+    for _attempt in $(seq 1 240); do
       if /usr/bin/curl -fsS --connect-timeout 2 --max-time 15 http://127.0.0.1:8787/health/live >/dev/null 2>&1; then ready=1; break; fi
       if ! kill -0 "$api_pid" 2>/dev/null; then break; fi
       sleep 1
