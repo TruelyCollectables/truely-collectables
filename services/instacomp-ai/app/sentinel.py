@@ -1045,6 +1045,23 @@ class ChecklistSentinel:
         *, target: dict[str, Any], source_url: str, local_path: Path,
         content_type: str, sha256: str,
     ) -> tuple[str, str | None]:
+        # Parsing and especially the multi-thousand-row SQLite transaction are
+        # blocking work. Keep the complete import lifecycle off Uvicorn's event
+        # loop so /health, scans, and Cloudflare tunnel requests remain serviceable.
+        return await asyncio.to_thread(
+            self._import_to_registry_sync,
+            target=target,
+            source_url=source_url,
+            local_path=local_path,
+            content_type=content_type,
+            sha256=sha256,
+        )
+
+    def _import_to_registry_sync(
+        self,
+        *, target: dict[str, Any], source_url: str, local_path: Path,
+        content_type: str, sha256: str,
+    ) -> tuple[str, str | None]:
         supported = {".xlsx", ".xls", ".csv", ".pdf"}
         if target.get("scope") in {"scan-recovery", "inventory-gap"}:
             supported.update({".html", ".htm"})
@@ -1052,7 +1069,7 @@ class ChecklistSentinel:
             return "downloaded_local_unsupported_format", "Only validated checklist source formats are accepted."
         inventory_gap = target.get("scope") == "inventory-gap"
         try:
-            plan = await asyncio.to_thread(self.registry_store._parse_plan, local_path, source_url, target)
+            plan = self.registry_store._parse_plan(local_path, source_url, target)
             if inventory_gap:
                 safe, reason = self._inventory_plan_identity_matches(target, plan)
                 if not safe:

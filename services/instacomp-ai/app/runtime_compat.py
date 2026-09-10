@@ -381,5 +381,5 @@ def install_sentinel_runtime_compat() -> None:
     # Sentinel code used `file`, causing otherwise-valid downloads to stop at
     # the relay boundary. Keep the corrected contract centralized here until
     # every installed runtime has moved past the legacy implementation.
-    ChecklistSentinel._import_to_registry = _import_to_registry_source_file
+    # Local Mac SQLite Registry is authoritative; keep Sentinel._import_to_registry.
     ChecklistSentinel._instacomp_source_file_relay_compat = True

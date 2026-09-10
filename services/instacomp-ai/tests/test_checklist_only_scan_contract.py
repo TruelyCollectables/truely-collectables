@@ -42,7 +42,10 @@ def test_unresolved_scan_still_builds_saves_and_blocks_response():
 
 def test_health_reports_teacher_status_without_requiring_teacher_runtime():
     source = main_source()
-    assert "ollama_ready = await reader.health()" in source
+    assert "if settings.ollama_runtime_reader_enabled:" in source
+    assert "ollama_ready = await asyncio.wait_for(reader.health(), timeout=2.0)" in source
+    assert "teacher. Dedicated teacher/system-doctor endpoints own that telemetry." in source
+    assert "ollama_ready = False" in source
     assert (
         "runtime_ollama_ready = ollama_ready if settings.ollama_runtime_reader_enabled else True"
         in source

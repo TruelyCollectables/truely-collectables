@@ -84,4 +84,9 @@ def test_runtime_compat_is_idempotent_and_uses_source_file_relay_contract() -> N
     assert getattr(SentinelSourceClient, "_instacomp_psa_render_compat", False) is True
     assert getattr(ChecklistSentinel, "_instacomp_source_file_relay_compat", False) is True
     source = inspect.getsource(ChecklistSentinel._import_to_registry)
-    assert '"sourceFile"' in source
+    sync_source = inspect.getsource(ChecklistSentinel._import_to_registry_sync)
+    assert "asyncio.to_thread" in source
+    assert "self._import_to_registry_sync" in source
+    assert "self.registry_store._parse_plan" in sync_source
+    assert "checklist_registry_entries" in sync_source
+    assert '"sourceFile"' not in source + sync_source

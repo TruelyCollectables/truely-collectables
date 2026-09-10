@@ -287,11 +287,57 @@ def _trusted_memory_back_evidence(
     return evidence
 
 
+def _database_health_ping() -> bool:
+    # Startup owns schema creation/migrations. Health must never rerun initialize()
+    # or scan/repair rows while the API is serving live work.
+    try:
+        with store.connection() as db:
+            db.execute("SELECT 1").fetchone()
+        return True
+    except Exception:
+        return False
+
+
+@app.get("/health/live")
+async def health_live():
+    # Process/event-loop liveness only. Heavy Registry, teacher, Sentinel, and
+    # Deal Hunter work must not cause a healthy process to be restarted.
+    return {
+        "ok": True,
+        "app": settings.app_name,
+        "version": settings.version,
+        "process": "alive",
+    }
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    database_ready = store.ready()
-    checklist_ready = await checklist_gateway.health()
-    ollama_ready = await reader.health()
+    # Keep readiness cheap and bounded. In particular, Ollama is an optional
+    # teacher unless it is explicitly enabled as the runtime identity reader.
+    # A busy teacher must never hold this endpoint (and the Cloudflare tunnel)
+    # hostage. Database I/O is also moved off the event loop.
+    database_task = asyncio.create_task(asyncio.to_thread(_database_health_ping))
+    checklist_task = asyncio.create_task(checklist_gateway.health())
+
+    try:
+        database_ready = await asyncio.wait_for(database_task, timeout=1.0)
+    except (asyncio.TimeoutError, OSError):
+        database_ready = False
+    try:
+        checklist_ready = await asyncio.wait_for(checklist_task, timeout=1.0)
+    except (asyncio.TimeoutError, OSError):
+        checklist_ready = False
+
+    if settings.ollama_runtime_reader_enabled:
+        try:
+            ollama_ready = await asyncio.wait_for(reader.health(), timeout=2.0)
+        except (asyncio.TimeoutError, OSError):
+            ollama_ready = False
+    else:
+        # Do not make readiness spend up to four seconds probing an optional
+        # teacher. Dedicated teacher/system-doctor endpoints own that telemetry.
+        ollama_ready = False
+
     runtime_ollama_ready = ollama_ready if settings.ollama_runtime_reader_enabled else True
     return HealthResponse(
         ok=database_ready and checklist_ready and runtime_ollama_ready,
