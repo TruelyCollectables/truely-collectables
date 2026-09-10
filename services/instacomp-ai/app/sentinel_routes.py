@@ -81,7 +81,12 @@ def build_sentinel_router(
     sentinel = ChecklistSentinel(
         database_path=database_path,
         service_root=service_root,
+        coordinated_runs=True,
     )
+    external_worker_mode = os.getenv(
+        "INSTACOMP_AI_EXTERNAL_BACKGROUND_WORKERS", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    refresh_request_path = service_root / "data" / "sentinel-worker-refresh.request"
     outer = APIRouter()
     protected = APIRouter(
         prefix="/v1/checklist-sentinel",
@@ -125,6 +130,9 @@ def build_sentinel_router(
     @outer.on_event("startup")
     async def _start_sentinel() -> None:
         nonlocal backlog_drain_task
+        if external_worker_mode:
+            sentinel.store.initialize()
+            return
         await sentinel.start()
         backlog_drain_stop.clear()
         if backlog_drain_task is None or backlog_drain_task.done():
@@ -136,6 +144,8 @@ def build_sentinel_router(
     @outer.on_event("shutdown")
     async def _stop_sentinel() -> None:
         nonlocal backlog_drain_task
+        if external_worker_mode:
+            return
         backlog_drain_stop.set()
         if backlog_drain_task:
             backlog_drain_task.cancel()
@@ -157,10 +167,24 @@ def build_sentinel_router(
             raw_keys = payload.get("target_keys") or payload.get("targetKeys")
             if isinstance(raw_keys, list):
                 target_keys = [str(value).strip() for value in raw_keys if str(value).strip()][:500]
+        if external_worker_mode:
+            requeue = None
+            if target_keys:
+                requeue = sentinel.store.requeue_targets(target_keys, priority=1)
+            return {
+                "accepted": True,
+                "queued": True,
+                "external_worker": True,
+                "requeue": requeue,
+            }
         return await sentinel.trigger(trigger=trigger[:100], target_keys=target_keys)
 
     @protected.post("/refresh-targets")
     async def refresh_targets() -> dict[str, Any]:
+        if external_worker_mode:
+            refresh_request_path.parent.mkdir(parents=True, exist_ok=True)
+            refresh_request_path.touch()
+            return {"ok": True, "queued": True, "external_worker": True}
         inventory = await sentinel.refresh_inventory_targets()
         counts = await sentinel.refresh_targets()
         return {"ok": True, "inventory": inventory, "targets": counts}

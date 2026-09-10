@@ -23,6 +23,7 @@ from .sentinel_sources import (
 )
 from .sentinel_store import SentinelStore
 from .local_registry_store import LocalRegistryStore, registry_semantic_key
+from .resource_coordinator import HeavyWorkCoordinator
 from .inventory_checklist_targets import write_inventory_target_snapshot
 
 
@@ -117,9 +118,19 @@ class ChecklistSentinel:
     are confirmed.
     """
 
-    def __init__(self, *, database_path: Path, service_root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        database_path: Path,
+        service_root: Path,
+        coordinated_runs: bool = False,
+    ) -> None:
         self.database_path = database_path
         self.service_root = service_root
+        self.coordinated_runs = coordinated_runs
+        self._heavy_work = HeavyWorkCoordinator(
+            service_root / "data" / "database" / "background_work.sqlite3"
+        )
         self.repo_root = service_root.parents[1]
         self.store = SentinelStore(database_path)
         # Canonical checklist truth lives in the Mac registry SQLite. Sentinel
@@ -357,16 +368,32 @@ class ChecklistSentinel:
                     "job": latest,
                 }
 
+            heavy_lease = None
+            if self.coordinated_runs:
+                heavy_lease = await self._heavy_work.acquire(
+                    "checklist-sentinel",
+                    priority=60,
+                )
+
             job_id, existing = self.store.acquire_job(trigger, self.stale_seconds)
             if not job_id:
+                if heavy_lease is not None:
+                    await heavy_lease.release()
                 return {
                     "accepted": False,
                     "reason": "already_running",
                     "job": existing,
                 }
 
+            async def run_claimed_job() -> None:
+                try:
+                    await self._run(job_id, target_keys=target_keys)
+                finally:
+                    if heavy_lease is not None:
+                        await heavy_lease.release()
+
             self._run_task = asyncio.create_task(
-                self._run(job_id, target_keys=target_keys),
+                run_claimed_job(),
                 name=f"instacomp-ai-checklist-sentinel-{job_id}",
             )
             return {

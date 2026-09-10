@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .config import settings
 from .deal_hunter import DealHunterScheduler
-from .deal_hunter_store import DealHunterStore
+from .deal_hunter_store import DealHunterStore, iso, utc_now
 from .deal_hunter_targeted import ALLOWED_TARGET_LANES, run_targeted_lane
 
 
@@ -12,16 +13,30 @@ _store = DealHunterStore(settings.resolve_local_path(settings.deal_hunter_databa
 _scheduler = DealHunterScheduler(settings, _store)
 
 
+def _external_worker_mode() -> bool:
+    return os.getenv("INSTACOMP_AI_EXTERNAL_BACKGROUND_WORKERS", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def build_deal_hunter_router(require_api_key) -> APIRouter:
     router = APIRouter(prefix="/v1/deal-hunter", tags=["Deal Hunter"])
 
     @router.on_event("startup")
     async def start_deal_hunter_scheduler() -> None:
+        if _external_worker_mode():
+            _store.initialize()
+            _store.configure(
+                enabled=bool(settings.deal_hunter_enabled),
+                interval_minutes=max(15, int(settings.deal_hunter_interval_minutes)),
+            )
+            return
         await _scheduler.start()
 
     @router.on_event("shutdown")
     async def stop_deal_hunter_scheduler() -> None:
-        await _scheduler.stop()
+        if not _external_worker_mode():
+            await _scheduler.stop()
 
     @router.get("/status", dependencies=[Depends(require_api_key)])
     async def deal_hunter_status():
@@ -45,6 +60,21 @@ def build_deal_hunter_router(require_api_key) -> APIRouter:
 
     @router.post("/run", dependencies=[Depends(require_api_key)])
     async def run_deal_hunter_now():
+        if _external_worker_mode():
+            state = _store.scheduler_state()
+            if bool(state.get("running")):
+                return {
+                    "accepted": False,
+                    "reason": "A Deal Hunter worker run is already active.",
+                    "active_run_id": state.get("active_run_id"),
+                }
+            now = utc_now()
+            with _store.connection() as db:
+                db.execute(
+                    "UPDATE deal_hunter_scheduler_state SET next_run_at=?, updated_at=? WHERE singleton_id=1",
+                    (iso(now), iso(now)),
+                )
+            return {"accepted": True, "queued": True, "external_worker": True}
         return await _scheduler.run_now(trigger="manual")
 
     @router.post("/run-targeted", dependencies=[Depends(require_api_key)])
@@ -55,6 +85,11 @@ def build_deal_hunter_router(require_api_key) -> APIRouter:
     ):
         if lane not in ALLOWED_TARGET_LANES:
             raise HTTPException(status_code=400, detail="Unknown Deal Hunter lane")
+        if _external_worker_mode():
+            raise HTTPException(
+                status_code=409,
+                detail="Targeted Deal Hunter runs are owned by the external worker process.",
+            )
         return await run_targeted_lane(
             _scheduler,
             lane=lane,

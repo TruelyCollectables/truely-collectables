@@ -13,6 +13,7 @@ import httpx
 
 from .deal_hunter_learning import record_decision_learning_event, shoe_decision_memory
 from .deal_hunter_store import DealHunterStore, utc_now
+from .resource_coordinator import CoordinatedAsyncLock, HeavyWorkCoordinator
 
 
 # The third value is a safety floor, not an exact family count. New query
@@ -282,7 +283,13 @@ class DealHunterScheduler:
         self.settings = settings
         self.store = store
         self._task: asyncio.Task | None = None
-        self._run_lock = asyncio.Lock()
+        self._heavy_work = HeavyWorkCoordinator(store.path.parent / "background_work.sqlite3")
+        self._run_lock = CoordinatedAsyncLock(
+            asyncio.Lock(),
+            self._heavy_work,
+            owner="deal-hunter",
+            priority=80,
+        )
         self._stopping = asyncio.Event()
 
     @property

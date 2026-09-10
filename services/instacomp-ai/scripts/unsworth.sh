@@ -49,7 +49,7 @@ printf '%s\n' "$$" > "$LOCKDIR/pid"
 printf '%s\n' "$$" > "$LOCKFILE"
 # A prior Deal Hunter run can leave this transient flag behind if Unsworth is restarted.
 # No Deal Hunter job from the prior supervisor can remain authoritative after this lock is acquired.
-rm -f "$STATE_ROOT/deal-hunter-active" "$STATE_ROOT/lora-training-active"
+rm -f "$STATE_ROOT/deal-hunter-active" "$STATE_ROOT/sentinel-active" "$STATE_ROOT/lora-training-active"
 
 MASTER_LOG="$LOG_ROOT/unsworth.log"
 PIDS=()
@@ -97,29 +97,56 @@ start_loop() {
 
 instacomp_api_watch() {
   local out="$LOG_ROOT/instacomp-api.log" err="$LOG_ROOT/instacomp-api.err.log"
+  local health_misses=0
   while true; do
-    if /usr/bin/curl -fsS --connect-timeout 2 --max-time 15 http://127.0.0.1:8787/health >/dev/null 2>&1; then
+    if /usr/bin/curl -fsS --connect-timeout 2 --max-time 15 http://127.0.0.1:8787/health/live >/dev/null 2>&1; then
+      health_misses=0
       sleep 10
       continue
     fi
     local listeners
     listeners=$(lsof -tiTCP:8787 -sTCP:LISTEN 2>/dev/null || true)
     if [ -n "$listeners" ]; then
-      # A long card evaluation can temporarily make /health miss its response
-      # window even though uvicorn is alive and owns 8787. Never kill a live
-      # listener just because one health probe timed out; that used to abort
-      # Deal Hunter in the middle of real WNBA evaluations.
-      log "instacomp-api health probe missed while listener(s) still own 8787: ${listeners//$'\n'/ }; preserving live API"
-      sleep 10
+      # Normal hung listeners still get six misses. A CPU-active Uvicorn that
+      # currently has the authoritative Registry open may be rebuilding the
+      # Sentinel inventory snapshot; that legitimate 15+ GB scan gets twelve
+      # misses (~5 minutes with curl timeouts) before restart.
+      health_misses=$((health_misses + 1))
+      local miss_limit=6 registry_busy=0 listener_pid cpu
+      for listener_pid in $listeners; do
+        cpu=$(ps -p "$listener_pid" -o %cpu= 2>/dev/null | awk '{print int($1+0)}')
+        if [ "${cpu:-0}" -ge 10 ] && lsof -p "$listener_pid" 2>/dev/null | grep -q 'checklist_registry.sqlite3'; then
+          registry_busy=1
+          break
+        fi
+      done
+      [ "$registry_busy" -eq 1 ] && miss_limit=12
+      if [ "$health_misses" -lt "$miss_limit" ]; then
+        log "instacomp-api health miss ${health_misses}/${miss_limit} while listener(s) own 8787: ${listeners//$'\n'/ }; grace period registry_busy=${registry_busy}"
+        sleep 10
+        continue
+      fi
+      log "instacomp-api listener(s) failed health ${miss_limit} consecutive times; restarting hung pid(s): ${listeners//$'\n'/ } registry_busy=${registry_busy}"
+      for listener_pid in $listeners; do kill -TERM "$listener_pid" 2>/dev/null || true; done
+      sleep 5
+      for listener_pid in $listeners; do
+        if kill -0 "$listener_pid" 2>/dev/null; then kill -KILL "$listener_pid" 2>/dev/null || true; fi
+      done
+      health_misses=0
+      sleep 2
       continue
     fi
+    health_misses=0
     local started rc runtime
     started=$(date +%s); log "Starting instacomp-api"
-    /bin/bash "$API_SERVICE/scripts/run-local.sh" >>"$out" 2>>"$err" &
+    INSTACOMP_AI_EXTERNAL_BACKGROUND_WORKERS=1 /bin/bash "$API_SERVICE/scripts/run-local.sh" >>"$out" 2>>"$err" &
     local api_pid=$!
     local ready=0
-    for _attempt in $(seq 1 45); do
-      if /usr/bin/curl -fsS --connect-timeout 2 --max-time 15 http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=1; break; fi
+    # Cold startup can legitimately spend a few minutes opening/indexing the
+    # large local Checklist Registry before uvicorn binds 8787. Do not kill a
+    # healthy importing worker after only 45 seconds.
+    for _attempt in $(seq 1 240); do
+      if /usr/bin/curl -fsS --connect-timeout 2 --max-time 15 http://127.0.0.1:8787/health/live >/dev/null 2>&1; then ready=1; break; fi
       if ! kill -0 "$api_pid" 2>/dev/null; then break; fi
       sleep 1
     done
@@ -190,7 +217,7 @@ lora_training_watch() {
       continue
     fi
     local discovery current adapter
-    if [ -f "$STATE_ROOT/deal-hunter-active" ]; then
+    if [ -f "$STATE_ROOT/deal-hunter-active" ] || [ -f "$STATE_ROOT/sentinel-active" ]; then
       sleep 30
       continue
     fi
@@ -232,14 +259,17 @@ lora_training_watch() {
   done
 }
 
+checklist_api_key() {
+  awk -F= '$1=="INSTACOMP_AI_API_KEY" {sub(/^[^=]*=/, ""); gsub(/^"|"$/, ""); print; exit}' "$SERVICE/.env"
+}
+
 checklist_verified_today() {
   local registry="$SERVICE/data/database/checklist_registry.sqlite3"
   "$SERVICE/.venv/bin/python" - "$registry" <<'PYLOCAL'
 import sqlite3, sys
 from pathlib import Path
 registry = Path(sys.argv[1])
-if not registry.is_file():
-    raise SystemExit(2)
+if not registry.is_file(): raise SystemExit(2)
 db = sqlite3.connect(f"file:{registry}?mode=ro", uri=True, timeout=10)
 try:
     row = db.execute("""
@@ -249,111 +279,76 @@ try:
           AND date(imported_at, 'localtime') = date('now', 'localtime')
     """).fetchone()
     print(int((row or [0])[0] or 0))
-finally:
-    db.close()
+finally: db.close()
 PYLOCAL
 }
+
 run_checklist_discovery_once() {
-  local today="$1" stamp="$STATE_ROOT/checklist-last-discovery-date" last="" rc=0
+  local today="$1" stamp="$STATE_ROOT/checklist-last-discovery-date" last="" key="" response="" rc=0
   [ -f "$stamp" ] && last=$(tail -1 "$stamp" 2>/dev/null || true)
   [ "$last" = "$today" ] && return 0
-  log "Checklist: discovering fresh official manufacturer sources"
-  if [ ! -f "$ROOT/scripts/discover-official-checklists.ts" ]; then
-    log "Checklist: discovery script missing; skipping official discovery"
-    return 0
+  key=$(checklist_api_key)
+  if [ -z "$key" ]; then
+    log "Checklist: local Sentinel refresh FAILED missing InstaComp API key"
+    return 91
   fi
-  (
-    cd "$ROOT" || exit 90
-    OFFICIAL_DISCOVERY_PAGE_LIMIT="${OFFICIAL_DISCOVERY_PAGE_LIMIT:-250}" /opt/homebrew/bin/node --import tsx scripts/discover-official-checklists.ts
-    if [ -f "scripts/sync-official-manufacturer-seeds.mjs" ]; then
-      /opt/homebrew/bin/node --env-file=.env.local scripts/sync-official-manufacturer-seeds.mjs
-    else
-      log "Checklist: sync-official-manufacturer-seeds.mjs missing; skipping queue sync"
-    fi
-  ) >>"$LOG_ROOT/checklist-discovery.log" 2>>"$LOG_ROOT/checklist-discovery.err.log"
+  log "Checklist: refreshing Mac-local Sentinel targets"
+  response=$(/usr/bin/curl -fsS --max-time 45 -X POST -H "X-InstaComp-AI-Key: $key" \
+    "http://127.0.0.1:8787/v1/checklist-sentinel/refresh-targets" 2>>"$LOG_ROOT/checklist-discovery.err.log")
   rc=$?
   if [ "$rc" -eq 0 ]; then
     printf '%s\n' "$today" > "$stamp"
-    log "Checklist: official discovery and queue sync completed"
+    log "Checklist: Mac-local Sentinel target refresh completed"
   else
-    log "Checklist: official discovery failed rc=$rc; backlog processing will continue"
+    log "Checklist: Mac-local Sentinel target refresh failed rc=$rc"
   fi
   return "$rc"
 }
 
 run_checklist_once() {
-  local today="$1" goal="${CHECKLIST_DAILY_GOAL:-100}" override_goal=""
+  local today="$1" goal="${CHECKLIST_DAILY_GOAL:-100}" override_goal="" key="" response=""
   local goal_file="$STATE_ROOT/checklist-daily-goal-$today"
-  local verified=0 rc=0 attempted=0
+  local verified=0 rc=0
   if [ -s "$goal_file" ]; then
     override_goal=$(tail -1 "$goal_file" 2>/dev/null || true)
-    if [[ "$override_goal" =~ ^[0-9]+$ ]] && [ "$override_goal" -gt 0 ]; then
-      goal="$override_goal"
-    fi
+    if [[ "$override_goal" =~ ^[0-9]+$ ]] && [ "$override_goal" -gt 0 ]; then goal="$override_goal"; fi
   fi
+  key=$(checklist_api_key)
+  if [ -z "$key" ]; then log "Checklist: FAILED missing local API key"; return 91; fi
   while [ "$(date +%F)" = "$today" ]; do
     verified=$(checklist_verified_today 2>>"$LOG_ROOT/checklist-nightly.err.log" || echo -1)
     if ! [[ "$verified" =~ ^[0-9]+$ ]]; then
-      log "Checklist: could not read Mac-local daily verified total; waiting for the local Registry and retrying"
-      notify_restart "checklist-daily-goal" 93
-      sleep 30
-      continue
+      log "Checklist: could not read Mac-local daily verified total; retrying"
+      notify_restart "checklist-daily-goal" 93; sleep 30; continue
     fi
     if [ "$verified" -ge "$goal" ]; then
       printf '%s\n' "$today" > "$STATE_ROOT/checklist-last-run-date"
-      log "Checklist: daily goal reached ${verified}/${goal} for $today"
-      /usr/bin/osascript -e "display notification \"Daily Mac Registry goal reached: ${verified}/${goal} locally imported verified sets.\" with title \"Unsworth\" sound name \"Glass\"" >/dev/null 2>&1 || true
+      log "Checklist: daily local Registry goal reached ${verified}/${goal}"
       return 0
     fi
-    log "Checklist: daily progress ${verified}/${goal}; draining eligible checklist queue"
-    (
-      cd "$ROOT" || exit 90
-      export CHECKLIST_NIGHTLY_LIMIT=10000
-      export CHECKLIST_NIGHTLY_WORKERS=4
-      export CHECKLIST_NIGHTLY_WORKER_ID="$(hostname)-tcos-checklist"
-      if [ -f "$ROOT/scripts/nightly-checklist-queue-worker.mjs" ]; then
-        /opt/homebrew/bin/node --import tsx --env-file="$ROOT/.env.local" "$ROOT/scripts/nightly-checklist-queue-worker.mjs"
-      else
-        log "Checklist: nightly queue worker missing; skipping batch run"
-        exit 95
-      fi
-    ) >>"$LOG_ROOT/checklist-nightly.log" 2>>"$LOG_ROOT/checklist-nightly.err.log"
+    response=$(/usr/bin/curl -fsS --max-time 45 -X POST \
+      -H "X-InstaComp-AI-Key: $key" -H "Content-Type: application/json" \
+      -d '{"trigger":"unsworth-daily-goal"}' \
+      "http://127.0.0.1:8787/v1/checklist-sentinel/run" 2>>"$LOG_ROOT/checklist-nightly.err.log")
     rc=$?
     if [ "$rc" -ne 0 ]; then
-      log "Checklist: batch FAILED rc=$rc at ${verified}/${goal}; retrying later"
-      notify_restart "checklist-nightly" "$rc"
-      return "$rc"
+      log "Checklist: Mac-local Sentinel trigger FAILED rc=$rc at ${verified}/${goal}"
+      notify_restart "checklist-sentinel-local" "$rc"; sleep 60; continue
     fi
-    attempted=$(python3 - "$HOME/Library/Application Support/TCOS-Checklist-Nightly/latest-report.json" <<'PYR' 2>/dev/null || echo 0
-import json,sys
-try: print(int(json.load(open(sys.argv[1])).get('summary',{}).get('attempted',0)))
-except Exception: print(0)
-PYR
-)
-    if [ "$attempted" -eq 0 ]; then
-      log "Checklist: queue empty; running discovery/repair/requeue instead of stopping"
-      run_checklist_discovery_once "$today" || true
-      rm -f "$STATE_ROOT/checklist-official-discovery-$today"
-      run_checklist_discovery_once "$today" || true
-      sleep 30
-      continue
-    fi
+    log "Checklist: local progress ${verified}/${goal}; Sentinel run requested"
+    sleep 60
   done
   return 0
 }
 checklist_scheduler() {
   local stamp="$STATE_ROOT/checklist-last-run-date"
   while true; do
-    if [ -f "$STATE_ROOT/checklist-maintenance-pause" ]; then
-      sleep 60
-      continue
-    fi
+    if [ -f "$STATE_ROOT/checklist-maintenance-pause" ]; then sleep 60; continue; fi
     local today hour last=""
-    today=$(date +%F)
-    hour=$(date +%H)
+    today=$(date +%F); hour=$(date +%H)
     [ -f "$stamp" ] && last=$(tail -1 "$stamp" 2>/dev/null || true)
     if [ $((10#$hour)) -ge 1 ] && [ "$last" != "$today" ]; then
-      run_checklist_discovery_once "$today" &
+      run_checklist_discovery_once "$today" || true
       run_checklist_once "$today" || sleep 300
     fi
     sleep 60
@@ -506,6 +501,7 @@ checklist_registry_bridge_run_once() {
 checklist_registry_bridge_scheduler() {
   local stamp="$STATE_ROOT/checklist-registry-bridge-last-run-epoch" interval=300
   while true; do
+    if [ -f "$STATE_ROOT/checklist-maintenance-pause" ]; then sleep 30; continue; fi
     local now last=0
     now=$(date +%s)
     [ -f "$stamp" ] && last=$(cat "$stamp" 2>/dev/null || echo 0)
@@ -521,7 +517,6 @@ checklist_registry_bridge_scheduler() {
     sleep 30
   done
 }
-
 
 checklist_learning_run_once() {
   local rc
@@ -556,6 +551,7 @@ teacher_student_run_once() {
 teacher_student_scheduler() {
   local stamp="$STATE_ROOT/teacher-student-last-run" interval=21600
   while true; do
+    if [ -f "$STATE_ROOT/checklist-maintenance-pause" ]; then sleep 60; continue; fi
     local now last=0
     now=$(date +%s)
     [ -f "$stamp" ] && last=$(cat "$stamp" 2>/dev/null || echo 0)
@@ -577,6 +573,7 @@ checklist_learning_scheduler() {
   local registry="$SERVICE/data/database/checklist_registry.sqlite3"
   local registry_wal="${registry}-wal" interval=3600
   while true; do
+    if [ -f "$STATE_ROOT/checklist-maintenance-pause" ]; then sleep 60; continue; fi
     local now last=0 registry_mtime=0 wal_mtime=0
     now=$(date +%s)
     [ -f "$stamp" ] && last=$(cat "$stamp" 2>/dev/null || echo 0)
@@ -633,7 +630,7 @@ cleanup() {
     rm -rf "$LOCKDIR"
     rm -f "$LOCKFILE"
   fi
-  rm -f "$STATE_ROOT/deal-hunter-active" "$STATE_ROOT/lora-training-active"
+  rm -f "$STATE_ROOT/deal-hunter-active" "$STATE_ROOT/sentinel-active" "$STATE_ROOT/lora-training-active"
   for pid in "${PIDS[@]}"; do kill_tree "$pid"; done
   wait 2>/dev/null || true
   exit 0
@@ -652,17 +649,21 @@ else
   log "Training lanes skipped because the mounted adapter workspace is unavailable"
 fi
 
-# Checklist Sentinel is owned by the local InstaComp API and its SQLite-backed
-# scheduler. Do not start the legacy Supabase queue worker here.
-log "Checklist: using Mac-local Sentinel SQLite scheduler"
-start_loop "deal-hunter-scheduler" deal_hunter_scheduler
+# Background schedulers are isolated from Uvicorn. Both workers are nice(10)
+# and share the Mac heavy-work coordinator, so Sentinel and Deal Hunter never
+# execute heavy runs at the same time.
+log "Checklist/Deal Hunter: using isolated Mac worker processes"
+start_loop "sentinel-worker" /bin/bash "$SERVICE/scripts/run-sentinel-worker.sh"
+start_loop "deal-hunter-worker" /bin/bash "$SERVICE/scripts/run-deal-hunter-worker.sh"
 start_loop "truely-ebay-inventory" /bin/bash "$STATE_ROOT/truely-ebay-inventory-employee.sh"
 start_loop "dagdanky-inventory-scheduler" dagdanky_inventory_scheduler
 start_loop "external-learning-scheduler" external_learning_scheduler
 start_loop "checklist-registry-bridge-scheduler" checklist_registry_bridge_scheduler
 start_loop "checklist-learning-scheduler" checklist_learning_scheduler
 start_loop "teacher-student-scheduler" teacher_student_scheduler
-start_loop "daily-operations-report" /bin/bash "$STATE_ROOT/unsworth-daily-report-employee.sh"
+# 04:00 InstaComp hardening + 08:00 emailed operations report are one fail-closed employee.
+start_loop "instacomp-hardening-and-daily-report" /bin/bash "$STATE_ROOT/unsworth-daily-report-employee.sh"
+start_loop "instacomp-monthly-market-report" /bin/bash "$STATE_ROOT/instacomp-monthly-market-report-employee.sh"
 
 log "Unsworth launched managed workers: ${PIDS[*]}"
 while true; do sleep 300; done
