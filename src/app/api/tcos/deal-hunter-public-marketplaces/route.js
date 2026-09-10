@@ -200,7 +200,11 @@ export async function GET(request) {
     const result = await publicSearchService.search({
       query: family.query,
       sources: family.sources,
-      filters: { liveListingsOnly: true, directListingUrlsOnly: true },
+      filters: {
+        liveListingsOnly: true,
+        directListingUrlsOnly: true,
+        ...(scope === "shoe_deals" ? { sortBy: "asking_price_asc" } : {}),
+      },
       maxResults: perQuery,
       exactIdentityOnly: false,
     });

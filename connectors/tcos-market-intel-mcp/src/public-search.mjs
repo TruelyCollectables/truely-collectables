@@ -728,7 +728,15 @@ export class PublicSearchService {
       const timestamp = resultTime(result);
       return timestamp === 0 || timestamp >= cutoff;
     });
-    freshOrUndated.sort((a, b) => resultTime(b) - resultTime(a));
+    if (request.filters?.sortBy === "asking_price_asc") {
+      freshOrUndated.sort((a, b) => {
+        const left = Number.isFinite(Number(a.askingPrice)) ? Number(a.askingPrice) : Number.POSITIVE_INFINITY;
+        const right = Number.isFinite(Number(b.askingPrice)) ? Number(b.askingPrice) : Number.POSITIVE_INFINITY;
+        return left - right || resultTime(b) - resultTime(a);
+      });
+    } else {
+      freshOrUndated.sort((a, b) => resultTime(b) - resultTime(a));
+    }
 
     const maxResults = Math.max(1, Math.min(request.maxResults || config.searchMaxResults, config.searchMaxResults));
     const perSourceCap = Math.max(1, Math.ceil(maxResults * 0.6));
