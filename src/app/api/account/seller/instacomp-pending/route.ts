@@ -677,6 +677,36 @@ export async function GET(request: Request) {
         })
       : instaCompRows;
 
+    const scopedProductIds = Array.from(
+      new Set(
+        scopedInstaCompRows
+          .map((row: any) => row.legacy_product_id)
+          .filter((value: unknown): value is number => typeof value === "number"),
+      ),
+    );
+    const linkedEbayProducts: Array<{ id: number; ebay_item_id: string | null }> = [];
+    for (let index = 0; index < scopedProductIds.length; index += 250) {
+      const productIdBatch = scopedProductIds.slice(index, index + 250);
+      const { data, error } = await supabase
+        .from("products")
+        .select("id,ebay_item_id")
+        .eq("store_id", storeId)
+        .in("id", productIdBatch);
+      if (error) throw error;
+      linkedEbayProducts.push(...((data || []) as typeof linkedEbayProducts));
+    }
+    const legacyEbayLinkedProductIds = new Set(
+      linkedEbayProducts
+        .filter((product) => Boolean(textValue(product.ebay_item_id)))
+        .map((product) => Number(product.id)),
+    );
+    const rowHasLegacyEbayListing = (row: any) =>
+      typeof row.legacy_product_id === "number" &&
+      legacyEbayLinkedProductIds.has(Number(row.legacy_product_id));
+    const rowIsUnlistedEverywhere = (row: any) =>
+      listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) ===
+      "pending";
+
     const queueCounts = {
       listings: scopedInstaCompRows.filter(
         (row: any) =>
@@ -684,36 +714,13 @@ export async function GET(request: Request) {
       ).length,
       verification: scopedInstaCompRows.filter(
         (row: any) =>
-          instaCompPendingQueueFromMetadata(row.metadata) === "verification",
+          instaCompPendingQueueFromMetadata(row.metadata) === "verification" &&
+          rowIsUnlistedEverywhere(row),
       ).length,
     };
     const listingRows = scopedInstaCompRows.filter(
       (row: any) => instaCompPendingQueueFromMetadata(row.metadata) === "listings",
     );
-    const listingProductIds = Array.from(
-      new Set(
-        listingRows
-          .map((row: any) => row.legacy_product_id)
-          .filter((value: unknown): value is number => typeof value === "number"),
-      ),
-    );
-    const { data: linkedEbayProducts, error: linkedEbayProductError } =
-      listingProductIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
-            .from("products")
-            .select("id,ebay_item_id")
-            .eq("store_id", storeId)
-            .in("id", listingProductIds);
-    if (linkedEbayProductError) throw linkedEbayProductError;
-    const legacyEbayLinkedProductIds = new Set(
-      (linkedEbayProducts || [])
-        .filter((product: any) => Boolean(textValue(product.ebay_item_id)))
-        .map((product: any) => Number(product.id)),
-    );
-    const rowHasLegacyEbayListing = (row: any) =>
-      typeof row.legacy_product_id === "number" &&
-      legacyEbayLinkedProductIds.has(Number(row.legacy_product_id));
 
     const folderCounts = {
       pending: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "pending").length,
@@ -725,7 +732,7 @@ export async function GET(request: Request) {
     const rows = scopedInstaCompRows.filter((row: any) => {
       const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
       if (rowQueue !== queue) return false;
-      if (queue === "verification") return true;
+      if (queue === "verification") return rowIsUnlistedEverywhere(row);
       if (listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) !== folder) return false;
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
