@@ -593,6 +593,7 @@ export async function POST(request: Request) {
                 "/v1/kingmaker/accounting/ebay-bridge",
                 {
                   mode: "revise",
+                  confirmation: "REVISE_LIVE",
                   revision: {
                     sku,
                     listingId: existingEbayListingId,
@@ -606,7 +607,7 @@ export async function POST(request: Request) {
               )
             : await postInstaCompMacAccounting(
                 "/v1/kingmaker/accounting/ebay-bridge",
-                { mode: "publish", item: ebayItem },
+                { mode: "publish", confirmation: "PUBLISH_LIVE", item: ebayItem },
                 150_000,
               );
           ebayResult = {

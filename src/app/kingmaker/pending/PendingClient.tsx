@@ -1083,6 +1083,8 @@ export default function KingmakerPendingPage({
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
       let completed = 0;
+      let websiteCompleted = 0;
+      let ebayCompleted = 0;
       const failures: string[] = [];
       for (const card of targets) {
         const channel = card.instaComp.channelPricing;
@@ -1108,14 +1110,39 @@ export default function KingmakerPendingPage({
           }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok || data.success !== true) {
-          failures.push(`${card.title}: ${data.error || data.errors?.join("; ") || "publish failed"}`);
+        const websitePublished = data.websitePublished === true;
+        const ebayPublished = data.ebayPublished === true;
+        if (websitePublished) websiteCompleted += 1;
+        if (ebayPublished) ebayCompleted += 1;
+        const requestedChannelsPublished =
+          action === "publish-website"
+            ? websitePublished
+            : action === "publish-ebay"
+              ? ebayPublished
+              : websitePublished && ebayPublished;
+        if (!response.ok || data.success !== true || !requestedChannelsPublished) {
+          const partialChannels = [
+            websitePublished ? "website LIVE" : null,
+            ebayPublished ? "eBay LIVE" : null,
+          ].filter(Boolean);
+          const detail = data.error || data.errors?.join("; ") || "publish failed";
+          failures.push(
+            `${card.title}: ${partialChannels.length ? `${partialChannels.join(" + ")}; ` : ""}${detail}`,
+          );
         } else {
           completed += 1;
         }
       }
+      const channelSummary =
+        action === "publish-website"
+          ? `Website ${websiteCompleted}/${targets.length}`
+          : action === "publish-ebay"
+            ? `eBay ${ebayCompleted}/${targets.length}`
+            : `Website ${websiteCompleted}/${targets.length} · eBay ${ebayCompleted}/${targets.length}`;
       const failureSummary = failures.length ? ` ${failures[0]}` : "";
-      setNotice(`Published ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}.${failureSummary}`);
+      setNotice(
+        `Publish result: ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} fully completed · ${channelSummary}.${failureSummary}`,
+      );
       if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
       setSelectedIds(new Set());
       await load(queue || queueFromLocation() || "listings", folderFromLocation());
