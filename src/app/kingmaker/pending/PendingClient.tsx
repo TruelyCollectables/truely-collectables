@@ -308,19 +308,6 @@ function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
     : null;
 }
 
-function serialRunLabel(value: string) {
-  const normalized = String(value || "")
-    .replace(/[|｜]/g, "/")
-    .replace(/[–—−]/g, "-")
-    .replace(/\bno\.?\s*(\d{1,5})\b/gi, "$1")
-    .replace(/\b#\s*(\d{1,5})\b/gi, "$1")
-    .replace(/\bnumber\s*(\d{1,5})\b/gi, "$1")
-    .replace(/\b(\d{1,6})\s*[- ]?of[- ]?(\d{1,6})\b/gi, "$1/$2")
-    .replace(/\s+/g, "");
-  const match = normalized.match(/\/(\d{1,6})$/) || normalized.match(/^(\d{1,6})$/);
-  return match ? `/${Number(match[1])}` : "";
-}
-
 function identityReadout(card: PendingCard) {
   const identity = card.instaComp.identity || {};
   const clean = (value?: string | null) => {
@@ -370,13 +357,6 @@ function identityReadout(card: PendingCard) {
   return pieces.join(" ").replace(/\s+/g, " ").trim();
 }
 
-function serialTitleLabel(value: string) {
-  const compact = String(value || "").replace(/[|｜]/g, "/").replace(/\s+/g, "");
-  const exact = compact.match(/^(\d{1,6})\/(\d{1,6})$/);
-  if (exact) return `${Number(exact[1])}/${Number(exact[2])}`;
-  return serialRunLabel(compact);
-}
-
 function canonicalSetTitle(value: string) {
   const clean = value.trim();
   if (/^base(?: set)?$/i.test(clean)) return "";
@@ -384,12 +364,30 @@ function canonicalSetTitle(value: string) {
 }
 
 function standardizedTitle(edit: EditState) {
-  const setName = canonicalSetTitle(edit.setName);
-  const parallel = /^base$/i.test(edit.parallel.trim()) ? "" : edit.parallel.trim();
-  const product = edit.product.trim() || edit.brand.trim() || edit.manufacturer.trim();
-  const team = edit.team.trim() ? `(${edit.team.trim()})` : "";
-  return [edit.year.trim(), product, setName, edit.cardNumber.trim() ? `#${edit.cardNumber.trim().replace(/^#/, "")}` : "", edit.player.trim(), parallel, serialTitleLabel(edit.printRun), team]
-    .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const year = edit.year.trim();
+  const rawSetName = canonicalSetTitle(edit.setName).trim();
+  const setName = rawSetName
+    .split(/\s+[-–—]\s+/)[0]
+    .replace(new RegExp(`^${year.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`, "i"), "")
+    .trim();
+  const manufacturer = edit.manufacturer.trim() || edit.brand.trim();
+  const product = edit.product.trim();
+  const manufacturerSet = setName
+    ? (manufacturer && !setName.toLowerCase().startsWith(manufacturer.toLowerCase())
+        ? `${manufacturer} ${setName}`
+        : setName)
+    : [manufacturer, product].filter(Boolean).join(" ").trim();
+  const parallelRaw = edit.parallel.trim();
+  const parallel = /^(?:base|base set)$/i.test(parallelRaw)
+    ? ""
+    : parallelRaw.replace(/^Prizm \((.+)\)$/i, "$1 Prizm");
+  return [
+    year,
+    manufacturerSet,
+    edit.cardNumber.trim() ? `#${edit.cardNumber.trim().replace(/^#/, "")}` : "",
+    edit.player.trim(),
+    parallel,
+  ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 }
 
 function initialEdit(card: PendingCard): EditState {

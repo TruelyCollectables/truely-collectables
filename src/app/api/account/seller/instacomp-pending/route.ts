@@ -607,11 +607,16 @@ export async function GET(request: Request) {
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
       const cardIdentity = recordValue(metadata.card_identity);
+      const legacyCardIdentity = recordValue(metadata.cardIdentity);
       const saleIdentity = recordValue(metadata.sale_identity);
       const hasInstaCompSource = Boolean(
         textValue(instaComp.source) || textValue(instaComp.scanId),
       );
       const hasStoredIdentity = Boolean(
+        textValue(legacyCardIdentity.year) ||
+        textValue(legacyCardIdentity.player) ||
+        textValue(legacyCardIdentity.cardNumber) ||
+        textValue(legacyCardIdentity.card_number) ||
         textValue(cardIdentity.year) ||
         textValue(cardIdentity.player) ||
         textValue(cardIdentity.cardNumber) ||
@@ -851,7 +856,9 @@ export async function GET(request: Request) {
       const dualWebsite = recordValue(dualMarketplace.website);
       const dualEbay = recordValue(dualMarketplace.ebay);
       const cardIdentity = recordValue(metadata.card_identity);
+      const legacyCardIdentity = recordValue(metadata.cardIdentity);
       const saleIdentity = recordValue(metadata.sale_identity);
+      const titleNormalization = recordValue(metadata.titleNormalization);
       const pricingGroupKey = effectiveInstaCompPricingGroupKey(metadata);
       const pricingGroupRows = pricingGroupKey
         ? pricingGroups.get(pricingGroupKey) || []
@@ -1037,12 +1044,15 @@ export async function GET(request: Request) {
             year: manualIdentityLocked
               ? textValue(primaryIdentity.year)
               : textValue(primaryIdentity.year) ||
+                textValue(legacyCardIdentity.year) ||
                 textValue(cardIdentity.year) ||
                 textValue(saleIdentity.year),
             manufacturer: manualIdentityLocked
               ? textValue(primaryIdentity.manufacturer)
               : textValue(primaryIdentity.manufacturer) ||
                 textValue(primaryIdentity.brand) ||
+                textValue(legacyCardIdentity.manufacturer) ||
+                textValue(legacyCardIdentity.brand) ||
                 textValue(cardIdentity.manufacturer) ||
                 textValue(cardIdentity.brand) ||
                 textValue(saleIdentity.manufacturer) ||
@@ -1050,11 +1060,13 @@ export async function GET(request: Request) {
             brand: manualIdentityLocked
               ? textValue(primaryIdentity.brand)
               : textValue(primaryIdentity.brand) ||
+                textValue(legacyCardIdentity.brand) ||
                 textValue(cardIdentity.brand) ||
                 textValue(saleIdentity.brand),
             product: manualIdentityLocked
               ? textValue(primaryIdentity.product)
               : textValue(primaryIdentity.product) ||
+                textValue(legacyCardIdentity.product) ||
                 textValue(cardIdentity.product) ||
                 textValue(saleIdentity.product),
             setName: manualIdentityLocked
@@ -1062,13 +1074,17 @@ export async function GET(request: Request) {
                 textValue(primaryIdentity.set_name)
               : textValue(primaryIdentity.setName) ||
                 textValue(primaryIdentity.set_name) ||
+                textValue(legacyCardIdentity.setName) ||
+                textValue(legacyCardIdentity.set_name) ||
                 textValue(cardIdentity.setName) ||
                 textValue(cardIdentity.set_name) ||
                 textValue(saleIdentity.setName) ||
-                textValue(saleIdentity.set_name),
+                textValue(saleIdentity.set_name) ||
+                textValue(titleNormalization.setName),
             subset: manualIdentityLocked
               ? identitySubsetValue(primaryIdentity)
               : identitySubsetValue(primaryIdentity) ||
+                identitySubsetValue(legacyCardIdentity) ||
                 identitySubsetValue(recordValue(metadata.card)) ||
                 identitySubsetValue(cardIdentity) ||
                 identitySubsetValue(saleIdentity) ||
@@ -1076,11 +1092,13 @@ export async function GET(request: Request) {
             player: manualIdentityLocked
               ? identityPlayerValue(primaryIdentity)
               : identityPlayerValue(primaryIdentity) ||
+                identityPlayerValue(legacyCardIdentity) ||
                 identityPlayerValue(cardIdentity) ||
                 identityPlayerValue(saleIdentity),
             team: manualIdentityLocked
               ? textValue(primaryIdentity.team)
               : textValue(primaryIdentity.team) ||
+                textValue(legacyCardIdentity.team) ||
                 textValue(cardIdentity.team) ||
                 textValue(saleIdentity.team),
             cardNumber: manualIdentityLocked
@@ -1088,6 +1106,8 @@ export async function GET(request: Request) {
                 textValue(primaryIdentity.card_number)
               : textValue(primaryIdentity.cardNumber) ||
                 textValue(primaryIdentity.card_number) ||
+                textValue(legacyCardIdentity.cardNumber) ||
+                textValue(legacyCardIdentity.card_number) ||
                 textValue(cardIdentity.cardNumber) ||
                 textValue(cardIdentity.card_number) ||
                 textValue(saleIdentity.cardNumber) ||
@@ -1097,11 +1117,14 @@ export async function GET(request: Request) {
               : textValue(primaryIdentity.checklistParallel) ||
                 textValue(primaryIdentity.parallelName) ||
                 textValue(primaryIdentity.parallel) ||
+                textValue(legacyCardIdentity.parallel) ||
                 textValue(cardIdentity.parallel) ||
-                textValue(saleIdentity.parallel),
+                textValue(saleIdentity.parallel) ||
+                textValue(titleNormalization.parallel),
             variation: manualIdentityLocked
               ? textValue(primaryIdentity.variation)
               : textValue(primaryIdentity.variation) ||
+                textValue(legacyCardIdentity.variation) ||
                 textValue(cardIdentity.variation) ||
                 textValue(saleIdentity.variation),
             notes:
@@ -1112,6 +1135,8 @@ export async function GET(request: Request) {
             serialNumber: manualIdentityLocked
               ? textValue(primaryIdentity.serialNumber)
               : textValue(ai.serialNumber) ||
+                textValue(legacyCardIdentity.serialNumber) ||
+                textValue(legacyCardIdentity.printRun) ||
                 textValue(cardIdentity.serialNumber) ||
                 textValue(saleIdentity.serialNumber) ||
                 exactSerialNumber,
