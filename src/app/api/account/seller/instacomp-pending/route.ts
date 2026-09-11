@@ -768,17 +768,22 @@ export async function GET(request: Request) {
     }
 
     const itemIds = rows.map((row: any) => String(row.id));
-    const { data: storedImages, error: imageError } =
-      itemIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
-            .from("inventory_images")
-            .select(
-              "inventory_item_id,image_url,alt_text,sort_order,is_primary",
-            )
-            .in("inventory_item_id", itemIds)
-            .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
+    // Keep PostgREST `in(...)` URLs bounded. Large verification queues can hold
+    // thousands of UUIDs, which otherwise overrun the HTTP/2 request before
+    // Supabase ever evaluates it.
+    const storedImages: StoredImage[] = [];
+    for (let index = 0; index < itemIds.length; index += 100) {
+      const itemIdBatch = itemIds.slice(index, index + 100);
+      const { data, error } = await supabase
+        .from("inventory_images")
+        .select(
+          "inventory_item_id,image_url,alt_text,sort_order,is_primary",
+        )
+        .in("inventory_item_id", itemIdBatch)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      storedImages.push(...((data || []) as StoredImage[]));
+    }
 
     const imageRowsByItem = new Map<string, StoredImage[]>();
     for (const image of (storedImages || []) as StoredImage[]) {
@@ -797,18 +802,20 @@ export async function GET(request: Request) {
           ),
       ),
     );
-    const { data: products, error: productError } =
-      productIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
-            .from("products")
-            .select("id,card_uuid,image_url,price,quantity,archived_at,ebay_item_id")
-            .eq("store_id", storeId)
-            .in("id", productIds);
-    if (productError) throw productError;
+    const products: any[] = [];
+    for (let index = 0; index < productIds.length; index += 250) {
+      const productIdBatch = productIds.slice(index, index + 250);
+      const { data, error } = await supabase
+        .from("products")
+        .select("id,card_uuid,image_url,price,quantity,archived_at,ebay_item_id")
+        .eq("store_id", storeId)
+        .in("id", productIdBatch);
+      if (error) throw error;
+      products.push(...(data || []));
+    }
 
     const productMap = new Map(
-      (products || []).map((product: any) => [product.id, product]),
+      products.map((product: any) => [product.id, product]),
     );
 
     const items = rows.map((row: any) => {
