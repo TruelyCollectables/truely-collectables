@@ -12,6 +12,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+type CloudflareFetchGlobal = typeof globalThis & {
+  __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
+};
+
+function getServerFetch(): typeof fetch {
+  const nativeFetch = (globalThis as CloudflareFetchGlobal)
+    .__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
+  return typeof nativeFetch === "function" ? nativeFetch : fetch;
+}
+
 // The website proxy reads the permanent tunnel through the shared
 // INSTACOMP_AI_LOCAL_URL / INSTACOMP_AI_LOCAL_KEY credential helper and must
 // reject localhost in Production.
@@ -44,67 +54,6 @@ function configuredMacUrl() {
   return getConfiguredInstaCompMacUrl();
 }
 
-function fallbackStatusData(reason: string, readiness?: Record<string, unknown> | null) {
-  const app = readiness && typeof readiness.app === "string" ? readiness.app : "InstaComp AI Checklist Sentinel™";
-  const ready = Boolean(readiness?.ok) && Boolean(readiness?.reachable);
-
-  return {
-    name: app,
-    enabled: true,
-    schedule_seconds: 24 * 60 * 60,
-    schedule_hours: 24,
-    checkpoint_seconds: 300,
-    freeze_protection: {
-      sqlite_wal: true,
-      atomic_downloads: true,
-      heartbeat: true,
-      checkpoint_interval_seconds: 300,
-      stale_after_seconds: 12 * 60,
-      resume_pending_targets: true,
-      stale: false,
-    },
-    targets: {
-      total: 0,
-      pending: 0,
-      recovered: 0,
-      no_result: 0,
-      lead_only: 0,
-      failed: 0,
-    },
-    latest_job: null,
-    training: {
-      state: ready ? "ready" : "degraded",
-      requested_iters: 0,
-      completed_iters: 0,
-      remaining_iters: 0,
-      progress_percent: ready ? 100 : 0,
-      learning_percent: ready ? 100 : 0,
-      cpu_percent: null,
-      output_bundle: null,
-      updated_at_epoch: null,
-    },
-    registry_import_configured: ready,
-    target_feed_configured: ready,
-    degraded: true,
-    reason,
-  };
-}
-
-async function readInternalReadiness(request: Request) {
-  try {
-    const readinessUrl = new URL("/api/instacomp/internal-readiness", request.url);
-    const response = await fetch(readinessUrl, {
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(20_000),
-    });
-    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    return response.ok && payload ? payload : null;
-  } catch {
-    return null;
-  }
-}
-
 async function requireAdmin(request: Request): Promise<InstaCompJobActor> {
   const actor = await requireInstaCompJobActor(request);
   if (actor.type !== "admin") {
@@ -130,7 +79,7 @@ async function callMac(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("X-InstaComp-AI-Key", key);
   if (init.body) headers.set("content-type", "application/json");
-  const macResponse = await fetch(`${baseUrl}${path}`, {
+  const macResponse = await getServerFetch()(`${baseUrl}${path}`, {
     ...init,
     headers,
     cache: "no-store",
@@ -306,20 +255,6 @@ export async function GET(request: Request) {
     try {
       return response({ ok: true, view, data: await callMac(path) });
     } catch (error) {
-      if (view === "status") {
-        const readiness = await readInternalReadiness(request);
-        if (readiness?.ok === true && readiness?.reachable === true) {
-          return response({
-            ok: true,
-            view,
-            data: fallbackStatusData(
-              "The Sentinel Mac status endpoint is temporarily unavailable, but the permanent tunnel is healthy.",
-              readiness,
-            ),
-          });
-        }
-      }
-
       if (view === "downloads") {
         return response({
           ok: true,
