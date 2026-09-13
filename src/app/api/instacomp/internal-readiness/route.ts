@@ -195,6 +195,23 @@ export async function GET() {
       );
     }
 
+    let sentinelReady = false;
+    let sentinelHttpStatus: number | null = null;
+    let sentinelReason: string | null = null;
+    try {
+      const sentinelResponse = await getServerFetch()(`${baseUrl}/v1/checklist-sentinel/status`, {
+        headers,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      });
+      sentinelHttpStatus = sentinelResponse.status;
+      sentinelReady = sentinelResponse.ok;
+      sentinelReason = sentinelResponse.ok ? null : `sentinel_http_${sentinelResponse.status}`;
+    } catch (sentinelError) {
+      sentinelReason = safeNetworkFailure(sentinelError).reason;
+    }
+
     const runtimeSourceFingerprint = await fetchRuntimeIdentity(baseUrl, headers);
     const internalMemoryReady = health.database === "ready";
     const checklistReady = health.checklist === "ready";
@@ -210,6 +227,9 @@ export async function GET() {
         internalMemoryReady,
         checklistReady,
         localModelReady,
+        sentinelReady,
+        sentinelHttpStatus,
+        sentinelReason,
         app: typeof health.app === "string" ? health.app : "InstaComp AI",
         version: typeof health.version === "string" ? health.version : null,
         runtimeSourceFingerprint,
