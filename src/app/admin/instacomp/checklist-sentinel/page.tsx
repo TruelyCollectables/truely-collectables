@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const DASHBOARD_REFRESH_MS = 20 * 60 * 1000;
+const DASHBOARD_REFRESH_MS = 60 * 1000;
 
 type Job = {
   job_id?: string;
@@ -50,6 +50,11 @@ type SentinelStatus = {
     output_bundle?: string | null;
     updated_at_epoch?: number | null;
   };
+  archive_mode?: string;
+  local_archive_ready?: boolean;
+  worker_state?: string;
+  worker_blocked_by?: string | null;
+  worker_active_owner?: string | null;
   registry_import_configured?: boolean;
   target_feed_configured?: boolean;
   degraded?: boolean;
@@ -177,6 +182,13 @@ export default function ChecklistSentinelAdminPage() {
   const connectionHealthy = Boolean(
     status?.enabled && !status.freeze_protection?.stale && !status.degraded,
   );
+  const archiveHealthy = Boolean(
+    status?.local_archive_ready || status?.registry_import_configured,
+  );
+  const workerState = String(status?.worker_state || job?.status || "");
+  const workerLabel = workerState === "waiting_for_resources"
+    ? `waiting for ${status?.worker_blocked_by === "deal-hunter" ? "Deal Hunter" : status?.worker_blocked_by || "Mac resources"}`
+    : workerState || (loading ? "Loading…" : "No run recorded");
   const archived = useMemo(
     () =>
       downloads.filter((row) =>
@@ -205,8 +217,8 @@ export default function ChecklistSentinelAdminPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusPill ok={connectionHealthy}>{connectionHealthy ? "Mac connected" : "Mac unavailable"}</StatusPill>
-            <StatusPill ok={Boolean(status?.registry_import_configured)}>
-              {status?.registry_import_configured ? "Central archive on" : "Central archive off"}
+            <StatusPill ok={archiveHealthy}>
+              {archiveHealthy ? "Mac archive on" : "Mac archive off"}
             </StatusPill>
           </div>
         </div>
@@ -274,7 +286,7 @@ export default function ChecklistSentinelAdminPage() {
             <div>
               <h2 className="text-xl font-black">Checklist search backlog</h2>
               <p className="mt-1 text-sm text-neutral-400">
-                {job?.status || (loading ? "Loading…" : "No run recorded")} · safe batch progress {batchProgress.toFixed(1)}%
+                {workerLabel} · safe batch progress {batchProgress.toFixed(1)}%
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -352,7 +364,7 @@ export default function ChecklistSentinelAdminPage() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
           <span>
-            Progress refreshes automatically every 20 minutes. Last successful read: {updatedAt ? updatedAt.toLocaleString() : "Not yet"}
+            Progress refreshes automatically every 60 seconds. Last successful read: {updatedAt ? updatedAt.toLocaleString() : "Not yet"}
           </span>
           <Link href="/admin" className="font-bold text-cyan-300 hover:text-cyan-200">Back to Admin</Link>
         </div>
