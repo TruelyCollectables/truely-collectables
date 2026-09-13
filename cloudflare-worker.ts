@@ -222,6 +222,106 @@ async function cloudflareInstaCompReadiness(env: WorkerEnv) {
   }
 }
 
+
+const SENTINEL_GET_PATHS: Record<string, string> = {
+  status: "/v1/checklist-sentinel/status",
+  targets: "/v1/checklist-sentinel/targets?limit=500",
+  findings: "/v1/checklist-sentinel/findings?limit=200",
+  downloads: "/v1/checklist-sentinel/downloads?limit=200",
+  sources: "/v1/checklist-sentinel/sources",
+};
+
+async function cloudflareSentinelAdminAuthorized(
+  request: Request,
+  env: WorkerEnv,
+  ctx: ExecutionContextLike,
+  mutation: boolean,
+) {
+  const authUrl = new URL("/api/admin/instacomp/sentinel-auth", request.url);
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  headers.delete("content-type");
+  const authRequest = new Request(authUrl, {
+    method: mutation ? "POST" : "GET",
+    headers,
+  });
+  const auth = await handler.fetch(authRequest, env, ctx);
+  return auth.ok;
+}
+
+async function cloudflareSentinelProxy(
+  request: Request,
+  env: WorkerEnv,
+  ctx: ExecutionContextLike,
+): Promise<Response | null> {
+  const mutation = request.method === "POST";
+  if (!(await cloudflareSentinelAdminAuthorized(request, env, ctx, mutation))) return null;
+
+  const baseUrl = String(env.INSTACOMP_AI_LOCAL_URL || "").trim().replace(/\/+$/, "");
+  const key = String(env.INSTACOMP_AI_LOCAL_KEY || env.INSTACOMP_AI_API_KEY || "").trim();
+  if (!/^https?:\/\//i.test(baseUrl) || !key) {
+    return readinessJson({ ok: false, code: "SENTINEL_MAC_CONNECTION_NOT_CONFIGURED", error: "The permanent InstaComp Mac connection is not configured in Production." }, 503);
+  }
+
+  let macPath = "";
+  let action = "";
+  let view = "";
+  let body: string | undefined;
+
+  if (request.method === "GET") {
+    view = new URL(request.url).searchParams.get("view") || "status";
+    macPath = SENTINEL_GET_PATHS[view] || "";
+    if (!macPath) return readinessJson({ ok: false, error: "Unknown Sentinel view." }, 400);
+  } else if (request.method === "POST") {
+    const payload = (await request.clone().json().catch(() => ({}))) as { action?: unknown };
+    action = String(payload.action || "");
+    if (action === "run") {
+      macPath = "/v1/checklist-sentinel/run";
+      body = JSON.stringify({ trigger: "website-admin" });
+    } else if (action === "refresh-targets") {
+      macPath = "/v1/checklist-sentinel/refresh-targets";
+      body = "{}";
+    } else {
+      return null;
+    }
+  } else {
+    return null;
+  }
+
+  const headers = new Headers({
+    Accept: "application/json",
+    "X-InstaComp-AI-Key": key,
+  });
+  if (body) headers.set("Content-Type", "application/json");
+
+  try {
+    const macResponse = await fetch(`${baseUrl}${macPath}`, {
+      method: request.method,
+      headers,
+      body,
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(45_000),
+    });
+    const data = await macResponse.json().catch(() => null);
+    if (!macResponse.ok || !data) {
+      return readinessJson({ ok: false, code: "SENTINEL_MAC_REQUEST_FAILED", error: `InstaComp Mac returned HTTP ${macResponse.status}.` }, 502);
+    }
+    return readinessJson(request.method === "GET" ? { ok: true, view, data } : { ok: true, action, data }, 200);
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "UnknownError";
+    const timeout = name === "TimeoutError" || name === "AbortError";
+    return readinessJson(
+      {
+        ok: false,
+        code: timeout ? "SENTINEL_MAC_TIMEOUT" : "SENTINEL_PROXY_FAILED",
+        error: timeout ? "The Mac did not answer before the secure proxy timeout." : "The secure Sentinel proxy could not reach the Mac.",
+      },
+      503,
+    );
+  }
+}
+
 function fieldMatches(value: number, field: string, sundayAlias = false): boolean {
   return field.split(",").some((rawPart) => {
     const part = rawPart.trim();
@@ -478,6 +578,13 @@ const worker = {
       url.pathname === "/api/instacomp/internal-readiness"
     ) {
       return cloudflareInstaCompReadiness(env);
+    }
+    if (
+      (request.method === "GET" || request.method === "POST") &&
+      url.pathname === "/api/instacomp/checklist-sentinel"
+    ) {
+      const proxied = await cloudflareSentinelProxy(request, env, ctx);
+      if (proxied) return withCloudflareOrigin(proxied);
     }
 
     return withCloudflareOrigin(await handler.fetch(request, env, ctx));
