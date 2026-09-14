@@ -754,6 +754,8 @@ async function mergeDuplicateRows(params: {
     .update({
       quantity: mergedQuantity,
       price: keeperPrice,
+      listing_status: "live",
+      archived_at: null,
       last_seen_at: now,
     })
     .eq("store_id", storeId)
@@ -765,6 +767,8 @@ async function mergeDuplicateRows(params: {
     .from("products")
     .update({
       quantity: 0,
+      listing_status: "archived",
+      archived_at: now,
       last_seen_at: now,
     })
     .eq("store_id", storeId)
@@ -782,6 +786,7 @@ async function mergeDuplicateRows(params: {
         quantity: mergedQuantity,
         price: keeperPrice,
         status: "active",
+        archived_at: null,
         updated_at: now,
         metadata: {
           ...keeperMetadata,
@@ -818,7 +823,9 @@ async function mergeDuplicateRows(params: {
       .from("inventory_items")
       .update({
         quantity: 0,
+        price: moneyNumber(duplicate.price),
         status: "archived",
+        archived_at: now,
         updated_at: now,
         metadata: {
           ...duplicateMetadata,
@@ -962,6 +969,8 @@ async function archiveDuplicate(params: { duplicateProductId: number }) {
     .from("products")
     .update({
       quantity: 0,
+      listing_status: "archived",
+      archived_at: now,
       last_seen_at: now,
     })
     .eq("store_id", storeId)
@@ -974,7 +983,9 @@ async function archiveDuplicate(params: { duplicateProductId: number }) {
       .from("inventory_items")
       .update({
         quantity: 0,
+        price: moneyNumber(duplicate.price),
         status: "archived",
+        archived_at: now,
         updated_at: now,
         metadata: {
           ...duplicateMetadata,

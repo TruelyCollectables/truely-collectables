@@ -472,6 +472,11 @@ await scenario("duplicate API scans the full exact-title catalog and fails close
     "const ebayDuplicates = params.duplicates.filter",
     "A duplicate group containing an eBay listing must keep an eBay-linked row as the survivor.",
     "assertMergeEbayActionsSafe(ebayActions)",
+    'listing_status: "live"',
+    'listing_status: "archived"',
+    'archived_at: null',
+    'archived_at: now',
+    'price: moneyNumber(duplicate.price)',
   ]) {
     assert(
       duplicateRouteSource.includes(fragment),
