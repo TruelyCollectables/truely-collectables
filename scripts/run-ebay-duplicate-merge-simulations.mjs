@@ -462,6 +462,33 @@ await scenario("duplicate API supports end/archive dry-run preview", () => {
   }
 });
 
+await scenario("duplicate API scans the full exact-title catalog and fails closed on eBay cleanup", () => {
+  for (const fragment of [
+    "for (let start = 0; ; start += pageSize)",
+    '.is("archived_at", null)',
+    '.gt("quantity", 0)',
+    '.gt("price", 0)',
+    "const keeperHasEbay = Boolean(cleanText(params.keeper.ebay_item_id))",
+    "const ebayDuplicates = params.duplicates.filter",
+    "A duplicate group containing an eBay listing must keep an eBay-linked row as the survivor.",
+    "assertMergeEbayActionsSafe(ebayActions)",
+  ]) {
+    assert(
+      duplicateRouteSource.includes(fragment),
+      `Expected full-catalog duplicate safety fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    !duplicateRouteSource.includes('.not("ebay_item_id", "is", null)'),
+    "Full-catalog duplicate detection must not be limited to eBay-linked rows.",
+  );
+  assert(
+    !duplicateRouteSource.includes("priceCents"),
+    "Exact duplicate identity must not split the same title only because price differs.",
+  );
+});
+
 const failed = scenarios.filter((item) => item.status === "failed");
 
 for (const item of scenarios) {

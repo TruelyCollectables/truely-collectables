@@ -79,15 +79,12 @@ function generatedSku(product: ProductRow) {
 function duplicateIdentityKey(product: ProductRow) {
   const normalizedTitle = String(product.title || "")
     .toLowerCase()
-    .replace(/\b(listing|lot|card|cards)\b/g, " ")
-    .replace(/[^a-z0-9#/.+-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const priceCents = Math.round(moneyNumber(product.price) * 100);
 
-  if (!normalizedTitle || priceCents <= 0) return null;
+  if (!normalizedTitle || moneyNumber(product.price) <= 0) return null;
 
-  return `${normalizedTitle}::${priceCents}`;
+  return normalizedTitle;
 }
 
 function rowForClient(product: ProductRow, inventory: InventoryRow | null) {
@@ -135,18 +132,26 @@ async function loadInventoryRows(productIds: number[]) {
 async function buildDuplicateGroups() {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
-  const { data, error } = await supabase
-    .from("products")
-    .select("id,sku,title,price,quantity,image_url,ebay_item_id,last_seen_at,created_at")
-    .eq("store_id", storeId)
-    .not("ebay_item_id", "is", null)
-    .gt("quantity", 0)
-    .order("last_seen_at", { ascending: false, nullsFirst: false })
-    .range(0, 2999);
+  const products: ProductRow[] = [];
+  const pageSize = 1000;
 
-  if (error) throw error;
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("id,sku,title,price,quantity,image_url,ebay_item_id,last_seen_at,created_at")
+      .eq("store_id", storeId)
+      .is("archived_at", null)
+      .gt("quantity", 0)
+      .gt("price", 0)
+      .order("id", { ascending: true })
+      .range(start, start + pageSize - 1);
 
-  const products = (data || []) as ProductRow[];
+    if (error) throw error;
+
+    const page = (data || []) as ProductRow[];
+    products.push(...page);
+    if (page.length < pageSize) break;
+  }
   const inventoryRows = await loadInventoryRows(products.map((product) => product.id));
   const inventoryByProductId = new Map<number, InventoryRow>();
 
@@ -170,6 +175,14 @@ async function buildDuplicateGroups() {
     .filter(([, rows]) => rows.length > 1)
     .map(([key, rows]) => {
       const sortedRows = [...rows].sort((left, right) => {
+        const ebayCompare =
+          Number(Boolean(cleanText(right.ebay_item_id))) -
+          Number(Boolean(cleanText(left.ebay_item_id)));
+        if (ebayCompare !== 0) return ebayCompare;
+
+        const quantityCompare = wholeQuantity(right.quantity) - wholeQuantity(left.quantity);
+        if (quantityCompare !== 0) return quantityCompare;
+
         const leftSeen = String(left.last_seen_at || left.created_at || "");
         const rightSeen = String(right.last_seen_at || right.created_at || "");
         const seenCompare = rightSeen.localeCompare(leftSeen);
@@ -552,8 +565,23 @@ async function collectMergeEbayActions(params: {
   mergedQuantity: number;
   keeperPrice: number;
 }) {
-  const tokenResult = await getBestEffortEbayStoreAccessToken(params.storeId);
+  const keeperHasEbay = Boolean(cleanText(params.keeper.ebay_item_id));
+  const ebayDuplicates = params.duplicates.filter((duplicate) =>
+    Boolean(cleanText(duplicate.ebay_item_id)),
+  );
   const ebayActions: Array<Record<string, unknown>> = [];
+
+  if (!keeperHasEbay && ebayDuplicates.length === 0) {
+    return ebayActions;
+  }
+
+  if (!keeperHasEbay && ebayDuplicates.length > 0) {
+    throw new Error(
+      "A duplicate group containing an eBay listing must keep an eBay-linked row as the survivor.",
+    );
+  }
+
+  const tokenResult = await getBestEffortEbayStoreAccessToken(params.storeId);
   const accessToken =
     typeof tokenResult === "string" ? tokenResult : tokenResult?.token ?? null;
 
@@ -572,7 +600,7 @@ async function collectMergeEbayActions(params: {
     return ebayActions;
   }
 
-  for (const duplicate of params.duplicates) {
+  for (const duplicate of ebayDuplicates) {
     ebayActions.push(
       await bestEffortEbayAction(
         `withdraw_duplicate_offer:${duplicate.id}`,
@@ -585,18 +613,31 @@ async function collectMergeEbayActions(params: {
     );
   }
 
-  ebayActions.push(
-    await bestEffortEbayAction("update_keeper_quantity", () =>
-      updateKeeperEbayQuantity({
-        accessToken,
-        keeper: params.keeper,
-        quantity: params.mergedQuantity,
-        price: params.keeperPrice,
-      }),
-    ),
-  );
+  if (keeperHasEbay) {
+    ebayActions.push(
+      await bestEffortEbayAction("update_keeper_quantity", () =>
+        updateKeeperEbayQuantity({
+          accessToken,
+          keeper: params.keeper,
+          quantity: params.mergedQuantity,
+          price: params.keeperPrice,
+        }),
+      ),
+    );
+  }
 
   return ebayActions;
+}
+
+function assertMergeEbayActionsSafe(actions: Array<Record<string, unknown>>) {
+  const failedAction = actions.find((action) => action.ok !== true);
+
+  if (!failedAction) return;
+
+  throw new Error(
+    cleanText(failedAction.message) ||
+      "eBay provider cleanup did not complete, so the local duplicate merge was stopped.",
+  );
 }
 
 async function collectArchiveEbayActions(params: {
@@ -701,6 +742,7 @@ async function mergeDuplicateRows(params: {
     mergedQuantity,
     keeperPrice,
   });
+  assertMergeEbayActionsSafe(ebayActions);
 
   const keeperMetadata =
     keeperInventory?.metadata && typeof keeperInventory.metadata === "object"
