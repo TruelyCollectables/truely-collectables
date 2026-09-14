@@ -53,6 +53,9 @@ type InstaCompDraftRequestItem = {
   uploadIndex?: unknown;
   clientId?: unknown;
   scanId?: unknown;
+  cardUuid?: unknown;
+  registryIdentityId?: unknown;
+  registryFingerprintSha256?: unknown;
   fileName?: unknown;
   backFileName?: unknown;
   hasBackImage?: unknown;
@@ -106,9 +109,11 @@ function getSupabaseClient() {
 }
 
 function scopeSellerAccount<T>(query: T, sellerAccountId: string | null): T {
-  return (sellerAccountId
-    ? (query as any).eq("seller_account_id", sellerAccountId)
-    : (query as any).is("seller_account_id", null)) as T;
+  return (
+    sellerAccountId
+      ? (query as any).eq("seller_account_id", sellerAccountId)
+      : (query as any).is("seller_account_id", null)
+  ) as T;
 }
 
 async function parseDraftRequest(request: Request) {
@@ -171,7 +176,10 @@ function compactRecord(value: unknown) {
 }
 
 function imageFileExtension(file: File) {
-  const nameExtension = cleanText(file.name.split(".").pop(), 12)?.toLowerCase();
+  const nameExtension = cleanText(
+    file.name.split(".").pop(),
+    12,
+  )?.toLowerCase();
 
   if (nameExtension && /^[a-z0-9]+$/.test(nameExtension)) {
     return nameExtension === "jpeg" ? "jpg" : nameExtension;
@@ -185,11 +193,13 @@ function imageFileExtension(file: File) {
 }
 
 function safeStoragePart(value: string | null | undefined) {
-  return String(value || "image")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "image";
+  return (
+    String(value || "image")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "image"
+  );
 }
 
 async function ensureDraftImageBucket(
@@ -210,7 +220,10 @@ async function ensureDraftImageBucket(
     },
   );
 
-  if (createError && !createError.message.toLowerCase().includes("already exists")) {
+  if (
+    createError &&
+    !createError.message.toLowerCase().includes("already exists")
+  ) {
     throw createError;
   }
 }
@@ -226,7 +239,10 @@ async function uploadDraftImage(params: {
   if (!params.file || params.file.size <= 0) return null;
 
   if (!params.file.type.startsWith("image/")) {
-    throw new InventoryEngineError("InstaComp™ draft images must be image files.", 400);
+    throw new InventoryEngineError(
+      "InstaComp™ draft images must be image files.",
+      400,
+    );
   }
 
   if (params.file.size > MAX_INSTACOMP_DRAFT_IMAGE_BYTES) {
@@ -378,10 +394,7 @@ async function persistentDraftImageFiles(params: {
 
     const bytes = await data.arrayBuffer();
 
-    if (
-      expectedSizeBytes !== null &&
-      bytes.byteLength !== expectedSizeBytes
-    ) {
+    if (expectedSizeBytes !== null && bytes.byteLength !== expectedSizeBytes) {
       throw new InventoryEngineError(
         "A persistent InstaComp™ image changed size after it was scanned.",
         409,
@@ -449,10 +462,7 @@ async function markPersistentItemDrafted(params: {
     .select("id")
     .eq("id", params.jobId)
     .eq("store_id", params.storeId);
-  ownedJobQuery = scopeSellerAccount(
-    ownedJobQuery,
-    params.sellerAccountId,
-  );
+  ownedJobQuery = scopeSellerAccount(ownedJobQuery, params.sellerAccountId);
   const { data: ownedJob, error: ownedJobError } =
     await ownedJobQuery.maybeSingle();
 
@@ -542,7 +552,10 @@ async function releasePersistentItemDraftReservation(params: {
   }
 }
 
-function titleFromAi(ai: InstaCompDraftAi | null | undefined, fallback: string) {
+function titleFromAi(
+  ai: InstaCompDraftAi | null | undefined,
+  fallback: string,
+) {
   return buildInstaCompDraftTitle(ai, fallback);
 }
 
@@ -550,7 +563,9 @@ function categoryFromAi(ai: InstaCompDraftAi | null | undefined) {
   const sport = cleanText(ai?.sport, 80)?.toLowerCase() || "";
 
   if (!sport) return "trading_cards";
-  if (["pokemon", "magic", "mtg", "yugioh"].some((term) => sport.includes(term))) {
+  if (
+    ["pokemon", "magic", "mtg", "yugioh"].some((term) => sport.includes(term))
+  ) {
     return "trading_cards";
   }
 
@@ -592,7 +607,9 @@ function buildAuthenticity(ai: InstaCompDraftAi | null | undefined) {
       certProvider: ai.gradingCompany || null,
       certNumber: ai.certificationNumber || null,
       authenticityNotes: [
-        ai.gradeValue ? `InstaComp™ detected slab grade ${ai.gradeValue}.` : null,
+        ai.gradeValue
+          ? `InstaComp™ detected slab grade ${ai.gradeValue}.`
+          : null,
         ai.certificationLookupUrl
           ? `Review cert lookup: ${ai.certificationLookupUrl}`
           : null,
@@ -716,9 +733,7 @@ async function findExistingInstaCompDraft(params: {
   clientId: string | null;
   scanId: string | null;
 }) {
-  async function findBy(
-    applyFilter: (query: any) => any,
-  ) {
+  async function findBy(applyFilter: (query: any) => any) {
     let baseQuery = params.supabase
       .from("inventory_items")
       .select("id,legacy_product_id,title,sku,price,metadata")
@@ -820,7 +835,8 @@ export async function POST(request: Request) {
     if (
       process.env.NODE_ENV === "production" &&
       items.some(
-        (item) => !cleanUuid(item.persistentJobId) || !cleanUuid(item.persistentItemId),
+        (item) =>
+          !cleanUuid(item.persistentJobId) || !cleanUuid(item.persistentItemId),
       )
     ) {
       return Response.json(
@@ -853,7 +869,8 @@ export async function POST(request: Request) {
         cleanText(item.fileName, 180) || `InstaComp™ Draft ${index + 1}`;
       const backFileName = cleanText(item.backFileName, 240);
       const hasBackImage = Boolean(item.hasBackImage || backFileName);
-      const title = cleanText(item.title, 200) || titleFromAi(ai, fallbackTitle);
+      const title =
+        cleanText(item.title, 200) || titleFromAi(ai, fallbackTitle);
       const price = moneyNumber(item.price);
       const priceSource = cleanText(item.priceSource, 80);
       const marketPrice = moneyNumber(item.marketPrice);
@@ -883,10 +900,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (
-        persistentItemId &&
-        (item.frontImageFile || item.backImageFile)
-      ) {
+      if (persistentItemId && (item.frontImageFile || item.backImageFile)) {
         validationErrors.push(
           "Persistent InstaComp™ drafts must use their verified private images; do not attach replacement files.",
         );
@@ -1035,13 +1049,27 @@ export async function POST(request: Request) {
           persistentImages.item?.result_payload,
         );
         const effectiveAi =
-          persistentItemId && Object.keys(compactRecord(persistedResult.ai)).length
+          persistentItemId &&
+          Object.keys(compactRecord(persistedResult.ai)).length
             ? (compactRecord(persistedResult.ai) as InstaCompDraftAi)
             : ai;
-        const effectiveSearchQuery =
-          persistentItemId
-            ? cleanText(persistedResult.searchQuery, 500) || searchQuery
-            : searchQuery;
+        const effectiveSearchQuery = persistentItemId
+          ? cleanText(persistedResult.searchQuery, 500) || searchQuery
+          : searchQuery;
+        const persistedChecklistRegistry = compactRecord(
+          persistedResult.checklistRegistry,
+        );
+        const effectiveCardUuid = persistentItemId
+          ? cleanUuid(persistedResult.cardUuid) || cleanUuid(item.cardUuid)
+          : cleanUuid(item.cardUuid);
+        const effectiveRegistryIdentityId = persistentItemId
+          ? cleanText(persistedChecklistRegistry.identityId, 120) ||
+            cleanText(item.registryIdentityId, 120)
+          : cleanText(item.registryIdentityId, 120);
+        const effectiveRegistryFingerprintSha256 = persistentItemId
+          ? cleanText(persistedChecklistRegistry.fingerprintSha256, 128) ||
+            cleanText(item.registryFingerprintSha256, 128)
+          : cleanText(item.registryFingerprintSha256, 128);
         const effectiveStats = persistentItemId
           ? compactRecord(persistedResult.stats)
           : compactRecord(item.stats);
@@ -1076,7 +1104,7 @@ export async function POST(request: Request) {
           title,
           requestedPrice: price,
         });
-        const listingPrice = duplicateAlert?.matchedPrice || price;
+        const listingPrice = price;
         let metadataWarning: string | undefined;
 
         const frontImageUrl = await uploadDraftImage({
@@ -1116,6 +1144,7 @@ export async function POST(request: Request) {
           imageUrl: frontImageUrl,
           sku,
           authenticity,
+          cardUuid: effectiveCardUuid,
         });
 
         if (promotedItem.inventoryItemId) {
@@ -1131,7 +1160,10 @@ export async function POST(request: Request) {
               });
 
             if (backImageError) {
-              console.error("InstaComp™ draft back image insert error:", backImageError);
+              console.error(
+                "InstaComp™ draft back image insert error:",
+                backImageError,
+              );
               metadataWarning = metadataWarning
                 ? `${metadataWarning} Draft created, but back image was not attached.`
                 : "Draft created, but back image was not attached.";
@@ -1150,6 +1182,17 @@ export async function POST(request: Request) {
                   dedupeKey: sku,
                   scanId,
                   clientId,
+                  cardUuid: effectiveCardUuid,
+                  registryIdentityId: effectiveRegistryIdentityId,
+                  registryFingerprintSha256: effectiveRegistryFingerprintSha256,
+                  pricingGroupKey: effectiveRegistryFingerprintSha256,
+                  checklistIdentity: effectiveRegistryFingerprintSha256
+                    ? {
+                        registryIdentityId: effectiveRegistryIdentityId,
+                        registryFingerprintSha256:
+                          effectiveRegistryFingerprintSha256,
+                      }
+                    : null,
                   fileName: cleanText(item.fileName, 240),
                   backFileName,
                   hasBackImage: effectiveHasBackImage,
@@ -1175,14 +1218,14 @@ export async function POST(request: Request) {
             })
             .eq("id", promotedItem.inventoryItemId)
             .eq("store_id", storeId);
-          metadataQuery = scopeSellerAccount(
-            metadataQuery,
-            sellerAccountId,
-          );
+          metadataQuery = scopeSellerAccount(metadataQuery, sellerAccountId);
           const { error: metadataError } = await metadataQuery;
 
           if (metadataError) {
-            console.error("InstaComp™ draft metadata update error:", metadataError);
+            console.error(
+              "InstaComp™ draft metadata update error:",
+              metadataError,
+            );
             metadataWarning = metadataWarning
               ? `${metadataWarning} InstaComp™ metadata was not saved.`
               : "Draft created, but InstaComp™ metadata was not saved.";
@@ -1303,7 +1346,10 @@ export async function POST(request: Request) {
     }
 
     if (error instanceof InventoryEngineError) {
-      return Response.json({ error: error.message }, { status: error.statusCode });
+      return Response.json(
+        { error: error.message },
+        { status: error.statusCode },
+      );
     }
 
     return Response.json(

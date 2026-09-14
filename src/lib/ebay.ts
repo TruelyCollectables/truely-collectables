@@ -3,7 +3,8 @@ import { getStoreSettings } from "./store-settings";
 import { createSupabaseServerClient } from "./supabase-server";
 
 const EBAY_API = "https://api.ebay.com";
-const EBAY_FINDING_API = "https://svcs.ebay.com/services/search/FindingService/v1";
+const EBAY_FINDING_API =
+  "https://svcs.ebay.com/services/search/FindingService/v1";
 
 function getSupabase() {
   return createSupabaseServerClient({ admin: true });
@@ -46,7 +47,7 @@ export async function getEbayAccessToken() {
   const refreshToken = await getLatestRefreshToken();
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
-    "base64"
+    "base64",
   );
 
   const res = await fetch(`${EBAY_API}/identity/v1/oauth2/token`, {
@@ -104,17 +105,19 @@ export async function syncEbayQuantityAfterSale(params: {
   if (!finalSku && ebayItemId) {
     const offerRes = await fetch(
       `${EBAY_API}/sell/inventory/v1/offer?limit=200`,
-      { headers: ebayReadHeaders(accessToken) }
+      { headers: ebayReadHeaders(accessToken) },
     );
 
     const offerData = await offerRes.json();
 
     if (!offerRes.ok) {
-      throw new Error(`Could not list eBay offers: ${JSON.stringify(offerData)}`);
+      throw new Error(
+        `Could not list eBay offers: ${JSON.stringify(offerData)}`,
+      );
     }
 
     const matchingOffer = offerData.offers?.find(
-      (offer: any) => String(offer?.listing?.listingId) === String(ebayItemId)
+      (offer: any) => String(offer?.listing?.listingId) === String(ebayItemId),
     );
 
     finalSku = matchingOffer?.sku || null;
@@ -146,14 +149,14 @@ export async function syncEbayQuantityAfterSale(params: {
           },
         ],
       }),
-    }
+    },
   );
 
   const updateData = await updateRes.json().catch(() => ({}));
 
   if (!updateRes.ok) {
     throw new Error(
-      `Could not bulk update eBay quantity: ${JSON.stringify(updateData)}`
+      `Could not bulk update eBay quantity: ${JSON.stringify(updateData)}`,
     );
   }
 
@@ -162,6 +165,127 @@ export async function syncEbayQuantityAfterSale(params: {
     sku: finalSku,
     ebayItemId,
     newQuantity: Math.max(0, newQuantity),
+  };
+}
+
+export async function syncEbayPriceQuantity(params: {
+  sku?: string | null;
+  ebayItemId?: string | null;
+  newQuantity: number;
+  newPrice: number;
+}) {
+  const storeId = getActiveStoreId();
+  const supabase = getSupabase();
+  const storeSettings = await getStoreSettings(supabase, storeId);
+
+  if (!storeSettings.ebaySyncEnabled) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "eBay sync is disabled for this store",
+    };
+  }
+
+  const itemId = String(params.ebayItemId || "").trim();
+  let sku = String(params.sku || "").trim();
+  if (!sku && !itemId) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "Missing SKU and eBay listing ID for price/quantity update",
+    };
+  }
+
+  const quantity = Math.max(0, Math.floor(Number(params.newQuantity || 0)));
+  const price = Math.round(Number(params.newPrice || 0) * 100) / 100;
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error("eBay price must be greater than zero");
+  }
+
+  const accessToken = await getEbayAccessToken();
+  const offerUrl = sku
+    ? `${EBAY_API}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`
+    : `${EBAY_API}/sell/inventory/v1/offer?limit=200`;
+  const offerRes = await fetch(offerUrl, {
+    headers: ebayReadHeaders(accessToken),
+  });
+  const offerData = await offerRes.json().catch(() => ({}));
+  if (!offerRes.ok) {
+    throw new Error(`Could not load eBay offer: ${JSON.stringify(offerData)}`);
+  }
+
+  const offers = Array.isArray(offerData.offers) ? offerData.offers : [];
+  const offer =
+    (itemId
+      ? offers.find(
+          (candidate: any) =>
+            String(candidate?.listing?.listingId || "") === itemId,
+        )
+      : null) ||
+    offers.find(
+      (candidate: any) =>
+        candidate?.status === "PUBLISHED" &&
+        candidate?.listing?.listingStatus === "ACTIVE",
+    ) ||
+    offers[0] ||
+    null;
+
+  if (!offer?.offerId) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "No matching eBay offer found",
+      sku: sku || null,
+      ebayItemId: params.ebayItemId || null,
+    };
+  }
+
+  sku = sku || String(offer?.sku || "").trim();
+  if (!sku) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "Matching eBay offer did not expose a SKU",
+      ebayItemId: params.ebayItemId || null,
+    };
+  }
+
+  const updateRes = await fetch(
+    `${EBAY_API}/sell/inventory/v1/bulk_update_price_quantity`,
+    {
+      method: "POST",
+      headers: ebayReadHeaders(accessToken),
+      body: JSON.stringify({
+        requests: [
+          {
+            sku,
+            shipToLocationAvailability: { quantity },
+            offers: [
+              {
+                offerId: offer.offerId,
+                availableQuantity: quantity,
+                price: { currency: "USD", value: String(price) },
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+  const updateData = await updateRes.json().catch(() => ({}));
+  if (!updateRes.ok) {
+    throw new Error(
+      `Could not update eBay price/quantity: ${JSON.stringify(updateData)}`,
+    );
+  }
+
+  return {
+    success: true,
+    sku,
+    ebayItemId: params.ebayItemId || null,
+    offerId: String(offer.offerId),
+    newQuantity: quantity,
+    newPrice: price,
   };
 }
 
@@ -174,7 +298,7 @@ async function getEbayClientAccessToken(scope: string) {
   }
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
-    "base64"
+    "base64",
   );
 
   const res = await fetch(`${EBAY_API}/identity/v1/oauth2/token`, {
@@ -296,7 +420,7 @@ function buildResearchLinks(query: string): SalesCompResearchLink[] {
       label: "CollX",
       source: "collx",
       url: `https://www.google.com/search?q=${encodeURIComponent(
-        `${query} site:collx.app`
+        `${query} site:collx.app`,
       )}`,
     },
     {
@@ -382,11 +506,12 @@ function summarizeComps(params: {
     prices.length === 0
       ? null
       : prices.length % 2 === 1
-      ? prices[Math.floor(prices.length / 2)]
-      : (prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2;
+        ? prices[Math.floor(prices.length / 2)]
+        : (prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2;
   const recentAverage =
     recentPrices.length > 0
-      ? recentPrices.reduce((sum, price) => sum + price, 0) / recentPrices.length
+      ? recentPrices.reduce((sum, price) => sum + price, 0) /
+        recentPrices.length
       : null;
   const lastKnownSale =
     datedComps.sort((a, b) => b.soldTime - a.soldTime)[0]?.price ?? null;
@@ -394,10 +519,10 @@ function summarizeComps(params: {
   const suggestedPriceMethod = recentAverage
     ? "Average of up to 10 recent sold comps in the last six months"
     : lastKnownSale
-    ? "Last known sold comp because no six-month comp set was available"
-    : medianPrice
-    ? "Median of available pricing comps"
-    : null;
+      ? "Last known sold comp because no six-month comp set was available"
+      : medianPrice
+        ? "Median of available pricing comps"
+        : null;
 
   return {
     query: params.query,
@@ -415,7 +540,7 @@ function summarizeComps(params: {
     googleResults: params.googleResults ?? [],
     researchLinks: buildResearchLinks(params.query),
     point130Url: `https://130point.com/sales/?search=${encodeURIComponent(
-      params.query
+      params.query,
     )}`,
     googleStatus: params.googleStatus ?? "not_configured",
     googleMessage: params.googleMessage ?? null,
@@ -609,11 +734,11 @@ async function searchPriceCharting(query: string) {
 
 async function searchMarketplaceInsights(query: string, limit: number) {
   const accessToken = await getEbayClientAccessToken(
-    "https://api.ebay.com/oauth/api_scope/buy.marketplace.insights"
+    "https://api.ebay.com/oauth/api_scope/buy.marketplace.insights",
   );
 
   const url = new URL(
-    `${EBAY_API}/buy/marketplace_insights/v1_beta/item_sales/search`
+    `${EBAY_API}/buy/marketplace_insights/v1_beta/item_sales/search`,
   );
   url.searchParams.set("q", query);
   url.searchParams.set("limit", String(limit));
@@ -644,10 +769,13 @@ async function searchMarketplaceInsights(query: string, limit: number) {
       return {
         title: String(item.title || "Untitled"),
         price,
-        currency: String(item.price?.currency || item.itemPrice?.currency || "USD"),
+        currency: String(
+          item.price?.currency || item.itemPrice?.currency || "USD",
+        ),
         soldAt: item.itemEndDate || item.lastSoldDate || null,
         itemUrl: item.itemWebUrl || item.itemAffiliateWebUrl || null,
-        imageUrl: item.image?.imageUrl || item.thumbnailImages?.[0]?.imageUrl || null,
+        imageUrl:
+          item.image?.imageUrl || item.thumbnailImages?.[0]?.imageUrl || null,
         source: "ebay",
       };
     })
@@ -693,7 +821,7 @@ async function searchFindingCompletedItems(query: string, limit: number) {
         title: String(item.title?.[0] || "Untitled"),
         price,
         currency: String(
-          sellingStatus?.currentPrice?.[0]?.["@currencyId"] || "USD"
+          sellingStatus?.currentPrice?.[0]?.["@currencyId"] || "USD",
         ),
         soldAt: item.listingInfo?.[0]?.endTime?.[0] || null,
         itemUrl: item.viewItemURL?.[0] || null,
@@ -704,46 +832,89 @@ async function searchFindingCompletedItems(query: string, limit: number) {
     .filter(Boolean) as EbaySoldComp[];
 }
 
-export async function probeEbaySoldDataSources(
-  query: string,
-  limit = 5,
-) {
-  const safeQuery = String(query || "").trim().slice(0, 240);
+export async function probeEbaySoldDataSources(query: string, limit = 5) {
+  const safeQuery = String(query || "")
+    .trim()
+    .slice(0, 240);
   const safeLimit = Math.min(Math.max(Number(limit) || 5, 1), 10);
   if (!safeQuery) {
     return {
       query: safeQuery,
-      marketplaceInsights: { status: "invalid_query" as const, count: 0, message: "Query is required." },
-      findingCompletedItems: { status: "invalid_query" as const, count: 0, message: "Query is required." },
+      marketplaceInsights: {
+        status: "invalid_query" as const,
+        count: 0,
+        message: "Query is required.",
+      },
+      findingCompletedItems: {
+        status: "invalid_query" as const,
+        count: 0,
+        message: "Query is required.",
+      },
     };
   }
 
-  const marketplaceInsights = await searchMarketplaceInsights(safeQuery, safeLimit)
+  const marketplaceInsights = await searchMarketplaceInsights(
+    safeQuery,
+    safeLimit,
+  )
     .then((comps) => ({
       status: "live" as const,
       count: comps.length,
-      message: comps.length ? null : "Marketplace Insights returned no sold items for the probe query.",
-      sample: comps.slice(0, 3).map((comp) => ({ title: comp.title, price: comp.price, soldAt: comp.soldAt })),
+      message: comps.length
+        ? null
+        : "Marketplace Insights returned no sold items for the probe query.",
+      sample: comps
+        .slice(0, 3)
+        .map((comp) => ({
+          title: comp.title,
+          price: comp.price,
+          soldAt: comp.soldAt,
+        })),
     }))
     .catch((error) => ({
       status: "unavailable" as const,
       count: 0,
-      message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
-      sample: [] as Array<{ title: string; price: number; soldAt: string | null }>,
+      message:
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : String(error).slice(0, 500),
+      sample: [] as Array<{
+        title: string;
+        price: number;
+        soldAt: string | null;
+      }>,
     }));
 
-  const findingCompletedItems = await searchFindingCompletedItems(safeQuery, safeLimit)
+  const findingCompletedItems = await searchFindingCompletedItems(
+    safeQuery,
+    safeLimit,
+  )
     .then((comps) => ({
       status: "live" as const,
       count: comps.length,
-      message: comps.length ? null : "Finding completed-items returned no sold items for the probe query.",
-      sample: comps.slice(0, 3).map((comp) => ({ title: comp.title, price: comp.price, soldAt: comp.soldAt })),
+      message: comps.length
+        ? null
+        : "Finding completed-items returned no sold items for the probe query.",
+      sample: comps
+        .slice(0, 3)
+        .map((comp) => ({
+          title: comp.title,
+          price: comp.price,
+          soldAt: comp.soldAt,
+        })),
     }))
     .catch((error) => ({
       status: "unavailable" as const,
       count: 0,
-      message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
-      sample: [] as Array<{ title: string; price: number; soldAt: string | null }>,
+      message:
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : String(error).slice(0, 500),
+      sample: [] as Array<{
+        title: string;
+        price: number;
+        soldAt: string | null;
+      }>,
     }));
 
   return { query: safeQuery, marketplaceInsights, findingCompletedItems };
@@ -839,14 +1010,14 @@ export async function getSalesComps(input: {
 export async function getSalesCompHistory(
   legacyProductId: number,
   limit = 8,
-  storeId = getActiveStoreId()
+  storeId = getActiveStoreId(),
 ): Promise<SalesCompHistoryResult> {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
     .from("sales_comp_snapshots")
     .select(
-      "id, legacy_product_id, query, suggested_price, suggested_price_method, average_price, median_price, low_price, high_price, comp_count, recent_comp_count, source_status, google_status, price_guide_status, created_at"
+      "id, legacy_product_id, query, suggested_price, suggested_price_method, average_price, median_price, low_price, high_price, comp_count, recent_comp_count, source_status, google_status, price_guide_status, created_at",
     )
     .eq("legacy_product_id", legacyProductId)
     .eq("store_id", storeId)
@@ -869,7 +1040,8 @@ export async function getSalesCompHistory(
       suggestedPrice:
         row.suggested_price === null ? null : Number(row.suggested_price),
       suggestedPriceMethod: row.suggested_price_method ?? null,
-      averagePrice: row.average_price === null ? null : Number(row.average_price),
+      averagePrice:
+        row.average_price === null ? null : Number(row.average_price),
       medianPrice: row.median_price === null ? null : Number(row.median_price),
       lowPrice: row.low_price === null ? null : Number(row.low_price),
       highPrice: row.high_price === null ? null : Number(row.high_price),

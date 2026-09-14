@@ -47,6 +47,24 @@ type PendingItem = {
     ready: boolean;
     blockers: string[];
   };
+  duplicateProtection: {
+    required: boolean;
+    resolvedAsSeparate: boolean;
+    matchKey: string | null;
+    uniquePhysicalCopy: boolean;
+    existingActiveCount: number;
+    existingQuantity: number;
+    matches: Array<{
+      inventoryItemId: string;
+      legacyProductId: number | null;
+      title: string;
+      sku: string | null;
+      price: number;
+      quantity: number;
+      imageUrl: string | null;
+      ebayItemId: string | null;
+    }>;
+  };
   sellerReview: {
     identityConfirmed: boolean;
     confirmedAt: string | null;
@@ -132,6 +150,9 @@ function blockerLabel(value: string) {
   }
   if (value === "grader_verification_conflict") {
     return "grader verification conflict";
+  }
+  if (value === "duplicate_decision_required") {
+    return "exact card already exists in active inventory — choose a duplicate action";
   }
   return label(value);
 }
@@ -224,6 +245,7 @@ export default function InstaCompPendingPage() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const [excludingCompKey, setExcludingCompKey] = useState<string | null>(null);
+  const [duplicateDecisionItemId, setDuplicateDecisionItemId] = useState<string | null>(null);
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
   const [draftEdits, setDraftEdits] = useState<Record<string, DraftEdit>>({});
   const [bulkQuantity, setBulkQuantity] = useState("");
@@ -748,6 +770,75 @@ export default function InstaCompPendingPage() {
     }
   }
 
+  async function resolveDuplicate(
+    item: PendingItem,
+    action: "merge_keep_price" | "merge_change_price" | "keep_separate",
+  ) {
+    const match = item.duplicateProtection.matches[0];
+    if (!match?.legacyProductId) {
+      setError("The matching active listing could not be resolved. Reload Pending Inventory.");
+      return;
+    }
+
+    let price: number | undefined;
+    if (action === "merge_change_price") {
+      const entered = window.prompt(
+        `New price for all ${match.quantity + item.quantity} copies after the merge:`,
+        String(match.price || item.price || ""),
+      );
+      if (entered === null) return;
+      price = Math.round(Number(entered) * 100) / 100;
+      if (!Number.isFinite(price) || price <= 0) {
+        setError("Enter a valid price greater than zero.");
+        return;
+      }
+    }
+
+    const actionLabel =
+      action === "merge_keep_price"
+        ? `add this scan to listing #${match.legacyProductId} at ${money(match.price)}`
+        : action === "merge_change_price"
+          ? `add this scan to listing #${match.legacyProductId} and price all copies at ${money(price)}`
+          : `keep this scan as a separate listing instead of merging with #${match.legacyProductId}`;
+    if (!window.confirm(`Confirm: ${actionLabel}?`)) return;
+
+    setDuplicateDecisionItemId(item.inventoryItemId);
+    setError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to resolve duplicates.");
+      const response = await fetch(
+        "/api/account/seller/instacomp-pending/duplicate-decision",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            inventoryItemId: item.inventoryItemId,
+            existingLegacyProductId: match.legacyProductId,
+            action,
+            price,
+          }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not resolve duplicate inventory.");
+      const ebayWarning =
+        data.ebaySync && data.ebaySync.success === false
+          ? ` eBay sync needs review: ${data.ebaySync.error || data.ebaySync.reason || "not updated"}.`
+          : "";
+      setNotice(`${data.message || "Duplicate decision saved."}${ebayWarning}`);
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not resolve duplicate inventory."));
+    } finally {
+      setDuplicateDecisionItemId(null);
+    }
+  }
+
   async function publishItems(targets: PendingItem[]) {
     if (!targets.length) {
       setError("Select one or more cards first.");
@@ -1147,6 +1238,68 @@ export default function InstaCompPendingPage() {
                         </dd>
                       </div>
                     </dl>
+
+                    {item.duplicateProtection.required ? (
+                      <div className="mt-4 rounded-xl border-4 border-rose-700 bg-rose-50 p-4 shadow-[4px_4px_0_#991b1b]">
+                        <p className="text-xs font-black uppercase tracking-[0.12em] text-rose-800">
+                          Already in inventory — duplicate decision required
+                        </p>
+                        <p className="mt-2 text-lg font-black text-rose-950">
+                          This exact InstaComp checklist identity already has {item.duplicateProtection.existingActiveCount} active listing{item.duplicateProtection.existingActiveCount === 1 ? "" : "s"} with {item.duplicateProtection.existingQuantity} total cop{item.duplicateProtection.existingQuantity === 1 ? "y" : "ies"}.
+                        </p>
+                        {item.duplicateProtection.matches.slice(0, 3).map((match) => (
+                          <div key={match.inventoryItemId} className="mt-3 rounded-lg border-2 border-rose-300 bg-white p-3">
+                            <p className="font-black text-neutral-950">{match.title}</p>
+                            <p className="mt-1 text-sm font-bold text-neutral-700">
+                              Existing price {money(match.price)} · Qty {match.quantity}
+                              {match.ebayItemId ? ` · eBay ${match.ebayItemId}` : " · Website inventory"}
+                            </p>
+                          </div>
+                        ))}
+                        {item.uniquePhysicalCopy ? (
+                          <p className="mt-3 rounded-lg bg-violet-100 p-3 text-sm font-black text-violet-950">
+                            This card has a serial/cert identity. Automatic quantity merge is disabled for unique physical copies; use List Separately only when this is genuinely another physical copy.
+                          </p>
+                        ) : null}
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {!item.uniquePhysicalCopy ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void resolveDuplicate(item, "merge_keep_price")}
+                                disabled={duplicateDecisionItemId === item.inventoryItemId || controlsDisabled}
+                                className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+                              >
+                                Add to Existing · Keep {money(item.duplicateProtection.matches[0]?.price)}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void resolveDuplicate(item, "merge_change_price")}
+                                disabled={duplicateDecisionItemId === item.inventoryItemId || controlsDisabled}
+                                className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 disabled:opacity-50"
+                              >
+                                Add to Existing · Change Price
+                              </button>
+                            </>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void resolveDuplicate(item, "keep_separate")}
+                            disabled={duplicateDecisionItemId === item.inventoryItemId || controlsDisabled}
+                            className="rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+                          >
+                            List Separately
+                          </button>
+                        </div>
+                        {duplicateDecisionItemId === item.inventoryItemId ? (
+                          <p className="mt-3 text-sm font-black text-rose-900">Updating inventory…</p>
+                        ) : null}
+                      </div>
+                    ) : item.duplicateProtection.resolvedAsSeparate ? (
+                      <div className="mt-4 rounded-xl border-2 border-emerald-500 bg-emerald-50 p-3 text-sm font-black text-emerald-950">
+                        Duplicate reviewed: this copy is approved to list separately.
+                      </div>
+                    ) : null}
 
                     <div className="mt-4 rounded-xl border-2 border-sky-300 bg-sky-50 p-3">
                       <p className="text-xs font-black uppercase text-sky-900">

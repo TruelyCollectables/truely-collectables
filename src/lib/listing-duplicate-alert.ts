@@ -87,7 +87,11 @@ export async function findListingDuplicateAlert(params: {
     .filter((row) => {
       const productId = Number(row.id || 0);
 
-      if (!Number.isInteger(productId) || productId <= 0 || excluded.has(productId)) {
+      if (
+        !Number.isInteger(productId) ||
+        productId <= 0 ||
+        excluded.has(productId)
+      ) {
         return false;
       }
 
@@ -105,7 +109,9 @@ export async function findListingDuplicateAlert(params: {
     }))
     .sort((left, right) => {
       if (Boolean(right.ebayItemId) !== Boolean(left.ebayItemId)) {
-        return Number(Boolean(right.ebayItemId)) - Number(Boolean(left.ebayItemId));
+        return (
+          Number(Boolean(right.ebayItemId)) - Number(Boolean(left.ebayItemId))
+        );
       }
 
       return right.quantity - left.quantity;
@@ -118,7 +124,8 @@ export async function findListingDuplicateAlert(params: {
   const matchedPrice = pricedMatch.price > 0 ? pricedMatch.price : null;
   const requestedPrice = moneyNumber(params.requestedPrice);
   const priceMatched =
-    matchedPrice !== null && Math.round(matchedPrice * 100) !== Math.round(requestedPrice * 100);
+    matchedPrice !== null &&
+    Math.round(matchedPrice * 100) === Math.round(requestedPrice * 100);
   const matchWord = matches.length === 1 ? "listing" : "listings";
 
   return {
@@ -130,10 +137,10 @@ export async function findListingDuplicateAlert(params: {
     priceMatched,
     mergeUrl: "/admin/ebay/duplicates",
     message: matchedPrice
-      ? `Possible duplicate found: ${matches.length} active ${matchWord}. Price matched to existing ${matchedPrice.toLocaleString(
+      ? `Possible duplicate found: ${matches.length} active ${matchWord}. Existing price is ${matchedPrice.toLocaleString(
           "en-US",
           { style: "currency", currency: "USD" },
-        )}; review/merge before going live.`
+        )}; the new scan keeps its requested price until you choose how to resolve it.`
       : `Possible duplicate found: ${matches.length} active ${matchWord}. Review/merge before going live.`,
     matches,
   };

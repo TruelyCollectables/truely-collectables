@@ -4,6 +4,12 @@ import {
 } from "../../../../../../lib/account-auth";
 import { getInventoryActivationBlockers } from "../../../../../../lib/inventory-activation";
 import { instaCompPendingDraftParityBlockers } from "../../../../../../lib/instacomp-pending-edit";
+import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
+import {
+  pendingDuplicateCandidateMatches,
+  pendingDuplicateDecisionResolved,
+  pendingDuplicateProtectionMatchKey,
+} from "../../../../../../lib/pending-duplicate-protection";
 import { assertChecklistRegistryReceipt } from "../../../../../../lib/instacomp-registry-receipt";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
@@ -101,6 +107,36 @@ export async function POST(request: Request) {
       (products || []).map((row: any) => [row.id, row]),
     );
 
+    const activeIdentityRows: any[] = [];
+    for (let from = 0; ; from += 1000) {
+      let activeQuery = supabase
+        .from("inventory_items")
+        .select(
+          "id,legacy_product_id,seller_account_id,status,quantity,metadata,title,price",
+        )
+        .eq("store_id", storeId)
+        .eq("status", "active")
+        .gt("quantity", 0)
+        .range(from, from + 999);
+      activeQuery = isStoreOwnerAccount
+        ? activeQuery.or(
+            `seller_account_id.eq.${account.id},seller_account_id.is.null`,
+          )
+        : activeQuery.eq("seller_account_id", account.id);
+      const { data: activePage, error: activeError } = await activeQuery;
+      if (activeError) throw activeError;
+      activeIdentityRows.push(...(activePage || []));
+      if ((activePage || []).length < 1000) break;
+    }
+    const activeIdentityGroups = new Map<string, any[]>();
+    for (const activeRow of activeIdentityRows) {
+      const key = effectiveInstaCompPricingGroupKey(activeRow.metadata);
+      if (!key) continue;
+      const current = activeIdentityGroups.get(key) || [];
+      current.push(activeRow);
+      activeIdentityGroups.set(key, current);
+    }
+
     const { data: payoutAccount, error: payoutError } = await supabase
       .from("seller_payout_accounts")
       .select("onboarding_status,payouts_enabled,details_submitted")
@@ -140,6 +176,54 @@ export async function POST(request: Request) {
         }
 
         const registryReceipt = assertChecklistRegistryReceipt(metadata);
+        const duplicateMatchKey = effectiveInstaCompPricingGroupKey(metadata);
+        const duplicateDecision = recordValue(
+          instaComp.duplicateInventoryDecision,
+        );
+        const duplicateProtectionMatchKey = pendingDuplicateProtectionMatchKey({
+          pricingGroupKey: duplicateMatchKey,
+          title: row.title,
+        });
+        const keyedMatches = duplicateMatchKey
+          ? activeIdentityGroups.get(duplicateMatchKey) || []
+          : [];
+        const legacyTitleMatches = activeIdentityRows.filter(
+          (candidate: any) => {
+            const candidateKey = effectiveInstaCompPricingGroupKey(
+              candidate.metadata,
+            );
+            if (duplicateMatchKey && candidateKey) return false;
+            return pendingDuplicateCandidateMatches({
+              draftPricingGroupKey: duplicateMatchKey,
+              draftTitle: row.title,
+              candidatePricingGroupKey: candidateKey,
+              candidateTitle: candidate.title,
+            });
+          },
+        );
+        const activeMatches = Array.from(
+          new Map(
+            [...keyedMatches, ...legacyTitleMatches].map((candidate: any) => [
+              String(candidate.id),
+              candidate,
+            ]),
+          ).values(),
+        );
+        const duplicateDecisionResolved = pendingDuplicateDecisionResolved(
+          duplicateDecision,
+          duplicateProtectionMatchKey,
+        );
+        if (activeMatches.length > 0 && !duplicateDecisionResolved) {
+          const error = new Error(
+            `This exact card is already active in inventory (${activeMatches.length} listing${
+              activeMatches.length === 1 ? "" : "s"
+            }). Resolve the duplicate in Pending Inventory before publishing.`,
+          ) as Error & { code?: string; blockers?: string[] };
+          error.code = "DUPLICATE_DECISION_REQUIRED";
+          error.blockers = ["duplicate_decision_required"];
+          throw error;
+        }
+
         const parityBlockers = instaCompPendingDraftParityBlockers({
           metadata,
           content: {
@@ -159,7 +243,8 @@ export async function POST(request: Request) {
         }
 
         const product = productMap.get(row.legacy_product_id);
-        if (!product) throw new Error("The linked product record was not found.");
+        if (!product)
+          throw new Error("The linked product record was not found.");
 
         const blockers = getInventoryActivationBlockers({
           sku: row.sku || null,
@@ -220,8 +305,7 @@ export async function POST(request: Request) {
           success: true,
           status: "active",
           registryIdentityId: registryReceipt.registryIdentityId,
-          registryFingerprintSha256:
-            registryReceipt.registryFingerprintSha256,
+          registryFingerprintSha256: registryReceipt.registryFingerprintSha256,
           channelDraftParityVerified: true,
           item: updatedItem,
         });
@@ -244,7 +328,10 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     return Response.json(
-      { error: error?.message || "Could not publish InstaComp pending listings." },
+      {
+        error:
+          error?.message || "Could not publish InstaComp pending listings.",
+      },
       { status: 500 },
     );
   }

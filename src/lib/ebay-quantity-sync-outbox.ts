@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { syncEbayQuantityAfterSale } from "./ebay";
+import { syncEbayPriceQuantity, syncEbayQuantityAfterSale } from "./ebay";
 import {
   ebayQuantityRetryDelaySeconds,
   selectLowestSafeEbayQuantity,
@@ -9,6 +9,7 @@ type EbayQuantitySyncOutboxRow = {
   id: string;
   legacy_product_id: number;
   desired_quantity: number;
+  desired_price: number | string | null;
   sku: string | null;
   ebay_item_id: string | null;
   attempt_count: number;
@@ -87,7 +88,7 @@ async function loadPendingProductRows(params: {
   const { data, error } = await params.supabase
     .from("ebay_quantity_sync_outbox")
     .select(
-      "id,legacy_product_id,desired_quantity,sku,ebay_item_id,attempt_count",
+      "id,legacy_product_id,desired_quantity,desired_price,sku,ebay_item_id,attempt_count",
     )
     .eq("store_id", params.storeId)
     .eq("legacy_product_id", params.legacyProductId)
@@ -142,6 +143,16 @@ function durableJournalTarget(rows: EbayQuantitySyncOutboxRow[]) {
   return selectLowestSafeEbayQuantity(rows.map((row) => row.desired_quantity));
 }
 
+function latestDesiredPrice(rows: EbayQuantitySyncOutboxRow[]) {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const price = Number(rows[index]?.desired_price || 0);
+    if (Number.isFinite(price) && price > 0) {
+      return Math.round(price * 100) / 100;
+    }
+  }
+  return null;
+}
+
 function identifiers(params: {
   rows: EbayQuantitySyncOutboxRow[];
   product: ProductRow | null;
@@ -165,7 +176,7 @@ export async function retryPendingEbayQuantitySyncs(params: {
   const { data, error } = await params.supabase
     .from("ebay_quantity_sync_outbox")
     .select(
-      "id,legacy_product_id,desired_quantity,sku,ebay_item_id,attempt_count",
+      "id,legacy_product_id,desired_quantity,desired_price,sku,ebay_item_id,attempt_count",
     )
     .eq("store_id", params.storeId)
     .eq("status", "pending")
@@ -187,6 +198,7 @@ export async function retryPendingEbayQuantitySyncs(params: {
 
   for (const [legacyProductId] of groups) {
     let lastPushedQuantity: number | null = null;
+    let lastPushedPrice: number | null = null;
     let productSynced = false;
     let productSkipped = false;
 
@@ -216,6 +228,7 @@ export async function retryPendingEbayQuantitySyncs(params: {
           ? localTarget({ rows: pendingRows, product, inventory })
           : durableJournalTarget(pendingRows);
         const linked = identifiers({ rows: pendingRows, product });
+        const targetPrice = latestDesiredPrice(pendingRows);
 
         if (!linked.sku && !linked.ebayItemId) {
           await markRows({
@@ -236,19 +249,29 @@ export async function retryPendingEbayQuantitySyncs(params: {
 
         if (
           lastPushedQuantity === null ||
-          targetQuantity < lastPushedQuantity
+          targetQuantity < lastPushedQuantity ||
+          (targetPrice !== null && targetPrice !== lastPushedPrice)
         ) {
-          const syncResult = await syncEbayQuantityAfterSale({
-            sku: linked.sku,
-            ebayItemId: linked.ebayItemId,
-            newQuantity: targetQuantity,
-          });
+          const syncResult =
+            targetPrice !== null
+              ? await syncEbayPriceQuantity({
+                  sku: linked.sku,
+                  ebayItemId: linked.ebayItemId,
+                  newQuantity: targetQuantity,
+                  newPrice: targetPrice,
+                })
+              : await syncEbayQuantityAfterSale({
+                  sku: linked.sku,
+                  ebayItemId: linked.ebayItemId,
+                  newQuantity: targetQuantity,
+                });
           if (!syncResult.success) {
             throw new Error(
-              syncResult.reason || "eBay quantity update was skipped.",
+              syncResult.reason || "eBay inventory update was skipped.",
             );
           }
           lastPushedQuantity = targetQuantity;
+          lastPushedPrice = targetPrice;
         }
 
         const attemptCount = Math.max(
@@ -294,7 +317,12 @@ export async function retryPendingEbayQuantitySyncs(params: {
               inventory: nextState.inventory,
             })
           : durableJournalTarget(nextRows);
-        if (lastPushedQuantity !== null && nextTarget < lastPushedQuantity) {
+        const nextPrice = latestDesiredPrice(nextRows);
+        if (
+          lastPushedQuantity !== null &&
+          (nextTarget < lastPushedQuantity ||
+            (nextPrice !== null && nextPrice !== lastPushedPrice))
+        ) {
           continue;
         }
 

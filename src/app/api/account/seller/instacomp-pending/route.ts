@@ -10,6 +10,12 @@ import {
   effectiveInstaCompPricingGroupKey,
   summarizeInstaCompPricingGroup,
 } from "../../../../../lib/instacomp-pricing-group";
+import { normalizeListingDuplicateTitle } from "../../../../../lib/listing-duplicate-alert";
+import {
+  pendingDuplicateCandidateMatches,
+  pendingDuplicateDecisionResolved,
+  pendingDuplicateProtectionMatchKey,
+} from "../../../../../lib/pending-duplicate-protection";
 import {
   instaCompPendingQueueFromMetadata,
   type InstaCompPendingQueue,
@@ -22,7 +28,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type InstaCompListingFolder = "pending" | "website" | "ebay" | "both" | "investment";
+type InstaCompListingFolder =
+  "pending" | "website" | "ebay" | "both" | "investment";
 
 const LOCAL_CERTIFIED_PRICING_PATH =
   process.env.INSTACOMP_CERTIFIED_PRICING_PATH ||
@@ -177,9 +184,11 @@ function listingFolderFromMetadata(
   if (
     textValue(lifecycle.disposition) === "investment_stash" ||
     textValue(lifecycle.state) === "investment_stash"
-  ) return "investment";
+  )
+    return "investment";
   const dual = recordValue(metadata.dual_marketplace);
-  const websiteActive = textValue(recordValue(dual.website).status) === "active";
+  const websiteActive =
+    textValue(recordValue(dual.website).status) === "active";
   const ebayActive =
     textValue(recordValue(dual.ebay).status) === "active" || legacyEbayLinked;
   if (websiteActive && ebayActive) return "both";
@@ -583,7 +592,9 @@ export async function GET(request: Request) {
       account.email === "sales@trulycollectables.com";
     const requestUrl = new URL(request.url);
     const requestedQueue = requestUrl.searchParams.get("queue");
-    const requestedBatch = String(requestUrl.searchParams.get("batch") || "").trim();
+    const requestedBatch = String(
+      requestUrl.searchParams.get("batch") || "",
+    ).trim();
     const requestedFolder = requestUrl.searchParams.get("folder");
     const queue: InstaCompPendingQueue =
       requestedQueue === "verification" ? "verification" : "listings";
@@ -686,10 +697,15 @@ export async function GET(request: Request) {
       new Set(
         scopedInstaCompRows
           .map((row: any) => row.legacy_product_id)
-          .filter((value: unknown): value is number => typeof value === "number"),
+          .filter(
+            (value: unknown): value is number => typeof value === "number",
+          ),
       ),
     );
-    const linkedEbayProducts: Array<{ id: number; ebay_item_id: string | null }> = [];
+    const linkedEbayProducts: Array<{
+      id: number;
+      ebay_item_id: string | null;
+    }> = [];
     for (let index = 0; index < scopedProductIds.length; index += 250) {
       const productIdBatch = scopedProductIds.slice(index, index + 250);
       const { data, error } = await supabase
@@ -724,21 +740,58 @@ export async function GET(request: Request) {
       ).length,
     };
     const listingRows = scopedInstaCompRows.filter(
-      (row: any) => instaCompPendingQueueFromMetadata(row.metadata) === "listings",
+      (row: any) =>
+        instaCompPendingQueueFromMetadata(row.metadata) === "listings",
     );
 
     const folderCounts = {
-      pending: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "pending").length,
-      website: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "website").length,
-      ebay: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "ebay").length,
-      both: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "both").length,
-      investment: listingRows.filter((row: any) => listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) === "investment").length,
+      pending: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "pending",
+      ).length,
+      website: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "website",
+      ).length,
+      ebay: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "ebay",
+      ).length,
+      both: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "both",
+      ).length,
+      investment: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "investment",
+      ).length,
     };
     const rows = scopedInstaCompRows.filter((row: any) => {
       const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
       if (rowQueue !== queue) return false;
       if (queue === "verification") return rowIsUnlistedEverywhere(row);
-      if (listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) !== folder) return false;
+      if (
+        listingFolderFromMetadata(
+          row.metadata,
+          rowHasLegacyEbayListing(row),
+        ) !== folder
+      )
+        return false;
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
       return (
@@ -760,14 +813,14 @@ export async function GET(request: Request) {
       ),
     );
     const allOwnedRows =
-      pricingGroupKeys.length > 0
+      rows.length > 0
         ? await readOwnedInventoryPages({
             supabase,
             storeId,
             accountId: account.id,
             ownerAccount: isStoreOwnerAccount,
             columns:
-              "id,legacy_product_id,status,quantity,price,card_uuid,metadata,title,created_at",
+              "id,legacy_product_id,status,quantity,price,card_uuid,metadata,title,sku,created_at",
           })
         : [];
     const pricingGroups = new Map<string, any[]>();
@@ -778,6 +831,18 @@ export async function GET(request: Request) {
       current.push(ownedRow);
       pricingGroups.set(key, current);
     }
+    const pendingNormalizedTitles = new Set(
+      rows
+        .map((row: any) => normalizeListingDuplicateTitle(row.title))
+        .filter(Boolean),
+    );
+    const relevantOwnedRows = allOwnedRows.filter((ownedRow: any) => {
+      const key = effectiveInstaCompPricingGroupKey(ownedRow.metadata);
+      if (key && pricingGroupKeys.includes(key)) return true;
+      return pendingNormalizedTitles.has(
+        normalizeListingDuplicateTitle(ownedRow.title),
+      );
+    });
 
     const itemIds = rows.map((row: any) => String(row.id));
     // Keep PostgREST `in(...)` URLs bounded. Large verification queues can hold
@@ -788,9 +853,7 @@ export async function GET(request: Request) {
       const itemIdBatch = itemIds.slice(index, index + 100);
       const { data, error } = await supabase
         .from("inventory_images")
-        .select(
-          "inventory_item_id,image_url,alt_text,sort_order,is_primary",
-        )
+        .select("inventory_item_id,image_url,alt_text,sort_order,is_primary")
         .in("inventory_item_id", itemIdBatch)
         .order("sort_order", { ascending: true });
       if (error) throw error;
@@ -807,7 +870,7 @@ export async function GET(request: Request) {
 
     const productIds = Array.from(
       new Set(
-        rows
+        [...rows, ...relevantOwnedRows]
           .map((row: any) => row.legacy_product_id)
           .filter(
             (value: unknown): value is number => typeof value === "number",
@@ -819,7 +882,9 @@ export async function GET(request: Request) {
       const productIdBatch = productIds.slice(index, index + 250);
       const { data, error } = await supabase
         .from("products")
-        .select("id,card_uuid,image_url,price,quantity,archived_at,ebay_item_id")
+        .select(
+          "id,card_uuid,sku,title,image_url,price,quantity,archived_at,ebay_item_id",
+        )
         .eq("store_id", storeId)
         .in("id", productIdBatch);
       if (error) throw error;
@@ -950,7 +1015,8 @@ export async function GET(request: Request) {
         channelAnchor || 0,
         feeProfile,
       );
-      const ebayChannelPrice = storedEbayPrice || calculatedChannels.ebayPrice || 0;
+      const ebayChannelPrice =
+        storedEbayPrice || calculatedChannels.ebayPrice || 0;
       const websiteChannelPrice =
         storedWebsitePrice || calculatedChannels.websitePrice || 0;
       const channelPricing = calculateCustomWebsitePricing(
@@ -971,7 +1037,7 @@ export async function GET(request: Request) {
           }
         : metadata;
 
-      const blockers = getInventoryActivationBlockers({
+      const blockers: string[] = getInventoryActivationBlockers({
         sku: row.sku || null,
         price: Number(row.price || 0),
         quantity: Number(row.quantity || 0),
@@ -988,6 +1054,86 @@ export async function GET(request: Request) {
       const uniquePhysicalCopy = Boolean(
         exactSerialNumber || gradingCertNumber,
       );
+      const duplicateDecision = recordValue(
+        instaComp.duplicateInventoryDecision,
+      );
+      const duplicateProtectionMatchKey = pendingDuplicateProtectionMatchKey({
+        pricingGroupKey,
+        title: displayTitle,
+      });
+      const exactKeyRows = pricingGroupRows.filter(
+        (candidate: any) =>
+          candidate.status === "active" &&
+          Number(candidate.quantity || 0) > 0 &&
+          Number(candidate.legacy_product_id || 0) !==
+            Number(row.legacy_product_id || 0),
+      );
+      const legacyTitleRows = allOwnedRows.filter((candidate: any) => {
+        if (
+          candidate.status !== "active" ||
+          Number(candidate.quantity || 0) <= 0
+        )
+          return false;
+        if (
+          Number(candidate.legacy_product_id || 0) ===
+          Number(row.legacy_product_id || 0)
+        )
+          return false;
+        const candidateKey = effectiveInstaCompPricingGroupKey(
+          candidate.metadata,
+        );
+        if (pricingGroupKey && candidateKey) return false;
+        return pendingDuplicateCandidateMatches({
+          draftPricingGroupKey: pricingGroupKey,
+          draftTitle: displayTitle,
+          candidatePricingGroupKey: candidateKey,
+          candidateTitle: candidate.title,
+        });
+      });
+      const existingActiveRows = Array.from(
+        new Map(
+          [...exactKeyRows, ...legacyTitleRows].map((candidate: any) => [
+            String(candidate.id),
+            candidate,
+          ]),
+        ).values(),
+      );
+      const duplicateDecisionResolved = pendingDuplicateDecisionResolved(
+        duplicateDecision,
+        duplicateProtectionMatchKey,
+      );
+      if (existingActiveRows.length > 0 && !duplicateDecisionResolved) {
+        blockers.push("duplicate_decision_required");
+      }
+      const existingMatches = existingActiveRows
+        .map((candidate: any) => {
+          const candidateProduct = candidate.legacy_product_id
+            ? productMap.get(candidate.legacy_product_id)
+            : null;
+          return {
+            inventoryItemId: String(candidate.id),
+            legacyProductId: Number(candidate.legacy_product_id || 0) || null,
+            title:
+              candidate.title || candidateProduct?.title || "Existing listing",
+            sku: candidate.sku || candidateProduct?.sku || null,
+            price: Number(candidate.price || candidateProduct?.price || 0),
+            quantity: Math.max(
+              0,
+              Number(candidate.quantity || candidateProduct?.quantity || 0),
+            ),
+            imageUrl: candidateProduct?.image_url || null,
+            ebayItemId: candidateProduct?.ebay_item_id || null,
+          };
+        })
+        .sort((left: any, right: any) => {
+          if (Boolean(right.ebayItemId) !== Boolean(left.ebayItemId)) {
+            return (
+              Number(Boolean(right.ebayItemId)) -
+              Number(Boolean(left.ebayItemId))
+            );
+          }
+          return right.quantity - left.quantity;
+        });
 
       return {
         inventoryItemId: row.id,
@@ -1013,6 +1159,19 @@ export async function GET(request: Request) {
           ready: blockers.length === 0,
           blockers,
         },
+        duplicateProtection: {
+          required: existingMatches.length > 0 && !duplicateDecisionResolved,
+          resolvedAsSeparate: duplicateDecisionResolved,
+          matchKey: duplicateProtectionMatchKey,
+          uniquePhysicalCopy,
+          existingActiveCount: existingMatches.length,
+          existingQuantity: existingMatches.reduce(
+            (sum: number, match: any) =>
+              sum + Math.max(0, Number(match.quantity || 0)),
+            0,
+          ),
+          matches: existingMatches,
+        },
         sellerReview: {
           identityConfirmed: sellerReview.identity_confirmed === true,
           confirmedAt: textValue(sellerReview.confirmed_at),
@@ -1020,8 +1179,12 @@ export async function GET(request: Request) {
         },
         inventoryLifecycle: {
           state: textValue(recordValue(metadata.inventory_lifecycle).state),
-          disposition: textValue(recordValue(metadata.inventory_lifecycle).disposition),
-          receivedAt: textValue(recordValue(metadata.inventory_lifecycle).receivedAt),
+          disposition: textValue(
+            recordValue(metadata.inventory_lifecycle).disposition,
+          ),
+          receivedAt: textValue(
+            recordValue(metadata.inventory_lifecycle).receivedAt,
+          ),
           scanId: textValue(recordValue(metadata.inventory_lifecycle).scanId),
         },
         instaComp: {
@@ -1347,18 +1510,22 @@ export async function GET(request: Request) {
                   commercialGroup: {
                     mergeable: Boolean(groupKey),
                     memberInventoryItemIds: [item.inventoryItemId],
-                    members: [{
-                      inventoryItemId: item.inventoryItemId,
-                      scanId: item.instaComp.scanId || null,
-                      cardUuid: item.instaComp.cardUuid || null,
-                      identity: item.instaComp.identity || null,
-                      frontImageUrl: item.frontImageUrl || null,
-                      backImageUrl: item.backImageUrl || null,
-                      inventoryLifecycle: item.inventoryLifecycle || null,
-                    }],
+                    members: [
+                      {
+                        inventoryItemId: item.inventoryItemId,
+                        scanId: item.instaComp.scanId || null,
+                        cardUuid: item.instaComp.cardUuid || null,
+                        identity: item.instaComp.identity || null,
+                        frontImageUrl: item.frontImageUrl || null,
+                        backImageUrl: item.backImageUrl || null,
+                        inventoryLifecycle: item.inventoryLifecycle || null,
+                      },
+                    ],
                     pendingRows: 1,
                     pendingQuantity: Math.max(1, Number(item.quantity || 1)),
-                    activeRows: Number(item.instaComp.duplicateGroup?.activeRows || 0),
+                    activeRows: Number(
+                      item.instaComp.duplicateGroup?.activeRows || 0,
+                    ),
                     totalQuantity: Number(
                       item.instaComp.duplicateGroup?.totalQuantity ||
                         item.quantity ||
@@ -1406,20 +1573,26 @@ export async function GET(request: Request) {
             commercialGroup: {
               mergeable: false,
               memberInventoryItemIds: [item.inventoryItemId],
-              members: [{
-                inventoryItemId: item.inventoryItemId,
-                scanId: item.instaComp.scanId || null,
-                cardUuid: item.instaComp.cardUuid || null,
-                identity: item.instaComp.identity || null,
-                frontImageUrl: item.frontImageUrl || null,
-                backImageUrl: item.backImageUrl || null,
-                inventoryLifecycle: item.inventoryLifecycle || null,
-              }],
+              members: [
+                {
+                  inventoryItemId: item.inventoryItemId,
+                  scanId: item.instaComp.scanId || null,
+                  cardUuid: item.instaComp.cardUuid || null,
+                  identity: item.instaComp.identity || null,
+                  frontImageUrl: item.frontImageUrl || null,
+                  backImageUrl: item.backImageUrl || null,
+                  inventoryLifecycle: item.inventoryLifecycle || null,
+                },
+              ],
               pendingRows: 1,
               pendingQuantity: Math.max(1, Number(item.quantity || 1)),
-              activeRows: Number(item.instaComp.duplicateGroup?.activeRows || 0),
+              activeRows: Number(
+                item.instaComp.duplicateGroup?.activeRows || 0,
+              ),
               totalQuantity: Number(
-                item.instaComp.duplicateGroup?.totalQuantity || item.quantity || 1,
+                item.instaComp.duplicateGroup?.totalQuantity ||
+                  item.quantity ||
+                  1,
               ),
             },
           }));
