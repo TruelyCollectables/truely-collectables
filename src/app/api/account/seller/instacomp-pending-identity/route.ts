@@ -4,6 +4,7 @@ import {
 } from "../../../../../lib/account-auth";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { buildInstaCompCanonicalTitle } from "../../../../../lib/instacomp-canonical-title";
 
 export const dynamic = "force-dynamic";
 
@@ -84,38 +85,7 @@ function buildIdentitySummary(fields: Record<string, unknown>) {
 }
 
 function buildIdentityTitle(fields: Record<string, unknown>) {
-  const year = textValue(fields.year);
-  const manufacturer = textValue(fields.manufacturer) || textValue(fields.brand);
-  const setName = textValue(fields.setName) || textValue(fields.product);
-  const cardNumber = textValue(fields.cardNumber) || textValue(fields.card_number);
-  const player = textValue(fields.player) || textValue(fields.playerName);
-  const team = textValue(fields.team);
-  const parallel =
-    textValue(fields.parallel) ||
-    textValue(fields.checklistParallel) ||
-    textValue(fields.parallelName);
-  const pieces = [
-    year,
-    manufacturer,
-    setName,
-    cardNumber ? `#${cardNumber}` : null,
-    player,
-    parallel,
-    team ? `(${team})` : null,
-  ].filter(Boolean);
-  const title = pieces.join(" ").replace(/\s+/g, " ").trim();
-  return title || null;
-}
-
-function isGenericTitle(value: unknown) {
-  const title = textValue(value)?.toLowerCase() || "";
-  return (
-    !title ||
-    title === "untitled item" ||
-    title === "identity review required" ||
-    title === "review required" ||
-    title.includes("permanent uuid missing")
-  );
+  return buildInstaCompCanonicalTitle(fields) || null;
 }
 
 function collectEvidenceTexts(metadata: JsonRecord) {
@@ -489,7 +459,6 @@ export async function POST(request: Request) {
     const identity = visualIdentity(metadata);
     const currentAi = recordValue(instaComp.ai);
     const currentTitle = textValue((row as { title?: unknown }).title);
-    const nextTitle = identity.title && isGenericTitle(currentTitle) ? identity.title : null;
     const nextAi = {
       ...currentAi,
       year: identity.lockedFields.year,
@@ -533,10 +502,26 @@ export async function POST(request: Request) {
       },
     };
 
-    const updatePayload: Record<string, unknown> = { metadata: nextMetadata };
-    if (nextTitle) {
-      updatePayload.title = nextTitle;
-    }
+    const canonicalTitle = identity.status === 'identified'
+      ? buildInstaCompCanonicalTitle(nextAi, { metadata: nextMetadata, rawTitle: currentTitle })
+      : null;
+    const normalizedMetadata = canonicalTitle
+      ? {
+          ...nextMetadata,
+          titleNormalization: {
+            rule: "instacomp_canonical_title_v2",
+            format: "YEAR PRODUCT [LEVEL/INSERT] #CARD PLAYER [RC] [PARALLEL] [VARIATION] [/N]",
+            teamExcluded: true,
+            genericBaseExcluded: true,
+            leagueSuffixExcluded: true,
+            normalizedAt: new Date().toISOString(),
+            previousTitle: currentTitle,
+            normalizedTitle: canonicalTitle,
+          },
+        }
+      : nextMetadata;
+    const updatePayload: Record<string, unknown> = { metadata: normalizedMetadata };
+    if (canonicalTitle) updatePayload.title = canonicalTitle;
 
     const { error: updateError } = await supabase
       .from("inventory_items")

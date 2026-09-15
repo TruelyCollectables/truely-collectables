@@ -4,6 +4,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../lib/account-auth";
 import { getInventoryActivationBlockers } from "../../../../../lib/inventory-activation";
+import { buildInstaCompCanonicalTitle } from "../../../../../lib/instacomp-canonical-title";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import {
@@ -333,58 +334,7 @@ function buildIdentitySummary(identity: Record<string, unknown>) {
 }
 
 function buildIdentityReadout(identity: Record<string, unknown>) {
-  const year = textValue(identity.year);
-  const manufacturer =
-    identityValue(identity.manufacturer) || identityValue(identity.brand);
-  const setName =
-    identityValue(identity.setName) ||
-    identityValue(identity.set_name) ||
-    identityValue(identity.product);
-  const subset = identitySubsetValue(identity);
-  const cardNumber =
-    identityValue(identity.cardNumber) || identityValue(identity.card_number);
-  const player = identityPlayerValue(identity);
-  const team = identityValue(identity.team);
-  const parallel =
-    identityValue(identity.parallel) ||
-    identityValue(identity.checklistParallel) ||
-    identityValue(identity.parallelName) ||
-    identityValue(identity.variation);
-  const pieces = [
-    year,
-    manufacturer,
-    setName,
-    subset,
-    cardNumber ? `#${cardNumber}` : null,
-    player,
-    team ? `(${team})` : null,
-    parallel,
-  ].filter(Boolean);
-  return pieces.join(" ").replace(/\s+/g, " ").trim() || null;
-}
-
-function buildIdentityTitle(identity: Record<string, unknown>) {
-  const setName = textValue(identity.setName) || textValue(identity.set_name);
-  const product = textValue(identity.product);
-  const subset = identitySubsetValue(identity);
-  const brand = textValue(identity.brand) || textValue(identity.manufacturer);
-  const player = identityPlayerValue(identity);
-  const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
-  const pieces = [
-    textValue(identity.year),
-    brand,
-    normalizedSetName || product,
-    subset,
-    textValue(identity.cardNumber) || textValue(identity.card_number)
-      ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
-      : null,
-    player || textValue(identity.playerName),
-    textValue(identity.parallel) ||
-      textValue(identity.checklistParallel) ||
-      textValue(identity.parallelName),
-    textValue(identity.team) ? `(${textValue(identity.team)})` : null,
-  ].filter(Boolean);
-  return pieces.join(" ").replace(/\s+/g, " ").trim() || null;
+  return buildInstaCompCanonicalTitle(identity) || null;
 }
 
 function isGenericTitle(value: unknown) {
@@ -949,13 +899,12 @@ export async function GET(request: Request) {
       const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
       const rawTitle = textValue(row.title);
       const generatedTitle =
-        buildIdentityTitle(primaryIdentity) ||
-        buildIdentityTitle(recordValue(metadata.card)) ||
-        buildIdentityTitle(cardIdentity) ||
-        buildIdentityTitle(saleIdentity) ||
-        buildIdentityTitle(recordValue(metadata.verified_reference)) ||
-        buildIdentityTitle(recordValue(metadata.collectible_asset)) ||
-        buildIdentityTitle(metadata) ||
+        buildInstaCompCanonicalTitle(primaryIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(legacyCardIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(cardIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(saleIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(recordValue(metadata.verified_reference), { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(recordValue(metadata.collectible_asset), { metadata, rawTitle }) ||
         null;
       const identitySummary =
         buildIdentitySummary(primaryIdentity) ||
@@ -975,18 +924,13 @@ export async function GET(request: Request) {
         buildIdentityReadout(recordValue(metadata.collectible_asset)) ||
         buildIdentityReadout(metadata) ||
         null;
-      const displayTitle = manualIdentityLocked
-        ? rawTitle ||
-          generatedTitle ||
-          identityReadout ||
-          identitySummary ||
-          "Untitled item"
-        : identityReadout ||
-          identitySummary ||
-          generatedTitle ||
-          (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
-          rawTitle ||
-          "Untitled item";
+      const displayTitle =
+        generatedTitle ||
+        (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
+        identityReadout ||
+        identitySummary ||
+        rawTitle ||
+        "Untitled item";
 
       const suggestedPrice = optionalPrice(
         localCertifiedPricingAnalysis.instacomp ??

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getFreshAccountSession } from "../../account/account-session";
+import { buildInstaCompCanonicalTitle } from "../../../lib/instacomp-canonical-title";
 
 type CardIdentity = {
   sport?: string | null;
@@ -271,36 +272,6 @@ function money(value: unknown) {
 
 const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
 
-const GENERIC_PLAYER_PHRASES = new Set([
-  "all american",
-  "all-american",
-  "crunch time",
-  "crunch-time",
-  "base",
-  "chrome",
-  "donruss",
-  "heritage",
-  "league leaders",
-  "prizm",
-  "prizms",
-  "score",
-  "select",
-  "topps",
-  "upper deck",
-  "bowman",
-  "rookie",
-]);
-
-function normalizeSubsetLabel(value: string) {
-  const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
-  if (normalized === "all american" || normalized === "all-american") return "All American";
-  if (normalized === "crunch time" || normalized === "crunch-time") return "Crunch Time";
-  if (normalized === "future watch") return "Future Watch";
-  if (normalized === "young guns") return "Young Guns";
-  if (normalized === "spectrum fx") return "Spectrum FX";
-  return value.trim();
-}
-
 function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
   const suggested = Number(value);
   return Number.isFinite(suggested) && suggested > 0
@@ -308,86 +279,16 @@ function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
     : null;
 }
 
-function identityReadout(card: PendingCard) {
-  const identity = card.instaComp.identity || {};
-  const clean = (value?: string | null) => {
-    const text = value?.trim() || "";
-    if (!text) return "";
-    const normalized = text.toLowerCase();
-    if (
-      normalized === "identity review required" ||
-      normalized === "review required" ||
-      normalized === "untitled item" ||
-      normalized === "permanent uuid missing"
-      || normalized.includes("identity review required")
-      || normalized.includes("review required")
-      || normalized.includes("credits")
-    ) {
-      return "";
-    }
-    if (/^no\.?\s*/i.test(text) && text.split(/\s+/).length <= 3) return "";
-    return text;
-  };
-  const blockedPlayerValues = new Set(
-    [identity.setName, identity.subset, identity.product, identity.brand, identity.manufacturer]
-      .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
-      .map((value) => value.trim().toLowerCase()),
-  );
-  const year = clean(identity.year);
-  const manufacturer = clean(identity.manufacturer || identity.brand);
-  const setName = clean(identity.setName || identity.subset);
-  const subset = identity.subset ? normalizeSubsetLabel(identity.subset) : "";
-  const cardNumber = clean(identity.cardNumber);
-  const playerCandidate = (identity.player || "").trim().toLowerCase();
-  const player = blockedPlayerValues.has(playerCandidate) || GENERIC_PLAYER_PHRASES.has(playerCandidate)
-    ? ""
-    : clean(identity.player);
-  const team = clean(identity.team);
-  const parallel = clean(identity.parallel || identity.variation);
-  const pieces = [
-    year,
-    manufacturer,
-    setName,
-    subset,
-    cardNumber ? `#${cardNumber.replace(/^#/, "")}` : "",
-    player,
-    team ? `(${team})` : "",
-    parallel,
-  ].filter(Boolean);
-  return pieces.join(" ").replace(/\s+/g, " ").trim();
-}
-
-function canonicalSetTitle(value: string) {
-  const clean = value.trim();
-  if (/^base(?: set)?$/i.test(clean)) return "";
-  return clean.replace(/^base set\s*[-–—:]\s*/i, "").trim();
-}
-
 function standardizedTitle(edit: EditState) {
-  const year = edit.year.trim();
-  const rawSetName = canonicalSetTitle(edit.setName).trim();
-  const setName = rawSetName
-    .split(/\s+[-–—]\s+/)[0]
-    .replace(new RegExp(`^${year.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`, "i"), "")
-    .trim();
-  const manufacturer = edit.manufacturer.trim() || edit.brand.trim();
-  const product = edit.product.trim();
-  const manufacturerSet = setName
-    ? (manufacturer && !setName.toLowerCase().startsWith(manufacturer.toLowerCase())
-        ? `${manufacturer} ${setName}`
-        : setName)
-    : [manufacturer, product].filter(Boolean).join(" ").trim();
-  const parallelRaw = edit.parallel.trim();
-  const parallel = /^(?:base|base set)$/i.test(parallelRaw)
-    ? ""
-    : parallelRaw.replace(/^Prizm \((.+)\)$/i, "$1 Prizm");
-  return [
-    year,
-    manufacturerSet,
-    edit.cardNumber.trim() ? `#${edit.cardNumber.trim().replace(/^#/, "")}` : "",
-    edit.player.trim(),
-    parallel,
-  ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  return buildInstaCompCanonicalTitle(
+    {
+      year: edit.year, manufacturer: edit.manufacturer, brand: edit.brand, product: edit.product,
+      setName: edit.setName, subset: edit.subset, cardNumber: edit.cardNumber, player: edit.player,
+      parallel: edit.parallel, variation: edit.variation, serialNumber: edit.printRun,
+      isRookie: edit.isRookie, isAuto: edit.isAuto, isRelic: edit.isRelic,
+    },
+    { rawTitle: edit.title, forceRookie: edit.isRookie },
+  );
 }
 
 function initialEdit(card: PendingCard): EditState {
