@@ -864,21 +864,25 @@ export async function GET(request: Request) {
         ) &&
         Object.keys(registryLockedFields).length > 0;
       const canonicalIdentityLocked = registryIdentityLocked || manualIdentityLocked;
-      const fallbackIdentity = manualIdentityLocked ? manualIdentity : ai;
-      const primaryIdentity = registryIdentityLocked
-        ? {
-            ...fallbackIdentity,
-            ...registryLockedFields,
-            // Missing subset in an exact Registry lock means no subset. Do not
-            // inherit stale/manual player text that was previously stored here.
-            subset: Object.prototype.hasOwnProperty.call(
-              registryLockedFields,
-              "subset",
-            )
-              ? registryLockedFields.subset
-              : null,
-          }
-        : fallbackIdentity;
+      // A deliberate seller correction is the highest identity authority. An
+      // exact Registry receipt protects automatic identity, but must never
+      // overwrite a later Edit All Fields save on the next Pending reload.
+      const primaryIdentity = manualIdentityLocked
+        ? manualIdentity
+        : registryIdentityLocked
+          ? {
+              ...ai,
+              ...registryLockedFields,
+              // Missing subset in an exact Registry lock means no subset. Do not
+              // inherit stale parser text that was previously stored here.
+              subset: Object.prototype.hasOwnProperty.call(
+                registryLockedFields,
+                "subset",
+              )
+                ? registryLockedFields.subset
+                : null,
+            }
+          : ai;
       const localCertifiedPricing = manualIdentityLocked
         ? localCertifiedPricingForIdentity(
             localCertifiedPricingRows,

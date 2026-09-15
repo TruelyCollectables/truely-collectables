@@ -122,6 +122,18 @@ function enrichQueueRow(row: UnknownRecord, metadata: UnknownRecord) {
 }
 
 async function requireAdmin(request: Request) {
+  // KINGMAKER Pending uses the account bearer token. The store owner must be
+  // recognized before the private job-actor membership gate; otherwise a
+  // missing/stale seller-membership row turns a valid owner session into 401.
+  const account = await getAuthenticatedAccountFromRequest(request);
+  if (account?.email && isStoreOwnerSellerAccount(account.email)) {
+    return {
+      type: "admin" as const,
+      storeId: getActiveStoreId(),
+      sellerAccountId: null,
+    };
+  }
+
   const actor = await requireInstaCompJobActor(request);
   if (actor.type === "admin") {
     return actor;
@@ -149,17 +161,6 @@ async function requireAdmin(request: Request) {
         };
       }
     }
-  }
-
-  const account = await getAuthenticatedAccountFromRequest(request);
-  const isOwner = Boolean(account?.email && isStoreOwnerSellerAccount(account.email));
-
-  if (isOwner) {
-    return {
-      type: "admin" as const,
-      storeId: actor.storeId,
-      sellerAccountId: null,
-    };
   }
 
   throw new InstaCompJobServerError(
