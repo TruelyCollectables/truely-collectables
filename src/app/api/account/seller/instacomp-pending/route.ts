@@ -857,10 +857,10 @@ export async function GET(request: Request) {
       const registryIdentityLocked =
         textValue(checklistIdentity.status) === "exact_match" &&
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          textValue(checklistIdentity.registryIdentityId),
+          textValue(checklistIdentity.registryIdentityId) || "",
         ) &&
         /^[0-9a-f]{64}$/i.test(
-          textValue(checklistIdentity.registryFingerprintSha256),
+          textValue(checklistIdentity.registryFingerprintSha256) || "",
         ) &&
         Object.keys(registryLockedFields).length > 0;
       const canonicalIdentityLocked = registryIdentityLocked || manualIdentityLocked;
