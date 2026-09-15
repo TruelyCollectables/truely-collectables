@@ -210,6 +210,27 @@ const photoReview = screenDealHunterEbayTitle({
 assert.equal(photoReview.accepted, false);
 assert.ok(photoReview.rejectionReasons.includes("non_base_not_proven"));
 
+for (const selectorTitle of [
+  "2026 Bowman Chrome Rookies Prospects 1st Bowman YOU PICK - KC26",
+  "2026 Bowman Chrome Prospects and Bowman 1st - Complete Your Set Singles!",
+  "2026 Bowman Chrome REPTILIAN REFRACTOR 1st Bowman Prospects PICK YOUR CARD KC26",
+  `2025 BOWMAN BASEBALL CHROME BOWMAN'S FIRST/PROSPECTS "FINISH YOUR SET"`,
+]) {
+  const screened = screenDealHunterEbayTitle({
+    title: selectorTitle,
+    family: { scope: "baseball_prospects", watchedPerson: "Jesus Made" },
+  });
+  assert.equal(screened.accepted, false, selectorTitle);
+  assert.ok(screened.rejectionReasons.includes("selector_or_multi_variation_listing"));
+}
+const nativeVariation = screenDealHunterEbayTitle({
+  title: "2026 Bowman Chrome Jesus Made 1st Bowman Refractor",
+  raw: { itemGroupType: "SELLER_DEFINED_VARIATIONS" },
+  family: { scope: "baseball_prospects", watchedPerson: "Jesus Made" },
+});
+assert.equal(nativeVariation.accepted, false);
+assert.ok(nativeVariation.rejectionReasons.includes("selector_or_multi_variation_listing"));
+
 assert.equal(
   extractEbayItemId({
     itemWebUrl: "https://www.ebay.com/itm/Paige-Bueckers-Rookie/123456789012",

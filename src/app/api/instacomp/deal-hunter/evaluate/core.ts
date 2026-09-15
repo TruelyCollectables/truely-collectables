@@ -478,12 +478,6 @@ async function persistEvaluation(params: {
     )
     .digest("hex");
   const supabase = createSupabaseServerClient({ admin: true });
-  const { data: prior } = await supabase
-    .from("tcos_deal_hunter_candidates")
-    .select("id,alert_sent_at")
-    .eq("candidate_fingerprint", fingerprint)
-    .maybeSingle();
-
   const { data, error } = await supabase
     .from("tcos_deal_hunter_candidates")
     .upsert(
@@ -514,27 +508,51 @@ async function persistEvaluation(params: {
       },
       { onConflict: "candidate_fingerprint" },
     )
-    .select("id,alert_sent_at")
+    .select("id,alert_sent_at,alert_delivery")
     .single();
   if (error) throw new Error(error.message);
 
   let delivery: Record<string, unknown> = {
     status: "duplicate_suppressed",
-    reason: "This exact price/evaluation fingerprint was already stored.",
+    reason: "This exact price/evaluation fingerprint already has an email claim or delivery.",
   };
-  if (!prior?.alert_sent_at && params.evaluation.alertworthy) {
-    delivery = await sendAlertEmail({
-      listing: params.listing,
-      evaluation: params.evaluation,
-    });
-    if (delivery.status === "sent") {
-      await supabase
-        .from("tcos_deal_hunter_candidates")
-        .update({
-          alert_sent_at: new Date().toISOString(),
-          alert_delivery: delivery,
-        })
-        .eq("id", data.id);
+  if (params.evaluation.alertworthy) {
+    const claimAt = new Date().toISOString();
+    const { data: claimed, error: claimError } = await supabase
+      .from("tcos_deal_hunter_candidates")
+      .update({
+        alert_sent_at: claimAt,
+        alert_delivery: { status: "sending", claimedAt: claimAt },
+      })
+      .eq("id", data.id)
+      .is("alert_sent_at", null)
+      .select("id")
+      .maybeSingle();
+    if (claimError) throw new Error(claimError.message);
+
+    if (claimed?.id) {
+      delivery = await sendAlertEmail({
+        listing: params.listing,
+        evaluation: params.evaluation,
+      });
+      if (delivery.status === "sent") {
+        await supabase
+          .from("tcos_deal_hunter_candidates")
+          .update({
+            alert_sent_at: new Date().toISOString(),
+            alert_delivery: delivery,
+          })
+          .eq("id", data.id);
+      } else {
+        await supabase
+          .from("tcos_deal_hunter_candidates")
+          .update({
+            alert_sent_at: null,
+            alert_delivery: delivery,
+          })
+          .eq("id", data.id)
+          .eq("alert_sent_at", claimAt);
+      }
     }
   }
   return { id: data.id, fingerprint, delivery };
