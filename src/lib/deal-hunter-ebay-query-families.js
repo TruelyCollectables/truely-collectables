@@ -24,6 +24,8 @@ const COLLEGE_OR_PRE_WNBA =
   /\b(college|ncaa|bowman university|bowman u|draft picks?|uconn|connecticut huskies|usc trojans|notre dame|south carolina gamecocks|tcu horned frogs|iowa hawkeyes|maryland terrapins)\b/i;
 const PROHIBITED_LISTING =
   /\b(custom|reprint|facsimile|digital card|nft|mystery|break spot|box break|case break|replica)\b/i;
+const SELECTOR_OR_MULTI_VARIATION_LISTING =
+  /\b(?:you\s+pick|pick\s+your\s+(?:card|cards|single|singles|player|players)|choose\s+your\s+(?:card|cards|single|singles|player|players)|complete\s+(?:your|the)\s+set|finish\s+(?:your|the)\s+set|build\s+(?:your|a)\s+set|pick\s+(?:a|the)\s+(?:card|single|player))\b/i;
 const PREMIUM_TIER =
   /\b(silver|prizm|refractor|holo|optic|parallel|numbered|ssp|sp\b|case hit|downtown|kaboom|gold|blue|red|green|purple|orange|pink|ice|wave|shimmer|scope|disco|fast break|choice|variation|courtside|premier|concourse|auto|autograph|signature|patch|relic|memorabilia)\b|\/\d{1,4}\b/i;
 const EXPLICIT_BASE = /\bbase(?: card)?\b/i;
@@ -169,6 +171,9 @@ export function analyzeDealHunterEbayListing({
   const cardNumber = cardNumberGuess(title) || cardNumberGuess(description);
   const categoryLooksLikeCard =
     !categories.length || categories.some((name) => CARD_CATEGORY.test(name));
+  const selectorOrMultiVariationListing =
+    SELECTOR_OR_MULTI_VARIATION_LISTING.test(combined) ||
+    String(raw?.itemGroupType || "").toUpperCase() === "SELLER_DEFINED_VARIATIONS";
 
   const mislistReasons = [];
   if (evidenceMatch.matched && !titleMatch.matched) {
@@ -188,6 +193,7 @@ export function analyzeDealHunterEbayListing({
     targetMatchedInMetadata: !titleMatch.matched && evidenceMatch.matched,
     categories,
     categoryLooksLikeCard,
+    selectorOrMultiVariationListing,
     lotSignal,
     lotQuantityGuess: lotQuantityGuess(combined, raw),
     cardNumberGuess: cardNumber,
@@ -542,6 +548,9 @@ export function screenDealHunterEbayTitle({
   if (!value) rejectionReasons.push("missing_title");
   if (PROHIBITED_LISTING.test(evidenceText)) {
     rejectionReasons.push("custom_reprint_digital_break_or_mystery");
+  }
+  if (analysis.selectorOrMultiVariationListing) {
+    rejectionReasons.push("selector_or_multi_variation_listing");
   }
 
   if (family?.scope === "wnba") {
