@@ -7,13 +7,13 @@ import {
 import { sanitizeInstaCompProviderError } from "./instacomp-provider-safety";
 
 const requestedMinimumOrientationConfidence = Number(
-  process.env.INSTACOMP_ORIENTATION_MIN_CONFIDENCE || 0.55,
+  process.env.INSTACOMP_ORIENTATION_MIN_CONFIDENCE || 0.90,
 );
 const MINIMUM_ORIENTATION_CONFIDENCE = Number.isFinite(
   requestedMinimumOrientationConfidence,
 )
-  ? Math.max(0.5, Math.min(0.99, requestedMinimumOrientationConfidence))
-  : 0.55;
+  ? Math.max(0.8, Math.min(0.99, requestedMinimumOrientationConfidence))
+  : 0.90;
 
 type CloudflareFetchGlobal = typeof globalThis & {
   __TRUELY_CLOUDFLARE_NATIVE_FETCH__?: typeof fetch;
@@ -22,7 +22,7 @@ type CloudflareFetchGlobal = typeof globalThis & {
 export type InstaCompRotation = 0 | 90 | 180 | 270;
 
 export type InstaCompOrientationDecision = {
-  status: "completed" | "not_configured" | "error";
+  status: "completed" | "review_required" | "not_configured" | "error";
   model: string | null;
   frontRotation: InstaCompRotation;
   backRotation: InstaCompRotation;
@@ -197,28 +197,31 @@ export async function detectInstaCompSideOrientations(params: {
     const recommendedBackRotation = params.backDataUrl
       ? normalizeInstaCompRotation(parsed.backRotation)
       : 0;
-    const frontRotation =
-      frontConfidence >= MINIMUM_ORIENTATION_CONFIDENCE
-        ? recommendedFrontRotation
-        : 0;
-    const backRotation =
-      backConfidence >= MINIMUM_ORIENTATION_CONFIDENCE
-        ? recommendedBackRotation
-        : 0;
     const frontEvidenceText = normalizedEvidence(parsed.frontEvidenceText);
     const backEvidenceText = params.backDataUrl
       ? normalizedEvidence(parsed.backEvidenceText)
       : [];
+    // Orientation is a listing-readiness gate. A low-confidence model answer is
+    // never silently converted to 0 degrees and called completed. That behavior
+    // previously let upside-down images reach Pending Listings.
+    const frontTrusted =
+      frontConfidence >= MINIMUM_ORIENTATION_CONFIDENCE &&
+      frontEvidenceText.length > 0;
+    const backTrusted = params.backDataUrl
+      ? backConfidence >= MINIMUM_ORIENTATION_CONFIDENCE && backEvidenceText.length > 0
+      : true;
+    const frontRotation = frontTrusted ? recommendedFrontRotation : 0;
+    const backRotation = params.backDataUrl && backTrusted ? recommendedBackRotation : 0;
     const lowConfidenceSides = [
-      frontRotation !== recommendedFrontRotation ? "front" : "",
-      params.backDataUrl && backRotation !== recommendedBackRotation ? "back" : "",
+      !frontTrusted ? "front" : "",
+      params.backDataUrl && !backTrusted ? "back" : "",
     ].filter(Boolean);
     const baseReason =
       typeof parsed.reason === "string" && parsed.reason.trim()
         ? sanitizeInstaCompProviderError(parsed.reason)
         : "No orientation reason returned.";
     return {
-      status: "completed",
+      status: lowConfidenceSides.length ? "review_required" : "completed",
       model,
       frontRotation,
       backRotation,
