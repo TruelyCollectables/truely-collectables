@@ -852,7 +852,26 @@ export async function GET(request: Request) {
       const ai = recordValue(instaComp.ai);
       const manualIdentity = recordValue(instaComp.manualIdentity);
       const manualIdentityLocked = instaComp.manualIdentityLocked === true;
-      const primaryIdentity = manualIdentityLocked ? manualIdentity : ai;
+      const checklistIdentity = recordValue(instaComp.checklistIdentity);
+      const registryLockedFields = recordValue(checklistIdentity.lockedFields);
+      const registryIdentityLocked =
+        textValue(checklistIdentity.status) === "exact_match" &&
+        Object.keys(registryLockedFields).length > 0;
+      const fallbackIdentity = manualIdentityLocked ? manualIdentity : ai;
+      const primaryIdentity = registryIdentityLocked
+        ? {
+            ...fallbackIdentity,
+            ...registryLockedFields,
+            // Missing subset in an exact Registry lock means no subset. Do not
+            // inherit stale/manual player text that was previously stored here.
+            subset: Object.prototype.hasOwnProperty.call(
+              registryLockedFields,
+              "subset",
+            )
+              ? registryLockedFields.subset
+              : null,
+          }
+        : fallbackIdentity;
       const localCertifiedPricing = manualIdentityLocked
         ? localCertifiedPricingForIdentity(
             localCertifiedPricingRows,

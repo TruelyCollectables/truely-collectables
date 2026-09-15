@@ -35,7 +35,10 @@ function cleanProduct(identity: Record<string, unknown>) {
   if (/^(?:panini )?select$/i.test(product)) return "Select";
   if (/^(?:panini )?donruss$/i.test(product)) return "Donruss";
   if (/^(?:panini )?prizm$/i.test(product)) {
-    return comparable(manufacturer) === "panini" ? "Panini Prizm" : "Prizm";
+    // Prizm is a Panini product. Historical/manual identity rows sometimes
+    // polluted manufacturer with "Prizm"; public titles must still say
+    // "Panini Prizm", never bare "Prizm".
+    return "Panini Prizm";
   }
   if (/^panini instant$/i.test(product)) return "Panini Instant";
   if (comparable(manufacturer) === "panini" && product && !/^panini\b/i.test(product)) {
@@ -74,7 +77,12 @@ function cleanSetAndParallel(identity: Record<string, unknown>) {
     setName = opticPreview[1];
     parallel = opticPreview[2];
   }
-  const level = subset || setName;
+  let level = subset || setName;
+  // Historical manual edits occasionally copied the player name into subset.
+  // Never publish the subject twice (for example "Prizm Sonia Citron #122
+  // Sonia Citron"). Registry/checklist set identity remains authoritative.
+  const player = text(identity.player ?? identity.playerName ?? identity.subject);
+  if (level && player && comparable(level) === comparable(player)) level = "";
   parallel = parallel
     .replace(/^Prizms?\s+/i, "")
     .replace(/\s+Prizms?$/i, "")
@@ -126,8 +134,18 @@ export function buildInstaCompCanonicalTitle(
   const cardNumber = text(identity.cardNumber ?? identity.card_number).replace(/^#/, "");
   const player = text(identity.player ?? identity.playerName ?? identity.subject);
   let { level, parallel } = cleanSetAndParallel(identity);
+  // Do not repeat the product name inside an insert/tier label.
+  // Example: product=Select + setName=Select Future => "Select Future", not "Select Select Future".
+  if (/^Select$/i.test(product) && /^Select\s+/i.test(level)) level = level.replace(/^Select\s+/i, "").trim();
   if (/^Rookies$/i.test(level) && rookieEvidence(identity, context)) level = "";
   if (/^Outburst$/i.test(parallel) && /Outburst Silver/i.test(text(context.rawTitle))) parallel = "Outburst Silver";
+  // Public Prizm titles should name the treatment as a Prizm parallel.
+  // Base remains unqualified: "2025 Panini Prizm #122 Sonia Citron RC".
+  // Non-base treatments read professionally: "Silver Prizm",
+  // "Blue Velocity Prizm", "Green Prizm", "White Seismic Prizm", etc.
+  if (/\bprizm\b/i.test(product) && parallel && !/\bprizm\b/i.test(parallel)) {
+    parallel = `${parallel} Prizm`;
+  }
   const variation = text(identity.variation);
   const rookie = rookieEvidence(identity, context);
   const serial = serialDenominator(identity);
