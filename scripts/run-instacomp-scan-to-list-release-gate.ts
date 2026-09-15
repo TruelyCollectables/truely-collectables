@@ -401,6 +401,10 @@ const kingmakerBulkEditRoute = readFileSync(
   "src/app/api/account/seller/inventory/instacomp-bulk-edit/route.ts",
   "utf8",
 );
+const kingmakerRotateRoute = readFileSync(
+  "src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts",
+  "utf8",
+);
 
 for (const required of [
   "buildInstaCompListingOutput",
@@ -472,6 +476,8 @@ for (const required of [
   "Select all",
   "Retry This Card",
   "Replace Manual Identity with AI",
+  "Rotate 90°",
+  '"/api/account/seller/inventory/instacomp-image-rotate"',
   "job?.error",
 ]) {
   requireText(
@@ -480,10 +486,24 @@ for (const required of [
     `KINGMAKER audited Pending Listings is missing ${required}`,
   );
 }
-for (const forbidden of ["rotatedImageFile", "Rotate 90°", "instacomp-image-rotate"]) {
+for (const forbidden of ["rotatedImageFile"]) {
   assert(
     !kingmakerPending.includes(forbidden),
     `KINGMAKER Master Listings restored forbidden rotation contract: ${forbidden}`,
+  );
+}
+for (const required of [
+  "persistNormalizedInstaCompImagePair",
+  "getAuthenticatedAccountFromRequest",
+  "ensureAccountStoreMembership",
+  'frontRotation: rotatedSide === "front" ? 90 : 0',
+  'backRotation: rotatedSide === "back" ? 90 : 0',
+  "published: false",
+]) {
+  requireText(
+    kingmakerRotateRoute,
+    required,
+    `KINGMAKER persisted image rotation route is missing ${required}`,
   );
 }
 for (const required of [

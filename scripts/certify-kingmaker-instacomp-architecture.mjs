@@ -65,6 +65,7 @@ const auditedPending = [
   read("src/app/kingmaker/pending/PendingClient.tsx"),
 ].join("\n");
 const auditedFrontBack = read("src/app/api/account/seller/inventory/instacomp-front-back/route.ts");
+const auditedRotate = read("src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts");
 for (const required of [
   "function hasValidPair(card: PendingCard)",
   "card.frontImageUrl !== card.backImageUrl",
@@ -79,6 +80,8 @@ for (const required of [
   "Select all",
   "Retry This Card",
   "Replace Manual Identity with AI",
+  "Rotate 90°",
+  '"/api/account/seller/inventory/instacomp-image-rotate"',
   "never auto-published",
 ]) {
   requireText(auditedPending, required, "audited KINGMAKER Pending Listings");
@@ -137,10 +140,19 @@ for (const required of [
 for (const forbidden of [
   "failed: 100",
   "rotatedImageFile",
-  "Rotate 90°",
-  '"/api/account/seller/inventory/instacomp-image-rotate"',
 ]) {
   rejectText(auditedPending, forbidden, "audited KINGMAKER Pending Listings");
+}
+
+for (const required of [
+  "persistNormalizedInstaCompImagePair",
+  "getAuthenticatedAccountFromRequest",
+  "ensureAccountStoreMembership",
+  'frontRotation: rotatedSide === "front" ? 90 : 0',
+  'backRotation: rotatedSide === "back" ? 90 : 0',
+  "published: false",
+]) {
+  requireText(auditedRotate, required, "persisted KINGMAKER manual image rotation route");
 }
 
 for (const existingPath of [
