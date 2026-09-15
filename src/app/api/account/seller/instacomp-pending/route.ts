@@ -502,12 +502,12 @@ function normalizedImages(rows: StoredImage[]) {
 function imagePairForItem(rows: StoredImage[]) {
   const images = normalizedImages(rows);
   const front =
-    images.find((image) => image.isPrimary) ||
     images.find((image) => /\bfront\b/i.test(image.altText || "")) ||
+    images.find((image) => image.isPrimary) ||
     images[0] ||
     null;
   const back =
-    images.find((image) => /\bback\b/i.test(image.altText || "")) ||
+    images.find((image) => /\bback\b/i.test(image.altText || "") && image.url !== front?.url) ||
     images.find((image) => !image.isPrimary && image.url !== front?.url) ||
     images.find((image) => image.url !== front?.url) ||
     null;

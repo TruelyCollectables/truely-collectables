@@ -321,6 +321,61 @@ function initialEdit(card: PendingCard): EditState {
   };
 }
 
+function CardImageInspector({
+  title,
+  side,
+  url,
+  orientationVerified,
+  rotating,
+  onRotate,
+}: {
+  title: string;
+  side: "front" | "back";
+  url: string | null;
+  orientationVerified: boolean;
+  rotating: boolean;
+  onRotate: () => void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const zoomOut = () => setZoom((value) => Math.max(1, Math.round((value - 0.5) * 2) / 2));
+  const zoomIn = () => setZoom((value) => Math.min(5, Math.round((value + 0.5) * 2) / 2));
+
+  return (
+    <figure className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <figcaption className={`text-xs font-black uppercase tracking-wider ${orientationVerified ? "text-emerald-800" : "text-red-800"}`}>
+          Card {side} · {orientationVerified ? "orientation verified from Mac archive" : "orientation review required"}
+        </figcaption>
+        <div className="flex flex-wrap items-center gap-1" aria-label={`${side} image controls`}>
+          <button type="button" onClick={zoomOut} disabled={zoom <= 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom out ${side}`}>−</button>
+          <span className="min-w-14 text-center text-xs font-black">{Math.round(zoom * 100)}%</span>
+          <button type="button" onClick={zoomIn} disabled={zoom >= 5} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom in ${side}`}>+</button>
+          <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 text-xs font-black disabled:opacity-40">Reset</button>
+          <button type="button" onClick={onRotate} disabled={!url || rotating} className="min-h-10 rounded-lg bg-sky-800 px-3 text-xs font-black text-white disabled:opacity-40">
+            {rotating ? "Rotating…" : "Rotate 90°"}
+          </button>
+        </div>
+      </div>
+      <div className="h-[28rem] w-full overflow-auto rounded-lg bg-white">
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={url}
+            alt={`${title} ${side}`}
+            draggable={false}
+            className={zoom === 1 ? "mx-auto max-h-full max-w-full object-contain" : "block h-auto max-w-none select-none object-contain"}
+            style={zoom === 1 ? undefined : { width: `${zoom * 100}%` }}
+            onDoubleClick={zoomIn}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center font-black text-red-800">{side.toUpperCase()} MISSING</div>
+        )}
+      </div>
+      <p className="mt-2 text-xs font-semibold text-neutral-600">Use + / − to inspect small print. Scroll inside the image while zoomed. Double-click the card to zoom in.</p>
+    </figure>
+  );
+}
+
 function Field({
   label,
   value,
@@ -813,6 +868,37 @@ export default function KingmakerPendingPage({
       }));
       setNotice(`${card.title}: seller channel prices locked · Website ${money(data.websitePrice || websitePrice)} · eBay ${money(data.ebayPrice || ebayPrice)}${cardCondition ? ` · Card Condition ${cardCondition}` : ""}.`);
       await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function rotateStoredImage(card: PendingCard, side: "front" | "back") {
+    if (!hasValidPair(card) || !card.frontImageUrl || !card.backImageUrl) {
+      setPageError("A distinct stored front and back are required before rotating a card image.");
+      return;
+    }
+    const busyKey = `${card.inventoryItemId}:rotate:${side}`;
+    setBusyId(busyKey);
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/inventory/instacomp-image-rotate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId, rotatedSide: side }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not rotate the stored image.");
+      setNotice(`${card.title}: ${side} rotated 90° clockwise and the corrected image was persisted.`);
+      await load(queue || queueFromLocation());
     } catch (error) {
       setPageError(message(error));
     } finally {
@@ -1756,24 +1842,17 @@ export default function KingmakerPendingPage({
                 ) : null}
 
                 <div className="grid gap-4 p-4 md:grid-cols-2">
-                  {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => {
-                    const orientationVerified = card.instaComp.imageOrientation?.verified === true;
-                    return (
-                      <figure key={side} className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
-                        <figcaption className={`mb-2 text-xs font-black uppercase tracking-wider ${orientationVerified ? "text-emerald-800" : "text-red-800"}`}>
-                          Card {side} · {orientationVerified ? "orientation verified from Mac archive" : "orientation review required"}
-                        </figcaption>
-                        <div className="mx-auto flex h-80 w-full max-w-80 items-center justify-center overflow-hidden rounded-lg bg-white">
-                          {url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={url} alt={`${card.title} ${side}`} className="max-h-full max-w-full object-contain" />
-                          ) : (
-                            <div className="font-black text-red-800">{side.toUpperCase()} MISSING</div>
-                          )}
-                        </div>
-                      </figure>
-                    );
-                  })}
+                  {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => (
+                    <CardImageInspector
+                      key={side}
+                      title={card.title}
+                      side={side}
+                      url={url}
+                      orientationVerified={card.instaComp.imageOrientation?.verified === true}
+                      rotating={busyId === `${card.inventoryItemId}:rotate:${side}`}
+                      onRotate={() => void rotateStoredImage(card, side)}
+                    />
+                  ))}
                 </div>
 
                 {queue === "listings" ? (
