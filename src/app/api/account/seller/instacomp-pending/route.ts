@@ -856,7 +856,14 @@ export async function GET(request: Request) {
       const registryLockedFields = recordValue(checklistIdentity.lockedFields);
       const registryIdentityLocked =
         textValue(checklistIdentity.status) === "exact_match" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          textValue(checklistIdentity.registryIdentityId),
+        ) &&
+        /^[0-9a-f]{64}$/i.test(
+          textValue(checklistIdentity.registryFingerprintSha256),
+        ) &&
         Object.keys(registryLockedFields).length > 0;
+      const canonicalIdentityLocked = registryIdentityLocked || manualIdentityLocked;
       const fallbackIdentity = manualIdentityLocked ? manualIdentity : ai;
       const primaryIdentity = registryIdentityLocked
         ? {
@@ -1167,13 +1174,13 @@ export async function GET(request: Request) {
           identity: {
             sport: textValue(primaryIdentity.sport),
             league: textValue(primaryIdentity.league),
-            year: manualIdentityLocked
+            year: canonicalIdentityLocked
               ? textValue(primaryIdentity.year)
               : textValue(primaryIdentity.year) ||
                 textValue(legacyCardIdentity.year) ||
                 textValue(cardIdentity.year) ||
                 textValue(saleIdentity.year),
-            manufacturer: manualIdentityLocked
+            manufacturer: canonicalIdentityLocked
               ? textValue(primaryIdentity.manufacturer)
               : textValue(primaryIdentity.manufacturer) ||
                 textValue(primaryIdentity.brand) ||
@@ -1183,19 +1190,19 @@ export async function GET(request: Request) {
                 textValue(cardIdentity.brand) ||
                 textValue(saleIdentity.manufacturer) ||
                 textValue(saleIdentity.brand),
-            brand: manualIdentityLocked
+            brand: canonicalIdentityLocked
               ? textValue(primaryIdentity.brand)
               : textValue(primaryIdentity.brand) ||
                 textValue(legacyCardIdentity.brand) ||
                 textValue(cardIdentity.brand) ||
                 textValue(saleIdentity.brand),
-            product: manualIdentityLocked
+            product: canonicalIdentityLocked
               ? textValue(primaryIdentity.product)
               : textValue(primaryIdentity.product) ||
                 textValue(legacyCardIdentity.product) ||
                 textValue(cardIdentity.product) ||
                 textValue(saleIdentity.product),
-            setName: manualIdentityLocked
+            setName: canonicalIdentityLocked
               ? textValue(primaryIdentity.setName) ||
                 textValue(primaryIdentity.set_name)
               : textValue(primaryIdentity.setName) ||
@@ -1207,7 +1214,7 @@ export async function GET(request: Request) {
                 textValue(saleIdentity.setName) ||
                 textValue(saleIdentity.set_name) ||
                 textValue(titleNormalization.setName),
-            subset: manualIdentityLocked
+            subset: canonicalIdentityLocked
               ? identitySubsetValue(primaryIdentity)
               : identitySubsetValue(primaryIdentity) ||
                 identitySubsetValue(legacyCardIdentity) ||
@@ -1215,19 +1222,19 @@ export async function GET(request: Request) {
                 identitySubsetValue(cardIdentity) ||
                 identitySubsetValue(saleIdentity) ||
                 identitySubsetValue(recordValue(metadata.verified_reference)),
-            player: manualIdentityLocked
+            player: canonicalIdentityLocked
               ? identityPlayerValue(primaryIdentity)
               : identityPlayerValue(primaryIdentity) ||
                 identityPlayerValue(legacyCardIdentity) ||
                 identityPlayerValue(cardIdentity) ||
                 identityPlayerValue(saleIdentity),
-            team: manualIdentityLocked
+            team: canonicalIdentityLocked
               ? textValue(primaryIdentity.team)
               : textValue(primaryIdentity.team) ||
                 textValue(legacyCardIdentity.team) ||
                 textValue(cardIdentity.team) ||
                 textValue(saleIdentity.team),
-            cardNumber: manualIdentityLocked
+            cardNumber: canonicalIdentityLocked
               ? textValue(primaryIdentity.cardNumber) ||
                 textValue(primaryIdentity.card_number)
               : textValue(primaryIdentity.cardNumber) ||
@@ -1238,7 +1245,7 @@ export async function GET(request: Request) {
                 textValue(cardIdentity.card_number) ||
                 textValue(saleIdentity.cardNumber) ||
                 textValue(saleIdentity.card_number),
-            parallel: manualIdentityLocked
+            parallel: canonicalIdentityLocked
               ? textValue(primaryIdentity.parallel)
               : textValue(primaryIdentity.checklistParallel) ||
                 textValue(primaryIdentity.parallelName) ||
@@ -1247,7 +1254,7 @@ export async function GET(request: Request) {
                 textValue(cardIdentity.parallel) ||
                 textValue(saleIdentity.parallel) ||
                 textValue(titleNormalization.parallel),
-            variation: manualIdentityLocked
+            variation: canonicalIdentityLocked
               ? textValue(primaryIdentity.variation)
               : textValue(primaryIdentity.variation) ||
                 textValue(legacyCardIdentity.variation) ||
@@ -1258,7 +1265,7 @@ export async function GET(request: Request) {
               buildIdentitySummary(ai) ||
               buildIdentitySummary(cardIdentity) ||
               buildIdentitySummary(saleIdentity),
-            serialNumber: manualIdentityLocked
+            serialNumber: canonicalIdentityLocked
               ? textValue(primaryIdentity.serialNumber)
               : textValue(ai.serialNumber) ||
                 textValue(legacyCardIdentity.serialNumber) ||
@@ -1266,29 +1273,29 @@ export async function GET(request: Request) {
                 textValue(cardIdentity.serialNumber) ||
                 textValue(saleIdentity.serialNumber) ||
                 exactSerialNumber,
-            isRookie: manualIdentityLocked
+            isRookie: canonicalIdentityLocked
               ? primaryIdentity.isRookie === true
               : ai.isRookie === true || collectibleAsset.rookie === true,
-            isAuto: manualIdentityLocked
+            isAuto: canonicalIdentityLocked
               ? primaryIdentity.isAuto === true
               : ai.isAuto === true || collectibleAsset.autograph === true,
-            isRelic: manualIdentityLocked
+            isRelic: canonicalIdentityLocked
               ? primaryIdentity.isRelic === true
               : ai.isRelic === true || collectibleAsset.memorabilia === true,
-            inscription: manualIdentityLocked
+            inscription: canonicalIdentityLocked
               ? primaryIdentity.inscription === true
               : ai.internalInscription === true ||
                 collectibleAsset.inscription === true,
-            inscriptionText: manualIdentityLocked
+            inscriptionText: canonicalIdentityLocked
               ? textValue(primaryIdentity.inscriptionText)
               : textValue(ai.internalInscriptionText) ||
                 textValue(collectibleAsset.inscription_text),
-            memorabiliaType: manualIdentityLocked
+            memorabiliaType: canonicalIdentityLocked
               ? textValue(primaryIdentity.memorabiliaType)
               : textValue(ai.internalMemorabiliaType) ||
                 textValue(collectibleAsset.memorabilia_type),
           },
-          serialNumber: manualIdentityLocked
+          serialNumber: canonicalIdentityLocked
             ? textValue(primaryIdentity.serialNumber)
             : textValue(ai.serialNumber) || exactSerialNumber,
           hasBackImage,
