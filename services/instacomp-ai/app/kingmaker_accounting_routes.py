@@ -24,7 +24,7 @@ class PurchaseMatchRequest(BaseModel):
 class PurchaseReceiveRequest(BaseModel):
     card_uuid: str = Field(default="", max_length=200)
     inventory_item_id: str = Field(min_length=1, max_length=200)
-    scan_id: str = Field(min_length=1, max_length=200)
+    scan_id: str = Field(default="", max_length=200)
     acquisition_item_id: int = Field(gt=0)
     disposition: str = Field(pattern="^(resale|investment_stash)$")
 
@@ -32,7 +32,7 @@ class PurchaseReceiveRequest(BaseModel):
 class PurchaseLinkExistingRequest(BaseModel):
     card_uuid: str = Field(default="", max_length=200)
     inventory_item_id: str = Field(min_length=1, max_length=200)
-    scan_id: str = Field(min_length=1, max_length=200)
+    scan_id: str = Field(default="", max_length=200)
     acquisition_item_id: int = Field(gt=0)
     disposition: str = Field(default="resale", pattern="^(resale|investment_stash)$")
 
@@ -43,9 +43,18 @@ class EbayBridgeRequest(BaseModel):
     revision: dict[str, Any] | None = None
     code: str | None = Field(default=None, max_length=4096)
     redirect_uri: str | None = Field(default=None, max_length=512)
+    confirmation: str | None = Field(default=None, max_length=64)
 
 
 def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
+    # The Inventory API collection listing can reject legacy seller SKUs that
+    # predate KINGMAKER's SKU rules. For a read-only snapshot, use the proven
+    # Trading API seller-list reader which covers legacy and modern listings
+    # without mutating eBay. Publish/revise/readiness still use the strict local
+    # Inventory API bridge.
+    if str(payload.get("mode") or "").strip() == "inventory_snapshot":
+        snapshot = fetch_ebay_seller_snapshot()
+        return {"ok": True, "mode": "inventory_snapshot", "snapshot": snapshot}
     repo_root = Path(__file__).resolve().parents[3]
     runner = repo_root / "services/instacomp-ai/scripts/kingmaker_ebay_publish.ts"
     local_env = Path.home() / "Library/Application Support/TCOS-Current-Review/.env.local"
@@ -63,6 +72,7 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("The Mac-local Node runtime required for eBay publishing is unavailable")
     command = [
         node_binary,
+        "--conditions=react-server",
         f"--env-file={local_env}",
         "--import",
         "tsx",
@@ -93,7 +103,7 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class CommercialInventoryRequest(BaseModel):
-    action: str = Field(default="list", pattern="^(list|refresh|update)$")
+    action: str = Field(default="list", pattern="^(list|refresh|create|update)$")
     items: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
 
 
@@ -191,12 +201,22 @@ def build_kingmaker_accounting_router(
     @router.post("/ebay-bridge")
     async def ebay_bridge(request: EbayBridgeRequest):
         try:
+            required_confirmation = {
+                "publish": "PUBLISH_LIVE",
+                "revise": "REVISE_LIVE",
+            }.get(request.mode)
+            if required_confirmation and request.confirmation != required_confirmation:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Explicit {required_confirmation} confirmation is required for live eBay mutation.",
+                )
             result = _run_local_ebay_bridge({
                 "mode": request.mode,
                 "item": request.item,
                 "revision": request.revision,
                 "code": request.code,
                 "redirectUri": request.redirect_uri,
+                "confirmation": request.confirmation,
             })
             return {"ok": True, **result}
         except Exception as exc:
@@ -240,6 +260,34 @@ def build_kingmaker_accounting_router(
                     },
                 }
 
+            if request.action == "create":
+                created_items: list[dict[str, Any]] = []
+                for draft in request.items:
+                    created = commercial_inventory.create_local_draft(draft)
+                    created_items.append(created)
+                return {
+                    "ok": True,
+                    "sourceOfTruth": "mac_local",
+                    "success": True,
+                    "summary": {
+                        "requestedCount": len(request.items),
+                        "processedCount": len(created_items),
+                        "successCount": len(created_items),
+                        "failureCount": 0,
+                    },
+                    "items": created_items,
+                    "results": [
+                        {
+                            "inventoryItemId": item.get("inventoryItemId"),
+                            "legacyProductId": None,
+                            "success": True,
+                            "status": 201,
+                            "message": "Mac-local KINGMAKER draft saved.",
+                        }
+                        for item in created_items
+                    ],
+                }
+
             results: list[dict[str, Any]] = []
             for edit in request.items:
                 inventory_item_id = str(edit.get("inventoryItemId") or "").strip()
@@ -259,8 +307,11 @@ def build_kingmaker_accounting_router(
                     if update_ebay and requested_status != "active":
                         raise ValueError("Use the dedicated channel lifecycle control to end/archive an eBay listing; in-place eBay revision requires active status.")
                     if update_ebay:
+                        if str(edit.get("confirmation") or "") != "REVISE_LIVE":
+                            raise ValueError("Explicit REVISE_LIVE confirmation is required for live eBay mutation.")
                         _run_local_ebay_bridge({
                             "mode": "revise",
+                            "confirmation": "REVISE_LIVE",
                             "revision": {
                                 "sku": current.get("sku"),
                                 "listingId": current.get("ebayItemId"),
