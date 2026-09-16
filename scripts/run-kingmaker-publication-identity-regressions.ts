@@ -15,10 +15,37 @@ const registryReceipt = {
   },
 };
 
+const macExactReceipt = {
+  identityComplete: true,
+  trustedForIdentity: true,
+  identitySource: "mac_checklist_registry_exact",
+  checklistIdentity: {
+    status: "exact_match",
+    identityId: "registry-legacy-123",
+    fingerprintSha256: "b".repeat(64),
+  },
+};
+
 assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: { manualIdentityLocked: true } }), true);
 assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: { humanVerified: true } }), true);
 assert.equal(isInstaCompPublicationIdentityConfirmed({ seller_review: { identity_confirmed: true } }), true);
 assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: { checklistIdentity: registryReceipt } }), true);
+assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: macExactReceipt }), true);
+assert.equal(
+  isInstaCompPublicationIdentityConfirmed({
+    instacomp: { ...macExactReceipt, trustedForIdentity: false },
+  }),
+  false,
+);
+assert.equal(
+  isInstaCompPublicationIdentityConfirmed({
+    instacomp: {
+      ...macExactReceipt,
+      checklistIdentity: { ...macExactReceipt.checklistIdentity, fingerprintSha256: null },
+    },
+  }),
+  false,
+);
 assert.equal(
   isInstaCompPublicationIdentityConfirmed({
     instacomp: { checklistIdentity: { ...registryReceipt, registryFingerprintSha256: null } },
