@@ -10,6 +10,7 @@ import {
 import { createDualMarketplaceListingDraft } from "../../../../../../lib/dual-marketplace-listing";
 import { assertSafeEbayListingContent } from "../../../../../../lib/ebay-listing-content";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
+import { isInstaCompPublicationIdentityConfirmed } from "../../../../../../lib/instacomp-publication-identity";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
@@ -93,17 +94,6 @@ function liveChannelRow(row: any) {
   const dual = record(record(row.metadata).dual_marketplace);
   const ebay = record(dual.ebay);
   return row.status === "active" || text(ebay.status) === "active";
-}
-
-function publicationLocked(metadataValue: unknown) {
-  const metadata = record(metadataValue);
-  const instaComp = record(metadata.instacomp);
-  const review = record(metadata.seller_review);
-  return (
-    instaComp.manualIdentityLocked === true ||
-    instaComp.humanVerified === true ||
-    review.identity_confirmed === true
-  );
 }
 
 function generatedSku(row: any) {
@@ -328,7 +318,7 @@ export async function POST(request: Request) {
     }
 
     const keeper = liveRows[0] || requested;
-    if (!publicationLocked(keeper.metadata)) {
+    if (!isInstaCompPublicationIdentityConfirmed(keeper.metadata)) {
       return Response.json(
         {
           success: false,
