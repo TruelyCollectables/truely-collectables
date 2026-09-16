@@ -408,9 +408,13 @@ export async function POST(request: Request) {
       metadata,
     });
 
+    const requestedEbayPrice = money(body.ebayPrice) || money(storedEbay.price);
+    const requestedWebsitePrice = money(body.websitePrice) || money(storedWebsite.price);
+    const requestedMercariPrice = money(body.mercariPrice) || money(storedMercari.price);
     const basePrice =
-      money(body.ebayPrice) ||
-      money(storedEbay.price) ||
+      requestedEbayPrice ||
+      requestedMercariPrice ||
+      requestedWebsitePrice ||
       money(instaComp.listingPrice) ||
       money(instaComp.suggestedPrice) ||
       money(keeper.price);
@@ -423,11 +427,9 @@ export async function POST(request: Request) {
 
     const fees = feeProfile();
     const automaticPricing = calculateDualMarketplacePricing(basePrice, fees);
-    const ebayPrice = money(body.ebayPrice) || money(storedEbay.price) || automaticPricing.ebayPrice;
-    const websitePrice =
-      money(body.websitePrice) || money(storedWebsite.price) || automaticPricing.websitePrice;
-    const mercariPrice =
-      money(body.mercariPrice) || money(storedMercari.price) || ebayPrice;
+    const ebayPrice = requestedEbayPrice || automaticPricing.ebayPrice;
+    const websitePrice = requestedWebsitePrice || automaticPricing.websitePrice;
+    const mercariPrice = requestedMercariPrice || ebayPrice;
     const pricing = calculateCustomWebsitePricing(ebayPrice, websitePrice, fees);
     const now = new Date().toISOString();
     const sku = text(keeper.sku, 120) || text(linkedProduct?.sku, 120) || generatedSku(keeper);
