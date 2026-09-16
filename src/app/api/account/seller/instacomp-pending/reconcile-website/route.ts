@@ -220,12 +220,23 @@ export async function POST(request: Request) {
       const productId = prepared
         ? Number(prior.productId || 0)
         : Number(target.id);
+      let liveProductQuantity = wholeQuantity(target.quantity);
+      if (!prepared) {
+        const { data: currentProduct, error: currentProductError } = await supabase
+          .from("products")
+          .select("quantity")
+          .eq("store_id", storeId)
+          .eq("id", productId)
+          .single();
+        if (currentProductError) throw currentProductError;
+        liveProductQuantity = wholeQuantity(currentProduct?.quantity);
+      }
       const targetQuantity = prepared
         ? wholeQuantity(prior.targetQuantity)
-        : wholeQuantity(target.quantity) + rowQuantity;
+        : liveProductQuantity + rowQuantity;
       const baselineQuantity = prepared
         ? wholeQuantity(prior.baselineQuantity)
-        : wholeQuantity(target.quantity);
+        : liveProductQuantity;
       const addedQuantity = prepared
         ? wholeQuantity(prior.addedQuantity)
         : rowQuantity;
@@ -253,6 +264,9 @@ export async function POST(request: Request) {
       const existingKeeper = (activeKeepers || [])[0] || null;
       const keeperId = text(prior.keeperInventoryItemId) || existingKeeper?.id || row.id;
       const now = new Date().toISOString();
+      const sourceLegacyProductId = prepared
+        ? Number(prior.sourceLegacyProductId || row.legacy_product_id || 0) || null
+        : Number(row.legacy_product_id || 0) || null;
       const preparedMetadata = {
         ...metadata,
         website_inventory_reconciliation: {
@@ -264,6 +278,7 @@ export async function POST(request: Request) {
           targetQuantity,
           preparedAt: text(prior.preparedAt) || now,
           sourceInventoryItemId: row.id,
+          sourceLegacyProductId,
         },
       };
 
@@ -356,13 +371,40 @@ export async function POST(request: Request) {
           .update({
             status: "archived",
             quantity: 0,
-            legacy_product_id: productId,
+            // One canonical inventory row owns each website product. Preserve the
+            // target product in reconciliation metadata instead of violating the
+            // (store_id, legacy_product_id) uniqueness constraint on the archived source.
+            legacy_product_id: null,
             metadata: completedMetadata,
             updated_at: now,
           })
           .eq("store_id", storeId)
           .eq("id", row.id);
         if (archiveError) throw archiveError;
+
+        if (sourceLegacyProductId && sourceLegacyProductId !== productId) {
+          const { data: sourceProduct, error: sourceProductError } = await supabase
+            .from("products")
+            .select("id,quantity,price,archived_at,ebay_item_id")
+            .eq("store_id", storeId)
+            .eq("id", sourceLegacyProductId)
+            .maybeSingle();
+          if (sourceProductError) throw sourceProductError;
+          const sourceIsSellable =
+            sourceProduct &&
+            !sourceProduct.archived_at &&
+            Number(sourceProduct.quantity || 0) > 0 &&
+            Number(sourceProduct.price || 0) > 0;
+          const sourceHasEbay = Boolean(text(sourceProduct?.ebay_item_id));
+          if (sourceProduct && !sourceIsSellable && !sourceHasEbay) {
+            const { error: sourceArchiveError } = await supabase
+              .from("products")
+              .update({ quantity: 0, archived_at: now, listing_status: "draft" })
+              .eq("store_id", storeId)
+              .eq("id", sourceLegacyProductId);
+            if (sourceArchiveError) throw sourceArchiveError;
+          }
+        }
       }
 
       results.push({

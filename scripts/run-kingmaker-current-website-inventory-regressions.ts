@@ -70,6 +70,9 @@ assert(pendingRoute.includes("websiteInventory:"), "Pending API must expose curr
 assert(channelRoute.includes("WEBSITE_LINK_IDENTITY_MISMATCH"), "Website publishing must fail closed on a mismatched live product link.");
 assert(pendingClient.includes("CURRENT WEBSITE INVENTORY"), "Pending UI must visibly flag current website inventory.");
 assert(pendingClient.includes("WEBSITE LINK MISMATCH · DO NOT PUBLISH"), "Pending UI must visibly block mismatched website links.");
+assert(reconcileRoute.includes('.select("quantity")'), "Website reconciliation must re-read current product quantity before each unprepared merge.");
+assert(reconcileRoute.includes("legacy_product_id: null"), "Merged archived sources must release the canonical website product linkage.");
+assert(reconcileRoute.includes("sourceLegacyProductId"), "Reconciliation must retain the source placeholder product ID in metadata for safe cleanup and retry.");
 assert(pendingClient.includes("Merge Exact Current Website Inventory"), "Pending UI must expose the exact-current-inventory merge action.");
 assert(reconcileRoute.includes('status: "prepared"'), "Website reconciliation must record a prepared absolute target before mutating quantity.");
 assert(reconcileRoute.includes('status: "completed"'), "Website reconciliation must record completion for idempotent retries.");
