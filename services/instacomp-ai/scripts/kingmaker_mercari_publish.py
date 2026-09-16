@@ -24,32 +24,37 @@ def _osascript(source: str) -> str:
 
 
 _JOB_WINDOW_ID: int | None = None
+_JOB_TAB_ID: int | None = None
 
 
 def _open_job_window(url: str) -> None:
-    global _JOB_WINDOW_ID
+    global _JOB_WINDOW_ID, _JOB_TAB_ID
     source = (
         'tell application "Google Chrome"\n'
-        '  set w to make new window\n'
-        f'  set URL of active tab of w to {json.dumps(url)}\n'
         '  activate\n'
-        '  return id of w\n'
+        '  if (count of windows) = 0 then make new window\n'
+        '  set w to front window\n'
+        f'  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}\n'
+        '  set active tab index of w to (count of tabs of w)\n'
+        '  return (id of w as text) & ":" & (id of t as text)\n'
         'end tell'
     )
     raw = _osascript(source)
     try:
-        _JOB_WINDOW_ID = int(raw.strip())
-    except ValueError as exc:
-        raise RuntimeError(f"Mercari automation window could not be created: {raw}") from exc
+        win, tab = raw.strip().split(":", 1)
+        _JOB_WINDOW_ID = int(win)
+        _JOB_TAB_ID = int(tab)
+    except (ValueError, AttributeError) as exc:
+        raise RuntimeError(f"Mercari automation tab could not be created: {raw}") from exc
 
 
 def _job_window_prefix() -> str:
-    if _JOB_WINDOW_ID is None:
-        raise RuntimeError("Mercari automation window is not initialized.")
+    if _JOB_WINDOW_ID is None or _JOB_TAB_ID is None:
+        raise RuntimeError("Mercari automation tab is not initialized.")
     return (
         'tell application "Google Chrome"\n'
         f'  set w to first window whose id is {_JOB_WINDOW_ID}\n'
-        '  set t to active tab of w\n'
+        f'  set t to first tab of w whose id is {_JOB_TAB_ID}\n'
     )
 
 
@@ -171,11 +176,10 @@ def _fill_item(item: dict) -> str:
         raise RuntimeError("Mercari requires title, 5+ word description, price >= $1, and front/back images.")
 
     _open_job_window("https://www.mercari.com/mypage/")
-    _wait_js("document.body && location.href ? 'ready' : ''", timeout=20)
-    _wait_js("location.href.includes('mercari.com') ? location.href : ''", timeout=20)
+    _wait_js("(()=>{const u=location.href.toLowerCase();const b=document.body?.innerText||'';return (u.includes('/login')||u.includes('/signup')||b.includes('My profile'))?'session-ready':''})()", timeout=25)
     account = _profile_name()
     if not account:
-        raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation window.")
+        raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation tab.")
 
     _navigate("https://www.mercari.com/sell/")
     _wait_js("document.querySelector('[name=sellName]') && document.querySelector('[data-testid=SaveDraftButton]') ? 'ready' : ''")
@@ -247,10 +251,10 @@ def main() -> None:
     mode = str(payload.get("mode") or "status").strip().lower()
     if mode == "status":
         _open_job_window("https://www.mercari.com/mypage/")
-        _wait_js("document.body && location.href ? 'ready' : ''", timeout=20)
+        _wait_js("(()=>{const u=location.href.toLowerCase();const b=document.body?.innerText||'';return (u.includes('/login')||u.includes('/signup')||b.includes('My profile'))?'session-ready':''})()", timeout=25)
         account = _profile_name()
         if not account:
-            raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation window.")
+            raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation tab.")
         print(json.dumps({"ok": True, "mode": mode, "connected": True, "account": account}))
         return
     if mode not in {"draft", "publish"}:
