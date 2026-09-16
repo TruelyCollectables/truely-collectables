@@ -248,21 +248,32 @@ export async function POST(request: Request) {
       ? null
       : effectiveInstaCompPricingGroupKey(requested.metadata);
 
-    let ownedQuery = supabase
-      .from("inventory_items")
-      .select(
-        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
-      )
-      .eq("store_id", storeId);
-    ownedQuery = isOwner
-      ? ownedQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : ownedQuery.eq("seller_account_id", account.id);
-    const { data: ownedRows, error: ownedError } = await ownedQuery.range(0, 4999);
-    if (ownedError) throw ownedError;
+    const ownedRows: any[] = [];
+    const ownedPageSize = 1000;
+    for (let offset = 0; ; offset += ownedPageSize) {
+      let ownedQuery = supabase
+        .from("inventory_items")
+        .select(
+          "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
+        )
+        .eq("store_id", storeId);
+      ownedQuery = isOwner
+        ? ownedQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
+        : ownedQuery.eq("seller_account_id", account.id);
+      const { data: ownedPage, error: ownedError } = await ownedQuery
+        .order("id", { ascending: true })
+        .range(offset, offset + ownedPageSize - 1);
+      if (ownedError) throw ownedError;
+      ownedRows.push(...(ownedPage || []));
+      if (!ownedPage || ownedPage.length < ownedPageSize) break;
+      if (ownedRows.length >= 20_000) {
+        throw new Error("Inventory grouping exceeded the safe 20,000-row scan limit.");
+      }
+    }
 
     const groupRows = requestedUnique || !groupKey
       ? [requested]
-      : (ownedRows || []).filter((row) => {
+      : ownedRows.filter((row) => {
           if (row.status === "archived" || row.status === "sold") return false;
           if (wholeQuantity(row.quantity) < 1) return false;
           if (uniquePhysical(row.metadata)) return false;
