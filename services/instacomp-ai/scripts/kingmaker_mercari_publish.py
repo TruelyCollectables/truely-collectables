@@ -257,7 +257,9 @@ def _mercari_description(value: object) -> str:
 
 
 def _fill_item(item: dict) -> tuple[str, str]:
-    title = str(item.get("title") or "").strip()[:80]
+    title = str(item.get("title") or "").strip()
+    if len(title) > 80:
+        raise RuntimeError("Mercari title exceeds the 80-character limit. Shorten the exact KINGMAKER title before publishing; TCOS will not rewrite it.")
     description = _mercari_description(item.get("description"))
     price = round(float(item.get("price") or 0), 2)
     image_urls = [str(x).strip() for x in (item.get("imageUrls") or []) if str(x).strip()][:12]
@@ -295,9 +297,18 @@ def _fill_item(item: dict) -> tuple[str, str]:
 
     # Smart Pricing is not rendered for every Mercari listing/price tier.
     # When present, force it OFF. When absent, continue: there is nothing to disable.
-    smart_state = _chrome_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton]');if(!b)return 'absent';const pressed=b.getAttribute('aria-pressed');const text=(b.innerText||'').trim().toLowerCase();if(pressed==='true'||text==='on'){b.click();return 'clicked-off'}return 'off'})()")
+    smart_state = _chrome_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton], [data-testid=SmartSellingButton]');if(!b)return 'absent';const pressed=b.getAttribute('aria-pressed');const text=(b.innerText||'').trim().toLowerCase();if(pressed==='true'||text==='on'){b.click();return 'clicked-off'}return 'off'})()")
     if smart_state == "clicked-off":
-        _wait_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton]');if(!b)return 'off';const pressed=b.getAttribute('aria-pressed');const text=(b.innerText||'').trim().toLowerCase();return (pressed!=='true'&&text!=='on')?'off':''})()", timeout=10)
+        # Mercari sometimes asks for a second confirmation before Smart Selling/Pricing is disabled.
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            _confirm_smart_selling_prompt()
+            state = _chrome_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton], [data-testid=SmartSellingButton]');if(!b)return 'off';const pressed=b.getAttribute('aria-pressed');const text=(b.innerText||'').trim().toLowerCase();return (pressed!=='true'&&text!=='on')?'off':'on'})()")
+            if state == "off":
+                break
+            time.sleep(0.5)
+        else:
+            raise RuntimeError("Mercari Smart Selling/Pricing could not be turned off.")
 
     free_shipping = _chrome_js("document.querySelector('#sellShippingPayerId input')?.value || ''")
     if free_shipping and free_shipping.lower().startswith("yes"):
@@ -316,26 +327,81 @@ def _save_ready_draft(title: str) -> dict:
         missing = [line.strip() for line in body.splitlines() if "requires an update" in line.lower()]
         raise RuntimeError("Mercari draft needs review: " + (", ".join(missing) or "Action Required"))
     title_json = json.dumps(title)
-    draft_url = _chrome_js(f"(()=>{{const title={title_json};const a=Array.from(document.querySelectorAll('a[href*=\\\"/sell/draft/\\\"]')).find(x=>(x.innerText||'').includes(title));return a?.href||''}})()")
+    draft_url = _chrome_js(f"(()=>{{const title={title_json};const links=Array.from(document.querySelectorAll('a[href*=\\\"/sell/draft/\\\"]'));const exact=links.find(x=>(x.innerText||'').includes(title));return exact?.href||links[0]?.href||''}})()")
     if not draft_url:
         raise RuntimeError("Mercari saved the draft but TCOS could not resolve its draft URL.")
     match = re.search(r"/sell/draft/([^/]+)/", draft_url)
     return {"draftId": match.group(1) if match else None, "draftUrl": draft_url}
 
 
-def _publish_draft(draft_url: str) -> str:
+def _confirm_smart_selling_prompt() -> bool:
+    result = _chrome_js(
+        "(()=>{const dialogs=Array.from(document.querySelectorAll('[role=dialog], [data-testid*=Modal], [data-testid*=Dialog]'));"
+        "const d=dialogs.find(x=>{const t=(x.innerText||'').toLowerCase();return t.includes('smart')&&(t.includes('selling')||t.includes('pricing'));});"
+        "if(!d)return 'none';const dt=(d.innerText||'').toLowerCase();const buttons=Array.from(d.querySelectorAll('button'));"
+        "const label=x=>(x.innerText||x.getAttribute('aria-label')||'').trim().toLowerCase();"
+        "let b=buttons.find(x=>label(x).includes('turn off')||label(x).includes('disable'));"
+        "if(!b&&(dt.includes('turn off')||dt.includes('disable')))b=buttons.find(x=>label(x)==='yes'||label(x).startsWith('yes,')||label(x)==='confirm');"
+        "if(!b)return 'prompt-no-turn-off-button';b.click();return 'clicked';})()"
+    )
+    return result == "clicked"
+
+
+def _force_exact_title(title: str) -> None:
+    title_json = json.dumps(title)
+    result = _chrome_js(
+        f"(()=>{{const e=document.querySelector('[name=sellName]');if(!e)return 'missing';const v={title_json};"
+        "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,v);"
+        "e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));"
+        "return e.value===v?'exact':'mismatch';})()"
+    )
+    if result != "exact":
+        raise RuntimeError("Mercari exact title could not be preserved before publishing.")
+
+
+def _publish_draft(draft_url: str, exact_title: str) -> str:
     _navigate(draft_url)
-    _wait_js("document.querySelector('[data-testid=ListButton]') ? 'list' : ''", timeout=20)
+    _wait_js("((document.querySelector('[data-testid=ListButton]')||Array.from(document.querySelectorAll('button')).find(b=>(b.innerText||'').trim()==='List')) && document.querySelector('[name=sellName]')) ? 'ready' : ''", timeout=20)
     if _chrome_js("document.body.innerText.includes('requires an update') ? 'missing' : ''"):
         raise RuntimeError("Mercari draft is not ready to publish.")
-    click = _chrome_js("(()=>{const b=document.querySelector('[data-testid=ListButton]');if(!b||b.disabled)return 'blocked';b.click();return 'clicked'})()")
-    if click != "clicked":
-        raise RuntimeError("Mercari List button is blocked.")
-    confirmation = _wait_js("location.href.includes('/sell/confirmation/') ? location.href : ''", timeout=30)
-    match = re.search(r"/sell/confirmation/(m\d+)/", confirmation)
-    if not match:
-        raise RuntimeError("Mercari did not return a live item ID after listing.")
-    return match.group(1)
+    _force_exact_title(exact_title)
+
+    deadline = time.time() + 40
+    last_state = ""
+    while time.time() < deadline:
+        url = _chrome_js("location.href")
+        match = re.search(r"/sell/confirmation/(m\d+)/", url)
+        if match:
+            return match.group(1)
+
+        if _confirm_smart_selling_prompt():
+            last_state = "smart-selling-confirmed-off"
+            time.sleep(0.8)
+            continue
+
+        _force_exact_title(exact_title)
+        last_state = _chrome_js(
+            "(()=>{const b=document.querySelector('[data-testid=ListButton]')||Array.from(document.querySelectorAll('button')).find(x=>(x.innerText||'').trim()==='List');"
+            "if(!b)return 'list-missing';if(b.disabled)return 'list-disabled';b.click();return 'list-clicked';})()"
+        )
+        if last_state == "list-clicked":
+            # Give Mercari time to either navigate or show the Smart Selling confirmation.
+            settle_deadline = time.time() + 6
+            while time.time() < settle_deadline:
+                url = _chrome_js("location.href")
+                match = re.search(r"/sell/confirmation/(m\d+)/", url)
+                if match:
+                    return match.group(1)
+                if _confirm_smart_selling_prompt():
+                    last_state = "smart-selling-confirmed-off-after-list"
+                    time.sleep(1.0)
+                    break
+                time.sleep(0.4)
+            continue
+        time.sleep(0.5)
+
+    body = _chrome_js("document.body.innerText.slice(0,3000)")
+    raise RuntimeError(f"Mercari did not complete the final List step. Last state: {last_state}. Page: {body[:500]}")
 
 
 def main() -> None:
@@ -354,7 +420,9 @@ def main() -> None:
         raise RuntimeError("Unsupported Mercari bridge mode.")
 
     item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
-    title = str(item.get("title") or "").strip()[:80]
+    title = str(item.get("title") or "").strip()
+    if len(title) > 80:
+        raise RuntimeError("Mercari title exceeds the 80-character limit. Shorten the exact KINGMAKER title before publishing; TCOS will not rewrite it.")
     account, category = _fill_item(item)
     draft = _save_ready_draft(title)
     if mode == "draft":
@@ -362,7 +430,7 @@ def main() -> None:
         print(json.dumps({"ok": True, "mode": mode, "account": account, "category": category, "status": "ready_to_list", **draft}))
         return
 
-    item_id = _publish_draft(str(draft["draftUrl"]))
+    item_id = _publish_draft(str(draft["draftUrl"]), title)
     _close_job_tab()
     print(json.dumps({
         "ok": True,

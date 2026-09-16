@@ -643,7 +643,7 @@ export async function POST(request: Request) {
               mode: "publish",
               item: {
                 inventoryItemId: keeper.id,
-                title: (websiteTitle || ebayTitle || generated.websiteTitle || String(keeper.title || "Trading Card")).slice(0, 80),
+                title: String(requested.title || keeper.title || websiteTitle || ebayTitle || generated.websiteTitle || "Trading Card"),
                 description: plainDescription || `Exact card shown in photos. ${String(keeper.title || "Trading card")}.`,
                 price: mercariPrice,
                 sport: generated.identity.sport,
