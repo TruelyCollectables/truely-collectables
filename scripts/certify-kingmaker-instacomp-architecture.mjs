@@ -148,11 +148,23 @@ for (const required of [
   "persistNormalizedInstaCompImagePair",
   "getAuthenticatedAccountFromRequest",
   "ensureAccountStoreMembership",
-  'frontRotation: rotatedSide === "front" ? 90 : 0',
-  'backRotation: rotatedSide === "back" ? 90 : 0',
+  'status: "completed"',
+  'source: "seller_manual_pixel_rotation"',
+  "frontRotation: 0",
+  "backRotation: 0",
   "published: false",
 ]) {
   requireText(auditedRotate, required, "persisted KINGMAKER manual image rotation route");
+}
+
+for (const required of [
+  "createImageBitmap",
+  "context.rotate(Math.PI / 2)",
+  "new FormData()",
+  'form.set("frontImage", frontImage)',
+  'form.set("backImage", backImage)',
+]) {
+  requireText(auditedPending, required, "KINGMAKER manual pixel rotation client");
 }
 
 for (const existingPath of [
