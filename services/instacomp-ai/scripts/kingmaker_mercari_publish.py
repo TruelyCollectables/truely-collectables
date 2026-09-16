@@ -310,7 +310,7 @@ def _fill_item(item: dict) -> tuple[str, str]:
         else:
             raise RuntimeError("Mercari Smart Selling/Pricing could not be turned off.")
 
-    free_shipping = _chrome_js("document.querySelector('#sellShippingPayerId input')?.value || ''")
+    free_shipping = _chrome_js("(()=>{const root=document.querySelector('#sellShippingPayerId');const checked=root?.querySelector('input[type=radio]:checked');return checked?.value||''})()")
     if free_shipping and free_shipping.lower().startswith("yes"):
         raise RuntimeError("Mercari free shipping is enabled; TCOS will not publish until shipping payer is reviewed.")
     return account, category
