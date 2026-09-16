@@ -228,7 +228,17 @@ type EditState = {
 
 type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
 type PendingQueue = "listings" | "verification";
-type ListingFolder = "receipt" | "pending" | "website" | "ebay" | "both" | "investment";
+type ListingFolder =
+  | "receipt"
+  | "pending"
+  | "website"
+  | "ebay"
+  | "mercari"
+  | "both"
+  | "website_mercari"
+  | "ebay_mercari"
+  | "all3"
+  | "investment";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
 type ChannelAction = "publish-website" | "publish-ebay" | "publish-mercari" | "publish-website-mercari" | "publish-all-3";
 
@@ -242,9 +252,19 @@ function queueFromLocation(): PendingQueue | null {
 function folderFromLocation(): ListingFolder {
   if (typeof window === "undefined") return "pending";
   const folder = new URLSearchParams(window.location.search).get("folder");
-  return folder === "receipt" || folder === "website" || folder === "ebay" || folder === "both" || folder === "investment"
-    ? folder
-    : "pending";
+  return (
+    folder === "receipt" ||
+    folder === "website" ||
+    folder === "ebay" ||
+    folder === "mercari" ||
+    folder === "both" ||
+    folder === "website_mercari" ||
+    folder === "ebay_mercari" ||
+    folder === "all3" ||
+    folder === "investment"
+      ? folder
+      : "pending"
+  );
 }
 
 function message(error: unknown) {
@@ -472,7 +492,17 @@ export default function KingmakerPendingPage({
   initialFolder = "pending",
   initialCards = [],
   initialQueueCounts = { listings: 0, verification: 0 },
-  initialFolderCounts = { pending: 0, website: 0, ebay: 0, both: 0, investment: 0 },
+  initialFolderCounts = {
+    pending: 0,
+    website: 0,
+    ebay: 0,
+    mercari: 0,
+    both: 0,
+    website_mercari: 0,
+    ebay_mercari: 0,
+    all3: 0,
+    investment: 0,
+  },
 }: {
   initialQueue: PendingQueue;
   initialFolder?: ListingFolder;
@@ -581,7 +611,11 @@ export default function KingmakerPendingPage({
         pending: Math.max(0, Number(cardsData.folderCounts?.pending || 0)),
         website: Math.max(0, Number(cardsData.folderCounts?.website || 0)),
         ebay: Math.max(0, Number(cardsData.folderCounts?.ebay || 0)),
+        mercari: Math.max(0, Number(cardsData.folderCounts?.mercari || 0)),
         both: Math.max(0, Number(cardsData.folderCounts?.both || 0)),
+        website_mercari: Math.max(0, Number(cardsData.folderCounts?.website_mercari || 0)),
+        ebay_mercari: Math.max(0, Number(cardsData.folderCounts?.ebay_mercari || 0)),
+        all3: Math.max(0, Number(cardsData.folderCounts?.all3 || 0)),
         investment: Math.max(0, Number(cardsData.folderCounts?.investment || 0)),
       });
       if (typeof window !== "undefined") {
@@ -1578,9 +1612,17 @@ export default function KingmakerPendingPage({
                     ? "Listed on website only"
                     : folder === "ebay"
                       ? "Listed on eBay only"
-                      : folder === "both"
-                        ? "Listed on website + eBay"
-                        : "Investment stash"}
+                      : folder === "mercari"
+                        ? "Listed on Mercari only"
+                        : folder === "both"
+                          ? "Listed on website + eBay"
+                          : folder === "website_mercari"
+                            ? "Listed on website + Mercari"
+                            : folder === "ebay_mercari"
+                              ? "Listed on eBay + Mercari"
+                              : folder === "all3"
+                                ? "Listed on website + eBay + Mercari"
+                                : "Investment stash"}
             </h1>
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
               {queue === "verification"
@@ -1590,7 +1632,7 @@ export default function KingmakerPendingPage({
                   : folder === "investment"
                     ? "Received physical cards held for investment. Every card keeps its scan, purchase date, source, and cost basis until you move it back to resale."
                     : folder === "pending"
-                    ? "Scanned and received resale inventory stays here until it is listed. InstaComp is a market recommendation; you control the actual website and eBay prices."
+                    ? "Scanned and received resale inventory stays here until it is listed. InstaComp is a market recommendation; you control the actual website, eBay, and Mercari prices."
                     : "Listed inventory is separated by live channel so cards no longer clutter the pending workspace."}
             </p>
           </div>
@@ -1610,7 +1652,11 @@ export default function KingmakerPendingPage({
             ["pending", "Resale Pending", folderCounts.pending],
             ["website", "Website Only", folderCounts.website],
             ["ebay", "eBay Only", folderCounts.ebay],
-            ["both", "Listed Both", folderCounts.both],
+            ["mercari", "Mercari Only", folderCounts.mercari],
+            ["both", "Website + eBay", folderCounts.both],
+            ["website_mercari", "Website + Mercari", folderCounts.website_mercari],
+            ["ebay_mercari", "eBay + Mercari", folderCounts.ebay_mercari],
+            ["all3", "Listed All 3", folderCounts.all3],
             ["investment", "Investment Stash", folderCounts.investment],
           ] as const).map(([value, label, count]) => (
             <button
@@ -1671,9 +1717,17 @@ export default function KingmakerPendingPage({
                     ? "No website-only listings"
                     : folder === "ebay"
                       ? "No eBay-only listings"
-                      : folder === "both"
-                        ? "No cards listed on both channels"
-                        : "Investment stash is empty"}
+                      : folder === "mercari"
+                        ? "No Mercari-only listings"
+                        : folder === "both"
+                          ? "No cards listed on website + eBay"
+                          : folder === "website_mercari"
+                            ? "No cards listed on website + Mercari"
+                            : folder === "ebay_mercari"
+                              ? "No cards listed on eBay + Mercari"
+                              : folder === "all3"
+                                ? "No cards listed on all 3 channels"
+                                : "Investment stash is empty"}
             </p>
             <p className="mt-2 text-neutral-600">
               {queue === "verification"
@@ -1882,6 +1936,10 @@ export default function KingmakerPendingPage({
               String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
             const ebayStatus = String(channelPricing?.ebayStatus || "").toLowerCase();
             const ebayListed = ebayStatus === "active" || ebayStatus === "linked";
+            const mercariStatus = String(channelPricing?.mercariStatus || "").toLowerCase();
+            const mercariListed =
+              mercariStatus === "active" || mercariStatus === "linked" || mercariStatus === "live";
+            const mercariItemUrl = String(channelPricing?.mercariItemUrl || "").trim();
             const groupQuantity = Math.max(
               1,
               Number(card.commercialGroup?.totalQuantity || card.quantity || 1),
@@ -1985,9 +2043,23 @@ export default function KingmakerPendingPage({
                     <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${ebayListed ? "border-blue-300 bg-blue-300 text-blue-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
                       {ebayListed ? "✓ EBAY LISTED" : "EBAY NOT LISTED"}
                     </span>
-                    {websiteListed && ebayListed ? (
+                    {mercariListed && mercariItemUrl ? (
+                      <a
+                        href={mercariItemUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full border-2 border-violet-300 bg-violet-300 px-3 py-1 text-xs font-black text-violet-950 hover:bg-violet-200"
+                      >
+                        ✓ MERCARI LISTED
+                      </a>
+                    ) : (
+                      <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${mercariListed ? "border-violet-300 bg-violet-300 text-violet-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
+                        {mercariListed ? "✓ MERCARI LISTED" : "MERCARI NOT LISTED"}
+                      </span>
+                    )}
+                    {websiteListed && ebayListed && mercariListed ? (
                       <span className="rounded-full border-2 border-amber-200 bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
-                        ✓ LISTED BOTH
+                        ✓ LISTED ALL 3
                       </span>
                     ) : null}
                   </div>

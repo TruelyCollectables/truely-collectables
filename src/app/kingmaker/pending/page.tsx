@@ -46,9 +46,18 @@ export default async function KingmakerPendingPage({
   const resolvedSearchParams = (await searchParams) || {};
   const queue = resolvedSearchParams.queue === "verification" ? "verification" : "listings";
   const rawFolder = typeof resolvedSearchParams.folder === "string" ? resolvedSearchParams.folder : "pending";
-  const folder = rawFolder === "receipt" || rawFolder === "website" || rawFolder === "ebay" || rawFolder === "both" || rawFolder === "investment"
-    ? rawFolder
-    : "pending";
+  const folder =
+    rawFolder === "receipt" ||
+    rawFolder === "website" ||
+    rawFolder === "ebay" ||
+    rawFolder === "mercari" ||
+    rawFolder === "both" ||
+    rawFolder === "website_mercari" ||
+    rawFolder === "ebay_mercari" ||
+    rawFolder === "all3" ||
+    rawFolder === "investment"
+      ? rawFolder
+      : "pending";
   const dataFolder = folder === "receipt" ? "pending" : folder;
   const batch = typeof resolvedSearchParams.batch === "string" ? resolvedSearchParams.batch.trim() : "";
   const cookieStore = await cookies();
@@ -76,7 +85,11 @@ export default async function KingmakerPendingPage({
         pending: Math.max(0, Number(data.folderCounts?.pending || 0)),
         website: Math.max(0, Number(data.folderCounts?.website || 0)),
         ebay: Math.max(0, Number(data.folderCounts?.ebay || 0)),
+        mercari: Math.max(0, Number(data.folderCounts?.mercari || 0)),
         both: Math.max(0, Number(data.folderCounts?.both || 0)),
+        website_mercari: Math.max(0, Number(data.folderCounts?.website_mercari || 0)),
+        ebay_mercari: Math.max(0, Number(data.folderCounts?.ebay_mercari || 0)),
+        all3: Math.max(0, Number(data.folderCounts?.all3 || 0)),
         investment: Math.max(0, Number(data.folderCounts?.investment || 0)),
       }}
     />

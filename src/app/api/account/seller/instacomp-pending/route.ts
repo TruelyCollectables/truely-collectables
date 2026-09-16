@@ -37,7 +37,15 @@ import {
 export const dynamic = "force-dynamic";
 
 type InstaCompListingFolder =
-  "pending" | "website" | "ebay" | "both" | "investment";
+  | "pending"
+  | "website"
+  | "ebay"
+  | "mercari"
+  | "both"
+  | "website_mercari"
+  | "ebay_mercari"
+  | "all3"
+  | "investment";
 
 const LOCAL_CERTIFIED_PRICING_PATH =
   process.env.INSTACOMP_CERTIFIED_PRICING_PATH ||
@@ -197,11 +205,21 @@ function listingFolderFromMetadata(
   const dual = recordValue(metadata.dual_marketplace);
   const websiteActive =
     textValue(recordValue(dual.website).status) === "active";
+  const ebayStatus = textValue(recordValue(dual.ebay).status);
   const ebayActive =
-    textValue(recordValue(dual.ebay).status) === "active" || legacyEbayLinked;
+    ebayStatus === "active" || ebayStatus === "linked" || legacyEbayLinked;
+  const mercariStatus = textValue(recordValue(dual.mercari).status);
+  const mercariActive =
+    mercariStatus === "active" ||
+    mercariStatus === "linked" ||
+    mercariStatus === "live";
+  if (websiteActive && ebayActive && mercariActive) return "all3";
   if (websiteActive && ebayActive) return "both";
+  if (websiteActive && mercariActive) return "website_mercari";
+  if (ebayActive && mercariActive) return "ebay_mercari";
   if (websiteActive) return "website";
   if (ebayActive) return "ebay";
+  if (mercariActive) return "mercari";
   return "pending";
 }
 
@@ -558,7 +576,11 @@ export async function GET(request: Request) {
     const folder: InstaCompListingFolder =
       requestedFolder === "website" ||
       requestedFolder === "ebay" ||
+      requestedFolder === "mercari" ||
       requestedFolder === "both" ||
+      requestedFolder === "website_mercari" ||
+      requestedFolder === "ebay_mercari" ||
+      requestedFolder === "all3" ||
       requestedFolder === "investment"
         ? requestedFolder
         : "pending";
@@ -723,12 +745,40 @@ export async function GET(request: Request) {
             rowHasLegacyEbayListing(row),
           ) === "ebay",
       ).length,
+      mercari: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "mercari",
+      ).length,
       both: listingRows.filter(
         (row: any) =>
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
           ) === "both",
+      ).length,
+      website_mercari: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "website_mercari",
+      ).length,
+      ebay_mercari: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "ebay_mercari",
+      ).length,
+      all3: listingRows.filter(
+        (row: any) =>
+          listingFolderFromMetadata(
+            row.metadata,
+            rowHasLegacyEbayListing(row),
+          ) === "all3",
       ).length,
       investment: listingRows.filter(
         (row: any) =>
