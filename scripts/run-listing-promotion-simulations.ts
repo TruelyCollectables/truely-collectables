@@ -27,6 +27,50 @@ assert.equal(
   }),
   fingerprint,
 );
+const blueVelocityFingerprint = "b".repeat(64);
+const greenFingerprint = "c".repeat(64);
+assert.equal(
+  instaCompPricingGroupKey({
+    instacomp: {
+      ai: {
+        year: "2025",
+        manufacturer: "Panini",
+        product: "Prizm WNBA",
+        setName: "Base",
+        cardNumber: "122",
+        player: "Sonia Citron",
+        team: "Washington Mystics",
+        parallel: "Blue Velocity",
+        internalChecklistSourceReceipts: [
+          `registry_fingerprint:${blueVelocityFingerprint}`,
+        ],
+      },
+      pricingGroupKey: "identity|2025|sonia-citron|122|sonia-citron",
+    },
+  }),
+  blueVelocityFingerprint,
+);
+assert.notEqual(
+  instaCompPricingGroupKey({
+    instacomp: {
+      ai: {
+        year: "2025",
+        manufacturer: "Panini",
+        product: "Prizm WNBA",
+        setName: "Base",
+        cardNumber: "122",
+        player: "Sonia Citron",
+        team: "Washington Mystics",
+        parallel: "Green",
+        internalChecklistSourceReceipts: [
+          `registry_fingerprint:${greenFingerprint}`,
+        ],
+      },
+      pricingGroupKey: "identity|2025|sonia-citron|122|sonia-citron",
+    },
+  }),
+  blueVelocityFingerprint,
+);
 assert.deepEqual(
   summarizeInstaCompPricingGroup([
     { status: "draft", quantity: 1, legacy_product_id: 10 },

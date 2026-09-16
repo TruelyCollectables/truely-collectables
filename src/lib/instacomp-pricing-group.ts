@@ -98,15 +98,31 @@ export function instaCompIdentityPricingGroupKey(identityValue: unknown) {
   return pieces.length > 1 ? pieces.map((piece) => slug(piece)).join("|") : null;
 }
 
+function registryFingerprintFromReceipts(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  for (const receipt of value) {
+    const candidate = text(receipt);
+    if (!candidate) continue;
+    const match = candidate.match(/^registry_fingerprint:([a-f0-9]{64})$/i);
+    if (match) return match[1].toLowerCase();
+  }
+  return null;
+}
+
 export function instaCompPricingGroupKey(metadata: unknown) {
   const root = record(metadata);
   const instaComp = record(root.instacomp);
   const checklistIdentity = record(instaComp.checklistIdentity);
   const channelDraft = record(instaComp.channelDraft);
+  const aiIdentity = record(instaComp.ai);
+  const checklistLockedFields = record(checklistIdentity.lockedFields);
   return (
     text(checklistIdentity.registryFingerprintSha256) ||
     text(channelDraft.registryFingerprintSha256) ||
     text(instaComp.registryFingerprintSha256) ||
+    registryFingerprintFromReceipts(aiIdentity.internalChecklistSourceReceipts) ||
+    instaCompIdentityPricingGroupKey(checklistLockedFields) ||
+    instaCompIdentityPricingGroupKey(aiIdentity) ||
     instaCompIdentityPricingGroupKey(instaComp.identity) ||
     instaCompIdentityPricingGroupKey(root.card_identity) ||
     instaCompIdentityPricingGroupKey(root.sale_identity) ||

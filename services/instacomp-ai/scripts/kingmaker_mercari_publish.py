@@ -167,6 +167,42 @@ def _select_category(item: dict) -> str:
     return category
 
 
+
+def _configure_shipping(price: float) -> str:
+    service = "USPS First-Class Envelope" if price < 20 else "USPS Ground Advantage"
+    # Force Mercari prepaid shipping; TCOS cards use a 3 oz package profile.
+    selected = _chrome_js("(()=>{const r=document.querySelector('input[name=deliveryOptions][value=MERCARI]');if(!r)return 'missing';if(!r.checked)r.click();return r.checked?'selected':'failed'})()")
+    if selected != "selected":
+        raise RuntimeError("Mercari prepaid shipping could not be selected.")
+
+    opened = _chrome_js("(()=>{const e=document.querySelector('[data-testid=SelectShipping]');if(!e)return 'missing';e.click();return 'opened'})()")
+    if opened != "opened":
+        raise RuntimeError("Mercari shipping-class control is unavailable.")
+    _wait_js("document.querySelector('[data-testid=ItemWeightInPounds]') && document.querySelector('[data-testid=ItemWeightInOunces]') ? 'weight' : ''", timeout=10)
+
+    weight_js = """(()=>{const set=(s,v)=>{const e=document.querySelector(s);if(!e)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,v);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true};return set('[data-testid=ItemWeightInPounds]','0')&&set('[data-testid=ItemWeightInOunces]','3')?'weighted':'missing'})()"""
+    if _chrome_js(weight_js) != "weighted":
+        raise RuntimeError("Mercari package weight could not be set to 3 oz.")
+
+    next_result = _chrome_js("(()=>{const b=Array.from(document.querySelectorAll('button')).find(x=>(x.innerText||'').trim()==='Next');if(!b||b.disabled)return 'blocked';b.click();return 'clicked'})()")
+    if next_result != "clicked":
+        raise RuntimeError("Mercari shipping weight could not advance to carrier selection.")
+
+    service_json = json.dumps(service)
+    _wait_js(
+        f"(()=>{{const q={service_json};return document.querySelector(`[data-testid=AvailableShippingOption][data-display-name=\"${{q}}\"]`)?'found':''}})()",
+        timeout=10,
+    )
+    choose_js = f"""(()=>{{const q={service_json};const card=Array.from(document.querySelectorAll('[data-testid=AvailableShippingOption]')).find(x=>x.getAttribute('data-display-name')===q);if(!card)return 'missing';const r=card.querySelector('input[type=radio]');if(!r)return 'missing-radio';r.click();return r.checked?'selected':'failed';}})()"""
+    if _chrome_js(choose_js) != "selected":
+        raise RuntimeError(f"Mercari shipping service {service} could not be selected.")
+
+    save_result = _chrome_js("(()=>{const b=document.querySelector('[data-testid=SelectCarrierSaveButton]');if(!b||b.disabled)return 'blocked';b.click();return 'clicked'})()")
+    if save_result != "clicked":
+        raise RuntimeError("Mercari shipping service could not be saved.")
+    _wait_js(f"(()=>{{const e=document.querySelector('[data-testid=SelectShipping]');return e&&String(e.value||'').includes({service_json})?'saved':''}})()", timeout=10)
+    return service
+
 def _fill_item(item: dict) -> str:
     title = str(item.get("title") or "").strip()[:80]
     description = str(item.get("description") or "").strip()[:1000]
@@ -200,6 +236,7 @@ def _fill_item(item: dict) -> str:
         raise RuntimeError(state)
 
     _select_category(item)
+    _configure_shipping(price)
     _chrome_js("(()=>{const l=document.querySelector('[data-testid=ConditionLikeNew]');if(!l)throw new Error('Like new condition missing');l.click();return 'condition'})()")
     _wait_js("document.querySelector('input#2[name=sellCondition]')?.checked ? 'condition' : ''")
 
