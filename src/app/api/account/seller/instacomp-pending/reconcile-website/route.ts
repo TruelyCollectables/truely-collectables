@@ -216,30 +216,62 @@ export async function POST(request: Request) {
         }
       }
 
-      const prepared = text(prior.status) === "prepared";
+      const priorStatus = text(prior.status);
+      const prepared = priorStatus === "prepared" || priorStatus === "quantity_applied";
+      const quantityAlreadyApplied = priorStatus === "quantity_applied";
       const productId = prepared
         ? Number(prior.productId || 0)
         : Number(target.id);
-      let liveProductQuantity = wholeQuantity(target.quantity);
-      if (!prepared) {
-        const { data: currentProduct, error: currentProductError } = await supabase
-          .from("products")
-          .select("quantity")
-          .eq("store_id", storeId)
-          .eq("id", productId)
-          .single();
-        if (currentProductError) throw currentProductError;
-        liveProductQuantity = wholeQuantity(currentProduct?.quantity);
-      }
-      const targetQuantity = prepared
-        ? wholeQuantity(prior.targetQuantity)
-        : liveProductQuantity + rowQuantity;
+      const { data: currentProduct, error: currentProductError } = await supabase
+        .from("products")
+        .select("quantity")
+        .eq("store_id", storeId)
+        .eq("id", productId)
+        .single();
+      if (currentProductError) throw currentProductError;
+      const liveProductQuantity = wholeQuantity(currentProduct?.quantity);
       const baselineQuantity = prepared
         ? wholeQuantity(prior.baselineQuantity)
         : liveProductQuantity;
       const addedQuantity = prepared
         ? wholeQuantity(prior.addedQuantity)
         : rowQuantity;
+      let targetQuantity = liveProductQuantity + addedQuantity;
+      let shouldWriteProductQuantity = !quantityAlreadyApplied;
+      if (quantityAlreadyApplied) {
+        targetQuantity = liveProductQuantity;
+      } else if (prepared) {
+        const preparedTarget = wholeQuantity(prior.targetQuantity);
+        if (liveProductQuantity < baselineQuantity) {
+          results.push({
+            inventoryItemId: row.id,
+            status: "blocked",
+            reason: "prepared_quantity_changed_downward",
+            productId,
+            baselineQuantity,
+            currentQuantity: liveProductQuantity,
+            preparedTarget,
+          });
+          continue;
+        }
+        if (liveProductQuantity >= preparedTarget) {
+          targetQuantity = liveProductQuantity;
+          shouldWriteProductQuantity = false;
+        } else if (liveProductQuantity === baselineQuantity) {
+          targetQuantity = preparedTarget;
+        } else {
+          results.push({
+            inventoryItemId: row.id,
+            status: "blocked",
+            reason: "prepared_quantity_state_ambiguous",
+            productId,
+            baselineQuantity,
+            currentQuantity: liveProductQuantity,
+            preparedTarget,
+          });
+          continue;
+        }
+      }
       if (!productId || targetQuantity < 1 || addedQuantity < 1) {
         results.push({ inventoryItemId: row.id, status: "blocked", reason: "invalid_reconciliation_quantity" });
         continue;
@@ -306,18 +338,44 @@ export async function POST(request: Request) {
         if (prepareError) throw prepareError;
       }
 
-      const { error: productError } = await supabase
-        .from("products")
-        .update({ quantity: targetQuantity })
-        .eq("store_id", storeId)
-        .eq("id", productId);
-      if (productError) throw productError;
+      if (shouldWriteProductQuantity) {
+        const { data: updatedProducts, error: productError } = await supabase
+          .from("products")
+          .update({ quantity: targetQuantity })
+          .eq("store_id", storeId)
+          .eq("id", productId)
+          .eq("quantity", liveProductQuantity)
+          .select("id,quantity");
+        if (productError) throw productError;
+        if (!updatedProducts?.length) {
+          throw new Error(`Website product ${productId} quantity changed concurrently; retry reconciliation.`);
+        }
+      }
+
+      const quantityAppliedMetadata = {
+        ...preparedMetadata,
+        website_inventory_reconciliation: {
+          ...record(preparedMetadata.website_inventory_reconciliation),
+          status: "quantity_applied",
+          quantityAppliedAt: text(prior.quantityAppliedAt) || now,
+          appliedQuantity: targetQuantity,
+        },
+      };
+      if (!quantityAlreadyApplied) {
+        const { error: appliedMarkerError } = await supabase
+          .from("inventory_items")
+          .update({ metadata: quantityAppliedMetadata, updated_at: now })
+          .eq("store_id", storeId)
+          .eq("id", row.id)
+          .eq("status", "draft");
+        if (appliedMarkerError) throw appliedMarkerError;
+      }
 
       if (keeperId === row.id) {
         const completedMetadata = {
-          ...withWebsiteActive(preparedMetadata, productId, now),
+          ...withWebsiteActive(quantityAppliedMetadata, productId, now),
           website_inventory_reconciliation: {
-            ...record(preparedMetadata.website_inventory_reconciliation),
+            ...record(quantityAppliedMetadata.website_inventory_reconciliation),
             status: "completed",
             completedAt: now,
             resultingQuantity: targetQuantity,
@@ -351,7 +409,7 @@ export async function POST(request: Request) {
         if (keeperSaveError) throw keeperSaveError;
 
         const completedMetadata = {
-          ...preparedMetadata,
+          ...quantityAppliedMetadata,
           commercial_merge: {
             keeper_inventory_item_id: keeperId,
             website_product_id: productId,
@@ -360,7 +418,7 @@ export async function POST(request: Request) {
             reason: "exact_current_website_inventory_quantity_merge",
           },
           website_inventory_reconciliation: {
-            ...record(preparedMetadata.website_inventory_reconciliation),
+            ...record(quantityAppliedMetadata.website_inventory_reconciliation),
             status: "completed",
             completedAt: now,
             resultingQuantity: targetQuantity,

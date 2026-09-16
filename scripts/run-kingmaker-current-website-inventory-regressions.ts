@@ -73,6 +73,10 @@ assert(pendingClient.includes("WEBSITE LINK MISMATCH · DO NOT PUBLISH"), "Pendi
 assert(reconcileRoute.includes('.select("quantity")'), "Website reconciliation must re-read current product quantity before each unprepared merge.");
 assert(reconcileRoute.includes("legacy_product_id: null"), "Merged archived sources must release the canonical website product linkage.");
 assert(reconcileRoute.includes("sourceLegacyProductId"), "Reconciliation must retain the source placeholder product ID in metadata for safe cleanup and retry.");
+assert(reconcileRoute.includes('status: "quantity_applied"'), "Reconciliation must mark quantity application before source finalization.");
+assert(reconcileRoute.includes("liveProductQuantity >= preparedTarget"), "Prepared retries must preserve a later/higher live quantity instead of writing a stale target.");
+assert(reconcileRoute.includes('.eq("quantity", liveProductQuantity)'), "Product quantity updates must use optimistic concurrency protection.");
+assert(reconcileRoute.includes("prepared_quantity_changed_downward"), "Prepared retries must fail closed if quantity moved downward before application can be proven.");
 assert(pendingClient.includes("Merge Exact Current Website Inventory"), "Pending UI must expose the exact-current-inventory merge action.");
 assert(reconcileRoute.includes('status: "prepared"'), "Website reconciliation must record a prepared absolute target before mutating quantity.");
 assert(reconcileRoute.includes('status: "completed"'), "Website reconciliation must record completion for idempotent retries.");
