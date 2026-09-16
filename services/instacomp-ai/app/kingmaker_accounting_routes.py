@@ -45,6 +45,41 @@ class EbayBridgeRequest(BaseModel):
     redirect_uri: str | None = Field(default=None, max_length=512)
 
 
+class MercariBridgeRequest(BaseModel):
+    mode: str = Field(default="status", pattern="^(status|draft|publish)$")
+    item: dict[str, Any] | None = None
+
+
+def _run_local_mercari_bridge(payload: dict[str, Any]) -> dict[str, Any]:
+    repo_root = Path(__file__).resolve().parents[3]
+    runner = repo_root / "services/instacomp-ai/scripts/kingmaker_mercari_publish.py"
+    python_binary = shutil.which("python3") or "/opt/homebrew/bin/python3"
+    if not runner.exists():
+        raise ValueError("The Mac-local KINGMAKER Mercari runner is missing")
+    if not Path(python_binary).exists():
+        raise ValueError("The Mac-local Python runtime required for Mercari publishing is unavailable")
+    try:
+        completed = subprocess.run(
+            [python_binary, str(runner)],
+            cwd=repo_root,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("The Mac-local Mercari publisher timed out") from exc
+    raw = str(completed.stdout or "").strip()
+    try:
+        data = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        raise ValueError("The Mac-local Mercari publisher returned invalid output") from exc
+    if completed.returncode != 0 or data.get("ok") is not True:
+        raise ValueError(str(data.get("error") or "The Mac-local Mercari publisher failed"))
+    return data
+
+
 def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[3]
     runner = repo_root / "services/instacomp-ai/scripts/kingmaker_ebay_publish.ts"
@@ -198,6 +233,18 @@ def build_kingmaker_accounting_router(
                 "revision": request.revision,
                 "code": request.code,
                 "redirectUri": request.redirect_uri,
+            })
+            return {"ok": True, **result}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+    @router.post("/mercari-bridge")
+    async def mercari_bridge(request: MercariBridgeRequest):
+        try:
+            result = _run_local_mercari_bridge({
+                "mode": request.mode,
+                "item": request.item,
             })
             return {"ok": True, **result}
         except Exception as exc:
