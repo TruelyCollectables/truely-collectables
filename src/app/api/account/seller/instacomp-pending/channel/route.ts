@@ -437,7 +437,7 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    if (imageUrls.length < 2 && (needsNewEbayListing || needsWebsitePublication || action === "publish-mercari" || action === "publish-all-3")) {
+    if (imageUrls.length < 2 && (needsNewEbayListing || needsWebsitePublication || action === "publish-mercari")) {
       return Response.json(
         { success: false, error: "A stored front and back image are required before publishing a new channel listing." },
         { status: 409 },
