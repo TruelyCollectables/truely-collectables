@@ -1496,13 +1496,11 @@ export async function GET(request: Request) {
             ebayCategoryId: textValue(dualEbay.categoryId) || "261328",
             ebayLastError: textValue(dualEbay.lastError),
             ebayLastAttemptAt: textValue(dualEbay.lastAttemptAt),
-            mercariPrice: optionalPrice(dualMercari.price) || dualPricing.ebayPrice,
+            mercariPrice: optionalPrice(dualMercari.price) || channelPricing.ebayPrice,
             mercariStatus: textValue(dualMercari.status) || "draft",
             mercariItemId: textValue(dualMercari.itemId),
             mercariItemUrl: textValue(dualMercari.itemUrl),
             mercariSourceListingId: textValue(dualMercari.sourceListingId),
-            mercariItemId: textValue(dualMercari.itemId),
-            mercariItemUrl: textValue(dualMercari.itemUrl),
             mercariAccount: textValue(dualMercari.account),
             calculatedFrom: storedEbayPrice
               ? "saved_ebay_price"
