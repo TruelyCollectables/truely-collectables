@@ -134,8 +134,6 @@ type PendingCard = {
       mercariItemId?: string | null;
       mercariItemUrl?: string | null;
       mercariSourceListingId?: string | null;
-      mercariItemId?: string | null;
-      mercariItemUrl?: string | null;
       mercariAccount?: string | null;
       calculatedFrom?: string | null;
     } | null;
