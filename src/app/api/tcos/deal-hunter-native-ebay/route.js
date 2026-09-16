@@ -280,6 +280,7 @@ export async function GET(request) {
   }
   if (
     rateLimit?.available === true &&
+    rateLimit.remaining != null &&
     Number.isFinite(Number(rateLimit.remaining)) &&
     Number(rateLimit.remaining) < families.length + quotaReserve
   ) {
