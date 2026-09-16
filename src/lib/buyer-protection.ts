@@ -1,5 +1,5 @@
 export const BUYER_PROTECTION_POLICY_VERSION =
-  "truely-shipment-protection-v3-2026-08-11";
+  "truely-shipment-protection-v4-2026-09-16";
 export const BUYER_PROTECTION_PATH = "/buyer-protection";
 export const BUYER_PROTECTION_RATE = 0.1;
 // Backward-compatible alias for older imports. New code must calculate the fee
@@ -11,7 +11,7 @@ export const BUYER_PROTECTION_MIN_CLAIM_DAYS = 7;
 export const BUYER_PROTECTION_CLAIM_DEADLINE_DAYS = 21;
 
 export const BUYER_PROTECTION_DECLINE_ACKNOWLEDGMENT =
-  "I decline optional Shipment Protection for this order. I understand Truely Collectables will not provide its voluntary shipment-protection reimbursement for qualifying carrier loss or damage. This acknowledgment does not waive rights that cannot legally be waived or any rights available through my payment provider.";
+  "I decline optional Shipment Protection for this order. I understand I will not be eligible for a Truely Collectables voluntary refund or reimbursement for carrier loss or damage under this program. This acknowledgment does not waive rights that cannot legally be waived or any rights available through my payment provider.";
 
 export type BuyerProtectionPreferenceMode =
   | "always_on"
@@ -208,7 +208,8 @@ export const BUYER_PROTECTION_TERMS_SUMMARY = [
   `Eligibility is limited to qualifying Tracked Card Letter orders with an item subtotal of $${BUYER_PROTECTION_MAX_ITEM_SUBTOTAL.toFixed(2)} or less.`,
   `Approved reimbursement is limited to the protected item subtotal, up to $${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}. Shipping and the protection fee are not reimbursed by this voluntary program.`,
   "Coverage applies only to reviewed carrier loss or damage claims supported by the available USPS/LetterTrack trail, photographs, packaging evidence, and order records.",
+  "For a damage claim, the buyer must keep the original shipping mailer, packaging, card/item, and contents until the claim is fully resolved and make them available if requested. A claim may be denied when required packaging evidence was discarded or is unavailable.",
   `A claim may be submitted after ${BUYER_PROTECTION_MIN_CLAIM_DAYS} full days and no later than ${BUYER_PROTECTION_CLAIM_DEADLINE_DAYS} calendar days after the recorded shipment date.`,
   "Shipment Protection is a voluntary Truely Collectables reimbursement program. It is not insurance, USPS coverage, or guaranteed delivery.",
-  "Declining Shipment Protection means this voluntary reimbursement program will not apply to the order, but does not waive rights that cannot legally be waived or payment-provider dispute rights.",
+  "Declining Shipment Protection means Truely Collectables will not provide a voluntary refund or reimbursement for carrier loss or damage under this program for that order, but the decline does not waive rights that cannot legally be waived or payment-provider dispute rights.",
 ];

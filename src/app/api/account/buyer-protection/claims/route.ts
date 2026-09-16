@@ -108,6 +108,7 @@ export async function POST(request: Request) {
     const orderId = Number(body.orderId);
     const statement = cleanStatement(body.statement);
     const reason = cleanReason(body.reason);
+    const mailerRetained = body.mailerRetained === true;
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return NextResponse.json(
         { error: "A valid protected order is required" },
@@ -123,6 +124,15 @@ export async function POST(request: Request) {
     if (statement.length < 10) {
       return NextResponse.json(
         { error: "Please describe the shipment loss or damage" },
+        { status: 400 },
+      );
+    }
+    if (reason === "damaged" && !mailerRetained) {
+      return NextResponse.json(
+        {
+          error:
+            "Damage claims require the original shipping mailer, packaging, card/item, and contents to be retained until the claim is resolved.",
+        },
         { status: 400 },
       );
     }
@@ -205,8 +215,14 @@ export async function POST(request: Request) {
           lettertrack_evidence_at_submission: evidence,
           required_evidence:
             reason === "damaged"
-              ? ["damaged_item_photos", "mailer_photos", "buyer_statement"]
+              ? [
+                  "damaged_item_photos",
+                  "mailer_photos",
+                  "original_mailer_and_packaging_retained",
+                  "buyer_statement",
+                ]
               : ["delivery_evidence_review", "buyer_statement"],
+          mailer_retained_attested: reason === "damaged" ? mailerRetained : null,
         },
       })
       .select("*")

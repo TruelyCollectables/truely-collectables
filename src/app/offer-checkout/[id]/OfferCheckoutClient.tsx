@@ -81,7 +81,9 @@ export default function OfferCheckoutClient(props: {
   const protectionAvailable = protectionQuote.eligible;
   const protectionFee =
     protectionAvailable && protectionSelected ? protectionQuote.feeAmount : 0;
-  const total = props.saleSubtotal + shippingAmount + protectionFee;
+  const mandatoryInsuranceFee = shippingCoverage.buyerCharge;
+  const total =
+    props.saleSubtotal + shippingAmount + protectionFee + mandatoryInsuranceFee;
   const storedConsentCurrent =
     props.buyerProtectionSelected && props.buyerProtectionPolicyCurrent;
 
@@ -226,16 +228,23 @@ export default function OfferCheckoutClient(props: {
                 coverage up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}, subject to
                 carrier terms and claim approval.
               </p>
-              {shippingCoverage.requiresAdditionalCoverageQuote ? (
+              {shippingCoverage.truelyPaysAdditionalCoverage ? (
+                <p className="mt-2 rounded border border-emerald-300 bg-white p-3 font-bold text-emerald-950">
+                  This order is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} and up to $1,000.00. Truely Collectables will purchase the additional carrier insurance required for the full accepted price at no additional charge to you.
+                </p>
+              ) : null}
+              {shippingCoverage.customerPaysAdditionalCoverage ? (
                 <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-3 font-bold text-amber-950">
-                  This order is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}. For
-                  coverage above the included amount, contact{" "}
+                  This accepted price is over $1,000.00. Full-value shipping insurance is mandatory. The ${mandatoryInsuranceFee.toFixed(2)} insurance fee is paid by the customer. Keep the original mailer, packaging, card/item, and contents until any damage claim is fully resolved.
+                </p>
+              ) : null}
+              {shippingCoverage.requiresManualHighValueCoverage ? (
+                <p className="mt-2 rounded border border-red-300 bg-red-50 p-3 font-bold text-red-950">
+                  This order exceeds the standard USPS merchandise-insurance maximum. Contact{" "}
                   <a href={`mailto:${STORE_SUPPORT_EMAIL}`} className="underline">
                     {STORE_SUPPORT_EMAIL}
                   </a>{" "}
-                  before shipment for a quote. If extra coverage is not arranged, the
-                  order ships with only the included ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}
-                  carrier coverage, subject to applicable non-waivable rights.
+                  for a manual full-value shipping and insurance arrangement.
                 </p>
               ) : null}
             </div>
@@ -281,7 +290,7 @@ export default function OfferCheckoutClient(props: {
               </label>
             ) : (
               <p className="mt-3 rounded border border-neutral-200 bg-white p-3 text-sm font-bold">
-                Shipment Protection applies only to qualifying under-$20 Tracked Card Letter orders.
+                Shipment Protection applies only to qualifying Tracked Card Letter orders of $20.00 or less.
               </p>
             )}
 
@@ -295,7 +304,7 @@ export default function OfferCheckoutClient(props: {
                   }
                   className="mt-1 h-5 w-5"
                 />
-                I accept version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved claims reimburse the protected item amount only, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)} maximum; shipping and the protection fee are excluded. Claims require review and supporting loss or damage evidence.
+                I accept version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved claims reimburse the protected item amount only, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)} maximum; shipping and the protection fee are excluded. For a damage claim I must retain the original shipping mailer, packaging, card/item, and contents until the claim is fully resolved. Claims require review and supporting loss or damage evidence.
               </label>
             ) : protectionSelected ? (
               <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-950">
@@ -331,6 +340,12 @@ export default function OfferCheckoutClient(props: {
               <div className="flex justify-between">
                 <dt>Shipment Protection</dt>
                 <dd className="font-black">${protectionFee.toFixed(2)}</dd>
+              </div>
+            ) : null}
+            {mandatoryInsuranceFee > 0 ? (
+              <div className="flex justify-between">
+                <dt>Mandatory full-value shipping insurance</dt>
+                <dd className="font-black">${mandatoryInsuranceFee.toFixed(2)}</dd>
               </div>
             ) : null}
             <div className="flex justify-between border-t pt-3 text-xl">

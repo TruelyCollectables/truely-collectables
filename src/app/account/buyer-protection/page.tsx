@@ -107,6 +107,9 @@ export default function BuyerProtectionAccountPage() {
   const [reasonByOrder, setReasonByOrder] = useState<
     Record<number, ShipmentProtectionClaimReason>
   >({});
+  const [mailerRetainedByOrder, setMailerRetainedByOrder] = useState<
+    Record<number, boolean>
+  >({});
   const [loading, setLoading] = useState(Boolean(accessToken));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -203,6 +206,13 @@ export default function BuyerProtectionAccountPage() {
     if (!accessToken) return;
     const statement = statementByOrder[orderId] || "";
     const reason = reasonByOrder[orderId] || "not_received";
+    const mailerRetained = mailerRetainedByOrder[orderId] === true;
+    if (reason === "damaged" && !mailerRetained) {
+      setError(
+        "For a damage claim, confirm that you kept the original shipping mailer, packaging, card/item, and contents.",
+      );
+      return;
+    }
     setSaving(true);
     setError("");
     setMessage("");
@@ -214,7 +224,7 @@ export default function BuyerProtectionAccountPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ orderId, statement, reason }),
+        body: JSON.stringify({ orderId, statement, reason, mailerRetained }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -226,6 +236,10 @@ export default function BuyerProtectionAccountPage() {
       setReasonByOrder((current) => ({
         ...current,
         [orderId]: "not_received",
+      }));
+      setMailerRetainedByOrder((current) => ({
+        ...current,
+        [orderId]: false,
       }));
       await reload();
     } catch (claimError) {
@@ -273,7 +287,7 @@ export default function BuyerProtectionAccountPage() {
           </p>
           <h1 className="mt-2 text-4xl font-black">Shipment Protection</h1>
           <p className="mt-3 max-w-3xl text-neutral-600">
-            {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of the protected item subtotal for qualifying under-$20 Tracked Card Letter orders. Approved loss or damage claims reimburse the protected item subtotal up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)} maximum. Shipping and the protection fee are excluded.
+            {(BUYER_PROTECTION_RATE * 100).toFixed(0)}% of the protected item subtotal for qualifying Tracked Card Letter orders of $20.00 or less. Approved loss or damage claims reimburse the protected item subtotal up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)} maximum. Shipping and the protection fee are excluded.
           </p>
         </div>
         <Link
@@ -460,8 +474,26 @@ export default function BuyerProtectionAccountPage() {
                       className="mt-2 min-h-28 w-full rounded border p-3"
                     />
                     <p className="mt-2 text-xs font-semibold text-neutral-600">
-                      Damage claims require clear photographs of the card, packaging, and mailer. All claims are reviewed against order and carrier evidence.
+                      Damage claims require clear photographs of the card, packaging, and mailer. Keep the original mailer, all packaging, the card/item, and all contents until the claim is fully resolved.
                     </p>
+                    {(reasonByOrder[protection.order_id] || "not_received") === "damaged" ? (
+                      <label className="mt-3 flex items-start gap-3 rounded border-2 border-amber-400 bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-950">
+                        <input
+                          type="checkbox"
+                          checked={mailerRetainedByOrder[protection.order_id] === true}
+                          onChange={(event) =>
+                            setMailerRetainedByOrder((current) => ({
+                              ...current,
+                              [protection.order_id]: event.target.checked,
+                            }))
+                          }
+                          className="mt-1 h-5 w-5 shrink-0"
+                        />
+                        <span>
+                          I still have the original shipping mailer, all packaging, the card/item, and all contents, and I will keep them until the claim is fully resolved. I understand a damage claim may be denied if required packaging evidence is unavailable.
+                        </span>
+                      </label>
+                    ) : null}
                     <button
                       type="button"
                       disabled={saving}

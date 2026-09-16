@@ -12,6 +12,7 @@ import {
 import { parseOfferCheckoutToken } from "../../../../lib/offer-checkout-token";
 import {
   calculateShipping,
+  getShippingCoverage,
   isShippingMethod,
   resolveShippingMethod,
   SHIPPING_RULES,
@@ -142,6 +143,20 @@ export async function POST(request: Request) {
       listingPriceBasis,
       method: resolvedShipping.method,
     });
+    const shippingCoverage = getShippingCoverage({
+      method: resolvedShipping.method,
+      subtotal: saleSubtotal,
+    });
+    if (shippingCoverage.requiresManualHighValueCoverage) {
+      return NextResponse.json(
+        {
+          error:
+            "Orders above the standard USPS merchandise-insurance maximum require a manual full-value shipping and insurance arrangement before checkout. Contact Truely Collectables support.",
+          manualHighValueCoverageRequired: true,
+        },
+        { status: 409 },
+      );
+    }
     const protectionRequested = body.buyerProtectionSelected === true;
     const protectionDeclineAcknowledged =
       body.buyerProtectionDeclineAcknowledged === true;
@@ -270,6 +285,26 @@ export async function POST(request: Request) {
       },
     ];
 
+    if (shippingCoverage.buyerCharge > 0) {
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Mandatory Full-Value Shipping Insurance",
+            description:
+              "Required because the accepted item price exceeds $1,000. Full declared-value carrier insurance is required before shipment.",
+            metadata: {
+              tcos_line_type: "mandatory_shipping_insurance",
+              coverage_amount: shippingCoverage.fullValueCoverageAmount.toFixed(2),
+              fee_source: shippingCoverage.insuranceFeeSource || "",
+            },
+          },
+          unit_amount: Math.round(shippingCoverage.buyerCharge * 100),
+        },
+        quantity: 1,
+      });
+    }
+
     if (buyerProtectionSelected) {
       lineItems.push({
         price_data: {
@@ -322,6 +357,18 @@ export async function POST(request: Request) {
         standard_envelope_estimated_oz: String(
           resolvedShipping.standardEnvelope.estimatedOunces,
         ),
+        shipping_coverage_provider: shippingCoverage.provider,
+        shipping_coverage_status: shippingCoverage.status,
+        shipping_coverage_type: shippingCoverage.coverageType,
+        shipping_coverage_amount: shippingCoverage.coveredAmount.toFixed(2),
+        shipping_coverage_buyer_charge: shippingCoverage.buyerCharge.toFixed(2),
+        shipping_coverage_additional_required: shippingCoverage.additionalCoverageRequired
+          ? "true"
+          : "false",
+        shipping_coverage_full_value_amount:
+          shippingCoverage.fullValueCoverageAmount.toFixed(2),
+        shipping_coverage_additional_payer: shippingCoverage.additionalCoveragePayer,
+        shipping_coverage_fee_source: shippingCoverage.insuranceFeeSource || "",
         buyer_protection_selected: buyerProtectionSelected ? "true" : "false",
         buyer_protection_fee: buyerProtectionSelected
           ? protectionQuote.feeAmount.toFixed(2)

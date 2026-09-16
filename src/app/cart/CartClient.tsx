@@ -202,7 +202,9 @@ export default function CartClient(props: { storeDisplayName: string }) {
   const buyerProtectionFee = resolvedBuyerProtection.selected
     ? buyerProtectionQuote.feeAmount
     : 0;
-  const total = subtotal + selectedShipping + buyerProtectionFee;
+  const mandatoryInsuranceFee = shippingCoverage.buyerCharge;
+  const total =
+    subtotal + selectedShipping + buyerProtectionFee + mandatoryInsuranceFee;
 
   function shippingPrice(method: ShippingMethod) {
     return calculateShipping({
@@ -399,15 +401,23 @@ export default function CartClient(props: { storeDisplayName: string }) {
                       and include carrier coverage up to ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)},
                       subject to carrier terms and claim approval.
                     </p>
-                    {shippingCoverage.requiresAdditionalCoverageQuote ? (
+                    {shippingCoverage.truelyPaysAdditionalCoverage ? (
+                      <p className="mt-2 rounded border border-emerald-300 bg-white p-3 font-bold text-emerald-950">
+                        This order is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} and up to $1,000.00. Truely Collectables will purchase the additional carrier insurance required to cover the full order value. There is no additional insurance charge to you.
+                      </p>
+                    ) : null}
+                    {shippingCoverage.customerPaysAdditionalCoverage ? (
                       <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-3 font-bold text-amber-950">
-                        This order is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}. If you want coverage above the included amount, contact{" "}
+                        This order is over $1,000.00. Full-value shipping insurance is mandatory. The ${mandatoryInsuranceFee.toFixed(2)} insurance fee is paid by the customer and added below. Keep the original mailer, packaging, card/item, and all contents until any damage claim is fully resolved.
+                      </p>
+                    ) : null}
+                    {shippingCoverage.requiresManualHighValueCoverage ? (
+                      <p className="mt-2 rounded border border-red-300 bg-red-50 p-3 font-bold text-red-950">
+                        This order exceeds the standard USPS merchandise-insurance maximum. Contact{" "}
                         <a href={`mailto:${STORE_SUPPORT_EMAIL}`} className="underline">
                           {STORE_SUPPORT_EMAIL}
                         </a>{" "}
-                        before shipment for a quote. If extra coverage is not arranged,
-                        the order will ship with only the included ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}
-                        carrier coverage, subject to applicable non-waivable rights.
+                        for a manual full-value shipping and insurance arrangement before checkout/fulfillment.
                       </p>
                     ) : null}
                   </>
@@ -435,6 +445,12 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 <div className="flex justify-between">
                   <span>Shipment Protection</span>
                   <strong>${buyerProtectionFee.toFixed(2)}</strong>
+                </div>
+              ) : null}
+              {mandatoryInsuranceFee > 0 ? (
+                <div className="flex justify-between">
+                  <span>Mandatory full-value shipping insurance</span>
+                  <strong>${mandatoryInsuranceFee.toFixed(2)}</strong>
                 </div>
               ) : null}
               <div className="flex justify-between text-xl">

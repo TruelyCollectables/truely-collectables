@@ -310,6 +310,16 @@ export async function POST(request: Request) {
       method: shippingMethod,
       subtotal,
     });
+    if (shippingCoverage.requiresManualHighValueCoverage) {
+      return NextResponse.json(
+        {
+          error:
+            "Orders above the standard USPS merchandise-insurance maximum require a manual full-value shipping and insurance arrangement before checkout. Contact Truely Collectables support.",
+          manualHighValueCoverageRequired: true,
+        },
+        { status: 409 },
+      );
+    }
     const buyerProtection = await resolveBuyerProtectionSelection({
       supabase,
       storeId,
@@ -343,6 +353,25 @@ export async function POST(request: Request) {
       quantity: 1,
     });
 
+    if (shippingCoverage.buyerCharge > 0) {
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Mandatory Full-Value Shipping Insurance",
+            description: `Required for this order because the item subtotal exceeds $1,000. Full declared-value carrier insurance is required before shipment.`,
+            metadata: {
+              tcos_line_type: "mandatory_shipping_insurance",
+              coverage_amount: shippingCoverage.fullValueCoverageAmount.toFixed(2),
+              fee_source: shippingCoverage.insuranceFeeSource || "",
+            },
+          },
+          unit_amount: Math.round(shippingCoverage.buyerCharge * 100),
+        },
+        quantity: 1,
+      });
+    }
+
     if (buyerProtection.selected) {
       lineItems.push({
         price_data: {
@@ -350,7 +379,7 @@ export async function POST(request: Request) {
           product_data: {
             name: "Truely Collectables Shipment Protection",
             description:
-              "Optional reimbursement program for a qualifying under-$20 Tracked Card Letter order. Approved carrier loss or damage reimbursement is limited to the protected item subtotal up to $20. Shipping and the protection fee are excluded.",
+              "Optional reimbursement program for a qualifying Tracked Card Letter order of $20.00 or less. Approved carrier loss or damage reimbursement is limited to the protected item subtotal up to $20. Shipping and the protection fee are excluded.",
             metadata: {
               tcos_line_type: "buyer_protection",
               policy_version: buyerProtection.policyVersion || "",
@@ -397,6 +426,13 @@ export async function POST(request: Request) {
       shipping_coverage_amount: shippingCoverage.coveredAmount.toFixed(2),
       shipping_coverage_buyer_charge:
         shippingCoverage.buyerCharge.toFixed(2),
+      shipping_coverage_additional_required: shippingCoverage.additionalCoverageRequired
+        ? "true"
+        : "false",
+      shipping_coverage_full_value_amount:
+        shippingCoverage.fullValueCoverageAmount.toFixed(2),
+      shipping_coverage_additional_payer: shippingCoverage.additionalCoveragePayer,
+      shipping_coverage_fee_source: shippingCoverage.insuranceFeeSource || "",
       buyer_protection_selected: buyerProtection.selected ? "true" : "false",
       buyer_protection_fee: buyerProtection.feeAmount.toFixed(2),
       buyer_protection_fee_base: buyerProtection.feeBase.toFixed(2),

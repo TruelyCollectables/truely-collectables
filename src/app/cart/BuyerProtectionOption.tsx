@@ -166,7 +166,7 @@ export default function BuyerProtectionOption({
 
       {!available ? (
         <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-950">
-          Available only for qualifying under-$20 Tracked Card Letter orders.
+          Available only for qualifying Tracked Card Letter orders with a protected item subtotal of $20.00 or less.
         </p>
       ) : loading ? (
         <p className="mt-3 text-sm font-bold">Loading your protection preference…</p>
@@ -236,7 +236,7 @@ export default function BuyerProtectionOption({
                 className="mt-1 h-5 w-5 shrink-0"
               />
               <span>
-                I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved loss or damage reimbursement is limited to the protected item subtotal, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}. Shipping and the protection fee are excluded. Claims require review and supporting evidence.
+                I accept Shipment Protection version {BUYER_PROTECTION_POLICY_VERSION}. I understand approved loss or damage reimbursement is limited to the protected item subtotal, up to ${BUYER_PROTECTION_MAX_COVERAGE.toFixed(2)}. Shipping and the protection fee are excluded. For damage claims I must keep the original shipping mailer, packaging, card/item, and contents until the claim is fully resolved. Claims require review and supporting evidence.
               </span>
             </label>
           ) : choice.selected && choice.storedConsentCurrent ? (

@@ -30,7 +30,12 @@ export default function ReturnsPage() {
           the shipment arrives materially damaged, the item is materially different
           from the listing, or the order cannot be fulfilled. Include the order
           number, a clear description of the problem, and photos of the item and
-          packaging when relevant.
+          packaging when relevant. For a shipping-damage or insurance claim, keep the
+          original shipping mailer, all packaging, the card/item, and all contents
+          until the claim is completely resolved. If required packaging evidence was
+          discarded or cannot be produced when requested, the carrier claim and any
+          related store refund or reimbursement that depends on that claim may be denied,
+          subject to rights that cannot legally be waived.
         </p>
       </section>
 

@@ -15,6 +15,9 @@ export const PRIORITY_MAIL_SMALL_ORDER_MAX_CARDS = 4;
 export const PRIORITY_MAIL_SMALL_ORDER_PRICE = 9.99;
 export const PRIORITY_MAIL_LARGE_ORDER_PRICE = 14.99;
 export const PARCEL_INCLUDED_COVERAGE_LIMIT = 100;
+export const PARCEL_TRUELY_PAID_INSURANCE_MAX = 1000;
+export const PARCEL_CUSTOMER_PAID_INSURANCE_THRESHOLD = 1000;
+export const USPS_STANDARD_INSURANCE_MAX = 5000;
 
 // Backward-compatible exports retained for older imports. Ground Advantage is now
 // a flat buyer price and Priority Mail is an optional upgrade rather than a
@@ -282,6 +285,20 @@ export function calculateShipping({
     : GROUND_ADVANTAGE_BUYER_PRICE;
 }
 
+export function calculateUspsMerchandiseInsuranceFee(declaredValue: number) {
+  const value = Math.max(0, Math.round(Number(declaredValue || 0) * 100) / 100);
+  if (value <= PARCEL_INCLUDED_COVERAGE_LIMIT) return 0;
+  if (value <= 200) return 4.5;
+  if (value <= 300) return 4.55;
+  if (value <= 400) return 6.05;
+  if (value <= 500) return 7.55;
+  if (value <= 600) return 9.05;
+  if (value <= USPS_STANDARD_INSURANCE_MAX) {
+    return Math.round((9.05 + Math.ceil((value - 600) / 100) * 1.5) * 100) / 100;
+  }
+  return null;
+}
+
 export function getShippingCoverage({
   method,
   subtotal,
@@ -294,14 +311,22 @@ export function getShippingCoverage({
     Math.round(Number(subtotal || 0) * 100) / 100,
   );
   const isStandardEnvelope = method === "STANDARD_ENVELOPE";
-  const coveredAmount = isStandardEnvelope
+  const includedCoveredAmount = isStandardEnvelope
     ? 0
     : Math.min(orderValue, PARCEL_INCLUDED_COVERAGE_LIMIT);
-  const uncoveredAmount = isStandardEnvelope
-    ? orderValue
-    : Math.max(0, Math.round((orderValue - coveredAmount) * 100) / 100);
-  const requiresAdditionalCoverageQuote =
+  const additionalCoverageRequired =
     !isStandardEnvelope && orderValue > PARCEL_INCLUDED_COVERAGE_LIMIT;
+  const customerPaysAdditionalCoverage =
+    additionalCoverageRequired &&
+    orderValue > PARCEL_CUSTOMER_PAID_INSURANCE_THRESHOLD;
+  const truelyPaysAdditionalCoverage =
+    additionalCoverageRequired && !customerPaysAdditionalCoverage;
+  const insuranceFee = customerPaysAdditionalCoverage
+    ? calculateUspsMerchandiseInsuranceFee(orderValue)
+    : 0;
+  const requiresManualHighValueCoverage =
+    !isStandardEnvelope && orderValue > USPS_STANDARD_INSURANCE_MAX;
+  const buyerCharge = typeof insuranceFee === "number" ? insuranceFee : 0;
 
   return {
     provider: isStandardEnvelope
@@ -309,28 +334,57 @@ export function getShippingCoverage({
       : SHIPPING_COVERAGE_PROVIDER,
     required: true,
     sellerProtected: !isStandardEnvelope,
-    buyerCharge: 0,
-    coveredAmount,
+    buyerCharge,
+    coveredAmount: includedCoveredAmount,
     includedCoverageLimit: isStandardEnvelope
       ? 0
       : PARCEL_INCLUDED_COVERAGE_LIMIT,
-    uncoveredAmount,
-    requiresAdditionalCoverageQuote,
-    additionalCoverageMustBeArrangedBeforeShipment:
-      requiresAdditionalCoverageQuote,
+    uncoveredAmount: isStandardEnvelope
+      ? orderValue
+      : Math.max(0, Math.round((orderValue - includedCoveredAmount) * 100) / 100),
+    requiresAdditionalCoverageQuote: additionalCoverageRequired,
+    additionalCoverageRequired,
+    fullValueCoverageRequired: additionalCoverageRequired,
+    fullValueCoverageAmount: additionalCoverageRequired ? orderValue : includedCoveredAmount,
+    additionalCoverageMustBeArrangedBeforeShipment: additionalCoverageRequired,
+    additionalCoveragePayer: isStandardEnvelope
+      ? "not_applicable"
+      : customerPaysAdditionalCoverage
+        ? "customer"
+        : truelyPaysAdditionalCoverage
+          ? "truely_collectables"
+          : "included",
+    customerPaysAdditionalCoverage,
+    truelyPaysAdditionalCoverage,
+    requiresManualHighValueCoverage,
+    standardInsuranceMaximum: USPS_STANDARD_INSURANCE_MAX,
+    insuranceFeeSource:
+      customerPaysAdditionalCoverage && !requiresManualHighValueCoverage
+        ? "USPS Notice 123 effective 2026-07-12"
+        : null,
     status: isStandardEnvelope
       ? "delivery_evidence_only"
-      : requiresAdditionalCoverageQuote
-        ? "included_coverage_capped_quote_available"
-        : "included_coverage",
+      : requiresManualHighValueCoverage
+        ? "manual_high_value_coverage_required"
+        : customerPaysAdditionalCoverage
+          ? "mandatory_customer_paid_full_value_insurance"
+          : truelyPaysAdditionalCoverage
+            ? "mandatory_truely_paid_full_value_insurance"
+            : "included_coverage",
     coverageType: isStandardEnvelope
       ? "tracked_card_letter_delivery_evidence"
-      : "carrier_included_up_to_100",
+      : additionalCoverageRequired
+        ? "carrier_full_value_insurance_required"
+        : "carrier_included_up_to_100",
     detail: isStandardEnvelope
-      ? "Eligible Truely Collectables card-letter shipments use LetterTrack / USPS Intelligent Mail barcode scan visibility when available. This is limited letter visibility, not guaranteed package tracking or insurance. Optional Truely Collectables Shipment Protection is available on qualifying under-$20 orders."
-      : requiresAdditionalCoverageQuote
-        ? `Ground Advantage and Priority Mail include carrier coverage up to $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}. Contact Truely Collectables before shipment for an additional-coverage quote if protection above $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} is desired. If no additional coverage is arranged, the shipment proceeds with only the included carrier coverage, subject to carrier terms and any rights that cannot legally be waived.`
-        : `Ground Advantage and Priority Mail include carrier coverage up to $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}, subject to carrier terms and claim approval.`,
+      ? "Eligible Truely Collectables card-letter shipments use LetterTrack / USPS Intelligent Mail barcode scan visibility when available. This is limited letter visibility, not guaranteed package tracking or insurance. Optional Truely Collectables Shipment Protection is available on qualifying orders of $20 or less."
+      : requiresManualHighValueCoverage
+        ? `This $${orderValue.toFixed(2)} order exceeds the standard USPS $${USPS_STANDARD_INSURANCE_MAX.toFixed(2)} merchandise-insurance maximum and requires a manual full-value shipping and insurance arrangement before fulfillment.`
+        : customerPaysAdditionalCoverage
+          ? `Ground Advantage includes the first $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} of carrier coverage. Because this order is over $${PARCEL_CUSTOMER_PAID_INSURANCE_THRESHOLD.toFixed(2)}, full-value insurance is mandatory and the customer pays the $${buyerCharge.toFixed(2)} insurance fee.`
+          : truelyPaysAdditionalCoverage
+            ? `Ground Advantage includes the first $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} of carrier coverage. Truely Collectables will purchase additional carrier insurance to cover the full $${orderValue.toFixed(2)} order value at no additional charge to the customer.`
+            : `Ground Advantage and Priority Mail include carrier coverage up to $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}, subject to carrier terms and claim approval.`,
   };
 }
 

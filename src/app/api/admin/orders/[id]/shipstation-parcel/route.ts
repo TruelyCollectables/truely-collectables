@@ -1,5 +1,8 @@
 import { getClientIdentity } from "@/src/lib/client-identity";
-import { PARCEL_INCLUDED_COVERAGE_LIMIT } from "@/src/lib/shipping";
+import {
+  PARCEL_INCLUDED_COVERAGE_LIMIT,
+  USPS_STANDARD_INSURANCE_MAX,
+} from "@/src/lib/shipping";
 import {
   getShipStationParcelBridgeStatus,
   purchaseShipStationParcelPostage,
@@ -297,27 +300,21 @@ export async function POST(
     }
 
     const orderValue = Number(order.subtotal || 0);
-    if (orderValue > PARCEL_INCLUDED_COVERAGE_LIMIT) {
-      const coverageAmount = Number(label.coverage_amount || 0);
-      const additionalCoverageReady =
-        label.coverage_status === "covered" &&
-        Boolean(cleanText(label.coverage_policy_id)) &&
-        Number.isFinite(coverageAmount) &&
-        coverageAmount >= orderValue;
-
-      if (!additionalCoverageReady) {
-        return Response.json(
-          {
-            error: `This $${orderValue.toFixed(2)} parcel exceeds the $${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} included carrier-coverage limit. Record additional coverage for the full order value before buying postage.`,
-            coverageRequired: true,
-            orderValue,
-            includedCoverageLimit: PARCEL_INCLUDED_COVERAGE_LIMIT,
-            recordedCoverageAmount: coverageAmount,
-          },
-          { status: 409 },
-        );
-      }
+    if (orderValue > USPS_STANDARD_INSURANCE_MAX) {
+      return Response.json(
+        {
+          error: `This $${orderValue.toFixed(2)} parcel exceeds the standard USPS $${USPS_STANDARD_INSURANCE_MAX.toFixed(2)} merchandise-insurance maximum. Arrange manual full-value coverage before fulfillment.`,
+          coverageRequired: true,
+          manualHighValueCoverageRequired: true,
+          orderValue,
+          includedCoverageLimit: PARCEL_INCLUDED_COVERAGE_LIMIT,
+          standardInsuranceMaximum: USPS_STANDARD_INSURANCE_MAX,
+        },
+        { status: 409 },
+      );
     }
+    const insuredValue =
+      orderValue > PARCEL_INCLUDED_COVERAGE_LIMIT ? orderValue : 0;
 
     const claimId = `shipstation-parcel-${crypto.randomUUID()}`;
     const claimedAt = new Date().toISOString();
@@ -330,6 +327,8 @@ export async function POST(
         claimed_by_identity: identity,
         method,
         package: packageInput,
+        insured_value: insuredValue,
+        insurance_provider: insuredValue > 0 ? "carrier" : "none",
       },
       latest_purchase_attempt: {
         status: "shipstation_parcel_postage_claimed",
@@ -338,6 +337,8 @@ export async function POST(
         claim_id: claimId,
         method,
         package: packageInput,
+        insured_value: insuredValue,
+        insurance_provider: insuredValue > 0 ? "carrier" : "none",
       },
     };
 
@@ -378,6 +379,7 @@ export async function POST(
         orderId,
         method,
         ...packageInput,
+        insuredValue,
         shipTo: {
           name:
             cleanText(order.shipping_name) || cleanText(order.customer_name) || "",
@@ -446,6 +448,8 @@ export async function POST(
       service_code: purchase.serviceCode,
       package_code: purchase.packageCode,
       postage_amount: purchase.postageAmount,
+      insurance_amount: purchase.insuranceAmount,
+      insured_value: purchase.insuredValue,
       provider_pdf_url: purchase.labelPdfUrl,
       tracking_number: purchase.trackingNumber,
       package: packageInput,
@@ -465,6 +469,16 @@ export async function POST(
         label_url: proxyPdfUrl(orderId),
         label_pdf_url: proxyPdfUrl(orderId),
         postage_amount: purchase.postageAmount,
+        coverage_provider:
+          purchase.insuredValue > 100
+            ? "USPS carrier insurance via ShipStation"
+            : "Included carrier coverage",
+        coverage_status: "covered",
+        coverage_amount:
+          purchase.insuredValue > 100
+            ? purchase.insuredValue
+            : Math.min(orderValue, PARCEL_INCLUDED_COVERAGE_LIMIT),
+        coverage_policy_id: purchase.labelId,
         label_status: "purchased",
         purchased_at: now,
         updated_at: now,
@@ -480,6 +494,8 @@ export async function POST(
             provider_shipment_id: purchase.shipmentId,
             tracking_number: purchase.trackingNumber,
             postage_amount: purchase.postageAmount,
+            insurance_amount: purchase.insuranceAmount,
+            insured_value: purchase.insuredValue,
           },
         },
       })
@@ -532,6 +548,8 @@ export async function POST(
           package_code: purchase.packageCode,
           tracking_number: purchase.trackingNumber,
           postage_amount: purchase.postageAmount,
+          insurance_amount: purchase.insuranceAmount,
+          insured_value: purchase.insuredValue,
           package: packageInput,
           purchased_by_identity: identity,
         },
@@ -547,6 +565,8 @@ export async function POST(
       providerShipmentId: purchase.shipmentId,
       trackingNumber: purchase.trackingNumber,
       postageAmount: purchase.postageAmount,
+      insuranceAmount: purchase.insuranceAmount,
+      insuredValue: purchase.insuredValue,
       labelPdfUrl: proxyPdfUrl(orderId),
       warnings: [orderUpdateError?.message, eventError?.message].filter(Boolean),
       message: `${providerService} postage purchased. USPS tracking is saved and the 4×6 PDF is ready to print from TruelyCollectables.`,

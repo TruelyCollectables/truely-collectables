@@ -4,6 +4,9 @@ import {
   FREE_GROUND_ADVANTAGE_THRESHOLD,
   GROUND_ADVANTAGE_BUYER_PRICE,
   PARCEL_INCLUDED_COVERAGE_LIMIT,
+  PARCEL_CUSTOMER_PAID_INSURANCE_THRESHOLD,
+  PARCEL_TRUELY_PAID_INSURANCE_MAX,
+  USPS_STANDARD_INSURANCE_MAX,
   PRIORITY_MAIL_LARGE_ORDER_PRICE,
   PRIORITY_MAIL_SMALL_ORDER_MAX_CARDS,
   PRIORITY_MAIL_SMALL_ORDER_PRICE,
@@ -72,6 +75,7 @@ export default function ShippingPage() {
             </h3>
             <p className="mt-2 font-bold">
               ${GROUND_ADVANTAGE_BUYER_PRICE.toFixed(2)} flat shipping for card orders.
+              Cards/orders above $20.00 use Ground Advantage or Priority Mail rather than the Tracked Card Letter.
             </p>
             <p className="mt-2 font-bold">
               Orders over ${FREE_GROUND_ADVANTAGE_THRESHOLD.toFixed(2)} ship by Ground
@@ -102,29 +106,38 @@ export default function ShippingPage() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-black">Parcel coverage and orders over $100</h2>
+        <h2 className="text-2xl font-black">Parcel insurance by order value</h2>
         <p className="mt-2">
           Ground Advantage and Priority Mail include carrier coverage up to{" "}
           ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)}, subject to the carrier&apos;s
           terms, exclusions, documentation requirements, and claim approval.
         </p>
-        <p className="mt-2 font-bold">
-          If the order value is over ${PARCEL_INCLUDED_COVERAGE_LIMIT.toFixed(2)} and
-          the buyer wants protection above the included amount, the buyer must contact{" "}
-          <a
-            href={`mailto:${STORE_SUPPORT_EMAIL}`}
-            className="underline decoration-2 underline-offset-4"
-          >
-            {STORE_SUPPORT_EMAIL}
-          </a>{" "}
-          before shipment for an additional-coverage quote.
-        </p>
-        <p className="mt-2">
-          If additional coverage is not arranged before shipment, the order will ship
-          with only the included carrier coverage. {STORE_BRAND_NAME} does not provide
-          a voluntary reimbursement above the included coverage amount merely because
-          the order value exceeds it. Nothing in this policy waives rights that cannot
-          legally be waived or rights available through a payment provider.
+        <div className="mt-4 space-y-3">
+          <p className="rounded border border-neutral-300 bg-white p-4 font-semibold">
+            <strong>$20.01–$100.00:</strong> Ground Advantage or Priority Mail parcel
+            tracking and the carrier&apos;s included coverage apply.
+          </p>
+          <p className="rounded border border-emerald-300 bg-emerald-50 p-4 font-semibold text-emerald-950">
+            <strong>$100.01–${PARCEL_TRUELY_PAID_INSURANCE_MAX.toFixed(2)}:</strong>{" "}
+            {STORE_BRAND_NAME} will purchase additional carrier insurance so the
+            shipment is covered to the full order value. The customer is not charged
+            an additional insurance fee for this tier.
+          </p>
+          <p className="rounded border border-amber-300 bg-amber-50 p-4 font-semibold text-amber-950">
+            <strong>Over ${PARCEL_CUSTOMER_PAID_INSURANCE_THRESHOLD.toFixed(2)}:</strong>{" "}
+            full-value shipping insurance is mandatory and the customer pays the
+            insurance fee at checkout. Standard USPS merchandise insurance supports
+            declared values up to ${USPS_STANDARD_INSURANCE_MAX.toFixed(2)}; higher-value
+            orders require a manual full-value shipping/insurance arrangement before fulfillment.
+          </p>
+        </div>
+        <p className="mt-4 font-bold">
+          Damage-claim evidence requirement: keep the original shipping mailer, all
+          packaging, the card/item, and all contents until the insurance claim is fully
+          resolved. If required packaging evidence was discarded or cannot be produced
+          when the carrier requests it, the carrier claim may be denied and any
+          Truely Collectables refund or reimbursement that depends on that carrier claim
+          may also be denied, subject to rights that cannot legally be waived.
         </p>
       </section>
 
@@ -166,8 +179,9 @@ export default function ShippingPage() {
           Tracking or delivery evidence is provided when available for the selected
           method. Contact us promptly if tracking stalls, a package is damaged, an
           item is missing, or the shipment appears to have been delivered to the
-          wrong location. Keep the packaging and take clear photos when damage is
-          involved.
+          wrong location. For damage claims, keep the original shipping mailer, all
+          packaging, the card/item, and all contents until the claim is completely
+          resolved, and take clear photos before anything is discarded.
         </p>
       </section>
 

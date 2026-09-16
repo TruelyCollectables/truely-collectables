@@ -27,6 +27,7 @@ export type ShipStationParcelPurchaseRequest = {
   heightIn: number;
   shipTo: ShipStationParcelAddress;
   shipDate?: string;
+  insuredValue?: number | null;
 };
 
 export type ShipStationParcelPurchaseResult = {
@@ -36,6 +37,8 @@ export type ShipStationParcelPurchaseResult = {
   serviceCode: string;
   packageCode: string;
   postageAmount: number;
+  insuranceAmount: number;
+  insuredValue: number;
   labelPdfUrl: string;
   trackingNumber: string;
   trackable: true;
@@ -152,6 +155,7 @@ export function buildShipStationParcelLabelRequest(
   const widthIn = Number(request.widthIn);
   const heightIn = Number(request.heightIn);
   const shipFrom = shipFromOverride || envShipFrom();
+  const insuredValue = Math.max(0, Math.round(Number(request.insuredValue || 0) * 100) / 100);
 
   finitePositive(ounces, "Package weight");
   finitePositive(lengthIn, "Package length");
@@ -167,6 +171,11 @@ export function buildShipStationParcelLabelRequest(
   if (lengthIn > 22 || widthIn > 18 || heightIn > 15) {
     throw new Error(
       "TCOS ShipStation USPS parcel bridge is limited to packages no larger than 22 x 18 x 15 inches.",
+    );
+  }
+  if (insuredValue > 5000) {
+    throw new Error(
+      "USPS carrier insurance through the standard TCOS ShipStation parcel lane is limited to $5,000 declared value.",
     );
   }
   if (normalizedCountry(request.shipTo.countryCode) !== "US") {
@@ -202,9 +211,18 @@ export function buildShipStationParcelLabelRequest(
       ship_to: providerAddress(request.shipTo, "yes"),
       ship_from: providerAddress(shipFrom, "no"),
       confirmation: "none",
+      insurance_provider: insuredValue > 100 ? "carrier" : "none",
       packages: [
         {
           package_code: status.packageCode,
+          ...(insuredValue > 100
+            ? {
+                insured_value: {
+                  currency: "usd",
+                  amount: insuredValue,
+                },
+              }
+            : {}),
           weight: {
             value: Number(ounces.toFixed(2)),
             unit: "ounce",
@@ -288,6 +306,8 @@ export async function purchaseShipStationParcelPostage(
   const packageCode = String(providerPayload?.package_code || "").trim();
   const trackingNumber = String(providerPayload?.tracking_number || "").trim();
   const postageAmount = Number(providerPayload?.shipment_cost?.amount);
+  const insuranceAmount = Number(providerPayload?.insurance_cost?.amount || 0);
+  const insuredValue = Math.max(0, Math.round(Number(request.insuredValue || 0) * 100) / 100);
 
   if (
     providerPayload?.status !== "completed" ||
@@ -296,7 +316,9 @@ export async function purchaseShipStationParcelPostage(
     !shipmentId ||
     !trackingNumber ||
     !labelPdfUrl ||
-    !Number.isFinite(postageAmount)
+    !Number.isFinite(postageAmount) ||
+    !Number.isFinite(insuranceAmount) ||
+    (insuredValue > 100 && insuranceAmount <= 0)
   ) {
     throw new Error(
       "ShipStation API returned an incomplete parcel label response; TCOS did not mark the shipment ready.",
@@ -310,6 +332,8 @@ export async function purchaseShipStationParcelPostage(
     serviceCode,
     packageCode: packageCode || status.packageCode,
     postageAmount: Number(postageAmount.toFixed(2)),
+    insuranceAmount: Number(insuranceAmount.toFixed(2)),
+    insuredValue,
     labelPdfUrl,
     trackingNumber,
     trackable: true,

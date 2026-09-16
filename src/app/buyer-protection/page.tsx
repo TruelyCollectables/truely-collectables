@@ -18,7 +18,7 @@ import {
 
 export const metadata: Metadata = {
   title: "Shipment Protection Terms",
-  description: `Optional under-$20 Tracked Card Letter shipment-protection terms for ${STORE_BRAND_NAME}.`,
+  description: `Optional Tracked Card Letter shipment-protection terms for orders of $20.00 or less for ${STORE_BRAND_NAME}.`,
 };
 
 export default function BuyerProtectionPage() {
@@ -56,8 +56,10 @@ export default function BuyerProtectionPage() {
         <p className="mt-2">
           Claims may be reviewed for carrier loss or damage. Approval requires the
           available USPS or LetterTrack trail, order records, buyer statements, and
-          photographs of the item, mailer, and damage when applicable. A submitted
-          claim is not automatically approved.
+          photographs of the item, mailer, and damage when applicable. For a damage
+          claim, the buyer must retain the original shipping mailer, all packaging,
+          the card/item, and all contents until the claim is fully resolved and make
+          them available if requested. A submitted claim is not automatically approved.
         </p>
       </section>
 
@@ -75,9 +77,10 @@ export default function BuyerProtectionPage() {
         <h2 className="text-2xl font-black">Declining protection</h2>
         <p className="mt-2">
           Buyers who decline must acknowledge the choice for each qualifying order.
-          Declining means this voluntary Truely Collectables reimbursement program will
-          not apply to that order. The acknowledgment does not waive rights that cannot
-          legally be waived or payment-provider dispute rights.
+          Declining means Truely Collectables will not provide its voluntary refund or
+          reimbursement for carrier loss or damage under this program for that order.
+          The acknowledgment does not waive rights that cannot legally be waived or
+          payment-provider dispute rights.
         </p>
       </section>
 
