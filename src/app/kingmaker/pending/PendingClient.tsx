@@ -1018,6 +1018,34 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function acceptVerification(card: PendingCard) {
+    if (!hasValidPair(card)) {
+      setPageError("A distinct stored front and back are required before accepting this card.");
+      return;
+    }
+    const busyKey = `${card.inventoryItemId}:accept-verification`;
+    setBusyId(busyKey);
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-pending/accept-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not accept verification.");
+      setNotice(`${card.title}: accepted and moved to Pending Listings.`);
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function savePrice(card: PendingCard, price: number, source: string) {
     setBusyId(card.inventoryItemId);
     setPageError("");
@@ -1924,9 +1952,19 @@ export default function KingmakerPendingPage({
                       </span>
                     ) : null}
                     {queue === "verification" ? (
-                      <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
-                        PENDING VERIFICATION
-                      </span>
+                      <>
+                        <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
+                          PENDING VERIFICATION
+                        </span>
+                        <button
+                          type="button"
+                          disabled={!pairReady || Boolean(busyId)}
+                          onClick={() => void acceptVerification(card)}
+                          className="rounded-full bg-emerald-700 px-3 py-1 text-xs font-black text-white disabled:opacity-40"
+                        >
+                          {busyId === `${card.inventoryItemId}:accept-verification` ? "Accepting…" : "Accept → Pending Listings"}
+                        </button>
+                      </>
                     ) : null}
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
                       {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
