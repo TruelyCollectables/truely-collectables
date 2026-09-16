@@ -950,17 +950,59 @@ export default function KingmakerPendingPage({
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
+
+      const loadImageFile = async (url: string, name: string) => {
+        const imageResponse = await fetch(url, { cache: "no-store" });
+        if (!imageResponse.ok) throw new Error(`Stored image returned HTTP ${imageResponse.status}.`);
+        const blob = await imageResponse.blob();
+        if (!blob.type.startsWith("image/")) throw new Error("Stored card image did not return image bytes.");
+        return new File([blob], name, { type: blob.type || "image/jpeg" });
+      };
+      const rotateClockwise90 = async (file: File, name: string) => {
+        const bitmap = await createImageBitmap(file);
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = bitmap.height;
+          canvas.height = bitmap.width;
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Browser image rotation is unavailable.");
+          context.translate(canvas.width / 2, canvas.height / 2);
+          context.rotate(Math.PI / 2);
+          context.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+          const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+          const blob = await new Promise<Blob>((resolve, reject) => {
+            canvas.toBlob(
+              (value) => value ? resolve(value) : reject(new Error("Could not encode rotated card image.")),
+              outputType,
+              0.95,
+            );
+          });
+          return new File([blob], name, { type: outputType });
+        } finally {
+          bitmap.close();
+        }
+      };
+
+      let [frontImage, backImage] = await Promise.all([
+        loadImageFile(card.frontImageUrl, "front.jpg"),
+        loadImageFile(card.backImageUrl, "back.jpg"),
+      ]);
+      if (side === "front") frontImage = await rotateClockwise90(frontImage, "front-rotated.jpg");
+      else backImage = await rotateClockwise90(backImage, "back-rotated.jpg");
+
+      const form = new FormData();
+      form.set("inventoryItemId", card.inventoryItemId);
+      form.set("rotatedSide", side);
+      form.set("frontImage", frontImage);
+      form.set("backImage", backImage);
       const response = await fetch("/api/account/seller/inventory/instacomp-image-rotate", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ inventoryItemId: card.inventoryItemId, rotatedSide: side }),
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: form,
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success !== true) throw new Error(data.error || "Could not rotate the stored image.");
-      setNotice(`${card.title}: ${side} rotated 90° clockwise and the corrected image was persisted.`);
+      setNotice(`${card.title}: ${side} pixels rotated 90° clockwise and persisted.`);
       await load(queue || queueFromLocation());
     } catch (error) {
       setPageError(message(error));

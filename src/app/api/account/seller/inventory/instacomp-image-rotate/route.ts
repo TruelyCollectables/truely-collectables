@@ -156,13 +156,14 @@ export async function POST(request: NextRequest) {
       frontFile: front,
       backFile: back,
       orientation: {
-        status: "seller_manual_override",
+        status: "completed",
         model: null,
-        frontRotation: rotatedSide === "front" ? 90 : 0,
-        backRotation: rotatedSide === "back" ? 90 : 0,
+        source: "seller_manual_pixel_rotation",
+        frontRotation: 0,
+        backRotation: 0,
         frontConfidence: 1,
         backConfidence: 1,
-        reason: `Seller manually rotated the stored ${rotatedSide} image 90 degrees clockwise after automatic text orientation.`,
+        reason: `Seller manually rotated the stored ${rotatedSide} image pixels 90 degrees clockwise and verified the persisted pair.`,
       },
     });
 
