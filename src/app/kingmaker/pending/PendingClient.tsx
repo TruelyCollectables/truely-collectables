@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { getFreshAccountSession } from "../../account/account-session";
 import { buildInstaCompCanonicalTitle } from "../../../lib/instacomp-canonical-title";
@@ -337,8 +337,51 @@ function CardImageInspector({
   onRotate: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
+  const [dragging, setDragging] = useState(false);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  } | null>(null);
   const zoomOut = () => setZoom((value) => Math.max(1, Math.round((value - 0.5) * 2) / 2));
   const zoomIn = () => setZoom((value) => Math.min(5, Math.round((value + 0.5) * 2) / 2));
+  const resetZoom = () => {
+    setZoom(1);
+    viewportRef.current?.scrollTo({ left: 0, top: 0 });
+  };
+  const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (zoom <= 1 || event.button !== 0 || event.pointerType === "touch") return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+    };
+    viewport.setPointerCapture(event.pointerId);
+    setDragging(true);
+    event.preventDefault();
+  };
+  const panImage = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    const viewport = viewportRef.current;
+    if (!drag || !viewport || drag.pointerId !== event.pointerId) return;
+    viewport.scrollLeft = drag.scrollLeft - (event.clientX - drag.startX);
+    viewport.scrollTop = drag.scrollTop - (event.clientY - drag.startY);
+    event.preventDefault();
+  };
+  const endPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const viewport = viewportRef.current;
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    if (viewport?.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    dragRef.current = null;
+    setDragging(false);
+  };
 
   return (
     <figure className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
@@ -350,13 +393,20 @@ function CardImageInspector({
           <button type="button" onClick={zoomOut} disabled={zoom <= 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom out ${side}`}>−</button>
           <span className="min-w-14 text-center text-xs font-black">{Math.round(zoom * 100)}%</span>
           <button type="button" onClick={zoomIn} disabled={zoom >= 5} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom in ${side}`}>+</button>
-          <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 text-xs font-black disabled:opacity-40">Reset</button>
+          <button type="button" onClick={resetZoom} disabled={zoom === 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 text-xs font-black disabled:opacity-40">Reset</button>
           <button type="button" onClick={onRotate} disabled={!url || rotating} className="min-h-10 rounded-lg bg-sky-800 px-3 text-xs font-black text-white disabled:opacity-40">
             {rotating ? "Rotating…" : "Rotate 90°"}
           </button>
         </div>
       </div>
-      <div className="h-[28rem] w-full overflow-auto rounded-lg bg-white">
+      <div
+        ref={viewportRef}
+        className={`h-[28rem] w-full overflow-auto rounded-lg bg-white ${zoom > 1 ? (dragging ? "cursor-grabbing" : "cursor-grab") : ""}`}
+        onPointerDown={beginPan}
+        onPointerMove={panImage}
+        onPointerUp={endPan}
+        onPointerCancel={endPan}
+      >
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -371,7 +421,7 @@ function CardImageInspector({
           <div className="flex h-full items-center justify-center font-black text-red-800">{side.toUpperCase()} MISSING</div>
         )}
       </div>
-      <p className="mt-2 text-xs font-semibold text-neutral-600">Use + / − to inspect small print. Scroll inside the image while zoomed. Double-click the card to zoom in.</p>
+      <p className="mt-2 text-xs font-semibold text-neutral-600">Use + / − to inspect small print. While zoomed, grab the card with the mouse and drag to pan. Scrollbars still work, and double-click zooms in.</p>
     </figure>
   );
 }
@@ -1247,7 +1297,7 @@ export default function KingmakerPendingPage({
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      const response = await fetch("/api/admin/card-listing-queue", {
+      const response = await fetch("/api/account/seller/instacomp-pending-delete", {
         method: "DELETE",
         headers: {
           "content-type": "application/json",
