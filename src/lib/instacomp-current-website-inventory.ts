@@ -117,14 +117,23 @@ export function websiteProductAnchorKey(product: WebsiteInventoryProduct) {
 }
 
 function significantSetWords(identity: UnknownRecord) {
-  const source =
-    value(identity, "subset", "insertName", "insert") ||
-    value(identity, "setName", "set_name") ||
-    "";
   const manufacturer = new Set(words(value(identity, "manufacturer", "brand")));
   const product = new Set(words(value(identity, "product")));
-  return words(source).filter(
-    (word) => !GENERIC_SET_WORDS.has(word) && !manufacturer.has(word) && !product.has(word),
+  const sources = [
+    value(identity, "setName", "set_name"),
+    value(identity, "subset", "insertName", "insert"),
+  ];
+  return Array.from(
+    new Set(
+      sources
+        .flatMap((source) => words(source))
+        .filter(
+          (word) =>
+            !GENERIC_SET_WORDS.has(word) &&
+            !manufacturer.has(word) &&
+            !product.has(word),
+        ),
+    ),
   );
 }
 

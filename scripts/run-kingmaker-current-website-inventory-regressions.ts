@@ -48,12 +48,31 @@ assert.equal(classifyWebsiteProductIdentity({
   product: { id: 502490, title: "2025 Panini Select WNBA #7 Sonia Citron En Fuego Orange Disco Prizm RC /75", player: "Sonia Citron" },
 }).status, "mismatch");
 
+
+assert.equal(classifyWebsiteProductIdentity({
+  metadata: { instacomp: { manualIdentityLocked: true, manualIdentity: { year: "2025", manufacturer: "Panini", player: "Sonia Citron", cardNumber: "13", setName: "Kaleidoscopic", subset: "Base", parallel: "Base" } } },
+  pendingTitle: "2025 Panini Prizm Kaleidoscopic #13 Sonia Citron RC",
+  product: { id: 510456, title: "2025 Prizm Groovy Sonia Citron Washington Mystics Base #13", player: "Sonia Citron" },
+}).status, "mismatch");
+
+assert.equal(classifyWebsiteProductIdentity({
+  metadata: { instacomp: { manualIdentityLocked: true, manualIdentity: { year: "2025", manufacturer: "Panini", player: "Sonia Citron", cardNumber: "13", setName: "Groovy", subset: "Base", parallel: "Base" } } },
+  pendingTitle: "2025 Panini Prizm Groovy #13 Sonia Citron RC",
+  product: { id: 510456, title: "2025 Prizm Groovy Sonia Citron Washington Mystics Base #13", player: "Sonia Citron" },
+}).status, "exact");
+
 const pendingRoute = fs.readFileSync("src/app/api/account/seller/instacomp-pending/route.ts", "utf8");
 const channelRoute = fs.readFileSync("src/app/api/account/seller/instacomp-pending/channel/route.ts", "utf8");
 const pendingClient = fs.readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8");
+const reconcileRoute = fs.readFileSync("src/app/api/account/seller/instacomp-pending/reconcile-website/route.ts", "utf8");
 assert(pendingRoute.includes("liveWebsiteProductsByAnchor"), "Pending API must scan sellable website products independently of inventory_items.status.");
 assert(pendingRoute.includes("websiteInventory:"), "Pending API must expose current website inventory evidence.");
 assert(channelRoute.includes("WEBSITE_LINK_IDENTITY_MISMATCH"), "Website publishing must fail closed on a mismatched live product link.");
 assert(pendingClient.includes("CURRENT WEBSITE INVENTORY"), "Pending UI must visibly flag current website inventory.");
 assert(pendingClient.includes("WEBSITE LINK MISMATCH · DO NOT PUBLISH"), "Pending UI must visibly block mismatched website links.");
+assert(pendingClient.includes("Merge Exact Current Website Inventory"), "Pending UI must expose the exact-current-inventory merge action.");
+assert(reconcileRoute.includes('status: "prepared"'), "Website reconciliation must record a prepared absolute target before mutating quantity.");
+assert(reconcileRoute.includes('status: "completed"'), "Website reconciliation must record completion for idempotent retries.");
+assert(reconcileRoute.includes("multiple_exact_live_products"), "Website reconciliation must block ambiguous multiple exact live products.");
+assert(reconcileRoute.includes("unique_physical_asset"), "Website reconciliation must block serial/graded unique assets.");
 console.log("PASS KINGMAKER current website inventory regressions");

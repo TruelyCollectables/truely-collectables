@@ -1073,6 +1073,49 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function reconcileCurrentWebsiteInventory(targets: PendingCard[]) {
+    if (!targets.length) {
+      setPageError("Select one or more Pending cards first.");
+      return;
+    }
+    setBusyId("bulk");
+    setPageError("");
+    setNotice(`Reconciling ${targets.length} selected card${targets.length === 1 ? "" : "s"} with current website inventory…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-pending/reconcile-website", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          inventoryItemIds: targets.flatMap((card) =>
+            card.commercialGroup?.memberInventoryItemIds?.length
+              ? card.commercialGroup.memberInventoryItemIds
+              : [card.inventoryItemId],
+          ),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Current website inventory reconciliation failed.");
+      }
+      const reconciled = Number(data.reconciled || 0);
+      const blocked = Number(data.blocked || 0);
+      setNotice(
+        `Website inventory reconciliation finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} merged into existing live quantity and removed from Pending${blocked ? ` · ${blocked} held for reconciliation` : ""}.`,
+      );
+      setSelectedIds(new Set());
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function publishChannels(targets: PendingCard[], action: ChannelAction) {
     if (!targets.length) {
       setPageError("Select one or more exact-card groups first.");
@@ -1603,6 +1646,18 @@ export default function KingmakerPendingPage({
                   className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
                 >
                   Run InstaComp Selected
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() =>
+                    void reconcileCurrentWebsiteInventory(
+                      cards.filter((card) => selectedIds.has(card.inventoryItemId)),
+                    )
+                  }
+                  className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Merge Exact Current Website Inventory
                 </button>
                 <button
                   type="button"
