@@ -23,27 +23,57 @@ def _osascript(source: str) -> str:
     return (completed.stdout or "").strip()
 
 
-def _chrome_js(js: str) -> str:
+_JOB_WINDOW_ID: int | None = None
+
+
+def _open_job_window(url: str) -> None:
+    global _JOB_WINDOW_ID
     source = (
         'tell application "Google Chrome"\n'
-        '  if (count of windows) = 0 then error "Chrome has no open window"\n'
-        '  set t to active tab of front window\n'
-        f'  return execute t javascript {json.dumps(js)}\n'
+        '  set w to make new window\n'
+        f'  set URL of active tab of w to {json.dumps(url)}\n'
+        '  activate\n'
+        '  return id of w\n'
         'end tell'
+    )
+    raw = _osascript(source)
+    try:
+        _JOB_WINDOW_ID = int(raw.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"Mercari automation window could not be created: {raw}") from exc
+
+
+def _job_window_prefix() -> str:
+    if _JOB_WINDOW_ID is None:
+        raise RuntimeError("Mercari automation window is not initialized.")
+    return (
+        'tell application "Google Chrome"\n'
+        f'  set w to first window whose id is {_JOB_WINDOW_ID}\n'
+        '  set t to active tab of w\n'
+    )
+
+
+def _chrome_js(js: str) -> str:
+    source = (
+        _job_window_prefix()
+        + f'  return execute t javascript {json.dumps(js)}\n'
+        + 'end tell'
     )
     return _osascript(source)
 
 
 def _navigate(url: str) -> None:
+    if _JOB_WINDOW_ID is None:
+        _open_job_window(url)
+        return
     source = (
-        'tell application "Google Chrome"\n'
-        '  if (count of windows) = 0 then error "Chrome has no open window"\n'
-        '  activate\n'
-        f'  set URL of active tab of front window to {json.dumps(url)}\n'
-        'end tell'
+        _job_window_prefix()
+        + f'  set URL of t to {json.dumps(url)}\n'
+        + '  set index of w to 1\n'
+        + '  activate\n'
+        + 'end tell'
     )
     _osascript(source)
-
 
 def _wait_js(js: str, timeout: float = 25.0, interval: float = 0.5) -> str:
     deadline = time.time() + timeout
@@ -60,9 +90,76 @@ def _wait_js(js: str, timeout: float = 25.0, interval: float = 0.5) -> str:
 
 
 def _profile_name() -> str:
-    _chrome_js("(()=>{document.querySelector('button[aria-label=profile]')?.click();return 'profile'})()")
-    time.sleep(0.4)
-    return _chrome_js("(()=>{const a=document.querySelector('a[href=\"/mypage/\"]');return (a?.innerText||'').replace(/View profile/i,'').trim()})()")
+    # The Mercari sell page can hide profile-menu text even while authenticated.
+    # Verify the login from /mypage/ instead of inferring it from a menu click.
+    url = _chrome_js("location.href")
+    if "/login" in url.lower() or "/signup" in url.lower():
+        return ""
+    body = _chrome_js("document.body.innerText.slice(0,5000)")
+    match = re.search(r"My profile\s+([^\n]+)", body, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    handle = re.search(r"\n@([^\n]+)", body)
+    return handle.group(1).strip() if handle else ""
+
+def _mercari_category(item: dict) -> str:
+    haystack = " ".join(
+        str(item.get(key) or "")
+        for key in ("sport", "category", "title", "description")
+    ).lower()
+    if any(token in haystack for token in ("basketball", "wnba", "nba")):
+        return "Basketball Trading Cards"
+    if any(token in haystack for token in ("baseball", "mlb")):
+        return "Baseball Trading Cards"
+    if any(token in haystack for token in ("soccer", "football club", "mls")):
+        return "Soccer Trading Cards"
+    if any(token in haystack for token in ("wrestling", "wwe", "aew")):
+        return "Wrestling Trading Cards"
+    if any(token in haystack for token in ("golf", "pga")):
+        return "Golf Trading Cards"
+    if any(token in haystack for token in ("tennis", "atp", "wta")):
+        return "Tennis Trading Cards"
+    if any(token in haystack for token in ("boxing", "ufc", "mma")):
+        return "Boxing Trading Cards"
+    return "Sports Trading Cards"
+
+
+def _select_category(item: dict) -> str:
+    category = _mercari_category(item)
+    opened = _chrome_js(
+        "(()=>{const b=document.querySelector('[data-testid=SellCategoryFieldButton]');"
+        "if(!b)return 'missing';b.click();return 'opened'})()"
+    )
+    if opened != "opened":
+        raise RuntimeError("Mercari category control is unavailable.")
+    _wait_js("document.querySelector('[data-testid=CategorySearchInput]') ? 'search' : ''", timeout=10)
+    search = json.dumps(category)
+    typed = _chrome_js(
+        f"(()=>{{const e=document.querySelector('[data-testid=CategorySearchInput]');"
+        f"if(!e)return 'missing';const v={search};"
+        "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,v);"
+        "e.dispatchEvent(new Event('input',{bubbles:true}));"
+        "e.dispatchEvent(new Event('change',{bubbles:true}));return 'typed'})()"
+    )
+    if typed != "typed":
+        raise RuntimeError("Mercari category search could not be populated.")
+    category_json = json.dumps(category)
+    _wait_js(
+        f"(()=>{{const q={category_json};return Array.from(document.querySelectorAll('[data-testid=CategoryRow]')).some(x=>(x.innerText||'').includes(q))?'found':''}})()",
+        timeout=10,
+    )
+    clicked = _chrome_js(
+        f"(()=>{{const q={category_json};const rows=Array.from(document.querySelectorAll('[data-testid=CategoryRow]'));"
+        "const exact=rows.find(x=>(x.innerText||'').trim().endsWith('> '+q));"
+        "const b=exact||rows.find(x=>(x.innerText||'').includes(q));if(!b)return 'missing';b.click();return 'clicked'})()"
+    )
+    if clicked != "clicked":
+        raise RuntimeError(f"Mercari category {category} could not be selected.")
+    _wait_js(
+        f"(()=>{{const t=document.querySelector('[data-testid=SellCategoryFieldButton]')?.innerText||'';return t.includes({category_json})?'selected':''}})()",
+        timeout=10,
+    )
+    return category
 
 
 def _fill_item(item: dict) -> str:
@@ -73,11 +170,15 @@ def _fill_item(item: dict) -> str:
     if not title or len(description.split()) < 5 or price < 1 or len(image_urls) < 2:
         raise RuntimeError("Mercari requires title, 5+ word description, price >= $1, and front/back images.")
 
-    _navigate("https://www.mercari.com/sell/")
-    _wait_js("document.querySelector('[name=sellName]') && document.querySelector('[data-testid=SaveDraftButton]') ? 'ready' : ''")
+    _open_job_window("https://www.mercari.com/mypage/")
+    _wait_js("document.body && location.href ? 'ready' : ''", timeout=20)
+    _wait_js("location.href.includes('mercari.com') ? location.href : ''", timeout=20)
     account = _profile_name()
     if not account:
-        raise RuntimeError("Mercari is not logged in in the active Chrome window.")
+        raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation window.")
+
+    _navigate("https://www.mercari.com/sell/")
+    _wait_js("document.querySelector('[name=sellName]') && document.querySelector('[data-testid=SaveDraftButton]') ? 'ready' : ''")
 
     values = json.dumps({"title": title, "description": description, "price": f"{price:.2f}"})
     fill_js = f"""(()=>{{const v={values};const set=(name,val)=>{{const e=document.querySelector('[name=\\\"'+name+'\\\"]');if(!e)throw new Error('missing '+name);const p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(e,val);e.dispatchEvent(new Event('input',{{bubbles:true}}));e.dispatchEvent(new Event('change',{{bubbles:true}}));}};set('sellName',v.title);set('sellDescription',v.description);set('sellPrice',v.price);return 'filled'}})()"""
@@ -94,7 +195,7 @@ def _fill_item(item: dict) -> str:
     if state.startswith("error:"):
         raise RuntimeError(state)
 
-    _wait_js("document.body.innerText.includes('Sports Trading Cards') ? 'category' : ''", timeout=25)
+    _select_category(item)
     _chrome_js("(()=>{const l=document.querySelector('[data-testid=ConditionLikeNew]');if(!l)throw new Error('Like new condition missing');l.click();return 'condition'})()")
     _wait_js("document.querySelector('input#2[name=sellCondition]')?.checked ? 'condition' : ''")
 
@@ -145,11 +246,11 @@ def main() -> None:
     payload = json.load(sys.stdin)
     mode = str(payload.get("mode") or "status").strip().lower()
     if mode == "status":
-        _navigate("https://www.mercari.com/")
-        _wait_js("document.body ? 'ready' : ''")
+        _open_job_window("https://www.mercari.com/mypage/")
+        _wait_js("document.body && location.href ? 'ready' : ''", timeout=20)
         account = _profile_name()
         if not account:
-            raise RuntimeError("Mercari is not logged in in the active Chrome window.")
+            raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation window.")
         print(json.dumps({"ok": True, "mode": mode, "connected": True, "account": account}))
         return
     if mode not in {"draft", "publish"}:
