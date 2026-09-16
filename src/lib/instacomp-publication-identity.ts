@@ -28,6 +28,31 @@ function hasMacExactRegistryLock(instaComp: UnknownRecord) {
   );
 }
 
+function hasStrictExactChecklistDecision(instaComp: UnknownRecord) {
+  const checklistIdentity = record(instaComp.checklistIdentity);
+  const checklistDecision = record(instaComp.checklistDecision);
+  const lockedFields = record(checklistIdentity.lockedFields);
+  const candidateIdentityIds = Array.isArray(checklistDecision.candidateIdentityIds)
+    ? checklistDecision.candidateIdentityIds.map(text).filter(Boolean)
+    : [];
+  const requiredLockedFields = [
+    text(lockedFields.year),
+    text(lockedFields.manufacturer),
+    text(lockedFields.cardNumber),
+    text(lockedFields.player),
+  ];
+
+  return Boolean(
+    instaComp.identityComplete === true &&
+      instaComp.trustedForIdentity === true &&
+      String(checklistIdentity.status || "").trim().toLowerCase() === "identified" &&
+      String(checklistDecision.status || "").trim().toLowerCase() === "exact_match" &&
+      Number(checklistDecision.candidateCount) === 1 &&
+      candidateIdentityIds.length === 1 &&
+      requiredLockedFields.every(Boolean),
+  );
+}
+
 export function isInstaCompPublicationIdentityConfirmed(metadataValue: unknown) {
   const metadata = record(metadataValue);
   const instaComp = record(metadata.instacomp);
@@ -43,5 +68,5 @@ export function isInstaCompPublicationIdentityConfirmed(metadataValue: unknown) 
 
   if (checklistRegistryReceiptBlockers(metadataValue).length === 0) return true;
 
-  return hasMacExactRegistryLock(instaComp);
+  return hasMacExactRegistryLock(instaComp) || hasStrictExactChecklistDecision(instaComp);
 }

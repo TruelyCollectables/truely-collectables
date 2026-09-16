@@ -26,11 +26,72 @@ const macExactReceipt = {
   },
 };
 
+const strictExactChecklistDecision = {
+  identityComplete: true,
+  trustedForIdentity: true,
+  checklistIdentity: {
+    source: "visual_ai",
+    status: "identified",
+    lockedFields: {
+      year: "2025",
+      manufacturer: "Panini",
+      cardNumber: "122",
+      player: "Sonia Citron",
+    },
+  },
+  checklistDecision: {
+    status: "exact_match",
+    candidateCount: 1,
+    candidateIdentityIds: ["cebcf585-551f-526e-86ee-5b859d7aff76"],
+  },
+};
+
 assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: { manualIdentityLocked: true } }), true);
 assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: { humanVerified: true } }), true);
 assert.equal(isInstaCompPublicationIdentityConfirmed({ seller_review: { identity_confirmed: true } }), true);
 assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: { checklistIdentity: registryReceipt } }), true);
 assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: macExactReceipt }), true);
+assert.equal(isInstaCompPublicationIdentityConfirmed({ instacomp: strictExactChecklistDecision }), true);
+assert.equal(
+  isInstaCompPublicationIdentityConfirmed({
+    instacomp: {
+      ...strictExactChecklistDecision,
+      checklistDecision: {
+        ...strictExactChecklistDecision.checklistDecision,
+        candidateCount: 2,
+        candidateIdentityIds: ["one", "two"],
+      },
+    },
+  }),
+  false,
+);
+assert.equal(
+  isInstaCompPublicationIdentityConfirmed({
+    instacomp: {
+      ...strictExactChecklistDecision,
+      checklistIdentity: {
+        ...strictExactChecklistDecision.checklistIdentity,
+        lockedFields: {
+          ...strictExactChecklistDecision.checklistIdentity.lockedFields,
+          cardNumber: null,
+        },
+      },
+    },
+  }),
+  false,
+);
+assert.equal(
+  isInstaCompPublicationIdentityConfirmed({
+    instacomp: {
+      ...strictExactChecklistDecision,
+      checklistDecision: {
+        ...strictExactChecklistDecision.checklistDecision,
+        status: "review_required",
+      },
+    },
+  }),
+  false,
+);
 assert.equal(
   isInstaCompPublicationIdentityConfirmed({
     instacomp: { ...macExactReceipt, trustedForIdentity: false },
