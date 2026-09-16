@@ -293,9 +293,11 @@ def _fill_item(item: dict) -> tuple[str, str]:
     _chrome_js("(()=>{const l=document.querySelector('[data-testid=ConditionLikeNew]');if(!l)throw new Error('Like new condition missing');l.click();return 'condition'})()")
     _wait_js("document.querySelector('input#2[name=sellCondition]')?.checked ? 'condition' : ''")
 
-    _wait_js("document.querySelector('[data-testid=SmartPricingButton]') ? 'smart' : ''", timeout=15)
-    _chrome_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton]');if(b?.getAttribute('aria-pressed')==='true')b.click();return b?.getAttribute('aria-pressed')||''})()")
-    _wait_js("document.querySelector('[data-testid=SmartPricingButton]')?.getAttribute('aria-pressed')==='false' ? 'off' : ''", timeout=10)
+    # Smart Pricing is not rendered for every Mercari listing/price tier.
+    # When present, force it OFF. When absent, continue: there is nothing to disable.
+    smart_state = _chrome_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton]');if(!b)return 'absent';const pressed=b.getAttribute('aria-pressed');const text=(b.innerText||'').trim().toLowerCase();if(pressed==='true'||text==='on'){b.click();return 'clicked-off'}return 'off'})()")
+    if smart_state == "clicked-off":
+        _wait_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton]');if(!b)return 'off';const pressed=b.getAttribute('aria-pressed');const text=(b.innerText||'').trim().toLowerCase();return (pressed!=='true'&&text!=='on')?'off':''})()", timeout=10)
 
     free_shipping = _chrome_js("document.querySelector('#sellShippingPayerId input')?.value || ''")
     if free_shipping and free_shipping.lower().startswith("yes"):
