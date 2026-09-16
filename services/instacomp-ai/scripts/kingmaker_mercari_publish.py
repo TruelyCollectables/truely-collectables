@@ -26,7 +26,6 @@ def _osascript(source: str) -> str:
 _JOB_WINDOW_ID: int | None = None
 _JOB_TAB_ID: int | None = None
 _RETURN_TAB_INDEX: int | None = None
-_MERCARI_DESCRIPTION_FOOTER = "See more at truelycollectables.com"
 
 
 def _open_job_window(url: str) -> None:
@@ -254,15 +253,7 @@ def _configure_shipping(price: float) -> str:
     return service
 
 def _mercari_description(value: object) -> str:
-    body = re.sub(
-        r"(?i)\bSee\s+more\s+at\s+truelycollectables\.com\b",
-        "",
-        str(value or ""),
-    )
-    body = " ".join(body.split()).strip() or "Exact card shown in photos."
-    max_body = 1000 - len(_MERCARI_DESCRIPTION_FOOTER) - 2
-    body = body[:max_body].rstrip()
-    return f"{body}\n\n{_MERCARI_DESCRIPTION_FOOTER}"
+    return str(value or "").strip()[:1000] or "Exact card shown in photos."
 
 
 def _fill_item(item: dict) -> tuple[str, str]:
