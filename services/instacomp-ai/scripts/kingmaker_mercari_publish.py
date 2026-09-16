@@ -25,27 +25,57 @@ def _osascript(source: str) -> str:
 
 _JOB_WINDOW_ID: int | None = None
 _JOB_TAB_ID: int | None = None
+_RETURN_TAB_INDEX: int | None = None
+_MERCARI_DESCRIPTION_FOOTER = "See more at truelycollectables.com"
 
 
 def _open_job_window(url: str) -> None:
-    global _JOB_WINDOW_ID, _JOB_TAB_ID
+    global _JOB_WINDOW_ID, _JOB_TAB_ID, _RETURN_TAB_INDEX
     source = (
         'tell application "Google Chrome"\n'
         '  activate\n'
         '  if (count of windows) = 0 then make new window\n'
         '  set w to front window\n'
+        '  set returnIndex to active tab index of w\n'
         f'  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}\n'
         '  set active tab index of w to (count of tabs of w)\n'
-        '  return (id of w as text) & ":" & (id of t as text)\n'
+        '  return (id of w as text) & ":" & (id of t as text) & ":" & (returnIndex as text)\n'
         'end tell'
     )
     raw = _osascript(source)
     try:
-        win, tab = raw.strip().split(":", 1)
+        win, tab, return_index = raw.strip().split(":", 2)
         _JOB_WINDOW_ID = int(win)
         _JOB_TAB_ID = int(tab)
+        _RETURN_TAB_INDEX = int(return_index)
     except (ValueError, AttributeError) as exc:
         raise RuntimeError(f"Mercari automation tab could not be created: {raw}") from exc
+
+
+def _close_job_tab() -> None:
+    global _JOB_WINDOW_ID, _JOB_TAB_ID, _RETURN_TAB_INDEX
+    if _JOB_WINDOW_ID is None or _JOB_TAB_ID is None:
+        return
+    return_index = max(1, int(_RETURN_TAB_INDEX or 1))
+    source = (
+        'tell application "Google Chrome"\n'
+        '  try\n'
+        f'    set w to first window whose id is {_JOB_WINDOW_ID}\n'
+        f'    set t to first tab of w whose id is {_JOB_TAB_ID}\n'
+        '    close t\n'
+        f'    if (count of tabs of w) >= {return_index} then set active tab index of w to {return_index}\n'
+        '    set index of w to 1\n'
+        '  end try\n'
+        'end tell'
+    )
+    try:
+        _osascript(source)
+    except Exception:
+        pass
+    finally:
+        _JOB_WINDOW_ID = None
+        _JOB_TAB_ID = None
+        _RETURN_TAB_INDEX = None
 
 
 def _job_window_prefix() -> str:
@@ -108,29 +138,42 @@ def _profile_name() -> str:
     return handle.group(1).strip() if handle else ""
 
 def _mercari_category(item: dict) -> str:
+    explicit_sport = str(item.get("sport") or "").strip().lower()
     haystack = " ".join(
         str(item.get(key) or "")
-        for key in ("sport", "category", "title", "description")
+        for key in ("sport", "league", "category", "title", "description")
     ).lower()
-    if any(token in haystack for token in ("basketball", "wnba", "nba")):
-        return "Basketball Trading Cards"
-    if any(token in haystack for token in ("baseball", "mlb")):
-        return "Baseball Trading Cards"
-    if any(token in haystack for token in ("soccer", "football club", "mls")):
-        return "Soccer Trading Cards"
-    if any(token in haystack for token in ("wrestling", "wwe", "aew")):
-        return "Wrestling Trading Cards"
-    if any(token in haystack for token in ("golf", "pga")):
-        return "Golf Trading Cards"
-    if any(token in haystack for token in ("tennis", "atp", "wta")):
-        return "Tennis Trading Cards"
-    if any(token in haystack for token in ("boxing", "ufc", "mma")):
-        return "Boxing Trading Cards"
-    return "Sports Trading Cards"
+
+    def classify(source: str) -> str | None:
+        if any(token in source for token in ("basketball", "wnba", "nba")):
+            return "Basketball Trading Cards"
+        if any(token in source for token in ("baseball", "mlb")):
+            return "Baseball Trading Cards"
+        if any(token in source for token in ("hockey", "nhl")):
+            return "Hockey Trading Cards"
+        if any(token in source for token in ("soccer", "mls", "fifa", "uefa", "association football", "football club")):
+            return "Soccer Trading Cards"
+        if any(token in source for token in ("football", "nfl")):
+            return "Football Trading Cards"
+        if any(token in source for token in ("wrestling", "wwe", "aew", "wwf")):
+            return "Wrestling Trading Cards"
+        if any(token in source for token in ("golf", "pga")):
+            return "Golf Trading Cards"
+        if any(token in source for token in ("tennis", "atp", "wta")):
+            return "Tennis Trading Cards"
+        if any(token in source for token in ("boxing", "ufc", "mma")):
+            return "Boxing Trading Cards"
+        return None
+
+    return classify(explicit_sport) or classify(haystack) or "Other Sports Trading Cards"
 
 
 def _select_category(item: dict) -> str:
-    category = _mercari_category(item)
+    primary = _mercari_category(item)
+    candidates = [primary]
+    if primary != "Other Sports Trading Cards":
+        candidates.append("Other Sports Trading Cards")
+
     opened = _chrome_js(
         "(()=>{const b=document.querySelector('[data-testid=SellCategoryFieldButton]');"
         "if(!b)return 'missing';b.click();return 'opened'})()"
@@ -138,33 +181,40 @@ def _select_category(item: dict) -> str:
     if opened != "opened":
         raise RuntimeError("Mercari category control is unavailable.")
     _wait_js("document.querySelector('[data-testid=CategorySearchInput]') ? 'search' : ''", timeout=10)
-    search = json.dumps(category)
-    typed = _chrome_js(
-        f"(()=>{{const e=document.querySelector('[data-testid=CategorySearchInput]');"
-        f"if(!e)return 'missing';const v={search};"
-        "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,v);"
-        "e.dispatchEvent(new Event('input',{bubbles:true}));"
-        "e.dispatchEvent(new Event('change',{bubbles:true}));return 'typed'})()"
-    )
-    if typed != "typed":
-        raise RuntimeError("Mercari category search could not be populated.")
-    category_json = json.dumps(category)
-    _wait_js(
-        f"(()=>{{const q={category_json};return Array.from(document.querySelectorAll('[data-testid=CategoryRow]')).some(x=>(x.innerText||'').includes(q))?'found':''}})()",
-        timeout=10,
-    )
-    clicked = _chrome_js(
-        f"(()=>{{const q={category_json};const rows=Array.from(document.querySelectorAll('[data-testid=CategoryRow]'));"
-        "const exact=rows.find(x=>(x.innerText||'').trim().endsWith('> '+q));"
-        "const b=exact||rows.find(x=>(x.innerText||'').includes(q));if(!b)return 'missing';b.click();return 'clicked'})()"
-    )
-    if clicked != "clicked":
-        raise RuntimeError(f"Mercari category {category} could not be selected.")
-    _wait_js(
-        f"(()=>{{const t=document.querySelector('[data-testid=SellCategoryFieldButton]')?.innerText||'';return t.includes({category_json})?'selected':''}})()",
-        timeout=10,
-    )
-    return category
+
+    for category in candidates:
+        search = json.dumps(category)
+        typed = _chrome_js(
+            f"(()=>{{const e=document.querySelector('[data-testid=CategorySearchInput]');"
+            f"if(!e)return 'missing';const v={search};"
+            "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,v);"
+            "e.dispatchEvent(new Event('input',{bubbles:true}));"
+            "e.dispatchEvent(new Event('change',{bubbles:true}));return 'typed'})()"
+        )
+        if typed != "typed":
+            raise RuntimeError("Mercari category search could not be populated.")
+        category_json = json.dumps(category)
+        try:
+            _wait_js(
+                f"(()=>{{const q={category_json};return Array.from(document.querySelectorAll('[data-testid=CategoryRow]')).some(x=>(x.innerText||'').includes(q))?'found':''}})()",
+                timeout=6,
+            )
+        except RuntimeError:
+            continue
+        clicked = _chrome_js(
+            f"(()=>{{const q={category_json};const rows=Array.from(document.querySelectorAll('[data-testid=CategoryRow]'));"
+            "const exact=rows.find(x=>(x.innerText||'').trim().endsWith('> '+q));"
+            "const b=exact||rows.find(x=>(x.innerText||'').includes(q));if(!b)return 'missing';b.click();return 'clicked'})()"
+        )
+        if clicked != "clicked":
+            continue
+        _wait_js(
+            f"(()=>{{const t=document.querySelector('[data-testid=SellCategoryFieldButton]')?.innerText||'';return t.includes({category_json})?'selected':''}})()",
+            timeout=10,
+        )
+        return category
+
+    raise RuntimeError(f"Mercari category {primary} could not be selected, and the Other Sports fallback was unavailable.")
 
 
 
@@ -203,9 +253,21 @@ def _configure_shipping(price: float) -> str:
     _wait_js(f"(()=>{{const e=document.querySelector('[data-testid=SelectShipping]');return e&&String(e.value||'').includes({service_json})?'saved':''}})()", timeout=10)
     return service
 
-def _fill_item(item: dict) -> str:
+def _mercari_description(value: object) -> str:
+    body = re.sub(
+        r"(?i)\bSee\s+more\s+at\s+truelycollectables\.com\b",
+        "",
+        str(value or ""),
+    )
+    body = " ".join(body.split()).strip() or "Exact card shown in photos."
+    max_body = 1000 - len(_MERCARI_DESCRIPTION_FOOTER) - 2
+    body = body[:max_body].rstrip()
+    return f"{body}\n\n{_MERCARI_DESCRIPTION_FOOTER}"
+
+
+def _fill_item(item: dict) -> tuple[str, str]:
     title = str(item.get("title") or "").strip()[:80]
-    description = str(item.get("description") or "").strip()[:1000]
+    description = _mercari_description(item.get("description"))
     price = round(float(item.get("price") or 0), 2)
     image_urls = [str(x).strip() for x in (item.get("imageUrls") or []) if str(x).strip()][:12]
     if not title or len(description.split()) < 5 or price < 1 or len(image_urls) < 2:
@@ -235,7 +297,7 @@ def _fill_item(item: dict) -> str:
     if state.startswith("error:"):
         raise RuntimeError(state)
 
-    _select_category(item)
+    category = _select_category(item)
     _configure_shipping(price)
     _chrome_js("(()=>{const l=document.querySelector('[data-testid=ConditionLikeNew]');if(!l)throw new Error('Like new condition missing');l.click();return 'condition'})()")
     _wait_js("document.querySelector('input#2[name=sellCondition]')?.checked ? 'condition' : ''")
@@ -247,7 +309,7 @@ def _fill_item(item: dict) -> str:
     free_shipping = _chrome_js("document.querySelector('#sellShippingPayerId input')?.value || ''")
     if free_shipping and free_shipping.lower().startswith("yes"):
         raise RuntimeError("Mercari free shipping is enabled; TCOS will not publish until shipping payer is reviewed.")
-    return account
+    return account, category
 
 
 def _save_ready_draft(title: str) -> dict:
@@ -292,6 +354,7 @@ def main() -> None:
         account = _profile_name()
         if not account:
             raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation tab.")
+        _close_job_tab()
         print(json.dumps({"ok": True, "mode": mode, "connected": True, "account": account}))
         return
     if mode not in {"draft", "publish"}:
@@ -299,17 +362,20 @@ def main() -> None:
 
     item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
     title = str(item.get("title") or "").strip()[:80]
-    account = _fill_item(item)
+    account, category = _fill_item(item)
     draft = _save_ready_draft(title)
     if mode == "draft":
-        print(json.dumps({"ok": True, "mode": mode, "account": account, "status": "ready_to_list", **draft}))
+        _close_job_tab()
+        print(json.dumps({"ok": True, "mode": mode, "account": account, "category": category, "status": "ready_to_list", **draft}))
         return
 
     item_id = _publish_draft(str(draft["draftUrl"]))
+    _close_job_tab()
     print(json.dumps({
         "ok": True,
         "mode": mode,
         "account": account,
+        "category": category,
         "status": "active",
         "itemId": item_id,
         "itemUrl": f"https://www.mercari.com/us/item/{item_id}/",

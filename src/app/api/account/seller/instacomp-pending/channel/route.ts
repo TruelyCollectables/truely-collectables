@@ -624,6 +624,7 @@ export async function POST(request: Request) {
           itemId: existingMercariItemId,
           itemUrl: text(storedMercari.itemUrl, 1000) || `https://www.mercari.com/us/item/${existingMercariItemId}/`,
           account: text(storedMercari.account, 120),
+          category: text(storedMercari.category, 120),
           reusedExistingListing: true,
         };
         mercariPublished = true;
@@ -643,6 +644,8 @@ export async function POST(request: Request) {
                 title: (websiteTitle || ebayTitle || generated.websiteTitle || String(keeper.title || "Trading Card")).slice(0, 80),
                 description: plainDescription || `Exact card shown in photos. ${String(keeper.title || "Trading card")}.`,
                 price: mercariPrice,
+                sport: generated.identity.sport,
+                category: text(keeper.category, 240),
                 imageUrls: imageUrls.slice(0, 12),
               },
             },
@@ -654,6 +657,7 @@ export async function POST(request: Request) {
             draftId: text(macMercari.draftId, 120),
             draftUrl: text(macMercari.draftUrl, 1000),
             account: text(macMercari.account, 120),
+            category: text(macMercari.category, 120),
             reusedExistingListing: false,
           };
           if (!mercariResult.itemId || !mercariResult.itemUrl) {
@@ -669,6 +673,8 @@ export async function POST(request: Request) {
               status: "active",
               integrationMode: "chrome_logged_in_direct",
               account: mercariResult.account,
+              sport: generated.identity.sport,
+              category: mercariResult.category,
               draftId: mercariResult.draftId,
               draftUrl: mercariResult.draftUrl,
               itemId: mercariResult.itemId,
@@ -923,6 +929,7 @@ export async function POST(request: Request) {
         mercariItemId: mercariResult?.itemId || null,
         mercariItemUrl: mercariResult?.itemUrl || null,
         mercariAccount: mercariResult?.account || null,
+        mercariCategory: mercariResult?.category || text(record(record(nextMetadata.dual_marketplace).mercari).category, 120) || null,
         mercariImportMode: mercariPublished ? "chrome_logged_in_direct" : null,
         mercariSourceListingId: null,
         websiteProductId: linkedProductId,
