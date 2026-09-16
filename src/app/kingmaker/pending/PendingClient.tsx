@@ -78,6 +78,17 @@ type PendingCard = {
   backImageUrl: string | null;
   storedImageCount: number;
   activationReadiness?: { ready?: boolean; blockers?: string[] } | null;
+  websiteInventory?: {
+    current: boolean;
+    quantity: number;
+    productIds: number[];
+    products: Array<{ id: number; title?: string | null; quantity: number; price: number }>;
+    linkedProductId?: number | null;
+    linkedProductTitle?: string | null;
+    linkedProductSellable?: boolean;
+    linkedMatchStatus?: "exact" | "mismatch" | "uncertain" | "none";
+    linkedMismatchReason?: string | null;
+  } | null;
   inventoryLifecycle?: {
     state?: string | null;
     disposition?: string | null;
@@ -1067,6 +1078,31 @@ export default function KingmakerPendingPage({
       setPageError("Select one or more exact-card groups first.");
       return;
     }
+    if (action === "publish-website" || action === "publish-both") {
+      const badWebsiteLinks = targets.filter((card) => {
+        const current = card.websiteInventory;
+        const linkedMismatch = Boolean(
+          current?.linkedProductSellable &&
+            current.linkedMatchStatus &&
+            current.linkedMatchStatus !== "exact" &&
+            current.linkedMatchStatus !== "none",
+        );
+        const exactProducts = current?.productIds || [];
+        const linkedExactProduct = Boolean(
+          current?.linkedProductId && exactProducts.includes(current.linkedProductId),
+        );
+        const duplicateOrUnlinkedCurrent = Boolean(
+          current?.current && (exactProducts.length !== 1 || !linkedExactProduct),
+        );
+        return linkedMismatch || duplicateOrUnlinkedCurrent;
+      });
+      if (badWebsiteLinks.length) {
+        setPageError(
+          `WEBSITE BLOCKED: ${badWebsiteLinks.length} card${badWebsiteLinks.length === 1 ? " needs" : "s need"} website inventory reconciliation. Fix the red website alert before publishing so KINGMAKER cannot overwrite the wrong product or create a duplicate.`,
+        );
+        return;
+      }
+    }
     if (action === "publish-ebay" || action === "publish-both") {
       const missingRawCondition = targets.filter((card) => {
         if (card.instaComp.gradingCompany) return false;
@@ -1647,7 +1683,28 @@ export default function KingmakerPendingPage({
             const scanRequired = physicalMembers.some((member) => !member.scanId);
             const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
             const sellerManualPrice = listingPriceSource === "kingmaker_manual";
-            const websiteListed = String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
+            const currentWebsiteInventory = card.websiteInventory || null;
+            const websiteCurrent = currentWebsiteInventory?.current === true;
+            const websiteLinkBlocked = Boolean(
+              currentWebsiteInventory?.linkedProductSellable &&
+                currentWebsiteInventory.linkedMatchStatus &&
+                currentWebsiteInventory.linkedMatchStatus !== "exact" &&
+                currentWebsiteInventory.linkedMatchStatus !== "none",
+            );
+            const exactWebsiteProductIds = currentWebsiteInventory?.productIds || [];
+            const linkedExactWebsiteProduct = Boolean(
+              currentWebsiteInventory?.linkedProductId &&
+                exactWebsiteProductIds.includes(currentWebsiteInventory.linkedProductId),
+            );
+            const websiteInventoryNeedsReconciliation = Boolean(
+              websiteCurrent &&
+                (exactWebsiteProductIds.length !== 1 || !linkedExactWebsiteProduct),
+            );
+            const websitePublishBlocked =
+              websiteLinkBlocked || websiteInventoryNeedsReconciliation;
+            const websiteListed =
+              websiteCurrent ||
+              String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
             const ebayStatus = String(channelPricing?.ebayStatus || "").toLowerCase();
             const ebayListed = ebayStatus === "active" || ebayStatus === "linked";
             const groupQuantity = Math.max(
@@ -1727,6 +1784,16 @@ export default function KingmakerPendingPage({
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
                       {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
                     </span>
+                    {websiteCurrent ? (
+                      <span className="rounded-full border-2 border-emerald-200 bg-emerald-300 px-3 py-1 text-xs font-black text-emerald-950">
+                        CURRENT WEBSITE INVENTORY · QTY {currentWebsiteInventory?.quantity || 0}
+                      </span>
+                    ) : null}
+                    {websiteLinkBlocked ? (
+                      <span className="rounded-full border-2 border-red-200 bg-red-400 px-3 py-1 text-xs font-black text-red-950">
+                        WEBSITE LINK MISMATCH · DO NOT PUBLISH
+                      </span>
+                    ) : null}
                     <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${websiteListed ? "border-emerald-300 bg-emerald-300 text-emerald-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
                       {websiteListed ? "✓ WEBSITE LISTED" : "WEBSITE NOT LISTED"}
                     </span>
@@ -1740,6 +1807,32 @@ export default function KingmakerPendingPage({
                     ) : null}
                   </div>
                 </div>
+
+                {websiteLinkBlocked ? (
+                  <div className="border-b-2 border-red-900 bg-red-100 p-4 text-red-950">
+                    <p className="text-xl font-black">WEBSITE LINK MISMATCH — DO NOT PUBLISH</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Linked website product {currentWebsiteInventory?.linkedProductId || "unknown"}: {currentWebsiteInventory?.linkedProductTitle || "title unavailable"}
+                    </p>
+                    <p className="mt-1 text-sm">
+                      Exact-card check: {currentWebsiteInventory?.linkedMismatchReason || "identity could not be proven exact"}. KINGMAKER will not overwrite this website product until the link is corrected.
+                    </p>
+                  </div>
+                ) : websiteInventoryNeedsReconciliation ? (
+                  <div className="border-b-2 border-red-900 bg-red-100 p-4 text-red-950">
+                    <p className="text-xl font-black">CURRENT WEBSITE INVENTORY NEEDS RECONCILIATION</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Exact live website product{exactWebsiteProductIds.length === 1 ? "" : "s"}: {exactWebsiteProductIds.join(", ") || "unknown"}. This Pending row is not linked cleanly to one exact live product, so website publishing is blocked to prevent duplicates.
+                    </p>
+                  </div>
+                ) : websiteCurrent ? (
+                  <div className="border-b-2 border-emerald-900 bg-emerald-50 p-4 text-emerald-950">
+                    <p className="text-xl font-black">CURRENT WEBSITE INVENTORY · QTY {currentWebsiteInventory?.quantity || 0}</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Exact website product{Number(currentWebsiteInventory?.productIds?.length || 0) === 1 ? "" : "s"}: {currentWebsiteInventory?.productIds?.join(", ")}
+                    </p>
+                  </div>
+                ) : null}
 
                 {(pendingPurchase || accountedPurchase || possiblePurchase || scanRequired) ? (
                   <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : accountedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
@@ -2186,10 +2279,10 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-website")}
-                          disabled={publishWebsitePrice <= 0 || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || websitePublishBlocked || Boolean(busyId)}
                           className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
-                          List Website · {money(publishWebsitePrice)}
+                          {websiteCurrent && linkedExactWebsiteProduct ? "Update Website" : "List Website"} · {money(publishWebsitePrice)}
                         </button>
                         <button
                           type="button"
@@ -2202,7 +2295,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-both")}
-                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || !ebayCardConditionReady || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || websitePublishBlocked || !ebayCardConditionReady || Boolean(busyId)}
                           className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {websiteListed || ebayListed ? "Update / List Both" : "List Both"}

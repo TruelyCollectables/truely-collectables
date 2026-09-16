@@ -13,6 +13,13 @@ import {
 } from "../../../../../lib/instacomp-pricing-group";
 import { normalizeListingDuplicateTitle } from "../../../../../lib/listing-duplicate-alert";
 import {
+  classifyWebsiteProductIdentity,
+  isSellableWebsiteProduct,
+  websiteInventoryAnchorKey,
+  websiteProductAnchorKey,
+  type WebsiteInventoryProduct,
+} from "../../../../../lib/instacomp-current-website-inventory";
+import {
   pendingDuplicateCandidateMatches,
   pendingDuplicateDecisionResolved,
   pendingDuplicateProtectionMatchKey,
@@ -833,7 +840,7 @@ export async function GET(request: Request) {
       const { data, error } = await supabase
         .from("products")
         .select(
-          "id,card_uuid,sku,title,image_url,price,quantity,archived_at,ebay_item_id",
+          "id,card_uuid,sku,title,player,image_url,price,quantity,archived_at,listing_status,ebay_item_id",
         )
         .eq("store_id", storeId)
         .in("id", productIdBatch);
@@ -844,6 +851,34 @@ export async function GET(request: Request) {
     const productMap = new Map(
       products.map((product: any) => [product.id, product]),
     );
+
+    // Website inventory is a separate channel surface from inventory_items.
+    // Older live products can still be sellable while their linked inventory row
+    // remains draft, so current-inventory alerts must inspect the website product
+    // itself instead of trusting inventory_items.status.
+    const liveWebsiteProducts: WebsiteInventoryProduct[] = [];
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id,title,player,price,quantity,archived_at,listing_status")
+        .eq("store_id", storeId)
+        .is("archived_at", null)
+        .gt("quantity", 0)
+        .gt("price", 0)
+        .range(start, start + 999);
+      if (error) throw error;
+      const batch = (data || []) as WebsiteInventoryProduct[];
+      liveWebsiteProducts.push(...batch);
+      if (batch.length < 1000) break;
+    }
+    const liveWebsiteProductsByAnchor = new Map<string, WebsiteInventoryProduct[]>();
+    for (const websiteProduct of liveWebsiteProducts) {
+      const key = websiteProductAnchorKey(websiteProduct);
+      if (!key) continue;
+      const current = liveWebsiteProductsByAnchor.get(key) || [];
+      current.push(websiteProduct);
+      liveWebsiteProductsByAnchor.set(key, current);
+    }
 
     const items = rows.map((row: any) => {
       const metadata = recordValue(row.metadata);
@@ -961,6 +996,27 @@ export async function GET(request: Request) {
         identitySummary ||
         rawTitle ||
         "Untitled item";
+
+      const websiteAnchor = websiteInventoryAnchorKey(metadata, displayTitle);
+      const websiteCandidates = websiteAnchor
+        ? liveWebsiteProductsByAnchor.get(websiteAnchor) || []
+        : [];
+      const exactWebsiteProducts = websiteCandidates.filter(
+        (candidate) =>
+          classifyWebsiteProductIdentity({
+            metadata,
+            pendingTitle: displayTitle,
+            product: candidate,
+          }).status === "exact",
+      );
+      const linkedWebsiteMatch = product
+        ? classifyWebsiteProductIdentity({
+            metadata,
+            pendingTitle: displayTitle,
+            product,
+          })
+        : null;
+      const linkedWebsiteSellable = isSellableWebsiteProduct(product);
 
       const suggestedPrice = optionalPrice(
         localCertifiedPricingAnalysis.instacomp ??
@@ -1132,6 +1188,29 @@ export async function GET(request: Request) {
         activationReadiness: {
           ready: blockers.length === 0,
           blockers,
+        },
+        websiteInventory: {
+          current: exactWebsiteProducts.length > 0,
+          quantity: exactWebsiteProducts.reduce(
+            (sum, websiteProduct) =>
+              sum + Math.max(0, Number(websiteProduct.quantity || 0)),
+            0,
+          ),
+          productIds: exactWebsiteProducts.map((websiteProduct) => websiteProduct.id),
+          products: exactWebsiteProducts.slice(0, 10).map((websiteProduct) => ({
+            id: websiteProduct.id,
+            title: websiteProduct.title || null,
+            quantity: Math.max(0, Number(websiteProduct.quantity || 0)),
+            price: Number(websiteProduct.price || 0),
+          })),
+          linkedProductId: product?.id || null,
+          linkedProductTitle: product?.title || null,
+          linkedProductSellable: linkedWebsiteSellable,
+          linkedMatchStatus: linkedWebsiteMatch?.status || "none",
+          linkedMismatchReason:
+            linkedWebsiteMatch && linkedWebsiteMatch.status !== "exact"
+              ? linkedWebsiteMatch.reason
+              : null,
         },
         duplicateProtection: {
           required: existingMatches.length > 0 && !duplicateDecisionResolved,

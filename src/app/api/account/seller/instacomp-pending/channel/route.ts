@@ -11,6 +11,10 @@ import { createDualMarketplaceListingDraft } from "../../../../../../lib/dual-ma
 import { assertSafeEbayListingContent } from "../../../../../../lib/ebay-listing-content";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import { isInstaCompPublicationIdentityConfirmed } from "../../../../../../lib/instacomp-publication-identity";
+import {
+  classifyWebsiteProductIdentity,
+  isSellableWebsiteProduct,
+} from "../../../../../../lib/instacomp-current-website-inventory";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
@@ -340,7 +344,7 @@ export async function POST(request: Request) {
     const { data: linkedProduct, error: linkedProductError } = linkedProductId
       ? await supabase
           .from("products")
-          .select("id,sku,ebay_item_id")
+          .select("id,sku,title,player,price,quantity,archived_at,listing_status,ebay_item_id")
           .eq("store_id", storeId)
           .eq("id", linkedProductId)
           .maybeSingle()
@@ -366,6 +370,13 @@ export async function POST(request: Request) {
       ),
     ).slice(0, 24);
     const metadata = record(keeper.metadata);
+    const linkedWebsiteIdentity = linkedProduct
+      ? classifyWebsiteProductIdentity({
+          metadata,
+          pendingTitle: keeper.title,
+          product: linkedProduct,
+        })
+      : null;
     const instaComp = record(metadata.instacomp);
     const dual = record(metadata.dual_marketplace);
     const storedWebsite = record(dual.website);
@@ -404,6 +415,25 @@ export async function POST(request: Request) {
     const needsNewEbayListing =
       (action === "publish-ebay" || action === "publish-both") && !existingEbayListingId;
     const needsWebsitePublication = action === "publish-website" || action === "publish-both";
+    if (
+      needsWebsitePublication &&
+      linkedProduct &&
+      isSellableWebsiteProduct(linkedProduct) &&
+      linkedWebsiteIdentity?.status !== "exact"
+    ) {
+      return Response.json(
+        {
+          success: false,
+          code: "WEBSITE_LINK_IDENTITY_MISMATCH",
+          error: `Website publishing blocked: linked live product ${linkedProduct.id} does not match this exact card (${linkedWebsiteIdentity?.reason || "identity could not be proven exact"}).`,
+          linkedProductId: linkedProduct.id,
+          linkedProductTitle: linkedProduct.title || null,
+          matchStatus: linkedWebsiteIdentity?.status || "uncertain",
+          matchReason: linkedWebsiteIdentity?.reason || null,
+        },
+        { status: 409 },
+      );
+    }
     if (imageUrls.length < 2 && (needsNewEbayListing || needsWebsitePublication)) {
       return Response.json(
         { success: false, error: "A stored front and back image are required before publishing a new channel listing." },
