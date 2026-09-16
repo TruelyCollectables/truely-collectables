@@ -983,6 +983,32 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function persistInstaCompSuggestion(
+    card: PendingCard,
+    suggestedPrice: number,
+    accessToken: string,
+  ) {
+    if (!(suggestedPrice > 0) || Number(card.price || 0) > 0) return { saved: false, updatedCount: 0 };
+    const response = await fetch("/api/account/seller/instacomp-scan/price", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        inventoryItemId: card.inventoryItemId,
+        price: suggestedPrice,
+        source: "instacomp_fast_ebay",
+        applyGroup: true,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.success === false) {
+      throw new Error(data.error || "InstaComp found a price but could not save it to the draft.");
+    }
+    return { saved: true, updatedCount: Number(data.updatedCount || 1) };
+  }
+
   async function runInstaComp(card: PendingCard) {
     setBusyId(card.inventoryItemId);
     setPageError("");
@@ -990,25 +1016,26 @@ export default function KingmakerPendingPage({
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      const response = await fetch("/api/account/seller/inventory/instacomp", {
+      const response = await fetch("/api/account/seller/inventory/instacomp-fast-market", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          inventoryItemId: card.inventoryItemId,
-          aiCouncilTier: "adaptive",
-        }),
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success !== true) {
         throw new Error(data.error || "InstaComp pricing failed.");
       }
+      const suggestion = Number(data.suggestedPrice || 0);
+      const saved = suggestion > 0
+        ? await persistInstaCompSuggestion(card, suggestion, session.access_token)
+        : { saved: false, updatedCount: 0 };
       setNotice(
-        Number(data.suggestedPrice || 0) > 0
-          ? `${card.title}: InstaComp ${money(data.suggestedPrice)} from ${Number(data.reliableSoldCompCount || 0)} exact sold comp${Number(data.reliableSoldCompCount || 0) === 1 ? "" : "s"}.`
-          : `${card.title}: no exact sold comps passed. ${Array.isArray(data.providerProblems) && data.providerProblems.length ? `Provider issue: ${data.providerProblems.slice(0, 2).map((row: any) => `${row.label}: ${row.message || row.status}`).join(" · ")}` : "Seller pricing is required."}`,
+        suggestion > 0
+          ? `${card.title}: InstaComp ${money(suggestion)} from ${Number(data.reliableSoldCompCount || 0)} exact eBay sold comp${Number(data.reliableSoldCompCount || 0) === 1 ? "" : "s"}${data.activeSearchSkipped === true ? " · active search skipped" : " · official eBay active checked"}${saved.saved ? ` · draft price saved${saved.updatedCount > 1 ? ` across ${saved.updatedCount} exact copies` : ""}` : " · existing draft price preserved"}.`
+          : `${card.title}: no pricing-eligible exact eBay sold comp passed; seller pricing is required.`,
       );
       await load(queue || queueFromLocation());
     } catch (error) {
@@ -1034,18 +1061,30 @@ export default function KingmakerPendingPage({
       let noMarket = 0;
       const failures: string[] = [];
       for (const card of selected) {
-        const response = await fetch("/api/account/seller/inventory/instacomp", {
+        const response = await fetch("/api/account/seller/inventory/instacomp-fast-market", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ inventoryItemId: card.inventoryItemId, aiCouncilTier: "adaptive" }),
+          body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok || data.success !== true) failures.push(`${card.title}: ${data.error || "failed"}`);
-        else if (Number(data.suggestedPrice || 0) > 0) priced += 1;
-        else noMarket += 1;
+        if (!response.ok || data.success !== true) {
+          failures.push(`${card.title}: ${data.error || "failed"}`);
+          continue;
+        }
+        const suggestion = Number(data.suggestedPrice || 0);
+        if (suggestion > 0) {
+          try {
+            await persistInstaCompSuggestion(card, suggestion, session.access_token);
+            priced += 1;
+          } catch (error) {
+            failures.push(`${card.title}: ${message(error)}`);
+          }
+        } else {
+          noMarket += 1;
+        }
       }
       setNotice(`InstaComp finished: ${priced} priced, ${noMarket} no-exact-sold-market, ${failures.length} failed.`);
       if (failures.length) setPageError(failures.slice(0, 3).join(" · "));

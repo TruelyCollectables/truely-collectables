@@ -289,7 +289,7 @@ export async function syncEbayPriceQuantity(params: {
   };
 }
 
-async function getEbayClientAccessToken(scope: string) {
+export async function getEbayClientAccessToken(scope: string) {
   const clientId = process.env.EBAY_CLIENT_ID;
   const clientSecret = process.env.EBAY_CLIENT_SECRET;
 

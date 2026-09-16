@@ -43,9 +43,9 @@ class MarketCompRequest(BaseModel):
     registry_fingerprint_sha256: str | None = Field(default=None, max_length=160)
     research_id: str | None = Field(default=None, max_length=200)
     operator_certified_identity: bool = False
-    include_130point: bool = True
-    include_active: bool = True
-    include_fanatics: bool = True
+    include_130point: bool = False
+    include_active: bool = False
+    include_fanatics: bool = False
     max_sold: int = Field(default=50, ge=1, le=100)
     max_active: int = Field(default=30, ge=1, le=60)
 
