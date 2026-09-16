@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type UnknownRecord = Record<string, unknown>;
-type ChannelAction = "save" | "publish-website" | "publish-ebay" | "publish-both" | "prepare-mercari" | "publish-mercari" | "publish-all-3";
+type ChannelAction = "save" | "publish-website" | "publish-ebay" | "publish-both" | "prepare-mercari" | "publish-mercari" | "publish-website-mercari" | "publish-all-3";
 
 const OWNER_EMAILS = new Set([
   "sales@truelycollectables.com",
@@ -215,7 +215,7 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || "save") as ChannelAction;
-    if (!["save", "publish-website", "publish-ebay", "publish-both", "prepare-mercari", "publish-mercari", "publish-all-3"].includes(action)) {
+    if (!["save", "publish-website", "publish-ebay", "publish-both", "prepare-mercari", "publish-mercari", "publish-website-mercari", "publish-all-3"].includes(action)) {
       return Response.json({ success: false, error: "Unsupported channel action." }, { status: 400 });
     }
     const inventoryItemId = String(body.inventoryItemId || "").trim();
@@ -417,7 +417,7 @@ export async function POST(request: Request) {
       text(storedEbay.listingId, 120) || text(linkedProduct?.ebay_item_id, 120);
     const needsNewEbayListing =
       (action === "publish-ebay" || action === "publish-both" || action === "publish-all-3") && !existingEbayListingId;
-    const needsWebsitePublication = action === "publish-website" || action === "publish-both" || action === "publish-all-3";
+    const needsWebsitePublication = action === "publish-website" || action === "publish-both" || action === "publish-website-mercari" || action === "publish-all-3";
     if (
       needsWebsitePublication &&
       linkedProduct &&
@@ -518,7 +518,7 @@ export async function POST(request: Request) {
       },
     };
 
-    if ((action === "publish-website" || action === "publish-both" || action === "publish-all-3") && !linkedProductId) {
+    if ((action === "publish-website" || action === "publish-both" || action === "publish-website-mercari" || action === "publish-all-3") && !linkedProductId) {
       const { data: existingProducts, error: existingProductError } = await supabase
         .from("products")
         .select("id")
@@ -598,7 +598,7 @@ export async function POST(request: Request) {
       errors.push("Mercari now publishes directly from the logged-in Chrome seller session. Use List Mercari instead of the legacy prepare action.");
     }
 
-    if (action === "publish-mercari" || action === "publish-all-3") {
+    if (action === "publish-mercari" || action === "publish-website-mercari" || action === "publish-all-3") {
       const existingMercariStatus = text(storedMercari.status, 40)?.toLowerCase() || "";
       const existingMercariItemId = text(storedMercari.itemId, 120);
       if (existingMercariStatus === "active" && existingMercariItemId) {
@@ -808,7 +808,7 @@ export async function POST(request: Request) {
         .throwOnError();
     }
 
-    if (action === "publish-website" || action === "publish-both" || action === "publish-all-3") {
+    if (action === "publish-website" || action === "publish-both" || action === "publish-website-mercari" || action === "publish-all-3") {
       try {
         if (!linkedProductId) {
           throw new Error("Website product linkage could not be established.");

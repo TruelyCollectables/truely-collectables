@@ -230,7 +230,7 @@ type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "l
 type PendingQueue = "listings" | "verification";
 type ListingFolder = "receipt" | "pending" | "website" | "ebay" | "both" | "investment";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
-type ChannelAction = "publish-website" | "publish-ebay" | "publish-mercari" | "publish-all-3";
+type ChannelAction = "publish-website" | "publish-ebay" | "publish-mercari" | "publish-website-mercari" | "publish-all-3";
 
 function queueFromLocation(): PendingQueue | null {
   if (typeof window === "undefined") return "listings";
@@ -1172,7 +1172,7 @@ export default function KingmakerPendingPage({
       setPageError("Select one or more exact-card groups first.");
       return;
     }
-    if (action === "publish-website" || action === "publish-all-3") {
+    if (action === "publish-website" || action === "publish-website-mercari" || action === "publish-all-3") {
       const badWebsiteLinks = targets.filter((card) => {
         const current = card.websiteInventory;
         const linkedMismatch = Boolean(
@@ -1245,9 +1245,13 @@ export default function KingmakerPendingPage({
           ? "eBay"
           : action === "publish-mercari"
             ? "Mercari"
-            : "Website + eBay + Mercari";
+            : action === "publish-website-mercari"
+              ? "Website + Mercari"
+              : "Website + eBay + Mercari";
     const confirmation = action === "publish-mercari"
       ? `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} LIVE on the Mercari account logged into Chrome on the Mac? eBay will not be touched. Smart Pricing stays OFF and buyer free shipping stays OFF.`
+      : action === "publish-website-mercari"
+        ? `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to Website + Mercari? eBay will not be touched. Website and Mercari will each use their own price shown on screen.`
       : action === "publish-all-3"
         ? `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ALL 3 channels: Website, eBay, and Mercari? Each channel will use its own price shown on screen.`
         : `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}? Group quantities and the channel prices shown on screen will be used.`;
@@ -1303,7 +1307,9 @@ export default function KingmakerPendingPage({
               ? ebayPublished
               : action === "publish-mercari"
                 ? mercariPublished
-                : websitePublished && ebayPublished && mercariPublished;
+                : action === "publish-website-mercari"
+                  ? websitePublished && mercariPublished
+                  : websitePublished && ebayPublished && mercariPublished;
         if (!response.ok || data.success !== true || !requestedChannelsPublished) {
           const partialChannels = [
             websitePublished ? "website LIVE" : null,
@@ -1325,7 +1331,9 @@ export default function KingmakerPendingPage({
             ? `eBay ${ebayCompleted}/${targets.length}`
             : action === "publish-mercari"
               ? `Mercari ${mercariCompleted}/${targets.length} LIVE`
-              : `Website ${websiteCompleted}/${targets.length} · eBay ${ebayCompleted}/${targets.length} · Mercari ${mercariCompleted}/${targets.length}`;
+              : action === "publish-website-mercari"
+                ? `Website ${websiteCompleted}/${targets.length} · Mercari ${mercariCompleted}/${targets.length} LIVE`
+                : `Website ${websiteCompleted}/${targets.length} · eBay ${ebayCompleted}/${targets.length} · Mercari ${mercariCompleted}/${targets.length}`;
       const failureSummary = failures.length ? ` ${failures[0]}` : "";
       setNotice(`Publish result: ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} fully completed · ${channelSummary}.${failureSummary}`);
       if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
@@ -1748,6 +1756,14 @@ export default function KingmakerPendingPage({
                   className="rounded-lg bg-fuchsia-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
                 >
                   List Selected → Mercari
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-website-mercari")}
+                  className="rounded-lg bg-purple-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → Website + Mercari
                 </button>
                 <button
                   type="button"
@@ -2457,6 +2473,14 @@ export default function KingmakerPendingPage({
                           className="rounded-xl bg-fuchsia-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {channelPricing?.mercariStatus === "active" ? "Mercari LIVE" : `List Mercari · ${money(publishMercariPrice)}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-website-mercari")}
+                          disabled={publishWebsitePrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || Boolean(busyId)}
+                          className="rounded-xl bg-purple-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {websiteListed || channelPricing?.mercariStatus === "active" ? "Update / List Website + Mercari" : "List Website + Mercari"}
                         </button>
                         <button
                           type="button"

@@ -5,6 +5,7 @@ from typing import Any, Callable
 import json
 import os
 import subprocess
+import sys
 import shutil
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -53,7 +54,7 @@ class MercariBridgeRequest(BaseModel):
 def _run_local_mercari_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[3]
     runner = repo_root / "services/instacomp-ai/scripts/kingmaker_mercari_publish.py"
-    python_binary = shutil.which("python3") or "/opt/homebrew/bin/python3"
+    python_binary = sys.executable if Path(sys.executable).exists() else (shutil.which("python3") or "/opt/homebrew/bin/python3")
     if not runner.exists():
         raise ValueError("The Mac-local KINGMAKER Mercari runner is missing")
     if not Path(python_binary).exists():
@@ -76,7 +77,11 @@ def _run_local_mercari_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise ValueError("The Mac-local Mercari publisher returned invalid output") from exc
     if completed.returncode != 0 or data.get("ok") is not True:
-        raise ValueError(str(data.get("error") or "The Mac-local Mercari publisher failed"))
+        detail = str(data.get("error") or "").strip()
+        stderr = str(completed.stderr or "").strip()
+        if not detail and stderr:
+            detail = stderr[-2000:]
+        raise ValueError(detail or f"The Mac-local Mercari publisher failed (exit {completed.returncode})")
     return data
 
 
