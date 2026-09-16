@@ -25,6 +25,18 @@ assert.equal(classifyWebsiteProductIdentity({
 }).status, "mismatch");
 
 assert.equal(classifyWebsiteProductIdentity({
+  metadata: metadata("Sonia Citron", "122", "Base", "Ice"),
+  pendingTitle: "2025 Panini Prizm #122 Sonia Citron RC Ice Prizm",
+  product: { id: 510440, title: "2025 Prizm Orange Ice Prizm Sonia Citron Washington Mystics Orange Ice #122 RC", player: "Sonia Citron" },
+}).status, "mismatch");
+
+assert.equal(classifyWebsiteProductIdentity({
+  metadata: { instacomp: { checklistIdentity: { lockedFields: { year: "2025", manufacturer: "Panini", brand: "Prizm", player: "Kiki Iriafen", cardNumber: "149", setName: "Base", parallel: "Ice", variation: "Rookie Variation" } } } },
+  pendingTitle: "2025 Panini Prizm #149 Kiki Iriafen RC Ice Prizm Rookie Variation",
+  product: { id: 510279, title: "2025 Prizm Ice Prizm Kiki Iriafen Chicago Sky #149 RC", player: "Kiki Iriafen" },
+}).status, "mismatch");
+
+assert.equal(classifyWebsiteProductIdentity({
   metadata: metadata("Saniya Rivers", "132", "Base Set - Premier Level", "Base Set - Premier Level - Silver"),
   pendingTitle: "2025 Select Premier Level #132 Saniya Rivers RC Silver",
   product: { id: 502358, title: "2025 Panini Select WNBA #132 Saniya Rivers Premier Level Base RC", player: "Saniya Rivers" },

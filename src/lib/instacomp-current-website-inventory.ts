@@ -4,6 +4,10 @@ export type WebsiteInventoryProduct = {
   id: number;
   title?: string | null;
   player?: string | null;
+  sport?: string | null;
+  description?: string | null;
+  sku?: string | null;
+  ebay_item_id?: string | null;
   quantity?: number | string | null;
   price?: number | string | null;
   archived_at?: string | null;
@@ -74,7 +78,7 @@ const VARIANT_WORDS = new Set([
   "gold", "green", "ice", "lava", "laser", "lime", "mojo", "negative", "orange",
   "pink", "purple", "rainbow", "red", "scope", "sepia", "shimmer", "silver",
   "spectrum", "teal", "velocity", "violet", "wave", "white", "yellow", "atomic",
-  "cracked", "aqua", "neon", "holo", "holographic",
+  "cracked", "aqua", "neon", "holo", "holographic", "seismic", "sparkle", "pulsar",
 ]);
 
 function identityFromMetadata(metadataValue: unknown) {
@@ -191,14 +195,40 @@ export function classifyWebsiteProductIdentity(params: {
     if (!titleWords.has(word)) return { status: "mismatch", reason: `parallel missing: ${word}` };
   }
 
+  const teamWords = new Set(words(value(identity, "team")));
+  const playerWordSet = new Set(playerWords);
+  const setWordSet = new Set(significantSetWords(identity));
+  const candidateVariants = [...VARIANT_WORDS].filter(
+    (word) =>
+      titleWords.has(word) &&
+      !teamWords.has(word) &&
+      !playerWordSet.has(word) &&
+      !setWordSet.has(word),
+  );
   if (!parallelWords.length) {
-    const candidateVariants = [...VARIANT_WORDS].filter((word) => titleWords.has(word));
     if (candidateVariants.length) {
       return { status: "mismatch", reason: `base vs variant: ${candidateVariants.join("/")}` };
     }
+  } else {
+    const expected = new Set(parallelWords);
+    const conflicting = candidateVariants.filter((word) => !expected.has(word));
+    if (conflicting.length) {
+      return { status: "mismatch", reason: `parallel conflicts: ${conflicting.join("/")}` };
+    }
   }
 
-  return { status: "exact", reason: "year/player/card/set/parallel agree" };
+  const expectedVariation = words(value(identity, "variation")).filter(
+    (word) => word !== "rookie" && word !== "rc" && word !== "card",
+  );
+  if (expectedVariation.length) {
+    for (const word of expectedVariation) {
+      if (!titleWords.has(word)) return { status: "mismatch", reason: `variation missing: ${word}` };
+    }
+  } else if (titleWords.has("variation")) {
+    return { status: "mismatch", reason: "base vs variation" };
+  }
+
+  return { status: "exact", reason: "year/player/card/set/parallel/variation agree" };
 }
 
 export function isSellableWebsiteProduct(product: WebsiteInventoryProduct | null | undefined) {

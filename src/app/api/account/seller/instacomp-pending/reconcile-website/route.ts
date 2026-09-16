@@ -76,7 +76,7 @@ async function readSellableWebsiteProducts(
   for (let start = 0; ; start += 1000) {
     const { data, error } = await supabase
       .from("products")
-      .select("id,title,player,price,quantity,archived_at,listing_status")
+      .select("id,title,description,player,sport,sku,ebay_item_id,price,quantity,archived_at,listing_status")
       .eq("store_id", storeId)
       .is("archived_at", null)
       .gt("quantity", 0)
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
     const { data: rows, error: rowsError } = await supabase
       .from("inventory_items")
       .select(
-        "id,legacy_product_id,seller_account_id,status,quantity,price,title,sku,metadata,updated_at",
+        "id,legacy_product_id,seller_account_id,status,quantity,price,title,description,sku,metadata,updated_at",
       )
       .eq("store_id", storeId)
       .in("id", requestedIds);
@@ -173,7 +173,7 @@ export async function POST(request: Request) {
       }
 
       const anchor = websiteInventoryAnchorKey(metadata, row.title);
-      const exactProducts = anchor
+      let exactProducts = anchor
         ? (productsByAnchor.get(anchor) || []).filter(
             (product) =>
               classifyWebsiteProductIdentity({
@@ -183,6 +183,19 @@ export async function POST(request: Request) {
               }).status === "exact",
           )
         : [];
+      const linked = row.legacy_product_id
+        ? productsById.get(Number(row.legacy_product_id)) || null
+        : null;
+      const linkedSkuMatches = Boolean(
+        linked &&
+          isSellableWebsiteProduct(linked) &&
+          text(row.sku) &&
+          text(linked.sku) &&
+          text(row.sku) === text(linked.sku),
+      );
+      if (exactProducts.length === 0 && linkedSkuMatches && linked) {
+        exactProducts = [linked];
+      }
       if (exactProducts.length !== 1) {
         results.push({
           inventoryItemId: row.id,
@@ -194,9 +207,6 @@ export async function POST(request: Request) {
       }
 
       const target = exactProducts[0];
-      const linked = row.legacy_product_id
-        ? productsById.get(Number(row.legacy_product_id)) || null
-        : null;
       if (linked && isSellableWebsiteProduct(linked)) {
         const linkedMatch = classifyWebsiteProductIdentity({
           metadata,
@@ -279,7 +289,7 @@ export async function POST(request: Request) {
 
       const { data: activeKeepers, error: keeperError } = await supabase
         .from("inventory_items")
-        .select("id,quantity,metadata,seller_account_id")
+        .select("id,quantity,title,description,metadata,seller_account_id")
         .eq("store_id", storeId)
         .eq("legacy_product_id", productId)
         .eq("status", "active");
@@ -341,7 +351,11 @@ export async function POST(request: Request) {
       if (shouldWriteProductQuantity) {
         const { data: updatedProducts, error: productError } = await supabase
           .from("products")
-          .update({ quantity: targetQuantity })
+          .update({
+            quantity: targetQuantity,
+            title: row.title,
+            description: row.description || target.description || null,
+          })
           .eq("store_id", storeId)
           .eq("id", productId)
           .eq("quantity", liveProductQuantity)
@@ -402,7 +416,13 @@ export async function POST(request: Request) {
         const keeperMetadata = withWebsiteActive(keeper.metadata, productId, now);
         const { error: keeperSaveError } = await supabase
           .from("inventory_items")
-          .update({ quantity: targetQuantity, metadata: keeperMetadata, updated_at: now })
+          .update({
+            quantity: targetQuantity,
+            title: row.title,
+            description: row.description || keeper.description || null,
+            metadata: keeperMetadata,
+            updated_at: now,
+          })
           .eq("store_id", storeId)
           .eq("id", keeperId)
           .eq("status", "active");
