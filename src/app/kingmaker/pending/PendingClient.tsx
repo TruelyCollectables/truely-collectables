@@ -983,32 +983,6 @@ export default function KingmakerPendingPage({
     }
   }
 
-  async function persistInstaCompSuggestion(
-    card: PendingCard,
-    suggestedPrice: number,
-    accessToken: string,
-  ) {
-    if (!(suggestedPrice > 0) || Number(card.price || 0) > 0) return { saved: false, updatedCount: 0 };
-    const response = await fetch("/api/account/seller/instacomp-scan/price", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        inventoryItemId: card.inventoryItemId,
-        price: suggestedPrice,
-        source: "instacomp_fast_ebay",
-        applyGroup: true,
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.success === false) {
-      throw new Error(data.error || "InstaComp found a price but could not save it to the draft.");
-    }
-    return { saved: true, updatedCount: Number(data.updatedCount || 1) };
-  }
-
   async function runInstaComp(card: PendingCard) {
     setBusyId(card.inventoryItemId);
     setPageError("");
@@ -1029,12 +1003,9 @@ export default function KingmakerPendingPage({
         throw new Error(data.error || "InstaComp pricing failed.");
       }
       const suggestion = Number(data.suggestedPrice || 0);
-      const saved = suggestion > 0
-        ? await persistInstaCompSuggestion(card, suggestion, session.access_token)
-        : { saved: false, updatedCount: 0 };
       setNotice(
         suggestion > 0
-          ? `${card.title}: InstaComp ${money(suggestion)} from ${Number(data.reliableSoldCompCount || 0)} exact eBay sold comp${Number(data.reliableSoldCompCount || 0) === 1 ? "" : "s"}${data.activeSearchSkipped === true ? " · active search skipped" : " · official eBay active checked"}${saved.saved ? ` · draft price saved${saved.updatedCount > 1 ? ` across ${saved.updatedCount} exact copies` : ""}` : " · existing draft price preserved"}.`
+          ? `${card.title}: InstaComp ${money(suggestion)} from ${Number(data.reliableSoldCompCount || 0)} exact eBay sold comp${Number(data.reliableSoldCompCount || 0) === 1 ? "" : "s"}${data.activeSearchSkipped === true ? " · active search skipped" : " · official eBay active checked"}${data.draftPriceSaved === true ? ` · draft price saved${Number(data.priceUpdatedCount || 0) > 1 ? ` across ${data.priceUpdatedCount} exact copies` : ""}` : " · existing draft price preserved"}.`
           : `${card.title}: no pricing-eligible exact eBay sold comp passed; seller pricing is required.`,
       );
       await load(queue || queueFromLocation());
@@ -1076,12 +1047,7 @@ export default function KingmakerPendingPage({
         }
         const suggestion = Number(data.suggestedPrice || 0);
         if (suggestion > 0) {
-          try {
-            await persistInstaCompSuggestion(card, suggestion, session.access_token);
-            priced += 1;
-          } catch (error) {
-            failures.push(`${card.title}: ${message(error)}`);
-          }
+          priced += 1;
         } else {
           noMarket += 1;
         }

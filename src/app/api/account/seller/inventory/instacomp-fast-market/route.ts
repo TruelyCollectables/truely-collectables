@@ -13,6 +13,11 @@ import {
   getConfiguredInstaCompMacUrl,
 } from "../../../../../../lib/instacomp-mac-credentials";
 import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
+import {
+  discountedListingPrice,
+  listingPromotionFromMetadata,
+} from "../../../../../../lib/listing-promotions";
+import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -139,6 +144,40 @@ function trustedIdentity(instaComp: JsonRecord) {
   );
 }
 
+function uniquePhysicalCopy(metadataValue: unknown) {
+  const metadata = record(metadataValue);
+  const asset = record(metadata.collectible_asset);
+  const instaComp = record(metadata.instacomp);
+  const ai = record(instaComp.manualIdentityLocked === true ? instaComp.manualIdentity : instaComp.ai);
+  return Boolean(
+    text(asset.exact_serial_number) ||
+      text(asset.grading_cert_number) ||
+      text(ai.serialNumber) ||
+      text(ai.certificationNumber) ||
+      text(ai.gradingCertNumber),
+  );
+}
+
+function pricingPatch(instaComp: JsonRecord, source: JsonRecord) {
+  return {
+    ...instaComp,
+    marketPrice: source.marketPrice,
+    suggestedPrice: source.suggestedPrice,
+    pricingStatus: source.pricingStatus,
+    pricingReason: source.pricingReason,
+    pricingAnalysis: source.pricingAnalysis,
+    reliableSoldCompCount: source.reliableSoldCompCount,
+    trustedForPricing: source.trustedForPricing,
+    soldCompEvidence: source.soldCompEvidence,
+    activeCompetition: source.activeCompetition,
+    activePricingEvidenceCount: source.activePricingEvidenceCount,
+    providerCoverage: source.providerCoverage,
+    exactMarketQueries: source.exactMarketQueries,
+    fastMarketLane: source.fastMarketLane,
+    pricingCheckedAt: source.pricingCheckedAt,
+  };
+}
+
 async function macSoldOnly(params: {
   title: string;
   ai: InstaCompAiResult;
@@ -201,7 +240,7 @@ export async function POST(request: NextRequest) {
     );
     let query = supabase
       .from("inventory_items")
-      .select("id,seller_account_id,title,price,metadata")
+      .select("id,legacy_product_id,seller_account_id,title,price,metadata")
       .eq("id", inventoryItemId)
       .eq("store_id", storeId);
     query = owner
@@ -283,12 +322,94 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    const { error: updateError } = await supabase
-      .from("inventory_items")
-      .update({ metadata: nextMetadata, updated_at: checkedAt })
-      .eq("id", item.id)
-      .eq("store_id", storeId);
-    if (updateError) throw updateError;
+    const fastPricing = record(nextMetadata.instacomp);
+    const groupKey = effectiveInstaCompPricingGroupKey(nextMetadata) || "";
+    const autoPrice = suggestedPrice > 0 && Number(item.price || 0) <= 0;
+    const applyGroup = autoPrice && Boolean(groupKey) && !uniquePhysicalCopy(nextMetadata);
+    let priceUpdatedCount = 0;
+    let grouped = false;
+
+    if (autoPrice) {
+      let candidates: Array<JsonRecord> = [item];
+      if (applyGroup) {
+        let groupQuery = supabase
+          .from("inventory_items")
+          .select("id,legacy_product_id,seller_account_id,price,metadata")
+          .eq("store_id", storeId);
+        groupQuery = owner
+          ? groupQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
+          : groupQuery.eq("seller_account_id", account.id);
+        const { data: ownedRows, error: groupReadError } = await groupQuery.range(0, 4999);
+        if (groupReadError) throw groupReadError;
+        candidates = (ownedRows || []).filter(
+          (candidate) => effectiveInstaCompPricingGroupKey(candidate.metadata) === groupKey,
+        );
+        grouped = candidates.length > 1;
+      }
+
+      for (const candidate of candidates) {
+        const candidateMetadata: JsonRecord = candidate.id === item.id ? record(nextMetadata) : record(candidate.metadata);
+        const candidateInstaComp = record(candidateMetadata.instacomp);
+        const mergedInstaComp = pricingPatch(candidateInstaComp, fastPricing);
+        const candidateAlreadyPriced = Number(candidate.price || 0) > 0;
+        const promotion = listingPromotionFromMetadata(candidateMetadata);
+        const effectivePrice = promotion.onSale
+          ? discountedListingPrice(suggestedPrice, promotion.discountPercent) || suggestedPrice
+          : suggestedPrice;
+        const promo = record(candidateMetadata.tcos_promo);
+        const pricedMetadata = {
+          ...candidateMetadata,
+          ...(promotion.onSale && !candidateAlreadyPriced
+            ? {
+                tcos_promo: {
+                  ...promo,
+                  original_price: suggestedPrice,
+                  sale_price: effectivePrice,
+                },
+              }
+            : {}),
+          instacomp: {
+            ...mergedInstaComp,
+            ...(candidateAlreadyPriced
+              ? {}
+              : {
+                  listingPrice: effectivePrice,
+                  pricingGroupBasePrice: suggestedPrice,
+                  listingPriceSource: "instacomp_fast_ebay",
+                  pricingChosenAt: checkedAt,
+                  pricingGroupKey: groupKey || null,
+                }),
+          },
+        };
+        const updatePayload = candidateAlreadyPriced
+          ? { metadata: pricedMetadata, updated_at: checkedAt }
+          : { price: effectivePrice, metadata: pricedMetadata, updated_at: checkedAt };
+        const { error: candidateUpdateError } = await supabase
+          .from("inventory_items")
+          .update(updatePayload)
+          .eq("id", candidate.id)
+          .eq("store_id", storeId);
+        if (candidateUpdateError) throw candidateUpdateError;
+        if (!candidateAlreadyPriced) {
+          priceUpdatedCount += 1;
+          if (candidate.legacy_product_id) {
+            const { error: productError } = await supabase
+              .from("products")
+              .update({ price: effectivePrice })
+              .eq("store_id", storeId)
+              .eq("id", candidate.legacy_product_id);
+            if (productError) throw productError;
+          }
+        }
+      }
+    } else {
+      const { error: updateError } = await supabase
+        .from("inventory_items")
+        .update({ metadata: nextMetadata, updated_at: checkedAt })
+        .eq("id", item.id)
+        .eq("store_id", storeId);
+      if (updateError) throw updateError;
+    }
 
     return NextResponse.json({
       success: true,
@@ -304,7 +425,11 @@ export async function POST(request: NextRequest) {
       activeCompetition: active,
       activeSearchSkipped: pricingSold.length >= MIN_EXACT_SOLD,
       minimumExactSoldBeforeActiveSkip: MIN_EXACT_SOLD,
-      priceSaveRecommended: suggestedPrice > 0 && Number(item.price || 0) <= 0,
+      priceSaveRecommended: false,
+      draftPriceSaved: priceUpdatedCount > 0,
+      priceUpdatedCount,
+      groupedPriceSave: grouped,
+      existingDraftPricePreserved: suggestedPrice > 0 && Number(item.price || 0) > 0,
       durationMs: Date.now() - startedAt,
       nothingPublished: true,
     });
