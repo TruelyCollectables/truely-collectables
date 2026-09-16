@@ -96,8 +96,15 @@ function uniquePhysical(metadataValue: unknown) {
 
 function liveChannelRow(row: any) {
   const dual = record(record(row.metadata).dual_marketplace);
+  const website = record(dual.website);
   const ebay = record(dual.ebay);
-  return row.status === "active" || text(ebay.status) === "active";
+  const mercari = record(dual.mercari);
+  return (
+    row.status === "active" ||
+    text(website.status) === "active" ||
+    text(ebay.status) === "active" ||
+    text(mercari.status) === "active"
+  );
 }
 
 function generatedSku(row: any) {
