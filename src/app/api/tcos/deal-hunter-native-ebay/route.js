@@ -16,6 +16,7 @@ const SCOPES = new Set([
   "wnba",
   "ivan_demidov",
   "matvei_michkov_young_guns",
+  "fernando_mendoza_nfl",
   "baseball_prospects",
   "signed_baseballs",
   "music_comedy_autographs",
@@ -137,6 +138,10 @@ function safeListing(entry, family, screening) {
     tax: entry.tax ?? null,
     sellerName: entry.sellerName || raw.seller?.username || null,
     buyingOptions,
+    bestOfferEnabled:
+      buyingOptions.includes("BEST_OFFER") ||
+      raw.bestOfferEnabled === true ||
+      raw.bestOfferTerms?.bestOfferEnabled === true,
     condition: raw.condition || raw.conditionId || null,
     itemCreationDate,
     itemEndDate,

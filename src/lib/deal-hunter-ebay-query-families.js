@@ -22,6 +22,11 @@ export const DEFAULT_BASEBALL_PROSPECTS = Object.freeze([
 
 const COLLEGE_OR_PRE_WNBA =
   /\b(college|ncaa|bowman university|bowman u|draft picks?|uconn|connecticut huskies|usc trojans|notre dame|south carolina gamecocks|tcu horned frogs|iowa hawkeyes|maryland terrapins)\b/i;
+const FERNANDO_MENDOZA_COLLEGE_PRODUCT =
+  /\b(college|ncaa|bowman university|bowman u|draft picks?|college uniform|college jersey|indiana hoosiers?|hoosiers?|california golden bears?|cal golden bears?|golden bears)\b/i;
+const FERNANDO_MENDOZA_PRO_PRODUCT =
+  /\b(nfl|las vegas raiders|lv raiders|raiders)\b/i;
+const ROOKIE_SIGNAL = /\b(rookie|rc)\b/i;
 const PROHIBITED_LISTING =
   /\b(custom|reprint|facsimile|digital card|nft|mystery|break spot|box break|case break|replica)\b/i;
 const SELECTOR_OR_MULTI_VARIATION_LISTING =
@@ -354,6 +359,39 @@ function ivanFamilies() {
   ];
 }
 
+function fernandoMendozaNflFamilies() {
+  const player = "Fernando Mendoza";
+  return [
+    {
+      familyId: "fernando-mendoza.nfl-rookies",
+      scope: "fernando_mendoza_nfl",
+      lane: "nfl_rookie_cards",
+      watchedPerson: player,
+      itemType: "professional_nfl_rookie_card",
+      query: "Fernando Mendoza Las Vegas Raiders NFL rookie card",
+      required: true,
+    },
+    {
+      familyId: "fernando-mendoza.nfl-premium-rookies",
+      scope: "fernando_mendoza_nfl",
+      lane: "nfl_rookie_premium",
+      watchedPerson: player,
+      itemType: "professional_nfl_rookie_parallel",
+      query: "Fernando Mendoza Raiders NFL rookie parallel numbered SSP refractor prizm optic",
+      required: true,
+    },
+    {
+      familyId: "fernando-mendoza.nfl-rookie-autographs",
+      scope: "fernando_mendoza_nfl",
+      lane: "nfl_rookie_autograph",
+      watchedPerson: player,
+      itemType: "professional_nfl_rookie_autograph_memorabilia",
+      query: "Fernando Mendoza Raiders NFL rookie autograph auto patch numbered",
+      required: true,
+    },
+  ];
+}
+
 function michkovYoungGunsFamilies() {
   const definitions = [
     ["exact-young-guns", "Matvei Michkov Young Guns rookie"],
@@ -506,6 +544,9 @@ export function buildDealHunterEbayQueryFamilies({
   if (normalizedScope === "matvei_michkov_young_guns") {
     return michkovYoungGunsFamilies();
   }
+  if (normalizedScope === "fernando_mendoza_nfl") {
+    return fernandoMendozaNflFamilies();
+  }
   if (normalizedScope === "baseball_prospects") {
     return prospectFamilies(prospectPlayers);
   }
@@ -520,6 +561,7 @@ export function buildDealHunterEbayQueryFamilies({
       ...wnbaFamilies(),
       ...ivanFamilies(),
       ...michkovYoungGunsFamilies(),
+      ...fernandoMendozaNflFamilies(),
       ...prospectFamilies(prospectPlayers),
       ...signedBaseballFamilies(prospectPlayers),
       ...musicComedyAutographFamilies(),
@@ -584,6 +626,38 @@ export function screenDealHunterEbayTitle({
     }
     if (!analysis.categoryLooksLikeCard) {
       reviewReasons.push("possible_wrong_category_listing_verify_item");
+    }
+  }
+
+  if (family?.scope === "fernando_mendoza_nfl") {
+    const buyingOptions = Array.isArray(raw?.buyingOptions)
+      ? raw.buyingOptions.map((option) => String(option).toUpperCase())
+      : [];
+    const bestOfferEnabled =
+      buyingOptions.includes("BEST_OFFER") ||
+      raw?.bestOfferEnabled === true ||
+      raw?.bestOfferTerms?.bestOfferEnabled === true;
+    const fixedPrice = buyingOptions.includes("FIXED_PRICE");
+
+    if (!analysis.targetMatch.matched || !analysis.targetMatchedInTitle) {
+      rejectionReasons.push("fernando_mendoza_not_matched_in_title");
+    }
+    if (FERNANDO_MENDOZA_COLLEGE_PRODUCT.test(value)) {
+      rejectionReasons.push("college_or_pre_nfl_product");
+    }
+    if (!FERNANDO_MENDOZA_PRO_PRODUCT.test(evidenceText)) {
+      rejectionReasons.push("nfl_product_not_proven");
+    }
+    if (!ROOKIE_SIGNAL.test(value)) {
+      rejectionReasons.push("rookie_card_not_claimed");
+    }
+    if (buyingOptions.includes("AUCTION")) {
+      rejectionReasons.push("auction_not_allowed");
+    } else if (!fixedPrice && !bestOfferEnabled) {
+      rejectionReasons.push("fixed_price_or_best_offer_required");
+    }
+    if (!analysis.categoryLooksLikeCard) {
+      rejectionReasons.push("sports_card_category_not_proven");
     }
   }
 
@@ -657,3 +731,5 @@ export function extractEbayItemId(value) {
 
 export const DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT = wnbaFamilies().length;
 export const DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT = 8;
+export const DEAL_HUNTER_FERNANDO_MENDOZA_NFL_QUERY_FAMILY_COUNT =
+  fernandoMendozaNflFamilies().length;

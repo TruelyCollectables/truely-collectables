@@ -3,6 +3,7 @@ import { buildDealHunterEbaySearchUrl } from "../src/lib/deal-hunter-ebay-native
 import {
   buildDealHunterEbayQueryFamilies,
   DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT,
+  DEAL_HUNTER_FERNANDO_MENDOZA_NFL_QUERY_FAMILY_COUNT,
   DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT,
   extractEbayItemId,
   parseDealHunterPlayers,
@@ -86,6 +87,61 @@ assert.equal(
   false,
 );
 
+const mendoza = buildDealHunterEbayQueryFamilies({
+  scope: "fernando_mendoza_nfl",
+});
+assert.equal(mendoza.length, DEAL_HUNTER_FERNANDO_MENDOZA_NFL_QUERY_FAMILY_COUNT);
+assert.equal(mendoza.length, 3);
+assert.ok(mendoza.every((family) => family.watchedPerson === "Fernando Mendoza"));
+
+for (const test of [
+  {
+    title: "2026 Fernando Mendoza Las Vegas Raiders NFL Rookie RC #1",
+    options: ["FIXED_PRICE"],
+    accepted: true,
+  },
+  {
+    title: "2026 Fernando Mendoza Raiders NFL Rookie RC Silver /99",
+    options: ["BEST_OFFER"],
+    accepted: true,
+  },
+  {
+    title: "2026 Fernando Mendoza Raiders NFL Rookie RC Auto",
+    options: ["AUCTION", "BEST_OFFER"],
+    accepted: false,
+    reason: "auction_not_allowed",
+  },
+  {
+    title: "2026 Bowman University Fernando Mendoza Indiana Hoosiers Rookie RC",
+    options: ["FIXED_PRICE"],
+    accepted: false,
+    reason: "college_or_pre_nfl_product",
+  },
+  {
+    title: "2026 Fernando Mendoza Las Vegas Raiders NFL Card",
+    options: ["FIXED_PRICE"],
+    accepted: false,
+    reason: "rookie_card_not_claimed",
+  },
+  {
+    title: "2026 Fernando Mendoza Rookie RC",
+    options: ["FIXED_PRICE"],
+    accepted: false,
+    reason: "nfl_product_not_proven",
+  },
+]) {
+  const screened = screenDealHunterEbayTitle({
+    title: test.title,
+    raw: {
+      buyingOptions: test.options,
+      categories: [{ categoryName: "Sports Trading Cards" }],
+    },
+    family: mendoza[0],
+  });
+  assert.equal(screened.accepted, test.accepted, test.title);
+  if (test.reason) assert.ok(screened.rejectionReasons.includes(test.reason), test.title);
+}
+
 const players = parseDealHunterPlayers(
   "Jesus Made, Leo De Vries, <script>, Jesus Made",
 );
@@ -97,6 +153,7 @@ assert.equal(
   DEAL_HUNTER_WNBA_QUERY_FAMILY_COUNT +
     3 +
     DEAL_HUNTER_MICHKOV_QUERY_FAMILY_COUNT +
+    DEAL_HUNTER_FERNANDO_MENDOZA_NFL_QUERY_FAMILY_COUNT +
     players.length * 2 +
     players.length +
     8,
@@ -259,10 +316,16 @@ console.log(
       lotReviewCovered: true,
       wrongCategoryReviewCovered: true,
       michkovYoungGunsQueryFamilies: michkov.length,
+      fernandoMendozaNflQueryFamilies: mendoza.length,
+      fernandoMendozaCollegeRejected: true,
+      fernandoMendozaAuctionRejected: true,
+      fernandoMendozaFixedPriceAccepted: true,
+      fernandoMendozaBestOfferAccepted: true,
       fixedScopes: [
         "wnba",
         "ivan_demidov",
         "matvei_michkov_young_guns",
+        "fernando_mendoza_nfl",
         "baseball_prospects",
         "signed_baseballs",
         "all",
