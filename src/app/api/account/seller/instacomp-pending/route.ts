@@ -935,6 +935,7 @@ export async function GET(request: Request) {
       const dualMarketplace = recordValue(metadata.dual_marketplace);
       const dualWebsite = recordValue(dualMarketplace.website);
       const dualEbay = recordValue(dualMarketplace.ebay);
+      const dualMercari = recordValue(dualMarketplace.mercari);
       const cardIdentity = recordValue(metadata.card_identity);
       const legacyCardIdentity = recordValue(metadata.cardIdentity);
       const saleIdentity = recordValue(metadata.sale_identity);
@@ -1495,6 +1496,8 @@ export async function GET(request: Request) {
             ebayCategoryId: textValue(dualEbay.categoryId) || "261328",
             ebayLastError: textValue(dualEbay.lastError),
             ebayLastAttemptAt: textValue(dualEbay.lastAttemptAt),
+            mercariStatus: textValue(dualMercari.status) || "draft",
+            mercariSourceListingId: textValue(dualMercari.sourceListingId),
             calculatedFrom: storedEbayPrice
               ? "saved_ebay_price"
               : savedListingPrice

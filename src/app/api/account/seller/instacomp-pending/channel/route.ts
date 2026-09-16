@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type UnknownRecord = Record<string, unknown>;
-type ChannelAction = "save" | "publish-website" | "publish-ebay" | "publish-both";
+type ChannelAction = "save" | "publish-website" | "publish-ebay" | "publish-both" | "prepare-mercari";
 
 const OWNER_EMAILS = new Set([
   "sales@truelycollectables.com",
@@ -215,7 +215,7 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || "save") as ChannelAction;
-    if (!["save", "publish-website", "publish-ebay", "publish-both"].includes(action)) {
+    if (!["save", "publish-website", "publish-ebay", "publish-both", "prepare-mercari"].includes(action)) {
       return Response.json({ success: false, error: "Unsupported channel action." }, { status: 400 });
     }
     const inventoryItemId = String(body.inventoryItemId || "").trim();
@@ -381,6 +381,7 @@ export async function POST(request: Request) {
     const dual = record(metadata.dual_marketplace);
     const storedWebsite = record(dual.website);
     const storedEbay = record(dual.ebay);
+    const storedMercari = record(dual.mercari);
     const generated = createDualMarketplaceListingDraft({
       title: String(keeper.title || "Trading Card"),
       description: keeper.description,
@@ -413,7 +414,7 @@ export async function POST(request: Request) {
     const existingEbayListingId =
       text(storedEbay.listingId, 120) || text(linkedProduct?.ebay_item_id, 120);
     const needsNewEbayListing =
-      (action === "publish-ebay" || action === "publish-both") && !existingEbayListingId;
+      (action === "publish-ebay" || action === "publish-both" || action === "prepare-mercari") && !existingEbayListingId;
     const needsWebsitePublication = action === "publish-website" || action === "publish-both";
     if (
       needsWebsitePublication &&
@@ -498,6 +499,12 @@ export async function POST(request: Request) {
           bestOfferEnabled,
           status: text(storedEbay.status, 40) || "draft",
         },
+        mercari: {
+          ...storedMercari,
+          price: money(storedMercari.price) || ebayPrice,
+          status: text(storedMercari.status, 40) || "draft",
+          importMode: text(storedMercari.importMode, 80) || "mercari_cross_listing_importer",
+        },
         commercialGroup: {
           pricingGroupKey: groupKey,
           keeperInventoryItemId: keeper.id,
@@ -580,11 +587,20 @@ export async function POST(request: Request) {
 
     let ebayResult: any = null;
     let websitePublished = false;
+    let mercariPrepared = false;
     const errors: string[] = [];
 
-    if (action === "publish-ebay" || action === "publish-both") {
+    if (action === "publish-ebay" || action === "publish-both" || action === "prepare-mercari") {
       if (!isOwner) {
         errors.push("eBay publish from this KINGMAKER flow is currently limited to the store-owner account.");
+      } else if (action === "prepare-mercari" && existingEbayListingId) {
+        ebayResult = {
+          listingId: existingEbayListingId,
+          offerId: text(storedEbay.offerId, 120) || null,
+          revisedExisting: false,
+          reusedExistingListing: true,
+          warnings: [],
+        };
       } else if (!existingEbayListingId && !cardCondition && generated.ebayCondition === "USED_VERY_GOOD") {
         errors.push("Review and save the raw card condition before publishing a new eBay listing.");
       } else {
@@ -675,7 +691,34 @@ export async function POST(request: Request) {
       }
     }
 
-    if ((action === "publish-ebay" || action === "publish-both") && !ebayResult && errors.length) {
+    if (action === "prepare-mercari" && ebayResult?.listingId) {
+      const preparedAt = new Date().toISOString();
+      const latestDual = record(nextMetadata.dual_marketplace);
+      nextMetadata.dual_marketplace = {
+        ...latestDual,
+        mercari: {
+          ...record(latestDual.mercari),
+          price: ebayPrice,
+          status: "ready_to_import",
+          importMode: "mercari_cross_listing_importer",
+          sourceMarketplace: "ebay",
+          sourceListingId: ebayResult.listingId,
+          sourceOfferId: ebayResult.offerId || null,
+          preparedAt,
+          importedAt: null,
+          lastError: null,
+        },
+      };
+      await supabase
+        .from("inventory_items")
+        .update({ metadata: nextMetadata, updated_at: preparedAt })
+        .eq("store_id", storeId)
+        .eq("id", keeper.id)
+        .throwOnError();
+      mercariPrepared = true;
+    }
+
+    if ((action === "publish-ebay" || action === "publish-both" || action === "prepare-mercari") && !ebayResult && errors.length) {
       const latestDual = record(nextMetadata.dual_marketplace);
       const ebayError = errors[errors.length - 1];
       nextMetadata.dual_marketplace = {
@@ -750,7 +793,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const anyPublished = websitePublished || Boolean(ebayResult);
+    const anyPublished = websitePublished || Boolean(ebayResult) || mercariPrepared;
     const archivedDuplicateCount = anyPublished
       ? await archiveDuplicateDrafts({
           supabase,
@@ -786,6 +829,9 @@ export async function POST(request: Request) {
         ebayUpdated: ebayResult?.revisedExisting === true,
         ebayListingId: ebayResult?.listingId || null,
         ebayOfferId: ebayResult?.offerId || null,
+        mercariPrepared,
+        mercariImportMode: mercariPrepared ? "mercari_cross_listing_importer" : null,
+        mercariSourceListingId: mercariPrepared ? ebayResult?.listingId || null : null,
         websiteProductId: linkedProductId,
         errors,
       },

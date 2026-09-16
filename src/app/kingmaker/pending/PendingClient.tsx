@@ -129,6 +129,8 @@ type PendingCard = {
       ebayCategoryId?: string | null;
       ebayLastError?: string | null;
       ebayLastAttemptAt?: string | null;
+      mercariStatus?: string | null;
+      mercariSourceListingId?: string | null;
       calculatedFrom?: string | null;
     } | null;
     reliableSoldCompCount?: number;
@@ -224,7 +226,7 @@ type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "l
 type PendingQueue = "listings" | "verification";
 type ListingFolder = "receipt" | "pending" | "website" | "ebay" | "both" | "investment";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
-type ChannelAction = "publish-website" | "publish-ebay" | "publish-both";
+type ChannelAction = "publish-website" | "publish-ebay" | "publish-both" | "prepare-mercari";
 
 function queueFromLocation(): PendingQueue | null {
   if (typeof window === "undefined") return "listings";
@@ -1146,9 +1148,13 @@ export default function KingmakerPendingPage({
         return;
       }
     }
-    if (action === "publish-ebay" || action === "publish-both") {
+    if (action === "publish-ebay" || action === "publish-both" || action === "prepare-mercari") {
       const missingRawCondition = targets.filter((card) => {
         if (card.instaComp.gradingCompany) return false;
+        if (action === "prepare-mercari") {
+          const status = String(card.instaComp.channelPricing?.ebayStatus || "").toLowerCase();
+          if (status === "active" || status === "linked") return false;
+        }
         const condition = String(
           channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? "",
         ).trim();
@@ -1192,18 +1198,26 @@ export default function KingmakerPendingPage({
         ? "website"
         : action === "publish-ebay"
           ? "eBay"
-          : "website + eBay";
-    if (!window.confirm(`List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}? Group quantities and the channel prices shown on screen will be used.`)) return;
+          : action === "prepare-mercari"
+            ? "Mercari bulk import queue"
+            : "website + eBay";
+    const confirmation = action === "prepare-mercari"
+      ? `Prepare ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} for Mercari bulk import? Existing eBay listings will be reused; cards not yet on eBay will be listed there first so Mercari can import them.`
+      : `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}? Group quantities and the channel prices shown on screen will be used.`;
+    if (!window.confirm(confirmation)) return;
 
     setBusyId(targets.length === 1 ? targets[0].inventoryItemId : "bulk");
     setPageError("");
-    setNotice(`Publishing ${targets.length} group${targets.length === 1 ? "" : "s"} to ${label}…`);
+    setNotice(action === "prepare-mercari"
+      ? `Preparing ${targets.length} group${targets.length === 1 ? "" : "s"} for Mercari bulk import…`
+      : `Publishing ${targets.length} group${targets.length === 1 ? "" : "s"} to ${label}…`);
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
       let completed = 0;
       let websiteCompleted = 0;
       let ebayCompleted = 0;
+      let mercariPreparedCount = 0;
       const failures: string[] = [];
       for (const card of targets) {
         const channel = card.instaComp.channelPricing;
@@ -1231,18 +1245,23 @@ export default function KingmakerPendingPage({
         const data = await response.json().catch(() => ({}));
         const websitePublished = data.websitePublished === true;
         const ebayPublished = data.ebayPublished === true;
+        const mercariPrepared = data.mercariPrepared === true;
         if (websitePublished) websiteCompleted += 1;
         if (ebayPublished) ebayCompleted += 1;
+        if (mercariPrepared) mercariPreparedCount += 1;
         const requestedChannelsPublished =
           action === "publish-website"
             ? websitePublished
             : action === "publish-ebay"
               ? ebayPublished
-              : websitePublished && ebayPublished;
+              : action === "prepare-mercari"
+                ? mercariPrepared
+                : websitePublished && ebayPublished;
         if (!response.ok || data.success !== true || !requestedChannelsPublished) {
           const partialChannels = [
             websitePublished ? "website LIVE" : null,
             ebayPublished ? "eBay LIVE" : null,
+            mercariPrepared ? "Mercari READY" : null,
           ].filter(Boolean);
           const detail = data.error || data.errors?.join("; ") || "publish failed";
           failures.push(
@@ -1257,10 +1276,14 @@ export default function KingmakerPendingPage({
           ? `Website ${websiteCompleted}/${targets.length}`
           : action === "publish-ebay"
             ? `eBay ${ebayCompleted}/${targets.length}`
-            : `Website ${websiteCompleted}/${targets.length} · eBay ${ebayCompleted}/${targets.length}`;
+            : action === "prepare-mercari"
+              ? `Mercari ready ${mercariPreparedCount}/${targets.length}`
+              : `Website ${websiteCompleted}/${targets.length} · eBay ${ebayCompleted}/${targets.length}`;
       const failureSummary = failures.length ? ` ${failures[0]}` : "";
       setNotice(
-        `Publish result: ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} fully completed · ${channelSummary}.${failureSummary}`,
+        action === "prepare-mercari"
+          ? `Mercari preparation: ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} ready. Open Mercari on desktop and use its eBay cross-listing importer; Mercari will create drafts for review.${failureSummary}`
+          : `Publish result: ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} fully completed · ${channelSummary}.${failureSummary}`,
       );
       if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
       setSelectedIds(new Set());
@@ -1678,7 +1701,15 @@ export default function KingmakerPendingPage({
                 <button
                   type="button"
                   disabled={!selectedIds.size || Boolean(busyId)}
-                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-both")}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "prepare-mercari")}
+                  className="rounded-lg bg-fuchsia-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Prepare Selected → Mercari
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-both") }
                   className="rounded-lg bg-neutral-950 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
                 >
                   List Selected → Both
@@ -2138,6 +2169,7 @@ export default function KingmakerPendingPage({
                       <div className="flex flex-wrap gap-2 text-xs font-black">
                         <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing?.websiteStatus || "draft"}</span>
                         <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">eBay: {channelPricing?.ebayStatus || "draft"}</span>
+                        <span className="rounded-full bg-fuchsia-100 px-3 py-1 text-fuchsia-900">Mercari: {channelPricing?.mercariStatus || "draft"}</span>
                         {ebayCardConditionRequired && !ebayCardConditionReady ? (
                           <span className="rounded-full bg-red-100 px-3 py-1 text-red-900">eBay blocked: choose Card Condition</span>
                         ) : null}
@@ -2349,7 +2381,15 @@ export default function KingmakerPendingPage({
                         </button>
                         <button
                           type="button"
-                          onClick={() => void publishChannels([card], "publish-both")}
+                          onClick={() => void publishChannels([card], "prepare-mercari")}
+                          disabled={publishEbayPrice <= 0 || (!ebayListed && !ebayCardConditionReady) || Boolean(busyId) || channelPricing?.mercariStatus === "ready_to_import"}
+                          className="rounded-xl bg-fuchsia-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {channelPricing?.mercariStatus === "ready_to_import" ? "Mercari Ready to Import" : `Prepare Mercari · ${money(publishEbayPrice)}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-both") }
                           disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || websitePublishBlocked || !ebayCardConditionReady || Boolean(busyId)}
                           className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
