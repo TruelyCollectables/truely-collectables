@@ -35,15 +35,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const data = await postInstaCompMacAccounting("/v1/kingmaker/accounting/receive", {
-      card_uuid: text(body.cardUuid),
-      inventory_item_id: inventoryItemId,
-      scan_id: text(body.scanId),
-      acquisition_item_id: acquisitionItemId,
-      disposition,
-    });
-    if (data.status !== "received") return Response.json(data, { status: 409 });
-
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const isOwner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
@@ -60,6 +51,19 @@ export async function POST(request: Request) {
     const { data: item, error: readError } = await itemQuery.maybeSingle();
     if (readError) throw readError;
     if (!item) return Response.json({ error: "Inventory item not found." }, { status: 404 });
+
+    // Prove that this seller can act on the target storefront row before
+    // advancing the Mac-local acquisition ledger to received. Mac remains the
+    // receive authority; this preflight only prevents an unauthorized/stale
+    // inventory id from creating a split-brain lifecycle.
+    const data = await postInstaCompMacAccounting("/v1/kingmaker/accounting/receive", {
+      card_uuid: text(body.cardUuid),
+      inventory_item_id: inventoryItemId,
+      scan_id: text(body.scanId),
+      acquisition_item_id: acquisitionItemId,
+      disposition,
+    });
+    if (data.status !== "received") return Response.json(data, { status: 409 });
 
     const metadata = record(item.metadata);
     const currentLifecycle = record(metadata.inventory_lifecycle);

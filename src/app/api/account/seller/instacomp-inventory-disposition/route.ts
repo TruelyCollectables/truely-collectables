@@ -24,12 +24,6 @@ export async function POST(request: Request) {
     const disposition = body.disposition === "investment_stash" ? "investment_stash" : "resale";
     if (!inventoryItemId) return Response.json({ error: "Inventory item is required." }, { status: 400 });
 
-    const data = await postInstaCompMacAccounting("/v1/kingmaker/accounting/inventory-disposition", {
-      inventory_item_id: inventoryItemId,
-      disposition,
-    });
-    if (data.status !== "received") return Response.json(data, { status: 409 });
-
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const isOwner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
@@ -46,6 +40,14 @@ export async function POST(request: Request) {
     const { data: item, error: readError } = await itemQuery.maybeSingle();
     if (readError) throw readError;
     if (!item) return Response.json({ error: "Inventory item not found." }, { status: 404 });
+
+    // Ownership/existence must be proven before changing Mac-local lifecycle truth.
+    const data = await postInstaCompMacAccounting("/v1/kingmaker/accounting/inventory-disposition", {
+      inventory_item_id: inventoryItemId,
+      disposition,
+    });
+    if (data.status !== "received") return Response.json(data, { status: 409 });
+
     const metadata = record(item.metadata);
     const current = record(metadata.inventory_lifecycle);
     const nextMetadata = {
