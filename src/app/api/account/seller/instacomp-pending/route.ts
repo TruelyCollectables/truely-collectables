@@ -571,6 +571,7 @@ export async function GET(request: Request) {
       requestUrl.searchParams.get("batch") || "",
     ).trim();
     const requestedFolder = requestUrl.searchParams.get("folder");
+    const requestedFocus = String(requestUrl.searchParams.get("focus") || "").trim();
     const queue: InstaCompPendingQueue =
       requestedQueue === "verification" ? "verification" : "listings";
     const folder: InstaCompListingFolder =
@@ -620,6 +621,7 @@ export async function GET(request: Request) {
         textValue(recordValue(metadata.listingWorkflow).queue) ||
         textValue(recordValue(metadata.listing_workflow).queue) ||
         textValue(recordValue(metadata.pending_verification).status);
+      const hasScanPairReceipt = Boolean(textValue(instaComp.imagePairSha256));
       const hasStoredImageHint =
         textValue(
           instaComp.recoveredImageUrls &&
@@ -637,6 +639,7 @@ export async function GET(request: Request) {
         !hasInstaCompSource &&
         !hasStoredIdentity &&
         !hasStoredImageHint &&
+        !hasScanPairReceipt &&
         queueHint !== "pending_verification" &&
         queueHint !== "pending"
       ) {
@@ -646,7 +649,8 @@ export async function GET(request: Request) {
         queueHint === "pending_verification" ||
         queueHint === "pending" ||
         hasStoredImageHint ||
-        hasStoredIdentity
+        hasStoredIdentity ||
+        hasScanPairReceipt
       ) {
         return true;
       }
@@ -788,27 +792,29 @@ export async function GET(request: Request) {
           ) === "investment",
       ).length,
     };
-    const rows = scopedInstaCompRows.filter((row: any) => {
-      const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
-      if (rowQueue !== queue) return false;
-      if (queue === "verification") return rowIsUnlistedEverywhere(row);
-      if (
-        listingFolderFromMetadata(
-          row.metadata,
-          rowHasLegacyEbayListing(row),
-        ) !== folder
-      )
-        return false;
-      const metadata = recordValue(row.metadata);
-      const instaComp = recordValue(metadata.instacomp);
-      return (
-        instaComp.identityComplete === true ||
-        textValue(instaComp.lastStatus) === "identity_complete" ||
-        textValue(instaComp.lastStatus) === "review_required" ||
-        textValue(instaComp.pricingStatus) ===
-          "identity_complete_pricing_pending"
-      );
-    });
+    const rows = requestedFocus
+      ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)
+      : scopedInstaCompRows.filter((row: any) => {
+          const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
+          if (rowQueue !== queue) return false;
+          if (queue === "verification") return rowIsUnlistedEverywhere(row);
+          if (
+            listingFolderFromMetadata(
+              row.metadata,
+              rowHasLegacyEbayListing(row),
+            ) !== folder
+          )
+            return false;
+          const metadata = recordValue(row.metadata);
+          const instaComp = recordValue(metadata.instacomp);
+          return (
+            instaComp.identityComplete === true ||
+            textValue(instaComp.lastStatus) === "identity_complete" ||
+            textValue(instaComp.lastStatus) === "review_required" ||
+            textValue(instaComp.pricingStatus) ===
+              "identity_complete_pricing_pending"
+          );
+        });
 
     const localCertifiedPricingRows = loadLocalCertifiedPricingRows();
 

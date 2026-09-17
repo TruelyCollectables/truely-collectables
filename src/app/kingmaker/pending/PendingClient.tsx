@@ -587,8 +587,15 @@ export default function KingmakerPendingPage({
           accessTokenHint,
         };
       }
+      const locationParams =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search)
+          : new URLSearchParams();
+      const batch = locationParams.get("batch");
+      const focus = locationParams.get("focus");
+      const extraParams = `${batch ? `&batch=${encodeURIComponent(batch)}` : ""}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`;
       const [cardsResult, statusResult] = await Promise.allSettled([
-        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}&folder=${requestedFolder}${typeof window !== "undefined" ? (() => { const batch = new URLSearchParams(window.location.search).get("batch"); return batch ? `&batch=${encodeURIComponent(batch)}` : ""; })() : ""}`, { headers, cache: "no-store" }),
+        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}&folder=${requestedFolder}${extraParams}`, { headers, cache: "no-store" }),
         fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
       ]);
       const cardsResponse = cardsResult.status === "fulfilled" ? cardsResult.value : null;
@@ -1668,6 +1675,7 @@ export default function KingmakerPendingPage({
                 const nextUrl = new URL(window.location.href);
                 nextUrl.searchParams.set("queue", "listings");
                 nextUrl.searchParams.set("folder", value);
+                nextUrl.searchParams.delete("focus");
                 router.replace(`${nextUrl.pathname}${nextUrl.search}`);
                 setQueue("listings");
                 setFolder(value);
@@ -1689,6 +1697,8 @@ export default function KingmakerPendingPage({
               setEditingId(null);
               const nextUrl = new URL(window.location.href);
               nextUrl.searchParams.set("queue", "verification");
+              nextUrl.searchParams.set("folder", "pending");
+              nextUrl.searchParams.delete("focus");
               router.replace(`${nextUrl.pathname}${nextUrl.search}`);
               setQueue("verification");
             }}

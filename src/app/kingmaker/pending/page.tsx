@@ -60,16 +60,19 @@ export default async function KingmakerPendingPage({
       : "pending";
   const dataFolder = folder === "receipt" ? "pending" : folder;
   const batch = typeof resolvedSearchParams.batch === "string" ? resolvedSearchParams.batch.trim() : "";
+  const focus = typeof resolvedSearchParams.focus === "string" ? resolvedSearchParams.focus.trim() : "";
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.getAll().map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const response = await getPendingCards(
-    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${dataFolder}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}`, {
+    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${dataFolder}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`, {
       headers: cookieHeader ? { cookie: cookieHeader } : undefined,
     }),
   ).catch(() => null);
   const data = response ? await response.json().catch(() => ({})) : {};
   const items = Array.isArray(data.items)
-    ? (data.items as PendingCard[]).filter(hasValidPair)
+    ? focus
+      ? (data.items as PendingCard[])
+      : (data.items as PendingCard[]).filter(hasValidPair)
     : [];
   void frontBackRoute;
   return (

@@ -18,6 +18,8 @@ type IntakeResult = {
   cardUuid?: string | null;
   inventoryItemId?: string | null;
   title?: string | null;
+  reviewHref?: string | null;
+  resumedExisting?: boolean;
   ai?: Record<string, unknown> | null;
   checklistDecision?: Record<string, unknown> | null;
   parallelDecision?: Record<string, unknown> | null;
@@ -110,6 +112,10 @@ function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
   if (card.status === "working") return "Orienting with Mac archive + exact comping";
   if (card.status === "pending") return "Exact identity + InstaComp pricing complete";
+  if (card.status === "review" && card.result?.resumedExisting)
+    return "Existing scan resumed — saved for review";
+  if (card.status === "review" && card.result?.code?.startsWith("DUPLICATE"))
+    return "Already in inventory — no duplicate created";
   if (card.status === "review") return "Saved to Pending — review required";
   return "Stopped safely";
 }
@@ -460,7 +466,10 @@ export default function KingmakerInstaCompQueue() {
                   ) : null}
                   {card.result?.inventoryItemId ? (
                     <Link
-                      href="/kingmaker/listings"
+                      href={
+                        card.result.reviewHref ||
+                        `/kingmaker/listings?focus=${encodeURIComponent(card.result.inventoryItemId)}`
+                      }
                       className="mt-3 inline-flex rounded-xl bg-white px-4 py-2 text-sm font-black text-slate-950"
                     >
                       Review in Master Listings →

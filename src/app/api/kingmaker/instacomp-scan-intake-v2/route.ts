@@ -4,6 +4,7 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../lib/account-auth";
+import { instaCompPendingQueueFromMetadata } from "../../../../lib/instacomp-pending-queue";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { POST as runVerifiedPricing } from "../../account/seller/inventory/instacomp-verified/route";
@@ -53,6 +54,41 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
 }
 
+function masterListingFolderFromMetadata(metadataValue: unknown) {
+  const metadata = objectRecord(metadataValue);
+  const lifecycle = objectRecord(metadata.inventory_lifecycle);
+  if (
+    text(lifecycle.disposition) === "investment_stash" ||
+    text(lifecycle.state) === "investment_stash"
+  ) {
+    return "investment";
+  }
+  const dual = objectRecord(metadata.dual_marketplace);
+  const website = objectRecord(dual.website);
+  const ebay = objectRecord(dual.ebay);
+  const mercari = objectRecord(dual.mercari);
+  const websiteActive = text(website.status) === "active";
+  const ebayActive = ["active", "linked"].includes(text(ebay.status) || "");
+  const mercariActive = ["active", "linked", "live"].includes(
+    text(mercari.status) || "",
+  );
+  if (websiteActive && ebayActive && mercariActive) return "all3";
+  if (websiteActive && ebayActive) return "both";
+  if (websiteActive && mercariActive) return "website_mercari";
+  if (ebayActive && mercariActive) return "ebay_mercari";
+  if (websiteActive) return "website";
+  if (ebayActive) return "ebay";
+  if (mercariActive) return "mercari";
+  return "pending";
+}
+
+function masterListingReviewHref(inventoryItemId: string, metadata: unknown) {
+  const queue = instaCompPendingQueueFromMetadata(metadata);
+  const folder = queue === "verification" ? "pending" : masterListingFolderFromMetadata(metadata);
+  const params = new URLSearchParams({ queue, folder, focus: inventoryItemId });
+  return `/kingmaker/listings?${params.toString()}`;
+}
+
 function forwardedHeaders(request: NextRequest, contentType?: string) {
   const headers = new Headers();
   const authorization = request.headers.get("authorization");
@@ -66,6 +102,8 @@ function forwardedHeaders(request: NextRequest, contentType?: string) {
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   let inventoryItemId: string | null = null;
+  let seedTitle = "InstaComp scan pending";
+  let resumedExisting = false;
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
     if (!account) {
@@ -128,78 +166,128 @@ export async function POST(request: NextRequest) {
         text(instacomp.serialNumber) ||
         text(metadata.serialNumber) ||
         text(metadata.serial_number);
-      return NextResponse.json(
-        {
-          success: true,
-          stage: "review_required",
-          identityComplete: false,
-          inventoryItemId: duplicate.id,
-          title: duplicate.title,
-          code: duplicateCardUuid ? "DUPLICATE_PHYSICAL_CARD" : "DUPLICATE_SCAN",
-          error: purchaseId
-            ? duplicateCardUuid
-              ? `This physical card is already in inventory as an existing copy. It appears to belong to Purchase ${purchaseId}.`
-              : `This exact front/back image pair already exists in inventory. It appears to belong to Purchase ${purchaseId}.`
-            : duplicateCardUuid
-              ? "This physical card is already in inventory as an existing copy."
-              : "This exact front/back image pair already exists in inventory.",
-          duplicate: {
+      const lastStatus = text(instacomp.lastStatus);
+      const hasPersistedImagePair =
+        instacomp.imageOrientationPersisted === true &&
+        instacomp.imagePersistenceVerified === true;
+      const isRecoverableScannerStub =
+        duplicate.status === "draft" &&
+        text(instacomp.source) === "kingmaker_exact_scan_intake_v2" &&
+        instacomp.identityComplete !== true &&
+        !duplicateCardUuid &&
+        (!hasPersistedImagePair ||
+          lastStatus === "processing" ||
+          lastStatus === "failed");
+
+      if (isRecoverableScannerStub) {
+        inventoryItemId = String(duplicate.id);
+        seedTitle = text(duplicate.title) || seedTitle;
+        resumedExisting = true;
+        const resumedAt = new Date().toISOString();
+        const { error: resumeError } = await supabase
+          .from("inventory_items")
+          .update({
+            metadata: {
+              ...metadata,
+              instacomp: {
+                ...instacomp,
+                imagePairSha256,
+                frontSha256,
+                backSha256,
+                hasBackImage: true,
+                lastStatus: "processing",
+                lastStage: "duplicate_scan_resume",
+                lastError: null,
+                lastErrorCode: null,
+                resumedAt,
+              },
+            },
+            updated_at: resumedAt,
+          })
+          .eq("id", inventoryItemId)
+          .eq("store_id", storeId)
+          .eq("seller_account_id", account.id)
+          .eq("status", "draft");
+        if (resumeError) throw resumeError;
+      } else {
+        return NextResponse.json(
+          {
+            success: true,
+            stage: "review_required",
+            identityComplete: instacomp.identityComplete === true,
             inventoryItemId: duplicate.id,
             title: duplicate.title,
-            status: duplicate.status,
-            purchaseId,
-            matchType: duplicateCardUuid ? "physical_card" : "exact_scan_pair",
-            cardUuid: duplicateCardUuid,
-            serialNumber: duplicateSerialNumber,
-            serialRun: null,
-            price: numberValue(duplicate.price),
-            quantity: Number(duplicate.quantity || 0) || null,
-            addCopyAllowed: true,
+            reviewHref: masterListingReviewHref(String(duplicate.id), metadata),
+            code: duplicateCardUuid ? "DUPLICATE_PHYSICAL_CARD" : "DUPLICATE_SCAN",
+            error: purchaseId
+              ? duplicateCardUuid
+                ? `This physical card is already in inventory as an existing copy. It appears to belong to Purchase ${purchaseId}.`
+                : `This exact front/back image pair already exists in inventory. It appears to belong to Purchase ${purchaseId}.`
+              : duplicateCardUuid
+                ? "This physical card is already in inventory as an existing copy."
+                : "This exact front/back image pair already exists in inventory.",
+            duplicate: {
+              inventoryItemId: duplicate.id,
+              title: duplicate.title,
+              status: duplicate.status,
+              purchaseId,
+              matchType: duplicateCardUuid ? "physical_card" : "exact_scan_pair",
+              cardUuid: duplicateCardUuid,
+              serialNumber: duplicateSerialNumber,
+              serialRun: null,
+              price: numberValue(duplicate.price),
+              quantity: Number(duplicate.quantity || 0) || null,
+              addCopyAllowed: true,
+            },
           },
-        },
-        { status: 202, headers: { "Cache-Control": "no-store" } },
-      );
+          { status: 202, headers: { "Cache-Control": "no-store" } },
+        );
+      }
     }
 
     const now = new Date().toISOString();
-    const { data: inserted, error: insertError } = await supabase
-      .from("inventory_items")
-      .insert({
-        store_id: storeId,
-        seller_account_id: account.id,
-        title: "InstaComp scan pending",
-        description:
-          "Front and back are preserved. Automatic orientation and exact checklist identity review are in progress.",
-        category: "Trading Card Singles",
-        condition: "Ungraded",
-        status: "draft",
-        quantity: 1,
-        price: 0,
-        metadata: {
-          instacomp: {
-            source: "kingmaker_exact_scan_intake_v2",
-            imagePairSha256,
-            frontSha256,
-            backSha256,
-            hasBackImage: true,
-            identityComplete: false,
-            identityRefreshRequired: true,
-            pricingStatus: "blocked_identity_scan_in_progress",
-            pricingReason:
-              "Exact identity must be resolved before pricing.",
-            lastStatus: "processing",
-            lastStage: "orientation",
-            lastError: null,
-            lastErrorCode: null,
-            createdAt: now,
+    if (!inventoryItemId) {
+      const { data: inserted, error: insertError } = await supabase
+        .from("inventory_items")
+        .insert({
+          store_id: storeId,
+          seller_account_id: account.id,
+          title: seedTitle,
+          description:
+            "Front and back are preserved. Automatic orientation and exact checklist identity review are in progress.",
+          category: "Trading Card Singles",
+          condition: "Ungraded",
+          status: "draft",
+          quantity: 1,
+          price: 0,
+          metadata: {
+            instacomp: {
+              source: "kingmaker_exact_scan_intake_v2",
+              imagePairSha256,
+              frontSha256,
+              backSha256,
+              hasBackImage: true,
+              identityComplete: false,
+              identityRefreshRequired: true,
+              pricingStatus: "blocked_identity_scan_in_progress",
+              pricingReason:
+                "Exact identity must be resolved before pricing.",
+              lastStatus: "processing",
+              lastStage: "orientation",
+              lastError: null,
+              lastErrorCode: null,
+              createdAt: now,
+            },
+            seller_review: { identity_confirmed: false },
           },
-          seller_review: { identity_confirmed: false },
-        },
-      })
-      .select("id,title")
-      .single();
-    if (insertError) throw insertError;
-    inventoryItemId = String(inserted.id);
+        })
+        .select("id,title")
+        .single();
+      if (insertError) throw insertError;
+      inventoryItemId = String(inserted.id);
+      seedTitle = text(inserted.title) || seedTitle;
+    }
+    if (!inventoryItemId) throw new Error("Scanner intake did not create or recover an inventory item.");
 
     const exactForm = new FormData();
     exactForm.set("inventoryItemId", inventoryItemId);
@@ -224,8 +312,12 @@ export async function POST(request: NextRequest) {
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
       .maybeSingle();
-    const title = String(updatedItem?.title || inserted.title);
+    const title = String(updatedItem?.title || seedTitle);
     const identityComplete = exactPayload?.identityComplete === true;
+    const reviewHref = masterListingReviewHref(
+      inventoryItemId,
+      updatedItem?.metadata || {},
+    );
 
     if (!exactResponse.ok || exactPayload?.success !== true) {
       return NextResponse.json(
@@ -235,6 +327,8 @@ export async function POST(request: NextRequest) {
           identityComplete: false,
           inventoryItemId,
           title,
+          reviewHref,
+          resumedExisting,
           code: exactPayload?.code || `HTTP_${exactResponse.status}`,
           error:
             exactPayload?.error ||
@@ -255,6 +349,8 @@ export async function POST(request: NextRequest) {
           identityComplete: false,
           inventoryItemId,
           title,
+          reviewHref,
+          resumedExisting,
           ai: exactPayload?.ai || null,
           checklistDecision: exactPayload?.checklistDecision || null,
           parallelDecision: exactPayload?.parallelDecision || null,
@@ -293,6 +389,8 @@ export async function POST(request: NextRequest) {
         identityComplete: true,
         inventoryItemId,
         title,
+        reviewHref,
+        resumedExisting,
         ai: exactPayload?.ai || null,
         checklistDecision: exactPayload?.checklistDecision || null,
         parallelDecision: exactPayload?.parallelDecision || null,
@@ -317,6 +415,8 @@ export async function POST(request: NextRequest) {
           stage: "review_required",
           identityComplete: false,
           inventoryItemId,
+          reviewHref: `/kingmaker/listings?queue=verification&folder=pending&focus=${encodeURIComponent(inventoryItemId)}`,
+          resumedExisting,
           error: failure,
           code: "SCANNER_INTAKE_REVIEW_REQUIRED",
           imagesPreserved: true,
