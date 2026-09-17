@@ -30,6 +30,13 @@ const OWNER_EMAILS = new Set([
   "sales@trulycollectables.com",
 ]);
 
+const RECEIVING_CUTOVER_MS = Date.parse("2026-09-16T00:00:00-06:00");
+
+function isPreReceivingCutoverInventory(row: any) {
+  const createdAt = Date.parse(String(row?.created_at || ""));
+  return Number.isFinite(createdAt) && createdAt < RECEIVING_CUTOVER_MS;
+}
+
 function record(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
@@ -307,21 +314,45 @@ export async function POST(request: Request) {
         );
       }
       if (readiness?.ready !== true) {
-        const blocked = Array.isArray(readiness?.blocked) ? readiness.blocked : [];
-        const reasons = blocked.map((row: any) =>
-          row?.reason === "investment_stash_not_for_sale"
-            ? `${String(row.inventoryItemId || "card").slice(0, 8)} is in Investment Stash`
-            : `${String(row.inventoryItemId || "card").slice(0, 8)} has a matched purchase that has not been received`,
+        const rawBlocked = Array.isArray(readiness?.blocked) ? readiness.blocked : [];
+        const groupRowsById = new Map(
+          groupRows.map((row) => [String(row.id), row]),
         );
-        return Response.json(
-          {
-            success: false,
-            code: "PHYSICAL_INVENTORY_NOT_READY",
-            error: `Physical inventory is not ready to list${reasons.length ? `: ${reasons.join("; ")}` : "."}`,
-            blocked,
-          },
-          { status: 409 },
-        );
+        // The scan-gated Receiving contract begins with purchases/inventory
+        // received on or after Sep 16, 2026. Older inventory was explicitly
+        // grandfathered as already received during the backlog cutover. A
+        // missing Mac receipt on one of those legacy rows must not invent a new
+        // receiving requirement. If a legacy row *does* have a tracked receipt,
+        // every real receipt state (pending, stash, etc.) still remains enforced.
+        const blocked = rawBlocked.filter((row: any) => {
+          if (row?.reason !== "physical_inventory_receipt_missing") return true;
+          const inventory = groupRowsById.get(String(row?.inventoryItemId || ""));
+          return !inventory || !isPreReceivingCutoverInventory(inventory);
+        });
+        if (blocked.length) {
+          const reasons = blocked.map((row: any) => {
+            const id = String(row?.inventoryItemId || "card").slice(0, 8);
+            if (row?.reason === "investment_stash_not_for_sale") {
+              return `${id} is in Investment Stash`;
+            }
+            if (row?.reason === "physical_inventory_receipt_missing") {
+              return `${id} has no verified physical receipt`;
+            }
+            if (row?.reason === "matched_purchase_not_received_or_linked") {
+              return `${id} has a matched purchase that has not been received`;
+            }
+            return `${id} is not ready to list (${String(row?.reason || "unknown_reason")})`;
+          });
+          return Response.json(
+            {
+              success: false,
+              code: "PHYSICAL_INVENTORY_NOT_READY",
+              error: `Physical inventory is not ready to list: ${reasons.join("; ")}`,
+              blocked,
+            },
+            { status: 409 },
+          );
+        }
       }
     }
 

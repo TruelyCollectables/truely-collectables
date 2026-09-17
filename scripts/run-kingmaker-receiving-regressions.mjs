@@ -12,6 +12,7 @@ const adminReceive = read("src/app/api/admin/market-intel/purchases/[id]/receive
 const internalReceive = read("src/app/api/internal/pending-receiving/route.js");
 const shell = read("src/app/kingmaker/KingmakerShell.tsx");
 const receiving = read("src/app/kingmaker/receiving/ReceivingClient.tsx");
+const channel = read("src/app/api/account/seller/instacomp-pending/channel/route.ts");
 
 assert.match(purchases, /2026-09-16/);
 assert.match(purchases, /\/pending-purchases/);
@@ -46,5 +47,15 @@ assert.match(receiving, /Receive → Resale/);
 assert.match(receiving, /Receive → Investment Stash/);
 assert.match(receiving, /instacomp-purchase-match/);
 assert.match(receiving, /instacomp-purchase-receive/);
+assert.match(channel, /RECEIVING_CUTOVER_MS = Date\.parse\("2026-09-16T00:00:00-06:00"\)/);
+assert.match(channel, /physical_inventory_receipt_missing/);
+assert.match(channel, /isPreReceivingCutoverInventory/);
+assert.match(channel, /has no verified physical receipt/);
+assert.match(channel, /matched_purchase_not_received_or_linked/);
+assert.ok(
+  channel.indexOf('row?.reason !== "physical_inventory_receipt_missing"') <
+    channel.indexOf('has no verified physical receipt'),
+  "legacy untracked inventory must be filtered before readiness errors are rendered",
+);
 
 console.log("KINGMAKER receiving web regression contract: PASS");
