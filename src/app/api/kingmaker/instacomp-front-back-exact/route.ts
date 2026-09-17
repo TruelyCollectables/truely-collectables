@@ -642,14 +642,7 @@ async function archiveWithMacBestEffort(params: {
       fetchInstaCompAiLocalScanImage({ scanId, side: "front" }),
       fetchInstaCompAiLocalScanImage({ scanId, side: "back" }),
     ]);
-    const macArchive = {
-      orientation: {
-        status: text(scan.image_orientation?.status, 80) || null,
-      },
-    };
-    if (macArchive.orientation.status !== "completed") {
-      throw new Error("Mac archive orientation is not completed.");
-    }
+    const resolvedOrientation = completedMacOrientation(scan, params.webOrientation);
     return {
       receipt: {
         scanId,
@@ -667,11 +660,14 @@ async function archiveWithMacBestEffort(params: {
         attempts,
         canonicalImagesRecovered: true,
         imageOrientation: scan.image_orientation || null,
-        error: null,
+        error:
+          resolvedOrientation.status === "completed"
+            ? null
+            : "Mac archive orientation requires review.",
       },
       frontFile,
       backFile,
-      orientation: completedMacOrientation(scan, params.webOrientation),
+      orientation: resolvedOrientation,
     };
   } catch (error) {
     return {
@@ -945,6 +941,86 @@ export async function POST(request: NextRequest) {
       !macArchive.orientation ||
       macArchive.orientation.status !== "completed"
     ) {
+      if (macReceipt.scanId) {
+        const reviewAt = new Date().toISOString();
+        const reviewOrientation =
+          macArchive.orientation || normalizedSides.orientation;
+        const frontImageUrl =
+          preservedInputPair?.frontImageUrl ||
+          text(previousInstaComp.frontImageUrl, 2_000);
+        const backImageUrl =
+          preservedInputPair?.backImageUrl ||
+          text(previousInstaComp.backImageUrl, 2_000);
+        const pairPersisted = Boolean(
+          frontImageUrl &&
+            backImageUrl &&
+            frontImageUrl !== backImageUrl,
+        );
+        const nextMetadata = {
+          ...metadata,
+          instacomp: {
+            ...previousInstaComp,
+            source:
+              text(previousInstaComp.source, 120) ||
+              "kingmaker_exact_scan_intake_v2",
+            scanId: macReceipt.scanId,
+            macReceipt,
+            physicalScanRecorded: true,
+            imageOrientation: reviewOrientation,
+            imageOrientationVerified: false,
+            imageOrientationPersisted: false,
+            imagePersistenceVerified: pairPersisted,
+            frontImageUrl: frontImageUrl || null,
+            backImageUrl: backImageUrl || null,
+            hasBackImage: Boolean(backImageUrl),
+            identityComplete: false,
+            identityRefreshRequired: true,
+            identitySource: "mac_scan_receipt_review_pending",
+            pricingStatus: "blocked_identity_review_required",
+            pricingReason:
+              "The physical scan is recorded. Exact orientation and Checklist identity must be resolved before pricing.",
+            publicationStatus: "review_required",
+            publicationReviewReasons: ["orientation_review_required"],
+            lastStatus: "review_required",
+            lastStage: "orientation_review",
+            lastError: null,
+            lastErrorCode: null,
+            scannedAt: reviewAt,
+          },
+        };
+        const { error: reviewUpdateError } = await supabase
+          .from("inventory_items")
+          .update({ metadata: nextMetadata, updated_at: reviewAt })
+          .eq("id", inventoryItemId)
+          .eq("store_id", storeId)
+          .eq("status", "draft");
+        if (reviewUpdateError) throw reviewUpdateError;
+
+        return NextResponse.json(
+          {
+            success: true,
+            stage: "orientation_review",
+            identityComplete: false,
+            scanId: macReceipt.scanId,
+            title: item.title,
+            imageOrientation: reviewOrientation,
+            normalizedImages: {
+              frontImageUrl: frontImageUrl || null,
+              backImageUrl: backImageUrl || null,
+            },
+            pricingStatus: "blocked_identity_review_required",
+            physicalScanRecorded: true,
+            imagesPreserved: pairPersisted,
+            nothingPublished: true,
+            message:
+              "Physical scan recorded. Orientation/identity review is still required; do not rescan this card.",
+          },
+          {
+            status: 202,
+            headers: { "Cache-Control": "no-store" },
+          },
+        );
+      }
       throw new Error(
         macReceipt.error ||
           macArchive.orientation?.reason ||
