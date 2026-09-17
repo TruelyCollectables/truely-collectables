@@ -58,7 +58,7 @@ class ExistingInventoryPurchaseLinkTest(unittest.TestCase):
             self.assertEqual(linked["status"], "linked_existing")
             self.assertEqual(linked["receiptMode"], "linked_existing")
             self.assertEqual(linked["inventoryState"], "resale_ready")
-            self.assertIsNone(linked.get("receivedAt"))
+            self.assertIsNotNone(linked.get("receivedAt"))
 
             readiness = ledger.listing_readiness(["inventory-existing-1"])
             self.assertTrue(readiness["ready"])
@@ -67,7 +67,7 @@ class ExistingInventoryPurchaseLinkTest(unittest.TestCase):
                 receipt_count = db.execute("SELECT COUNT(*) FROM physical_inventory_receipts").fetchone()[0]
                 received_at = db.execute("SELECT received_at FROM physical_inventory_receipts").fetchone()[0]
             self.assertEqual(receipt_count, 1)
-            self.assertIsNone(received_at)
+            self.assertIsNotNone(received_at)
 
 
 if __name__ == "__main__":

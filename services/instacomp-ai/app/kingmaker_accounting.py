@@ -455,6 +455,7 @@ class KingmakerAccounting:
                     "reason": existing["match_reason"],
                     "receiptMode": existing["receipt_mode"] if "receipt_mode" in existing.keys() else None,
                     "linkedAt": existing["linked_at"] if "linked_at" in existing.keys() else None,
+                    "receivedAt": existing["received_at"] if "received_at" in existing.keys() else None,
                     "match": payload,
                 }
 
@@ -611,17 +612,18 @@ class KingmakerAccounting:
                 if current_destination and current_destination != destination:
                     raise ValueError("This card is already linked; use inventory disposition to change resale/investment destination")
                 row = db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
-                return {"status":"linked_existing","inventoryState":str(receipt["inventory_state"]),"disposition":current_destination or destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"linkedAt":receipt["linked_at"],"receiptMode":"linked_existing","match":self._purchase_row_payload(row)}
+                received_at = receipt["received_at"] or receipt["linked_at"] or receipt["matched_at"]
+                return {"status":"linked_existing","inventoryState":str(receipt["inventory_state"]),"disposition":current_destination or destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"linkedAt":receipt["linked_at"],"receivedAt":received_at,"receiptMode":"linked_existing","match":self._purchase_row_payload(row)}
             if receipt_status != "pending_purchase":
                 raise ValueError("Only a pending purchase reservation can be linked to existing inventory")
             inventory_state = "investment_stash" if destination == "investment_stash" else "resale_ready"
             db.execute(
-                "UPDATE physical_inventory_receipts SET status='linked_existing', disposition=?, inventory_state=?, receipt_mode='linked_existing', linked_at=?, received_at=NULL WHERE id=?",
-                (destination, inventory_state, now, int(receipt["id"])),
+                "UPDATE physical_inventory_receipts SET status='linked_existing', disposition=?, inventory_state=?, receipt_mode='linked_existing', linked_at=?, received_at=? WHERE id=?",
+                (destination, inventory_state, now, now, int(receipt["id"])),
             )
             db.execute("UPDATE acquisition_items SET status='linked_existing' WHERE id=?", (int(acquisition_item_id),))
             row = db.execute("SELECT * FROM acquisition_items WHERE id=?", (int(acquisition_item_id),)).fetchone()
-        return {"status":"linked_existing","inventoryState":inventory_state,"disposition":destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"linkedAt":now,"receiptMode":"linked_existing","match":self._purchase_row_payload(row)}
+        return {"status":"linked_existing","inventoryState":inventory_state,"disposition":destination,"inventoryItemId":inventory_item_id,"scanId":scan["scanId"],"linkedAt":now,"receivedAt":now,"receiptMode":"linked_existing","match":self._purchase_row_payload(row)}
 
     def listing_readiness(self, inventory_item_ids: list[str]) -> dict[str, Any]:
         self.initialize()

@@ -12,6 +12,12 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export async function POST(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -39,7 +45,7 @@ export async function POST(request: Request) {
     );
     let itemQuery = supabase
       .from("inventory_items")
-      .select("id")
+      .select("id,seller_account_id,metadata")
       .eq("store_id", storeId)
       .eq("id", inventoryItemId);
     itemQuery = isOwner
@@ -57,6 +63,44 @@ export async function POST(request: Request) {
       disposition,
     });
     if (data.status === "linked_existing") {
+      const metadata = record(item.metadata);
+      const currentLifecycle = record(metadata.inventory_lifecycle);
+      const match = record(data.match);
+      const receivedAt = text(data.receivedAt) || text(data.linkedAt) || new Date().toISOString();
+      const nextMetadata = {
+        ...metadata,
+        acquisition: {
+          ...record(metadata.acquisition),
+          sourceOfTruth: "mac_local_kingmaker_accounting",
+          acquisitionItemId,
+          purchaseId: match.purchaseId || null,
+          source: match.source || null,
+          purchaseDate: match.purchaseDate || null,
+          allocatedCost: match.allocatedCost ?? null,
+          orderNumber: match.orderNumber || null,
+          sourceItemId: match.sourceItemId || null,
+          listingUrl: match.listingUrl || null,
+          status: "linked_existing",
+          receivedAt,
+        },
+        inventory_lifecycle: {
+          ...currentLifecycle,
+          sourceOfTruth: "mac_local_kingmaker_accounting",
+          state: data.inventoryState || "resale_ready",
+          disposition: data.disposition || disposition,
+          scanId: data.scanId || scanId,
+          receivedAt,
+          linkedAt: text(data.linkedAt) || receivedAt,
+          receiptMode: "linked_existing",
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      const { error: updateError } = await supabase
+        .from("inventory_items")
+        .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+        .eq("store_id", storeId)
+        .eq("id", inventoryItemId);
+      if (updateError) throw updateError;
       data.quantityUnchanged = true;
       data.inventoryRowReused = true;
     }
