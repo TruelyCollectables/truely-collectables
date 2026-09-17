@@ -289,8 +289,7 @@ export async function POST(request: NextRequest) {
       .from("inventory_items")
       .select("id,seller_account_id,card_uuid,status,metadata,description,category,condition")
       .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .eq("status", "draft");
+      .eq("store_id", storeId);
     query = isOwner
       ? query.or(
           `seller_account_id.eq.${account.id},seller_account_id.is.null`,
@@ -300,8 +299,14 @@ export async function POST(request: NextRequest) {
     if (itemError) throw itemError;
     if (!item) {
       return NextResponse.json(
-        { error: "Pending card was not found." },
+        { error: "Card was not found." },
         { status: 404 },
+      );
+    }
+    if (item.status === "archived" || item.status === "sold") {
+      return NextResponse.json(
+        { error: "This card is no longer editable because it is archived or sold." },
+        { status: 409 },
       );
     }
 
@@ -366,7 +371,7 @@ export async function POST(request: NextRequest) {
             normalizedPrintRun,
           }),
           operatorId: account.id,
-          notes: `Seller confirmed private draft ${inventoryItemId}: ${displayTitle}`,
+          notes: `Seller confirmed inventory item ${inventoryItemId}: ${displayTitle}`,
         });
         learningStatus = "stored";
         learningLessonId = lesson.lessonId;
@@ -496,7 +501,7 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    const { error: updateError } = await supabase
+    const { data: updatedItem, error: updateError } = await supabase
       .from("inventory_items")
       .update({
         title: displayTitle,
@@ -511,8 +516,17 @@ export async function POST(request: NextRequest) {
       })
       .eq("id", inventoryItemId)
       .eq("store_id", storeId)
-      .eq("status", "draft");
+      .neq("status", "archived")
+      .neq("status", "sold")
+      .select("id,status")
+      .maybeSingle();
     if (updateError) throw updateError;
+    if (!updatedItem) {
+      return NextResponse.json(
+        { error: "This card changed status before the edit could be saved. Reload Master Listings and try again." },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -538,7 +552,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Could not edit pending card.",
+            : "Could not edit card.",
       },
       { status: 500 },
     );
