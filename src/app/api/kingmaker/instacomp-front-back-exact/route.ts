@@ -610,17 +610,20 @@ async function archiveWithMacBestEffort(params: {
     for (const requestedTimeout of [150_000, 75_000]) {
       attempts += 1;
       try {
+        const webOrientationTrusted = params.webOrientation.status === "completed";
         scan = await analyzeWithInstaCompAiLocal({
-          // Always send the untouched upload. The Mac applies the chosen
-          // quarter-turn exactly once and archives the canonical pixels.
-          // The web orientation referee already passed the listing-readiness
-          // confidence gate, so forward that exact rotation to the Mac. The
-          // Mac owns the archive; it must not re-guess the angle with a weaker
-          // advisory OCR heuristic and then reject an already-proven rotation.
+          // Always send the untouched upload. When the web referee is trusted,
+          // forward its exact quarter-turn so the Mac applies it once. When the
+          // web provider is unavailable or inconclusive, omit rotation hints so
+          // the Mac-local pipeline can make the orientation decision itself.
           front: params.frontFile,
           back: params.backFile,
-          frontRotation: quarterTurn(params.webOrientation.frontRotation),
-          backRotation: quarterTurn(params.webOrientation.backRotation),
+          frontRotation: webOrientationTrusted
+            ? quarterTurn(params.webOrientation.frontRotation)
+            : undefined,
+          backRotation: webOrientationTrusted
+            ? quarterTurn(params.webOrientation.backRotation)
+            : undefined,
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
@@ -868,6 +871,43 @@ export async function POST(request: NextRequest) {
       ]);
     }
 
+    let preservedInputPair: {
+      frontImageUrl: string;
+      backImageUrl: string;
+    } | null = null;
+    if (hasProvidedPair) {
+      const rawPreservationOrientation: InstaCompImageOrientationReceipt = {
+        status: "review_required",
+        model: null,
+        source: "kingmaker_raw_intake_preservation",
+        frontRotation: 0,
+        backRotation: 0,
+        frontConfidence: 0,
+        backConfidence: 0,
+        frontEvidenceText: [],
+        backEvidenceText: [],
+        backStandalonePrizm: null,
+        backDesignationConfidence: 0,
+        reason:
+          "Original front/back uploads were preserved before automatic orientation so a provider failure cannot orphan the scan.",
+      };
+      const preserved = await persistNormalizedInstaCompImagePair({
+        supabase,
+        storeId,
+        inventoryItemId,
+        title: item.title || "Card",
+        frontFile,
+        backFile,
+        orientation: rawPreservationOrientation,
+        previousFrontImageUrl: pair.front?.url || null,
+        previousBackImageUrl: pair.back?.url || null,
+      });
+      preservedInputPair = {
+        frontImageUrl: preserved.frontImageUrl,
+        backImageUrl: preserved.backImageUrl,
+      };
+    }
+
     const normalizedSides = await normalizeInstaCompSideImages({
       frontImage: frontFile,
       backImage: backFile,
@@ -875,12 +915,6 @@ export async function POST(request: NextRequest) {
     });
     if (!normalizedSides.backFile || !normalizedSides.backDataUrl) {
       throw new Error("Back orientation normalization returned no image.");
-    }
-    if (normalizedSides.orientation.status !== "completed") {
-      throw new Error(
-        normalizedSides.orientation.reason ||
-          "Automatic card orientation could not be proven for both sides.",
-      );
     }
 
     const [frontSha256, backSha256] = await Promise.all([
@@ -1066,8 +1100,10 @@ export async function POST(request: NextRequest) {
       frontFile: finalFrontFile,
       backFile: finalBackFile,
       orientation: finalOrientation,
-      previousFrontImageUrl: pair.front?.url || null,
-      previousBackImageUrl: pair.back?.url || null,
+      previousFrontImageUrl:
+        preservedInputPair?.frontImageUrl || pair.front?.url || null,
+      previousBackImageUrl:
+        preservedInputPair?.backImageUrl || pair.back?.url || null,
     });
 
     const checkedAt = new Date().toISOString();

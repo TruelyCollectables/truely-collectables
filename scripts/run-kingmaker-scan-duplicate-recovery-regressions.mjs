@@ -9,6 +9,14 @@ const pendingApi = fs.readFileSync(
   "src/app/api/account/seller/instacomp-pending/route.ts",
   "utf8",
 );
+const exactScan = fs.readFileSync(
+  "src/app/api/kingmaker/instacomp-front-back-exact/route.ts",
+  "utf8",
+);
+const repairRoute = fs.readFileSync(
+  "src/app/api/account/seller/inventory/instacomp-orphan-scan-repair/route.ts",
+  "utf8",
+);
 const queueUi = fs.readFileSync(
   "src/app/kingmaker/KingmakerInstaCompQueue.tsx",
   "utf8",
@@ -41,6 +49,31 @@ assert.ok(
   pendingApi.includes("const requestedFocus") &&
     pendingApi.includes("String(row.id) === requestedFocus"),
   "Master Listings must support opening an exact inventory row by focus id",
+);
+assert.ok(
+  exactScan.includes('source: "kingmaker_raw_intake_preservation"') &&
+    exactScan.indexOf('source: "kingmaker_raw_intake_preservation"') <
+      exactScan.indexOf("const normalizedSides = await normalizeInstaCompSideImages"),
+  "front/back uploads must be persisted before orientation or provider calls can fail",
+);
+assert.ok(
+  exactScan.includes('const webOrientationTrusted = params.webOrientation.status === "completed"') &&
+    exactScan.includes("frontRotation: webOrientationTrusted") &&
+    exactScan.includes(": undefined"),
+  "Mac-local orientation must remain available when the web orientation provider fails",
+);
+assert.equal(
+  exactScan.includes('if (normalizedSides.orientation.status !== "completed")'),
+  false,
+  "web orientation failure must not block the Mac-local fallback before it runs",
+);
+assert.ok(
+  repairRoute.includes("rows.length > 1") &&
+    repairRoute.includes('.is("legacy_product_id", null)') &&
+    repairRoute.includes('.is("card_uuid", null)') &&
+    repairRoute.includes('instacomp.identityComplete !== true') &&
+    repairRoute.includes("!rowsWithImages.has"),
+  "orphan cleanup must archive only duplicate, unlinked, identity-incomplete rows with no saved images",
 );
 assert.ok(
   queueUi.includes("card.result.reviewHref") &&
