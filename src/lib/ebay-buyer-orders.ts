@@ -373,3 +373,69 @@ export async function fetchEbayBuyerOrder(reference: string) {
 
   return parseBuyerOrderXml(xml, orderId);
 }
+
+export async function fetchEbayBuyerOrdersSince(
+  sinceInput: string,
+  untilInput = new Date().toISOString(),
+): Promise<EbayBuyerOrder[]> {
+  const since = new Date(sinceInput);
+  const until = new Date(untilInput);
+  if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime()) || since > until) {
+    throw new EbayBuyerOrderError("EBAY_ERROR", "A valid eBay buyer-order date range is required.");
+  }
+  const { accessToken, ebayApi } = await getBuyerAccessToken();
+  const orders = new Map<string, EbayBuyerOrder>();
+  for (let page = 1; page <= 20; page += 1) {
+    const response = await fetch(`${ebayApi}/ws/api.dll`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/xml; charset=utf-8",
+        "X-EBAY-API-CALL-NAME": "GetOrders",
+        "X-EBAY-API-SITEID": "0",
+        "X-EBAY-API-COMPATIBILITY-LEVEL": TRADING_API_VERSION,
+        "X-EBAY-API-IAF-TOKEN": accessToken,
+      },
+      body: `<?xml version="1.0" encoding="utf-8"?>
+<GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Version>${TRADING_API_VERSION}</Version>
+  <DetailLevel>ReturnAll</DetailLevel>
+  <CreateTimeFrom>${escapeXml(since.toISOString())}</CreateTimeFrom>
+  <CreateTimeTo>${escapeXml(until.toISOString())}</CreateTimeTo>
+  <OrderRole>Buyer</OrderRole>
+  <OrderStatus>All</OrderStatus>
+  <Pagination><EntriesPerPage>100</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination>
+</GetOrdersRequest>`,
+      cache: "no-store",
+    });
+    const xml = await response.text();
+    if (!response.ok) {
+      throw new EbayBuyerOrderError(
+        response.status === 401 || response.status === 403 ? "RECONNECT_REQUIRED" : "EBAY_ERROR",
+        response.status === 401 || response.status === 403
+          ? "Reconnect eBay with buyer-order access before scheduled purchase intake can continue."
+          : `eBay buyer-order history failed (${response.status}).`,
+      );
+    }
+    const ack = xmlValue(xml, "Ack");
+    if (ack !== "Success" && ack !== "Warning") {
+      throw new EbayBuyerOrderError(
+        "EBAY_ERROR",
+        xmlValue(xml, "LongMessage") || xmlValue(xml, "ShortMessage") || "eBay buyer-order history failed.",
+      );
+    }
+    const ids = xmlBlocks(xml, "Order")
+      .map((block) => xmlValue(block, "OrderID"))
+      .filter((value): value is string => Boolean(value));
+    for (const id of ids) {
+      const parsed = parseBuyerOrderXml(xml, id);
+      if (new Date(parsed.purchaseDate) >= since && new Date(parsed.purchaseDate) <= until) {
+        orders.set(parsed.orderId, parsed);
+      }
+    }
+    const hasMore = (xmlValue(xml, "HasMoreOrders") || "false").toLowerCase() === "true";
+    if (!hasMore || ids.length === 0) break;
+  }
+  return [...orders.values()].sort(
+    (left, right) => Date.parse(left.purchaseDate) - Date.parse(right.purchaseDate),
+  );
+}

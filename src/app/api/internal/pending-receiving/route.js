@@ -2,7 +2,6 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { isAuthorizedMarketIntelIngest } from "../../../../lib/market-intel-ingestion";
-import { getPurchaseLedgerIntelligence } from "../../../../lib/market-intel-purchase-intelligence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,97 +74,6 @@ function firstText(metadata, keys) {
 function number(value) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function summarizePortfolio(rows) {
-  const totals = rows.reduce(
-    (sum, row) => {
-      const remaining = Number(
-        row.performance?.quantity_remaining ?? row.lot.quantity_purchased,
-      );
-      sum.positions += 1;
-      sum.invested += number(row.lot.total_acquisition_cost);
-      sum.unitsPurchased += number(row.lot.quantity_purchased);
-      sum.unitsRemaining += remaining;
-      sum.unitsSold += number(row.performance?.quantity_sold);
-      sum.realizedNetProceeds += number(row.performance?.realized_net_proceeds);
-      sum.realizedGrossProfit += number(row.performance?.realized_gross_profit);
-      sum.strategyCostBasis[row.bucket] += number(row.lot.total_acquisition_cost);
-      if (row.current_market?.conservative_value !== null && row.current_market) {
-        sum.estimatedMarketValue +=
-          number(row.current_market.conservative_value) * remaining;
-        sum.marketValuedPositions += 1;
-      }
-      return sum;
-    },
-    {
-      positions: 0,
-      invested: 0,
-      estimatedMarketValue: 0,
-      marketValuedPositions: 0,
-      unitsPurchased: 0,
-      unitsRemaining: 0,
-      unitsSold: 0,
-      realizedNetProceeds: 0,
-      realizedGrossProfit: 0,
-      strategyCostBasis: { resale: 0, hold: 0, pc: 0 },
-    },
-  );
-
-  for (const key of [
-    "invested",
-    "estimatedMarketValue",
-    "realizedNetProceeds",
-    "realizedGrossProfit",
-  ]) {
-    totals[key] = Number(totals[key].toFixed(2));
-  }
-  for (const key of ["resale", "hold", "pc"]) {
-    totals.strategyCostBasis[key] = Number(
-      totals.strategyCostBasis[key].toFixed(2),
-    );
-  }
-
-  const positions = rows.map((row) => {
-    const remaining = Number(
-      row.performance?.quantity_remaining ?? row.lot.quantity_purchased,
-    );
-    const currentUnitValue = row.current_market?.conservative_value ?? null;
-    return {
-      id: row.lot.id,
-      purchaseNumber: row.lot.purchase_number,
-      purchasedAt: row.lot.purchased_at,
-      receivedAt: row.lot.received_at,
-      status: row.lot.status,
-      title: row.lot.collectible?.display_name || "Unmatched collectible",
-      identityKey: row.lot.collectible?.identity_key || null,
-      strategy: row.bucket,
-      source: row.source_label,
-      quantityPurchased: number(row.lot.quantity_purchased),
-      quantitySold: number(row.performance?.quantity_sold),
-      quantityRemaining: remaining,
-      totalCostBasis: number(row.lot.total_acquisition_cost),
-      unitCostBasis: number(row.lot.unit_cost_basis),
-      currentUnitMarketValue:
-        currentUnitValue === null ? null : number(currentUnitValue),
-      estimatedRemainingMarketValue:
-        currentUnitValue === null
-          ? null
-          : Number((number(currentUnitValue) * remaining).toFixed(2)),
-      marketSampleSize: number(row.current_market?.sample_size),
-      marketConfidence: number(row.current_market?.confidence_score),
-      weeklyChangePct: row.weekly_change_pct,
-      sincePurchaseChangePct: row.since_purchase_change_pct,
-      signal: row.signal,
-      realizedNetProceeds: number(row.performance?.realized_net_proceeds),
-      realizedGrossProfit: number(row.performance?.realized_gross_profit),
-      sourceUrl: row.lot.source_url,
-      dealLabel: row.lot.deal_label,
-      notes: row.lot.notes,
-    };
-  });
-
-  return { totals, positions };
 }
 
 async function readPending(supabase) {
@@ -325,79 +233,15 @@ export async function POST(request) {
   if (!authorized(request)) {
     return json({ ok: false, code: "PENDING_RECEIVING_UNAUTHORIZED" }, 401);
   }
-
-  try {
-    const supabase = createSupabaseServerClient({ admin: true });
-    const before = await readPending(supabase);
-    const receivedAt = new Date().toISOString();
-    let received = [];
-
-    if (before.length > 0) {
-      const ids = before.map((row) => row.id);
-      const { data, error } = await supabase
-        .from("tcos_mi_purchase_lots")
-        .update({ status: "received", received_at: receivedAt })
-        .in("id", ids)
-        .in("status", PENDING_STATUSES)
-        .select(
-          "id,purchase_number,status,quantity_purchased,total_acquisition_cost,unit_cost_basis,received_at",
-        );
-      if (error) throw new Error(error.message);
-      received = data || [];
-      if (received.length !== before.length) {
-        throw new Error(
-          `Receipt reconciliation failed: expected ${before.length} updated lots but received ${received.length}.`,
-        );
-      }
-    }
-
-    const after = await readPending(supabase);
-    if (after.length !== 0) {
-      throw new Error(
-        `Receipt reconciliation failed: ${after.length} pending purchase lots remain.`,
-      );
-    }
-
-    const portfolioRows = await getPurchaseLedgerIntelligence();
-    const portfolio = summarizePortfolio(portfolioRows);
-
-    return json({
-      ok: true,
-      code: before.length > 0 ? "ALL_PENDING_PURCHASES_RECEIVED" : "NO_PENDING_PURCHASES",
-      generatedAt: new Date().toISOString(),
+  return json(
+    {
+      ok: false,
+      code: "SCAN_GATED_RECEIVING_REQUIRED",
+      error:
+        "Bulk receive is disabled. Use KINGMAKER Receiving: each physical card requires its own verified front/back InstaComp scan and exact purchase match.",
+      receivingUrl: "/kingmaker/receiving",
       deployment: deployment(),
-      receipt: {
-        receivedAt,
-        lotsReceived: before.length,
-        unitsReceived: before.reduce((sum, row) => sum + row.quantity, 0),
-        deliveredCostReceived: Number(
-          before.reduce((sum, row) => sum + row.totalAcquisitionCost, 0).toFixed(2),
-        ),
-        receivedLots: before.map((row) => ({
-          id: row.id,
-          purchaseNumber: row.purchaseNumber,
-          title: row.title,
-          quantity: row.quantity,
-          deliveredCost: row.totalAcquisitionCost,
-          previousStatus: row.status,
-          newStatus: "received",
-        })),
-        remainingPendingLots: after.length,
-      },
-      portfolio,
-    });
-  } catch (error) {
-    return json(
-      {
-        ok: false,
-        code: "PENDING_RECEIVING_RECEIVE_ALL_FAILED",
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to receive pending purchases and load the portfolio.",
-        deployment: deployment(),
-      },
-      500,
-    );
-  }
+    },
+    409,
+  );
 }

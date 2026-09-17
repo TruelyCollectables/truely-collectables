@@ -239,6 +239,7 @@ function detectedFields(detail: EbayItemDetail) {
   const title = detail.title || "";
   const setName = aspectValue(detail.localizedAspects, ["Set", "Card Set"]);
   const parallel = aspectValue(detail.localizedAspects, ["Parallel/Variety", "Parallel"]);
+  const variation = aspectValue(detail.localizedAspects, ["Variation", "Card Variation", "Image Variation"]);
   const insert = aspectValue(detail.localizedAspects, ["Insert Set", "Insert"]);
   const features = aspectValue(detail.localizedAspects, ["Features"]);
   const autographed =
@@ -260,6 +261,7 @@ function detectedFields(detail: EbayItemDetail) {
   const grade = aspectValue(detail.localizedAspects, ["Grade"]);
 
   return {
+    player: aspectValue(detail.localizedAspects, ["Player/Athlete", "Player", "Athlete", "Featured Person/Artist"]),
     year: yearFromDetail(detail),
     manufacturer: manufacturerFromDetail(detail),
     brand: aspectValue(detail.localizedAspects, ["Brand"]) || manufacturerFromDetail(detail),
@@ -267,6 +269,7 @@ function detectedFields(detail: EbayItemDetail) {
     setName,
     cardNumber: cardNumberFromDetail(detail),
     parallel,
+    variation,
     insert,
     serialTo,
     autographed,
@@ -276,6 +279,22 @@ function detectedFields(detail: EbayItemDetail) {
     grader,
     grade,
     reasons,
+  };
+}
+
+export async function fetchEbayPurchaseListingSnapshot(ebayItem: string) {
+  const detail = await fetchEbayItem(ebayItem);
+  const externalListingId =
+    detail.legacyItemId || legacyItemId(ebayItem) || detail.itemId || null;
+  return {
+    externalListingId,
+    directUrl:
+      externalListingId && /^\d+$/.test(externalListingId)
+        ? `https://www.ebay.com/itm/${externalListingId}`
+        : ebayItem.trim(),
+    title: detail.title || `eBay item ${externalListingId || "purchase"}`,
+    imageUrls: imageUrls(detail),
+    fields: detectedFields(detail),
   };
 }
 
