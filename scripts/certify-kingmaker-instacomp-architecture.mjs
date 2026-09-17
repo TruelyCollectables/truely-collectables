@@ -148,6 +148,17 @@ for (const forbidden of [
 ]) {
   rejectText(auditedPending, forbidden, "audited KINGMAKER Pending Listings");
 }
+for (const required of [
+  'fetch("/api/kingmaker/instacomp-front-back-exact"',
+  '"Physical scan recorded — identity review required"',
+]) {
+  requireText(auditedPending, required, "KINGMAKER Pending physical scan action");
+}
+rejectText(
+  auditedPending,
+  'fetch("/api/account/seller/instacomp-pending-identity"',
+  "KINGMAKER Pending must not use metadata-only identity inference for Read Card",
+);
 
 for (const required of [
   "persistNormalizedInstaCompImagePair",

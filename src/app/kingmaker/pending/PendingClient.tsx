@@ -1561,7 +1561,7 @@ export default function KingmakerPendingPage({
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      const response = await fetch("/api/account/seller/instacomp-pending-identity", {
+      const response = await fetch("/api/kingmaker/instacomp-front-back-exact", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1578,8 +1578,9 @@ export default function KingmakerPendingPage({
         [card.inventoryItemId]: data.identityComplete === true ? "complete" : "review",
       }));
       setNotice(
-        data.identity?.notes ||
-          `${data.identityComplete === true ? "Identity read" : "Best-effort identity read"} for ${data.title || card.title}.`,
+        data.message ||
+          data.ai?.notes ||
+          `${data.identityComplete === true ? "InstaComp scan complete" : data.physicalScanRecorded === true ? "Physical scan recorded — identity review required" : "InstaComp review required"} for ${data.title || card.title}.`,
       );
       if (data.identityComplete !== true) {
         setLocalError((current) => ({ ...current, [card.inventoryItemId]: "" }));
