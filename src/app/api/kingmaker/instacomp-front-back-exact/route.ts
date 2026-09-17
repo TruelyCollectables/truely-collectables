@@ -613,12 +613,14 @@ async function archiveWithMacBestEffort(params: {
         scan = await analyzeWithInstaCompAiLocal({
           // Always send the untouched upload. The Mac applies the chosen
           // quarter-turn exactly once and archives the canonical pixels.
-          // Web orientation is retained as diagnostics only; the Mac must
-          // independently prove the final angle before Pending Listings.
+          // The web orientation referee already passed the listing-readiness
+          // confidence gate, so forward that exact rotation to the Mac. The
+          // Mac owns the archive; it must not re-guess the angle with a weaker
+          // advisory OCR heuristic and then reject an already-proven rotation.
           front: params.frontFile,
           back: params.backFile,
-          frontRotation: null,
-          backRotation: null,
+          frontRotation: params.webOrientation.frontRotation,
+          backRotation: params.webOrientation.backRotation,
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
@@ -873,6 +875,12 @@ export async function POST(request: NextRequest) {
     });
     if (!normalizedSides.backFile || !normalizedSides.backDataUrl) {
       throw new Error("Back orientation normalization returned no image.");
+    }
+    if (normalizedSides.orientation.status !== "completed") {
+      throw new Error(
+        normalizedSides.orientation.reason ||
+          "Automatic card orientation could not be proven for both sides.",
+      );
     }
 
     const [frontSha256, backSha256] = await Promise.all([
