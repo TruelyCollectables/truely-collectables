@@ -101,8 +101,24 @@ export async function POST(request: NextRequest) {
         archiveIds: rows.slice(1).map((row) => String(row.id)),
         copies: rows.length,
       }));
-    const archiveIds = duplicateGroups.flatMap((group) => group.archiveIds);
+    const duplicateArchiveIds = duplicateGroups.flatMap((group) => group.archiveIds);
+    const archiveAllOrphans = body.archiveAllOrphans === true;
+    const confirmCount = Number(body.confirmCount);
+    const archiveIds = archiveAllOrphans
+      ? candidates.map((row) => String(row.id))
+      : duplicateArchiveIds;
     let archivedCount = 0;
+
+    if (apply && archiveAllOrphans && confirmCount !== candidates.length) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Orphan count changed. Expected ${confirmCount || 0}, found ${candidates.length}. Nothing was archived.`,
+          orphanCandidates: candidates.length,
+        },
+        { status: 409 },
+      );
+    }
 
     if (apply && archiveIds.length) {
       const { data: archived, error: archiveError } = await supabase
@@ -113,6 +129,9 @@ export async function POST(request: NextRequest) {
         .eq("status", "draft")
         .is("legacy_product_id", null)
         .is("card_uuid", null)
+        .contains("metadata", {
+          instacomp: { source: "kingmaker_exact_scan_intake_v2" },
+        })
         .in("id", archiveIds)
         .select("id");
       if (archiveError) throw archiveError;
@@ -122,12 +141,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       apply,
+      archiveScope: archiveAllOrphans ? "all_orphan_candidates" : "duplicate_orphans_only",
       scannerDrafts: scannerRows.length,
       orphanCandidates: candidates.length,
       uniqueScanPairs: groups.size,
       duplicateGroups: duplicateGroups.length,
-      duplicateRows: archiveIds.length,
+      duplicateRows: duplicateArchiveIds.length,
       singletonRows: Array.from(groups.values()).filter((rows) => rows.length === 1).length,
+      archiveTargetCount: archiveIds.length,
       archivedCount,
       groups: duplicateGroups.slice(0, 100).map((group) => ({
         hashPrefix: group.hash.slice(0, 16),
