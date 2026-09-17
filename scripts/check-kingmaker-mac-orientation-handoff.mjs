@@ -9,8 +9,8 @@ if (start < 0 || end < 0) {
 }
 const helper = source.slice(start, end);
 for (const required of [
-  "frontRotation: params.webOrientation.frontRotation",
-  "backRotation: params.webOrientation.backRotation",
+  "frontRotation: quarterTurn(params.webOrientation.frontRotation)",
+  "backRotation: quarterTurn(params.webOrientation.backRotation)",
 ]) {
   if (!helper.includes(required)) {
     throw new Error(`Missing trusted orientation handoff: ${required}`);

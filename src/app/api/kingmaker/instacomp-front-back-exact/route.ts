@@ -619,8 +619,8 @@ async function archiveWithMacBestEffort(params: {
           // advisory OCR heuristic and then reject an already-proven rotation.
           front: params.frontFile,
           back: params.backFile,
-          frontRotation: params.webOrientation.frontRotation,
-          backRotation: params.webOrientation.backRotation,
+          frontRotation: quarterTurn(params.webOrientation.frontRotation),
+          backRotation: quarterTurn(params.webOrientation.backRotation),
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
