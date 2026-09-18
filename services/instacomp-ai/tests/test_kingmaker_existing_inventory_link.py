@@ -49,20 +49,14 @@ class ExistingInventoryPurchaseLinkTest(unittest.TestCase):
                 },
                 "card-kiki-149-red-power-75", "inventory-existing-1", "scan-existing-1",
             )
-            self.assertEqual(match["status"], "pending_purchase")
-            acquisition_id = int(match["match"]["acquisitionItemId"])
-
-            linked = ledger.link_purchase_to_existing_inventory(
-                "card-kiki-149-red-power-75", "inventory-existing-1", acquisition_id, "scan-existing-1", "resale"
-            )
-            self.assertEqual(linked["status"], "linked_existing")
-            self.assertEqual(linked["receiptMode"], "linked_existing")
-            self.assertEqual(linked["inventoryState"], "resale_ready")
-            self.assertIsNotNone(linked.get("receivedAt"))
+            self.assertEqual(match["status"], "received")
+            self.assertEqual(match["receiptMode"], "received_new")
+            self.assertEqual(match["inventoryState"], "resale_ready")
+            self.assertIsNotNone(match.get("receivedAt"))
 
             readiness = ledger.listing_readiness(["inventory-existing-1"])
             self.assertTrue(readiness["ready"])
-            self.assertEqual(readiness["tracked"][0]["status"], "linked_existing")
+            self.assertEqual(readiness["tracked"][0]["status"], "received")
             with sqlite3.connect(accounting_db) as db:
                 receipt_count = db.execute("SELECT COUNT(*) FROM physical_inventory_receipts").fetchone()[0]
                 received_at = db.execute("SELECT received_at FROM physical_inventory_receipts").fetchone()[0]

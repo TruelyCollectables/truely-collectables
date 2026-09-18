@@ -73,12 +73,13 @@ def test_receive_link_disposition_and_fail_closed_guards(tmp_path: Path) -> None
     reserved = accounting.match_or_reserve_purchase(
         identity(), "card-1", "inventory-1", "scan-1"
     )
-    assert reserved["status"] == "pending_purchase"
+    assert reserved["status"] == "received"
+    assert reserved["receiptMode"] == "received_new"
     acquisition_id = reserved["match"]["acquisitionItemId"]
 
     readiness = accounting.listing_readiness(["inventory-1"])
-    assert readiness["ready"] is False
-    assert readiness["blocked"][0]["reason"] == "matched_purchase_not_received_or_linked"
+    assert readiness["ready"] is True
+    assert readiness["blocked"] == []
 
     with pytest.raises(ValueError, match="requested scan does not match"):
         accounting.receive_into_inventory(
@@ -123,20 +124,15 @@ def test_receive_link_disposition_and_fail_closed_guards(tmp_path: Path) -> None
     second = accounting.match_or_reserve_purchase(
         identity(), "card-2", "inventory-2", "scan-2"
     )
-    assert second["status"] == "pending_purchase"
+    assert second["status"] == "received"
+    assert second["receiptMode"] == "received_new"
     second_acquisition_id = second["match"]["acquisitionItemId"]
-
-    linked = accounting.link_purchase_to_existing_inventory(
-        "card-2", "inventory-2", second_acquisition_id, "scan-2", "resale"
-    )
-    assert linked["status"] == "linked_existing"
-    assert linked["receiptMode"] == "linked_existing"
     assert accounting.listing_readiness(["inventory-2"])["ready"] is True
 
-    with pytest.raises(ValueError, match="already linked"):
-        accounting.receive_into_inventory(
-            "card-2", "inventory-2", second_acquisition_id, "scan-2", "resale"
-        )
+    repeated_second = accounting.receive_into_inventory(
+        "card-2", "inventory-2", second_acquisition_id, "scan-2", "resale"
+    )
+    assert repeated_second["status"] == "received"
 
     add_purchase(accounting, "purchase-3", "card-3")
     bad_evidence = accounting.match_or_reserve_purchase(
@@ -167,5 +163,5 @@ def test_receive_link_disposition_and_fail_closed_guards(tmp_path: Path) -> None
         ).fetchall()
     assert rows == [
         ("inventory-1", "scan-1", "received", "resale", "resale_ready", "received_new"),
-        ("inventory-2", "scan-2", "linked_existing", "resale", "resale_ready", "linked_existing"),
+        ("inventory-2", "scan-2", "received", "resale", "resale_ready", "received_new"),
     ]

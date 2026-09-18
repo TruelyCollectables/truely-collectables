@@ -499,17 +499,21 @@ class KingmakerAccounting:
             snapshot=json.dumps({"identity":identity,"purchase":payload}, sort_keys=True, default=str)
             scan_snapshot=json.dumps(scan, sort_keys=True, default=str)
             db.execute(
-                "INSERT INTO physical_inventory_receipts(inventory_item_id,scan_id,card_uuid,acquisition_item_id,status,disposition,inventory_state,match_confidence,match_reason,matched_at,scan_verified_at,scan_snapshot_json,snapshot_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (inventory_item_id, scan["scanId"], card_uuid or None, int(row["id"]), "pending_purchase", None, "pending_purchase", round(score,3), reason, now, now, scan_snapshot, snapshot),
+                "INSERT INTO physical_inventory_receipts(inventory_item_id,scan_id,card_uuid,acquisition_item_id,status,disposition,inventory_state,match_confidence,match_reason,matched_at,scan_verified_at,scan_snapshot_json,received_at,receipt_mode,linked_at,snapshot_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (inventory_item_id, scan["scanId"], card_uuid or None, int(row["id"]), "received", "resale", "resale_ready", round(score,3), reason, now, now, scan_snapshot, now, "received_new", None, snapshot),
             )
-            db.execute("UPDATE acquisition_items SET status='pending_purchase' WHERE id=?", (int(row["id"]),))
+            db.execute("UPDATE acquisition_items SET status='received' WHERE id=?", (int(row["id"]),))
             return {
-                "status":"pending_purchase",
-                "inventoryState":"pending_purchase",
+                "status":"received",
+                "inventoryState":"resale_ready",
+                "disposition":"resale",
                 "inventoryItemId": inventory_item_id,
                 "scanId": scan["scanId"],
                 "confidence":round(score,3),
                 "reason":reason,
+                "receiptMode":"received_new",
+                "linkedAt":None,
+                "receivedAt":now,
                 "match":payload,
             }
 
