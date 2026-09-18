@@ -139,7 +139,7 @@ function registryFingerprintFromReceipts(value: unknown) {
 
 function completedMacOrientation(
   scan: InstaCompAiLocalScan,
-  webOrientation: InstaCompImageOrientationReceipt,
+  webOrientation: InstaCompImageOrientationReceipt | null,
 ): InstaCompImageOrientationReceipt {
   const receipt = scan.image_orientation || {};
   const source = text(receipt.source, 120) || "mac_local_orientation";
@@ -148,16 +148,16 @@ function completedMacOrientation(
   const frontFromWeb = frontSource === "web_openai_orientation";
   const backFromWeb = backSource === "web_openai_orientation";
   const frontConfidence = frontFromWeb
-    ? confidence(webOrientation.frontConfidence)
+    ? confidence(webOrientation?.frontConfidence)
     : confidence(receipt.front_confidence);
   const backConfidence = backFromWeb
-    ? confidence(webOrientation.backConfidence)
+    ? confidence(webOrientation?.backConfidence)
     : confidence(receipt.back_confidence);
   const frontEvidenceText = frontFromWeb
-    ? evidence(webOrientation.frontEvidenceText)
+    ? evidence(webOrientation?.frontEvidenceText)
     : evidence(receipt.front_evidence);
   const backEvidenceText = backFromWeb
-    ? evidence(webOrientation.backEvidenceText)
+    ? evidence(webOrientation?.backEvidenceText)
     : evidence(receipt.back_evidence);
   const scanCompleted = text(receipt.status, 80) === "completed";
   const completed =
@@ -603,7 +603,7 @@ function macParallelDecision(candidate: InstaCompChecklistCandidate) {
 async function archiveWithMacBestEffort(params: {
   frontFile: File;
   backFile: File;
-  webOrientation: InstaCompImageOrientationReceipt;
+  webOrientation: InstaCompImageOrientationReceipt | null;
 }): Promise<MacArchiveResult> {
   let scan: InstaCompAiLocalScan | null = null;
   let attempts = 0;
@@ -623,8 +623,12 @@ async function archiveWithMacBestEffort(params: {
           // cold orientation path.
           front: params.frontFile,
           back: params.backFile,
-          frontRotation: quarterTurn(params.webOrientation.frontRotation),
-          backRotation: quarterTurn(params.webOrientation.backRotation),
+          frontRotation: params.webOrientation
+            ? quarterTurn(params.webOrientation.frontRotation)
+            : null,
+          backRotation: params.webOrientation
+            ? quarterTurn(params.webOrientation.backRotation)
+            : null,
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
@@ -695,7 +699,7 @@ async function archiveWithMacBestEffort(params: {
       },
       frontFile: null,
       backFile: null,
-      orientation: null,
+      orientation: scan ? completedMacOrientation(scan, params.webOrientation) : null,
     };
   }
 }
@@ -905,30 +909,15 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    const normalizedSides = await normalizeInstaCompSideImages({
-      frontImage: frontFile,
-      backImage: backFile,
-      addScanFrame: multipart,
-    });
-    if (!normalizedSides.backFile || !normalizedSides.backDataUrl) {
-      throw new Error("Back orientation normalization returned no image.");
-    }
-    if (normalizedSides.orientation.status !== "completed") {
-      throw new Error(
-        normalizedSides.orientation.reason ||
-          "Automatic front/back orientation needs review. The uploaded images were saved and the card was not sent into the slower Mac identity path.",
-      );
-    }
-
     const [frontSha256, backSha256] = await Promise.all([
-      digest(normalizedSides.frontFile),
-      digest(normalizedSides.backFile),
+      digest(frontFile),
+      digest(backFile),
     ]);
     if (frontSha256 === backSha256) {
       return NextResponse.json(
         {
           success: false,
-          error: "Front and back normalized to the same image bytes.",
+          error: "Front and back are the same image bytes.",
           code: "DUPLICATE_NORMALIZED_IMAGES",
           stage: "image_pair",
         },
@@ -936,11 +925,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const macArchive = await archiveWithMacBestEffort({
+    // Local-first by design: the Mac gets the untouched front/back pair before
+    // any paid/external orientation provider is consulted. This lets InstaComp
+    // record the physical scan, attempt Apple Vision orientation, resolve the
+    // Registry identity, and learn from the scan without an outside quota gate.
+    let externalOrientation: InstaCompImageOrientationReceipt | null = null;
+    let macArchive = await archiveWithMacBestEffort({
       frontFile,
       backFile,
-      webOrientation: normalizedSides.orientation,
+      webOrientation: null,
     });
+
+    // Only ask the outside orientation referee when the Mac actually ran and
+    // could not verify orientation. A provider billing/quota failure must never
+    // prevent the local scan from being recorded or retried.
+    if (
+      macArchive.receipt.scanId &&
+      (!macArchive.orientation ||
+        macArchive.orientation.status !== "completed")
+    ) {
+      const normalizedSides = await normalizeInstaCompSideImages({
+        frontImage: frontFile,
+        backImage: backFile,
+        addScanFrame: multipart,
+      });
+      externalOrientation = normalizedSides.orientation;
+      if (
+        normalizedSides.backFile &&
+        normalizedSides.backDataUrl &&
+        externalOrientation.status === "completed"
+      ) {
+        macArchive = await archiveWithMacBestEffort({
+          frontFile,
+          backFile,
+          webOrientation: externalOrientation,
+        });
+      }
+    }
+
     const macReceipt = macArchive.receipt;
     if (
       !macArchive.frontFile ||
@@ -950,8 +972,24 @@ export async function POST(request: NextRequest) {
     ) {
       if (macReceipt.scanId) {
         const reviewAt = new Date().toISOString();
-        const reviewOrientation =
-          macArchive.orientation || normalizedSides.orientation;
+        const reviewOrientation: InstaCompImageOrientationReceipt =
+          macArchive.orientation ||
+          externalOrientation || {
+            status: "review_required",
+            model: null,
+            source: "mac_local_orientation",
+            frontRotation: 0,
+            backRotation: 0,
+            frontConfidence: 0,
+            backConfidence: 0,
+            frontEvidenceText: [],
+            backEvidenceText: [],
+            backStandalonePrizm: null,
+            backDesignationConfidence: 0,
+            reason:
+              macReceipt.error ||
+              "The local Mac scan was recorded but orientation still needs review.",
+          };
         const frontImageUrl =
           preservedInputPair?.frontImageUrl ||
           text(previousInstaComp.frontImageUrl, 2_000);

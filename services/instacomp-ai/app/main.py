@@ -95,24 +95,49 @@ async def _validate_upright_scan_image(
             content,
             side=side,
         )
-        if requested_rotation is not None:
+        local_completed = (
+            confidence >= 0.55 and any(value.strip() for value in evidence)
+        )
+        if local_completed:
+            if requested_rotation is not None:
+                evidence = [
+                    f"{side}:web_orientation_hint:{requested_rotation}",
+                    *evidence,
+                ]
+            status = "completed"
+        elif requested_rotation is not None:
+            # The website only supplies this hint after the Mac has already had
+            # its own attempt and a completed external orientation fallback was
+            # obtained. Local wins whenever it is decisive; outside help is used
+            # only when the local witness cannot settle orientation.
+            source = "web_openai_orientation"
+            rotation = requested_rotation
+            confidence = max(float(confidence or 0.0), 0.90)
             evidence = [
-                f"{side}:web_orientation_hint:{requested_rotation}",
+                f"{side}:external_orientation_fallback:{requested_rotation}",
                 *evidence,
             ]
-        status = (
-            "completed"
-            if confidence >= 0.55 and any(value.strip() for value in evidence)
-            else "review_required"
-        )
+            status = "completed"
+        else:
+            status = "review_required"
     except Exception as exc:
-        # Orientation is a presentation correction, not an identity authority.
-        # EXIF normalization and the unchanged source archive still proceed when
-        # the local OCR witness is unavailable.
-        rotation = 0
-        confidence = 0.0
-        evidence = [f"{side}:orientation_failed:{type(exc).__name__.lower()}"]
-        status = "error"
+        if requested_rotation is not None:
+            source = "web_openai_orientation"
+            rotation = requested_rotation
+            confidence = 0.90
+            evidence = [
+                f"{side}:external_orientation_fallback:{requested_rotation}",
+                f"{side}:local_orientation_failed:{type(exc).__name__.lower()}",
+            ]
+            status = "completed"
+        else:
+            # Orientation is a presentation correction, not an identity authority.
+            # EXIF normalization and the unchanged source archive still proceed when
+            # the local OCR witness is unavailable.
+            rotation = 0
+            confidence = 0.0
+            evidence = [f"{side}:orientation_failed:{type(exc).__name__.lower()}"]
+            status = "error"
     return (
         validate_and_normalize_image(
             content,

@@ -112,3 +112,31 @@ async def test_web_rotation_is_only_a_hint(monkeypatch) -> None:
     assert receipt["rotation"] == 90
     assert receipt["confidence"] == 0.81
     assert receipt["evidence"][0] == "back:web_orientation_hint:180"
+
+
+@pytest.mark.asyncio
+async def test_web_rotation_falls_back_only_after_local_review(monkeypatch) -> None:
+    from app import main
+
+    def detect_upright_rotation(_content: bytes, *, side: str):
+        assert side == "front"
+        return 0, 0.21, ["weak unreadable local witness"]
+
+    monkeypatch.setattr(
+        main.image_orientation_reader,
+        "detect_upright_rotation",
+        detect_upright_rotation,
+    )
+
+    image, receipt = await main._validate_upright_scan_image(
+        synthetic_text_image("FERNANDO MENDOZA"),
+        side="front",
+        requested_rotation=180,
+    )
+
+    assert image.rotation_applied == 180
+    assert receipt["status"] == "completed"
+    assert receipt["source"] == "web_openai_orientation"
+    assert receipt["rotation"] == 180
+    assert receipt["confidence"] >= 0.90
+    assert receipt["evidence"][0] == "front:external_orientation_fallback:180"
