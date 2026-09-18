@@ -3,6 +3,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { deriveCardIdentity } from "../../../../../../lib/card-identity";
+import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
 import { detectCardNumberFromTitle } from "../../../../../../lib/market-intel-card-number-enrichment";
 
 export const runtime = "nodejs";
@@ -51,6 +52,37 @@ function ebayLegacyId(url: URL) {
   return url.pathname.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})(?:[/?]|$)/i)?.[1]
     || url.searchParams.get("item")?.match(/^\d{9,15}$/)?.[0]
     || null;
+}
+
+async function syncedPurchaseByEbayItemId(legacyId: string) {
+  try {
+    const data = await postInstaCompMacAccounting(
+      "/v1/kingmaker/accounting/pending-purchases",
+      { cutoff: "2020-01-01" },
+      15_000,
+    );
+    const items = Array.isArray(data?.items) ? data.items : [];
+    return items.find((item: Record<string, any>) =>
+      clean(item.sourceItemId) === legacyId ||
+      clean(item.listingUrl).includes(`/itm/${legacyId}`),
+    ) || null;
+  } catch {
+    return null;
+  }
+}
+
+function identityFromSyncedPurchase(item: Record<string, any>) {
+  return {
+    player: clean(item.player),
+    year: clean(item.year),
+    brand: clean(item.brand),
+    setName: clean(item.setName),
+    cardNumber: clean(item.cardNumber),
+    parallel: clean(item.parallel) || "Base",
+    serialNumber: clean(item.serialFamily),
+    isAuto: item.isAuto === true,
+    isRelic: item.isRelic === true,
+  };
 }
 
 async function ebayToken() {
@@ -134,7 +166,33 @@ export async function POST(request: Request) {
       return Response.json({ error: "Automatic URL fill currently supports eBay item URLs. Card photos can still be auto-identified for any source." }, { status: 400 });
     }
 
-    const { data, legacyId } = await ebayItem(url);
+    const legacyId = ebayLegacyId(url);
+    if (!legacyId) {
+      return Response.json({ error: "That eBay URL does not contain a usable item number." }, { status: 400 });
+    }
+
+    const syncedPurchase = await syncedPurchaseByEbayItemId(legacyId);
+    if (syncedPurchase) {
+      const identity = identityFromSyncedPurchase(syncedPurchase);
+      const usable = Boolean(identity.player && identity.cardNumber);
+      return Response.json({
+        ok: true,
+        source: clean(syncedPurchase.source) || "eBay",
+        sourceItemId: clean(syncedPurchase.sourceItemId) || legacyId,
+        seller: clean(syncedPurchase.seller) || null,
+        title: clean(syncedPurchase.title) || null,
+        totalCost: Number(syncedPurchase.allocatedCost) > 0 ? Number(syncedPurchase.allocatedCost) : null,
+        purchaseDate: clean(syncedPurchase.purchaseDate) || null,
+        orderNumber: clean(syncedPurchase.orderNumber || syncedPurchase.purchaseId) || null,
+        identity,
+        images: Array.isArray(syncedPurchase.imageUrls) ? syncedPurchase.imageUrls : [],
+        usable,
+        needsReview: !usable,
+        resolvedFrom: "mac_local_synced_purchase",
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    const { data } = await ebayItem(url);
     const images = Array.from(new Set([
       data.image?.imageUrl,
       ...(data.additionalImages || []).map((row) => row.imageUrl),

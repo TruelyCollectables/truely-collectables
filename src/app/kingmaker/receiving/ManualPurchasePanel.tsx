@@ -279,6 +279,14 @@ export default function ManualPurchasePanel({ onSaved }: Props) {
       const identity = (data?.identity || {}) as Record<string, any>;
       setSource(String(data?.source || source || "Misc"));
       if (data?.seller) setSeller(String(data.seller));
+      if (data?.orderNumber) setOrderNumber(String(data.orderNumber));
+      if (mode === "single" && Number(data?.totalCost) > 0) {
+        setTotalCost(Number(data.totalCost).toFixed(2));
+      }
+      if (mode === "single" && data?.purchaseDate) {
+        const date = new Date(String(data.purchaseDate));
+        if (!Number.isNaN(date.getTime())) setPurchaseDate(date.toISOString().slice(0, 10));
+      }
       setCards((current) => {
         const target = current[0] || emptyCard();
         const filled: ManualCard = {
