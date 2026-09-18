@@ -386,7 +386,7 @@ export default function KingmakerInstaCompQueue() {
           const showNormalizedImages = Boolean(normalizedFront && normalizedBack);
           const displayImages = showNormalizedImages
             ? [normalizedFront, normalizedBack]
-            : [null, null];
+            : [card.frontPreview || null, card.backPreview || null];
           const choices = basePrice
             ? [
                 ["InstaComp", basePrice, "instacomp"],

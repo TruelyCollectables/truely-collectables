@@ -609,24 +609,22 @@ async function archiveWithMacBestEffort(params: {
   let attempts = 0;
   let lastError: unknown = null;
   try {
-    const deadline = Date.now() + 225_000;
-    for (const requestedTimeout of [150_000, 75_000]) {
+    // Stay well inside the public request ceiling. A slow/hung Mac scan must
+    // return a saved review item instead of letting Cloudflare/browser abort the
+    // request after ~200 seconds with no useful handoff.
+    const deadline = Date.now() + 95_000;
+    for (const requestedTimeout of [90_000]) {
       attempts += 1;
       try {
-        const webOrientationTrusted = params.webOrientation.status === "completed";
         scan = await analyzeWithInstaCompAiLocal({
-          // Always send the untouched upload. When the web referee is trusted,
-          // forward its exact quarter-turn so the Mac applies it once. When the
-          // web provider is unavailable or inconclusive, omit rotation hints so
-          // the Mac-local pipeline can make the orientation decision itself.
+          // The caller fails closed unless the web orientation receipt is
+          // completed, so these quarter-turns are trusted interactive hints.
+          // Forward them directly so the Mac does not fall back to the slower
+          // cold orientation path.
           front: params.frontFile,
           back: params.backFile,
-          frontRotation: webOrientationTrusted
-            ? quarterTurn(params.webOrientation.frontRotation)
-            : undefined,
-          backRotation: webOrientationTrusted
-            ? quarterTurn(params.webOrientation.backRotation)
-            : undefined,
+          frontRotation: quarterTurn(params.webOrientation.frontRotation),
+          backRotation: quarterTurn(params.webOrientation.backRotation),
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
@@ -914,6 +912,12 @@ export async function POST(request: NextRequest) {
     });
     if (!normalizedSides.backFile || !normalizedSides.backDataUrl) {
       throw new Error("Back orientation normalization returned no image.");
+    }
+    if (normalizedSides.orientation.status !== "completed") {
+      throw new Error(
+        normalizedSides.orientation.reason ||
+          "Automatic front/back orientation needs review. The uploaded images were saved and the card was not sent into the slower Mac identity path.",
+      );
     }
 
     const [frontSha256, backSha256] = await Promise.all([
