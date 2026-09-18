@@ -45,6 +45,7 @@ class MarketCompRequest(BaseModel):
     operator_certified_identity: bool = False
     include_130point: bool = False
     include_active: bool = False
+    include_price_guide: bool = False
     include_fanatics: bool = False
     max_sold: int = Field(default=50, ge=1, le=100)
     max_active: int = Field(default=30, ge=1, le=60)
@@ -331,6 +332,133 @@ async def _chrome_json(url: str, javascript: str, wait_seconds: int = 4) -> dict
 _EBAY_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/itm/"]')){let title=(a.innerText||'').replace(/\s*Opens in a new window or tab\s*/gi,' ').trim();const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);if(!m||seen.has(m[1])||title.length<8||/^shop on ebay$/i.test(title)||m[1]==='123456')continue;let e=a;let text='';for(let i=0;i<7&&e;i++,e=e.parentElement){const v=(e.innerText||'').trim();if(/Sold\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(v)&&/\$\s*\d/.test(v)){text=v;break}}if(!text)continue;seen.add(m[1]);const img=(a.closest('li,div')?.querySelector('img')?.src||null);rows.push({title,url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=80)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
 
 _EBAY_ACTIVE_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/itm/"]')){let title=(a.innerText||'').replace(/\s*Opens in a new window or tab\s*/gi,' ').trim();const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);if(!m||seen.has(m[1])||title.length<8||/^shop on ebay$/i.test(title)||m[1]==='123456')continue;let e=a;let text='';for(let i=0;i<7&&e;i++,e=e.parentElement){const v=(e.innerText||'').trim();if(/\$\s*\d/.test(v)&&!(/Sold\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(v))){text=v;break}}if(!text)continue;seen.add(m[1]);const img=(a.closest('li,div')?.querySelector('img')?.src||null);rows.push({title,url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=80)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
+
+_EBAY_PRICE_GUIDE_CLICK_JS = r'''(()=>{const t=(v)=>(v||'').replace(/\s+/g,' ').trim();const b=Array.from(document.querySelectorAll('button')).find(x=>/see insights/i.test(t(x.innerText||x.textContent)));if(!b)return JSON.stringify({ok:false,error:'see_insights_not_found',title:document.title,url:location.href});b.click();return 'CLICKED'})()'''
+
+_EBAY_PRICE_GUIDE_READ_JS = r'''(()=>{const ds=Array.from(document.querySelectorAll('[role=dialog],dialog'));const d=ds.find(x=>/Median sold price/i.test(x.innerText||''));if(!d)return JSON.stringify({ok:false,error:'price_guide_dialog_not_found',title:document.title,url:location.href});const lines=(d.innerText||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);const money=(v)=>{const m=String(v||'').match(/\$([0-9][0-9,]*(?:\.\d{1,2})?)/);return m?Number(m[1].replace(/,/g,'')):null};const after=(label)=>{const i=lines.findIndex(x=>x.toLowerCase()===label.toLowerCase());return i>=0?lines[i+1]||null:null};const median=money(after('Median sold price'));const last=money(after('Last sold'));const li=lines.findIndex(x=>x.toLowerCase()==='last sold');const lastDate=li>=0?(lines[li+2]||null):null;const range=Array.from(String(after('Sold price range')||'').matchAll(/\$([0-9][0-9,]*(?:\.\d{1,2})?)/g)).map(m=>Number(m[1].replace(/,/g,'')));const sellers=Number(String(after('Number of sellers')||'').replace(/[^0-9]/g,''))||null;const listings=Number(String(after('Number of listings')||'').replace(/[^0-9]/g,''))||null;const period=Array.from(d.querySelectorAll('button')).map(b=>(b.innerText||b.textContent||'').trim()).find(x=>/^(7 days|1 month|3 months|6 months|1 year|2 years)$/i.test(x))||null;const title=lines.find((x,i)=>i>0&&x.length>20&&(/#/.test(x)||/Panini|Topps|Upper Deck|Bowman|Donruss|Prizm|Select/i.test(x)))||lines[1]||null;const grade=lines.find(x=>/^(Ungraded|PSA|BGS|SGC|CGC|CSG|HGA|TAG)\b/i.test(x))||null;const aria=Array.from(d.querySelectorAll('[aria-label]')).map(e=>e.getAttribute('aria-label')||'');const parseSeries=(name)=>aria.map(a=>{if(!a.toLowerCase().startsWith(name.toLowerCase()+','))return null;const parts=a.split(',').map(x=>x.trim());if(parts.length<3)return null;const timestamp=Number(parts[parts.length-2]);const value=Number(parts[parts.length-1]);return Number.isFinite(timestamp)&&Number.isFinite(value)?{timestamp,value}:null}).filter(Boolean);const qty=parseSeries('Quantity sold');const weekly=parseSeries('Median sold price (by week)');const soldCount=qty.reduce((n,p)=>n+p.value,0);const bodyLines=(document.body?.innerText||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);const specificsStart=bodyLines.findIndex(x=>x.toLowerCase()==='item specifics');const specificsEnd=bodyLines.findIndex((x,k)=>k>specificsStart&&x.toLowerCase()==='item description from the seller');const itemSpecificsText=specificsStart>=0?bodyLines.slice(specificsStart+1,specificsEnd>specificsStart?specificsEnd:specificsStart+100).join(' '):'';const recent=[];let i=lines.findIndex(x=>x.toLowerCase()==='recent sales');if(i>=0){i++;if((lines[i]||'').toLowerCase()==='most recent')i++;while(i<lines.length&&recent.length<30){if(/^see more$/i.test(lines[i]))break;const saleTitle=lines[i++];const condition=lines[i]||null;if(condition)i++;const itemPrice=money(lines[i]||'');if(itemPrice===null)continue;i++;let shippingPrice=null;if(/free shipping/i.test(lines[i]||'')){shippingPrice=0;i++;}else if(/^\+\s*\$/.test(lines[i]||'')){shippingPrice=money(lines[i]);i++;}const format=lines[i]||null;if(format)i++;if(/^Qty\b/i.test(lines[i]||''))i++;const date=lines[i]||null;if(date)i++;recent.push({title:saleTitle,condition,itemPrice,shippingPrice,format,date});}}return JSON.stringify({ok:true,listingUrl:location.href,listingTitle:document.title,cardTitle:title,itemSpecificsText,grade,period,medianSoldPrice:median,lastSoldPrice:last,lastSoldDate:lastDate,soldPriceLow:range[0]??null,soldPriceHigh:range[1]??null,sellerCount:sellers,listingCount:listings,soldCount,weeklyMedianSeries:weekly,quantitySoldSeries:qty,recentSales:recent,capturedAt:new Date().toISOString()})})()'''
+
+
+def _chrome_price_guide_script(url: str) -> str:
+    return f'''tell application "Google Chrome"
+  if (count windows) = 0 then make new window
+  set w to window 1
+  set oldIndex to active tab index of w
+  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}
+  set active tab index of w to (count tabs of w)
+  delay 4
+  try
+    set clickResult to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_CLICK_JS)}
+    if clickResult is not "CLICKED" then
+      set resultText to clickResult
+    else
+      delay 4
+      set resultText to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_READ_JS)}
+    end if
+  on error errMsg number errNum
+    try
+      close t
+    end try
+    if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
+    error errMsg number errNum
+  end try
+  close t
+  if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
+  return resultText
+end tell'''
+
+
+async def _search_ebay_price_guide(listing_url: str, identity: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    if not listing_url:
+        return None, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "no_matches", "resultCount": 0, "message": "No exact eBay listing was available to open Price Guide."}
+    try:
+        raw = await asyncio.to_thread(_run_osascript, _chrome_price_guide_script(listing_url), 45)
+        payload = json.loads(raw)
+        if payload.get("ok") is not True:
+            return None, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "no_matches", "resultCount": 0, "searchUrl": listing_url, "message": _text(payload.get("error") or "Price Guide did not return a dataset.")}
+        card_title = _text(payload.get("cardTitle") or payload.get("listingTitle"))
+        item_specifics = _text(payload.get("itemSpecificsText"))
+        exact, reasons = _strong_exact_title(
+            _text(f"{card_title} {item_specifics}"),
+            identity,
+        )
+        if not exact:
+            return None, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "identity_mismatch", "resultCount": 0, "searchUrl": listing_url, "message": "Price Guide opened, but its card identity did not pass InstaComp exact-card gates.", "reasons": reasons, "cardTitle": card_title}
+        snapshot = {
+            "source": "ebay_price_guide",
+            "sourceAuthority": "ebay_price_guide_authenticated_web",
+            "listingUrl": listing_url,
+            "cardTitle": card_title,
+            "itemSpecificsEvidence": item_specifics[:4000] or None,
+            "grade": payload.get("grade"),
+            "period": payload.get("period"),
+            "medianSoldPrice": payload.get("medianSoldPrice"),
+            "lastSoldPrice": payload.get("lastSoldPrice"),
+            "lastSoldDate": payload.get("lastSoldDate"),
+            "soldPriceLow": payload.get("soldPriceLow"),
+            "soldPriceHigh": payload.get("soldPriceHigh"),
+            "sellerCount": payload.get("sellerCount"),
+            "listingCount": payload.get("listingCount"),
+            "soldCount": payload.get("soldCount"),
+            "weeklyMedianSeries": payload.get("weeklyMedianSeries") or [],
+            "quantitySoldSeries": payload.get("quantitySoldSeries") or [],
+            "recentSales": payload.get("recentSales") or [],
+            "capturedAt": payload.get("capturedAt") or datetime.now(timezone.utc).isoformat(),
+            "identityVerified": True,
+        }
+        return snapshot, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "live", "resultCount": int(snapshot.get("soldCount") or 0), "searchUrl": listing_url, "message": f"eBay Price Guide exact-card snapshot captured: {int(snapshot.get('soldCount') or 0)} sold over {snapshot.get('period') or 'selected period'}."}
+    except Exception as exc:
+        return None, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "error", "resultCount": 0, "searchUrl": listing_url, "message": str(exc)[:300]}
+
+
+async def _search_ebay_price_guide_candidates(
+    candidates: list[dict[str, Any]],
+    identity: dict[str, Any],
+    *,
+    max_attempts: int = 3,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Try a few exact eBay listings because Price Guide is not enabled on every listing.
+
+    The listing itself must already pass the exact-card title gate, and the Price
+    Guide dialog is independently checked against the canonical Registry identity.
+    """
+    attempts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    last_coverage: dict[str, Any] | None = None
+    for row in candidates:
+        url = _text(row.get("url"))
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        snapshot, coverage = await _search_ebay_price_guide(url, identity)
+        last_coverage = coverage
+        attempts.append({
+            "url": url,
+            "status": coverage.get("status"),
+            "message": coverage.get("message"),
+            "cardTitle": coverage.get("cardTitle"),
+        })
+        if snapshot is not None:
+            return snapshot, {
+                **coverage,
+                "attemptCount": len(attempts),
+                "attempts": attempts,
+            }
+        if len(attempts) >= max_attempts:
+            break
+
+    if last_coverage is None:
+        last_coverage = {
+            "source": "ebay_price_guide",
+            "label": "eBay Price Guide",
+            "status": "no_matches",
+            "resultCount": 0,
+            "message": "No exact eBay listing was available to open Price Guide.",
+        }
+    return None, {
+        **last_coverage,
+        "attemptCount": len(attempts),
+        "attempts": attempts,
+    }
 
 
 _MERCARI_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/item/"]')){const m=a.href.match(/\/item\/(m\d+)/i);if(!m||seen.has(m[1]))continue;const text=(a.innerText||a.closest('li,article,div')?.innerText||'').trim();if(!text||!/\$\s*\d/.test(text))continue;seen.add(m[1]);const img=(a.querySelector('img')?.src||a.closest('li,article,div')?.querySelector('img')?.src||null);rows.push({url:`https://www.mercari.com/us/item/${m[1]}/`,text,imageUrl:img});if(rows.length>=60)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
@@ -645,6 +773,26 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         ebay_active_rows, ebay_active_coverage = ebay_active
         fanatics_rows, fanatics_coverage = fanatics
 
+        exact_listing_candidates = [
+            row for row in [*ebay_active_rows, *ebay_rows]
+            if _strong_exact_title(_text(row.get("title")), identity)[0]
+        ]
+        price_guide = None
+        price_guide_coverage = {
+            "source": "ebay_price_guide",
+            "label": "eBay Price Guide",
+            "status": "not_configured",
+            "resultCount": 0,
+            "message": "Skipped for this direct-market request.",
+        }
+        if request.include_price_guide:
+            async with _BROWSER_LOCK:
+                price_guide, price_guide_coverage = await _search_ebay_price_guide_candidates(
+                    exact_listing_candidates,
+                    identity,
+                    max_attempts=3,
+                )
+
         ebay_by_id = {_item_id(row["url"]): row for row in ebay_rows if _item_id(row["url"])}
         sold: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
@@ -729,6 +877,7 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
                     "discoverySoldComps": sold,
                     "discoveryActiveComps": active,
                     "rejectedMarketCandidates": rejected[:100],
+                    "priceGuideSnapshot": price_guide,
                     "pricingEligibleSoldCount": 0,
                     "trustedSuggestedPrice": None,
                     "competitiveActiveLow": summary.get("activeLow"),
@@ -746,7 +895,8 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
             "sold": sold,
             "active": active,
             "rejected": rejected[:100],
-            "providerCoverage": [ebay_coverage, point_coverage, ebay_active_coverage, fanatics_coverage],
+            "providerCoverage": [ebay_coverage, *([price_guide_coverage] if request.include_price_guide else []), point_coverage, ebay_active_coverage, fanatics_coverage],
+            "priceGuide": price_guide,
             "diagnostics": diagnostics,
             "marketSummary": summary,
             "pricingEligibleSoldCount": summary["pricingEligibleSoldCount"],

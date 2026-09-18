@@ -227,6 +227,79 @@ def _market_observations_from_receipt(receipt: dict[str, Any], fingerprint: str)
     for comp in _list(receipt.get("rejectedMarketCandidates")):
         if isinstance(comp, dict):
             observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="REJECTED", observation_type="REJECTED_MARKET_CANDIDATE", observation=comp))
+
+    price_guide = _dict(receipt.get("priceGuideSnapshot") or receipt.get("price_guide_snapshot"))
+    if price_guide:
+        snapshot_observation = {
+            **price_guide,
+            "source": "ebay_price_guide",
+            "marketplace": "eBay",
+            "price": price_guide.get("medianSoldPrice"),
+            "listingTitle": price_guide.get("cardTitle"),
+            "listingUrl": price_guide.get("listingUrl"),
+            "valuationLow": price_guide.get("soldPriceLow"),
+            "valuationMedian": price_guide.get("medianSoldPrice"),
+            "valuationHigh": price_guide.get("soldPriceHigh"),
+            "observedAt": price_guide.get("capturedAt"),
+        }
+        observations.append(
+            _observation_payload(
+                receipt,
+                receipt_fingerprint=fingerprint,
+                event_class="OBSERVED",
+                observation_type="EBAY_PRICE_GUIDE_SNAPSHOT",
+                observation=snapshot_observation,
+            )
+        )
+        for point in _list(price_guide.get("weeklyMedianSeries")):
+            if not isinstance(point, dict):
+                continue
+            observations.append(
+                _observation_payload(
+                    receipt,
+                    receipt_fingerprint=fingerprint,
+                    event_class="OBSERVED",
+                    observation_type="EBAY_PRICE_GUIDE_WEEKLY_MEDIAN",
+                    observation={
+                        "source": "ebay_price_guide",
+                        "marketplace": "eBay",
+                        "price": point.get("value"),
+                        "observedAt": (
+                            datetime.fromtimestamp(float(point.get("timestamp") or 0) / 1000.0, tz=timezone.utc).isoformat()
+                            if point.get("timestamp") else price_guide.get("capturedAt")
+                        ),
+                        "title": price_guide.get("cardTitle"),
+                        "period": price_guide.get("period"),
+                    },
+                )
+            )
+        for sale in _list(price_guide.get("recentSales")):
+            if not isinstance(sale, dict):
+                continue
+            item_price = _number(sale.get("itemPrice"))
+            if item_price is None or item_price <= 0:
+                continue
+            shipping = _number(sale.get("shippingPrice"))
+            observations.append(
+                _observation_payload(
+                    receipt,
+                    receipt_fingerprint=fingerprint,
+                    event_class="OBSERVED",
+                    observation_type="EBAY_PRICE_GUIDE_RECENT_SALE",
+                    observation={
+                        "source": "ebay_price_guide",
+                        "marketplace": "eBay",
+                        "title": sale.get("title"),
+                        "price": round(item_price + float(shipping or 0), 2),
+                        "itemPrice": item_price,
+                        "shippingPrice": shipping,
+                        "soldAt": sale.get("date"),
+                        "format": sale.get("format"),
+                        "condition": sale.get("condition"),
+                        "observedAt": price_guide.get("capturedAt"),
+                    },
+                )
+            )
     decision_payload = _dict(receipt.get("decisionRecord") or receipt.get("decision_record"))
     if decision_payload or receipt.get("decision"):
         observations.append(_observation_payload(receipt, receipt_fingerprint=fingerprint, event_class="DECISION", observation_type="INSTACOMP_DECISION", observation=decision_payload))
@@ -472,6 +545,15 @@ def _normalized_receipt(body: dict[str, Any]) -> dict[str, Any]:
             if isinstance(body.get("discoveryActiveComps"), list)
             else []
         )[:100],
+        "priceGuideSnapshot": (
+            body.get("priceGuideSnapshot")
+            if isinstance(body.get("priceGuideSnapshot"), dict)
+            else (
+                body.get("price_guide_snapshot")
+                if isinstance(body.get("price_guide_snapshot"), dict)
+                else {}
+            )
+        ),
         "trustedSuggestedPrice": _number(
             body.get("trustedSuggestedPrice") or body.get("trusted_suggested_price")
         ),

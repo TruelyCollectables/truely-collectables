@@ -1664,6 +1664,11 @@ export async function GET(request: Request) {
               : []
             : evidenceList(instaComp.soldCompEvidence),
           activeCompetition: evidenceList(instaComp.activeCompetition),
+          priceGuide:
+            instaComp.priceGuide && typeof instaComp.priceGuide === "object"
+              ? recordValue(instaComp.priceGuide)
+              : null,
+          priceGuideCheckedAt: textValue(instaComp.priceGuideCheckedAt),
           rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
           excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
           excludedCompCount: Array.isArray(instaComp.excludedCompUrls)

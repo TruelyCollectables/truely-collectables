@@ -41,6 +41,32 @@ type CompEvidence = {
   listedAt?: string | null;
 };
 
+type PriceGuidePoint = {
+  timestamp: number;
+  value: number;
+};
+
+type PriceGuideSnapshot = {
+  source?: string | null;
+  sourceAuthority?: string | null;
+  listingUrl?: string | null;
+  cardTitle?: string | null;
+  grade?: string | null;
+  period?: string | null;
+  medianSoldPrice?: number | null;
+  lastSoldPrice?: number | null;
+  lastSoldDate?: string | null;
+  soldPriceLow?: number | null;
+  soldPriceHigh?: number | null;
+  sellerCount?: number | null;
+  listingCount?: number | null;
+  soldCount?: number | null;
+  weeklyMedianSeries?: PriceGuidePoint[];
+  quantitySoldSeries?: PriceGuidePoint[];
+  capturedAt?: string | null;
+  identityVerified?: boolean;
+};
+
 type PhysicalInventoryMember = {
   inventoryItemId: string;
   scanId?: string | null;
@@ -148,6 +174,8 @@ type PendingCard = {
     } | null;
     soldCompEvidence?: CompEvidence[];
     activeCompetition?: CompEvidence[];
+    priceGuide?: PriceGuideSnapshot | null;
+    priceGuideCheckedAt?: string | null;
     identity?: CardIdentity | null;
     gradingCompany?: string | null;
     gradingGrade?: string | null;
@@ -2240,6 +2268,12 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
+                {card.instaComp.priceGuide ? (
+                  <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
+                    <PriceGuidePanel snapshot={card.instaComp.priceGuide} />
+                  </div>
+                ) : null}
+
                 {(soldCompEvidence.length || activeCompetition.length) ? (
                   <div className="grid gap-4 border-b-2 border-neutral-900 bg-neutral-50 p-4 lg:grid-cols-2">
                     <MarketEvidencePanel
@@ -2654,6 +2688,123 @@ export default function KingmakerPendingPage({
     </main>
   );
 }
+
+function PriceGuidePanel({ snapshot }: { snapshot: PriceGuideSnapshot }) {
+  const series = (snapshot.weeklyMedianSeries || [])
+    .filter(
+      (point) =>
+        Number.isFinite(Number(point.timestamp)) &&
+        Number.isFinite(Number(point.value)),
+    )
+    .map((point) => ({
+      timestamp: Number(point.timestamp),
+      value: Number(point.value),
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  let polyline = "";
+  if (series.length >= 2) {
+    const minValue = Math.min(...series.map((point) => point.value));
+    const maxValue = Math.max(...series.map((point) => point.value));
+    const spread = Math.max(1, maxValue - minValue);
+    polyline = series
+      .map((point, index) => {
+        const x = (index / (series.length - 1)) * 300;
+        const y = 84 - ((point.value - minValue) / spread) * 68;
+        return x.toFixed(1) + "," + y.toFixed(1);
+      })
+      .join(" ");
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-sky-900 bg-white p-4 shadow-[3px_3px_0_#0c4a6e]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-black">eBay Price Guide</h3>
+            {snapshot.identityVerified === true ? (
+              <span className="rounded-full bg-emerald-200 px-2.5 py-1 text-xs font-black text-emerald-950">
+                EXACT CARD VERIFIED
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs font-semibold text-neutral-600">
+            eBay aggregate market history · context only; exact sold transactions remain InstaComp pricing authority.
+          </p>
+          {snapshot.cardTitle ? (
+            <p className="mt-2 text-sm font-bold text-neutral-800">{snapshot.cardTitle}</p>
+          ) : null}
+        </div>
+        {snapshot.listingUrl ? (
+          <a
+            href={snapshot.listingUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border-2 border-sky-900 px-3 py-2 text-xs font-black text-sky-950"
+          >
+            Open eBay source
+          </a>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="rounded-lg bg-sky-100 p-3">
+          <p className="text-xs font-black uppercase text-sky-900">Median sold</p>
+          <p className="text-xl font-black">{money(snapshot.medianSoldPrice)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Sold count</p>
+          <p className="text-xl font-black">{Number(snapshot.soldCount || 0)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Last sold</p>
+          <p className="text-xl font-black">{money(snapshot.lastSoldPrice)}</p>
+          {snapshot.lastSoldDate ? <p className="text-xs font-bold text-neutral-500">{snapshot.lastSoldDate}</p> : null}
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Sold range</p>
+          <p className="font-black">{money(snapshot.soldPriceLow)} – {money(snapshot.soldPriceHigh)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Listings</p>
+          <p className="text-xl font-black">{Number(snapshot.listingCount || 0)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Window</p>
+          <p className="font-black">{snapshot.period || "eBay selected"}</p>
+          {snapshot.grade ? <p className="text-xs font-bold text-neutral-500">{snapshot.grade}</p> : null}
+        </div>
+      </div>
+
+      {polyline ? (
+        <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+          <div className="mb-2 flex items-center justify-between gap-3 text-xs font-black uppercase text-neutral-600">
+            <span>Weekly median sold trend</span>
+            <span>{series.length} points</span>
+          </div>
+          <svg
+            viewBox="0 0 300 96"
+            className="h-28 w-full overflow-visible"
+            role="img"
+            aria-label="eBay Price Guide weekly median sold price trend"
+          >
+            <line x1="0" y1="84" x2="300" y2="84" stroke="currentColor" strokeOpacity="0.15" />
+            <polyline
+              points={polyline}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="4"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              className="text-sky-700"
+            />
+          </svg>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 
 function MarketEvidencePanel({
   title,

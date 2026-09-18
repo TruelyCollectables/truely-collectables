@@ -132,3 +132,35 @@ function assertMacMarketUsesCanonicalArchiveIdentity() {
   assert.match(source, /ai: marketAi/);
 }
 assertMacMarketUsesCanonicalArchiveIdentity();
+
+
+function assertPriceGuideInstaCompContract() {
+  const marketRoute = readFileSync(
+    path.join(
+      process.cwd(),
+      "src/app/api/account/seller/inventory/instacomp/route.ts",
+    ),
+    "utf8",
+  );
+  const pendingRoute = readFileSync(
+    path.join(
+      process.cwd(),
+      "src/app/api/account/seller/instacomp-pending/route.ts",
+    ),
+    "utf8",
+  );
+  const pendingClient = readFileSync(
+    path.join(
+      process.cwd(),
+      "src/app/kingmaker/pending/PendingClient.tsx",
+    ),
+    "utf8",
+  );
+  assert.match(marketRoute, /include_price_guide: true/);
+  assert.match(marketRoute, /priceGuide: macMarket\.priceGuide/);
+  assert.match(pendingRoute, /priceGuideCheckedAt/);
+  assert.match(pendingClient, /function PriceGuidePanel/);
+  assert.match(pendingClient, /Weekly median sold trend/);
+  assert.match(pendingClient, /exact sold transactions remain InstaComp pricing authority/);
+}
+assertPriceGuideInstaCompContract();

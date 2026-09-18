@@ -213,12 +213,49 @@ function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active") {
   return true;
 }
 
+type PriceGuidePoint = {
+  timestamp: number;
+  value: number;
+};
+
+type PriceGuideRecentSale = {
+  title?: string | null;
+  condition?: string | null;
+  itemPrice?: number | null;
+  shippingPrice?: number | null;
+  format?: string | null;
+  date?: string | null;
+};
+
+type PriceGuideSnapshot = {
+  source?: string | null;
+  sourceAuthority?: string | null;
+  listingUrl?: string | null;
+  cardTitle?: string | null;
+  grade?: string | null;
+  period?: string | null;
+  medianSoldPrice?: number | null;
+  lastSoldPrice?: number | null;
+  lastSoldDate?: string | null;
+  soldPriceLow?: number | null;
+  soldPriceHigh?: number | null;
+  sellerCount?: number | null;
+  listingCount?: number | null;
+  soldCount?: number | null;
+  weeklyMedianSeries?: PriceGuidePoint[];
+  quantitySoldSeries?: PriceGuidePoint[];
+  recentSales?: PriceGuideRecentSale[];
+  capturedAt?: string | null;
+  identityVerified?: boolean;
+};
+
 type MacMarketResult = {
   status: "ready" | "failed" | "not_configured";
   sold: Evidence[];
   active: Evidence[];
   rejected: Array<Record<string, any>>;
   providerCoverage: Array<Record<string, any>>;
+  priceGuide: PriceGuideSnapshot | null;
   query: string | null;
   learning: Record<string, any> | null;
   error: string | null;
@@ -242,6 +279,7 @@ async function requestMacExactMarket(params: {
       active: [],
       rejected: [],
       providerCoverage: [],
+      priceGuide: null,
       query: null,
       learning: null,
       error: "The authenticated InstaComp Mac market bridge is not configured.",
@@ -284,6 +322,7 @@ async function requestMacExactMarket(params: {
         research_id: params.researchId,
         operator_certified_identity: params.operatorCertifiedIdentity,
         include_active: true,
+        include_price_guide: true,
         max_sold: 50,
         max_active: 30,
       }),
@@ -298,6 +337,10 @@ async function requestMacExactMarket(params: {
         active: [],
         rejected: Array.isArray(payload.rejected) ? payload.rejected : [],
         providerCoverage: Array.isArray(payload.providerCoverage) ? payload.providerCoverage : [],
+        priceGuide:
+          payload.priceGuide && typeof payload.priceGuide === "object"
+            ? (payload.priceGuide as PriceGuideSnapshot)
+            : null,
         query: typeof payload.query === "string" ? payload.query : null,
         learning: payload.learning && typeof payload.learning === "object" ? payload.learning : null,
         error: sanitizeInstaCompProviderError(
@@ -311,6 +354,10 @@ async function requestMacExactMarket(params: {
       active: evidenceList(payload.active, 30),
       rejected: Array.isArray(payload.rejected) ? payload.rejected : [],
       providerCoverage: Array.isArray(payload.providerCoverage) ? payload.providerCoverage : [],
+      priceGuide:
+        payload.priceGuide && typeof payload.priceGuide === "object"
+          ? (payload.priceGuide as PriceGuideSnapshot)
+          : null,
       query: typeof payload.query === "string" ? payload.query : null,
       learning: payload.learning && typeof payload.learning === "object" ? payload.learning : null,
       error: null,
@@ -322,6 +369,7 @@ async function requestMacExactMarket(params: {
       active: [],
       rejected: [],
       providerCoverage: [],
+      priceGuide: null,
       query: null,
       learning: null,
       error: sanitizeInstaCompProviderError(error instanceof Error ? error.message : String(error)),
@@ -967,6 +1015,8 @@ export async function POST(request: NextRequest) {
         exactStoredTitleQuery: item.title,
         exactMarketQueries,
         marketIdentitySource,
+        priceGuide: macMarket.priceGuide,
+        priceGuideCheckedAt: macMarket.priceGuide?.capturedAt || checkedAt,
         macMarketSearch: {
           status: macMarket.status,
           query: macMarket.query,
@@ -1065,6 +1115,7 @@ export async function POST(request: NextRequest) {
       ),
       exactMarketQueries,
       marketIdentitySource,
+      priceGuide: macMarket.priceGuide,
       openAiWebMarket: null,
       exactMarketVisualReview: {
         soldReviewed: soldReview.reviewedCount,

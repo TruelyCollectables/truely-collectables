@@ -168,3 +168,44 @@ def test_scheduled_training_consumes_only_verified_eligible_lessons(tmp_path: Pa
 def test_missing_prior_outcome_fails_closed(tmp_path: Path):
     with pytest.raises(ValueError):
         append_market_observation_outcome(tmp_path / "market.sqlite3", prior_observation_fingerprint="missing", outcome={"finalPrice": 1})
+
+
+def test_price_guide_snapshot_and_weekly_points_are_retained_as_market_memory(tmp_path: Path):
+    db = tmp_path / "market.sqlite3"
+    receipt = base_receipt(
+        priceGuideSnapshot={
+            "source": "ebay_price_guide",
+            "listingUrl": "https://www.ebay.com/itm/307148671682",
+            "cardTitle": "2025 Panini Prizm WNBA - Signatures Aneesah Morrow #SG-AM Green Prizm (AU, RC)",
+            "period": "3 months",
+            "medianSoldPrice": 10.0,
+            "soldPriceLow": 2.25,
+            "soldPriceHigh": 16.99,
+            "capturedAt": "2026-09-18T02:00:00+00:00",
+            "weeklyMedianSeries": [
+                {"timestamp": 1782086400000, "value": 16.99},
+                {"timestamp": 1782691200000, "value": 10.5},
+            ],
+            "recentSales": [
+                {
+                    "title": "Exact Morrow Green Auto",
+                    "itemPrice": 11.0,
+                    "shippingPrice": 1.36,
+                    "format": "Offer accepted",
+                    "date": "Aug 23, 2026",
+                }
+            ],
+        },
+    )
+    record_teacher_comp_receipt(db, receipt)
+    rows = load_market_observations(db, identity={"registryIdentityId": "registry-1"}, limit=20)
+    types = [row["observation_type"] for row in rows]
+    assert "EBAY_PRICE_GUIDE_SNAPSHOT" in types
+    assert types.count("EBAY_PRICE_GUIDE_WEEKLY_MEDIAN") == 2
+    assert types.count("EBAY_PRICE_GUIDE_RECENT_SALE") == 1
+    price_guide_sale = next(row for row in rows if row["observation_type"] == "EBAY_PRICE_GUIDE_RECENT_SALE")
+    assert price_guide_sale["total_price"] == 12.36
+    assert price_guide_sale["pricing_training_eligible"] == 0
+    snapshot = next(row for row in rows if row["observation_type"] == "EBAY_PRICE_GUIDE_SNAPSHOT")
+    assert snapshot["valuation_median"] == 10.0
+    assert snapshot["marketplace"] == "eBay"

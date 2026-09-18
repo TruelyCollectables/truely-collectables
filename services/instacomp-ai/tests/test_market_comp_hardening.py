@@ -172,3 +172,62 @@ def test_au_abbreviation_counts_as_autograph_for_exact_market_match():
         identity,
     )
     assert ok, reasons
+
+
+def test_price_guide_browser_contract_restores_kingmaker_tab_and_reads_highcharts():
+    script = market._chrome_price_guide_script("https://www.ebay.com/itm/307148671682")
+    assert "set oldIndex to active tab index of w" in script
+    assert "set active tab index of w to oldIndex" in script
+    assert "See insights" not in script
+    assert "clickResult" in script
+    assert "Median sold price" in market._EBAY_PRICE_GUIDE_READ_JS
+    assert "Quantity sold" in market._EBAY_PRICE_GUIDE_READ_JS
+
+
+
+@pytest.mark.asyncio
+async def test_price_guide_tries_multiple_exact_listings_until_insights_exist(monkeypatch):
+    calls = []
+
+    async def fake_search(url, identity):
+        calls.append(url)
+        if url.endswith("/first"):
+            return None, {
+                "source": "ebay_price_guide",
+                "label": "eBay Price Guide",
+                "status": "no_matches",
+                "resultCount": 0,
+                "message": "see_insights_not_found",
+            }
+        return {
+            "source": "ebay_price_guide",
+            "listingUrl": url,
+            "medianSoldPrice": 10.0,
+            "soldCount": 18,
+            "identityVerified": True,
+        }, {
+            "source": "ebay_price_guide",
+            "label": "eBay Price Guide",
+            "status": "live",
+            "resultCount": 18,
+            "message": "captured",
+        }
+
+    monkeypatch.setattr(market, "_search_ebay_price_guide", fake_search)
+    snapshot, coverage = await market._search_ebay_price_guide_candidates(
+        [
+            {"url": "https://www.ebay.com/itm/first"},
+            {"url": "https://www.ebay.com/itm/second"},
+        ],
+        {"player": "Aneesah Morrow"},
+        max_attempts=3,
+    )
+    assert snapshot is not None
+    assert snapshot["listingUrl"].endswith("/second")
+    assert calls == [
+        "https://www.ebay.com/itm/first",
+        "https://www.ebay.com/itm/second",
+    ]
+    assert coverage["attemptCount"] == 2
+    assert coverage["attempts"][0]["status"] == "no_matches"
+    assert coverage["status"] == "live"
