@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,13 @@ class AppleVisionOCR:
         self.bin_dir = data_root / "bin"
         self.binary_path = self.bin_dir / "apple-vision-ocr"
         self.digest_path = self.bin_dir / "apple-vision-ocr.sha256"
+        try:
+            configured_timeout = float(
+                os.getenv("INSTACOMP_AI_APPLE_VISION_HELPER_TIMEOUT_SECONDS", "6")
+            )
+        except ValueError:
+            configured_timeout = 6.0
+        self._helper_timeout_seconds = max(3.0, min(configured_timeout, 12.0))
 
     @property
     def supported(self) -> bool:
@@ -74,6 +82,11 @@ class AppleVisionOCR:
         for variant_name, variant_bytes in variants:
             try:
                 values = self._run_variant(variant_bytes)
+            except subprocess.TimeoutExpired as exc:
+                errors.append(
+                    f"{side}:{variant_name}:apple_vision_failed:{type(exc).__name__.lower()}"
+                )
+                break
             except Exception as exc:
                 errors.append(
                     f"{side}:{variant_name}:apple_vision_failed:{type(exc).__name__.lower()}"
@@ -392,7 +405,15 @@ class AppleVisionOCR:
         candidates: list[tuple[int, float, list[OCRObservation]]] = []
         for rotation in rotations:
             rotated = self._clockwise_rotated_bytes(image_bytes, rotation)
-            observations, _errors = self.recognize(rotated, side=side)
+            observations, orientation_errors = self.recognize(rotated, side=side)
+            if any(
+                "timeoutexpired" in str(value).lower()
+                for value in orientation_errors
+            ):
+                return 0, 0.0, [
+                    *[f"{side}:{value}" for value in geometry_evidence],
+                    f"{side}:apple_vision_orientation_timeout:rotation_{rotation}",
+                ][:6]
             candidates.append(
                 (
                     rotation,
@@ -586,17 +607,34 @@ class AppleVisionOCR:
             path = Path(handle.name)
             handle.write(content)
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 [str(self.binary_path), str(path)],
-                check=False,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=45,
+                start_new_session=True,
             )
-            raw = completed.stdout.strip()
+            try:
+                stdout, stderr = process.communicate(timeout=self._helper_timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    process.kill()
+                try:
+                    process.communicate(timeout=2)
+                except Exception:
+                    pass
+                raise subprocess.TimeoutExpired(
+                    process.args,
+                    self._helper_timeout_seconds,
+                ) from exc
+            raw = stdout.strip()
             payload = json.loads(raw or "{}")
-            if completed.returncode != 0 or payload.get("ok") is not True:
-                raise ValueError(str(payload.get("error") or completed.stderr or "OCR failed"))
+            if process.returncode != 0 or payload.get("ok") is not True:
+                raise ValueError(str(payload.get("error") or stderr or "OCR failed"))
             observations: list[OCRObservation] = []
             for row in payload.get("observations") or []:
                 box = row.get("box") or {}
