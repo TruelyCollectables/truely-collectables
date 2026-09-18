@@ -152,3 +152,23 @@ def test_premier_level_prefix_keeps_pink_flash_finish():
         "parallel": "Set - Premier Level - Pink Flash",
     })
     assert identity["parallel"] == "pink flash"
+
+
+def test_au_abbreviation_counts_as_autograph_for_exact_market_match():
+    identity = market._canonical_identity({
+        "year": "2025",
+        "manufacturer": "Panini",
+        "brand": "Prizm",
+        "product": "Prizm WNBA",
+        "setName": "Signatures",
+        "player": "Aneesah Morrow",
+        "cardNumber": "SG-AM",
+        "parallel": "Prizms Green",
+        "isAuto": True,
+        "isRelic": False,
+    })
+    ok, reasons = market._strong_exact_title(
+        "2025 Panini Prizm WNBA - Signatures Aneesah Morrow #SG-AM Green Prizm (AU, RC)",
+        identity,
+    )
+    assert ok, reasons

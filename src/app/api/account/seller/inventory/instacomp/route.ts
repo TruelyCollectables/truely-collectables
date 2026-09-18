@@ -24,6 +24,7 @@ import {
   getConfiguredInstaCompMacUrl,
   isTrustedInstaCompMacUrl,
 } from "../../../../../../lib/instacomp-mac-credentials";
+import { getInstaCompAiLocalScanArchive } from "../../../../../../lib/instacomp-ai-local";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
 
 export const runtime = "nodejs";
@@ -191,6 +192,9 @@ function isExcludedEvidence(row: Evidence) {
 }
 
 function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active") {
+  if (lane === "sold" && !/ebay/i.test(row.source + " " + row.sourceLabel)) {
+    return false;
+  }
   if (
     row.sourceCategory === "reference" ||
     row.source.toLowerCase().startsWith("openai_web_") ||
@@ -259,7 +263,10 @@ async function requestMacExactMarket(params: {
           year: params.ai.year,
           manufacturer: aiRecord.manufacturer,
           brand: params.ai.brand,
-          product: aiRecord.product || params.ai.setName,
+          // Product family is broader than the insert/set name. If the exact
+          // Mac archive cleared a malformed display product, fall back to the
+          // canonical brand rather than treating "Signatures" as the product.
+          product: aiRecord.product || params.ai.brand || params.ai.setName,
           setName: params.ai.setName,
           subset: aiRecord.subset || null,
           cardNumber: params.ai.cardNumber,
@@ -276,6 +283,7 @@ async function requestMacExactMarket(params: {
         registry_fingerprint_sha256: params.registryFingerprintSha256,
         research_id: params.researchId,
         operator_certified_identity: params.operatorCertifiedIdentity,
+        include_active: true,
         max_sold: 50,
         max_active: 30,
       }),
@@ -593,37 +601,132 @@ export async function POST(request: NextRequest) {
       currentInstaComp = recordValue(metadata.instacomp);
     }
 
-    const fallbackQuery = buildInstaCompQueries(ai).primary;
-    const compLinks = buildCompLinks(fallbackQuery);
+    let marketAi = ai;
     const aiRecord = ai as InstaCompAiResult & Record<string, unknown>;
-    const registryIdentityId =
+    let registryIdentityId =
       String(
         currentInstaComp.registryIdentityId ||
           currentInstaComp.registry_identity_id ||
           aiRecord.registryIdentityId ||
           aiRecord.registry_identity_id ||
-          aiRecord.internalCardUuid ||
+          aiRecord.internalChecklistIdentityId ||
           "",
       ).trim() || null;
-    const registryFingerprintSha256 =
+    let registryFingerprintSha256 =
       String(
         currentInstaComp.registryFingerprintSha256 ||
           currentInstaComp.registry_fingerprint_sha256 ||
           aiRecord.registryFingerprintSha256 ||
           aiRecord.checklistFingerprintSha256 ||
+          aiRecord.internalChecklistFingerprintSha256 ||
           "",
       ).trim() || null;
+    let marketIdentitySource = "stored_identity";
+
+    // Pricing must use the canonical Mac Checklist Registry identity, not a
+    // display/operator label that may have combined set, subset, parallel and
+    // autograph wording. The Morrow failure was exactly this: "Green Prizm
+    // Auto" had been stored as both subset and parallel, causing the Mac exact
+    // matcher to normalize the target to Base and reject every real Green sale.
+    if (scanId) {
+      try {
+        const archivedScan = await getInstaCompAiLocalScanArchive(scanId, 12_000);
+        const checklist = recordValue(archivedScan.checklist);
+        const exactIdentity = recordValue(checklist.identity);
+        if (
+          String(checklist.outcome || "") === "exact_match" &&
+          String(checklist.identity_id || "").trim() &&
+          String(exactIdentity.player || "").trim() &&
+          String(exactIdentity.year || "").trim() &&
+          String(exactIdentity.card_number || "").trim()
+        ) {
+          const sourceReceipts = Array.isArray(checklist.source_receipts)
+            ? checklist.source_receipts.map((value) => String(value || ""))
+            : [];
+          const registryFingerprint =
+            sourceReceipts
+              .find((value) => value.startsWith("registry_fingerprint:"))
+              ?.slice("registry_fingerprint:".length)
+              .trim() || null;
+          const canonical = {
+            ...ai,
+            year: String(exactIdentity.year || ai.year || "").trim() || null,
+            manufacturer:
+              String(exactIdentity.manufacturer || "").trim() ||
+              String(aiRecord.manufacturer || "").trim() ||
+              null,
+            brand:
+              String(exactIdentity.brand || "").trim() ||
+              String(ai.brand || "").trim() ||
+              null,
+            product: null,
+            setName:
+              String(exactIdentity.set_name || "").trim() ||
+              String(ai.setName || "").trim() ||
+              null,
+            subset: String(exactIdentity.subset || "").trim() || null,
+            player:
+              String(exactIdentity.player || "").trim() ||
+              String(ai.player || "").trim() ||
+              null,
+            team:
+              String(exactIdentity.team || "").trim() ||
+              String((ai as any).team || "").trim() ||
+              null,
+            cardNumber:
+              String(exactIdentity.card_number || "").trim() ||
+              String(ai.cardNumber || "").trim() ||
+              null,
+            parallel:
+              String(exactIdentity.parallel || "").trim() ||
+              String(ai.parallel || "").trim() ||
+              null,
+            serialNumber:
+              String(exactIdentity.serial_number || "").trim() ||
+              String(ai.serialNumber || "").trim() ||
+              null,
+            serialRun:
+              Number.isFinite(Number(exactIdentity.serial_run))
+                ? Number(exactIdentity.serial_run)
+                : null,
+            isRookie:
+              typeof exactIdentity.rookie === "boolean"
+                ? exactIdentity.rookie
+                : ai.isRookie,
+            isAuto:
+              typeof exactIdentity.autograph === "boolean"
+                ? exactIdentity.autograph
+                : ai.isAuto,
+            isRelic:
+              typeof exactIdentity.memorabilia === "boolean"
+                ? exactIdentity.memorabilia
+                : ai.isRelic,
+          } as InstaCompAiResult & Record<string, unknown>;
+          marketAi = canonical as InstaCompAiResult;
+          registryIdentityId = String(checklist.identity_id).trim();
+          if (registryFingerprint) registryFingerprintSha256 = registryFingerprint;
+          marketIdentitySource = "mac_checklist_registry_exact";
+        }
+      } catch {
+        // Fail closed to the already stored/operator-confirmed identity if the
+        // archive is temporarily unavailable. Pricing still requires exact sold
+        // rows to survive the Mac matcher.
+      }
+    }
+
+    const fallbackQuery = buildInstaCompQueries(marketAi).primary;
+    const compLinks = buildCompLinks(fallbackQuery);
     const operatorCertifiedIdentity =
       useStoredIdentity &&
       (currentInstaComp.humanVerified === true ||
         currentInstaComp.manualIdentityLocked === true ||
         currentInstaComp.trustedForIdentity === true);
 
-    // Mac-first: the user's own InstaComp worker searches the market before any
-    // paid/cloud AI lane. Mercari is active/purchase-side reference only.
+    // Mac-first: the user's own InstaComp worker searches eBay sold/completed
+    // listings and active competition before any outside teacher lane.
     const macMarket = await requestMacExactMarket({
       exactTitle: item.title,
-      ai,
+      ai: marketAi,
       scanId,
       registryIdentityId,
       registryFingerprintSha256,
@@ -645,9 +748,9 @@ export async function POST(request: NextRequest) {
     let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
     let teacherFailure: string | null = null;
     if (!macMarketHasPricing) {
-      fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle: item.title, ai });
+      fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle: item.title, ai: marketAi });
       try {
-        teacher = await getTeacherExactMarketProviders({ exactTitle: item.title, ai });
+        teacher = await getTeacherExactMarketProviders({ exactTitle: item.title, ai: marketAi });
       } catch (error) {
         teacherFailure = sanitizeInstaCompProviderError(
           error instanceof Error ? error.message : String(error),
@@ -714,12 +817,12 @@ export async function POST(request: NextRequest) {
       [soldReview, activeReview] = await Promise.all([
         verifyInstaCompCompetitionImages({
           targetFrontImage: files[0],
-          targetAi: ai,
+          targetAi: marketAi,
           candidates: discoverySoldCandidates,
         }),
         verifyInstaCompCompetitionImages({
           targetFrontImage: files[0],
-          targetAi: ai,
+          targetAi: marketAi,
           candidates: discoveryActiveCandidates,
         }),
       ]);
@@ -774,7 +877,7 @@ export async function POST(request: NextRequest) {
       : `${pricingAnalysis.explanation} InstaComp will not issue a suggested price without at least one strict exact sold listing.`;
     const marketLearning = await persistMacMarketLearning({
       exactTitle: item.title,
-      ai,
+      ai: marketAi,
       scanId,
       registryIdentityId,
       registryFingerprintSha256,
@@ -840,9 +943,7 @@ export async function POST(request: NextRequest) {
         coverageLink("mac_chrome_ebay_active") ||
         existingSourceLinks.ebayActiveUrl ||
         compLinks.ebayActiveUrl,
-      one30pointUrl:
-        coverageLink("mac_chrome_130point_sold") ||
-        "https://130point.com/search?new=sold",
+      one30pointUrl: null,
       mercariUrl:
         coverageLink("mac_chrome_mercari_active") || compLinks.mercariUrl,
       fanaticsUrl:
@@ -865,6 +966,7 @@ export async function POST(request: NextRequest) {
         review,
         exactStoredTitleQuery: item.title,
         exactMarketQueries,
+        marketIdentitySource,
         macMarketSearch: {
           status: macMarket.status,
           query: macMarket.query,
@@ -962,6 +1064,7 @@ export async function POST(request: NextRequest) {
         ["error", "failed", "not_configured", "challenge"].includes(String(row.status)),
       ),
       exactMarketQueries,
+      marketIdentitySource,
       openAiWebMarket: null,
       exactMarketVisualReview: {
         soldReviewed: soldReview.reviewedCount,

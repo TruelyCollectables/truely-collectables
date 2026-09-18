@@ -114,3 +114,21 @@ function assertMacPendingProjectionContract() {
   assert.match(source, /fingerprintSha256/);
 }
 assertMacPendingProjectionContract();
+
+
+function assertMacMarketUsesCanonicalArchiveIdentity() {
+  const source = readFileSync(
+    path.join(
+      process.cwd(),
+      "src/app/api/account/seller/inventory/instacomp/route.ts",
+    ),
+    "utf8",
+  );
+  assert.match(source, /getInstaCompAiLocalScanArchive/);
+  assert.match(source, /mac_checklist_registry_exact/);
+  assert.match(source, /internalChecklistIdentityId/);
+  assert.match(source, /internalChecklistFingerprintSha256/);
+  assert.match(source, /include_active: true/);
+  assert.match(source, /ai: marketAi/);
+}
+assertMacMarketUsesCanonicalArchiveIdentity();
