@@ -19,6 +19,7 @@ const OWNER_EMAILS = new Set([
 
 type InventoryRow = {
   id: string;
+  card_uuid: string | null;
   legacy_product_id: number | null;
   seller_account_id: string | null;
   sku: string | null;
@@ -109,7 +110,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("inventory_items")
       .select(
-        "id,legacy_product_id,seller_account_id,sku,title,category,condition,status,price,metadata",
+        "id,card_uuid,legacy_product_id,seller_account_id,sku,title,category,condition,status,price,metadata",
         { count: "exact" },
       )
       .eq("store_id", storeId)
@@ -176,6 +177,9 @@ export async function GET(request: Request) {
         ? productById.get(row.legacy_product_id)
         : null;
       const metadata = recordValue(row.metadata);
+      const instaComp = recordValue(metadata.instacomp);
+      const ai = recordValue(instaComp.ai);
+      const manualIdentity = recordValue(instaComp.manualIdentity);
       const title = row.title || product?.title || "Untitled inventory item";
       const decision = classifyCollectibleCategory({
         title,
@@ -226,6 +230,24 @@ export async function GET(request: Request) {
         imageUrl: imageUrls[0] || null,
         imageUrls,
         tracking: currentTracking(metadata),
+        purchaseEntry: {
+          scanId: String(ai.internalScanId || "").trim() || null,
+          cardUuid:
+            String(ai.internalCardUuid || row.card_uuid || "").trim() || null,
+          identity: Object.keys(manualIdentity).length
+            ? manualIdentity
+            : {
+                player: ai.player || product?.player || null,
+                year: ai.year || null,
+                brand: ai.brand || ai.manufacturer || null,
+                setName: ai.setName || ai.set_name || ai.product || null,
+                cardNumber: ai.cardNumber || ai.card_number || null,
+                parallel: ai.parallel || "Base",
+                serialNumber: ai.serialNumber || ai.serial_number || null,
+                isAuto: ai.isAuto ?? null,
+                isRelic: ai.isRelic ?? null,
+              },
+        },
       };
     });
 

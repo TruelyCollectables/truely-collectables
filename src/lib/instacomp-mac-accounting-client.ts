@@ -33,3 +33,33 @@ export async function postInstaCompMacAccounting(
   }
   return data;
 }
+
+
+export async function postInstaCompMacAccountingForm(
+  path: string,
+  form: FormData,
+  timeoutMs = 30_000,
+) {
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  const key = getConfiguredInstaCompMacKey();
+  if (!baseUrl || !key || !isTrustedInstaCompMacUrl(baseUrl)) {
+    throw new Error("The authenticated InstaComp AI Mac accounting bridge is not configured.");
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "X-InstaComp-AI-Key": key,
+      "X-InstaComp-Client": "kingmaker-purchase-accounting",
+    },
+    body: form,
+    cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, any>;
+  if (!response.ok || data.ok !== true) {
+    throw new Error(String(data.detail || data.error || `Mac accounting HTTP ${response.status}`));
+  }
+  return data;
+}

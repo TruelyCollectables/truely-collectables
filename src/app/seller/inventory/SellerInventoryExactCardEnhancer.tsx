@@ -33,6 +33,11 @@ type EnhancementItem = {
   imageUrl: string | null;
   imageUrls: string[];
   tracking: TrackingSnapshot | null;
+  purchaseEntry?: {
+    scanId?: string | null;
+    cardUuid?: string | null;
+    identity?: Record<string, unknown> | null;
+  } | null;
 };
 
 type ScanProgressController = {
@@ -536,6 +541,35 @@ function insertInstaComp(
       }
     });
     block.appendChild(button);
+
+    const purchaseEntry = item.purchaseEntry || {};
+    const identity = purchaseEntry.identity || {};
+    const params = new URLSearchParams({
+      addPurchase: "1",
+      inventoryItemId: item.inventoryItemId,
+      title: item.title,
+    });
+    const optionalParams: Record<string, unknown> = {
+      scanId: purchaseEntry.scanId,
+      cardUuid: purchaseEntry.cardUuid,
+      player: identity.player,
+      year: identity.year,
+      brand: identity.brand || identity.manufacturer,
+      setName: identity.setName || identity.set_name || identity.product,
+      cardNumber: identity.cardNumber || identity.card_number,
+      parallel: identity.parallel,
+      serialNumber: identity.serialNumber || identity.serial_number,
+    };
+    for (const [key, value] of Object.entries(optionalParams)) {
+      const normalized = String(value ?? "").trim();
+      if (normalized) params.set(key, normalized);
+    }
+    const purchaseLink = document.createElement("a");
+    purchaseLink.href = `/kingmaker/receiving?${params.toString()}`;
+    purchaseLink.className =
+      "ml-2 mt-3 inline-block rounded-md border-2 border-neutral-900 bg-emerald-200 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-emerald-300";
+    purchaseLink.textContent = "Add / Edit Purchase Cost";
+    block.appendChild(purchaseLink);
   } else {
     const note = document.createElement("p");
     note.className = "mt-2 text-sm font-semibold text-violet-950";

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { getFreshAccountSession } from "../../account/account-session";
+import ManualPurchasePanel from "./ManualPurchasePanel";
 
 type Purchase = {
   acquisitionItemId: number;
@@ -254,6 +255,8 @@ export default function ReceivingClient() {
             <Link href="/kingmaker/pending" className="rounded-lg border-2 border-neutral-900 px-4 py-2 text-sm font-black">Open Pending Listings</Link>
           </div>
         </section>
+
+        <ManualPurchasePanel onSaved={load} />
 
         {notice ? <p className="mt-5 rounded-xl border-2 border-emerald-800 bg-emerald-100 p-3 font-bold text-emerald-950">{notice}</p> : null}
         {error ? <p className="mt-5 rounded-xl border-2 border-red-900 bg-red-100 p-3 font-bold text-red-950">{error}</p> : null}
