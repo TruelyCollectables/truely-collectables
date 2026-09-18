@@ -29,6 +29,10 @@ import {
   type InstaCompPendingQueue,
 } from "../../../../../lib/instacomp-pending-queue";
 import {
+  getConfiguredInstaCompMacKey,
+  getConfiguredInstaCompMacUrl,
+} from "../../../../../lib/instacomp-mac-credentials";
+import {
   calculateCustomWebsitePricing,
   calculateDualMarketplacePricing,
   normalizeDualMarketplaceFeeProfile,
@@ -189,6 +193,41 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+type MacPendingTruthItem = {
+  inventoryItemId?: unknown;
+  metadata?: unknown;
+};
+
+async function loadExactMacPendingTruth() {
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  if (!baseUrl) return new Map<string, MacPendingTruthItem>();
+  const key = getConfiguredInstaCompMacKey();
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (key) headers.set("X-InstaComp-AI-Key", key);
+
+  const response = await fetch(
+    baseUrl + "/v1/kingmaker/accounting/commercial-inventory",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ action: "list", items: [] }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    },
+  );
+  if (!response.ok) return new Map<string, MacPendingTruthItem>();
+
+  const payload = (await response.json().catch(() => null)) as
+    | { items?: MacPendingTruthItem[] }
+    | null;
+  const map = new Map<string, MacPendingTruthItem>();
+  for (const item of payload?.items || []) {
+    const id = textValue(item.inventoryItemId);
+    if (id) map.set(id, item);
+  }
+  return map;
 }
 
 function listingFolderFromMetadata(
@@ -593,6 +632,49 @@ export async function GET(request: Request) {
       columns: PENDING_INVENTORY_COLUMNS,
       draftOnly: false,
     });
+
+    // The website owns staging/listing state; InstaComp identity truth is Mac-local.
+    // Project only a complete, fingerprinted exact Registry identity onto the
+    // response so a normal Pending reload reflects background recovery without
+    // another physical scan or "Read Card" click.
+    try {
+      const macByInventoryId = await loadExactMacPendingTruth();
+      for (const row of inventoryRows as any[]) {
+        const macItem = macByInventoryId.get(String(row.id));
+        if (!macItem) continue;
+        const macMetadata = recordValue(macItem.metadata);
+        const macInstaComp = recordValue(macMetadata.instacomp);
+        const macChecklistIdentity = recordValue(macInstaComp.checklistIdentity);
+        const exactMacTruth =
+          macInstaComp.identityComplete === true &&
+          macInstaComp.trustedForIdentity === true &&
+          textValue(macChecklistIdentity.status) === "exact_match" &&
+          Boolean(textValue(macChecklistIdentity.identityId)) &&
+          Boolean(textValue(macChecklistIdentity.fingerprintSha256));
+        if (!exactMacTruth) continue;
+
+        const existingMetadata = recordValue(row.metadata);
+        row.metadata = {
+          ...existingMetadata,
+          instacomp: {
+            ...recordValue(existingMetadata.instacomp),
+            ...macInstaComp,
+            source: "mac_local_pending_projection",
+          },
+          collectible_asset: {
+            ...recordValue(existingMetadata.collectible_asset),
+            ...recordValue(macMetadata.collectible_asset),
+          },
+        };
+        if (!textValue(row.card_uuid) && textValue(macInstaComp.cardUuid)) {
+          row.card_uuid = textValue(macInstaComp.cardUuid);
+        }
+      }
+    } catch {
+      // Keep Pending usable from listing-state storage when the Mac is
+      // temporarily unreachable. Never synthesize or downgrade identity.
+    }
+
     const instaCompRows = inventoryRows.filter((row: any) => {
       if (row.status === "archived" || row.status === "sold") return false;
       const metadata = recordValue(row.metadata);

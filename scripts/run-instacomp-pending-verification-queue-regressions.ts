@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   instaCompPendingQueueFromMetadata,
 } from "../src/lib/instacomp-pending-queue";
@@ -96,3 +97,20 @@ assert.match(migrationSource, /reversible: true/);
 assert.match(migrationSource, /\.eq\("status", "draft"\)/);
 
 console.log("InstaComp Pending Verification queue regressions passed.");
+
+
+function assertMacPendingProjectionContract() {
+  const source = readFileSync(
+    path.join(
+      process.cwd(),
+      "src/app/api/account/seller/instacomp-pending/route.ts",
+    ),
+    "utf8",
+  );
+  assert.match(source, /getConfiguredInstaCompMacUrl/);
+  assert.match(source, /mac_local_pending_projection/);
+  assert.match(source, /identityComplete === true/);
+  assert.match(source, /trustedForIdentity === true/);
+  assert.match(source, /fingerprintSha256/);
+}
+assertMacPendingProjectionContract();
