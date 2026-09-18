@@ -189,6 +189,18 @@ export async function POST(request: NextRequest) {
           .update({
             metadata: {
               ...metadata,
+              inventory_lifecycle: {
+                ...objectRecord(metadata.inventory_lifecycle),
+                state: "received",
+                disposition:
+                  text(objectRecord(metadata.inventory_lifecycle).disposition) ||
+                  "resale",
+                receivedAt:
+                  text(objectRecord(metadata.inventory_lifecycle).receivedAt) ||
+                  resumedAt,
+                receiptSource: "physical_front_back_scan",
+                imagePairSha256,
+              },
               instacomp: {
                 ...instacomp,
                 imagePairSha256,
@@ -261,6 +273,13 @@ export async function POST(request: NextRequest) {
           quantity: 1,
           price: 0,
           metadata: {
+            inventory_lifecycle: {
+              state: "received",
+              disposition: "resale",
+              receivedAt: now,
+              receiptSource: "physical_front_back_scan",
+              imagePairSha256,
+            },
             instacomp: {
               source: "kingmaker_exact_scan_intake_v2",
               imagePairSha256,

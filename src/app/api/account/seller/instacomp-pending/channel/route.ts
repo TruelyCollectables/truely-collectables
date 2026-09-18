@@ -48,6 +48,38 @@ function text(value: unknown, max = 500) {
   return result ? result.slice(0, max) : null;
 }
 
+function hasDurablePhysicalScanReceipt(row: any) {
+  const metadata = record(row?.metadata);
+  const lifecycle = record(metadata.inventory_lifecycle);
+  const instacomp = record(metadata.instacomp);
+  const scannerSource = text(instacomp.source);
+  const physicalScannerSource =
+    scannerSource === "kingmaker_exact_scan_intake_v2" ||
+    scannerSource === "mac_registry_scanner";
+  const completePair = Boolean(
+    text(instacomp.imagePairSha256) &&
+      text(instacomp.frontSha256) &&
+      text(instacomp.backSha256) &&
+      text(instacomp.frontSha256) !== text(instacomp.backSha256),
+  );
+  const persistedPair =
+    instacomp.imagePersistenceVerified === true ||
+    instacomp.imageOrientationPersisted === true;
+  const lifecycleReceipt =
+    text(lifecycle.state) === "received" ||
+    Boolean(text(lifecycle.receivedAt));
+
+  // A seller-created front/back KINGMAKER scan is the physical receipt event.
+  // Identity, purchase matching, and pricing may still need review, but those
+  // later workflows cannot turn an already scanned physical card back into
+  // "not received."
+  return Boolean(
+    completePair &&
+      physicalScannerSource &&
+      (persistedPair || lifecycleReceipt),
+  );
+}
+
 function money(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0
@@ -327,7 +359,9 @@ export async function POST(request: Request) {
         const blocked = rawBlocked.filter((row: any) => {
           if (row?.reason !== "physical_inventory_receipt_missing") return true;
           const inventory = groupRowsById.get(String(row?.inventoryItemId || ""));
-          return !inventory || !isPreReceivingCutoverInventory(inventory);
+          if (!inventory) return true;
+          if (isPreReceivingCutoverInventory(inventory)) return false;
+          return !hasDurablePhysicalScanReceipt(inventory);
         });
         if (blocked.length) {
           const reasons = blocked.map((row: any) => {
