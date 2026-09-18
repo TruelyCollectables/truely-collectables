@@ -1669,6 +1669,12 @@ export async function GET(request: Request) {
               ? recordValue(instaComp.priceGuide)
               : null,
           priceGuideCheckedAt: textValue(instaComp.priceGuideCheckedAt),
+          priceGuideStatus: textValue(instaComp.priceGuideStatus),
+          priceGuideMessage: textValue(instaComp.priceGuideMessage),
+          priceGuideCoverage:
+            instaComp.priceGuideCoverage && typeof instaComp.priceGuideCoverage === "object"
+              ? recordValue(instaComp.priceGuideCoverage)
+              : null,
           rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
           excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
           excludedCompCount: Array.isArray(instaComp.excludedCompUrls)

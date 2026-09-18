@@ -156,11 +156,27 @@ function assertPriceGuideInstaCompContract() {
     ),
     "utf8",
   );
+  const priceGuideBackfillRoute = readFileSync(
+    path.join(
+      process.cwd(),
+      "src/app/api/account/seller/instacomp-price-guide/route.ts",
+    ),
+    "utf8",
+  );
   assert.match(marketRoute, /include_price_guide: true/);
   assert.match(marketRoute, /priceGuide: macMarket\.priceGuide/);
   assert.match(pendingRoute, /priceGuideCheckedAt/);
+  assert.match(pendingRoute, /priceGuideCoverage/);
+  assert.match(priceGuideBackfillRoute, /include_price_guide: true/);
+  assert.match(priceGuideBackfillRoute, /priceGuideStatus/);
+  assert.match(pendingClient, /refreshPriceGuide/);
+  assert.match(pendingClient, /Checking eBay Price Guide automatically/);
+  assert.match(pendingClient, /CHECKED — eBay did not expose an exact-card Price Guide dataset/);
   assert.match(pendingClient, /function PriceGuidePanel/);
   assert.match(pendingClient, /Weekly median sold trend/);
   assert.match(pendingClient, /exact sold transactions remain InstaComp pricing authority/);
+  assert.match(pendingClient, /Centering guide ON/);
+  assert.match(pendingClient, /50\/50 CENTER/);
+  assert.match(pendingClient, /CYAN 45\/55 · MAGENTA 40\/60/);
 }
 assertPriceGuideInstaCompContract();

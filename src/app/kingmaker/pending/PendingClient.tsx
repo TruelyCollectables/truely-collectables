@@ -176,6 +176,16 @@ type PendingCard = {
     activeCompetition?: CompEvidence[];
     priceGuide?: PriceGuideSnapshot | null;
     priceGuideCheckedAt?: string | null;
+    priceGuideStatus?: string | null;
+    priceGuideMessage?: string | null;
+    priceGuideCoverage?: {
+      source?: string | null;
+      label?: string | null;
+      status?: string | null;
+      resultCount?: number | null;
+      message?: string | null;
+      searchUrl?: string | null;
+    } | null;
     identity?: CardIdentity | null;
     gradingCompany?: string | null;
     gradingGrade?: string | null;
@@ -403,7 +413,10 @@ function CardImageInspector({
 }) {
   const [zoom, setZoom] = useState(1);
   const [dragging, setDragging] = useState(false);
+  const [showCenteringGuide, setShowCenteringGuide] = useState(true);
+  const [guideRect, setGuideRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -447,6 +460,27 @@ function CardImageInspector({
     dragRef.current = null;
     setDragging(false);
   };
+  const syncGuideRect = useCallback(() => {
+    const image = imageRef.current;
+    if (!image) {
+      setGuideRect(null);
+      return;
+    }
+    setGuideRect({
+      left: image.offsetLeft,
+      top: image.offsetTop,
+      width: image.clientWidth,
+      height: image.clientHeight,
+    });
+  }, []);
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(syncGuideRect);
+    window.addEventListener("resize", syncGuideRect);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", syncGuideRect);
+    };
+  }, [syncGuideRect, url, zoom]);
 
   return (
     <figure className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
@@ -459,6 +493,18 @@ function CardImageInspector({
           <span className="min-w-14 text-center text-xs font-black">{Math.round(zoom * 100)}%</span>
           <button type="button" onClick={zoomIn} disabled={zoom >= 5} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom in ${side}`}>+</button>
           <button type="button" onClick={resetZoom} disabled={zoom === 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 text-xs font-black disabled:opacity-40">Reset</button>
+          <button
+            type="button"
+            onClick={() => setShowCenteringGuide((value) => !value)}
+            disabled={!url}
+            className={`min-h-10 rounded-lg border-2 px-3 text-xs font-black disabled:opacity-40 ${
+              showCenteringGuide
+                ? "border-amber-700 bg-amber-200 text-amber-950"
+                : "border-neutral-400 bg-white text-neutral-800"
+            }`}
+          >
+            {showCenteringGuide ? "Centering guide ON" : "Centering guide OFF"}
+          </button>
           <button type="button" onClick={onRotate} disabled={!url || rotating} className="min-h-10 rounded-lg bg-sky-800 px-3 text-xs font-black text-white disabled:opacity-40">
             {rotating ? "Rotating…" : "Rotate 90°"}
           </button>
@@ -466,27 +512,68 @@ function CardImageInspector({
       </div>
       <div
         ref={viewportRef}
-        className={`h-[28rem] w-full overflow-auto rounded-lg bg-white ${zoom > 1 ? (dragging ? "cursor-grabbing" : "cursor-grab") : ""}`}
+        className={`relative h-[28rem] w-full overflow-auto rounded-lg bg-white ${zoom > 1 ? (dragging ? "cursor-grabbing" : "cursor-grab") : ""}`}
         onPointerDown={beginPan}
         onPointerMove={panImage}
         onPointerUp={endPan}
         onPointerCancel={endPan}
       >
         {url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={url}
-            alt={`${title} ${side}`}
-            draggable={false}
-            className={zoom === 1 ? "mx-auto max-h-full max-w-full object-contain" : "block h-auto max-w-none select-none object-contain"}
-            style={zoom === 1 ? undefined : { width: `${zoom * 100}%` }}
-            onDoubleClick={zoomIn}
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              ref={imageRef}
+              src={url}
+              alt={`${title} ${side}`}
+              draggable={false}
+              className={zoom === 1 ? "mx-auto max-h-full max-w-full object-contain" : "block h-auto max-w-none select-none object-contain"}
+              style={zoom === 1 ? undefined : { width: `${zoom * 100}%` }}
+              onLoad={syncGuideRect}
+              onDoubleClick={zoomIn}
+            />
+            {showCenteringGuide && guideRect ? (
+              <div
+                className="pointer-events-none absolute z-10 border-2 border-amber-500/90"
+                style={{
+                  left: guideRect.left,
+                  top: guideRect.top,
+                  width: guideRect.width,
+                  height: guideRect.height,
+                }}
+                aria-hidden="true"
+              >
+                <div className="absolute inset-y-0 left-1/2 border-l-2 border-amber-500" />
+                <div className="absolute inset-x-0 top-1/2 border-t-2 border-amber-500" />
+                {[40, 45, 55, 60].map((percent) => (
+                  <div
+                    key={`v-${percent}`}
+                    className={`absolute inset-y-0 border-l ${percent === 45 || percent === 55 ? "border-dashed border-cyan-500/90" : "border-dotted border-fuchsia-500/80"}`}
+                    style={{ left: `${percent}%` }}
+                  />
+                ))}
+                {[40, 45, 55, 60].map((percent) => (
+                  <div
+                    key={`h-${percent}`}
+                    className={`absolute inset-x-0 border-t ${percent === 45 || percent === 55 ? "border-dashed border-cyan-500/90" : "border-dotted border-fuchsia-500/80"}`}
+                    style={{ top: `${percent}%` }}
+                  />
+                ))}
+                <span className="absolute left-1 top-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-black text-white">
+                  50/50 CENTER
+                </span>
+                <span className="absolute bottom-1 left-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-black text-white">
+                  CYAN 45/55 · MAGENTA 40/60
+                </span>
+              </div>
+            ) : null}
+          </>
         ) : (
           <div className="flex h-full items-center justify-center font-black text-red-800">{side.toUpperCase()} MISSING</div>
         )}
       </div>
-      <p className="mt-2 text-xs font-semibold text-neutral-600">Use + / − to inspect small print. While zoomed, grab the card with the mouse and drag to pan. Scrollbars still work, and double-click zooms in.</p>
+      <p className="mt-2 text-xs font-semibold text-neutral-600">
+        Centering guide is ON by default: solid amber = 50/50 center, cyan dashed = 45/55, magenta dotted = 40/60. Use + / − to inspect borders and small print; while zoomed, grab and drag to pan.
+      </p>
     </figure>
   );
 }
@@ -558,9 +645,92 @@ export default function KingmakerPendingPage({
   const [pageError, setPageError] = useState("");
   const [notice, setNotice] = useState("");
   const [purchaseMatches, setPurchaseMatches] = useState<Record<string, PurchaseMatchState>>({});
+  const [priceGuideSweepNonce, setPriceGuideSweepNonce] = useState(0);
+  const priceGuideAttemptedRef = useRef<Set<string>>(new Set());
+  const priceGuideWorkerRunningRef = useRef(false);
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
   const [folder, setFolder] = useState<ListingFolder>(initialFolder);
+
+  const refreshPriceGuide = useCallback(async (
+    card: PendingCard,
+    force = false,
+    accessTokenOverride = "",
+  ) => {
+    let accessToken = accessTokenOverride;
+    if (!accessToken) {
+      const session = await getFreshAccountSession(5 * 60, false);
+      accessToken = session?.access_token || "";
+    }
+    if (!accessToken) throw new Error("Seller login is required.");
+
+    setCards((current) => current.map((row) =>
+      row.inventoryItemId === card.inventoryItemId
+        ? {
+            ...row,
+            instaComp: {
+              ...row.instaComp,
+              priceGuideStatus: "checking",
+              priceGuideMessage: "Checking eBay Price Guide automatically…",
+            },
+          }
+        : row,
+    ));
+
+    try {
+      const response = await fetch("/api/account/seller/instacomp-price-guide", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId, force }),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.ok !== true) {
+        throw new Error(String(data?.error || data?.detail || "eBay Price Guide check failed."));
+      }
+      const coverage = data?.priceGuideCoverage && typeof data.priceGuideCoverage === "object"
+        ? data.priceGuideCoverage
+        : null;
+      setCards((current) => current.map((row) =>
+        row.inventoryItemId === card.inventoryItemId
+          ? {
+              ...row,
+              instaComp: {
+                ...row.instaComp,
+                priceGuide: data?.priceGuide && typeof data.priceGuide === "object" ? data.priceGuide : null,
+                priceGuideCheckedAt: String(data?.checkedAt || new Date().toISOString()),
+                priceGuideStatus: String(coverage?.status || (data?.priceGuide ? "live" : "no_matches")),
+                priceGuideMessage: String(
+                  coverage?.message ||
+                  (data?.priceGuide
+                    ? "eBay Price Guide snapshot captured."
+                    : "eBay Price Guide checked — no exact-card dataset is available."),
+                ),
+                priceGuideCoverage: coverage,
+              },
+            }
+          : row,
+      ));
+      return data;
+    } catch (error) {
+      setCards((current) => current.map((row) =>
+        row.inventoryItemId === card.inventoryItemId
+          ? {
+              ...row,
+              instaComp: {
+                ...row.instaComp,
+                priceGuideStatus: "error",
+                priceGuideMessage: message(error),
+              },
+            }
+          : row,
+      ));
+      throw error;
+    }
+  }, []);
 
   useEffect(() => {
     const queueFromUrl = queueFromLocation();
@@ -691,6 +861,50 @@ export default function KingmakerPendingPage({
   useEffect(() => {
     void load(queue, folder);
   }, [load, queue, folder]);
+
+  useEffect(() => {
+    if (priceGuideWorkerRunningRef.current) return;
+    const eligible = cards.filter((card) => {
+      const identity = card.instaComp.identity || {};
+      const terminalStatus =
+        Boolean(card.instaComp.priceGuide) ||
+        ["live", "no_matches", "identity_mismatch"].includes(
+          String(card.instaComp.priceGuideStatus || card.instaComp.priceGuideCoverage?.status || ""),
+        );
+      return Boolean(
+        card.inventoryItemId &&
+        identity.player &&
+        identity.year &&
+        identity.cardNumber &&
+        !terminalStatus &&
+        !priceGuideAttemptedRef.current.has(card.inventoryItemId),
+      );
+    });
+    if (!eligible.length) return;
+
+    priceGuideWorkerRunningRef.current = true;
+    for (const card of eligible) priceGuideAttemptedRef.current.add(card.inventoryItemId);
+
+    void (async () => {
+      try {
+        const session = await getFreshAccountSession(5 * 60, false);
+        const accessToken = session?.access_token || "";
+        if (!accessToken) return;
+        for (const card of eligible) {
+          try {
+            await refreshPriceGuide(card, false, accessToken);
+          } catch {
+            // The card stays visible with an explicit retryable error state.
+          }
+        }
+      } catch {
+        // Price Guide backfill is additive and must not block Pending.
+      } finally {
+        priceGuideWorkerRunningRef.current = false;
+        setPriceGuideSweepNonce((value) => value + 1);
+      }
+    })();
+  }, [cards, priceGuideSweepNonce, refreshPriceGuide]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2272,7 +2486,49 @@ export default function KingmakerPendingPage({
                   <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
                     <PriceGuidePanel snapshot={card.instaComp.priceGuide} />
                   </div>
-                ) : null}
+                ) : (
+                  <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
+                    <div className="rounded-xl border-2 border-sky-900 bg-white p-4 shadow-[3px_3px_0_#0c4a6e]">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-lg font-black">eBay Price Guide</h3>
+                          <p className="mt-1 text-sm font-bold text-neutral-700">
+                            {card.instaComp.priceGuideStatus === "checking"
+                              ? "Checking the exact card automatically…"
+                              : card.instaComp.priceGuideStatus === "no_matches"
+                                ? "CHECKED — eBay did not expose an exact-card Price Guide dataset."
+                                : card.instaComp.priceGuideStatus === "identity_mismatch"
+                                  ? "CHECKED — eBay Price Guide opened, but the identity did not pass the exact-card gate."
+                                  : card.instaComp.priceGuideStatus === "error"
+                                    ? "PRICE GUIDE CHECK FAILED — retry is available below."
+                                    : card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber
+                                      ? "Queued for automatic eBay Price Guide check."
+                                      : "Waiting for exact player, year, and card number before Price Guide can run."}
+                          </p>
+                          {card.instaComp.priceGuideMessage ? (
+                            <p className="mt-2 text-xs font-semibold text-neutral-600">{card.instaComp.priceGuideMessage}</p>
+                          ) : null}
+                          {card.instaComp.priceGuideCheckedAt ? (
+                            <p className="mt-1 text-xs font-bold text-neutral-500">Checked {card.instaComp.priceGuideCheckedAt}</p>
+                          ) : null}
+                        </div>
+                        {card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber ? (
+                          <button
+                            type="button"
+                            disabled={card.instaComp.priceGuideStatus === "checking"}
+                            onClick={() => {
+                              priceGuideAttemptedRef.current.delete(card.inventoryItemId);
+                              void refreshPriceGuide(card, true).catch((error) => setPageError(message(error)));
+                            }}
+                            className="rounded-lg border-2 border-sky-900 bg-sky-100 px-3 py-2 text-xs font-black text-sky-950 disabled:opacity-40"
+                          >
+                            {card.instaComp.priceGuideStatus === "checking" ? "Checking…" : "Recheck Price Guide"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {(soldCompEvidence.length || activeCompetition.length) ? (
                   <div className="grid gap-4 border-b-2 border-neutral-900 bg-neutral-50 p-4 lg:grid-cols-2">
