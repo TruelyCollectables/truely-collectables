@@ -34,6 +34,9 @@ for (const required of [
   "year_product_player_card_then_color_pattern_serial",
   "archiveWithMacBestEffort",
   "const identityComplete = Boolean(macCandidate);",
+  'receipt.checklistOutcome !== "exact_match"',
+  "if (macCandidate) {",
+  "core = macCoreEvidence(macCandidate, macReceipt);",
   "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
   "macCandidate?.fingerprintSha256 || null",
   'source: "checklist_registry"',
@@ -54,6 +57,7 @@ for (const forbidden of [
   "visual_ai_identity_locked_without_checklist",
   "resolveInstaCompChecklistFirstFromRegistry",
   "Build-contract compatibility breadcrumbs",
+  "if (receipt.pricingAllowed !== true) return null;",
 ]) {
   forbidText(
     exact,

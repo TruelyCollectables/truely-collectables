@@ -26,15 +26,19 @@ export function instaCompPendingQueueFromMetadata(
 
   const explicitlyHeld =
     queue === "pending_verification" || queue === "pending";
+  const identityComplete =
+    instacomp.identityComplete === true ||
+    text(instacomp.lastStatus) === "identity_complete";
   const orientationVerified =
     text(imageOrientation.status) === "completed" &&
     instacomp.imageOrientationPersisted === true &&
     instacomp.imagePersistenceVerified === true;
 
-  // Pending Listings is an executable seller workspace, not a raw-upload
-  // gallery. A card cannot enter it until both Mac-canonical image files were
-  // stored and read back. Uploads with a timeout or ambiguous orientation stay
-  // in the verification lane for automatic recovery instead of displaying bad
-  // pixels as if they were listing-ready.
-  return explicitlyHeld || !orientationVerified ? "verification" : "listings";
+  // A verification hold is a recovery state, not a permanent prison. Once the
+  // stored physical pair is proven and exact Mac identity is complete, promote
+  // automatically. Pricing/comps are a separate lifecycle and may still be
+  // pending or blocked without turning an identified card back into review.
+  if (!orientationVerified) return "verification";
+  if (explicitlyHeld && !identityComplete) return "verification";
+  return "listings";
 }

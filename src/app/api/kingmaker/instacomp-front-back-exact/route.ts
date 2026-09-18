@@ -494,7 +494,10 @@ function booleanValue(value: unknown) {
 function macTrustedCandidate(
   receipt: MacReceipt,
 ): InstaCompChecklistCandidate | null {
-  if (receipt.pricingAllowed !== true) return null;
+  // Identity truth and pricing permission are separate gates. A physical scan
+  // with an exact Mac-local Registry UUID + fingerprint is an identified card
+  // even when comps/pricing remain blocked for further review.
+  if (receipt.checklistOutcome !== "exact_match") return null;
   const identityId = validUuid(receipt.registryIdentityId);
   const fingerprintSha256 = text(receipt.registryFingerprintSha256, 80);
   const identity = record(receipt.checklistIdentity);
@@ -1045,36 +1048,43 @@ export async function POST(request: NextRequest) {
 
     const macCandidate = macTrustedCandidate(macReceipt);
     let core: InstaCompCoreVisualEvidence;
-    try {
-      core = await readInstaCompCoreVisualEvidence({
-        frontDataUrl: finalFrontDataUrl,
-        backDataUrl: finalBackDataUrl,
-      });
-    } catch (error) {
-      core = {
-        status: "error",
-        model: null,
-        year: null,
-        manufacturer: null,
-        product: null,
-        setName: null,
-        subset: null,
-        player: null,
-        cardNumber: null,
-        team: null,
-        sport: null,
-        league: null,
-        rookie: null,
-        surfaceVariationHint: null,
-        identitySummary: null,
-        frontVisibleText: [],
-        backVisibleText: [],
-        confidence: 0,
-        reason:
-          error instanceof Error
-            ? error.message
-            : "Core visual evidence failed, but the card will continue through the live identity fallback.",
-      };
+    if (macCandidate) {
+      // The Mac already supplied authoritative Registry identity. Do not spend
+      // latency/quota on a weaker outside core reader or let its failure poison
+      // an exact local identity.
+      core = macCoreEvidence(macCandidate, macReceipt);
+    } else {
+      try {
+        core = await readInstaCompCoreVisualEvidence({
+          frontDataUrl: finalFrontDataUrl,
+          backDataUrl: finalBackDataUrl,
+        });
+      } catch (error) {
+        core = {
+          status: "error",
+          model: null,
+          year: null,
+          manufacturer: null,
+          product: null,
+          setName: null,
+          subset: null,
+          player: null,
+          cardNumber: null,
+          team: null,
+          sport: null,
+          league: null,
+          rookie: null,
+          surfaceVariationHint: null,
+          identitySummary: null,
+          frontVisibleText: [],
+          backVisibleText: [],
+          confidence: 0,
+          reason:
+            error instanceof Error
+              ? error.message
+              : "Core visual evidence failed, but the card will continue through the live identity fallback.",
+        };
+      }
     }
     const titleText = String(item.title || "");
     const titleCard = titleCardNumber(titleText);
@@ -1086,7 +1096,6 @@ export async function POST(request: NextRequest) {
       surfaceVariationHint: titleSurfaceHint(titleText),
       ...titleAutoRelic(titleText),
     };
-    if (macCandidate) core = macCoreEvidence(macCandidate, macReceipt);
     const visualYear = macCandidate?.year || core.year || titleHints.year;
     const visualManufacturer = macCandidate?.manufacturer || core.manufacturer || titleHints.manufacturer;
     const visualCardNumber = macCandidate?.cardNumber || core.cardNumber || titleHints.cardNumber;

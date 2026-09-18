@@ -185,9 +185,7 @@ export default function KingmakerInstaCompQueue() {
 
       patch(card.id, {
         status:
-          result.success === true &&
-          result.identityComplete === true &&
-          result.pricingSucceeded !== false
+          result.success === true && result.identityComplete === true
             ? "pending"
             : "review",
         result,

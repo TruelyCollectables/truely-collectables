@@ -41,6 +41,18 @@ assert.equal(
 assert.equal(
   instaCompPendingQueueFromMetadata({
     ...verifiedOrientation,
+    listingWorkflow: { queue: "pending_verification" },
+    instacomp: {
+      ...verifiedOrientation.instacomp,
+      identityComplete: true,
+      lastStatus: "identity_complete",
+    },
+  }),
+  "listings",
+);
+assert.equal(
+  instaCompPendingQueueFromMetadata({
+    ...verifiedOrientation,
     listing_workflow: { queue: "pending_verification" },
   }),
   "verification",
@@ -63,6 +75,10 @@ const migrationSource = readFileSync(
   "scripts/move-legacy-instacomp-to-pending-verification.mjs",
   "utf8",
 );
+const scannerSource = readFileSync(
+  "src/app/kingmaker/KingmakerInstaCompQueue.tsx",
+  "utf8",
+);
 
 assert.match(routeSource, /for \(let from = 0; ; from \+= 1000\)/);
 assert.match(routeSource, /queueCounts/);
@@ -70,6 +86,10 @@ assert.match(routeSource, /requestedQueue === "verification"/);
 assert.match(clientSource, /Resale Pending/);
 assert.match(clientSource, /Pending Verification/);
 assert.match(pageSource, /instacomp-pending\?queue=\$\{queue\}/);
+assert.doesNotMatch(
+  scannerSource,
+  /identityComplete === true &&\s*result\.pricingSucceeded !== false/,
+);
 assert.match(migrationSource, /--expected-count=/);
 assert.match(migrationSource, /--approved/);
 assert.match(migrationSource, /reversible: true/);
