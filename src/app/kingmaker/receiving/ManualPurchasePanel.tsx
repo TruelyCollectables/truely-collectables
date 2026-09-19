@@ -276,41 +276,19 @@ export default function ManualPurchasePanel({ onSaved }: Props) {
         session.access_token,
         { url },
       );
-      const identity = (data?.identity || {}) as Record<string, any>;
       setSource(String(data?.source || source || "Misc"));
       if (data?.seller) setSeller(String(data.seller));
       if (data?.orderNumber) setOrderNumber(String(data.orderNumber));
-      if (mode === "single" && Number(data?.totalCost) > 0) {
+      if (Number(data?.totalCost) > 0) {
         setTotalCost(Number(data.totalCost).toFixed(2));
       }
-      if (mode === "single" && data?.purchaseDate) {
+      if (data?.purchaseDate) {
         const date = new Date(String(data.purchaseDate));
         if (!Number.isNaN(date.getTime())) setPurchaseDate(date.toISOString().slice(0, 10));
       }
-      setCards((current) => {
-        const target = current[0] || emptyCard();
-        const filled: ManualCard = {
-          ...target,
-          title: String(data?.title || target.title || "").trim(),
-          player: String(identity.player || target.player || "").trim(),
-          year: String(identity.year || target.year || "").trim(),
-          brand: String(identity.brand || target.brand || "").trim(),
-          setName: String(identity.setName || target.setName || "").trim(),
-          cardNumber: String(identity.cardNumber || target.cardNumber || "").trim(),
-          parallel: String(identity.parallel || target.parallel || "Base").trim(),
-          serialNumber: String(identity.serialNumber || target.serialNumber || "").trim(),
-          isAuto: identity.isAuto === true || target.isAuto,
-          isRelic: identity.isRelic === true || target.isRelic,
-          identificationStatus: data?.usable ? "identified" : "review",
-          identificationNote: data?.usable
-            ? "Identity filled from the eBay item URL."
-            : "The URL filled the listing details; review any identity fields eBay did not provide.",
-        };
-        return current.length ? [filled, ...current.slice(1)] : [filled];
-      });
-      setNotice(data?.usable
-        ? "Purchase URL matched and Card 1 was filled automatically."
-        : "Purchase URL loaded. Review the fields eBay did not provide.");
+      setNotice(
+        "Purchase URL matched to the purchase/lot only. Card identity stays separate and is identified from each card's own front + back photos.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read the purchase URL.");
     } finally {

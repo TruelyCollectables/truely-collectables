@@ -3,8 +3,10 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import {
+  analyzeWithInstaCompAiLocal,
   analyzeWithInstaCompAiLocalSecondary,
   hasConfiguredInstaCompAiLocal,
+  instaCompAiLocalScanToAi,
 } from "../../../../../../lib/instacomp-ai-local";
 
 export const runtime = "nodejs";
@@ -39,97 +41,6 @@ function titleFromIdentity(identity: Record<string, any>) {
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
-async function dataUrl(file: File) {
-  const bytes = Buffer.from(await file.arrayBuffer());
-  return `data:${file.type};base64,${bytes.toString("base64")}`;
-}
-
-function openAiOutputText(payload: any) {
-  if (typeof payload?.output_text === "string") return payload.output_text;
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    for (const content of Array.isArray(item?.content) ? item.content : []) {
-      if (typeof content?.text === "string") return content.text;
-    }
-  }
-  return "";
-}
-
-async function identifyWithOpenAi(front: File, back: File | null) {
-  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured.");
-  const images = [
-    { type: "input_image", image_url: await dataUrl(front), detail: "high" },
-  ] as Array<Record<string, unknown>>;
-  if (back) images.push({ type: "input_image", image_url: await dataUrl(back), detail: "high" });
-
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    signal: AbortSignal.timeout(45_000),
-    body: JSON.stringify({
-      model:
-        process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
-        process.env.OPENAI_MODEL ||
-        "gpt-4.1-mini",
-      temperature: 0,
-      max_output_tokens: 1600,
-      input: [
-        {
-          role: "system",
-          content: [{
-            type: "input_text",
-            text:
-              "Identify this exact sports/trading card from the uploaded front and back. Return only visible or strongly supported identity facts. Do not invent a card number, parallel, serial, autograph, or relic. Use null for unreadable text. The back image is especially important for card number, manufacturer, set, copyright year, and printed designation.",
-          }],
-        },
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: "Front image first, back image second when provided." },
-            ...images,
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "manual_purchase_card_identity",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            required: [
-              "player", "year", "brand", "setName", "cardNumber", "parallel",
-              "serialNumber", "isAuto", "isRelic", "confidence",
-            ],
-            properties: {
-              player: { type: ["string", "null"] },
-              year: { type: ["string", "null"] },
-              brand: { type: ["string", "null"] },
-              setName: { type: ["string", "null"] },
-              cardNumber: { type: ["string", "null"] },
-              parallel: { type: ["string", "null"] },
-              serialNumber: { type: ["string", "null"] },
-              isAuto: { type: ["boolean", "null"] },
-              isRelic: { type: ["boolean", "null"] },
-              confidence: { type: "number", minimum: 0, maximum: 1 },
-            },
-          },
-        },
-      },
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || `OpenAI card identification failed (${response.status}).`);
-  }
-  const raw = openAiOutputText(payload);
-  if (!raw) throw new Error("OpenAI card identification returned no structured identity.");
-  return JSON.parse(raw) as Record<string, any>;
-}
 
 export async function POST(request: Request) {
   try {
@@ -148,29 +59,57 @@ export async function POST(request: Request) {
     }
 
     const backFile = back instanceof File ? back : null;
+    if (!hasConfiguredInstaCompAiLocal()) {
+      return Response.json(
+        { error: "InstaComp internal engine is not configured for this runtime. No paid external AI was called." },
+        { status: 503, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     let identity: Record<string, any> | null = null;
     let source = "";
-    let localError: string | null = null;
+    const localErrors: string[] = [];
 
-    if (hasConfiguredInstaCompAiLocal()) {
+    try {
+      const scan = await analyzeWithInstaCompAiLocal({
+        front,
+        back: backFile,
+        timeoutMs: 40_000,
+      });
+      const local = instaCompAiLocalScanToAi(scan);
+      if (local) {
+        identity = local as Record<string, any>;
+        source = "mac_local_instacomp";
+      }
+    } catch (error) {
+      localErrors.push(error instanceof Error ? error.message : String(error));
+    }
+
+    const primaryComplete = Boolean(identity?.player && identity?.cardNumber);
+    if (!primaryComplete) {
       try {
-        const local = await analyzeWithInstaCompAiLocalSecondary({
+        const secondary = await analyzeWithInstaCompAiLocalSecondary({
           front,
           back: backFile,
-          timeoutMs: 15_000,
-        });
-        if (local.player && local.cardNumber && Number(local.confidence || 0) >= 0.8) {
-          identity = local as Record<string, any>;
+          timeoutMs: 12_000,
+        }) as Record<string, any>;
+        if (secondary.player || secondary.cardNumber) {
+          identity = secondary;
           source = "mac_local_secondary_witness";
         }
       } catch (error) {
-        localError = error instanceof Error ? error.message : String(error);
+        localErrors.push(error instanceof Error ? error.message : String(error));
       }
     }
 
     if (!identity) {
-      identity = await identifyWithOpenAi(front, backFile);
-      source = "openai_visual_fallback";
+      return Response.json(
+        {
+          error: "InstaComp internal identification could not complete. Review the card manually or retry; no paid external AI was called.",
+          localError: localErrors.join(" | ") || null,
+        },
+        { status: 503, headers: { "Cache-Control": "no-store" } },
+      );
     }
 
     const usable = Boolean(identity.player && identity.cardNumber);
@@ -180,7 +119,7 @@ export async function POST(request: Request) {
       title: titleFromIdentity(identity),
       identity,
       source,
-      localError,
+      localError: localErrors.join(" | ") || null,
       needsReview: !usable || Number(identity.confidence || 0) < 0.8,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
