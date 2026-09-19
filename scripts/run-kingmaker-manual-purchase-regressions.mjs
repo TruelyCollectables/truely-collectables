@@ -31,8 +31,14 @@ forbidText(panel, "Identity filled from the eBay item URL.", "Lot URL must not b
 forbidText(panel, "Card 1 was filled automatically.", "Lot URL must not populate Card 1");
 requireText(identifyApi, "analyzeWithInstaCompAiLocal", "Manual purchase internal identification");
 requireText(identifyApi, "mac_local_instacomp", "Manual purchase internal identification source");
+requireText(identifyApi, "registryExact: false", "Weak OCR must fail closed");
+requireText(identifyApi, "identity: null", "Weak OCR must not populate identity");
+requireText(identifyApi, "String(checklist.outcome || \"\") !== \"exact_match\"", "Registry exact identity gate");
+requireText(panel, "data?.registryExact === true", "Manual purchase UI Registry gate");
+requireText(panel, "No OCR guesses were copied into this card.", "Manual purchase weak OCR UI guard");
 forbidText(identifyApi, "api.openai.com", "Manual purchase identification must not use paid OpenAI fallback");
 forbidText(identifyApi, "OPENAI_API_KEY", "Manual purchase identification must not depend on OpenAI credits");
+forbidText(identifyApi, "analyzeWithInstaCompAiLocalSecondary", "Secondary witness cannot populate manual purchase identity");
 requireText(pairing, "i += 2", "Ordered front/back pairing");
 requireText(pairing, "files: back ? [front.file, back.file] : [front.file]", "Two images must remain one card");
 requireText(api, "/manual-purchase-draft", "Manual purchase API");

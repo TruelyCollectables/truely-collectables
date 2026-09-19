@@ -199,6 +199,17 @@ export default function ManualPurchasePanel({ onSaved }: Props) {
         if (!response.ok || data?.error) {
           throw new Error(String(data?.error || data?.detail || "Automatic card identification failed."));
         }
+        const registryExact = data?.usable === true && data?.registryExact === true;
+        if (!registryExact) {
+          updateCard(card.id, {
+            identificationStatus: "review",
+            identificationNote: String(
+              data?.message ||
+                "InstaComp did not prove one exact Registry identity. No OCR guesses were copied into this card.",
+            ),
+          });
+          continue;
+        }
         const identity = (data?.identity || {}) as Record<string, any>;
         updateCard(card.id, {
           title: String(data?.title || card.title || "").trim(),
@@ -211,10 +222,8 @@ export default function ManualPurchasePanel({ onSaved }: Props) {
           serialNumber: String(identity.serialNumber || card.serialNumber || "").trim(),
           isAuto: identity.isAuto === true || card.isAuto,
           isRelic: identity.isRelic === true || card.isRelic,
-          identificationStatus: data?.usable ? "identified" : "review",
-          identificationNote: data?.usable
-            ? `Auto-identified by InstaComp${back ? " from front + back" : ""}.`
-            : "InstaComp filled what it could; review the missing identity fields.",
+          identificationStatus: "identified",
+          identificationNote: `Registry-exact InstaComp identity${back ? " from front + back" : ""}.`,
         });
       } catch (err) {
         updateCard(card.id, {

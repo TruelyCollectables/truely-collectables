@@ -4,9 +4,7 @@ import {
 } from "../../../../../../lib/account-auth";
 import {
   analyzeWithInstaCompAiLocal,
-  analyzeWithInstaCompAiLocalSecondary,
   hasConfiguredInstaCompAiLocal,
-  instaCompAiLocalScanToAi,
 } from "../../../../../../lib/instacomp-ai-local";
 
 export const runtime = "nodejs";
@@ -29,6 +27,51 @@ function validateImage(file: File, label: string) {
   return null;
 }
 
+function text(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
+}
+
+function exactRegistryIdentity(scan: Record<string, any>) {
+  const checklist = scan?.checklist || {};
+  if (
+    String(checklist.outcome || "") !== "exact_match" ||
+    !text(checklist.identity_id)
+  ) {
+    return null;
+  }
+  const identity =
+    scan?.trusted_identity && typeof scan.trusted_identity === "object"
+      ? scan.trusted_identity
+      : checklist.identity && typeof checklist.identity === "object"
+        ? checklist.identity
+        : null;
+  if (!identity) return null;
+
+  const player = text(identity.player);
+  const cardNumber = text(identity.card_number ?? identity.cardNumber);
+  if (!player || !cardNumber) return null;
+
+  const serialRun = Number(identity.serial_run ?? identity.serialRun);
+  return {
+    player,
+    year: text(identity.year),
+    brand: text(identity.manufacturer ?? identity.brand),
+    setName: text(identity.set_name ?? identity.setName ?? identity.product),
+    cardNumber,
+    parallel: text(identity.parallel),
+    serialNumber:
+      Number.isInteger(serialRun) && serialRun > 0 ? `/${serialRun}` : null,
+    team: text(identity.team),
+    sport: text(identity.sport),
+    isRookie: identity.rookie === true || identity.isRookie === true,
+    isAuto: identity.autograph === true || identity.isAuto === true,
+    isRelic: identity.memorabilia === true || identity.isRelic === true,
+    confidence: 0.99,
+    registryIdentityId: text(checklist.identity_id),
+  };
+}
+
 function titleFromIdentity(identity: Record<string, any>) {
   const parts = [
     identity.year,
@@ -40,7 +83,6 @@ function titleFromIdentity(identity: Record<string, any>) {
   ].filter(Boolean);
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
-
 
 export async function POST(request: Request) {
   try {
@@ -66,62 +108,49 @@ export async function POST(request: Request) {
       );
     }
 
-    let identity: Record<string, any> | null = null;
-    let source = "";
-    const localErrors: string[] = [];
-
-    try {
-      const scan = await analyzeWithInstaCompAiLocal({
-        front,
-        back: backFile,
-        timeoutMs: 40_000,
-      });
-      const local = instaCompAiLocalScanToAi(scan);
-      if (local) {
-        identity = local as Record<string, any>;
-        source = "mac_local_instacomp";
-      }
-    } catch (error) {
-      localErrors.push(error instanceof Error ? error.message : String(error));
-    }
-
-    const primaryComplete = Boolean(identity?.player && identity?.cardNumber);
-    if (!primaryComplete) {
-      try {
-        const secondary = await analyzeWithInstaCompAiLocalSecondary({
-          front,
-          back: backFile,
-          timeoutMs: 12_000,
-        }) as Record<string, any>;
-        if (secondary.player || secondary.cardNumber) {
-          identity = secondary;
-          source = "mac_local_secondary_witness";
-        }
-      } catch (error) {
-        localErrors.push(error instanceof Error ? error.message : String(error));
-      }
-    }
+    const scan = await analyzeWithInstaCompAiLocal({
+      front,
+      back: backFile,
+      timeoutMs: 45_000,
+    });
+    const identity = exactRegistryIdentity(scan as Record<string, any>);
 
     if (!identity) {
       return Response.json(
         {
-          error: "InstaComp internal identification could not complete. Review the card manually or retry; no paid external AI was called.",
-          localError: localErrors.join(" | ") || null,
+          ok: true,
+          usable: false,
+          registryExact: false,
+          identity: null,
+          title: null,
+          source: "mac_local_instacomp",
+          internalScanId: text(scan.scan_id),
+          checklistOutcome: text(scan.checklist?.outcome),
+          needsReview: true,
+          message:
+            "InstaComp did not prove one exact Checklist Registry identity. Nothing was copied into the card fields; retry or review this card.",
+          paidExternalAiCalled: false,
         },
-        { status: 503, headers: { "Cache-Control": "no-store" } },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
 
-    const usable = Boolean(identity.player && identity.cardNumber);
-    return Response.json({
-      ok: true,
-      usable,
-      title: titleFromIdentity(identity),
-      identity,
-      source,
-      localError: localErrors.join(" | ") || null,
-      needsReview: !usable || Number(identity.confidence || 0) < 0.8,
-    }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json(
+      {
+        ok: true,
+        usable: true,
+        registryExact: true,
+        title: titleFromIdentity(identity),
+        identity,
+        source: "mac_local_instacomp_registry_exact",
+        internalScanId: text(scan.scan_id),
+        registryIdentityId: identity.registryIdentityId,
+        checklistOutcome: "exact_match",
+        needsReview: String(scan.status || "") === "needs_review",
+        paidExternalAiCalled: false,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : String(error) },
