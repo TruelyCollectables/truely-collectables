@@ -23,6 +23,7 @@ export default async function KingmakerPendingPage({
     <KingmakerPendingClient
       initialQueue={queue}
       initialCards={Array.isArray(data.items) ? data.items : []}
+      initialLoaded={response?.ok === true}
       initialQueueCounts={{
         listings: Math.max(0, Number(data.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(data.queueCounts?.verification || 0)),

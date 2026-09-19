@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getFreshAccountSession } from "../../account/account-session";
 
@@ -331,10 +331,12 @@ export default function KingmakerPendingPage({
   initialQueue,
   initialCards = [],
   initialQueueCounts = { listings: 0, verification: 0 },
+  initialLoaded = false,
 }: {
   initialQueue: PendingQueue;
   initialCards?: PendingCard[];
   initialQueueCounts?: { listings: number; verification: number };
+  initialLoaded?: boolean;
 }) {
   const [cards, setCards] = useState<PendingCard[]>(initialCards);
   const [queueCounts, setQueueCounts] = useState(initialQueueCounts);
@@ -346,12 +348,13 @@ export default function KingmakerPendingPage({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialLoaded);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState("");
   const [notice, setNotice] = useState("");
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
+  const initialHydrationRef = useRef(initialLoaded);
 
   useEffect(() => {
     setQueue(queueFromLocation());
@@ -454,9 +457,34 @@ export default function KingmakerPendingPage({
     }
   }, []);
 
+  const loadJobStatusOnly = useCallback(async () => {
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      const accessToken = session?.access_token?.trim();
+      if (!accessToken) return;
+      const response = await fetch("/api/account/seller/inventory/instacomp-job-status", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const data = await response.json().catch(() => ({}));
+      setJobs(data.statuses && typeof data.statuses === "object" ? data.statuses : {});
+    } catch {
+      // Job status is secondary UI. Never delay already-rendered card inventory.
+    }
+  }, []);
+
   useEffect(() => {
+    if (initialHydrationRef.current && queue === initialQueue) {
+      initialHydrationRef.current = false;
+      setLoading(false);
+      const timer = window.setTimeout(() => {
+        void loadJobStatusOnly();
+      }, 250);
+      return () => window.clearTimeout(timer);
+    }
     void load(queue);
-  }, [load, queue]);
+  }, [initialQueue, load, loadJobStatusOnly, queue]);
 
   function setEditValue<K extends keyof EditState>(id: string, key: K, value: EditState[K]) {
     setEdits((current) => ({
@@ -829,7 +857,7 @@ export default function KingmakerPendingPage({
         ) : null}
 
         <section className="mt-6 space-y-6">
-          {cards.map((card) => {
+          {cards.map((card, cardIndex) => {
             const job = jobs[card.inventoryItemId];
             const pairReady = hasValidPair(card);
             const isBusy = busyId === card.inventoryItemId;
@@ -857,7 +885,10 @@ export default function KingmakerPendingPage({
               : [];
 
             return (
-              <article key={card.inventoryItemId} className="overflow-hidden rounded-2xl border-2 border-neutral-900 bg-white shadow-[6px_6px_0_#111]">
+              <article
+                key={card.inventoryItemId}
+                className="overflow-hidden rounded-2xl border-2 border-neutral-900 bg-white shadow-[6px_6px_0_#111] [content-visibility:auto] [contain-intrinsic-size:1200px]"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-neutral-900 bg-neutral-950 px-4 py-3 text-white">
                   <div className="flex min-w-0 items-start gap-3">
                     <input type="checkbox" aria-label={`Select ${card.title}`} checked={selectedIds.has(card.inventoryItemId)} onChange={() => toggleSelected(card.inventoryItemId)} className="mt-1 h-5 w-5 accent-emerald-400" />
@@ -966,7 +997,14 @@ export default function KingmakerPendingPage({
                         <div className="mx-auto flex h-80 w-full max-w-80 items-center justify-center overflow-hidden rounded-lg bg-white">
                           {url ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={url} alt={`${card.title} ${side}`} className="max-h-full max-w-full object-contain" />
+                            <img
+                              src={url}
+                              alt={`${card.title} ${side}`}
+                              loading={cardIndex === 0 && side === "front" ? "eager" : "lazy"}
+                              decoding="async"
+                              fetchPriority={cardIndex === 0 && side === "front" ? "high" : "low"}
+                              className="max-h-full max-w-full object-contain"
+                            />
                           ) : (
                             <div className="font-black text-red-800">{side.toUpperCase()} MISSING</div>
                           )}

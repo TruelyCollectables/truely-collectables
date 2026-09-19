@@ -472,20 +472,42 @@ export async function GET(request: Request) {
           .filter((value): value is string => Boolean(value)),
       ),
     );
-    const allOwnedRows =
-      pricingGroupKeys.length > 0
-        ? await readOwnedInventoryPages({
-            supabase,
-            storeId,
-            accountId: account.id,
-            ownerAccount: isStoreOwnerAccount,
-            columns:
-              "id,legacy_product_id,status,quantity,price,card_uuid,metadata,title,created_at",
-          })
-        : [];
+    // Duplicate-group counts only need pending rows plus active rows that
+    // already persist an InstaComp pricingGroupKey. Avoid downloading every
+    // inventory row and its full metadata payload for this summary.
+    let activePricingGroupRows: any[] = [];
+    if (pricingGroupKeys.length > 0) {
+      let activeGroupQuery = supabase
+        .from("inventory_items")
+        .select(
+          "id,legacy_product_id,status,quantity,pricing_group_key:metadata->instacomp->>pricingGroupKey",
+        )
+        .eq("store_id", storeId)
+        .eq("status", "active")
+        .not("metadata->instacomp->>pricingGroupKey", "is", null);
+
+      activeGroupQuery = isStoreOwnerAccount
+        ? activeGroupQuery.or(
+            `seller_account_id.eq.${account.id},seller_account_id.is.null`,
+          )
+        : activeGroupQuery.eq("seller_account_id", account.id);
+
+      const { data: activeGroupData, error: activeGroupError } =
+        await activeGroupQuery;
+      if (activeGroupError) throw activeGroupError;
+      activePricingGroupRows = activeGroupData || [];
+    }
+
     const pricingGroups = new Map<string, any[]>();
-    for (const ownedRow of allOwnedRows || []) {
+    for (const ownedRow of rows || []) {
       const key = instaCompPricingGroupKey(ownedRow.metadata);
+      if (!key || !pricingGroupKeys.includes(key)) continue;
+      const current = pricingGroups.get(key) || [];
+      current.push(ownedRow);
+      pricingGroups.set(key, current);
+    }
+    for (const ownedRow of activePricingGroupRows) {
+      const key = textValue(ownedRow.pricing_group_key);
       if (!key || !pricingGroupKeys.includes(key)) continue;
       const current = pricingGroups.get(key) || [];
       current.push(ownedRow);
