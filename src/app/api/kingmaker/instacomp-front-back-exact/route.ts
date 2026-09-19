@@ -57,6 +57,10 @@ type MacReceipt = {
   attempts: number;
   canonicalImagesRecovered: boolean;
   imageOrientation: InstaCompAiLocalScan["image_orientation"];
+  centering: {
+    front: NonNullable<InstaCompAiLocalScan["local_vision"]>["front_centering"] | null;
+    back: NonNullable<InstaCompAiLocalScan["local_vision"]>["back_centering"] | null;
+  };
   error: string | null;
 };
 
@@ -665,6 +669,10 @@ async function archiveWithMacBestEffort(params: {
         attempts,
         canonicalImagesRecovered: true,
         imageOrientation: scan.image_orientation || null,
+        centering: {
+          front: scan.local_vision?.front_centering || null,
+          back: scan.local_vision?.back_centering || null,
+        },
         error:
           resolvedOrientation.status === "completed"
             ? null
@@ -692,6 +700,10 @@ async function archiveWithMacBestEffort(params: {
         attempts,
         canonicalImagesRecovered: false,
         imageOrientation: scan?.image_orientation || null,
+        centering: {
+          front: scan?.local_vision?.front_centering || null,
+          back: scan?.local_vision?.back_centering || null,
+        },
         error: text(
           error instanceof Error ? error.message : "Mac archive failed.",
           500,
@@ -1010,6 +1022,7 @@ export async function POST(request: NextRequest) {
               "kingmaker_exact_scan_intake_v2",
             scanId: macReceipt.scanId,
             macReceipt,
+            centering: macReceipt.centering,
             physicalScanRecorded: true,
             imageOrientation: reviewOrientation,
             imageOrientationVerified: false,
@@ -1262,6 +1275,7 @@ export async function POST(request: NextRequest) {
         schema: "truely.instacompInventoryIdentity.v6",
         scanId: macReceipt.scanId,
         macReceipt,
+        centering: macReceipt.centering,
         ai: resolvedAi,
         coreVisualEvidence: core,
         imageOrientation: finalOrientation,

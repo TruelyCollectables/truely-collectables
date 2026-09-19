@@ -175,8 +175,12 @@ function assertPriceGuideInstaCompContract() {
   assert.match(pendingClient, /function PriceGuidePanel/);
   assert.match(pendingClient, /Weekly median sold trend/);
   assert.match(pendingClient, /exact sold transactions remain InstaComp pricing authority/);
-  assert.match(pendingClient, /Centering guide ON/);
-  assert.match(pendingClient, /50\/50 CENTER/);
-  assert.match(pendingClient, /CYAN 45\/55 · MAGENTA 40\/60/);
+  assert.match(pendingRoute, /centering/);
+  assert.match(pendingClient, /CENTERING ESTIMATE/);
+  assert.match(pendingClient, /LEFT \/ RIGHT/);
+  assert.match(pendingClient, /TOP \/ BOTTOM/);
+  assert.match(pendingClient, /InstaComp will not invent a centering number/);
+  assert.doesNotMatch(pendingClient, /CYAN 45\/55/);
+  assert.doesNotMatch(pendingClient, /Centering guide ON/);
 }
 assertPriceGuideInstaCompContract();

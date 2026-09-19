@@ -1022,6 +1022,7 @@ export async function GET(request: Request) {
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
       const imageOrientation = recordValue(instaComp.imageOrientation);
+      const centering = recordValue(instaComp.centering);
       const ai = recordValue(instaComp.ai);
       const manualIdentity = recordValue(instaComp.manualIdentity);
       const manualIdentityLocked = instaComp.manualIdentityLocked === true;
@@ -1521,6 +1522,10 @@ export async function GET(request: Request) {
             ? textValue(primaryIdentity.serialNumber)
             : textValue(ai.serialNumber) || exactSerialNumber,
           hasBackImage,
+          centering: {
+            front: recordValue(centering.front),
+            back: recordValue(centering.back),
+          },
           imageOrientation: {
             verified:
               imageOrientation.status === "completed" &&

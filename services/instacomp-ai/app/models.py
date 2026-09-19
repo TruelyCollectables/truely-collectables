@@ -103,10 +103,25 @@ class SideVisionEvidence(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class CenteringEvidence(BaseModel):
+    measurable: bool = False
+    left_percent: float | None = None
+    right_percent: float | None = None
+    top_percent: float | None = None
+    bottom_percent: float | None = None
+    horizontal_ratio: str | None = None
+    vertical_ratio: str | None = None
+    confidence: float = Field(default=0, ge=0, le=1)
+    method: str = "unknown"
+    warning: str | None = None
+
+
 class LocalVisionEvidence(BaseModel):
     schema_version: Literal["tcos.instacomp-ai.local-vision.v1"] = "tcos.instacomp-ai.local-vision.v1"
     front: SideVisionEvidence
     back: SideVisionEvidence | None = None
+    front_centering: CenteringEvidence | None = None
+    back_centering: CenteringEvidence | None = None
     serial: SerialEvidence = Field(default_factory=SerialEvidence)
     identity_hints: CardIdentity = Field(default_factory=CardIdentity)
     combined_text: str = ""

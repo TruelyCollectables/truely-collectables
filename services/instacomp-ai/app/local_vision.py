@@ -14,9 +14,11 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from .apple_vision import AppleVisionOCR
+from .card_centering import measure_card_centering
 from .config import Settings
 from .models import (
     CardIdentity,
+    CenteringEvidence,
     ColorEvidence,
     LocalVisionEvidence,
     OCRObservation,
@@ -822,6 +824,30 @@ def analyze_local_vision_sync(
             _bounded_stage_error("front", "combined_text_failed", error),
         )
 
+    try:
+        front_centering = CenteringEvidence.model_validate(
+            measure_card_centering(front).as_dict()
+        )
+    except Exception as error:
+        front_centering = None
+        front_evidence = _append_side_error(
+            front_evidence,
+            _bounded_stage_error("front", "centering_measurement_failed", error),
+        )
+
+    back_centering = None
+    if back:
+        try:
+            back_centering = CenteringEvidence.model_validate(
+                measure_card_centering(back).as_dict()
+            )
+        except Exception as error:
+            if back_evidence is not None:
+                back_evidence = _append_side_error(
+                    back_evidence,
+                    _bounded_stage_error("back", "centering_measurement_failed", error),
+                )
+
     apple_vision_available = False
     if ocr is not None:
         try:
@@ -836,6 +862,8 @@ def analyze_local_vision_sync(
         schema_version="tcos.instacomp-ai.local-vision.v1",
         front=front_evidence,
         back=back_evidence,
+        front_centering=front_centering,
+        back_centering=back_centering,
         serial=serial,
         identity_hints=identity_hints,
         combined_text=combined_text,

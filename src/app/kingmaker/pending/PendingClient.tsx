@@ -41,6 +41,19 @@ type CompEvidence = {
   listedAt?: string | null;
 };
 
+type CenteringEstimate = {
+  measurable?: boolean;
+  left_percent?: number | null;
+  right_percent?: number | null;
+  top_percent?: number | null;
+  bottom_percent?: number | null;
+  horizontal_ratio?: string | null;
+  vertical_ratio?: string | null;
+  confidence?: number | null;
+  method?: string | null;
+  warning?: string | null;
+};
+
 type PriceGuidePoint = {
   timestamp: number;
   value: number;
@@ -164,6 +177,10 @@ type PendingCard = {
       calculatedFrom?: string | null;
     } | null;
     reliableSoldCompCount?: number;
+    centering?: {
+      front?: CenteringEstimate | null;
+      back?: CenteringEstimate | null;
+    } | null;
     imageOrientation?: {
       verified: boolean;
       status?: string | null;
@@ -400,6 +417,7 @@ function CardImageInspector({
   title,
   side,
   url,
+  centering,
   orientationVerified,
   rotating,
   onRotate,
@@ -407,16 +425,14 @@ function CardImageInspector({
   title: string;
   side: "front" | "back";
   url: string | null;
+  centering?: CenteringEstimate | null;
   orientationVerified: boolean;
   rotating: boolean;
   onRotate: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
   const [dragging, setDragging] = useState(false);
-  const [showCenteringGuide, setShowCenteringGuide] = useState(true);
-  const [guideRect, setGuideRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const imageRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -460,27 +476,16 @@ function CardImageInspector({
     dragRef.current = null;
     setDragging(false);
   };
-  const syncGuideRect = useCallback(() => {
-    const image = imageRef.current;
-    if (!image) {
-      setGuideRect(null);
-      return;
-    }
-    setGuideRect({
-      left: image.offsetLeft,
-      top: image.offsetTop,
-      width: image.clientWidth,
-      height: image.clientHeight,
-    });
-  }, []);
-  useEffect(() => {
-    const animationFrame = window.requestAnimationFrame(syncGuideRect);
-    window.addEventListener("resize", syncGuideRect);
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener("resize", syncGuideRect);
-    };
-  }, [syncGuideRect, url, zoom]);
+  const measured =
+    centering?.measurable === true &&
+    typeof centering.left_percent === "number" &&
+    typeof centering.right_percent === "number" &&
+    typeof centering.top_percent === "number" &&
+    typeof centering.bottom_percent === "number";
+  const ratio = (first: number | null | undefined, second: number | null | undefined) =>
+    typeof first === "number" && typeof second === "number"
+      ? `${Math.round(first)} / ${Math.round(second)}`
+      : "—";
 
   return (
     <figure className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
@@ -493,18 +498,6 @@ function CardImageInspector({
           <span className="min-w-14 text-center text-xs font-black">{Math.round(zoom * 100)}%</span>
           <button type="button" onClick={zoomIn} disabled={zoom >= 5} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom in ${side}`}>+</button>
           <button type="button" onClick={resetZoom} disabled={zoom === 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 text-xs font-black disabled:opacity-40">Reset</button>
-          <button
-            type="button"
-            onClick={() => setShowCenteringGuide((value) => !value)}
-            disabled={!url}
-            className={`min-h-10 rounded-lg border-2 px-3 text-xs font-black disabled:opacity-40 ${
-              showCenteringGuide
-                ? "border-amber-700 bg-amber-200 text-amber-950"
-                : "border-neutral-400 bg-white text-neutral-800"
-            }`}
-          >
-            {showCenteringGuide ? "Centering guide ON" : "Centering guide OFF"}
-          </button>
           <button type="button" onClick={onRotate} disabled={!url || rotating} className="min-h-10 rounded-lg bg-sky-800 px-3 text-xs font-black text-white disabled:opacity-40">
             {rotating ? "Rotating…" : "Rotate 90°"}
           </button>
@@ -519,60 +512,56 @@ function CardImageInspector({
         onPointerCancel={endPan}
       >
         {url ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              ref={imageRef}
-              src={url}
-              alt={`${title} ${side}`}
-              draggable={false}
-              className={zoom === 1 ? "mx-auto max-h-full max-w-full object-contain" : "block h-auto max-w-none select-none object-contain"}
-              style={zoom === 1 ? undefined : { width: `${zoom * 100}%` }}
-              onLoad={syncGuideRect}
-              onDoubleClick={zoomIn}
-            />
-            {showCenteringGuide && guideRect ? (
-              <div
-                className="pointer-events-none absolute z-10 border-2 border-amber-500/90"
-                style={{
-                  left: guideRect.left,
-                  top: guideRect.top,
-                  width: guideRect.width,
-                  height: guideRect.height,
-                }}
-                aria-hidden="true"
-              >
-                <div className="absolute inset-y-0 left-1/2 border-l-2 border-amber-500" />
-                <div className="absolute inset-x-0 top-1/2 border-t-2 border-amber-500" />
-                {[40, 45, 55, 60].map((percent) => (
-                  <div
-                    key={`v-${percent}`}
-                    className={`absolute inset-y-0 border-l ${percent === 45 || percent === 55 ? "border-dashed border-cyan-500/90" : "border-dotted border-fuchsia-500/80"}`}
-                    style={{ left: `${percent}%` }}
-                  />
-                ))}
-                {[40, 45, 55, 60].map((percent) => (
-                  <div
-                    key={`h-${percent}`}
-                    className={`absolute inset-x-0 border-t ${percent === 45 || percent === 55 ? "border-dashed border-cyan-500/90" : "border-dotted border-fuchsia-500/80"}`}
-                    style={{ top: `${percent}%` }}
-                  />
-                ))}
-                <span className="absolute left-1 top-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-black text-white">
-                  50/50 CENTER
-                </span>
-                <span className="absolute bottom-1 left-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-black text-white">
-                  CYAN 45/55 · MAGENTA 40/60
-                </span>
-              </div>
-            ) : null}
-          </>
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={url}
+            alt={`${title} ${side}`}
+            draggable={false}
+            className={zoom === 1 ? "mx-auto max-h-full max-w-full object-contain" : "block h-auto max-w-none select-none object-contain"}
+            style={zoom === 1 ? undefined : { width: `${zoom * 100}%` }}
+            onDoubleClick={zoomIn}
+          />
         ) : (
           <div className="flex h-full items-center justify-center font-black text-red-800">{side.toUpperCase()} MISSING</div>
         )}
       </div>
+      <div className="mt-3 rounded-lg border-2 border-neutral-800 bg-white p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-black uppercase tracking-wider">CENTERING ESTIMATE · {side.toUpperCase()}</p>
+          {measured && typeof centering?.confidence === "number" ? (
+            <span className="text-xs font-bold text-neutral-600">Confidence {Math.round(centering.confidence * 100)}%</span>
+          ) : null}
+        </div>
+        {measured ? (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="rounded-lg bg-neutral-100 p-3 text-center">
+                <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">LEFT / RIGHT</p>
+                <p className="mt-1 text-2xl font-black">{ratio(centering?.left_percent, centering?.right_percent)}</p>
+                <p className="mt-1 text-xs font-bold text-neutral-600">
+                  Left {centering?.left_percent?.toFixed(1)}% · Right {centering?.right_percent?.toFixed(1)}%
+                </p>
+              </div>
+              <div className="rounded-lg bg-neutral-100 p-3 text-center">
+                <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">TOP / BOTTOM</p>
+                <p className="mt-1 text-2xl font-black">{ratio(centering?.top_percent, centering?.bottom_percent)}</p>
+                <p className="mt-1 text-xs font-bold text-neutral-600">
+                  Top {centering?.top_percent?.toFixed(1)}% · Bottom {centering?.bottom_percent?.toFixed(1)}%
+                </p>
+              </div>
+            </div>
+            <p className="mt-2 text-xs font-semibold text-neutral-600">
+              Estimated from the physical card edges and detected printed frame. This is an image measurement, not a grading guarantee.
+            </p>
+          </>
+        ) : (
+          <div className="mt-2 rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-950">
+            No reliable printed-frame measurement on this side. InstaComp will not invent a centering number when the border/frame cannot be measured confidently.
+          </div>
+        )}
+      </div>
       <p className="mt-2 text-xs font-semibold text-neutral-600">
-        Centering guide is ON by default: solid amber = 50/50 center, cyan dashed = 45/55, magenta dotted = 40/60. Use + / − to inspect borders and small print; while zoomed, grab and drag to pan.
+        Use + / − to inspect borders and small print; while zoomed, grab and drag to pan.
       </p>
     </figure>
   );
@@ -2554,6 +2543,7 @@ export default function KingmakerPendingPage({
                       title={card.title}
                       side={side}
                       url={url}
+                      centering={side === "front" ? card.instaComp.centering?.front : card.instaComp.centering?.back}
                       orientationVerified={card.instaComp.imageOrientation?.verified === true}
                       rotating={busyId === `${card.inventoryItemId}:rotate:${side}`}
                       onRotate={() => void rotateStoredImage(card, side)}

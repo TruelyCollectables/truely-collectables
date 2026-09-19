@@ -24,6 +24,19 @@ export type InstaCompAiLocalSuggestion = {
   raw: Record<string, unknown>;
 };
 
+export type InstaCompAiLocalCentering = {
+  measurable?: boolean;
+  left_percent?: number | null;
+  right_percent?: number | null;
+  top_percent?: number | null;
+  bottom_percent?: number | null;
+  horizontal_ratio?: string | null;
+  vertical_ratio?: string | null;
+  confidence?: number | null;
+  method?: string | null;
+  warning?: string | null;
+};
+
 export type InstaCompAiLocalScan = {
   schema_version: "tcos.instacomp-ai.scan.v1";
   scan_id: string;
@@ -54,6 +67,11 @@ export type InstaCompAiLocalScan = {
     back_confidence?: number;
     front_evidence?: string[];
     back_evidence?: string[];
+  } | null;
+  local_vision?: {
+    front_centering?: InstaCompAiLocalCentering | null;
+    back_centering?: InstaCompAiLocalCentering | null;
+    [key: string]: unknown;
   } | null;
   pricing_allowed: boolean;
   learning_allowed: boolean;
