@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -18,32 +19,60 @@ class ExistingInventoryPurchaseLinkTest(unittest.TestCase):
                 db.execute(
                     """CREATE TABLE scans (
                     scan_id TEXT PRIMARY KEY, card_uuid TEXT, created_at TEXT,
-                    front_sha256 TEXT, back_sha256 TEXT, image_pair_sha256 TEXT, status TEXT
+                    front_sha256 TEXT, back_sha256 TEXT, image_pair_sha256 TEXT, status TEXT,
+                    checklist_json TEXT
                     )"""
                 )
                 db.execute(
-                    "INSERT INTO scans VALUES (?,?,?,?,?,?,?)",
-                    ("scan-existing-1", "card-kiki-149-red-power-75", "2026-09-01T00:00:00Z", "front", "back", "pair", "complete"),
+                    "INSERT INTO scans VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        "scan-existing-1",
+                        "card-kiki-149-red-power-75",
+                        "2026-09-18T00:00:00Z",
+                        "front",
+                        "back",
+                        "pair",
+                        "trusted_memory_match",
+                        json.dumps({
+                            "outcome": "exact_match",
+                            "identity_id": "registry-kiki-149-red-power-75",
+                            "identity": {
+                                "player": "Kiki Iriafen",
+                                "year": "2025",
+                                "brand": "Panini",
+                                "set_name": "Panini Prizm WNBA",
+                                "card_number": "149",
+                                "parallel": "Red Power",
+                                "serial_run": 75,
+                                "autograph": False,
+                                "memorabilia": False,
+                            },
+                            "source_receipts": ["registry_fingerprint:test"],
+                        }),
+                    ),
                 )
 
             ledger = KingmakerAccounting(accounting_db, scan_db)
             ledger.initialize()
             ledger.record_acquisition_item({
                 "purchase_id": "03-15011-06269",
+                "source_key": "ebay:03-15011-06269",
                 "source": "eBay",
-                "purchased_at": "2026-08-06",
+                "purchased_at": "2026-09-18",
                 "title": "Kiki Iriafen Red Power /75 #149",
                 "card_uuid": "card-kiki-149-red-power-75",
+                "registry_identity_id": "registry-kiki-149-red-power-75",
+                "identity_status": "source_exact",
                 "allocated_cost": 23.37,
                 "identity": {
-                    "player": "Kiki Iriafen", "year": "2025", "setName": "Panini Prizm WNBA",
+                    "player": "Kiki Iriafen", "year": "2025", "brand": "Panini", "setName": "Panini Prizm WNBA",
                     "cardNumber": "149", "parallel": "Red Power", "serialNumber": "41/75",
                     "isAuto": False, "isRelic": False,
                 },
             })
             match = ledger.match_or_reserve_purchase(
                 {
-                    "player": "Kiki Iriafen", "year": "2025", "setName": "Panini Prizm WNBA",
+                    "player": "Kiki Iriafen", "year": "2025", "brand": "Panini", "setName": "Panini Prizm WNBA",
                     "cardNumber": "149", "parallel": "Red Power", "serialNumber": "41/75",
                     "isAuto": False, "isRelic": False,
                 },

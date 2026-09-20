@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -27,15 +28,30 @@ def create_scan_db(path: Path) -> None:
     with sqlite3.connect(path) as db:
         db.execute(
             "CREATE TABLE scans(scan_id TEXT PRIMARY KEY, card_uuid TEXT, created_at TEXT, "
-            "front_sha256 TEXT, back_sha256 TEXT, image_pair_sha256 TEXT, status TEXT)"
+            "front_sha256 TEXT, back_sha256 TEXT, image_pair_sha256 TEXT, status TEXT, checklist_json TEXT)"
         )
 
 
 def add_scan(path: Path, scan_id: str, card_uuid: str, front: str, back: str) -> None:
     with sqlite3.connect(path) as db:
+        checklist = json.dumps({
+            "outcome": "exact_match",
+            "identity_id": f"registry-{card_uuid}",
+            "identity": {
+                "player": "Sonia Citron",
+                "year": "2025",
+                "brand": "Panini",
+                "set_name": "Select",
+                "card_number": "83",
+                "parallel": "Silver Prizm",
+                "autograph": False,
+                "memorabilia": False,
+            },
+            "source_receipts": ["registry_fingerprint:test"],
+        })
         db.execute(
-            "INSERT INTO scans VALUES(?,?,?,?,?,?,?)",
-            (scan_id, card_uuid, "2026-09-08T12:00:00Z", front, back, front + back, "complete"),
+            "INSERT INTO scans VALUES(?,?,?,?,?,?,?,?)",
+            (scan_id, card_uuid, "2026-09-18T12:00:00Z", front, back, front + back, "trusted_memory_match", checklist),
         )
 
 
@@ -50,10 +66,13 @@ def add_purchase(
     accounting.record_acquisition_item(
         {
             "purchase_id": purchase_id,
+            "source_key": f"ebay:{purchase_id}",
             "source": "eBay",
-            "purchased_at": "2026-09-08",
+            "purchased_at": "2026-09-18",
             "title": purchase_id,
             "card_uuid": card_uuid,
+            "registry_identity_id": f"registry-{card_uuid}",
+            "identity_status": "source_exact",
             "identity": identity(card_number),
             "allocated_cost": cost,
         }
@@ -153,8 +172,9 @@ def test_receive_link_disposition_and_fail_closed_guards(tmp_path: Path) -> None
     assert "different card uuid" in wrong_uuid["reason"].lower()
 
     legacy = accounting.listing_readiness(["untracked-legacy-item"])
-    assert legacy["ready"] is True
+    assert legacy["ready"] is False
     assert legacy["tracked"] == []
+    assert legacy["blocked"][0]["reason"] == "physical_inventory_receipt_missing"
 
     with sqlite3.connect(tmp_path / "accounting.sqlite3") as db:
         rows = db.execute(
