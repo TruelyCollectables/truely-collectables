@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { getFreshAccountSession } from "../../account/account-session";
-import { buildInstaCompCanonicalTitle } from "../../../lib/instacomp-canonical-title";
+import { buildInstaCompRegistryExactTitle } from "../../../lib/instacomp-canonical-title";
 
 type CardIdentity = {
   sport?: string | null;
@@ -420,15 +420,20 @@ function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
 }
 
 function standardizedTitle(edit: EditState) {
-  return buildInstaCompCanonicalTitle(
-    {
-      year: edit.year, manufacturer: edit.manufacturer, brand: edit.brand, product: edit.product,
-      setName: edit.setName, subset: edit.subset, cardNumber: edit.cardNumber, player: edit.player,
-      parallel: edit.parallel, variation: edit.variation, serialNumber: edit.printRun,
-      isRookie: edit.isRookie, isAuto: edit.isAuto, isRelic: edit.isRelic,
-    },
-    { rawTitle: edit.title, forceRookie: edit.isRookie },
-  );
+  return buildInstaCompRegistryExactTitle({
+    year: edit.year,
+    manufacturer: edit.manufacturer,
+    brand: edit.brand,
+    product: edit.product,
+    setName: edit.setName,
+    subset: edit.subset,
+    cardNumber: edit.cardNumber,
+    player: edit.player,
+    team: edit.team,
+    parallel: edit.parallel,
+    variation: edit.variation,
+    serialNumber: edit.printRun,
+  });
 }
 
 function identityEditChanged(card: PendingCard, edit: EditState) {
@@ -2491,7 +2496,7 @@ export default function KingmakerPendingPage({
                     <div className="min-w-0">
                     <h2 className="font-black">{card.title}</h2>
                     <p className="mt-1 text-xs font-semibold text-emerald-200">
-                      Canonical listing title · exact identity fields shown below
+                      Exact Checklist Registry match · no title rewriting
                     </p>
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
@@ -3111,14 +3116,14 @@ export default function KingmakerPendingPage({
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-xl font-black">Correct any field</h3>
-                        <p className="mt-1 text-sm font-semibold text-neutral-600">Saving makes your values operator-confirmed truth. Your typed Listing Title is saved exactly; use Rebuild Standard Title only when you want KINGMAKER to rewrite it.</p>
+                        <p className="mt-1 text-sm font-semibold text-neutral-600">Exact Registry matches keep the checklist wording. Only type a different Listing Title when you explicitly want a seller override.</p>
                       </div>
                       <button
                         type="button"
                         onClick={() => setEditValue(card.inventoryItemId, "title", standardizedTitle(edit))}
                         className="rounded-xl border-2 border-neutral-900 bg-white px-4 py-2 text-sm font-black"
                       >
-                        Rebuild Standard Title
+                        Use Exact Checklist Match
                       </button>
                     </div>
 

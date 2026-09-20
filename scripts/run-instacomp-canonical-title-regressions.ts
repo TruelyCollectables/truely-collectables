@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { buildInstaCompCanonicalTitle as title } from "../src/lib/instacomp-canonical-title";
+import {
+  buildInstaCompCanonicalTitle as title,
+  buildInstaCompRegistryExactTitle as exactTitle,
+} from "../src/lib/instacomp-canonical-title";
 
 const selectBase = title({
   year: "2025", manufacturer: "Panini", brand: "Select", product: "Select WNBA",
@@ -75,6 +78,39 @@ const fernandoMendoza = title({
 assert.equal(
   fernandoMendoza,
   "2026 Topps Flagship Football ROOKIES #301 Fernando Mendoza",
+);
+
+const fernandoRegistryExact = exactTitle({
+  year: "2026",
+  manufacturer: "Topps",
+  brand: "Topps",
+  product: "Flagship Football",
+  setName: "ROOKIES",
+  cardNumber: "301",
+  player: "Fernando Mendoza",
+  team: "Las Vegas Raiders",
+  parallel: "Base",
+});
+assert.equal(
+  fernandoRegistryExact,
+  "2026 Topps Flagship Football ROOKIES #301 Fernando Mendoza Las Vegas Raiders Base",
+);
+
+const fernandoLockedFieldsShape = exactTitle({
+  year: "2026",
+  manufacturer: "Topps",
+  brand: "Topps",
+  product: "Flagship Football",
+  setName: "Flagship Football",
+  subset: "ROOKIES",
+  cardNumber: "301",
+  player: "Fernando Mendoza",
+  team: "Las Vegas Raiders",
+  parallel: "Base",
+});
+assert.equal(
+  fernandoLockedFieldsShape,
+  fernandoRegistryExact,
 );
 
 const learnedRc = title({

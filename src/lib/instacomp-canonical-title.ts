@@ -145,6 +145,52 @@ function serialDenominator(identity: Record<string, unknown>) {
   return match ? `/${Number(match[1])}` : "";
 }
 
+/**
+ * Exact Registry/checklist display title.
+ *
+ * This path intentionally does not rename products, collapse Base, rewrite
+ * Prizm/Prizms, infer RC, or otherwise editorialize Registry values. It only
+ * joins the exact locked fields and removes literal duplicate dimensions.
+ */
+export function buildInstaCompRegistryExactTitle(identityValue: unknown) {
+  const identity = record(identityValue);
+  const pieces: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const exact = text(value);
+    if (!exact) return;
+    const key = comparable(exact);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    pieces.push(exact);
+  };
+
+  add(identity.year);
+  add(identity.manufacturer);
+
+  const product = text(identity.product);
+  const setName = text(identity.setName ?? identity.set_name);
+  const subset = text(identity.subset ?? identity.insertName ?? identity.insert);
+  const brand = text(identity.brand);
+  if (product) add(product);
+  else if (setName) add(setName);
+  else add(brand);
+  if (product) add(setName);
+  add(subset);
+
+  const cardNumber = text(identity.cardNumber ?? identity.card_number).replace(/^#/, "");
+  if (cardNumber) add(`#${cardNumber}`);
+  add(identity.player ?? identity.playerName ?? identity.subject);
+  add(identity.team);
+  add(identity.parallel ?? identity.checklistParallel ?? identity.parallelName);
+  add(identity.variation);
+
+  const serial = serialDenominator(identity);
+  if (serial) add(serial);
+
+  return pieces.join(" ").replace(/\s+/g, " ").trim();
+}
+
 export function buildInstaCompCanonicalTitle(
   identityValue: unknown,
   context: InstaCompCanonicalTitleContext = {},

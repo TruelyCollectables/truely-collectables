@@ -4,7 +4,10 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../lib/account-auth";
 import { getInventoryActivationBlockers } from "../../../../../lib/inventory-activation";
-import { buildInstaCompCanonicalTitle } from "../../../../../lib/instacomp-canonical-title";
+import {
+  buildInstaCompCanonicalTitle,
+  buildInstaCompRegistryExactTitle,
+} from "../../../../../lib/instacomp-canonical-title";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import {
@@ -401,8 +404,12 @@ function buildIdentitySummary(identity: Record<string, unknown>) {
     : null;
 }
 
-function buildIdentityReadout(identity: Record<string, unknown>) {
-  return buildInstaCompCanonicalTitle(identity) || null;
+function buildIdentityReadout(identity: Record<string, unknown>, exactRegistry = false) {
+  return (
+    exactRegistry
+      ? buildInstaCompRegistryExactTitle(identity)
+      : buildInstaCompCanonicalTitle(identity)
+  ) || null;
 }
 
 function isGenericTitle(value: unknown) {
@@ -1111,7 +1118,11 @@ export async function GET(request: Request) {
         instaComp.manualListingTitleLocked === true
           ? exactStoredText(instaComp.manualListingTitle)
           : null;
+      const registryExactTitle = registryIdentityLocked
+        ? buildInstaCompRegistryExactTitle(primaryIdentity) || null
+        : null;
       const generatedTitle =
+        registryExactTitle ||
         buildInstaCompCanonicalTitle(primaryIdentity, { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(legacyCardIdentity, { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(cardIdentity, { metadata, rawTitle }) ||
@@ -1129,7 +1140,7 @@ export async function GET(request: Request) {
         buildIdentitySummary(metadata) ||
         null;
       const identityReadout =
-        buildIdentityReadout(primaryIdentity) ||
+        buildIdentityReadout(primaryIdentity, registryIdentityLocked) ||
         buildIdentityReadout(recordValue(metadata.card)) ||
         buildIdentityReadout(cardIdentity) ||
         buildIdentityReadout(saleIdentity) ||
@@ -1138,6 +1149,7 @@ export async function GET(request: Request) {
         buildIdentityReadout(metadata) ||
         null;
       const displayTitle =
+        registryExactTitle ||
         manualListingTitle ||
         generatedTitle ||
         (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||

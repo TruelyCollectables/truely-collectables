@@ -9,7 +9,7 @@ import {
   fetchInstaCompAiLocalScanImage,
   type InstaCompAiLocalScan,
 } from "../../../../lib/instacomp-ai-local";
-import { buildInstaCompCanonicalTitle } from "../../../../lib/instacomp-canonical-title";
+import { buildInstaCompRegistryExactTitle } from "../../../../lib/instacomp-canonical-title";
 import type { InstaCompChecklistCandidate } from "../../../../lib/instacomp-checklist-first";
 import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../lib/instacomp-checklist-first-server";
 import {
@@ -478,25 +478,20 @@ function canonicalTitle(params: {
   candidate: InstaCompChecklistCandidate;
   core: InstaCompCoreVisualEvidence;
 }) {
-  return buildInstaCompCanonicalTitle(
-    {
-      year: params.candidate.year || params.core.year,
-      manufacturer: params.candidate.manufacturer || params.core.manufacturer,
-      brand: params.candidate.brand || params.candidate.manufacturer || params.core.manufacturer,
-      product: params.candidate.product || params.core.product,
-      setName: params.candidate.setName || params.candidate.product || params.core.setName || params.core.product,
-      subset: params.candidate.subset || params.core.subset,
-      cardNumber: params.candidate.cardNumber || params.core.cardNumber,
-      player: params.candidate.player || params.core.player,
-      parallel: params.candidate.parallel || "Base",
-      variation: params.candidate.variation || params.core.surfaceVariationHint,
-      serialRun: params.candidate.serialRun || null,
-      isRookie: params.core.rookie === true,
-      isAuto: params.candidate.isAuto,
-      isRelic: params.candidate.isRelic,
-    },
-    { forceRookie: params.core.rookie === true },
-  );
+  return buildInstaCompRegistryExactTitle({
+    year: params.candidate.year || params.core.year,
+    manufacturer: params.candidate.manufacturer || params.core.manufacturer,
+    brand: params.candidate.brand || params.candidate.manufacturer || params.core.manufacturer,
+    product: params.candidate.product || params.core.product,
+    setName: params.candidate.setName || params.core.setName,
+    subset: params.candidate.subset || params.core.subset,
+    cardNumber: params.candidate.cardNumber || params.core.cardNumber,
+    player: params.candidate.player || params.core.player,
+    team: params.candidate.team || params.core.team,
+    parallel: params.candidate.parallel || "Base",
+    variation: params.candidate.variation || params.core.surfaceVariationHint,
+    serialRun: params.candidate.serialRun || null,
+  });
 }
 
 function reviewTitle(core: InstaCompCoreVisualEvidence, currentTitle: string) {
