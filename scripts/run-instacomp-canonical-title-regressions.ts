@@ -69,7 +69,7 @@ assert.equal(mojo, "2025 Bowman Draft Chrome Mojo Refractor #BDC-64 Brandon Comp
 
 const fernandoMendoza = title({
   year: "2026", manufacturer: "Topps", brand: "Topps", product: "Flagship Football",
-  setName: "ROOKIES", cardNumber: "301", player: "Fernando Mendoza",
+  setName: "ROOKIES", subset: "Fernando Mendoza", cardNumber: "301", player: "Fernando Mendoza",
   team: "Las Vegas Raiders", parallel: "Base",
 });
 assert.equal(

@@ -99,7 +99,11 @@ function cleanSetAndParallel(identity: Record<string, unknown>) {
   // Never publish the subject twice (for example "Prizm Sonia Citron #122
   // Sonia Citron"). Registry/checklist set identity remains authoritative.
   const player = text(identity.player ?? identity.playerName ?? identity.subject);
-  if (level && player && comparable(level) === comparable(player)) level = "";
+  if (level && player && comparable(level) === comparable(player)) {
+    const setFallback =
+      setName && comparable(setName) !== comparable(player) ? setName : "";
+    level = setFallback;
+  }
   parallel = parallel
     .replace(/^Prizms?\s+/i, "")
     .replace(/\s+Prizms?$/i, "")
