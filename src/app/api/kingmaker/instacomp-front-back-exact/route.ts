@@ -1137,9 +1137,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const finalFrontFile = macArchive.frontFile;
-    const finalBackFile = macArchive.backFile;
-    const finalOrientation = macArchive.orientation;
+    const finalFrontFile = macArchive.frontFile ?? frontFile;
+    const finalBackFile = macArchive.backFile ?? backFile;
+    const finalOrientation: InstaCompImageOrientationReceipt =
+      macArchive.orientation ??
+      storedPairOrientation ?? {
+        status: "review_required",
+        model: null,
+        source: "mac_registry_exact_orientation_pending",
+        frontRotation: 0,
+        backRotation: 0,
+        frontConfidence: 0,
+        backConfidence: 0,
+        frontEvidenceText: [],
+        backEvidenceText: [],
+        backStandalonePrizm: null,
+        backDesignationConfidence: 0,
+        reason:
+          "The Mac locked an exact Registry identity, but canonical orientation still needs review before publication.",
+      };
 
     const [finalFrontSha256, finalBackSha256] = await Promise.all([
       digest(finalFrontFile),
