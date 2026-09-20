@@ -9,8 +9,10 @@ if (start < 0 || end < 0) {
 }
 const helper = source.slice(start, end);
 for (const required of [
-  "frontRotation: quarterTurn(params.webOrientation.frontRotation)",
-  "backRotation: quarterTurn(params.webOrientation.backRotation)",
+  "frontRotation: webOrientationTrusted",
+  "quarterTurn(params.webOrientation?.frontRotation)",
+  "backRotation: webOrientationTrusted",
+  "quarterTurn(params.webOrientation?.backRotation)",
 ]) {
   if (!helper.includes(required)) {
     throw new Error(`Missing trusted orientation handoff: ${required}`);
@@ -22,8 +24,22 @@ for (const forbidden of ["frontRotation: null", "backRotation: null"]) {
   }
 }
 
-if (!source.includes('normalizedSides.orientation.status !== "completed"')) {
-  throw new Error("KINGMAKER must fail closed before trusting an uncompleted web orientation receipt.");
+if (!helper.includes('params.webOrientation?.status === "completed"')) {
+  throw new Error("KINGMAKER must only forward web rotation hints from a completed orientation receipt.");
+}
+
+
+const stablePairStart = source.indexOf("const stablePairArchive: MacArchiveResult | null");
+const stablePairEnd = source.indexOf("// First-time/unresolved cards still run the physical Mac scan.", stablePairStart);
+if (stablePairStart < 0 || stablePairEnd < 0) {
+  throw new Error("Could not locate unchanged exact-pair fast return.");
+}
+const stablePairBlock = source.slice(stablePairStart, stablePairEnd);
+if (!stablePairBlock.includes("stablePairRegistryCandidate" + "\n        ? {")) {
+  throw new Error("An unchanged exact Registry pair must fast-return even when orientation remains review-only.");
+}
+if (stablePairBlock.includes("stablePairRegistryCandidate && storedPairOrientation")) {
+  throw new Error("Orientation must not be a prerequisite for exact Registry identity fast return.");
 }
 
 console.log("KINGMAKER trusted web orientation is fail-closed and forwarded to the Mac archive.");

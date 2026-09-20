@@ -1146,13 +1146,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Registry identity alone is not enough to skip the Mac. The fast return
-    // is valid only when these exact stored bytes also carry durable completed
-    // orientation proof. Legacy exact cards that lost that proof must run one
-    // physical Mac orientation recovery, after which unchanged SHA-256 bytes
-    // can use this fast lane safely.
+    // Exact Registry identity and image orientation are separate gates.
+    // If these unchanged stored bytes revalidate to the SAME UUID + fingerprint,
+    // return that exact identity immediately even when durable orientation proof
+    // is missing. Orientation remains review-only and publication can stay
+    // blocked, but identity must not fall into the slow physical Mac pipeline.
     const stablePairArchive: MacArchiveResult | null =
-      stablePairRegistryCandidate && storedPairOrientation
+      stablePairRegistryCandidate
         ? {
             receipt: {
               scanId: text(previousInstaComp.scanId, 100),
