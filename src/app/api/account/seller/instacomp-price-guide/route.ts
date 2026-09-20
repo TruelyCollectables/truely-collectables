@@ -118,9 +118,18 @@ export async function POST(request: Request) {
     const metadata = record(item.metadata);
     const instaComp = record(metadata.instacomp);
     const priorCoverage = record(instaComp.priceGuideCoverage);
+    const priorGuide = record(instaComp.priceGuide);
     const priorStatus = text(priorCoverage.status || instaComp.priceGuideStatus);
     const terminalStatus = ["live", "no_matches", "identity_mismatch"].includes(priorStatus);
-    if (!force && text(instaComp.priceGuideCheckedAt) && terminalStatus) {
+    const priorLiveWindowIsOneYear =
+      priorStatus !== "live" ||
+      String(priorGuide.period || "").trim().toLowerCase() === "1 year";
+    if (
+      !force &&
+      text(instaComp.priceGuideCheckedAt) &&
+      terminalStatus &&
+      priorLiveWindowIsOneYear
+    ) {
       return Response.json({
         ok: true,
         inventoryItemId,

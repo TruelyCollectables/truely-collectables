@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
@@ -806,35 +806,56 @@ export async function POST(request: NextRequest) {
     });
 
     const requestId = `scan-${scan.scan_id}`;
-    const pricingRequest = new NextRequest(
-      new URL(
-        "/api/account/seller/inventory/instacomp-verified",
-        request.url,
-      ),
-      {
-        method: "POST",
-        headers: forwardedHeaders(request, requestId),
-        body: JSON.stringify({
+    const pricingUrl = new URL(
+      "/api/account/seller/inventory/instacomp-verified",
+      request.url,
+    ).toString();
+    const pricingHeaders = forwardedHeaders(request, requestId);
+    after(async () => {
+      try {
+        const pricingRequest = new NextRequest(pricingUrl, {
+          method: "POST",
+          headers: pricingHeaders,
+          body: JSON.stringify({
+            inventoryItemId: inserted.id,
+            aiCouncilTier: "adaptive",
+            requestId,
+          }),
+        });
+        const pricingResponse = await runVerifiedPricing(pricingRequest);
+        if (!pricingResponse.ok) {
+          const payload = await pricingResponse.json().catch(() => ({}));
+          console.error("KINGMAKER background pricing failed", {
+            inventoryItemId: inserted.id,
+            status: pricingResponse.status,
+            error: payload?.error || payload?.message || null,
+          });
+        }
+      } catch (error) {
+        console.error("KINGMAKER background pricing crashed", {
           inventoryItemId: inserted.id,
-          aiCouncilTier: "adaptive",
-          requestId,
-        }),
-      },
-    );
-    const pricingResponse = await runVerifiedPricing(pricingRequest);
-    const pricing = await pricingResponse.json().catch(() => ({}));
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
 
     return NextResponse.json(
       {
         success: true,
+        stage: "complete",
+        identityComplete: true,
         cardUuid,
         inventoryItemId: inserted.id,
         title: inserted.title,
         listingOutput,
         channelDraft,
         scan,
-        pricing,
-        pricingSucceeded: pricingResponse.ok,
+        pricing: {
+          status: "background_refresh_queued",
+          suggestedPrice: inheritedGroupPrice || null,
+        },
+        pricingSucceeded: false,
+        pricingBackgroundQueued: true,
         imageOrientation: normalizedSides.orientation,
         normalizedImages: persistedImages,
         identityRuleApplied: selectBackMarkerUsable
@@ -843,7 +864,7 @@ export async function POST(request: NextRequest) {
         durationMs: Date.now() - startedAt,
       },
       {
-        status: pricingResponse.ok ? 201 : 207,
+        status: 201,
         headers: { "Cache-Control": "no-store" },
       },
     );

@@ -48,6 +48,9 @@ def _borderless_card() -> bytes:
 def test_measures_directional_centering_ratio() -> None:
     result = measure_card_centering(_bordered_card(left=90, right=45, top=60, bottom=60))
     assert result.measurable is True
+    assert result.horizontal_measurable is True
+    assert result.vertical_measurable is True
+    assert result.design_classification == "full_printed_frame"
     assert result.horizontal_ratio is not None
     assert result.left_percent is not None and result.right_percent is not None
     assert abs(result.left_percent - 66.7) <= 4.0
@@ -70,6 +73,9 @@ def test_centering_survives_perspective_rectification() -> None:
 def test_borderless_card_fails_closed() -> None:
     result = measure_card_centering(_borderless_card())
     assert result.measurable is False
+    assert result.horizontal_measurable is False
+    assert result.vertical_measurable is False
+    assert result.design_classification == "borderless_or_ambiguous"
     assert result.horizontal_ratio is None
     assert result.vertical_ratio is None
     assert result.warning is not None

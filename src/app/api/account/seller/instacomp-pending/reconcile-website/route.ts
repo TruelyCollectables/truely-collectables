@@ -50,6 +50,88 @@ function uniquePhysical(metadataValue: unknown) {
   );
 }
 
+function mercariMergeStatus(statusValue: unknown) {
+  return String(statusValue || "").trim().toLowerCase();
+}
+
+function withExactMergeChannelPolicy(
+  metadataValue: unknown,
+  params: {
+    now: string;
+    sourceInventoryItemId: string;
+    sourceScanId: string | null;
+    keeperInventoryItemId: string;
+    productId: number;
+    quantityBefore: number;
+    quantityAdded: number;
+    quantityAfter: number;
+    pricePreserved: number;
+  },
+) {
+  const metadata = record(metadataValue);
+  const instaComp = record(metadata.instacomp);
+  const dual = record(metadata.dual_marketplace);
+  const mercari = record(dual.mercari);
+  const mercariStatusBefore = mercariMergeStatus(mercari.status) || "draft";
+  const mercariWasSold = /^(sold|ended|inactive|completed|out[_ -]?of[_ -]?stock)$/.test(
+    mercariStatusBefore,
+  );
+  const nextMercari = mercariWasSold
+    ? {
+        ...mercari,
+        status: "eligible_to_relist",
+        relistEligible: true,
+        relistReason: "exact_inventory_quantity_added",
+        relistEligibleAt: params.now,
+      }
+    : mercari;
+  const history = Array.isArray(instaComp.exactMergeHistory)
+    ? instaComp.exactMergeHistory
+    : [];
+  const receipt = {
+    mergeId: `website-${params.sourceInventoryItemId}-${params.productId}`,
+    sourceInventoryItemId: params.sourceInventoryItemId,
+    sourceScanId: params.sourceScanId,
+    keeperInventoryItemId: params.keeperInventoryItemId,
+    websiteProductId: params.productId,
+    quantityBefore: params.quantityBefore,
+    quantityAdded: params.quantityAdded,
+    quantityAfter: params.quantityAfter,
+    pricePreserved: params.pricePreserved,
+    mergedAt: params.now,
+    channels: {
+      website: {
+        action: "increment_quantity",
+        quantityBefore: params.quantityBefore,
+        quantityAfter: params.quantityAfter,
+      },
+      ebay: { action: "unchanged", quantityDelta: 0 },
+      mercari: {
+        action: mercariWasSold
+          ? "mark_eligible_to_relist"
+          : "leave_existing_listing_unchanged",
+        statusBefore: mercariStatusBefore,
+        statusAfter: mercariWasSold ? "eligible_to_relist" : mercariStatusBefore,
+        quantityDelta: 0,
+      },
+    },
+  };
+  return {
+    metadata: {
+      ...metadata,
+      instacomp: {
+        ...instaComp,
+        exactMergeHistory: [...history.slice(-99), receipt],
+      },
+      dual_marketplace: {
+        ...dual,
+        mercari: nextMercari,
+      },
+    },
+    receipt,
+  };
+}
+
 function withWebsiteActive(metadataValue: unknown, productId: number, now: string) {
   const metadata = record(metadataValue);
   const dual = record(metadata.dual_marketplace);
@@ -289,7 +371,7 @@ export async function POST(request: Request) {
 
       const { data: activeKeepers, error: keeperError } = await supabase
         .from("inventory_items")
-        .select("id,quantity,title,description,metadata,seller_account_id")
+        .select("id,quantity,price,title,description,metadata,seller_account_id")
         .eq("store_id", storeId)
         .eq("legacy_product_id", productId)
         .eq("status", "active");
@@ -306,6 +388,9 @@ export async function POST(request: Request) {
       const existingKeeper = (activeKeepers || [])[0] || null;
       const keeperId = text(prior.keeperInventoryItemId) || existingKeeper?.id || row.id;
       const now = new Date().toISOString();
+      const sourceScanId = text(record(metadata.instacomp).scanId);
+      const pricePreserved = Number(existingKeeper?.price || target.price || row.price || 0);
+      let mergeReceipt: UnknownRecord | null = null;
       const sourceLegacyProductId = prepared
         ? Number(prior.sourceLegacyProductId || row.legacy_product_id || 0) || null
         : Number(row.legacy_product_id || 0) || null;
@@ -386,8 +471,23 @@ export async function POST(request: Request) {
       }
 
       if (keeperId === row.id) {
+        const mergePolicy = withExactMergeChannelPolicy(
+          quantityAppliedMetadata,
+          {
+            now,
+            sourceInventoryItemId: row.id,
+            sourceScanId,
+            keeperInventoryItemId: keeperId,
+            productId,
+            quantityBefore: baselineQuantity,
+            quantityAdded: addedQuantity,
+            quantityAfter: targetQuantity,
+            pricePreserved,
+          },
+        );
+        mergeReceipt = mergePolicy.receipt;
         const completedMetadata = {
-          ...withWebsiteActive(quantityAppliedMetadata, productId, now),
+          ...withWebsiteActive(mergePolicy.metadata, productId, now),
           website_inventory_reconciliation: {
             ...record(quantityAppliedMetadata.website_inventory_reconciliation),
             status: "completed",
@@ -413,7 +513,26 @@ export async function POST(request: Request) {
         if (!keeper || keeper.id !== keeperId) {
           throw new Error(`Prepared website reconciliation keeper ${keeperId} is no longer active.`);
         }
-        const keeperMetadata = withWebsiteActive(keeper.metadata, productId, now);
+        const mergePolicy = withExactMergeChannelPolicy(
+          keeper.metadata,
+          {
+            now,
+            sourceInventoryItemId: row.id,
+            sourceScanId,
+            keeperInventoryItemId: keeperId,
+            productId,
+            quantityBefore: baselineQuantity,
+            quantityAdded: addedQuantity,
+            quantityAfter: targetQuantity,
+            pricePreserved,
+          },
+        );
+        mergeReceipt = mergePolicy.receipt;
+        const keeperMetadata = withWebsiteActive(
+          mergePolicy.metadata,
+          productId,
+          now,
+        );
         const { error: keeperSaveError } = await supabase
           .from("inventory_items")
           .update({
@@ -431,11 +550,16 @@ export async function POST(request: Request) {
         const completedMetadata = {
           ...quantityAppliedMetadata,
           commercial_merge: {
+            merge_id: text(mergeReceipt?.mergeId),
             keeper_inventory_item_id: keeperId,
             website_product_id: productId,
+            source_scan_id: sourceScanId,
             merged_quantity: addedQuantity,
+            price_preserved: pricePreserved,
+            channel_actions: record(mergeReceipt?.channels),
             merged_at: now,
             reason: "exact_current_website_inventory_quantity_merge",
+            reversible: true,
           },
           website_inventory_reconciliation: {
             ...record(quantityAppliedMetadata.website_inventory_reconciliation),
@@ -493,6 +617,10 @@ export async function POST(request: Request) {
         baselineQuantity,
         addedQuantity,
         resultingQuantity: targetQuantity,
+        pricePreserved,
+        mercariAction: text(
+          record(record(mergeReceipt?.channels).mercari).action,
+        ),
         promotedToKeeper: keeperId === row.id,
       });
     }

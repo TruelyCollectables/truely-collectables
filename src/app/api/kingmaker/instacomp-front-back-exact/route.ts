@@ -617,22 +617,23 @@ async function archiveWithMacBestEffort(params: {
     // return a saved review item instead of letting Cloudflare/browser abort the
     // request after ~200 seconds with no useful handoff.
     const deadline = Date.now() + 95_000;
+    const webOrientationTrusted =
+      params.webOrientation?.status === "completed";
     for (const requestedTimeout of [90_000]) {
       attempts += 1;
       try {
         scan = await analyzeWithInstaCompAiLocal({
-          // The caller fails closed unless the web orientation receipt is
-          // completed, so these quarter-turns are trusted interactive hints.
-          // Forward them directly so the Mac does not fall back to the slower
-          // cold orientation path.
+          // Only a completed web receipt may supply rotation hints. When the
+          // outside referee fails or is unavailable, pass no rotations so the
+          // Mac-local orientation engine remains authoritative.
           front: params.frontFile,
           back: params.backFile,
-          frontRotation: params.webOrientation
-            ? quarterTurn(params.webOrientation.frontRotation)
-            : null,
-          backRotation: params.webOrientation
-            ? quarterTurn(params.webOrientation.backRotation)
-            : null,
+          frontRotation: webOrientationTrusted
+            ? quarterTurn(params.webOrientation?.frontRotation)
+            : undefined,
+          backRotation: webOrientationTrusted
+            ? quarterTurn(params.webOrientation?.backRotation)
+            : undefined,
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),

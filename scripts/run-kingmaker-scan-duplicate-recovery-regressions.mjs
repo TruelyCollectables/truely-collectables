@@ -57,7 +57,8 @@ assert.ok(
   "front/back uploads must be persisted before orientation or provider calls can fail",
 );
 assert.ok(
-  exactScan.includes('const webOrientationTrusted = params.webOrientation.status === "completed"') &&
+  exactScan.includes("const webOrientationTrusted =") &&
+    exactScan.includes('params.webOrientation?.status === "completed"') &&
     exactScan.includes("frontRotation: webOrientationTrusted") &&
     exactScan.includes(": undefined"),
   "Mac-local orientation must remain available when the web orientation provider fails",

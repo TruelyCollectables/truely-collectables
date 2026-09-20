@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
@@ -383,23 +383,38 @@ export async function POST(request: NextRequest) {
     }
 
     const requestId = `scan-${inventoryItemId}`;
-    const pricingRequest = new NextRequest(
-      new URL(
-        "/api/account/seller/inventory/instacomp-verified",
-        request.url,
-      ),
-      {
-        method: "POST",
-        headers: forwardedHeaders(request, "application/json"),
-        body: JSON.stringify({
+    const pricingUrl = new URL(
+      "/api/account/seller/inventory/instacomp-verified",
+      request.url,
+    ).toString();
+    const pricingHeaders = forwardedHeaders(request, "application/json");
+    after(async () => {
+      try {
+        const pricingRequest = new NextRequest(pricingUrl, {
+          method: "POST",
+          headers: pricingHeaders,
+          body: JSON.stringify({
+            inventoryItemId,
+            aiCouncilTier: "adaptive",
+            requestId,
+          }),
+        });
+        const pricingResponse = await runVerifiedPricing(pricingRequest);
+        if (!pricingResponse.ok) {
+          const payload = await pricingResponse.json().catch(() => ({}));
+          console.error("KINGMAKER v2 background pricing failed", {
+            inventoryItemId,
+            status: pricingResponse.status,
+            error: payload?.error || payload?.message || null,
+          });
+        }
+      } catch (error) {
+        console.error("KINGMAKER v2 background pricing crashed", {
           inventoryItemId,
-          aiCouncilTier: "adaptive",
-          requestId,
-        }),
-      },
-    );
-    const pricingResponse = await runVerifiedPricing(pricingRequest);
-    const pricing = await pricingResponse.json().catch(() => ({}));
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
 
     return NextResponse.json(
       {
@@ -414,13 +429,14 @@ export async function POST(request: NextRequest) {
         checklistDecision: exactPayload?.checklistDecision || null,
         parallelDecision: exactPayload?.parallelDecision || null,
         normalizedImages: exactPayload?.normalizedImages || null,
-        pricing,
-        pricingSucceeded: pricingResponse.ok,
+        pricing: { status: "background_refresh_queued", suggestedPrice: null },
+        pricingSucceeded: false,
+        pricingBackgroundQueued: true,
         imagesPreserved: true,
         durationMs: Date.now() - startedAt,
       },
       {
-        status: pricingResponse.ok ? 201 : 207,
+        status: 201,
         headers: { "Cache-Control": "no-store" },
       },
     );

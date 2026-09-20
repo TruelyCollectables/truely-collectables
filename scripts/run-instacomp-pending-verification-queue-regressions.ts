@@ -169,6 +169,10 @@ function assertPriceGuideInstaCompContract() {
   assert.match(pendingRoute, /priceGuideCoverage/);
   assert.match(priceGuideBackfillRoute, /include_price_guide: true/);
   assert.match(priceGuideBackfillRoute, /priceGuideStatus/);
+  assert.match(priceGuideBackfillRoute, /priorLiveWindowIsOneYear/);
+  assert.match(pendingClient, /eBay Price Guide · 1 year/);
+  assert.match(pendingClient, /1-year refresh required/);
+  assert.match(pendingClient, /period_mismatch/);
   assert.match(pendingClient, /refreshPriceGuide/);
   assert.match(pendingClient, /Checking eBay Price Guide automatically/);
   assert.match(pendingClient, /CHECKED — eBay did not expose an exact-card Price Guide dataset/);

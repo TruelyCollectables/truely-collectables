@@ -89,7 +89,12 @@ assert(reconcileRoute.includes('status: "quantity_applied"'), "Reconciliation mu
 assert(reconcileRoute.includes("liveProductQuantity >= preparedTarget"), "Prepared retries must preserve a later/higher live quantity instead of writing a stale target.");
 assert(reconcileRoute.includes('.eq("quantity", liveProductQuantity)'), "Product quantity updates must use optimistic concurrency protection.");
 assert(reconcileRoute.includes("prepared_quantity_changed_downward"), "Prepared retries must fail closed if quantity moved downward before application can be proven.");
-assert(pendingClient.includes("Merge Exact Current Website Inventory"), "Pending UI must expose the exact-current-inventory merge action.");
+assert(pendingClient.includes("Merge Selected → Existing Exact Listing"), "Pending UI must expose the exact-card merge action in the seller workflow.");
+assert(reconcileRoute.includes("leave_existing_listing_unchanged"), "Exact-card merge must leave an active Mercari listing quantity unchanged.");
+assert(reconcileRoute.includes("mark_eligible_to_relist"), "Exact-card merge must mark sold/ended Mercari inventory eligible to relist.");
+assert(reconcileRoute.includes('ebay: { action: "unchanged", quantityDelta: 0 }'), "Exact-card merge must not change eBay quantity.");
+assert(reconcileRoute.includes("pricePreserved"), "Exact-card merge must record that the existing selling price was preserved.");
+assert(reconcileRoute.includes("exactMergeHistory"), "Exact-card merge must persist an auditable merge receipt.");
 assert(reconcileRoute.includes('status: "prepared"'), "Website reconciliation must record a prepared absolute target before mutating quantity.");
 assert(reconcileRoute.includes('status: "completed"'), "Website reconciliation must record completion for idempotent retries.");
 assert(reconcileRoute.includes("multiple_exact_live_products"), "Website reconciliation must block ambiguous multiple exact live products.");

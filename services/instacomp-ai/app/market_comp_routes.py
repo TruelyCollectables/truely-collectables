@@ -335,6 +335,10 @@ _EBAY_ACTIVE_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen
 
 _EBAY_PRICE_GUIDE_CLICK_JS = r'''(()=>{const t=(v)=>(v||'').replace(/\s+/g,' ').trim();const b=Array.from(document.querySelectorAll('button')).find(x=>/see insights/i.test(t(x.innerText||x.textContent)));if(!b)return JSON.stringify({ok:false,error:'see_insights_not_found',title:document.title,url:location.href});b.click();return 'CLICKED'})()'''
 
+_EBAY_PRICE_GUIDE_OPEN_PERIOD_JS = r'''(()=>{const t=(v)=>(v||'').replace(/\s+/g,' ').trim();const ds=Array.from(document.querySelectorAll('[role=dialog],dialog'));const d=ds.find(x=>/Median sold price/i.test(x.innerText||''));if(!d)return 'DIALOG_NOT_READY';const controls=Array.from(d.querySelectorAll('button,[role=button]'));const one=controls.find(x=>/^1 year$/i.test(t(x.innerText||x.textContent)));if(one){one.click();return 'ONE_YEAR_CLICKED'}const period=controls.find(x=>/^(7 days|1 month|3 months|6 months|2 years)$/i.test(t(x.innerText||x.textContent)));if(!period)return 'PERIOD_CONTROL_NOT_FOUND';period.click();return 'PERIOD_MENU_OPENED'})()'''
+
+_EBAY_PRICE_GUIDE_SELECT_ONE_YEAR_JS = r'''(()=>{const t=(v)=>(v||'').replace(/\s+/g,' ').trim();const candidates=Array.from(document.querySelectorAll('button,[role=button],[role=option],[role=menuitem],li'));const one=candidates.find(x=>/^1 year$/i.test(t(x.innerText||x.textContent)));if(!one)return 'ONE_YEAR_OPTION_NOT_FOUND';one.click();return 'ONE_YEAR_SELECTED'})()'''
+
 _EBAY_PRICE_GUIDE_READ_JS = r'''(()=>{const ds=Array.from(document.querySelectorAll('[role=dialog],dialog'));const d=ds.find(x=>/Median sold price/i.test(x.innerText||''));if(!d)return JSON.stringify({ok:false,error:'price_guide_dialog_not_found',title:document.title,url:location.href});const lines=(d.innerText||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);const money=(v)=>{const m=String(v||'').match(/\$([0-9][0-9,]*(?:\.\d{1,2})?)/);return m?Number(m[1].replace(/,/g,'')):null};const after=(label)=>{const i=lines.findIndex(x=>x.toLowerCase()===label.toLowerCase());return i>=0?lines[i+1]||null:null};const median=money(after('Median sold price'));const last=money(after('Last sold'));const li=lines.findIndex(x=>x.toLowerCase()==='last sold');const lastDate=li>=0?(lines[li+2]||null):null;const range=Array.from(String(after('Sold price range')||'').matchAll(/\$([0-9][0-9,]*(?:\.\d{1,2})?)/g)).map(m=>Number(m[1].replace(/,/g,'')));const sellers=Number(String(after('Number of sellers')||'').replace(/[^0-9]/g,''))||null;const listings=Number(String(after('Number of listings')||'').replace(/[^0-9]/g,''))||null;const period=Array.from(d.querySelectorAll('button')).map(b=>(b.innerText||b.textContent||'').trim()).find(x=>/^(7 days|1 month|3 months|6 months|1 year|2 years)$/i.test(x))||null;const title=lines.find((x,i)=>i>0&&x.length>20&&(/#/.test(x)||/Panini|Topps|Upper Deck|Bowman|Donruss|Prizm|Select/i.test(x)))||lines[1]||null;const grade=lines.find(x=>/^(Ungraded|PSA|BGS|SGC|CGC|CSG|HGA|TAG)\b/i.test(x))||null;const aria=Array.from(d.querySelectorAll('[aria-label]')).map(e=>e.getAttribute('aria-label')||'');const parseSeries=(name)=>aria.map(a=>{if(!a.toLowerCase().startsWith(name.toLowerCase()+','))return null;const parts=a.split(',').map(x=>x.trim());if(parts.length<3)return null;const timestamp=Number(parts[parts.length-2]);const value=Number(parts[parts.length-1]);return Number.isFinite(timestamp)&&Number.isFinite(value)?{timestamp,value}:null}).filter(Boolean);const qty=parseSeries('Quantity sold');const weekly=parseSeries('Median sold price (by week)');const soldCount=qty.reduce((n,p)=>n+p.value,0);const bodyLines=(document.body?.innerText||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);const specificsStart=bodyLines.findIndex(x=>x.toLowerCase()==='item specifics');const specificsEnd=bodyLines.findIndex((x,k)=>k>specificsStart&&x.toLowerCase()==='item description from the seller');const itemSpecificsText=specificsStart>=0?bodyLines.slice(specificsStart+1,specificsEnd>specificsStart?specificsEnd:specificsStart+100).join(' '):'';const recent=[];let i=lines.findIndex(x=>x.toLowerCase()==='recent sales');if(i>=0){i++;if((lines[i]||'').toLowerCase()==='most recent')i++;while(i<lines.length&&recent.length<30){if(/^see more$/i.test(lines[i]))break;const saleTitle=lines[i++];const condition=lines[i]||null;if(condition)i++;const itemPrice=money(lines[i]||'');if(itemPrice===null)continue;i++;let shippingPrice=null;if(/free shipping/i.test(lines[i]||'')){shippingPrice=0;i++;}else if(/^\+\s*\$/.test(lines[i]||'')){shippingPrice=money(lines[i]);i++;}const format=lines[i]||null;if(format)i++;if(/^Qty\b/i.test(lines[i]||''))i++;const date=lines[i]||null;if(date)i++;recent.push({title:saleTitle,condition,itemPrice,shippingPrice,format,date});}}return JSON.stringify({ok:true,listingUrl:location.href,listingTitle:document.title,cardTitle:title,itemSpecificsText,grade,period,medianSoldPrice:median,lastSoldPrice:last,lastSoldDate:lastDate,soldPriceLow:range[0]??null,soldPriceHigh:range[1]??null,sellerCount:sellers,listingCount:listings,soldCount,weeklyMedianSeries:weekly,quantitySoldSeries:qty,recentSales:recent,capturedAt:new Date().toISOString()})})()'''
 
 
@@ -351,7 +355,13 @@ def _chrome_price_guide_script(url: str) -> str:
     if clickResult is not "CLICKED" then
       set resultText to clickResult
     else
-      delay 4
+      delay 3
+      set periodResult to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_OPEN_PERIOD_JS)}
+      if periodResult is "PERIOD_MENU_OPENED" then
+        delay 1
+        set periodResult to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_SELECT_ONE_YEAR_JS)}
+      end if
+      delay 3
       set resultText to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_READ_JS)}
     end if
   on error errMsg number errNum
@@ -375,6 +385,16 @@ async def _search_ebay_price_guide(listing_url: str, identity: dict[str, Any]) -
         payload = json.loads(raw)
         if payload.get("ok") is not True:
             return None, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "no_matches", "resultCount": 0, "searchUrl": listing_url, "message": _text(payload.get("error") or "Price Guide did not return a dataset.")}
+        period = _text(payload.get("period"))
+        if period.lower() != "1 year":
+            return None, {
+                "source": "ebay_price_guide",
+                "label": "eBay Price Guide",
+                "status": "period_mismatch",
+                "resultCount": 0,
+                "searchUrl": listing_url,
+                "message": f"eBay Price Guide did not confirm the required 1 year window (reported {period or 'unknown'}).",
+            }
         card_title = _text(payload.get("cardTitle") or payload.get("listingTitle"))
         item_specifics = _text(payload.get("itemSpecificsText"))
         exact, reasons = _strong_exact_title(

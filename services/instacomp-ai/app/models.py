@@ -114,6 +114,11 @@ class CenteringEvidence(BaseModel):
     confidence: float = Field(default=0, ge=0, le=1)
     method: str = "unknown"
     warning: str | None = None
+    horizontal_measurable: bool = False
+    vertical_measurable: bool = False
+    horizontal_confidence: float = Field(default=0, ge=0, le=1)
+    vertical_confidence: float = Field(default=0, ge=0, le=1)
+    design_classification: str = "unknown"
 
 
 class LocalVisionEvidence(BaseModel):

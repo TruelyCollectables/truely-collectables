@@ -52,6 +52,11 @@ type CenteringEstimate = {
   confidence?: number | null;
   method?: string | null;
   warning?: string | null;
+  horizontal_measurable?: boolean;
+  vertical_measurable?: boolean;
+  horizontal_confidence?: number | null;
+  vertical_confidence?: number | null;
+  design_classification?: string | null;
 };
 
 type PriceGuidePoint = {
@@ -476,12 +481,15 @@ function CardImageInspector({
     dragRef.current = null;
     setDragging(false);
   };
-  const measured =
-    centering?.measurable === true &&
-    typeof centering.left_percent === "number" &&
-    typeof centering.right_percent === "number" &&
-    typeof centering.top_percent === "number" &&
-    typeof centering.bottom_percent === "number";
+  const horizontalMeasured =
+    centering?.horizontal_measurable === true ||
+    (typeof centering?.left_percent === "number" &&
+      typeof centering?.right_percent === "number");
+  const verticalMeasured =
+    centering?.vertical_measurable === true ||
+    (typeof centering?.top_percent === "number" &&
+      typeof centering?.bottom_percent === "number");
+  const measured = horizontalMeasured && verticalMeasured && centering?.measurable === true;
   const ratio = (first: number | null | undefined, second: number | null | undefined) =>
     typeof first === "number" && typeof second === "number"
       ? `${Math.round(first)} / ${Math.round(second)}`
@@ -528,37 +536,60 @@ function CardImageInspector({
       <div className="mt-3 rounded-lg border-2 border-neutral-800 bg-white p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-black uppercase tracking-wider">CENTERING ESTIMATE · {side.toUpperCase()}</p>
-          {measured && typeof centering?.confidence === "number" ? (
-            <span className="text-xs font-bold text-neutral-600">Confidence {Math.round(centering.confidence * 100)}%</span>
-          ) : null}
-        </div>
-        {measured ? (
-          <>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div className="rounded-lg bg-neutral-100 p-3 text-center">
-                <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">LEFT / RIGHT</p>
-                <p className="mt-1 text-2xl font-black">{ratio(centering?.left_percent, centering?.right_percent)}</p>
-                <p className="mt-1 text-xs font-bold text-neutral-600">
-                  Left {centering?.left_percent?.toFixed(1)}% · Right {centering?.right_percent?.toFixed(1)}%
-                </p>
-              </div>
-              <div className="rounded-lg bg-neutral-100 p-3 text-center">
-                <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">TOP / BOTTOM</p>
-                <p className="mt-1 text-2xl font-black">{ratio(centering?.top_percent, centering?.bottom_percent)}</p>
-                <p className="mt-1 text-xs font-bold text-neutral-600">
-                  Top {centering?.top_percent?.toFixed(1)}% · Bottom {centering?.bottom_percent?.toFixed(1)}%
-                </p>
-              </div>
-            </div>
-            <p className="mt-2 text-xs font-semibold text-neutral-600">
-              Estimated from the physical card edges and detected printed frame. This is an image measurement, not a grading guarantee.
-            </p>
-          </>
-        ) : (
-          <div className="mt-2 rounded-lg bg-amber-50 p-3 text-sm font-bold text-amber-950">
-            No reliable printed-frame measurement on this side. InstaComp will not invent a centering number when the border/frame cannot be measured confidently.
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2 py-1 text-[11px] font-black ${
+              measured
+                ? "bg-emerald-100 text-emerald-900"
+                : horizontalMeasured || verticalMeasured
+                  ? "bg-amber-100 text-amber-900"
+                  : "bg-neutral-200 text-neutral-700"
+            }`}>
+              {measured
+                ? "2-axis confident"
+                : horizontalMeasured || verticalMeasured
+                  ? "partial only"
+                  : "not confidently measurable"}
+            </span>
+            {typeof centering?.confidence === "number" ? (
+              <span className="text-xs font-bold text-neutral-600">Confidence {Math.round(centering.confidence * 100)}%</span>
+            ) : null}
           </div>
-        )}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className={`rounded-lg p-3 text-center ${horizontalMeasured ? "bg-neutral-100" : "bg-amber-50"}`}>
+            <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">LEFT / RIGHT</p>
+            <p className="mt-1 text-2xl font-black">
+              {horizontalMeasured
+                ? ratio(centering?.left_percent, centering?.right_percent)
+                : "No reliable frame"}
+            </p>
+            {horizontalMeasured ? (
+              <p className="mt-1 text-xs font-bold text-neutral-600">
+                Left {centering?.left_percent?.toFixed(1)}% · Right {centering?.right_percent?.toFixed(1)}%
+              </p>
+            ) : (
+              <p className="mt-1 text-xs font-bold text-amber-900">Horizontal border evidence was not strong enough.</p>
+            )}
+          </div>
+          <div className={`rounded-lg p-3 text-center ${verticalMeasured ? "bg-neutral-100" : "bg-amber-50"}`}>
+            <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">TOP / BOTTOM</p>
+            <p className="mt-1 text-2xl font-black">
+              {verticalMeasured
+                ? ratio(centering?.top_percent, centering?.bottom_percent)
+                : "No reliable frame"}
+            </p>
+            {verticalMeasured ? (
+              <p className="mt-1 text-xs font-bold text-neutral-600">
+                Top {centering?.top_percent?.toFixed(1)}% · Bottom {centering?.bottom_percent?.toFixed(1)}%
+              </p>
+            ) : (
+              <p className="mt-1 text-xs font-bold text-amber-900">Vertical border evidence was not strong enough.</p>
+            )}
+          </div>
+        </div>
+        <p className="mt-2 text-xs font-semibold text-neutral-600">
+          {centering?.design_classification || "unknown design"} · estimated from the physical card edges and detected printed frame. InstaComp reports only axes it can measure confidently. InstaComp will not invent a centering number when the border/frame cannot be measured confidently; this is not a grading guarantee.
+        </p>
       </div>
       <p className="mt-2 text-xs font-semibold text-neutral-600">
         Use + / − to inspect borders and small print; while zoomed, grab and drag to pan.
@@ -855,11 +886,18 @@ export default function KingmakerPendingPage({
     if (priceGuideWorkerRunningRef.current) return;
     const eligible = cards.filter((card) => {
       const identity = card.instaComp.identity || {};
+      const priceGuideStatus = String(
+        card.instaComp.priceGuideStatus ||
+          card.instaComp.priceGuideCoverage?.status ||
+          "",
+      );
+      const oneYearGuide =
+        String(card.instaComp.priceGuide?.period || "")
+          .trim()
+          .toLowerCase() === "1 year";
       const terminalStatus =
-        Boolean(card.instaComp.priceGuide) ||
-        ["live", "no_matches", "identity_mismatch"].includes(
-          String(card.instaComp.priceGuideStatus || card.instaComp.priceGuideCoverage?.status || ""),
-        );
+        (priceGuideStatus === "live" && oneYearGuide) ||
+        ["no_matches", "identity_mismatch"].includes(priceGuideStatus);
       return Boolean(
         card.inventoryItemId &&
         identity.player &&
@@ -1429,9 +1467,13 @@ export default function KingmakerPendingPage({
       setPageError("Select one or more Pending cards first.");
       return;
     }
+    const confirmed = window.confirm(
+      `Merge ${targets.length} selected exact-card scan${targets.length === 1 ? "" : "s"} into existing live inventory? Existing selling prices stay unchanged. Website quantity increases; eBay and active Mercari listing quantity stay unchanged. A sold/ended Mercari listing becomes eligible to relist.`,
+    );
+    if (!confirmed) return;
     setBusyId("bulk");
     setPageError("");
-    setNotice(`Reconciling ${targets.length} selected card${targets.length === 1 ? "" : "s"} with current website inventory…`);
+    setNotice(`Merging ${targets.length} selected exact card${targets.length === 1 ? "" : "s"} into existing live inventory…`);
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
@@ -1455,8 +1497,14 @@ export default function KingmakerPendingPage({
       }
       const reconciled = Number(data.reconciled || 0);
       const blocked = Number(data.blocked || 0);
+      const mercariRelistEligible = Array.isArray(data.results)
+        ? data.results.filter(
+            (result: { mercariAction?: string | null }) =>
+              result?.mercariAction === "mark_eligible_to_relist",
+          ).length
+        : 0;
       setNotice(
-        `Website inventory reconciliation finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} merged into existing live quantity and removed from Pending${blocked ? ` · ${blocked} held for reconciliation` : ""}.`,
+        `Exact inventory merge finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} added to existing website quantity with existing prices preserved. eBay and active Mercari quantities were left unchanged${mercariRelistEligible ? ` · ${mercariRelistEligible} sold/ended Mercari listing${mercariRelistEligible === 1 ? "" : "s"} marked eligible to relist` : ""}${blocked ? ` · ${blocked} held for reconciliation` : ""}.`,
       );
       setSelectedIds(new Set());
       await load(queue || queueFromLocation());
@@ -2034,6 +2082,26 @@ export default function KingmakerPendingPage({
                 </button>
               ))}
             </div>
+            {queue === "verification" ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
+                <span className="mr-2 text-sm font-black">Exact inventory merge:</span>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() =>
+                    void reconcileCurrentWebsiteInventory(
+                      cards.filter((card) => selectedIds.has(card.inventoryItemId)),
+                    )
+                  }
+                  className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Merge Selected → Existing Exact Listing
+                </button>
+                <span className="text-xs font-semibold text-neutral-600">
+                  Exact website identity required · existing price kept · eBay/Mercari quantity unchanged.
+                </span>
+              </div>
+            ) : null}
             {queue === "listings" ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
                 <span className="mr-2 text-sm font-black">Selected group actions:</span>
@@ -2055,7 +2123,7 @@ export default function KingmakerPendingPage({
                   }
                   className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
                 >
-                  Merge Exact Current Website Inventory
+                  Merge Selected → Existing Exact Listing
                 </button>
                 <button
                   type="button"
@@ -2480,7 +2548,7 @@ export default function KingmakerPendingPage({
                     <div className="rounded-xl border-2 border-sky-900 bg-white p-4 shadow-[3px_3px_0_#0c4a6e]">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <h3 className="text-lg font-black">eBay Price Guide</h3>
+                          <h3 className="text-lg font-black">eBay Price Guide · 1 year</h3>
                           <p className="mt-1 text-sm font-bold text-neutral-700">
                             {card.instaComp.priceGuideStatus === "checking"
                               ? "Checking the exact card automatically…"
@@ -2488,9 +2556,11 @@ export default function KingmakerPendingPage({
                                 ? "CHECKED — eBay did not expose an exact-card Price Guide dataset."
                                 : card.instaComp.priceGuideStatus === "identity_mismatch"
                                   ? "CHECKED — eBay Price Guide opened, but the identity did not pass the exact-card gate."
-                                  : card.instaComp.priceGuideStatus === "error"
-                                    ? "PRICE GUIDE CHECK FAILED — retry is available below."
-                                    : card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber
+                                  : card.instaComp.priceGuideStatus === "period_mismatch"
+                                    ? "PRICE GUIDE WINDOW MISMATCH — Kingmaker will only accept a confirmed 1-year dataset."
+                                    : card.instaComp.priceGuideStatus === "error"
+                                      ? "PRICE GUIDE CHECK FAILED — retry is available below."
+                                      : card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber
                                       ? "Queued for automatic eBay Price Guide check."
                                       : "Waiting for exact player, year, and card number before Price Guide can run."}
                           </p>
@@ -2967,7 +3037,7 @@ function PriceGuidePanel({ snapshot }: { snapshot: PriceGuideSnapshot }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-black">eBay Price Guide</h3>
+            <h3 className="text-lg font-black">eBay Price Guide · 1 year</h3>
             {snapshot.identityVerified === true ? (
               <span className="rounded-full bg-emerald-200 px-2.5 py-1 text-xs font-black text-emerald-950">
                 EXACT CARD VERIFIED
@@ -3017,7 +3087,11 @@ function PriceGuidePanel({ snapshot }: { snapshot: PriceGuideSnapshot }) {
         </div>
         <div className="rounded-lg bg-neutral-100 p-3">
           <p className="text-xs font-black uppercase text-neutral-600">Window</p>
-          <p className="font-black">{snapshot.period || "eBay selected"}</p>
+          <p className="font-black">
+            {String(snapshot.period || "").trim().toLowerCase() === "1 year"
+              ? "1 year"
+              : "1-year refresh required"}
+          </p>
           {snapshot.grade ? <p className="text-xs font-bold text-neutral-500">{snapshot.grade}</p> : null}
         </div>
       </div>

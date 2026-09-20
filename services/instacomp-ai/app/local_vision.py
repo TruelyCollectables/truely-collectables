@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import math
+from concurrent.futures import ThreadPoolExecutor
 import re
 import unicodedata
 from collections import Counter
@@ -824,29 +825,41 @@ def analyze_local_vision_sync(
             _bounded_stage_error("front", "combined_text_failed", error),
         )
 
-    try:
-        front_centering = CenteringEvidence.model_validate(
-            measure_card_centering(front).as_dict()
-        )
-    except Exception as error:
-        front_centering = None
-        front_evidence = _append_side_error(
-            front_evidence,
-            _bounded_stage_error("front", "centering_measurement_failed", error),
-        )
-
+    front_centering = None
     back_centering = None
-    if back:
+    # Centering is independent of OCR/identity, and the two card sides are
+    # independent of one another. Measure them concurrently so condition
+    # evidence does not add two serial OpenCV passes to a seller-facing scan.
+    with ThreadPoolExecutor(
+        max_workers=2 if back else 1,
+        thread_name_prefix="instacomp-centering",
+    ) as centering_pool:
+        front_centering_future = centering_pool.submit(measure_card_centering, front)
+        back_centering_future = (
+            centering_pool.submit(measure_card_centering, back) if back else None
+        )
         try:
-            back_centering = CenteringEvidence.model_validate(
-                measure_card_centering(back).as_dict()
+            front_centering = CenteringEvidence.model_validate(
+                front_centering_future.result().as_dict()
             )
         except Exception as error:
-            if back_evidence is not None:
-                back_evidence = _append_side_error(
-                    back_evidence,
-                    _bounded_stage_error("back", "centering_measurement_failed", error),
+            front_evidence = _append_side_error(
+                front_evidence,
+                _bounded_stage_error("front", "centering_measurement_failed", error),
+            )
+        if back_centering_future is not None:
+            try:
+                back_centering = CenteringEvidence.model_validate(
+                    back_centering_future.result().as_dict()
                 )
+            except Exception as error:
+                if back_evidence is not None:
+                    back_evidence = _append_side_error(
+                        back_evidence,
+                        _bounded_stage_error(
+                            "back", "centering_measurement_failed", error
+                        ),
+                    )
 
     apple_vision_available = False
     if ocr is not None:

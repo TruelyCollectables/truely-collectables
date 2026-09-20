@@ -21,6 +21,11 @@ class CenteringMeasurement:
     confidence: float
     method: str
     warning: str | None = None
+    horizontal_measurable: bool = False
+    vertical_measurable: bool = False
+    horizontal_confidence: float = 0.0
+    vertical_confidence: float = 0.0
+    design_classification: str = "unknown"
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -225,52 +230,80 @@ def measure_card_centering(content: bytes) -> CenteringMeasurement:
     right = _axis_candidate(grad_x, canny, axis="vertical", start=int(width*0.75), stop=int(width*0.98), prefer_outer="high")
     top = _axis_candidate(grad_y, canny, axis="horizontal", start=int(height*0.02), stop=int(height*0.25), prefer_outer="low")
     bottom = _axis_candidate(grad_y, canny, axis="horizontal", start=int(height*0.75), stop=int(height*0.98), prefer_outer="high")
-    candidates = {"left": left, "right": right, "top": top, "bottom": bottom}
-    missing = [name for name, value in candidates.items() if value[0] is None]
-    if missing:
-        candidate_confidence = min(value[1] for value in candidates.values())
-        return _not_measurable(
-            f"{outer_method}+gradient_frame",
-            "printed_frame_not_confident:" + ",".join(missing),
-            outer_confidence * candidate_confidence,
+    method = f"{outer_method}+gradient_frame"
+
+    def axis_measure(
+        first: tuple[int | None, float, float, float],
+        second: tuple[int | None, float, float, float],
+        *,
+        size: int,
+        span_min: float,
+        reverse_second: bool,
+    ) -> tuple[bool, float | None, float | None, str | None, float, str | None]:
+        if first[0] is None or second[0] is None:
+            return False, None, None, None, 0.0, "frame_edge_missing"
+        first_pos = int(first[0])
+        second_pos = int(second[0])
+        first_border = float(first_pos)
+        second_border = float((size - 1) - second_pos) if reverse_second else float(second_pos)
+        inner_span = second_pos - first_pos
+        confidence = outer_confidence * float(np.mean([first[1], second[1]]))
+        if second_pos <= first_pos or inner_span < size * span_min:
+            return False, None, None, None, confidence, "inner_frame_geometry_invalid"
+        if min(first_border, second_border) < 3.0:
+            return False, None, None, None, confidence, "printed_frame_too_close_to_card_edge"
+        if max(first_border, second_border) > size * 0.245:
+            return False, None, None, None, confidence, "printed_frame_too_far_from_card_edge"
+        balance = min(first_border, second_border) / max(first_border, second_border)
+        strong_continuity = min(first[3], second[3]) >= 0.55
+        if balance < 0.18 and not strong_continuity:
+            return False, None, None, None, confidence * 0.7, "opposing_frame_edges_inconsistent"
+        if confidence < 0.46:
+            return False, None, None, None, confidence, "centering_evidence_below_confidence_floor"
+        first_pct, second_pct, ratio = _ratio(first_border, second_border)
+        return True, first_pct, second_pct, ratio, confidence, None
+
+    horizontal_ok, left_pct, right_pct, horizontal, horizontal_conf, horizontal_warning = axis_measure(
+        left, right, size=width, span_min=0.42, reverse_second=True
+    )
+    vertical_ok, top_pct, bottom_pct, vertical, vertical_conf, vertical_warning = axis_measure(
+        top, bottom, size=height, span_min=0.42, reverse_second=True
+    )
+
+    measurable = horizontal_ok and vertical_ok
+    confidence = (
+        min(horizontal_conf, vertical_conf)
+        if measurable
+        else max(horizontal_conf if horizontal_ok else 0.0, vertical_conf if vertical_ok else 0.0)
+    )
+    warnings = [
+        value
+        for value in (
+            None if horizontal_ok else f"horizontal:{horizontal_warning}",
+            None if vertical_ok else f"vertical:{vertical_warning}",
         )
-    left_x, right_x = int(left[0]), int(right[0])
-    top_y, bottom_y = int(top[0]), int(bottom[0])
-    left_border = float(left_x)
-    right_border = float((width - 1) - right_x)
-    top_border = float(top_y)
-    bottom_border = float((height - 1) - bottom_y)
-    if right_x <= left_x or bottom_y <= top_y:
-        return _not_measurable(
-            f"{outer_method}+gradient_frame", "inner_frame_geometry_invalid", outer_confidence * 0.25
-        )
-    inner_width = right_x - left_x
-    inner_height = bottom_y - top_y
-    if inner_width < width * 0.42 or inner_height < height * 0.42:
-        return _not_measurable(
-            f"{outer_method}+gradient_frame", "inner_frame_implausibly_small", outer_confidence * 0.30
-        )
-    if min(left_border, right_border, top_border, bottom_border) < 3.0:
-        return _not_measurable(
-            f"{outer_method}+gradient_frame", "printed_frame_too_close_to_card_edge", outer_confidence * 0.30
-        )
-    left_pct, right_pct, horizontal = _ratio(left_border, right_border)
-    top_pct, bottom_pct, vertical = _ratio(top_border, bottom_border)
-    edge_scores = [left[1], right[1], top[1], bottom[1]]
-    confidence = outer_confidence * float(np.mean(edge_scores))
-    if confidence < 0.42:
-        return _not_measurable(
-            f"{outer_method}+gradient_frame", "centering_evidence_below_confidence_floor", confidence
-        )
+        if value
+    ]
     return CenteringMeasurement(
-        measurable=True,
-        left_percent=left_pct,
-        right_percent=right_pct,
-        top_percent=top_pct,
-        bottom_percent=bottom_pct,
-        horizontal_ratio=horizontal,
-        vertical_ratio=vertical,
-        confidence=round(min(1.0, confidence), 3),
-        method=f"{outer_method}+gradient_frame",
-        warning=None,
+        measurable=measurable,
+        left_percent=left_pct if horizontal_ok else None,
+        right_percent=right_pct if horizontal_ok else None,
+        top_percent=top_pct if vertical_ok else None,
+        bottom_percent=bottom_pct if vertical_ok else None,
+        horizontal_ratio=horizontal if horizontal_ok else None,
+        vertical_ratio=vertical if vertical_ok else None,
+        confidence=round(max(0.0, min(1.0, confidence)), 3),
+        method=method,
+        warning=None if measurable else "partial_or_ambiguous_printed_frame:" + ",".join(warnings),
+        horizontal_measurable=horizontal_ok,
+        vertical_measurable=vertical_ok,
+        horizontal_confidence=round(max(0.0, min(1.0, horizontal_conf)), 3),
+        vertical_confidence=round(max(0.0, min(1.0, vertical_conf)), 3),
+        design_classification=(
+            "full_printed_frame"
+            if measurable
+            else "partial_printed_frame"
+            if horizontal_ok or vertical_ok
+            else "borderless_or_ambiguous"
+        ),
     )
