@@ -149,9 +149,15 @@ function trustedStoredPairOrientation(params: {
   hasProvidedPair: boolean;
 }): InstaCompImageOrientationReceipt | null {
   const previousOrientation = record(params.previousInstaComp.imageOrientation);
+  const durableOrientationProof =
+    params.previousInstaComp.imageOrientationVerified === true ||
+    (
+      params.previousInstaComp.imageOrientationPersisted === true &&
+      params.previousInstaComp.imagePersistenceVerified === true
+    );
   if (
     !stableStoredPairHashesMatch(params) ||
-    params.previousInstaComp.imageOrientationVerified !== true ||
+    !durableOrientationProof ||
     text(previousOrientation.status, 80) !== "completed"
   ) {
     return null;
@@ -1140,8 +1146,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Registry identity alone is not enough to skip the Mac. The fast return
+    // is valid only when these exact stored bytes also carry durable completed
+    // orientation proof. Legacy exact cards that lost that proof must run one
+    // physical Mac orientation recovery, after which unchanged SHA-256 bytes
+    // can use this fast lane safely.
     const stablePairArchive: MacArchiveResult | null =
-      stablePairRegistryCandidate
+      stablePairRegistryCandidate && storedPairOrientation
         ? {
             receipt: {
               scanId: text(previousInstaComp.scanId, 100),

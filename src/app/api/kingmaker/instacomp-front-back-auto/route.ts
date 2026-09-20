@@ -559,7 +559,10 @@ export async function POST(request: NextRequest) {
         ai: resolvedAi,
         review: scanPayload.review || null,
         imageOrientation: normalizedSides.orientation,
-        imageOrientationPersisted: true,
+        imageOrientationVerified:
+          normalizedSides.orientation.status === "completed",
+        imageOrientationPersisted:
+          normalizedSides.orientation.status === "completed",
         imagePersistenceVerified: storedImages.verified === true,
         frontImageUrl: storedImages.frontImageUrl,
         backImageUrl: storedImages.backImageUrl,

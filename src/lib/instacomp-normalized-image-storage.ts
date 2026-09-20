@@ -330,8 +330,10 @@ export async function persistNormalizedInstaCompImagePair(params: {
           backImageUrl,
           hasBackImage: true,
           imageOrientation: params.orientation,
-          imageOrientationNormalizedAt: checkedAt,
-          imageOrientationPersisted: true,
+          imageOrientationVerified: params.orientation.status === "completed",
+          imageOrientationNormalizedAt:
+            params.orientation.status === "completed" ? checkedAt : null,
+          imageOrientationPersisted: params.orientation.status === "completed",
           imagePersistenceVerified: true,
         },
       },

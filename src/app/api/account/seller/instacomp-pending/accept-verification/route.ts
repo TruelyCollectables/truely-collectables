@@ -125,6 +125,7 @@ export async function POST(request: Request) {
           backConfidence: 1,
           reason: "Seller visually accepted the stored front/back pair as correctly oriented.",
         },
+        imageOrientationVerified: true,
         imageOrientationPersisted: true,
         imagePersistenceVerified: true,
       },
