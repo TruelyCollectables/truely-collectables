@@ -1024,11 +1024,15 @@ export async function POST(request: NextRequest) {
     ]);
 
     let macReceipt = macArchive.receipt;
+    const macIdentityBeforeOrientation = macTrustedCandidate(macReceipt);
     if (
-      !macArchive.frontFile ||
-      !macArchive.backFile ||
-      !macArchive.orientation ||
-      macArchive.orientation.status !== "completed"
+      (
+        !macArchive.frontFile ||
+        !macArchive.backFile ||
+        !macArchive.orientation ||
+        macArchive.orientation.status !== "completed"
+      ) &&
+      !macIdentityBeforeOrientation
     ) {
       if (macReceipt.scanId) {
         const reviewAt = new Date().toISOString();
@@ -1614,8 +1618,9 @@ export async function POST(request: NextRequest) {
         ai: resolvedAi,
         coreVisualEvidence: core,
         imageOrientation: finalOrientation,
-        imageOrientationVerified: true,
-        imageOrientationNormalizedAt: checkedAt,
+        imageOrientationVerified: finalOrientation.status === "completed",
+        imageOrientationNormalizedAt:
+          finalOrientation.status === "completed" ? checkedAt : null,
         imageOrientationPersisted: finalOrientation.status === "completed",
         imagePersistenceVerified: storedImages.verified === true,
         frontImageUrl: storedImages.frontImageUrl,
@@ -1711,7 +1716,12 @@ export async function POST(request: NextRequest) {
         listingPriceSource: null,
         publicationStatus: "review_required",
         publicationReviewReasons: identityComplete
-          ? ["seller_listing_review_required"]
+          ? [
+              ...(finalOrientation.status === "completed"
+                ? []
+                : ["orientation_review_required"]),
+              "seller_listing_review_required",
+            ]
           : ["checklist_identity_review_required"],
         pricingStatus: identityComplete ? "identity_complete_pricing_pending" : "identity_review_required",
         pricingReason: identityComplete
