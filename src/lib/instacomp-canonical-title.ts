@@ -26,9 +26,13 @@ function cleanProduct(identity: Record<string, unknown>) {
   const brand = text(identity.brand);
   let product = text(identity.product) || brand || manufacturer;
   product = product.replace(/^20\d{2}(?:-\d{2})?\s+/i, "").trim();
-  product = product
-    .replace(/\s+(WNBA|NBA|NHL|MLB|NFL|Basketball|Baseball|Football|Hockey)\s*$/i, "")
-    .trim();
+  const preserveExactProductSport =
+    comparable(manufacturer) === "topps" && /^Flagship Football$/i.test(product);
+  if (!preserveExactProductSport) {
+    product = product
+      .replace(/\s+(WNBA|NBA|NHL|MLB|NFL|Basketball|Baseball|Football|Hockey)\s*$/i, "")
+      .trim();
+  }
 
   if (/^Bowman Draft Mega Box$/i.test(product)) return "Bowman Draft";
 
@@ -43,6 +47,19 @@ function cleanProduct(identity: Record<string, unknown>) {
   if (/^panini instant$/i.test(product)) return "Panini Instant";
   if (comparable(manufacturer) === "panini" && product && !/^panini\b/i.test(product)) {
     return `Panini ${product}`;
+  }
+
+  const manufacturerKey = comparable(manufacturer);
+  const brandKey = comparable(brand);
+  const productKey = comparable(product);
+  if (
+    manufacturerKey &&
+    productKey &&
+    (!brandKey || brandKey === manufacturerKey) &&
+    productKey !== manufacturerKey &&
+    !productKey.startsWith(`${manufacturerKey} `)
+  ) {
+    return `${manufacturer} ${product}`;
   }
   return product;
 }

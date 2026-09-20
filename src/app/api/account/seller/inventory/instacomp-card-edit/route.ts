@@ -27,6 +27,10 @@ function clean(value: unknown, max = 300) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
+function listingTitle(value: unknown, max = 300) {
+  return typeof value === "string" ? value.slice(0, max) : "";
+}
+
 function nullableText(value: unknown, max = 300) {
   return clean(value, max) || null;
 }
@@ -247,23 +251,24 @@ export async function POST(request: NextRequest) {
     const parsedBody = await request.json().catch(() => ({}));
     const body = record(parsedBody);
     const inventoryItemId = clean(body.inventoryItemId, 100);
-    const title = clean(body.title, 300);
+    const title = listingTitle(body.title, 300);
     // Manual seller edits are authoritative. Preserve the title exactly as the
     // operator typed it; canonical rewriting is an explicit UI action.
     const displayTitle = title;
+    const identityEdited = body.identityEdited !== false;
     const exactParallel = clean(body.parallel, 120);
     const baseSelected = /^base$/i.test(exactParallel);
     const storedParallel = baseSelected ? null : exactParallel || null;
     const serialStamp = exactSerialStamp(body.printRun);
     const normalizedPrintRun = printRunFromSerial(serialStamp);
 
-    if (!inventoryItemId || !displayTitle) {
+    if (!inventoryItemId || !displayTitle.trim()) {
       return NextResponse.json(
         { error: "Card and title are required." },
         { status: 400 },
       );
     }
-    if (!exactParallel) {
+    if (identityEdited && !exactParallel) {
       return NextResponse.json(
         {
           error:
@@ -272,7 +277,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    if (clean(body.printRun, 30) && !serialStamp) {
+    if (identityEdited && clean(body.printRun, 30) && !serialStamp) {
       return NextResponse.json(
         {
           error:
@@ -325,6 +330,60 @@ export async function POST(request: NextRequest) {
     const collectibleAsset = record(metadata.collectible_asset);
     const sellerReview = record(metadata.seller_review);
     const editedAt = new Date().toISOString();
+
+    if (!identityEdited) {
+      const nextMetadata = {
+        ...metadata,
+        instacomp: {
+          ...instaComp,
+          manualListingTitle: displayTitle,
+          manualListingTitleLocked: true,
+          manualListingTitleSavedAt: editedAt,
+          manualListingTitleSavedBy: account.id,
+        },
+      };
+
+      const { data: updatedItem, error: updateError } = await supabase
+        .from("inventory_items")
+        .update({
+          title: displayTitle,
+          description: nextDescription,
+          category: nextCategory,
+          condition: nextCondition,
+          metadata: nextMetadata,
+          updated_at: editedAt,
+        })
+        .eq("id", inventoryItemId)
+        .eq("store_id", storeId)
+        .neq("status", "archived")
+        .neq("status", "sold")
+        .select("id,status")
+        .maybeSingle();
+      if (updateError) throw updateError;
+      if (!updatedItem) {
+        return NextResponse.json(
+          { error: "This card changed status before the edit could be saved. Reload Master Listings and try again." },
+          { status: 409 },
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        title: displayTitle,
+        description: nextDescription,
+        category: nextCategory,
+        condition: nextCondition,
+        manualListingTitleLocked: true,
+        manualIdentityLocked: instaComp.manualIdentityLocked === true,
+        identityRefreshRequired: instaComp.identityRefreshRequired === true,
+        identityUnchanged: true,
+        learningStatus: "unchanged",
+        learningLessonId: nullableText(instaComp.learningLessonId, 100),
+        learningError: null,
+        learningReceiptRecovered: false,
+      });
+    }
+
     const internalScanId = clean(ai.internalScanId, 100);
     const internalEngineConfigured = hasConfiguredInstaCompAiLocal();
     let effectiveInternalScanId = internalScanId;
@@ -439,6 +498,10 @@ export async function POST(request: NextRequest) {
       },
       instacomp: {
         ...instaComp,
+        manualListingTitle: displayTitle,
+        manualListingTitleLocked: true,
+        manualListingTitleSavedAt: editedAt,
+        manualListingTitleSavedBy: account.id,
         humanVerified: true,
         trustedForIdentity: true,
         manualIdentityEdit: true,

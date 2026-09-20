@@ -67,13 +67,23 @@ const mojo = title({
 }, { rawTitle: "2025 Bowman Draft Chrome Mojo Refractor #BDC-64 Brandon Compton" });
 assert.equal(mojo, "2025 Bowman Draft Chrome Mojo Refractor #BDC-64 Brandon Compton");
 
+const fernandoMendoza = title({
+  year: "2026", manufacturer: "Topps", brand: "Topps", product: "Flagship Football",
+  setName: "ROOKIES", cardNumber: "301", player: "Fernando Mendoza",
+  team: "Las Vegas Raiders", parallel: "Base",
+});
+assert.equal(
+  fernandoMendoza,
+  "2026 Topps Flagship Football ROOKIES #301 Fernando Mendoza",
+);
+
 const learnedRc = title({
   year: "2025", manufacturer: "Panini", product: "Prizm WNBA", setName: "Base",
   cardNumber: "122", player: "Sonia Citron", parallel: "Base",
 }, { forceRookie: true });
 assert.equal(learnedRc, "2025 Panini Prizm #122 Sonia Citron RC");
 
-for (const value of [selectBase, prizmBase, prizmSilver, prizmVelocity, pollutedPrizmBase, prizmInsertGreen, selectParallel, selectFuture, season, mojo, learnedRc]) {
+for (const value of [selectBase, prizmBase, prizmSilver, prizmVelocity, pollutedPrizmBase, prizmInsertGreen, selectParallel, selectFuture, season, mojo, fernandoMendoza, learnedRc]) {
   assert.doesNotMatch(value, /\bBase Set\b/i);
   assert.doesNotMatch(value, /\sBase$/i);
   assert.doesNotMatch(value, /\((?:Washington Mystics|Dallas Wings|Colorado Avalanche)\)/i);

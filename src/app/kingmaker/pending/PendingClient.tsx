@@ -431,6 +431,16 @@ function standardizedTitle(edit: EditState) {
   );
 }
 
+function identityEditChanged(card: PendingCard, edit: EditState) {
+  const original = initialEdit(card);
+  const fields: Array<keyof EditState> = [
+    "sport", "league", "year", "manufacturer", "brand", "product", "setName",
+    "subset", "player", "team", "cardNumber", "parallel", "variation", "printRun",
+    "isRookie", "isAuto", "isRelic", "inscription", "inscriptionText", "memorabiliaType",
+  ];
+  return fields.some((field) => edit[field] !== original[field]);
+}
+
 function initialEdit(card: PendingCard): EditState {
   const identity = card.instaComp.identity || {};
   return {
@@ -1187,11 +1197,12 @@ export default function KingmakerPendingPage({
   async function saveEdit(card: PendingCard) {
     const edit = edits[card.inventoryItemId];
     if (!edit) return;
-    if (!edit.parallel.trim()) {
+    const identityEdited = identityEditChanged(card, edit);
+    if (identityEdited && !edit.parallel.trim()) {
       setPageError("Blank no longer means Base. Enter Base or the exact checklist parallel.");
       return;
     }
-    const finalTitle = edit.title.trim() || standardizedTitle(edit);
+    const finalTitle = edit.title.trim() ? edit.title : standardizedTitle(edit);
     if (!finalTitle) {
       setPageError("The corrected card needs enough identity fields to build a listing title.");
       return;
@@ -1212,16 +1223,21 @@ export default function KingmakerPendingPage({
           inventoryItemId: card.inventoryItemId,
           ...edit,
           title: finalTitle,
+          identityEdited,
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.success !== true) throw new Error(data.error || "Could not save the card correction.");
       setEditingId(null);
-      setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "locked" }));
+      if (identityEdited) {
+        setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "locked" }));
+      }
       setNotice(
-        data.learningStatus === "stored"
-          ? `${finalTitle}: correction locked and trusted InstaComp lesson stored.`
-          : `${finalTitle}: correction locked. Learning receipt: ${data.learningStatus || "pending"}.`,
+        !identityEdited
+          ? `${finalTitle}: listing title/details saved exactly. Checklist identity unchanged.`
+          : data.learningStatus === "stored"
+            ? `${finalTitle}: correction locked and trusted InstaComp lesson stored.`
+            : `${finalTitle}: correction locked. Learning receipt: ${data.learningStatus || "pending"}.`,
       );
       await load(queue || queueFromLocation());
     } catch (error) {

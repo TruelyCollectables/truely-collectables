@@ -195,6 +195,10 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function exactStoredText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
 type MacPendingTruthItem = {
   inventoryItemId?: unknown;
   metadata?: unknown;
@@ -1103,6 +1107,10 @@ export async function GET(request: Request) {
         storedPair.frontImageUrl || product?.image_url || null;
       const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
       const rawTitle = textValue(row.title);
+      const manualListingTitle =
+        instaComp.manualListingTitleLocked === true
+          ? exactStoredText(instaComp.manualListingTitle)
+          : null;
       const generatedTitle =
         buildInstaCompCanonicalTitle(primaryIdentity, { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(legacyCardIdentity, { metadata, rawTitle }) ||
@@ -1130,6 +1138,7 @@ export async function GET(request: Request) {
         buildIdentityReadout(metadata) ||
         null;
       const displayTitle =
+        manualListingTitle ||
         generatedTitle ||
         (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
         identityReadout ||
