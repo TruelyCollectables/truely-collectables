@@ -180,11 +180,14 @@ function validateFile(file: File, side: "front" | "back") {
 async function downloadStoredImage(url: string, side: "front" | "back") {
   const safeUrl = assertSafeInstaCompRemoteImageUrl(url);
   const response = await fetch(safeUrl, {
-    redirect: "error",
+    redirect: "manual",
     cache: "no-store",
     signal: AbortSignal.timeout(25_000),
     headers: { "User-Agent": "TCOS-InstaComp-ImageAudit/1.0" },
   });
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(`${side} image unexpectedly redirected.`);
+  }
   if (!response.ok) {
     throw new Error(`${side} image returned HTTP ${response.status}.`);
   }
