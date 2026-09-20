@@ -95,6 +95,15 @@ assert.ok(
   "A locked Registry receipt must drive repeat identity checks ahead of seller/listing title text",
 );
 assert.ok(
+  exactRoute.includes("const stablePairHashesMatch = stableStoredPairHashesMatch") &&
+    exactRoute.includes("Object.keys(previousRegistryLockedFields).length > 0") &&
+    exactRoute.includes("identityId: previousRegistryIdentityId") &&
+    exactRoute.includes("fingerprintSha256: previousRegistryFingerprintSha256") &&
+    exactRoute.includes("!stablePairRegistryCandidate &&") &&
+    exactRoute.includes("stablePairHashesMatch &&"),
+  "Unchanged exact bytes must reuse the stored Registry receipt without requiring the Mac tunnel",
+);
+assert.ok(
   pending.includes('checklistIdentityStatus === "identified"') &&
     pending.includes("instaComp.identityComplete === true"),
   "Pending must recognize exact-scan identified receipts as authoritative Registry locks",

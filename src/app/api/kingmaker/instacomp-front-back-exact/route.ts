@@ -1118,13 +1118,104 @@ export async function POST(request: NextRequest) {
         previousChecklistIdentity.registryFingerprintSha256 ??
         preScanAi.checklistFingerprintSha256,
     );
+    const stablePairHashesMatch = stableStoredPairHashesMatch({
+      previousInstaComp,
+      frontSha256,
+      backSha256,
+      hasProvidedPair,
+    });
+
+    // Unchanged physical bytes + a previously exact Registry UUID/fingerprint
+    // are already an authoritative identity receipt. Do not make interactive
+    // recognition depend on the Mac tunnel being online just to re-fetch facts
+    // we already have. New/changed bytes still require the live Registry below.
+    const storedRegistryYear =
+      text(previousRegistryLockedFields.year, 20) || preScanYear;
+    const storedRegistryManufacturer =
+      text(
+        previousRegistryLockedFields.manufacturer ??
+          previousRegistryLockedFields.brand,
+        120,
+      ) || preScanManufacturer;
+    const storedRegistryCardNumber =
+      text(
+        previousRegistryLockedFields.cardNumber ??
+          previousRegistryLockedFields.card_number,
+        80,
+      ) || preScanCardNumber;
+    const storedRegistryPlayer =
+      text(previousRegistryLockedFields.player, 200) || preScanPlayer;
     if (
-      stableStoredPairHashesMatch({
-        previousInstaComp,
-        frontSha256,
-        backSha256,
-        hasProvidedPair,
-      }) &&
+      stablePairHashesMatch &&
+      previousInstaComp.identityComplete === true &&
+      previousRegistryIdentityId &&
+      previousRegistryFingerprintSha256 &&
+      storedRegistryYear &&
+      storedRegistryManufacturer &&
+      storedRegistryCardNumber &&
+      storedRegistryPlayer &&
+      Object.keys(previousRegistryLockedFields).length > 0
+    ) {
+      stablePairRegistryCandidate = {
+        identityId: previousRegistryIdentityId,
+        fingerprintSha256: previousRegistryFingerprintSha256,
+        year: storedRegistryYear,
+        manufacturer: storedRegistryManufacturer,
+        brand:
+          text(previousRegistryLockedFields.brand, 120) ||
+          text(preScanAi.brand, 120) ||
+          storedRegistryManufacturer,
+        product:
+          text(previousRegistryLockedFields.product, 200) ||
+          text(preScanAi.product, 200),
+        setName:
+          text(
+            previousRegistryLockedFields.setName ??
+              previousRegistryLockedFields.set_name,
+            200,
+          ) ||
+          text(preScanAi.setName ?? preScanAi.set_name, 200),
+        subset:
+          text(previousRegistryLockedFields.subset, 160) ||
+          text(preScanAi.subset, 160),
+        cardNumber: storedRegistryCardNumber,
+        player: storedRegistryPlayer,
+        serialRun: integerOrNull(previousRegistryLockedFields.serialRun),
+        isAuto:
+          typeof previousRegistryLockedFields.isAuto === "boolean"
+            ? previousRegistryLockedFields.isAuto
+            : preScanAi.isAuto === true,
+        isRelic:
+          typeof previousRegistryLockedFields.isRelic === "boolean"
+            ? previousRegistryLockedFields.isRelic
+            : preScanAi.isRelic === true,
+        parallel:
+          text(previousRegistryLockedFields.parallel, 160) ||
+          text(
+            preScanAi.checklistParallel ??
+              preScanAi.parallel ??
+              preScanAi.parallelName,
+            160,
+          ) ||
+          "Base",
+        variation:
+          text(previousRegistryLockedFields.variation, 160) ||
+          text(preScanAi.variation, 160),
+        team:
+          text(previousRegistryLockedFields.team, 160) ||
+          text(preScanAi.team, 160),
+        sport:
+          text(previousRegistryLockedFields.sport, 100) ||
+          text(preScanAi.sport, 100),
+        league:
+          text(previousRegistryLockedFields.league, 100) ||
+          text(preScanAi.league, 100),
+      };
+    }
+
+    if (
+      !stablePairRegistryCandidate &&
+      stablePairHashesMatch &&
       previousInstaComp.identityComplete === true &&
       previousRegistryIdentityId &&
       previousRegistryFingerprintSha256 &&
