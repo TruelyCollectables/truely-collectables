@@ -485,6 +485,7 @@ export async function analyzeWithInstaCompAiLocal(params: {
   front: Blob;
   back?: Blob | null;
   cardUuid?: string | null;
+  identityHint?: Record<string, unknown> | null;
   printedEvidence?: {
     provider?: string;
     text?: string;
@@ -505,6 +506,9 @@ export async function analyzeWithInstaCompAiLocal(params: {
   }
   if (params.backRotation !== null && params.backRotation !== undefined) {
     body.append("back_rotation", String(params.backRotation));
+  }
+  if (params.identityHint && Object.keys(params.identityHint).length) {
+    body.append("identity_hint_json", JSON.stringify(params.identityHint));
   }
   if (params.printedEvidence?.text) {
     body.append(
