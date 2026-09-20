@@ -90,9 +90,24 @@ assert(reconcileRoute.includes("liveProductQuantity >= preparedTarget"), "Prepar
 assert(reconcileRoute.includes('.eq("quantity", liveProductQuantity)'), "Product quantity updates must use optimistic concurrency protection.");
 assert(reconcileRoute.includes("prepared_quantity_changed_downward"), "Prepared retries must fail closed if quantity moved downward before application can be proven.");
 assert(pendingClient.includes("Merge Selected → Existing Exact Listing"), "Pending UI must expose the exact-card merge action in the seller workflow.");
+assert(pendingClient.includes("Merge +1 · Website Qty · Keep eBay/Mercari 1"), "Each exact current-inventory card must expose an obvious one-copy merge action.");
+assert(pendingClient.includes("Merge +1 · Website + Existing eBay Qty · Mercari 1"), "Seller must be able to increase the existing eBay listing quantity without creating a duplicate.");
 assert(reconcileRoute.includes("leave_existing_listing_unchanged"), "Exact-card merge must leave an active Mercari listing quantity unchanged.");
 assert(reconcileRoute.includes("mark_eligible_to_relist"), "Exact-card merge must mark sold/ended Mercari inventory eligible to relist.");
-assert(reconcileRoute.includes('ebay: { action: "unchanged", quantityDelta: 0 }'), "Exact-card merge must not change eBay quantity.");
+assert(reconcileRoute.includes("increase_existing_listing_quantity"), "Exact-card merge must support increasing the existing eBay listing quantity.");
+assert(reconcileRoute.includes("leave_existing_listing_quantity_unchanged"), "Exact-card merge must support keeping eBay quantity unchanged/reserve.");
+assert(reconcileRoute.includes('status: "channels_applied"'), "Exact-card merge must persist channel completion before final merge completion.");
+assert(reconcileRoute.includes("absoluteEbayTarget = wholeQuantity(ebayPlan.targetQuantity)"), "eBay retries must use one persisted absolute target.");
+assert(reconcileRoute.includes("newQuantity: absoluteEbayTarget"), "Existing eBay listing updates must set the persisted absolute target, not increment blindly on retry.");
+assert(reconcileRoute.includes("ebay_existing_quantity_update_failed"), "A failed eBay quantity update must leave the source retryable instead of completing the merge.");
+assert(!reconcileRoute.includes("const nextEbayQuantity = currentEbay.quantity + addedQuantity"), "Post-merge eBay updates must not recompute a fresh +1 target on retry.");
+assert(
+  reconcileRoute.indexOf('status: "channels_applied"') <
+    reconcileRoute.lastIndexOf('status: "completed"'),
+  "Channel state must be durable before the merge can be marked completed.",
+);
+assert(reconcileRoute.includes("duplicateListingAllowed: false"), "Exact-card merge must never silently create a duplicate eBay listing.");
+assert(reconcileRoute.includes("exact_registry_identity_required"), "Exact-card merge must require a trusted exact Registry identity.");
 assert(reconcileRoute.includes("pricePreserved"), "Exact-card merge must record that the existing selling price was preserved.");
 assert(reconcileRoute.includes("exactMergeHistory"), "Exact-card merge must persist an auditable merge receipt.");
 assert(reconcileRoute.includes('status: "prepared"'), "Website reconciliation must record a prepared absolute target before mutating quantity.");

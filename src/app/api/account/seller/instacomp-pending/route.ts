@@ -1693,6 +1693,10 @@ export async function GET(request: Request) {
           },
           identitySummary,
           identityReadout,
+          identityTrace:
+            instaComp.identityTrace && typeof instaComp.identityTrace === "object"
+              ? recordValue(instaComp.identityTrace)
+              : null,
           gradingCompany:
             textValue(collectibleAsset.grading_company) ||
             textValue(ai.gradingCompany),

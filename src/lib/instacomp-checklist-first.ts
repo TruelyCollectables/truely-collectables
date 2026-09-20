@@ -5,6 +5,9 @@ export type InstaCompChecklistLookupInput = {
   setName?: string | null;
   cardNumber: string | null;
   player: string | null;
+  team?: string | null;
+  sport?: string | null;
+  league?: string | null;
   serialNumber?: string | null;
   isAuto?: boolean | null;
   isRelic?: boolean | null;

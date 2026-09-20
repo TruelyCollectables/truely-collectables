@@ -84,15 +84,23 @@ def registry_semantic_key(row: object) -> tuple[object, ...]:
 
 
 def _prefer_exact_set_family(rows, target_set: object):
-    """Prefer an exact legal set family over substring/prefix sibling families.
-
-    Composite product hints still fall back to broader token matching when no
-    Registry set_name equals the target. This prevents a proven family such as
-    New Grooves from also admitting New Grooves Jersey merely by containment.
-    """
+    """Prefer an exact subset only when target is not just a product family."""
     target = normalized_text(target_set)
     if not target:
         return rows
+
+    product_family_hint = any(
+        target
+        and (
+            normalized_text(row["brand"]) == target
+            or normalized_text(row["product"]) == target
+            or target in normalized_text(row["product"])
+        )
+        for row in rows
+    )
+    if product_family_hint:
+        return rows
+
     exact = [row for row in rows if normalized_text(row["set_name"]) == target]
     return exact or rows
 
@@ -1327,6 +1335,17 @@ class LocalRegistryStore:
                 }
 
             exact_rows = [row for row in scoped_rows if self._exact_row_match(ai, row)]
+            if len(exact_rows) > 1:
+                requested_league = normalized_text(ai.get("league"))
+                if requested_league:
+                    raw_league_rows = [
+                        row
+                        for row in exact_rows
+                        if normalized_text(row["league"]) == requested_league
+                    ]
+                    if raw_league_rows:
+                        exact_rows = raw_league_rows
+
             if len(exact_rows) > 1:
                 # Duplicate checklist imports must not turn one semantic card into
                 # an ambiguity. First honor a league that is explicit in the

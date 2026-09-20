@@ -133,6 +133,24 @@ type PendingCard = {
     linkedMatchStatus?: "exact" | "mismatch" | "uncertain" | "none";
     linkedMismatchReason?: string | null;
   } | null;
+  duplicateProtection?: {
+    required: boolean;
+    resolvedAsSeparate: boolean;
+    matchKey?: string | null;
+    uniquePhysicalCopy: boolean;
+    existingActiveCount: number;
+    existingQuantity: number;
+    matches: Array<{
+      inventoryItemId: string;
+      legacyProductId?: number | null;
+      title: string;
+      sku?: string | null;
+      price: number;
+      quantity: number;
+      imageUrl?: string | null;
+      ebayItemId?: string | null;
+    }>;
+  } | null;
   inventoryLifecycle?: {
     state?: string | null;
     disposition?: string | null;
@@ -154,6 +172,30 @@ type PendingCard = {
     serialNumber?: string | null;
     identitySummary?: string | null;
     identityReadout?: string | null;
+    identityTrace?: {
+      schema?: string | null;
+      elapsedMs?: number | null;
+      failureStage?: string | null;
+      stages?: Array<{
+        stage?: string | null;
+        status?: string | null;
+        detail?: string | null;
+        reasons?: string[];
+        registryIdentityId?: string | null;
+        registryFingerprintSha256?: string | null;
+        attempts?: Array<{
+          phase?: string | null;
+          label?: string | null;
+          brand?: string | null;
+          setName?: string | null;
+          status?: string | null;
+          candidateCount?: number | null;
+          reasons?: string[];
+          identityId?: string | null;
+          elapsedMs?: number | null;
+        }>;
+      }>;
+    } | null;
     suggestedPrice?: number | null;
     listingPrice?: number | null;
     listingPriceSource?: string | null;
@@ -301,6 +343,7 @@ type ListingFolder =
   | "investment";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
 type ChannelAction = "publish-website" | "publish-ebay" | "publish-mercari" | "publish-website-mercari" | "publish-all-3";
+type MergeEbayStrategy = "keep_one" | "increase_existing";
 
 function queueFromLocation(): PendingQueue | null {
   if (typeof window === "undefined") return "listings";
@@ -658,6 +701,8 @@ export default function KingmakerPendingPage({
   const [bulkCondition, setBulkCondition] = useState("");
   const [bulkEbayCardCondition, setBulkEbayCardCondition] = useState("");
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
+  const [mergeEbayStrategy, setMergeEbayStrategy] =
+    useState<MergeEbayStrategy>("keep_one");
   const [channelPriceEdits, setChannelPriceEdits] = useState<Record<string, { website: string; ebay: string; mercari: string }>>({});
   const [channelConditionEdits, setChannelConditionEdits] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -1462,13 +1507,20 @@ export default function KingmakerPendingPage({
     }
   }
 
-  async function reconcileCurrentWebsiteInventory(targets: PendingCard[]) {
+  async function reconcileCurrentWebsiteInventory(
+    targets: PendingCard[],
+    ebayStrategy: MergeEbayStrategy = mergeEbayStrategy,
+  ) {
     if (!targets.length) {
       setPageError("Select one or more Pending cards first.");
       return;
     }
+    const ebayPolicyText =
+      ebayStrategy === "increase_existing"
+        ? "The existing eBay listing quantity will increase to the owned quantity; no duplicate eBay listing will be created."
+        : "The existing eBay listing stays at quantity 1/reserve while website quantity increases; no duplicate eBay listing will be created.";
     const confirmed = window.confirm(
-      `Merge ${targets.length} selected exact-card scan${targets.length === 1 ? "" : "s"} into existing live inventory? Existing selling prices stay unchanged. Website quantity increases; eBay and active Mercari listing quantity stay unchanged. A sold/ended Mercari listing becomes eligible to relist.`,
+      `Merge ${targets.length} selected exact-card scan${targets.length === 1 ? "" : "s"} into existing live inventory? Existing selling prices stay unchanged. Website quantity increases. Mercari stays one active listing; sold/ended Mercari becomes eligible to relist. ${ebayPolicyText}`,
     );
     if (!confirmed) return;
     setBusyId("bulk");
@@ -1489,6 +1541,7 @@ export default function KingmakerPendingPage({
               ? card.commercialGroup.memberInventoryItemIds
               : [card.inventoryItemId],
           ),
+          ebayStrategy,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -1503,8 +1556,24 @@ export default function KingmakerPendingPage({
               result?.mercariAction === "mark_eligible_to_relist",
           ).length
         : 0;
+      const ebayIncreased = Array.isArray(data.results)
+        ? data.results.filter(
+            (result: { ebayAction?: string | null }) =>
+              result?.ebayAction === "increased_existing_listing_quantity",
+          ).length
+        : 0;
+      const ebayFailed = Array.isArray(data.results)
+        ? data.results.filter(
+            (result: { ebayAction?: string | null }) =>
+              String(result?.ebayAction || "").includes("failed"),
+          ).length
+        : 0;
+      const ebaySummary =
+        ebayStrategy === "increase_existing"
+          ? ` · eBay existing listing qty increased on ${ebayIncreased}/${reconciled}${ebayFailed ? ` · ${ebayFailed} eBay update failed/held` : ""}`
+          : " · eBay kept at its existing qty/reserve";
       setNotice(
-        `Exact inventory merge finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} added to existing website quantity with existing prices preserved. eBay and active Mercari quantities were left unchanged${mercariRelistEligible ? ` · ${mercariRelistEligible} sold/ended Mercari listing${mercariRelistEligible === 1 ? "" : "s"} marked eligible to relist` : ""}${blocked ? ` · ${blocked} held for reconciliation` : ""}.`,
+        `Exact inventory merge finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} added to the one canonical website listing with existing prices preserved${ebaySummary} · active Mercari stayed qty 1${mercariRelistEligible ? ` · ${mercariRelistEligible} sold/ended Mercari listing${mercariRelistEligible === 1 ? "" : "s"} marked eligible to relist` : ""}${blocked ? ` · ${blocked} held for reconciliation` : ""}. No duplicate eBay listing was created.`,
       );
       setSelectedIds(new Set());
       await load(queue || queueFromLocation());
@@ -2141,6 +2210,27 @@ export default function KingmakerPendingPage({
                 </button>
               ))}
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-neutral-300 pt-3">
+              <span className="text-sm font-black">Exact-copy merge policy:</span>
+              <select
+                value={mergeEbayStrategy}
+                onChange={(event) =>
+                  setMergeEbayStrategy(event.target.value as MergeEbayStrategy)
+                }
+                disabled={Boolean(busyId)}
+                className="rounded-lg border-2 border-neutral-900 bg-white px-3 py-2 text-sm font-black"
+              >
+                <option value="keep_one">
+                  Website +1 · eBay stays existing qty · Mercari stays 1
+                </option>
+                <option value="increase_existing">
+                  Website +1 · existing eBay listing +1 · Mercari stays 1
+                </option>
+              </select>
+              <span className="text-xs font-semibold text-neutral-600">
+                Never creates a duplicate eBay listing. Mercari remains one active listing.
+              </span>
+            </div>
             {queue === "verification" ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
                 <span className="mr-2 text-sm font-black">Verification actions:</span>
@@ -2165,7 +2255,7 @@ export default function KingmakerPendingPage({
                   Merge Selected → Existing Exact Listing
                 </button>
                 <span className="text-xs font-semibold text-neutral-600">
-                  Exact website identity required · existing price kept · eBay/Mercari quantity unchanged.
+                  Exact Registry identity required · one website listing/quantity · Mercari stays one · eBay follows the merge policy above.
                 </span>
               </div>
             ) : null}
@@ -2308,6 +2398,13 @@ export default function KingmakerPendingPage({
             );
             const websitePublishBlocked =
               websiteLinkBlocked || websiteInventoryNeedsReconciliation;
+            const duplicateProtection = card.duplicateProtection || null;
+            const exactCopyMergeReady = Boolean(
+              websiteCurrent &&
+                exactWebsiteProductIds.length === 1 &&
+                !websiteLinkBlocked &&
+                duplicateProtection?.uniquePhysicalCopy !== true,
+            );
             const websiteListed =
               websiteCurrent ||
               String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
@@ -2317,6 +2414,47 @@ export default function KingmakerPendingPage({
             const mercariListed =
               mercariStatus === "active" || mercariStatus === "linked" || mercariStatus === "live";
             const mercariItemUrl = String(channelPricing?.mercariItemUrl || "").trim();
+            const exactCopyMergeControls = exactCopyMergeReady ? (
+              <div className="mt-3 rounded-xl border-2 border-cyan-800 bg-cyan-50 p-3 text-cyan-950">
+                <p className="font-black">
+                  EXACT COPY FOUND · MERGE INTO THE ONE EXISTING LISTING
+                </p>
+                <p className="mt-1 text-xs font-bold">
+                  Owned/current qty {currentWebsiteInventory?.quantity || 0}
+                  {duplicateProtection?.existingQuantity
+                    ? ` · active inventory qty ${duplicateProtection.existingQuantity}`
+                    : ""}
+                  . Website becomes +1. Mercari stays one active listing. No duplicate eBay listing is created.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={Boolean(busyId)}
+                    onClick={() =>
+                      void reconcileCurrentWebsiteInventory([card], "keep_one")
+                    }
+                    className="rounded-lg bg-cyan-800 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                  >
+                    Merge +1 · Website Qty · Keep eBay/Mercari 1
+                  </button>
+                  {ebayListed ? (
+                    <button
+                      type="button"
+                      disabled={Boolean(busyId)}
+                      onClick={() =>
+                        void reconcileCurrentWebsiteInventory(
+                          [card],
+                          "increase_existing",
+                        )
+                      }
+                      className="rounded-lg bg-blue-800 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                    >
+                      Merge +1 · Website + Existing eBay Qty · Mercari 1
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null;
             const groupQuantity = Math.max(
               1,
               Number(card.commercialGroup?.totalQuantity || card.quantity || 1),
@@ -2442,6 +2580,63 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
+                {card.instaComp.identityTrace ? (
+                  <div className="border-b-2 border-sky-900 bg-sky-50 p-4 text-sky-950">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-lg font-black">IDENTITY TRACE</p>
+                      <p className="text-xs font-black">
+                        {Number(card.instaComp.identityTrace.elapsedMs || 0) > 0
+                          ? `${(Number(card.instaComp.identityTrace.elapsedMs || 0) / 1000).toFixed(1)}s`
+                          : "timing unavailable"}
+                        {card.instaComp.identityTrace.failureStage
+                          ? ` · stopped at ${card.instaComp.identityTrace.failureStage}`
+                          : " · exact lock complete"}
+                      </p>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(card.instaComp.identityTrace.stages || []).map((stage, index) => (
+                        <span
+                          key={`${stage.stage || "stage"}-${index}`}
+                          className={`rounded-full border px-3 py-1 text-xs font-black ${
+                            stage.status === "pass"
+                              ? "border-emerald-700 bg-emerald-100 text-emerald-950"
+                              : "border-amber-700 bg-amber-100 text-amber-950"
+                          }`}
+                          title={[
+                            stage.detail,
+                            ...(stage.reasons || []),
+                          ].filter(Boolean).join(" · ")}
+                        >
+                          {stage.stage || "stage"} · {stage.status || "unknown"}
+                        </span>
+                      ))}
+                    </div>
+                    {(card.instaComp.identityTrace.stages || []).some(
+                      (stage) => Array.isArray(stage.attempts) && stage.attempts.length > 0,
+                    ) ? (
+                      <div className="mt-3 text-xs font-semibold">
+                        {(card.instaComp.identityTrace.stages || [])
+                          .flatMap((stage) => stage.attempts || [])
+                          .slice(0, 12)
+                          .map((attempt, index) => (
+                            <p key={index}>
+                              Registry {attempt.phase || "lookup"} · {attempt.label || "attempt"}
+                              {attempt.brand ? ` · product ${attempt.brand}` : ""}
+                              {attempt.setName ? ` · set ${attempt.setName}` : ""}
+                              {` · ${attempt.status || "unknown"}`}
+                              {Number(attempt.candidateCount || 0) > 0
+                                ? ` · ${attempt.candidateCount} candidate${Number(attempt.candidateCount || 0) === 1 ? "" : "s"}`
+                                : ""}
+                              {Number(attempt.elapsedMs || 0) > 0
+                                ? ` · ${attempt.elapsedMs}ms`
+                                : ""}
+                            </p>
+                          ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {websiteLinkBlocked ? (
                   <div className="border-b-2 border-red-900 bg-red-100 p-4 text-red-950">
                     <p className="text-xl font-black">WEBSITE LINK MISMATCH — DO NOT PUBLISH</p>
@@ -2458,6 +2653,7 @@ export default function KingmakerPendingPage({
                     <p className="mt-1 text-sm font-bold">
                       Exact live website product{exactWebsiteProductIds.length === 1 ? "" : "s"}: {exactWebsiteProductIds.join(", ") || "unknown"}. This Pending row is not linked cleanly to one exact live product, so website publishing is blocked to prevent duplicates.
                     </p>
+                    {exactCopyMergeControls}
                   </div>
                 ) : websiteCurrent ? (
                   <div className="border-b-2 border-emerald-900 bg-emerald-50 p-4 text-emerald-950">
@@ -2465,6 +2661,7 @@ export default function KingmakerPendingPage({
                     <p className="mt-1 text-sm font-bold">
                       Exact website product{Number(currentWebsiteInventory?.productIds?.length || 0) === 1 ? "" : "s"}: {currentWebsiteInventory?.productIds?.join(", ")}
                     </p>
+                    {exactCopyMergeControls}
                   </div>
                 ) : null}
 

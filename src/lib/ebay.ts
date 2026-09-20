@@ -72,6 +72,93 @@ export async function getEbayAccessToken() {
   return data.access_token as string;
 }
 
+export async function getEbayInventoryQuantity(params: {
+  sku?: string | null;
+  ebayItemId?: string | null;
+}) {
+  const { sku, ebayItemId } = params;
+  const storeId = getActiveStoreId();
+  const supabase = getSupabase();
+  const storeSettings = await getStoreSettings(supabase, storeId);
+
+  if (!storeSettings.ebaySyncEnabled) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "eBay sync is disabled for this store",
+      sku: sku || null,
+      ebayItemId: ebayItemId || null,
+      quantity: null as number | null,
+    };
+  }
+
+  if (!sku && !ebayItemId) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "Missing sku and ebayItemId",
+      sku: null,
+      ebayItemId: null,
+      quantity: null as number | null,
+    };
+  }
+
+  const accessToken = await getEbayAccessToken();
+  let finalSku = sku || null;
+
+  if (!finalSku && ebayItemId) {
+    const offerRes = await fetch(
+      `${EBAY_API}/sell/inventory/v1/offer?limit=200`,
+      { headers: ebayReadHeaders(accessToken) },
+    );
+    const offerData = await offerRes.json().catch(() => ({}));
+    if (!offerRes.ok) {
+      throw new Error(
+        `Could not list eBay offers: ${JSON.stringify(offerData)}`,
+      );
+    }
+    const matchingOffer = offerData.offers?.find(
+      (offer: any) =>
+        String(offer?.listing?.listingId) === String(ebayItemId),
+    );
+    finalSku = matchingOffer?.sku || null;
+  }
+
+  if (!finalSku) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "Could not determine SKU for eBay inventory read",
+      sku: null,
+      ebayItemId: ebayItemId || null,
+      quantity: null as number | null,
+    };
+  }
+
+  const itemRes = await fetch(
+    `${EBAY_API}/sell/inventory/v1/inventory_item/${encodeURIComponent(finalSku)}`,
+    { headers: ebayReadHeaders(accessToken), cache: "no-store" },
+  );
+  const itemData = await itemRes.json().catch(() => ({}));
+  if (!itemRes.ok) {
+    throw new Error(
+      `Could not read eBay inventory quantity: ${JSON.stringify(itemData)}`,
+    );
+  }
+
+  const rawQuantity =
+    itemData?.availability?.shipToLocationAvailability?.quantity ?? 0;
+  const quantity = Math.max(0, Math.floor(Number(rawQuantity || 0)));
+
+  return {
+    success: true,
+    skipped: false,
+    sku: finalSku,
+    ebayItemId: ebayItemId || null,
+    quantity,
+  };
+}
+
 export async function syncEbayQuantityAfterSale(params: {
   sku?: string | null;
   ebayItemId?: string | null;

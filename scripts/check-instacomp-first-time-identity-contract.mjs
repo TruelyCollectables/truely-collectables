@@ -36,6 +36,9 @@ for (const required of [
   "macCoreEvidence(macCandidate, macReceipt)",
   "Mac Registry did not lock one exact identity",
   "remote_parallel_inference_deferred",
+  "titleRegistryDimensionHints",
+  "registryRecoveryAttempts",
+  "mac_registry_title_hint_recovery_exact",
   "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
   "macCandidate?.fingerprintSha256 || null",
   'source: "checklist_registry"',
@@ -57,7 +60,6 @@ for (const forbidden of [
   "const identityComplete = true;",
   "checklist_disabled_visual_ai_only",
   "visual_ai_identity_locked_without_checklist",
-  "resolveInstaCompChecklistFirstFromRegistry",
   "Build-contract compatibility breadcrumbs",
   "if (receipt.pricingAllowed !== true) return null;",
 ]) {
@@ -70,25 +72,27 @@ for (const forbidden of [
 
 const mac = read("services/instacomp-ai/app/main.py");
 for (const required of [
-  "suggestion = await reader.analyze(",
-  "suggestion_registry = await checklist_gateway.match(",
-  "suggestion_registry.identity_id",
   'receipt.startswith("registry_fingerprint:")',
-  'match_source = "ollama_backup"',
   'status = "model_unavailable"',
   "pricing_allowed = False",
 ]) {
   requireText(
     mac,
     required,
-    `Mac first-time evidence fallback is missing: ${required}`,
+    `Mac fail-closed Registry contract is missing: ${required}`,
   );
 }
-forbidText(
-  mac,
-  "No Ollama or external identity reader is called here",
-  "The original first-time-card deadlock must not be restored.",
-);
+for (const required of [
+  "mac_registry_title_hint_recovery_exact",
+  "registryRecoveryAttempts",
+  "identityTrace",
+]) {
+  requireText(
+    exact,
+    required,
+    `Exact seller identity path is missing deterministic Registry recovery/trace: ${required}`,
+  );
+}
 
 const intake = read(
   "src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts",

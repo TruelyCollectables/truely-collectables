@@ -10,6 +10,11 @@ import {
   type InstaCompAiLocalScan,
 } from "../../../../lib/instacomp-ai-local";
 import type { InstaCompChecklistCandidate } from "../../../../lib/instacomp-checklist-first";
+import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../lib/instacomp-checklist-first-server";
+import {
+  titleRegistryDimensionHints,
+  titleSerialNumberHint,
+} from "../../../../lib/instacomp-title-registry-hints";
 import type { ParallelVisionDecision } from "../../../../lib/instacomp-checklist-parallel-vision";
 import type { InstaCompCoreVisualEvidence } from "../../../../lib/instacomp-core-visual-evidence";
 import {
@@ -810,6 +815,8 @@ export async function POST(request: NextRequest) {
 
     const metadata = record(item.metadata);
     const previousInstaComp = record(metadata.instacomp);
+    const identityTraceStartedAt = new Date().toISOString();
+    const identityTraceStartedMs = Date.now();
     const replaceManualIdentity =
       value("replaceManualIdentity") === true ||
       value("replaceManualIdentity") === "true";
@@ -937,7 +944,7 @@ export async function POST(request: NextRequest) {
       preserveInputPromise,
     ]);
 
-    const macReceipt = macArchive.receipt;
+    let macReceipt = macArchive.receipt;
     if (
       !macArchive.frontFile ||
       !macArchive.backFile ||
@@ -1059,9 +1066,9 @@ export async function POST(request: NextRequest) {
       throw new Error("Mac archive returned identical front and back images.");
     }
 
-    const macCandidate = macTrustedCandidate(macReceipt);
+    let macCandidate = macTrustedCandidate(macReceipt);
     const receiptIdentity = record(macReceipt.checklistIdentity);
-    const core: InstaCompCoreVisualEvidence = macCandidate
+    let core: InstaCompCoreVisualEvidence = macCandidate
       ? macCoreEvidence(macCandidate, macReceipt)
       : {
           status: "error",
@@ -1114,6 +1121,212 @@ export async function POST(request: NextRequest) {
       surfaceVariationHint: titleSurfaceHint(titleText),
       ...titleAutoRelic(titleText),
     };
+    const previousAi = record(previousInstaComp.ai);
+    const titleDimensionHints = titleRegistryDimensionHints({
+      title: titleText,
+      manufacturer: titleHints.manufacturer,
+      cardNumber: titleHints.cardNumber,
+      previousBrand: text(previousAi.brand, 120),
+      previousProduct: text(previousAi.product, 200),
+      previousSetName: text(previousAi.setName, 200),
+    });
+    const titleSerialHint =
+      titleSerialNumberHint(titleText) ||
+      text(previousAi.serialNumber ?? previousAi.printRun, 80);
+    const titleParallelHint =
+      titleHints.surfaceVariationHint ||
+      text(previousAi.checklistParallel ?? previousAi.parallel, 160);
+    const titleVariationHint = text(previousAi.variation, 160);
+    const recoveryTeam = text(previousAi.team, 160) || core.team || null;
+    const recoverySport = text(previousAi.sport, 100) || core.sport || null;
+    const recoveryLeague = text(previousAi.league, 100) || core.league || null;
+    const recoveryOcrText = [
+      ...evidence(macReceipt.imageOrientation?.front_evidence),
+      ...evidence(macReceipt.imageOrientation?.back_evidence),
+    ].join("\n");
+    const registryRecoveryAttempts: Array<{
+      phase: string;
+      label: string;
+      brand: string | null;
+      setName: string | null;
+      status: string;
+      candidateCount: number;
+      reasons: string[];
+      identityId: string | null;
+      fingerprintSha256: string | null;
+      elapsedMs: number;
+    }> = [];
+    const recoveryMatches = new Map<string, InstaCompChecklistCandidate>();
+
+    // The first physical scan can fail closed because OCR misses a printed label
+    // even when strong title evidence already exists. Retry only against the SAME
+    // Mac-local Registry, in bounded stages, and only accept a UUID+fingerprint
+    // exact match. Title text is evidence, never identity authority.
+    if (
+      !macCandidate &&
+      titleHints.year &&
+      titleHints.manufacturer &&
+      titleHints.cardNumber &&
+      titleHints.player
+    ) {
+      const attemptHints = [
+        ...titleDimensionHints,
+        { label: "core_only", brand: null, setName: null },
+      ].slice(0, 8);
+      const typedEvidencePresent = Boolean(
+        titleSerialHint ||
+          titleParallelHint ||
+          titleVariationHint ||
+          titleHints.isAuto === true ||
+          titleHints.isRelic === true,
+      );
+
+      const runRecoveryPhase = async (
+        phase: "core_set" | "typed_finish",
+        collectForLock: boolean,
+      ) => {
+        const typed = phase === "typed_finish";
+        const phaseMatches = new Map<string, InstaCompChecklistCandidate>();
+
+        for (const hint of attemptHints) {
+          const started = Date.now();
+          const decision = await resolveInstaCompChecklistFirstFromRegistry(
+            {
+              year: titleHints.year,
+              manufacturer: titleHints.manufacturer,
+              // Product/set title segments are narrowing evidence. The Mac
+              // Registry remains the authority and must still return one exact
+              // UUID + fingerprint before this can lock.
+              brand: hint.brand || titleHints.manufacturer,
+              setName: hint.setName,
+              cardNumber: titleHints.cardNumber,
+              player: titleHints.player,
+              team: recoveryTeam,
+              sport: recoverySport,
+              league: recoveryLeague,
+              serialNumber: typed ? titleSerialHint : null,
+              isAuto: typed ? titleHints.isAuto : null,
+              isRelic: typed ? titleHints.isRelic : null,
+              parallel: typed ? titleParallelHint : null,
+              variation: typed ? titleVariationHint : null,
+              ocrText: recoveryOcrText,
+            },
+            12_000,
+          );
+          const recovered = decision.match;
+          const recoveredIdentityId = validUuid(recovered?.identityId);
+          const recoveredFingerprint = text(
+            recovered?.fingerprintSha256,
+            80,
+          );
+          registryRecoveryAttempts.push({
+            phase,
+            label: hint.label,
+            brand: hint.brand,
+            setName: hint.setName,
+            status: decision.status,
+            candidateCount: decision.candidates.length,
+            reasons: decision.reasons,
+            identityId: recoveredIdentityId,
+            fingerprintSha256: recoveredFingerprint,
+            elapsedMs: Date.now() - started,
+          });
+
+          if (
+            decision.status === "exact_match" &&
+            recovered &&
+            recoveredIdentityId &&
+            recoveredFingerprint &&
+            recovered.year &&
+            recovered.manufacturer &&
+            recovered.cardNumber &&
+            recovered.player
+          ) {
+            phaseMatches.set(recoveredIdentityId, {
+              ...recovered,
+              identityId: recoveredIdentityId,
+              fingerprintSha256: recoveredFingerprint,
+            });
+            if (collectForLock) {
+              recoveryMatches.set(recoveredIdentityId, {
+                ...recovered,
+                identityId: recoveredIdentityId,
+                fingerprintSha256: recoveredFingerprint,
+              });
+            }
+
+            // Two independent exact parses agreeing on one UUID are enough.
+            // A second distinct UUID is a conflict and therefore stays review.
+            const confirmations = registryRecoveryAttempts.filter(
+              (attempt) =>
+                attempt.phase === phase &&
+                attempt.status === "exact_match" &&
+                attempt.identityId === recoveredIdentityId,
+            ).length;
+            if (phaseMatches.size > 1 || confirmations >= 2) break;
+          }
+        }
+        return phaseMatches;
+      };
+
+      if (typedEvidencePresent) {
+        // Explicit serial/parallel/auto/relic evidence must win. Never accept a
+        // Base/core-only result first and then ignore a visible /199 or finish.
+        await runRecoveryPhase("typed_finish", true);
+      } else {
+        await runRecoveryPhase("core_set", true);
+      }
+      if (recoveryMatches.size === 1) {
+        const recovered = [...recoveryMatches.values()][0];
+        const recoveredIdentityId = validUuid(recovered.identityId);
+        const recoveredFingerprint = text(recovered.fingerprintSha256, 80);
+        if (recoveredIdentityId && recoveredFingerprint) {
+          macCandidate = {
+            ...recovered,
+            identityId: recoveredIdentityId,
+            fingerprintSha256: recoveredFingerprint,
+          };
+          macReceipt = {
+            ...macReceipt,
+            status: "identified",
+            checklistOutcome: "exact_match",
+            registryIdentityId: recoveredIdentityId,
+            registryFingerprintSha256: recoveredFingerprint,
+            checklistIdentity: {
+              id: recoveredIdentityId,
+              identity_id: recoveredIdentityId,
+              fingerprint_sha256: recoveredFingerprint,
+              year: recovered.year,
+              manufacturer: recovered.manufacturer,
+              brand: recovered.brand || recovered.manufacturer,
+              product: recovered.product || recovered.setName || null,
+              set_name: recovered.setName || recovered.product || null,
+              subset: recovered.subset || null,
+              card_number: recovered.cardNumber,
+              player: recovered.player,
+              serial_run: recovered.serialRun ?? null,
+              autograph: recovered.isAuto,
+              memorabilia: recovered.isRelic,
+              parallel: recovered.parallel || "Base",
+              variation: recovered.variation || null,
+              team: recovered.team || null,
+              sport: recovered.sport || null,
+              league: recovered.league || null,
+            },
+            checklistReasons: [
+              ...macReceipt.checklistReasons,
+              "mac_registry_title_hint_recovery_exact",
+            ],
+            pricingAllowed: true,
+            learningAllowed: true,
+            matchSource: "mac_registry_title_hint_recovery",
+            error: null,
+          };
+          core = macCoreEvidence(macCandidate, macReceipt);
+        }
+      }
+    }
+
     const visualYear = macCandidate?.year || core.year || titleHints.year;
     const visualManufacturer = macCandidate?.manufacturer || core.manufacturer || titleHints.manufacturer;
     const visualCardNumber = macCandidate?.cardNumber || core.cardNumber || titleHints.cardNumber;
@@ -1203,6 +1416,77 @@ export async function POST(request: NextRequest) {
         parallelDecision,
       }),
         };
+
+    const identityTrace = {
+      schema: "tcos.instacomp.identity-trace.v1",
+      startedAt: identityTraceStartedAt,
+      completedAt: new Date().toISOString(),
+      elapsedMs: Date.now() - identityTraceStartedMs,
+      failureStage: identityComplete
+        ? null
+        : macReceipt.checklistOutcome === "input_incomplete"
+          ? "registry_core_input"
+          : registryRecoveryAttempts.length
+            ? "registry_narrowing"
+            : "physical_read",
+      stages: [
+        {
+          stage: "front_back_pair",
+          status: "pass",
+          detail: "Distinct front/back pixels are stored for this physical card.",
+        },
+        {
+          stage: "orientation",
+          status: finalOrientation.status === "completed" ? "pass" : "review",
+          detail: finalOrientation.reason,
+        },
+        {
+          stage: "physical_read",
+          status:
+            macReceipt.checklistOutcome === "exact_match" ? "pass" : "review",
+          detail: macReceipt.checklistOutcome,
+          reasons: macReceipt.checklistReasons,
+        },
+        {
+          stage: "core_fields",
+          status:
+            visualYear &&
+            visualManufacturer &&
+            visualCardNumber &&
+            visualPlayer
+              ? "pass"
+              : "review",
+          evidence: {
+            year: visualYear,
+            manufacturer: visualManufacturer,
+            cardNumber: visualCardNumber,
+            player: visualPlayer,
+          },
+        },
+        {
+          stage: "registry_narrowing",
+          status: identityComplete ? "pass" : "review",
+          attempts: registryRecoveryAttempts,
+          titleDimensionHints,
+        },
+        {
+          stage: "parallel_serial",
+          status: identityComplete ? "pass" : "review",
+          evidence: {
+            serialNumber: titleSerialHint,
+            parallel: titleParallelHint,
+            variation: titleVariationHint,
+          },
+        },
+        {
+          stage: "exact_lock",
+          status: identityComplete ? "pass" : "review",
+          registryIdentityId: macCandidate?.identityId || null,
+          registryFingerprintSha256:
+            macCandidate?.fingerprintSha256 || null,
+        },
+      ],
+    };
 
     const storedImages = await persistNormalizedInstaCompImagePair({
       supabase,
@@ -1333,6 +1617,7 @@ export async function POST(request: NextRequest) {
         },
         parallelDecision,
         parallelVisualFeatures: parallelDecision.features,
+        identityTrace,
         identitySource: macCandidate ? "mac_registry_exact" : "first_time_visual_only",
         identityComplete,
         identityRuleApplied: "year_product_player_card_then_color_pattern_serial",
@@ -1413,6 +1698,7 @@ export async function POST(request: NextRequest) {
               productFilterApplied: false,
             },
         parallelDecision,
+        identityTrace,
         macReceipt,
         imageOrientation: finalOrientation,
         normalizedImages: storedImages,

@@ -128,10 +128,20 @@ for (const forbidden of [
   "const identityComplete = true;",
   "checklist_disabled_visual_ai_only",
   "visual_ai_identity_locked_without_checklist",
-  "resolveInstaCompChecklistFirstFromRegistry",
   "Build-contract compatibility breadcrumbs",
+  "readInstaCompCoreVisualEvidence",
+  "resolveChecklistParallelFromVision",
+  "normalizeInstaCompSideImages",
 ]) {
   rejectText(exactScan, forbidden, "Registry trust boundary");
+}
+for (const required of [
+  "resolveInstaCompChecklistFirstFromRegistry",
+  "registryRecoveryAttempts",
+  "registryFingerprintSha256",
+  "mac_registry_title_hint_recovery_exact",
+]) {
+  requireText(exactScan, required, "Mac-local Registry recovery trust boundary");
 }
 
 const activationFirewall = read("src/lib/inventory-activation.ts");

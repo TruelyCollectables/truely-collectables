@@ -246,6 +246,7 @@ export type InstaCompChecklistFirstServerDecision = InstaCompChecklistFirstDecis
 
 export async function resolveInstaCompChecklistFirstFromRegistry(
   input: InstaCompChecklistLookupInput,
+  timeoutMs = 25_000,
 ): Promise<InstaCompChecklistFirstServerDecision> {
   const cardNumber = normalizedCardNumber(input.cardNumber);
   if (!cardNumber) {
@@ -266,6 +267,9 @@ export async function resolveInstaCompChecklistFirstFromRegistry(
         setName: input.setName || null,
         cardNumber: input.cardNumber,
         player: input.player,
+        team: input.team || null,
+        sport: input.sport || null,
+        league: input.league || null,
         serialNumber: input.serialNumber || null,
         isAuto: input.isAuto ?? null,
         isRelic: input.isRelic ?? null,
@@ -273,7 +277,7 @@ export async function resolveInstaCompChecklistFirstFromRegistry(
         variation: input.variation || null,
         ocrText: boundedOcr(input.ocrText),
       },
-      25_000,
+      timeoutMs,
     );
     const rawCandidates = Array.isArray(data.candidates) ? data.candidates : [];
     const candidates = rawCandidates.map((value) => value as InstaCompChecklistCandidate);
