@@ -16,10 +16,7 @@ import {
   type InstaCompAiInscriptionFields,
 } from "../../../../../../lib/instacomp-listing-output";
 import type { InstaCompAiResult } from "../../../../../../lib/instacomp";
-import {
-  normalizeInstaCompRotation,
-  normalizeInstaCompSideImages,
-} from "../../../../../../lib/instacomp-image-orientation";
+import { normalizeInstaCompRotation } from "../../../../../../lib/instacomp-image-orientation";
 import {
   persistNormalizedInstaCompImagePair,
   type InstaCompImageOrientationReceipt,
@@ -395,43 +392,17 @@ export async function POST(request: NextRequest) {
 
     const frontFile = front;
     const backFile = back;
-    const normalizedSides = await normalizeInstaCompSideImages({
-      frontImage: frontFile,
-      backImage: backFile,
-    });
-    if (!normalizedSides.backFile) {
-      throw new Error("Back image normalization did not return an image.");
-    }
-    if (normalizedSides.orientation.status !== "completed") {
-      return NextResponse.json(
-        {
-          success: false,
-          code: "IMAGE_ORIENTATION_REVIEW_REQUIRED",
-          error: normalizedSides.orientation.reason ||
-            "Front/back orientation was not proven decisively; the card was not admitted to Pending Listings.",
-          orientation: normalizedSides.orientation,
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    const webOrientationTrusted = true;
+
+    // Seller intake is Mac-local first. Do not block every physical card on a
+    // second remote OpenAI orientation pass before the real Registry scan even
+    // starts. The Mac applies Apple Vision orientation to the archived pixels
+    // and returns the fail-closed orientation receipt used below.
     const scan = await analyzeWithInstaCompAiLocal({
       front: frontFile,
       back: backFile,
-      // The dedicated web orientation referee is the authoritative rotation
-      // hint only after its fail-closed confidence gate has passed. Do not
-      // discard that decision and make the weaker Mac OCR heuristic guess again.
-      frontRotation: webOrientationTrusted
-        ? normalizedSides.orientation.frontRotation
-        : null,
-      backRotation: webOrientationTrusted
-        ? normalizedSides.orientation.backRotation
-        : null,
+      timeoutMs: 75_000,
     });
-    const macImageOrientation = macOrientationReceipt(
-      scan,
-      normalizedSides.orientation,
-    );
+    const macImageOrientation = macOrientationReceipt(scan, {});
     const cardUuid = physicalCardUuid(scan);
     if (!cardUuid) {
       return NextResponse.json(
@@ -487,35 +458,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2025 Select WNBA has a physically validated Base-vs-parallel witness:
-    // parallel backs carry a standalone PRIZM designation while Base backs do not.
-    // This witness is a contradiction gate only. It must NEVER rewrite a Registry
-    // identity/fingerprint in place; a conflict goes to Verification instead.
-    const selectBackMarkerUsable =
-      /^2025/.test(fields.year || "") &&
-      /select/i.test(fields.brand || fields.product || "") &&
-      /wnba/i.test(fields.league || "") &&
-      typeof normalizedSides.orientation.backStandalonePrizm === "boolean" &&
-      normalizedSides.orientation.backDesignationConfidence >= 0.90;
-    const registryClaimsParallel = Boolean(
-      fields.parallel && !/^Base(?: Set)?$/i.test(fields.parallel),
-    );
-    const selectBackMarkerConflict = selectBackMarkerUsable && (
-      (normalizedSides.orientation.backStandalonePrizm === true && !registryClaimsParallel) ||
-      (normalizedSides.orientation.backStandalonePrizm === false && registryClaimsParallel)
-    );
-    if (selectBackMarkerConflict) {
-      return NextResponse.json(
-        {
-          success: false,
-          code: "PHYSICAL_FINISH_CONFLICT",
-          error:
-            "The physical 2025 Select back disagrees with the Registry Base/parallel state. The card is held for finish verification; its Registry identity was not rewritten.",
-          scan,
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
-    }
+    // The old web-orientation referee never produced a usable standalone-PRIZM
+    // witness here (its fields were always null/0). Parallel/finish safety stays
+    // inside the Mac physical-evidence + Registry pipeline instead of paying a
+    // remote 60-second call that did not strengthen this gate.
+    const selectBackMarkerUsable = false;
 
     const imagePairSha256 = text(scan.image_pair_sha256, 128);
     const frontSha256 = text(scan.front_sha256, 128);
@@ -547,17 +494,6 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
-    const { data: physicalMatches, error: physicalMatchError } = await supabase
-      .from("inventory_items")
-      .select("id,title,status,legacy_product_id")
-      .eq("store_id", storeId)
-      .eq("seller_account_id", account.id)
-      .eq("card_uuid", cardUuid)
-      .limit(1);
-    if (physicalMatchError && !isMissingCardUuidColumn(physicalMatchError)) {
-      throw physicalMatchError;
-    }
-    const physicalDuplicate = physicalMatches?.[0] || null;
     if (macImageOrientation.status !== "completed") {
       return NextResponse.json(
         {
@@ -569,6 +505,18 @@ export async function POST(request: NextRequest) {
         { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
+
+    const { data: physicalMatches, error: physicalMatchError } = await supabase
+      .from("inventory_items")
+      .select("id,title,status,legacy_product_id")
+      .eq("store_id", storeId)
+      .eq("seller_account_id", account.id)
+      .eq("card_uuid", cardUuid)
+      .limit(1);
+    if (physicalMatchError && !isMissingCardUuidColumn(physicalMatchError)) {
+      throw physicalMatchError;
+    }
+    const physicalDuplicate = physicalMatches?.[0] || null;
     if (physicalDuplicate) {
       return NextResponse.json(
         {
@@ -622,22 +570,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: ownedInventoryRows, error: groupReadError } = await supabase
-      .from("inventory_items")
-      .select("id,legacy_product_id,status,quantity,price,metadata")
-      .eq("store_id", storeId)
-      .eq("seller_account_id", account.id)
-      .range(0, 4999);
-    if (groupReadError) throw groupReadError;
-    const exactIdentityMatches = (ownedInventoryRows || []).filter((candidate) => {
-      const candidateInstaComp = recordValue(recordValue(candidate.metadata).instacomp);
-      const checklistIdentity = recordValue(candidateInstaComp.checklistIdentity);
-      const candidateChannelDraft = recordValue(candidateInstaComp.channelDraft);
-      return (
-        text(checklistIdentity.registryFingerprintSha256, 128) === registryFingerprint ||
-        text(candidateChannelDraft.registryFingerprintSha256, 128) === registryFingerprint
-      );
-    });
+    // Archive retrieval is independent of exact-group lookup. Start both sides
+    // now so their tunnel round trip is hidden behind the targeted metadata queries.
+    const archiveImagePromise = Promise.all([
+      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "front" }),
+      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "back" }),
+    ]);
+
+    // Do not download the seller's entire inventory just to find one exact
+    // Registry group. Query the two persisted fingerprint locations directly
+    // and merge the small result sets in memory.
+    const [checklistGroupResult, channelGroupResult] = await Promise.all([
+      supabase
+        .from("inventory_items")
+        .select("id,legacy_product_id,status,quantity,price,metadata")
+        .eq("store_id", storeId)
+        .eq("seller_account_id", account.id)
+        .contains("metadata", {
+          instacomp: {
+            checklistIdentity: {
+              registryFingerprintSha256: registryFingerprint,
+            },
+          },
+        })
+        .limit(500),
+      supabase
+        .from("inventory_items")
+        .select("id,legacy_product_id,status,quantity,price,metadata")
+        .eq("store_id", storeId)
+        .eq("seller_account_id", account.id)
+        .contains("metadata", {
+          instacomp: {
+            channelDraft: {
+              registryFingerprintSha256: registryFingerprint,
+            },
+          },
+        })
+        .limit(500),
+    ]);
+    if (checklistGroupResult.error) throw checklistGroupResult.error;
+    if (channelGroupResult.error) throw channelGroupResult.error;
+    const exactIdentityMatches = Array.from(
+      new Map(
+        [
+          ...(checklistGroupResult.data || []),
+          ...(channelGroupResult.data || []),
+        ].map((candidate) => [candidate.id, candidate]),
+      ).values(),
+    );
     const activeGroupPrices = Array.from(
       new Set(
         exactIdentityMatches
@@ -755,12 +735,8 @@ export async function POST(request: NextRequest) {
     };
 
     // The website stores the Mac-normalized archive, not the Worker upload.
-    // Fetch it before creating a database row so a tunnel/archive failure cannot
-    // leave another image-less Pending draft behind.
-    const [uprightFrontFile, uprightBackFile] = await Promise.all([
-      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "front" }),
-      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "back" }),
-    ]);
+    // Retrieval started earlier and has been overlapping the database checks.
+    const [uprightFrontFile, uprightBackFile] = await archiveImagePromise;
 
     const inventoryInsert = {
       store_id: storeId,
@@ -856,7 +832,7 @@ export async function POST(request: NextRequest) {
         },
         pricingSucceeded: false,
         pricingBackgroundQueued: true,
-        imageOrientation: normalizedSides.orientation,
+        imageOrientation: macImageOrientation,
         normalizedImages: persistedImages,
         identityRuleApplied: selectBackMarkerUsable
           ? "2025_select_back_prizm_consistency_verified"

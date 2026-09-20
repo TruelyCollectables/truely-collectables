@@ -10,15 +10,8 @@ import {
   type InstaCompAiLocalScan,
 } from "../../../../lib/instacomp-ai-local";
 import type { InstaCompChecklistCandidate } from "../../../../lib/instacomp-checklist-first";
-import {
-  resolveChecklistParallelFromVision,
-  type ParallelVisionDecision,
-} from "../../../../lib/instacomp-checklist-parallel-vision";
-import {
-  readInstaCompCoreVisualEvidence,
-  type InstaCompCoreVisualEvidence,
-} from "../../../../lib/instacomp-core-visual-evidence";
-import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
+import type { ParallelVisionDecision } from "../../../../lib/instacomp-checklist-parallel-vision";
+import type { InstaCompCoreVisualEvidence } from "../../../../lib/instacomp-core-visual-evidence";
 import {
   persistNormalizedInstaCompImagePair,
   type InstaCompImageOrientationReceipt,
@@ -245,11 +238,6 @@ function titleAutoRelic(title: string) {
 
 const MINIMUM_MAC_ORIENTATION_CONFIDENCE = 0.55;
 
-async function dataUrl(file: File) {
-  const type = file.type || "image/jpeg";
-  return `data:${type};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`;
-}
-
 function validateFile(file: File, side: "front" | "back") {
   if (!file.size || file.size > MAX_IMAGE_BYTES) {
     throw new Error(`${side} image is empty or larger than 12MB.`);
@@ -356,7 +344,7 @@ function titleSetName(
 function buildCardReadSummary(params: {
   candidate?: InstaCompChecklistCandidate | null;
   core: InstaCompCoreVisualEvidence;
-  parallelDecision?: Awaited<ReturnType<typeof resolveChecklistParallelFromVision>> | null;
+  parallelDecision?: ParallelVisionDecision | null;
 }) {
   const candidate = params.candidate || null;
   const year = candidate?.year || params.core.year;
@@ -443,7 +431,7 @@ function reviewTitle(core: InstaCompCoreVisualEvidence, currentTitle: string) {
 function candidateAi(
   candidate: InstaCompChecklistCandidate,
   core: InstaCompCoreVisualEvidence,
-  parallelDecision: Awaited<ReturnType<typeof resolveChecklistParallelFromVision>>,
+  parallelDecision: ParallelVisionDecision,
 ) {
   const exactParallel = candidate.parallel || "Base";
   const storedParallel = normalized(exactParallel) === "base" ? null : exactParallel;
@@ -616,10 +604,10 @@ async function archiveWithMacBestEffort(params: {
     // Stay well inside the public request ceiling. A slow/hung Mac scan must
     // return a saved review item instead of letting Cloudflare/browser abort the
     // request after ~200 seconds with no useful handoff.
-    const deadline = Date.now() + 95_000;
+    const deadline = Date.now() + 45_000;
     const webOrientationTrusted =
       params.webOrientation?.status === "completed";
-    for (const requestedTimeout of [90_000]) {
+    for (const requestedTimeout of [40_000]) {
       attempts += 1;
       try {
         scan = await analyzeWithInstaCompAiLocal({
@@ -649,8 +637,8 @@ async function archiveWithMacBestEffort(params: {
     const scanId = text(scan.scan_id, 100);
     if (!scanId) throw new Error("Mac archive returned no scan ID.");
     const [frontFile, backFile] = await Promise.all([
-      fetchInstaCompAiLocalScanImage({ scanId, side: "front" }),
-      fetchInstaCompAiLocalScanImage({ scanId, side: "back" }),
+      fetchInstaCompAiLocalScanImage({ scanId, side: "front", timeoutMs: 10_000 }),
+      fetchInstaCompAiLocalScanImage({ scanId, side: "back", timeoutMs: 10_000 }),
     ]);
     const resolvedOrientation = completedMacOrientation(scan, params.webOrientation);
     return {
@@ -885,43 +873,6 @@ export async function POST(request: NextRequest) {
       ]);
     }
 
-    let preservedInputPair: {
-      frontImageUrl: string;
-      backImageUrl: string;
-    } | null = null;
-    if (hasProvidedPair) {
-      const rawPreservationOrientation: InstaCompImageOrientationReceipt = {
-        status: "review_required",
-        model: null,
-        source: "kingmaker_raw_intake_preservation",
-        frontRotation: 0,
-        backRotation: 0,
-        frontConfidence: 0,
-        backConfidence: 0,
-        frontEvidenceText: [],
-        backEvidenceText: [],
-        backStandalonePrizm: null,
-        backDesignationConfidence: 0,
-        reason:
-          "Original front/back uploads were preserved before automatic orientation so a provider failure cannot orphan the scan.",
-      };
-      const preserved = await persistNormalizedInstaCompImagePair({
-        supabase,
-        storeId,
-        inventoryItemId,
-        title: item.title || "Card",
-        frontFile,
-        backFile,
-        orientation: rawPreservationOrientation,
-        previousFrontImageUrl: pair.front?.url || null,
-        previousBackImageUrl: pair.back?.url || null,
-      });
-      preservedInputPair = {
-        frontImageUrl: preserved.frontImageUrl,
-        backImageUrl: preserved.backImageUrl,
-      };
-    }
-
     const [frontSha256, backSha256] = await Promise.all([
       digest(frontFile),
       digest(backFile),
@@ -938,43 +889,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Local-first by design: the Mac gets the untouched front/back pair before
-    // any paid/external orientation provider is consulted. This lets InstaComp
-    // record the physical scan, attempt Apple Vision orientation, resolve the
-    // Registry identity, and learn from the scan without an outside quota gate.
-    let externalOrientation: InstaCompImageOrientationReceipt | null = null;
-    let macArchive = await archiveWithMacBestEffort({
-      frontFile,
-      backFile,
-      webOrientation: null,
-    });
-
-    // Only ask the outside orientation referee when the Mac actually ran and
-    // could not verify orientation. A provider billing/quota failure must never
-    // prevent the local scan from being recorded or retried.
-    if (
-      macArchive.receipt.scanId &&
-      (!macArchive.orientation ||
-        macArchive.orientation.status !== "completed")
-    ) {
-      const normalizedSides = await normalizeInstaCompSideImages({
-        frontImage: frontFile,
-        backImage: backFile,
-        addScanFrame: multipart,
-      });
-      externalOrientation = normalizedSides.orientation;
-      if (
-        normalizedSides.backFile &&
-        normalizedSides.backDataUrl &&
-        externalOrientation.status === "completed"
-      ) {
-        macArchive = await archiveWithMacBestEffort({
-          frontFile,
-          backFile,
-          webOrientation: externalOrientation,
-        });
-      }
+    let preserveInputPromise: Promise<{
+      frontImageUrl: string;
+      backImageUrl: string;
+    } | null> = Promise.resolve(null);
+    if (hasProvidedPair) {
+      const rawPreservationOrientation: InstaCompImageOrientationReceipt = {
+        status: "review_required",
+        model: null,
+        source: "kingmaker_raw_intake_preservation",
+        frontRotation: 0,
+        backRotation: 0,
+        frontConfidence: 0,
+        backConfidence: 0,
+        frontEvidenceText: [],
+        backEvidenceText: [],
+        backStandalonePrizm: null,
+        backDesignationConfidence: 0,
+        reason:
+          "Original front/back uploads were preserved while the Mac performed orientation and exact Registry identification.",
+      };
+      preserveInputPromise = persistNormalizedInstaCompImagePair({
+        supabase,
+        storeId,
+        inventoryItemId,
+        title: item.title || "Card",
+        frontFile,
+        backFile,
+        orientation: rawPreservationOrientation,
+        previousFrontImageUrl: pair.front?.url || null,
+        previousBackImageUrl: pair.back?.url || null,
+      }).then((preserved) => ({
+        frontImageUrl: preserved.frontImageUrl,
+        backImageUrl: preserved.backImageUrl,
+      }));
     }
+
+    // Preserve the original upload and run the Mac scan at the same time. The
+    // old path finished two storage uploads first and only then started the
+    // physical scan, adding pure serial latency to every card.
+    const [macArchive, preservedInputPair] = await Promise.all([
+      archiveWithMacBestEffort({
+        frontFile,
+        backFile,
+        webOrientation: null,
+      }),
+      preserveInputPromise,
+    ]);
 
     const macReceipt = macArchive.receipt;
     if (
@@ -986,8 +947,7 @@ export async function POST(request: NextRequest) {
       if (macReceipt.scanId) {
         const reviewAt = new Date().toISOString();
         const reviewOrientation: InstaCompImageOrientationReceipt =
-          macArchive.orientation ||
-          externalOrientation || {
+          macArchive.orientation || {
             status: "review_required",
             model: null,
             source: "mac_local_orientation",
@@ -1091,57 +1051,59 @@ export async function POST(request: NextRequest) {
     const finalBackFile = macArchive.backFile;
     const finalOrientation = macArchive.orientation;
 
-    const [finalFrontSha256, finalBackSha256, finalFrontDataUrl, finalBackDataUrl] =
-      await Promise.all([
-        digest(finalFrontFile),
-        digest(finalBackFile),
-        dataUrl(finalFrontFile),
-        dataUrl(finalBackFile),
-      ]);
+    const [finalFrontSha256, finalBackSha256] = await Promise.all([
+      digest(finalFrontFile),
+      digest(finalBackFile),
+    ]);
     if (finalFrontSha256 === finalBackSha256) {
       throw new Error("Mac archive returned identical front and back images.");
     }
 
     const macCandidate = macTrustedCandidate(macReceipt);
-    let core: InstaCompCoreVisualEvidence;
-    if (macCandidate) {
-      // The Mac already supplied authoritative Registry identity. Do not spend
-      // latency/quota on a weaker outside core reader or let its failure poison
-      // an exact local identity.
-      core = macCoreEvidence(macCandidate, macReceipt);
-    } else {
-      try {
-        core = await readInstaCompCoreVisualEvidence({
-          frontDataUrl: finalFrontDataUrl,
-          backDataUrl: finalBackDataUrl,
-        });
-      } catch (error) {
-        core = {
+    const receiptIdentity = record(macReceipt.checklistIdentity);
+    const core: InstaCompCoreVisualEvidence = macCandidate
+      ? macCoreEvidence(macCandidate, macReceipt)
+      : {
           status: "error",
-          model: null,
-          year: null,
-          manufacturer: null,
-          product: null,
-          setName: null,
-          subset: null,
-          player: null,
-          cardNumber: null,
-          team: null,
-          sport: null,
-          league: null,
-          rookie: null,
-          surfaceVariationHint: null,
+          model: "mac_instacomp_ai_registry",
+          year: text(receiptIdentity.year, 20),
+          manufacturer: text(
+            receiptIdentity.manufacturer ?? receiptIdentity.brand,
+            120,
+          ),
+          product: text(
+            receiptIdentity.product ??
+              receiptIdentity.set_name ??
+              receiptIdentity.setName,
+            200,
+          ),
+          setName: text(
+            receiptIdentity.set_name ??
+              receiptIdentity.setName ??
+              receiptIdentity.product,
+            200,
+          ),
+          subset: text(receiptIdentity.subset, 160),
+          player: text(receiptIdentity.player, 200),
+          cardNumber: text(
+            receiptIdentity.card_number ?? receiptIdentity.cardNumber,
+            80,
+          ),
+          team: text(receiptIdentity.team, 160),
+          sport: text(receiptIdentity.sport, 100),
+          league: text(receiptIdentity.league, 100),
+          rookie:
+            typeof receiptIdentity.rookie === "boolean"
+              ? receiptIdentity.rookie
+              : null,
+          surfaceVariationHint: text(receiptIdentity.variation, 160),
           identitySummary: null,
-          frontVisibleText: [],
-          backVisibleText: [],
+          frontVisibleText: evidence(macReceipt.imageOrientation?.front_evidence),
+          backVisibleText: evidence(macReceipt.imageOrientation?.back_evidence),
           confidence: 0,
           reason:
-            error instanceof Error
-              ? error.message
-              : "Core visual evidence failed, but the card will continue through the live identity fallback.",
+            "Mac Registry did not lock one exact identity. The fast seller path stops here for review instead of waiting on weaker remote identity inference.",
         };
-      }
-    }
     const titleText = String(item.title || "");
     const titleCard = titleCardNumber(titleText);
     const titleHints = {
@@ -1161,24 +1123,33 @@ export async function POST(request: NextRequest) {
     const visualSetName = macCandidate?.setName || core.setName || core.product || null;
     // Do not use the web database as an identity authority. The Mac receipt is
     // the only exact Registry lock accepted here; missing locks remain review-only.
-    const checklistCandidates: InstaCompChecklistCandidate[] = [];
-    const parallelDecision = (macCandidate ? macParallelDecision(macCandidate) : await resolveChecklistParallelFromVision({
-      frontDataUrl: finalFrontDataUrl,
-      backDataUrl: finalBackDataUrl,
-      candidates: checklistCandidates,
-    }).catch((error) => ({
-      selectedParallel: null,
-      features: {
-        serialRun: null,
-        serialStampText: null,
-        evidence: [],
-        reasons: [
-          error instanceof Error
-            ? error.message
-            : "Parallel review failed, but the card will continue through the live identity fallback.",
-        ],
-      },
-    }))) as ParallelVisionDecision;
+    const parallelDecision = (macCandidate
+      ? macParallelDecision(macCandidate)
+      : {
+          status: "ambiguous",
+          selectedParallel: null,
+          selectedIdentityId: null,
+          confidence: 0,
+          evidence:
+            "Mac Registry exact identity is required before parallel selection on the fast seller path.",
+          candidateParallels: [],
+          features: {
+            dominantColor: null,
+            pattern: "uncertain",
+            serialStampPresent: null,
+            serialStampText: null,
+            serialRun: null,
+            autographPresent: null,
+            relicPresent: null,
+            confidence: 0,
+            evidence: [
+              "mac_registry_exact_identity_required",
+              "remote_parallel_inference_deferred",
+            ],
+          },
+          matchedIdentityIds: [],
+          rejectionReasons: {},
+        }) as ParallelVisionDecision;
     // Exact means exact: never promote a partial visual read to completed identity.
     // A card is complete only after the Mac Registry returns a trusted exact UUID + fingerprint.
     const identityComplete = Boolean(macCandidate);

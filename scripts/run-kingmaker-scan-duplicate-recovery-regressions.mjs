@@ -52,9 +52,24 @@ assert.ok(
 );
 assert.ok(
   exactScan.includes('source: "kingmaker_raw_intake_preservation"') &&
-    exactScan.indexOf('source: "kingmaker_raw_intake_preservation"') <
-      exactScan.indexOf("const normalizedSides = await normalizeInstaCompSideImages"),
-  "front/back uploads must be persisted before orientation or provider calls can fail",
+    exactScan.includes("const [macArchive, preservedInputPair] = await Promise.all([") &&
+    exactScan.includes("preserveInputPromise"),
+  "front/back preservation must run concurrently with the Mac scan instead of serially delaying it",
+);
+assert.equal(
+  exactScan.includes("normalizeInstaCompSideImages"),
+  false,
+  "seller scan requests must not block on the remote orientation referee",
+);
+assert.equal(
+  exactScan.includes("readInstaCompCoreVisualEvidence"),
+  false,
+  "unresolved seller scans must not block on weaker remote core identity inference",
+);
+assert.equal(
+  exactScan.includes("resolveChecklistParallelFromVision"),
+  false,
+  "unresolved seller scans must not block on weaker remote parallel inference",
 );
 assert.ok(
   exactScan.includes("const webOrientationTrusted =") &&

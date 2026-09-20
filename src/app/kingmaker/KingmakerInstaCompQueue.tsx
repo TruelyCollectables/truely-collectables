@@ -56,7 +56,7 @@ type QueueCard = {
   savingPrice: boolean;
 };
 
-const CONCURRENCY = 2;
+const CONCURRENCY = 1;
 
 function numberFrom(value: unknown): number | null {
   const parsed = Number(value);
@@ -110,8 +110,8 @@ function identityRows(result: IntakeResult | null) {
 
 function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
-  if (card.status === "working") return "Orienting with Mac archive + exact comping";
-  if (card.status === "pending") return "Exact identity + InstaComp pricing complete";
+  if (card.status === "working") return "Mac orientation + exact Registry identification";
+  if (card.status === "pending") return "Identity saved — pricing is running in background";
   if (card.status === "review" && card.result?.resumedExisting)
     return "Existing scan resumed — saved for review";
   if (card.status === "review" && card.result?.code?.startsWith("DUPLICATE"))
@@ -128,6 +128,10 @@ export default function KingmakerInstaCompQueue() {
   const [pageNotice, setPageNotice] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const acceptedSignatures = useRef<Set<string>>(new Set());
+  // Serialize every drop/selection through one component-wide queue. Individual
+  // batches already use concurrency=1, but two overlapping drops used to create
+  // two independent queues and therefore two simultaneous Mac scans.
+  const queueTailRef = useRef<Promise<void>>(Promise.resolve());
 
   const totals = useMemo(
     () => ({
@@ -211,6 +215,14 @@ export default function KingmakerInstaCompQueue() {
     });
   }
 
+  function enqueueQueue(queue: QueueCard[]) {
+    const next = queueTailRef.current
+      .catch(() => undefined)
+      .then(() => runQueue(queue));
+    queueTailRef.current = next;
+    return next;
+  }
+
   async function acceptFiles(value: FileList | File[]) {
     const files = Array.from(value).filter((file) => file.type.startsWith("image/"));
     if (!files.length) return;
@@ -244,7 +256,7 @@ export default function KingmakerInstaCompQueue() {
       setPageNotice(
         `${prepared.length} card${prepared.length === 1 ? "" : "s"} queued from ${files.length - pairing.duplicateCount} image${files.length - pairing.duplicateCount === 1 ? "" : "s"}.${pairing.duplicateCount ? ` ${pairing.duplicateCount} duplicate file${pairing.duplicateCount === 1 ? " was" : "s were"} ignored.` : ""}`,
       );
-      void runQueue(prepared);
+      void enqueueQueue(prepared);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not prepare dropped images.");
     } finally {
@@ -291,9 +303,9 @@ export default function KingmakerInstaCompQueue() {
             Drop card fronts + backs here
           </h2>
           <p className="mt-2 max-w-4xl leading-7 text-slate-300">
-            One intake does the whole job: permanent card UUID, text-based image orientation,
-            InstaComp AI identification, Registry lock, exact comps, pricing, then a Pending Listing.
-            Nothing publishes automatically.
+            One intake does the fast physical job first: Mac orientation, exact Registry identity,
+            and a saved Pending Listing. Exact eBay comps and pricing continue in the background
+            after identity is saved. Nothing publishes automatically.
           </p>
         </div>
         <Link

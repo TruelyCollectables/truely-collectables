@@ -29,14 +29,13 @@ const exact = read(
   "src/app/api/kingmaker/instacomp-front-back-exact/route.ts",
 );
 for (const required of [
-  "readInstaCompCoreVisualEvidence",
-  "resolveChecklistParallelFromVision",
   "year_product_player_card_then_color_pattern_serial",
   "archiveWithMacBestEffort",
   "const identityComplete = Boolean(macCandidate);",
   'receipt.checklistOutcome !== "exact_match"',
-  "if (macCandidate) {",
-  "core = macCoreEvidence(macCandidate, macReceipt);",
+  "macCoreEvidence(macCandidate, macReceipt)",
+  "Mac Registry did not lock one exact identity",
+  "remote_parallel_inference_deferred",
   "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
   "macCandidate?.fingerprintSha256 || null",
   'source: "checklist_registry"',
@@ -48,6 +47,9 @@ for (const required of [
   requireText(exact, required, `Exact route is missing: ${required}`);
 }
 for (const forbidden of [
+  "readInstaCompCoreVisualEvidence",
+  "resolveChecklistParallelFromVision",
+  "normalizeInstaCompSideImages",
   "runInstaCompScan",
   "getInstaCompServiceToken",
   "scanPayload?.ai",
@@ -117,6 +119,16 @@ requireText(
   batchQueue,
   "Front orienting",
   "Multi-card upload must not display raw browser previews as finished card images.",
+);
+requireText(
+  batchQueue,
+  "const CONCURRENCY = 1;",
+  "Physical card intake must admit only one Mac scan at a time.",
+);
+requireText(
+  batchQueue,
+  "queueTailRef",
+  "Overlapping image drops must share one serialized physical-scan queue.",
 );
 
 const sellerScanner = read("src/app/seller/instacomp-scan/page.tsx");
