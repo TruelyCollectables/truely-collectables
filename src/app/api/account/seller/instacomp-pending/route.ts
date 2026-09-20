@@ -1039,8 +1039,11 @@ export async function GET(request: Request) {
       const manualIdentityLocked = instaComp.manualIdentityLocked === true;
       const checklistIdentity = recordValue(instaComp.checklistIdentity);
       const registryLockedFields = recordValue(checklistIdentity.lockedFields);
+      const checklistIdentityStatus = textValue(checklistIdentity.status);
       const registryIdentityLocked =
-        textValue(checklistIdentity.status) === "exact_match" &&
+        (instaComp.identityComplete === true ||
+          checklistIdentityStatus === "exact_match" ||
+          checklistIdentityStatus === "identified") &&
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
           textValue(checklistIdentity.registryIdentityId) || "",
         ) &&

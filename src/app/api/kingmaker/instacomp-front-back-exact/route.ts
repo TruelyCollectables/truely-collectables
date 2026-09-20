@@ -980,16 +980,31 @@ export async function POST(request: NextRequest) {
     }
 
     const preScanAi = record(previousInstaComp.ai);
+    const previousChecklistIdentity = record(previousInstaComp.checklistIdentity);
+    const previousRegistryLockedFields = record(previousChecklistIdentity.lockedFields);
     const preScanTitleText = String(item.title || "");
     const preScanCardNumber =
+      text(
+        previousRegistryLockedFields.cardNumber ??
+          previousRegistryLockedFields.card_number,
+        80,
+      ) ||
       titleCardNumber(preScanTitleText) ||
       text(preScanAi.cardNumber ?? preScanAi.card_number, 80);
     const preScanYear =
-      titleYear(preScanTitleText) || text(preScanAi.year, 20);
+      text(previousRegistryLockedFields.year, 20) ||
+      titleYear(preScanTitleText) ||
+      text(preScanAi.year, 20);
     const preScanManufacturer =
+      text(
+        previousRegistryLockedFields.manufacturer ??
+          previousRegistryLockedFields.brand,
+        120,
+      ) ||
       titleManufacturer(preScanTitleText) ||
       text(preScanAi.manufacturer ?? preScanAi.brand, 120);
     const preScanPlayer =
+      text(previousRegistryLockedFields.player, 200) ||
       titlePlayer(preScanTitleText, preScanCardNumber) ||
       text(preScanAi.player, 200);
     const preScanIdentityHint: JsonRecord | null =
@@ -997,16 +1012,33 @@ export async function POST(request: NextRequest) {
         ? {
             year: preScanYear,
             manufacturer: preScanManufacturer,
-            brand: text(preScanAi.brand, 120),
-            set_name: text(
-              preScanAi.setName ?? preScanAi.set_name ?? preScanAi.product,
-              200,
-            ),
-            subset: text(preScanAi.subset, 160),
+            brand:
+              text(previousRegistryLockedFields.brand, 120) ||
+              text(preScanAi.brand, 120),
+            set_name:
+              text(
+                previousRegistryLockedFields.setName ??
+                  previousRegistryLockedFields.set_name ??
+                  previousRegistryLockedFields.product,
+                200,
+              ) ||
+              text(
+                preScanAi.setName ?? preScanAi.set_name ?? preScanAi.product,
+                200,
+              ),
+            subset:
+              text(previousRegistryLockedFields.subset, 160) ||
+              text(preScanAi.subset, 160),
             player: preScanPlayer,
-            team: text(preScanAi.team, 160),
-            sport: text(preScanAi.sport, 100),
-            league: text(preScanAi.league, 100),
+            team:
+              text(previousRegistryLockedFields.team, 160) ||
+              text(preScanAi.team, 160),
+            sport:
+              text(previousRegistryLockedFields.sport, 100) ||
+              text(preScanAi.sport, 100),
+            league:
+              text(previousRegistryLockedFields.league, 100) ||
+              text(preScanAi.league, 100),
             card_number: preScanCardNumber,
             rookie:
               typeof preScanAi.rookie === "boolean"
@@ -1077,10 +1109,13 @@ export async function POST(request: NextRequest) {
     // through to the full physical scan.
     let stablePairRegistryCandidate: InstaCompChecklistCandidate | null = null;
     const previousRegistryIdentityId = validUuid(
-      previousInstaComp.registryIdentityId ?? preScanAi.checklistIdentityId,
+      previousInstaComp.registryIdentityId ??
+        previousChecklistIdentity.registryIdentityId ??
+        preScanAi.checklistIdentityId,
     );
     const previousRegistryFingerprintSha256 = sha256Hex(
       previousInstaComp.registryFingerprintSha256 ??
+        previousChecklistIdentity.registryFingerprintSha256 ??
         preScanAi.checklistFingerprintSha256,
     );
     if (
@@ -1102,31 +1137,65 @@ export async function POST(request: NextRequest) {
         {
           year: preScanYear,
           manufacturer: preScanManufacturer,
-          brand: text(preScanAi.brand, 120) || preScanManufacturer,
-          setName: text(
-            preScanAi.setName ?? preScanAi.set_name ?? preScanAi.product,
-            200,
-          ),
+          brand:
+            text(previousRegistryLockedFields.brand, 120) ||
+            text(preScanAi.brand, 120) ||
+            preScanManufacturer,
+          setName:
+            text(
+              previousRegistryLockedFields.setName ??
+                previousRegistryLockedFields.set_name ??
+                previousRegistryLockedFields.product,
+              200,
+            ) ||
+            text(
+              preScanAi.setName ?? preScanAi.set_name ?? preScanAi.product,
+              200,
+            ),
+          subset:
+            text(previousRegistryLockedFields.subset, 160) ||
+            text(preScanAi.subset, 160),
           cardNumber: preScanCardNumber,
           player: preScanPlayer,
-          team: text(preScanAi.team, 160),
-          sport: text(preScanAi.sport, 100),
-          league: text(preScanAi.league, 100),
-          serialNumber: text(
-            preScanAi.serialNumber ?? preScanAi.printRun,
-            80,
-          ),
+          team:
+            text(previousRegistryLockedFields.team, 160) ||
+            text(preScanAi.team, 160),
+          sport:
+            text(previousRegistryLockedFields.sport, 100) ||
+            text(preScanAi.sport, 100),
+          league:
+            text(previousRegistryLockedFields.league, 100) ||
+            text(preScanAi.league, 100),
+          serialNumber:
+            text(
+              previousRegistryLockedFields.serialNumber ??
+                previousRegistryLockedFields.printRun,
+              80,
+            ) ||
+            text(preScanAi.serialNumber ?? preScanAi.printRun, 80),
           isAuto:
-            typeof preScanAi.isAuto === "boolean" ? preScanAi.isAuto : null,
+            typeof previousRegistryLockedFields.isAuto === "boolean"
+              ? previousRegistryLockedFields.isAuto
+              : typeof preScanAi.isAuto === "boolean"
+                ? preScanAi.isAuto
+                : null,
           isRelic:
-            typeof preScanAi.isRelic === "boolean" ? preScanAi.isRelic : null,
-          parallel: text(
-            preScanAi.checklistParallel ??
-              preScanAi.parallel ??
-              preScanAi.parallelName,
-            160,
-          ),
-          variation: text(preScanAi.variation, 160),
+            typeof previousRegistryLockedFields.isRelic === "boolean"
+              ? previousRegistryLockedFields.isRelic
+              : typeof preScanAi.isRelic === "boolean"
+                ? preScanAi.isRelic
+                : null,
+          parallel:
+            text(previousRegistryLockedFields.parallel, 160) ||
+            text(
+              preScanAi.checklistParallel ??
+                preScanAi.parallel ??
+                preScanAi.parallelName,
+              160,
+            ),
+          variation:
+            text(previousRegistryLockedFields.variation, 160) ||
+            text(preScanAi.variation, 160),
           ocrText: preScanTitleText,
         },
         5_000,

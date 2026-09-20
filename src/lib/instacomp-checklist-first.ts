@@ -3,6 +3,7 @@ export type InstaCompChecklistLookupInput = {
   manufacturer: string | null;
   brand?: string | null;
   setName?: string | null;
+  subset?: string | null;
   cardNumber: string | null;
   player: string | null;
   team?: string | null;

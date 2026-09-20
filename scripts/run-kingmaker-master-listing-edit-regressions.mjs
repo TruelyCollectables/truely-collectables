@@ -84,4 +84,20 @@ assert.ok(
   "The edit UI must preserve a nonblank seller title exactly instead of trimming or rebuilding it",
 );
 
+
+const exactRoutePath = "src/app/api/kingmaker/instacomp-front-back-exact/route.ts";
+const exactRoute = fs.readFileSync(exactRoutePath, "utf8");
+assert.ok(
+  exactRoute.includes("const previousRegistryLockedFields = record(previousChecklistIdentity.lockedFields)") &&
+    exactRoute.includes("text(previousRegistryLockedFields.player, 200) ||") &&
+    exactRoute.includes("previousChecklistIdentity.registryIdentityId") &&
+    exactRoute.includes("previousChecklistIdentity.registryFingerprintSha256"),
+  "A locked Registry receipt must drive repeat identity checks ahead of seller/listing title text",
+);
+assert.ok(
+  pending.includes('checklistIdentityStatus === "identified"') &&
+    pending.includes("instaComp.identityComplete === true"),
+  "Pending must recognize exact-scan identified receipts as authoritative Registry locks",
+);
+
 console.log("KINGMAKER Master Listings edit regressions passed.");

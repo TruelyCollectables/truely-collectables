@@ -265,6 +265,7 @@ export async function resolveInstaCompChecklistFirstFromRegistry(
         manufacturer: input.manufacturer,
         brand: input.brand || null,
         setName: input.setName || null,
+        subset: input.subset || null,
         cardNumber: input.cardNumber,
         player: input.player,
         team: input.team || null,
