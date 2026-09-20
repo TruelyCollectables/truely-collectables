@@ -119,38 +119,40 @@ function sha256Hex(value: unknown) {
   return /^[0-9a-f]{64}$/.test(hash) ? hash : null;
 }
 
+function stableStoredPairHashesMatch(params: {
+  previousInstaComp: JsonRecord;
+  frontSha256: string;
+  backSha256: string;
+  hasProvidedPair: boolean;
+}) {
+  if (params.hasProvidedPair) return false;
+  const previousFrontSha256 = sha256Hex(params.previousInstaComp.frontSha256);
+  const previousBackSha256 = sha256Hex(params.previousInstaComp.backSha256);
+  const currentFrontSha256 = sha256Hex(params.frontSha256);
+  const currentBackSha256 = sha256Hex(params.backSha256);
+  return Boolean(
+    previousFrontSha256 &&
+      previousBackSha256 &&
+      currentFrontSha256 &&
+      currentBackSha256 &&
+      previousFrontSha256 !== previousBackSha256 &&
+      previousFrontSha256 === currentFrontSha256 &&
+      previousBackSha256 === currentBackSha256 &&
+      params.previousInstaComp.imagePersistenceVerified === true,
+  );
+}
+
 function trustedStoredPairOrientation(params: {
   previousInstaComp: JsonRecord;
   frontSha256: string;
   backSha256: string;
   hasProvidedPair: boolean;
 }): InstaCompImageOrientationReceipt | null {
-  if (params.hasProvidedPair) return null;
-
-  const previousFrontSha256 = sha256Hex(params.previousInstaComp.frontSha256);
-  const previousBackSha256 = sha256Hex(params.previousInstaComp.backSha256);
-  const currentFrontSha256 = sha256Hex(params.frontSha256);
-  const currentBackSha256 = sha256Hex(params.backSha256);
-  const registryIdentityId = validUuid(
-    params.previousInstaComp.registryIdentityId ??
-      params.previousInstaComp.cardUuid,
-  );
-  const registryFingerprintSha256 = sha256Hex(
-    params.previousInstaComp.registryFingerprintSha256 ??
-      params.previousInstaComp.pricingGroupKey,
-  );
-
+  const previousOrientation = record(params.previousInstaComp.imageOrientation);
   if (
-    !previousFrontSha256 ||
-    !previousBackSha256 ||
-    !currentFrontSha256 ||
-    !currentBackSha256 ||
-    previousFrontSha256 === previousBackSha256 ||
-    previousFrontSha256 !== currentFrontSha256 ||
-    previousBackSha256 !== currentBackSha256 ||
-    !registryIdentityId ||
-    !registryFingerprintSha256 ||
-    params.previousInstaComp.imagePersistenceVerified !== true
+    !stableStoredPairHashesMatch(params) ||
+    params.previousInstaComp.imageOrientationVerified !== true ||
+    text(previousOrientation.status, 80) !== "completed"
   ) {
     return null;
   }
@@ -1060,17 +1062,155 @@ export async function POST(request: NextRequest) {
       hasProvidedPair,
     });
 
-    // Preserve the original upload and run the Mac scan at the same time. For
-    // an unchanged previously verified canonical pair, feed the hash-proven
-    // 0-degree orientation back to the Mac so its exact-pair fast path can
-    // revalidate identity without paying the full orientation pipeline again.
+    // An unchanged image pair with an already exact Registry receipt does not
+    // need to pay Apple Vision/OCR again just to prove it is still the same
+    // card. Re-query the Mac-local Registry using the locked identity facts and
+    // require the SAME UUID + fingerprint. Any mismatch or ambiguity falls
+    // through to the full physical scan.
+    let stablePairRegistryCandidate: InstaCompChecklistCandidate | null = null;
+    const previousRegistryIdentityId = validUuid(
+      previousInstaComp.registryIdentityId ?? preScanAi.checklistIdentityId,
+    );
+    const previousRegistryFingerprintSha256 = sha256Hex(
+      previousInstaComp.registryFingerprintSha256 ??
+        preScanAi.checklistFingerprintSha256,
+    );
+    if (
+      stableStoredPairHashesMatch({
+        previousInstaComp,
+        frontSha256,
+        backSha256,
+        hasProvidedPair,
+      }) &&
+      previousInstaComp.identityComplete === true &&
+      previousRegistryIdentityId &&
+      previousRegistryFingerprintSha256 &&
+      preScanYear &&
+      preScanManufacturer &&
+      preScanCardNumber &&
+      preScanPlayer
+    ) {
+      const stableDecision = await resolveInstaCompChecklistFirstFromRegistry(
+        {
+          year: preScanYear,
+          manufacturer: preScanManufacturer,
+          brand: text(preScanAi.brand, 120) || preScanManufacturer,
+          setName: text(
+            preScanAi.setName ?? preScanAi.set_name ?? preScanAi.product,
+            200,
+          ),
+          cardNumber: preScanCardNumber,
+          player: preScanPlayer,
+          team: text(preScanAi.team, 160),
+          sport: text(preScanAi.sport, 100),
+          league: text(preScanAi.league, 100),
+          serialNumber: text(
+            preScanAi.serialNumber ?? preScanAi.printRun,
+            80,
+          ),
+          isAuto:
+            typeof preScanAi.isAuto === "boolean" ? preScanAi.isAuto : null,
+          isRelic:
+            typeof preScanAi.isRelic === "boolean" ? preScanAi.isRelic : null,
+          parallel: text(
+            preScanAi.checklistParallel ??
+              preScanAi.parallel ??
+              preScanAi.parallelName,
+            160,
+          ),
+          variation: text(preScanAi.variation, 160),
+          ocrText: preScanTitleText,
+        },
+        5_000,
+      );
+      const stableMatch = stableDecision.match;
+      const stableIdentityId = validUuid(stableMatch?.identityId);
+      const stableFingerprint = sha256Hex(stableMatch?.fingerprintSha256);
+      if (
+        stableDecision.status === "exact_match" &&
+        stableMatch &&
+        stableIdentityId === previousRegistryIdentityId &&
+        stableFingerprint === previousRegistryFingerprintSha256
+      ) {
+        stablePairRegistryCandidate = {
+          ...stableMatch,
+          identityId: stableIdentityId,
+          fingerprintSha256: stableFingerprint,
+        };
+      }
+    }
+
+    const stablePairArchive: MacArchiveResult | null =
+      stablePairRegistryCandidate
+        ? {
+            receipt: {
+              scanId: text(previousInstaComp.scanId, 100),
+              status: "trusted_memory_match",
+              checklistOutcome: "exact_match",
+              registryIdentityId: stablePairRegistryCandidate.identityId,
+              registryFingerprintSha256:
+                stablePairRegistryCandidate.fingerprintSha256 || null,
+              checklistIdentity: {
+                identity_id: stablePairRegistryCandidate.identityId,
+                fingerprint_sha256:
+                  stablePairRegistryCandidate.fingerprintSha256 || null,
+                year: stablePairRegistryCandidate.year,
+                manufacturer: stablePairRegistryCandidate.manufacturer,
+                brand:
+                  stablePairRegistryCandidate.brand ||
+                  stablePairRegistryCandidate.manufacturer,
+                product:
+                  stablePairRegistryCandidate.product ||
+                  stablePairRegistryCandidate.setName ||
+                  null,
+                set_name:
+                  stablePairRegistryCandidate.setName ||
+                  stablePairRegistryCandidate.product ||
+                  null,
+                subset: stablePairRegistryCandidate.subset || null,
+                card_number: stablePairRegistryCandidate.cardNumber,
+                player: stablePairRegistryCandidate.player,
+                serial_run: stablePairRegistryCandidate.serialRun ?? null,
+                autograph: stablePairRegistryCandidate.isAuto,
+                memorabilia: stablePairRegistryCandidate.isRelic,
+                parallel: stablePairRegistryCandidate.parallel || "Base",
+                variation: stablePairRegistryCandidate.variation || null,
+                team: stablePairRegistryCandidate.team || null,
+                sport: stablePairRegistryCandidate.sport || null,
+                league: stablePairRegistryCandidate.league || null,
+              },
+              checklistReasons: [
+                "stable_pair_sha256_registry_revalidated_exact",
+              ],
+              pricingAllowed: false,
+              learningAllowed: false,
+              matchSource: "stable_pair_registry_revalidation",
+              attempts: 0,
+              canonicalImagesRecovered: true,
+              imageOrientation: null,
+              centering: {
+                front: null,
+                back: null,
+              },
+              error: null,
+            },
+            frontFile,
+            backFile,
+            orientation: storedPairOrientation,
+          }
+        : null;
+
+    // First-time/unresolved cards still run the physical Mac scan. Unchanged
+    // exact pairs use the bounded Registry revalidation above.
     const [macArchive, preservedInputPair] = await Promise.all([
-      archiveWithMacBestEffort({
-        frontFile,
-        backFile,
-        webOrientation: storedPairOrientation,
-        identityHint: preScanIdentityHint,
-      }),
+      stablePairArchive
+        ? Promise.resolve(stablePairArchive)
+        : archiveWithMacBestEffort({
+            frontFile,
+            backFile,
+            webOrientation: storedPairOrientation,
+            identityHint: preScanIdentityHint,
+          }),
       preserveInputPromise,
     ]);
 
