@@ -672,6 +672,7 @@ async function archiveWithMacBestEffort(params: {
   frontFile: File;
   backFile: File;
   webOrientation: InstaCompImageOrientationReceipt | null;
+  identityHint?: JsonRecord | null;
 }): Promise<MacArchiveResult> {
   let scan: InstaCompAiLocalScan | null = null;
   let attempts = 0;
@@ -692,6 +693,7 @@ async function archiveWithMacBestEffort(params: {
           // Mac-local orientation engine remains authoritative.
           front: params.frontFile,
           back: params.backFile,
+          identityHint: params.identityHint || null,
           frontRotation: webOrientationTrusted
             ? quarterTurn(params.webOrientation?.frontRotation)
             : undefined,
@@ -967,6 +969,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const preScanAi = record(previousInstaComp.ai);
+    const preScanTitleText = String(item.title || "");
+    const preScanCardNumber =
+      titleCardNumber(preScanTitleText) ||
+      text(preScanAi.cardNumber ?? preScanAi.card_number, 80);
+    const preScanYear =
+      titleYear(preScanTitleText) || text(preScanAi.year, 20);
+    const preScanManufacturer =
+      titleManufacturer(preScanTitleText) ||
+      text(preScanAi.manufacturer ?? preScanAi.brand, 120);
+    const preScanPlayer =
+      titlePlayer(preScanTitleText, preScanCardNumber) ||
+      text(preScanAi.player, 200);
+    const preScanIdentityHint: JsonRecord | null =
+      preScanYear && preScanPlayer && preScanCardNumber
+        ? {
+            year: preScanYear,
+            manufacturer: preScanManufacturer,
+            brand: text(preScanAi.brand, 120),
+            set_name: text(
+              preScanAi.setName ?? preScanAi.set_name ?? preScanAi.product,
+              200,
+            ),
+            subset: text(preScanAi.subset, 160),
+            player: preScanPlayer,
+            team: text(preScanAi.team, 160),
+            sport: text(preScanAi.sport, 100),
+            league: text(preScanAi.league, 100),
+            card_number: preScanCardNumber,
+            rookie:
+              typeof preScanAi.rookie === "boolean"
+                ? preScanAi.rookie
+                : /\b(?:RC|rookie)\b/i.test(preScanTitleText)
+                  ? true
+                  : null,
+            autograph: /\b(?:AU|auto|autograph|signature)\b/i.test(
+              preScanTitleText,
+            )
+              ? true
+              : null,
+            memorabilia: /\b(?:MEM|relic|patch|jersey)\b/i.test(
+              preScanTitleText,
+            )
+              ? true
+              : null,
+          }
+        : null;
+
     let preserveInputPromise: Promise<{
       frontImageUrl: string;
       backImageUrl: string;
@@ -1019,6 +1069,7 @@ export async function POST(request: NextRequest) {
         frontFile,
         backFile,
         webOrientation: storedPairOrientation,
+        identityHint: preScanIdentityHint,
       }),
       preserveInputPromise,
     ]);
