@@ -114,6 +114,68 @@ function confidence(value: unknown) {
   return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0;
 }
 
+function sha256Hex(value: unknown) {
+  const hash = String(value ?? "").trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(hash) ? hash : null;
+}
+
+function trustedStoredPairOrientation(params: {
+  previousInstaComp: JsonRecord;
+  frontSha256: string;
+  backSha256: string;
+  hasProvidedPair: boolean;
+}): InstaCompImageOrientationReceipt | null {
+  if (params.hasProvidedPair) return null;
+
+  const previousFrontSha256 = sha256Hex(params.previousInstaComp.frontSha256);
+  const previousBackSha256 = sha256Hex(params.previousInstaComp.backSha256);
+  const currentFrontSha256 = sha256Hex(params.frontSha256);
+  const currentBackSha256 = sha256Hex(params.backSha256);
+  const registryIdentityId = validUuid(
+    params.previousInstaComp.registryIdentityId ??
+      params.previousInstaComp.cardUuid,
+  );
+  const registryFingerprintSha256 = sha256Hex(
+    params.previousInstaComp.registryFingerprintSha256 ??
+      params.previousInstaComp.pricingGroupKey,
+  );
+
+  if (
+    !previousFrontSha256 ||
+    !previousBackSha256 ||
+    !currentFrontSha256 ||
+    !currentBackSha256 ||
+    previousFrontSha256 === previousBackSha256 ||
+    previousFrontSha256 !== currentFrontSha256 ||
+    previousBackSha256 !== currentBackSha256 ||
+    !registryIdentityId ||
+    !registryFingerprintSha256 ||
+    params.previousInstaComp.imagePersistenceVerified !== true
+  ) {
+    return null;
+  }
+
+  return {
+    status: "completed",
+    model: "kingmaker_verified_stored_pair_sha256",
+    source: "kingmaker_verified_stored_pair_sha256",
+    frontRotation: 0,
+    backRotation: 0,
+    frontConfidence: 1,
+    backConfidence: 1,
+    frontEvidenceText: [
+      "front:current_sha256_matches_previously_verified_canonical_pair",
+    ],
+    backEvidenceText: [
+      "back:current_sha256_matches_previously_verified_canonical_pair",
+    ],
+    backStandalonePrizm: null,
+    backDesignationConfidence: 0,
+    reason:
+      "Current stored front/back bytes exactly match the previously verified canonical pair, so the Mac may reuse trusted 0-degree orientation while revalidating Registry identity.",
+  };
+}
+
 function evidence(value: unknown) {
   return Array.isArray(value)
     ? value
@@ -143,6 +205,15 @@ function completedMacOrientation(
   scan: InstaCompAiLocalScan,
   webOrientation: InstaCompImageOrientationReceipt | null,
 ): InstaCompImageOrientationReceipt {
+  if (!scan.image_orientation && webOrientation?.status === "completed") {
+    return {
+      ...webOrientation,
+      status: "completed",
+      reason:
+        "The Mac revalidated the exact stored card pair while KINGMAKER preserved the previously verified canonical 0-degree orientation for the same SHA-256 front/back bytes.",
+    };
+  }
+
   const receipt = scan.image_orientation || {};
   const source = text(receipt.source, 120) || "mac_local_orientation";
   const frontSource = text(receipt.front_source, 120) || source;
@@ -932,14 +1003,22 @@ export async function POST(request: NextRequest) {
       }));
     }
 
-    // Preserve the original upload and run the Mac scan at the same time. The
-    // old path finished two storage uploads first and only then started the
-    // physical scan, adding pure serial latency to every card.
+    const storedPairOrientation = trustedStoredPairOrientation({
+      previousInstaComp,
+      frontSha256,
+      backSha256,
+      hasProvidedPair,
+    });
+
+    // Preserve the original upload and run the Mac scan at the same time. For
+    // an unchanged previously verified canonical pair, feed the hash-proven
+    // 0-degree orientation back to the Mac so its exact-pair fast path can
+    // revalidate identity without paying the full orientation pipeline again.
     const [macArchive, preservedInputPair] = await Promise.all([
       archiveWithMacBestEffort({
         frontFile,
         backFile,
-        webOrientation: null,
+        webOrientation: storedPairOrientation,
       }),
       preserveInputPromise,
     ]);
