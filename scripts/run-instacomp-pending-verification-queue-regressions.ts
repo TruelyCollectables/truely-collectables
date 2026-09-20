@@ -19,7 +19,8 @@ assert.equal(
     ...verifiedOrientation,
     listingWorkflow: { queue: "pending_listings" },
   }),
-  "listings",
+  "verification",
+  "orientation alone must never certify card identity",
 );
 assert.equal(
   instaCompPendingQueueFromMetadata({
@@ -49,7 +50,42 @@ assert.equal(
       lastStatus: "identity_complete",
     },
   }),
+  "verification",
+  "identityComplete without the exact Mac Registry receipt must stay in verification",
+);
+assert.equal(
+  instaCompPendingQueueFromMetadata({
+    listingWorkflow: { queue: "pending_verification" },
+    instacomp: {
+      ...verifiedOrientation.instacomp,
+      identityComplete: true,
+      trustedForIdentity: true,
+      registryIdentityId: "11111111-1111-4111-8111-111111111111",
+      registryFingerprintSha256: "fingerprint-1",
+      checklistDecision: { status: "exact_match" },
+      checklistIdentity: {
+        status: "identified",
+        source: "checklist_registry",
+        registryIdentityId: "11111111-1111-4111-8111-111111111111",
+        registryFingerprintSha256: "fingerprint-1",
+      },
+      macReceipt: { checklistOutcome: "exact_match" },
+    },
+  }),
   "listings",
+  "a complete exact Mac Registry receipt may promote the card",
+);
+assert.equal(
+  instaCompPendingQueueFromMetadata({
+    listingWorkflow: { queue: "pending_verification" },
+    instacomp: {
+      ...verifiedOrientation.instacomp,
+      identityComplete: true,
+      manualIdentityLocked: true,
+    },
+  }),
+  "listings",
+  "seller manual identity locks remain protected",
 );
 assert.equal(
   instaCompPendingQueueFromMetadata({

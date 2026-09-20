@@ -21,7 +21,7 @@ const verifyCall = verifiedRoute.indexOf(
   "const verification = await verifyPendingIdentity(verificationRequest);",
 );
 const verificationGate = verifiedRoute.indexOf(
-  "if (!verification.ok || verificationPayload?.success !== true)",
+  "if (!checklistIdentityLocked)",
 );
 const pricingCall = verifiedRoute.indexOf(
   "const response = await runUniversalInstaComp(pricingRequest);",
@@ -37,6 +37,16 @@ assert.ok(
 assert.ok(
   pricingCall > verificationGate,
   "marketplace pricing must execute only after the Registry verification gate",
+);
+assert.match(
+  verifiedRoute,
+  /verificationPayload\?\.identityComplete === true/,
+  "verified pricing must require the physical identity-complete receipt",
+);
+assert.match(
+  verifiedRoute,
+  /identity\?\.registryFingerprintSha256/,
+  "verified pricing must require a Registry fingerprint",
 );
 assert.match(
   verifiedRoute,

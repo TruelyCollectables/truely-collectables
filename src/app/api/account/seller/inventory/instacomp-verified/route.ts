@@ -67,8 +67,16 @@ export async function POST(request: NextRequest) {
   const verification = await verifyPendingIdentity(verificationRequest);
   const verificationPayload = await verification.json().catch(() => ({}));
   const identity = verificationPayload?.identity || null;
+  const checklistIdentityLocked =
+    verification.ok &&
+    verificationPayload?.success === true &&
+    verificationPayload?.identityComplete === true &&
+    identity?.status === "identified" &&
+    identity?.source === "checklist_registry" &&
+    Boolean(identity?.registryIdentityId) &&
+    Boolean(identity?.registryFingerprintSha256);
 
-  if (!verification.ok || verificationPayload?.success !== true) {
+  if (!checklistIdentityLocked) {
     return NextResponse.json(
       instaCompEnvelope({
         requestId: body.requestId,

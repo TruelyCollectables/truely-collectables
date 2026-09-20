@@ -1827,6 +1827,65 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function runSelectedExactIdentity() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    const targets = selected.filter(
+      (card) =>
+        hasValidPair(card) &&
+        jobs[card.inventoryItemId]?.manualIdentityLocked !== true,
+    );
+    const skipped = selected.length - targets.length;
+    if (!targets.length) {
+      setPageError("Select one or more verification cards with a distinct stored front/back pair.");
+      return;
+    }
+
+    setBusyId("bulk-identity");
+    setPageError("");
+    setNotice(`Reading ${targets.length} selected card${targets.length === 1 ? "" : "s"} through the exact Mac Registry path…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+
+      let exact = 0;
+      let review = 0;
+      let failed = 0;
+      for (const card of targets) {
+        const response = await fetch("/api/kingmaker/instacomp-front-back-exact", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => ({}));
+        const exactReceipt =
+          response.ok &&
+          data.success === true &&
+          data.identityComplete === true &&
+          Boolean(data.registryIdentityId) &&
+          Boolean(data.registryFingerprintSha256) &&
+          data.checklistDecision?.status === "exact_match" &&
+          data.macReceipt?.checklistOutcome === "exact_match";
+        if (exactReceipt) exact += 1;
+        else if (data.success === true) review += 1;
+        else failed += 1;
+      }
+
+      setSelectedIds(new Set());
+      setNotice(
+        `Exact identity pass finished: ${exact} exact, ${review} still review, ${failed} failed${skipped ? `, ${skipped} manual-locked/skipped` : ""}.`,
+      );
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function runExactIdentity(card: PendingCard) {
     if (!hasValidPair(card)) {
       setLocalError((current) => ({ ...current, [card.inventoryItemId]: "A distinct stored front and back are required." }));
@@ -2084,7 +2143,15 @@ export default function KingmakerPendingPage({
             </div>
             {queue === "verification" ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
-                <span className="mr-2 text-sm font-black">Exact inventory merge:</span>
+                <span className="mr-2 text-sm font-black">Verification actions:</span>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void runSelectedExactIdentity()}
+                  className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Read Selected → Exact Mac Identity
+                </button>
                 <button
                   type="button"
                   disabled={!selectedIds.size || Boolean(busyId)}
