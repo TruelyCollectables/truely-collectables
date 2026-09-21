@@ -99,6 +99,10 @@ class SideVisionEvidence(BaseModel):
     height: int = Field(ge=1)
     ocr: list[OCRObservation] = Field(default_factory=list)
     colors: ColorEvidence = Field(default_factory=ColorEvidence)
+    # Surface-treatment color is measured from the card frame, excluding the
+    # center photo. Parallel classification must use this field instead of the
+    # whole-image color mix, which is easily polluted by jerseys/backgrounds.
+    surface_colors: ColorEvidence = Field(default_factory=ColorEvidence)
     pattern: PatternEvidence = Field(default_factory=PatternEvidence)
     errors: list[str] = Field(default_factory=list)
 
