@@ -31,7 +31,7 @@ const exact = read(
 for (const required of [
   "year_product_player_card_then_color_pattern_serial",
   "archiveWithMacBestEffort",
-  "const identityComplete = Boolean(macCandidate);",
+  "const identityComplete = Boolean(certifiedCandidate);",
   'receipt.checklistOutcome !== "exact_match"',
   "macCoreEvidence(macCandidate, macReceipt)",
   "Mac Registry did not lock one exact identity",
@@ -40,11 +40,15 @@ for (const required of [
   "registryRecoveryAttempts",
   "expandedAttemptHints",
   "_family_only",
-  "mac_registry_title_hint_recovery_exact",
-  "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
-  "macCandidate?.fingerprintSha256 || null",
+  "physical_parallel_evidence_verified",
+  "parallelPhysicalProof",
+  "allowTitleBasedIdentityRecovery = false",
+  "IDENTITY_TARGET_MS = 10_000",
+  "MAC_IDENTITY_TIMEOUT_MS = 5_500",
+  "const selectedRegistryIdentityId = certifiedCandidate?.identityId || null;",
+  "certifiedCandidate?.fingerprintSha256 || null",
   'source: "checklist_registry"',
-  "trustedForIdentity: Boolean(macCandidate)",
+  "trustedForIdentity: Boolean(certifiedCandidate)",
   "pricingGroupKey: selectedRegistryFingerprintSha256",
   '"identity_review_required"',
   "status: identityComplete ? 200 : 202",
@@ -52,6 +56,8 @@ for (const required of [
   requireText(exact, required, `Exact route is missing: ${required}`);
 }
 for (const forbidden of [
+  "Mac InstaComp AI supplied a trusted exact Registry identity; no second visual parallel vote was required.",
+  "const identityComplete = Boolean(macCandidate);",
   "readInstaCompCoreVisualEvidence",
   "resolveChecklistParallelFromVision",
   "normalizeInstaCompSideImages",
