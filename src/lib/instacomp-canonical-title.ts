@@ -173,16 +173,17 @@ export function buildInstaCompRegistryExactTitle(identityValue: unknown) {
   const subset = text(identity.subset ?? identity.insertName ?? identity.insert);
   const brand = text(identity.brand);
   if (product) add(product);
-  else if (setName) add(setName);
+  else if (setName && comparable(setName) !== "base") add(setName);
   else add(brand);
-  if (product) add(setName);
-  add(subset);
+  if (product && setName && comparable(setName) !== "base") add(setName);
+  if (subset && comparable(subset) !== "base") add(subset);
 
   const cardNumber = text(identity.cardNumber ?? identity.card_number).replace(/^#/, "");
   if (cardNumber) add(`#${cardNumber}`);
   add(identity.player ?? identity.playerName ?? identity.subject);
   add(identity.team);
-  add(identity.parallel ?? identity.checklistParallel ?? identity.parallelName);
+  const exactParallel = text(identity.parallel ?? identity.checklistParallel ?? identity.parallelName);
+  if (exactParallel && comparable(exactParallel) !== "base") add(exactParallel);
   add(identity.variation);
 
   const serial = serialDenominator(identity);

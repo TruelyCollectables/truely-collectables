@@ -93,7 +93,7 @@ const fernandoRegistryExact = exactTitle({
 });
 assert.equal(
   fernandoRegistryExact,
-  "2026 Topps Flagship Football ROOKIES #301 Fernando Mendoza Las Vegas Raiders Base",
+  "2026 Topps Flagship Football ROOKIES #301 Fernando Mendoza Las Vegas Raiders",
 );
 
 const fernandoLockedFieldsShape = exactTitle({
@@ -112,6 +112,38 @@ assert.equal(
   fernandoLockedFieldsShape,
   fernandoRegistryExact,
 );
+
+const prizmRegistryBase = exactTitle({
+  year: "2025", manufacturer: "Panini", brand: "Prizm", product: "Prizm WNBA",
+  setName: "Prizm WNBA", subset: "Base", cardNumber: "146", player: "Aneesah Morrow",
+  team: "Connecticut Sun", parallel: "Base",
+});
+assert.equal(
+  prizmRegistryBase,
+  "2025 Panini Prizm WNBA #146 Aneesah Morrow Connecticut Sun",
+);
+
+const prizmRegistryIce = exactTitle({
+  year: "2025", manufacturer: "Panini", brand: "Prizm", product: "Prizm WNBA",
+  setName: "Prizm WNBA", subset: "Base", cardNumber: "150", player: "Saniya Rivers",
+  team: "Connecticut Sun", parallel: "Ice",
+});
+assert.equal(
+  prizmRegistryIce,
+  "2025 Panini Prizm WNBA #150 Saniya Rivers Connecticut Sun Ice",
+);
+
+const prizmRegistrySilver = exactTitle({
+  year: "2025", manufacturer: "Panini", brand: "Prizm", product: "Prizm WNBA",
+  setName: "Prizm WNBA", subset: "Base", cardNumber: "140", player: "Georgia Amoore",
+  team: "Washington Mystics", parallel: "Silver",
+});
+assert.equal(
+  prizmRegistrySilver,
+  "2025 Panini Prizm WNBA #140 Georgia Amoore Washington Mystics Silver",
+);
+assert.notEqual(prizmRegistryIce, prizmRegistrySilver);
+assert.doesNotMatch(prizmRegistryBase, /\bBase\b/i);
 
 const learnedRc = title({
   year: "2025", manufacturer: "Panini", product: "Prizm WNBA", setName: "Base",

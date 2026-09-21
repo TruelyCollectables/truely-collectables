@@ -683,6 +683,7 @@ async function archiveWithMacBestEffort(params: {
   backFile: File;
   webOrientation: InstaCompImageOrientationReceipt | null;
   identityHint?: JsonRecord | null;
+  deepRecovery?: boolean;
 }): Promise<MacArchiveResult> {
   let scan: InstaCompAiLocalScan | null = null;
   let attempts = 0;
@@ -691,10 +692,10 @@ async function archiveWithMacBestEffort(params: {
     // Stay well inside the public request ceiling. A slow/hung Mac scan must
     // return a saved review item instead of letting Cloudflare/browser abort the
     // request after ~200 seconds with no useful handoff.
-    const deadline = Date.now() + 45_000;
+    const deadline = Date.now() + (params.deepRecovery ? 100_000 : 45_000);
     const webOrientationTrusted =
       params.webOrientation?.status === "completed";
-    for (const requestedTimeout of [40_000]) {
+    for (const requestedTimeout of [params.deepRecovery ? 95_000 : 40_000]) {
       attempts += 1;
       try {
         scan = await analyzeWithInstaCompAiLocal({
@@ -714,6 +715,7 @@ async function archiveWithMacBestEffort(params: {
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
           ),
+          deepRecovery: params.deepRecovery === true,
         });
         break;
       } catch (error) {
@@ -1373,6 +1375,39 @@ export async function POST(request: NextRequest) {
           }
         : null;
 
+    // Unresolved Prizm-family cards need physical finish discrimination. Old
+    // seller titles/legacy AI may contain the WRONG player or parallel, so do
+    // not feed those hints into the Mac family fast path. Force the bounded
+    // deep physical pass: images -> Registry family -> legal finish choices ->
+    // exact UUID/fingerprint. This is what separates Base/Silver/Ice safely.
+    const preScanParallelText =
+      text(previousRegistryLockedFields.parallel, 160) ||
+      text(
+        preScanAi.checklistParallel ??
+          preScanAi.parallel ??
+          preScanAi.parallelName ??
+          preScanAi.variation,
+        160,
+      ) ||
+      titleSurfaceHint(preScanTitleText);
+    const preScanPrizmContext = [
+      preScanTitleText,
+      text(previousRegistryLockedFields.brand, 120),
+      text(previousRegistryLockedFields.product, 200),
+      text(previousRegistryLockedFields.setName, 200),
+      text(preScanAi.brand, 120),
+      text(preScanAi.product, 200),
+      text(preScanAi.setName, 200),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const requiresPhysicalParallelDiscrimination = Boolean(
+      !stablePairArchive &&
+        previousInstaComp.identityComplete !== true &&
+        (/\bprizm\b/i.test(preScanPrizmContext) ||
+          (preScanParallelText && normalized(preScanParallelText) !== "base")),
+    );
+
     // First-time/unresolved cards still run the physical Mac scan. Unchanged
     // exact pairs use the bounded Registry revalidation above.
     const [macArchive, preservedInputPair] = await Promise.all([
@@ -1382,7 +1417,10 @@ export async function POST(request: NextRequest) {
             frontFile,
             backFile,
             webOrientation: storedPairOrientation,
-            identityHint: preScanIdentityHint,
+            identityHint: requiresPhysicalParallelDiscrimination
+              ? null
+              : preScanIdentityHint,
+            deepRecovery: requiresPhysicalParallelDiscrimination,
           }),
       preserveInputPromise,
     ]);
