@@ -137,9 +137,9 @@ def test_flat_sidecar_payload_cannot_bypass_post_merge_guard() -> None:
     )
     assert suggestion.identity.player == "Rickea Jackson"
     assert suggestion.identity.card_number == "118"
-    # This captured receipt has no back evidence at all. Under the authoritative
-    # physical rule, no bold black PRIZM mark on the back means regular Base.
-    assert suggestion.identity.parallel == "Base"
+    # This captured receipt has no decisive back PRIZM witness. Missing OCR is
+    # not Base proof, and the unsupported model parallel must not become exact.
+    assert suggestion.identity.parallel is None
     assert suggestion.raw["pattern_parallel_guard_stage"] == "post_normalization_post_local_merge"
 
 
