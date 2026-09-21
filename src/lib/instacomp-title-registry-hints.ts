@@ -107,6 +107,15 @@ export function titleRegistryDimensionHints(params: {
       brand: product,
       setName,
     });
+    // A title split can accidentally consume the player name as the set, e.g.
+    // "Prizm WNBA Saniya Rivers #150". Retry the same product family without
+    // the derived set. The Registry still has to return one exact UUID +
+    // fingerprint, so this broadens only the query syntax, never the trust gate.
+    hints.push({
+      label: `title_product_family_only_${splitFromEnd}`,
+      brand: product,
+      setName: null,
+    });
   }
 
   hints.push({
