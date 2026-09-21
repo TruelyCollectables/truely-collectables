@@ -38,6 +38,8 @@ for (const required of [
   "remote_parallel_inference_deferred",
   "titleRegistryDimensionHints",
   "registryRecoveryAttempts",
+  "expandedAttemptHints",
+  "_family_only",
   "mac_registry_title_hint_recovery_exact",
   "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
   "macCandidate?.fingerprintSha256 || null",

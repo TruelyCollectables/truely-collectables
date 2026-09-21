@@ -1632,10 +1632,22 @@ export async function POST(request: NextRequest) {
       titleHints.cardNumber &&
       titleHints.player
     ) {
+      const expandedAttemptHints = titleDimensionHints.flatMap((hint) =>
+        hint.brand && hint.setName
+          ? [
+              hint,
+              {
+                label: `${hint.label}_family_only`,
+                brand: hint.brand,
+                setName: null,
+              },
+            ]
+          : [hint],
+      );
       const attemptHints = [
-        ...titleDimensionHints,
+        ...expandedAttemptHints,
         { label: "core_only", brand: null, setName: null },
-      ].slice(0, 8);
+      ].slice(0, 12);
       const typedEvidencePresent = Boolean(
         titleSerialHint ||
           titleParallelHint ||
