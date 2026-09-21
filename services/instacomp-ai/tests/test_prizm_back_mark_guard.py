@@ -116,7 +116,7 @@ def test_present_back_prizm_mark_preserves_stronger_non_base_evidence():
     assert guarded.identity_hints.parallel == "Green Prizm"
 
 
-def test_model_silver_is_not_silently_rewritten_to_base_when_ocr_misses_mark():
+def test_model_silver_remains_unresolved_when_ocr_misses_mark():
     evidence = _vision(back_text=None, parallel=None)
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
     merged = merge_local_vision_payload(
@@ -132,7 +132,9 @@ def test_model_silver_is_not_silently_rewritten_to_base_when_ocr_misses_mark():
         },
         guarded,
     )
-    assert merged["identity"]["parallel"] == "Silver Prizm"
+    # The model's Silver guess is not independently proven by the current
+    # physical evidence, so downstream exact-lock logic must see unresolved.
+    assert merged["identity"]["parallel"] is None
 
 
 def test_model_base_is_upgraded_to_silver_when_back_prizm_is_present():
