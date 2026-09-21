@@ -131,9 +131,9 @@ def test_flat_rickea_sidecar_and_reinjected_hint_are_both_blocked() -> None:
     )
     assert suggestion.identity.player == "Rickea Jackson"
     assert suggestion.identity.card_number == "118"
-    # The captured failed receipt is front-only. With no authoritative bold
-    # black PRIZM mark on the back, the card must finish as regular Base.
-    assert suggestion.identity.parallel == "Base"
+    # The captured failed receipt is front-only. With no decisive back PRIZM
+    # witness, the parallel must remain unresolved rather than becoming Base.
+    assert suggestion.identity.parallel is None
     assert suggestion.raw["pattern_parallel_guard_stage"] == "post_normalization_post_local_merge"
 
 
