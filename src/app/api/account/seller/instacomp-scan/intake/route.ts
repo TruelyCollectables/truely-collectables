@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
@@ -9,6 +9,7 @@ import {
   type InstaCompAiLocalScan,
 } from "../../../../../../lib/instacomp-ai-local";
 import { buildInstaCompChannelDraft } from "../../../../../../lib/instacomp-channel-draft";
+import { buildInstaCompCanonicalTitle } from "../../../../../../lib/instacomp-canonical-title";
 import {
   applyInstaCompListingOutput,
   buildInstaCompListingOutput,
@@ -17,7 +18,6 @@ import {
 import type { InstaCompAiResult } from "../../../../../../lib/instacomp";
 import {
   normalizeInstaCompRotation,
-  normalizeInstaCompSideImages,
 } from "../../../../../../lib/instacomp-image-orientation";
 import {
   persistNormalizedInstaCompImagePair,
@@ -74,8 +74,8 @@ function macOrientationReceipt(
   const backEvidenceText = textList(receipt.back_evidence, 8);
   const completed =
     text(receipt.status, 80) === "completed" &&
-    frontConfidence >= 0.55 &&
-    backConfidence >= 0.55 &&
+    frontConfidence >= 0.90 &&
+    backConfidence >= 0.90 &&
     frontEvidenceText.length > 0 &&
     backEvidenceText.length > 0;
 
@@ -131,6 +131,11 @@ function physicalCardUuid(scan: InstaCompAiLocalScan) {
     : null;
 }
 
+function inventoryItemHref(inventoryItemId: string) {
+  const encoded = encodeURIComponent(inventoryItemId);
+  return `/seller/admin/inventory/${encoded}?inventoryItemId=${encoded}`;
+}
+
 function isMissingCardUuidColumn(error: unknown) {
   const record = recordValue(error);
   const code = String(record.code || "").toUpperCase();
@@ -155,6 +160,7 @@ function canonicalFields(identity: Record<string, unknown>) {
     year: text(identity.year, 20),
     manufacturer: text(identity.manufacturer || identity.brand, 100),
     brand: text(identity.brand, 100),
+    product: text(identity.product || identity.brand, 120),
     setName: text(identity.set_name, 160),
     player: text(identity.player, 180),
     team: text(identity.team, 160),
@@ -171,19 +177,22 @@ function canonicalFields(identity: Record<string, unknown>) {
 }
 
 function titleFor(fields: ReturnType<typeof canonicalFields>) {
-  return [
-    fields.year,
-    fields.manufacturer,
-    fields.setName,
-    fields.player,
-    fields.cardNumber ? `#${fields.cardNumber}` : null,
-    fields.parallel,
-    fields.isRookie ? "Rookie" : null,
-    fields.isAuto ? "Auto" : null,
-    fields.isRelic ? "Relic" : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return buildInstaCompCanonicalTitle({
+    year: fields.year,
+    manufacturer: fields.manufacturer,
+    brand: fields.brand,
+    product: fields.product,
+    setName: fields.setName,
+    cardNumber: fields.cardNumber,
+    player: fields.player,
+    parallel: fields.parallel,
+    variation: fields.variation,
+    serialRun: fields.serialRun,
+    serialNumber: fields.serialNumber,
+    isRookie: fields.isRookie,
+    isAuto: fields.isAuto,
+    isRelic: fields.isRelic,
+  });
 }
 
 function localEvidenceRecords(scan: InstaCompAiLocalScan) {
@@ -385,34 +394,45 @@ export async function POST(request: NextRequest) {
 
     const frontFile = front;
     const backFile = back;
-    const normalizedSides = await normalizeInstaCompSideImages({
-      frontImage: frontFile,
-      backImage: backFile,
-    });
-    if (!normalizedSides.backFile) {
-      throw new Error("Back image normalization did not return an image.");
-    }
-    const scan = await analyzeWithInstaCompAiLocal({
+
+    // The Mac is the authority for card orientation and identity. Do not spend
+    // every intake on a cloud vision orientation call and then force that answer
+    // onto Apple Vision. A wrong cloud 0-degree decision previously preserved an
+    // upside-down card and poisoned the downstream identity/parallel decision.
+    // Unresolved local orientation fails closed to review; cloud/model recovery
+    // belongs behind that local failure, never in front of every seller scan.
+    // IDENTITY-FIRST:
+    // Normal scanner photos arrive upright. Use the proven-fast 0/0 path
+    // before paying for four-way orientation recovery.
+    let scan = await analyzeWithInstaCompAiLocal({
       front: frontFile,
       back: backFile,
-      frontRotation: null,
-      backRotation: null,
+      frontRotation: 0,
+      backRotation: 0,
     });
-    const macImageOrientation = macOrientationReceipt(
-      scan,
-      normalizedSides.orientation,
-    );
-    if (macImageOrientation.status !== "completed") {
-      return NextResponse.json(
-        {
-          success: false,
-          code: "IMAGE_ORIENTATION_REVIEW_REQUIRED",
-          error: macImageOrientation.reason,
-          scan,
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
+
+    const fastIdentityExact =
+      scan.pricing_allowed === true &&
+      Boolean(String(scan.checklist?.identity_id || "").trim());
+
+    // Only pay for orientation recovery when the fast physical scan could
+    // not establish an exact Registry identity.
+    if (!fastIdentityExact) {
+      const recoveryScan = await analyzeWithInstaCompAiLocal({
+        front: frontFile,
+        back: backFile,
+        frontRotation: null,
+        backRotation: null,
+      });
+
+      if (recoveryScan.scan_id) {
+        scan = recoveryScan;
+      }
     }
+    const macImageOrientation = macOrientationReceipt(scan, {
+      backStandalonePrizm: null,
+      backDesignationConfidence: 0,
+    });
     const cardUuid = physicalCardUuid(scan);
     if (!cardUuid) {
       return NextResponse.json(
@@ -450,7 +470,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let fields = canonicalFields(identity);
+    const fields = canonicalFields(identity);
     if (
       !fields.year ||
       !fields.manufacturer ||
@@ -468,22 +488,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isWnbaProduct = /\bwnba\b/i.test(
-      [fields.league, fields.setName].filter(Boolean).join(" "),
+    // 2025 Select WNBA has a physically validated Base-vs-parallel witness:
+    // parallel backs carry a standalone PRIZM designation while Base backs do not.
+    // This witness is a contradiction gate only. It must NEVER rewrite a Registry
+    // identity/fingerprint in place; a conflict goes to Verification instead.
+    const selectBackMarkerUsable =
+      /^2025/.test(fields.year || "") &&
+      /select/i.test(fields.brand || fields.product || "") &&
+      /wnba/i.test(fields.league || "") &&
+      typeof macImageOrientation.backStandalonePrizm === "boolean" &&
+      Number(macImageOrientation.backDesignationConfidence || 0) >= 0.90;
+    const registryClaimsParallel = Boolean(
+      fields.parallel && !/^Base(?: Set)?$/i.test(fields.parallel),
     );
-    const claimsPrizmParallel = Boolean(
-      fields.parallel &&
-        /\b(?:silver|green|red|blue|gold|orange|purple|pink|black|white|ice|wave|velocity|cracked\s+ice)(?:\s+prizm)?\b/i.test(
-          fields.parallel,
-        ),
+    const selectBackMarkerConflict = selectBackMarkerUsable && (
+      (macImageOrientation.backStandalonePrizm === true && !registryClaimsParallel) ||
+      (macImageOrientation.backStandalonePrizm === false && registryClaimsParallel)
     );
-    const forcedBaseFromBack =
-      isWnbaProduct &&
-      claimsPrizmParallel &&
-      normalizedSides.orientation.backStandalonePrizm === false &&
-      normalizedSides.orientation.backDesignationConfidence >= 0.8;
-    if (forcedBaseFromBack) {
-      fields = { ...fields, parallel: null, variation: null };
+    if (selectBackMarkerConflict) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PHYSICAL_FINISH_CONFLICT",
+          error:
+            "The physical 2025 Select back disagrees with the Registry Base/parallel state. The card is held for finish verification; its Registry identity was not rewritten.",
+          scan,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
     }
 
     const imagePairSha256 = text(scan.image_pair_sha256, 128);
@@ -527,6 +559,17 @@ export async function POST(request: NextRequest) {
       throw physicalMatchError;
     }
     const physicalDuplicate = physicalMatches?.[0] || null;
+    if (macImageOrientation.status !== "completed") {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "IMAGE_ORIENTATION_REVIEW_REQUIRED",
+          error: macImageOrientation.reason,
+          scan,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (physicalDuplicate) {
       return NextResponse.json(
         {
@@ -536,9 +579,13 @@ export async function POST(request: NextRequest) {
             "This physical card UUID is already in inventory. Its existing listing was kept instead of creating a duplicate.",
           duplicate: {
             inventoryItemId: physicalDuplicate.id,
+            inventoryItemHref: inventoryItemHref(physicalDuplicate.id),
             legacyProductId: physicalDuplicate.legacy_product_id,
             title: physicalDuplicate.title,
             status: physicalDuplicate.status,
+            cardUuid,
+            serialNumber: fields.serialNumber,
+            serialRun: fields.serialRun,
           },
           scan,
         },
@@ -563,8 +610,12 @@ export async function POST(request: NextRequest) {
           error: "This exact front/back image pair already exists in inventory.",
           duplicate: {
             inventoryItemId: duplicate.id,
+            inventoryItemHref: inventoryItemHref(duplicate.id),
             title: duplicate.title,
             status: duplicate.status,
+            cardUuid,
+            serialNumber: fields.serialNumber,
+            serialRun: fields.serialRun,
           },
           scan,
         },
@@ -625,6 +676,7 @@ export async function POST(request: NextRequest) {
     });
 
     const checkedAt = new Date().toISOString();
+    const localVision = recordValue(scan.local_vision);
     const metadata = {
       instacomp: {
         source: "mac_registry_scanner",
@@ -636,7 +688,13 @@ export async function POST(request: NextRequest) {
         hasBackImage: true,
         imageRequirement: "front_and_back_required_for_listing",
         humanVerified: false,
-        pricingStatus: "not_run",
+        identityComplete: true,
+        trustedForIdentity: true,
+        identitySource: "mac_checklist_registry_exact",
+        identityRefreshRequired: false,
+        lastStatus: "identity_complete",
+        lastStage: "mac_registry_exact",
+        pricingStatus: "identity_complete_pricing_pending",
         listingPrice: inheritedGroupPrice || null,
         listingPriceSource: inheritedGroupPrice
           ? "existing_active_exact_card_group"
@@ -647,6 +705,10 @@ export async function POST(request: NextRequest) {
         channelDraft,
         scanReceipt: scan,
         imageOrientation: macImageOrientation,
+        centering: {
+          front: recordValue(localVision.front_centering),
+          back: recordValue(localVision.back_centering),
+        },
         pricingGroupKey: registryFingerprint,
         duplicateGroup: {
           registryFingerprintSha256: registryFingerprint,
@@ -664,8 +726,8 @@ export async function POST(request: NextRequest) {
           detectedAt: checkedAt,
           pricingTogether: true,
         },
-        identityRuleApplied: forcedBaseFromBack
-          ? "wnba_back_without_standalone_prizm_forced_base"
+        identityRuleApplied: selectBackMarkerUsable
+          ? "2025_select_back_prizm_consistency_verified"
           : null,
         localEvidence: {
           provider: text(scan.local_suggestion?.provider, 100),
@@ -756,44 +818,90 @@ export async function POST(request: NextRequest) {
     });
 
     const requestId = `scan-${scan.scan_id}`;
-    const pricingRequest = new NextRequest(
-      new URL(
-        "/api/account/seller/inventory/instacomp-verified",
-        request.url,
-      ),
-      {
-        method: "POST",
-        headers: forwardedHeaders(request, requestId),
-        body: JSON.stringify({
+    const pricingUrl = new URL(
+      "/api/account/seller/inventory/instacomp-verified",
+      request.url,
+    ).toString();
+    const pricingHeaders = forwardedHeaders(request, requestId);
+    const identityOnlyMode = true;
+
+    if (!identityOnlyMode) {
+      after(async () => {
+      try {
+        const pricingRequest = new NextRequest(pricingUrl, {
+          method: "POST",
+          headers: pricingHeaders,
+          body: JSON.stringify({
+            inventoryItemId: inserted.id,
+            aiCouncilTier: "adaptive",
+            requestId,
+          }),
+        });
+        const pricingResponse = await runVerifiedPricing(pricingRequest);
+        if (!pricingResponse.ok) {
+          const payload = await pricingResponse.json().catch(() => ({}));
+          console.error("KINGMAKER background pricing failed", {
+            inventoryItemId: inserted.id,
+            status: pricingResponse.status,
+            error: payload?.error || payload?.message || null,
+          });
+        }
+      } catch (error) {
+        console.error("KINGMAKER background pricing crashed", {
           inventoryItemId: inserted.id,
-          aiCouncilTier: "adaptive",
-          requestId,
-        }),
-      },
-    );
-    const pricingResponse = await runVerifiedPricing(pricingRequest);
-    const pricing = await pricingResponse.json().catch(() => ({}));
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      });
+    }
 
     return NextResponse.json(
       {
         success: true,
+        stage: "complete",
+        identityComplete: true,
         cardUuid,
         inventoryItemId: inserted.id,
         title: inserted.title,
+        ai: {
+          ...fields,
+          checklistParallel: fields.parallel || "Base",
+          checklistIdentityId: registryIdentityId,
+          checklistFingerprintSha256: registryFingerprint,
+        },
+        checklistDecision: {
+          status: scan.checklist?.outcome || "exact",
+          source: "checklist_registry",
+          candidateCount: 1,
+          reasons: scan.checklist?.reasons || [],
+          candidateIdentityIds: [registryIdentityId],
+        },
+        parallelDecision: {
+          status: "resolved",
+          selectedParallel: fields.parallel || "Base",
+          selectedIdentityId: registryIdentityId,
+          confidence: 0.99,
+          evidence: "Mac-local Checklist Registry supplied the exact identity.",
+          candidateParallels: [fields.parallel || "Base"],
+        },
         listingOutput,
         channelDraft,
         scan,
-        pricing,
-        pricingSucceeded: pricingResponse.ok,
-        imageOrientation: normalizedSides.orientation,
+        pricing: {
+          status: "identity_only",
+          suggestedPrice: inheritedGroupPrice || null,
+        },
+        pricingSucceeded: false,
+        pricingBackgroundQueued: false,
+        imageOrientation: macImageOrientation,
         normalizedImages: persistedImages,
-        identityRuleApplied: forcedBaseFromBack
-          ? "wnba_back_without_standalone_prizm_forced_base"
+        identityRuleApplied: selectBackMarkerUsable
+          ? "2025_select_back_prizm_consistency_verified"
           : null,
         durationMs: Date.now() - startedAt,
       },
       {
-        status: pricingResponse.ok ? 201 : 207,
+        status: 201,
         headers: { "Cache-Control": "no-store" },
       },
     );

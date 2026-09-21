@@ -34,6 +34,7 @@
     ".next-dev-check/dev/types/**/*.ts"
   ],
   "exclude": [
+    "truely-collectables-mercari-channels",
     "node_modules",
     "TCOS_BACKUP",
     "scripts/run-autograph-image-contact-sheet.mts",

@@ -80,10 +80,25 @@ function identityValue(identity: JsonRecord, ...keys: string[]) {
 }
 
 export function scanIdentity(scan: InstaCompAiLocalScan) {
-  const identity = checklistIdentity(scan);
-  const exact = scan.pricing_allowed === true && Boolean(text(scan.checklist?.identity_id, 200));
-  const parallelRaw = identityValue(identity, "parallel");
+  const checklist = checklistIdentity(scan);
+  const trusted = record(scan.trusted_identity);
+  const localVision = record(scan.local_vision);
+  const hints = record(localVision.identity_hints);
+  const suggestion = record(scan.local_suggestion);
+  const suggestionIdentity = record(suggestion.identity);
+  const exact =
+    scan.pricing_allowed === true &&
+    Boolean(text(scan.checklist?.identity_id, 200));
+
+  // Exact Registry truth always wins. Review-required scans still retain every
+  // physical identity fact that Apple Vision/local parsing actually read,
+  // instead of collapsing the draft to an empty anonymous card.
+  const identity = exact
+    ? { ...suggestionIdentity, ...hints, ...trusted, ...checklist }
+    : { ...suggestionIdentity, ...hints, ...trusted, ...checklist };
+  const parallelRaw = identityValue(identity, "parallel", "checklistParallel");
   const parallel = /^base$/i.test(parallelRaw || "") ? null : parallelRaw;
+  const checklistParallel = exact ? parallelRaw || "Base" : parallelRaw;
   return {
     exact,
     registryIdentityId: text(scan.checklist?.identity_id, 200),
@@ -92,48 +107,70 @@ export function scanIdentity(scan: InstaCompAiLocalScan) {
     brand: identityValue(identity, "brand", "manufacturer"),
     product: identityValue(identity, "product", "set_name", "setName"),
     setName: identityValue(identity, "set_name", "setName", "product"),
+    subset: identityValue(identity, "subset"),
     player: identityValue(identity, "player", "player_name", "playerName"),
     cardNumber: identityValue(identity, "card_number", "cardNumber"),
     parallel,
-    checklistParallel: parallelRaw || "Base",
+    checklistParallel,
     variation: identityValue(identity, "variation"),
     serialNumber: identityValue(identity, "serial_number", "serialNumber"),
+    serialRun: numberValue(identity.serial_run ?? identity.serialRun),
     team: identityValue(identity, "team"),
     sport: identityValue(identity, "sport"),
     league: identityValue(identity, "league"),
-    isAuto: identity.autograph === true || identity.isAuto === true,
-    isRelic: identity.memorabilia === true || identity.isRelic === true,
+    isAuto:
+      identity.autograph === true ||
+      identity.isAuto === true ||
+      identity.is_auto === true,
+    isRelic:
+      identity.memorabilia === true ||
+      identity.isRelic === true ||
+      identity.is_relic === true,
   };
 }
 
 export function scanTitle(scan: InstaCompAiLocalScan) {
   const identity = scanIdentity(scan);
-  if (!identity.exact) return "InstaComp card — identity review required";
-  return [
+  const readable = [
     identity.year,
-    identity.manufacturer,
-    identity.setName,
+    identity.manufacturer || identity.brand,
+    identity.setName || identity.product,
     identity.cardNumber ? `#${identity.cardNumber}` : null,
     identity.player,
     identity.checklistParallel,
   ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  if (identity.exact) return readable;
+  return readable
+    ? `${readable} — identity review`
+    : "InstaComp card — identity review required";
 }
-export async function searchMacMarketForScan(scan: InstaCompAiLocalScan) {
-  const identity = scanIdentity(scan);
-  if (!identity.exact || !identity.year || !identity.player || !identity.cardNumber) {
-    return null;
-  }
+export async function searchMacMarketForIdentity(params: {
+  identity: JsonRecord;
+  exactTitle: string;
+  scanId?: string | null;
+  registryIdentityId?: string | null;
+  registryFingerprintSha256?: string | null;
+  operatorCertifiedIdentity?: boolean;
+}) {
+  const identity = params.identity;
+  const year = text(identity.year, 20);
+  const player = text(identity.player || identity.playerName, 180);
+  const cardNumber = text(identity.cardNumber || identity.card_number, 80);
+  if (!year || !player || !cardNumber || !params.registryIdentityId) return null;
+
   const response = await fetch(`${macBaseUrl()}/v1/market-comp/search`, {
     method: "POST",
     headers: macHeaders(true),
     body: JSON.stringify({
-      exact_title: scanTitle(scan),
+      exact_title: params.exactTitle,
       identity,
-      scan_id: scan.scan_id,
-      registry_identity_id: identity.registryIdentityId,
-      operator_certified_identity: false,
+      scan_id: params.scanId || null,
+      registry_identity_id: params.registryIdentityId,
+      registry_fingerprint_sha256: params.registryFingerprintSha256 || null,
+      operator_certified_identity: params.operatorCertifiedIdentity === true,
       include_130point: false,
       include_active: true,
+      include_price_guide: true,
       include_fanatics: false,
       max_sold: 50,
       max_active: 30,
@@ -147,11 +184,24 @@ export async function searchMacMarketForScan(scan: InstaCompAiLocalScan) {
   }
   return payload;
 }
-export async function listMacKingmakerInventory() {
+
+export async function searchMacMarketForScan(scan: InstaCompAiLocalScan) {
+  const identity = scanIdentity(scan);
+  if (!identity.exact) return null;
+  return searchMacMarketForIdentity({
+    identity,
+    exactTitle: scanTitle(scan),
+    scanId: scan.scan_id,
+    registryIdentityId: identity.registryIdentityId,
+    registryFingerprintSha256: registryFingerprint(scan),
+    operatorCertifiedIdentity: false,
+  });
+}
+export async function listMacKingmakerInventory(timeoutMs = 30_000) {
   const response = await postInstaCompMacRegistry(
     "/v1/kingmaker/accounting/commercial-inventory",
     { action: "list", items: [] },
-    30_000,
+    timeoutMs,
   );
   return {
     items: Array.isArray(response.items) ? (response.items as MacCommercialItem[]) : [],
@@ -243,7 +293,7 @@ export type KingmakerMacScanResult = {
   identityComplete: boolean;
 };
 
-function suggestedPriceFromMarket(market: JsonRecord | null) {
+export function suggestedPriceFromMarket(market: JsonRecord | null) {
   const summary = record(market?.marketSummary);
   const median = numberValue(summary.soldMedian);
   const average = numberValue(summary.soldAverage);
@@ -252,9 +302,56 @@ function suggestedPriceFromMarket(market: JsonRecord | null) {
   return value && value > 0 ? Math.round(value * 100) / 100 : null;
 }
 
+function marketFields(market: JsonRecord | null) {
+  const suggestedPrice = suggestedPriceFromMarket(market);
+  return {
+    suggestedPrice,
+    marketSummary: record(market?.marketSummary),
+    priceGuide: record(market?.priceGuide),
+    soldCompEvidence: Array.isArray(market?.sold) ? market.sold : [],
+    activeCompetition: Array.isArray(market?.active) ? market.active : [],
+    providerCoverage: Array.isArray(market?.providerCoverage)
+      ? market.providerCoverage
+      : [],
+    pricingCheckedAt: market ? new Date().toISOString() : null,
+  };
+}
+
+export async function refreshKingmakerMacMarketForScan(
+  scan: InstaCompAiLocalScan,
+  inventoryItemId: string,
+) {
+  const market = await searchMacMarketForScan(scan);
+  if (!market) return null;
+  const existing = await getMacKingmakerInventoryItem(inventoryItemId);
+  if (!existing) throw new Error("Mac-local KINGMAKER draft disappeared before market refresh.");
+  const metadata = record(existing.metadata);
+  const instaComp = record(metadata.instacomp);
+  const fields = marketFields(market);
+  const suggestedPrice = fields.suggestedPrice;
+  const updated = await updateMacKingmakerDraft(inventoryItemId, {
+    price: suggestedPrice || existing.price || 0,
+    metadata: {
+      ...metadata,
+      instacomp: {
+        ...instaComp,
+        ...fields,
+        pricingStatus: suggestedPrice
+          ? "priced_from_exact_sold_market"
+          : "identity_complete_no_exact_sold_price",
+        pricingReason: suggestedPrice
+          ? "Mac-local exact sold comps supplied pricing."
+          : "Identity is exact but no pricing-eligible sold comp was available.",
+      },
+    },
+  });
+  return { market, updated, ...fields };
+}
+
 function scanMetadata(scan: InstaCompAiLocalScan, market: JsonRecord | null, imagePairSha256?: string | null) {
   const identity = scanIdentity(scan);
   const pricing = suggestedPriceFromMarket(market);
+  const localVision = record(scan.local_vision);
   return {
     instacomp: {
       source: "kingmaker_mac_scan",
@@ -263,6 +360,10 @@ function scanMetadata(scan: InstaCompAiLocalScan, market: JsonRecord | null, ima
       imagePairSha256: imagePairSha256 || null,
       ai: { ...identity, internalScanId: scan.scan_id, confidence: identity.exact ? 0.99 : 0 },
       imageOrientation: orientationReceipt(scan),
+      centering: {
+        front: record(localVision.front_centering),
+        back: record(localVision.back_centering),
+      },
       imageOrientationPersisted: text(scan.image_orientation?.status, 80) === "completed",
       imagePersistenceVerified: true,
       frontImageUrl: kingmakerScanImageUrl(scan.scan_id, "front"),
@@ -278,6 +379,7 @@ function scanMetadata(scan: InstaCompAiLocalScan, market: JsonRecord | null, ima
         identityId: identity.registryIdentityId,
         fingerprintSha256: registryFingerprint(scan),
       },
+      pricingGroupKey: registryFingerprint(scan),
       parallelDecision: parallelDecision(scan),
       identitySource: identity.exact ? "mac_checklist_registry_exact" : "mac_scan_review_required",
       identityComplete: identity.exact,
@@ -290,6 +392,13 @@ function scanMetadata(scan: InstaCompAiLocalScan, market: JsonRecord | null, ima
       pricingReason: pricing ? "Mac-local exact sold comps supplied pricing." : identity.exact ? "Identity is exact but no pricing-eligible sold comp was available." : "Exact Checklist identity is required before pricing.",
       suggestedPrice: pricing,
       marketSummary: record(market?.marketSummary),
+      priceGuide: record(market?.priceGuide),
+      soldCompEvidence: Array.isArray(market?.sold) ? market.sold : [],
+      activeCompetition: Array.isArray(market?.active) ? market.active : [],
+      providerCoverage: Array.isArray(market?.providerCoverage)
+        ? market.providerCoverage
+        : [],
+      pricingCheckedAt: market ? new Date().toISOString() : null,
       lastStatus: identity.exact ? "identity_complete" : "review_required",
       lastStage: identity.exact ? "complete" : "identity_review",
       lastError: null,
@@ -312,29 +421,47 @@ export async function runKingmakerMacScan(params: {
   imagePairSha256?: string | null;
   searchMarket?: boolean;
 }) : Promise<KingmakerMacScanResult> {
-  // Local-first is mandatory for KINGMAKER. The Mac receives the untouched
-  // physical front/back pair before any paid/external orientation provider is
-  // consulted, so the local scan is archived and InstaComp gets the first chance
-  // to orient, identify, and learn from the card.
+  // IDENTITY-FIRST FAST LANE:
+  // Most seller scans arrive upright. Try the known-fast 0/0 physical scan first.
+  // This avoids paying the full four-way orientation referee before we even know
+  // whether orientation recovery is needed.
   let scan = await analyzeWithInstaCompAiLocal({
     front: params.front,
     back: params.back,
-    frontRotation: null,
-    backRotation: null,
-    timeoutMs: 225_000,
+    frontRotation: 0,
+    backRotation: 0,
+    timeoutMs: 30_000,
   });
   if (!scan.scan_id) throw new Error("Mac-local InstaComp scan returned no scan ID.");
 
-  // Only use the outside orientation referee when the Mac actually ran but could
-  // not verify orientation. If the outside provider is unavailable or out of
-  // credits, keep the completed local scan/review record instead of failing the
-  // receiving flow with a provider quota error.
-  if (String(scan.image_orientation?.status || "").trim().toLowerCase() !== "completed") {
+  // If the fast upright attempt cannot establish an exact identity, fall back
+  // to the Mac's full local orientation/identity pipeline. Upside-down or
+  // sideways cards therefore retain the existing recovery path.
+  if (!scanIdentity(scan).exact) {
+    const orientationRecoveryScan = await analyzeWithInstaCompAiLocal({
+      front: params.front,
+      back: params.back,
+      frontRotation: null,
+      backRotation: null,
+      timeoutMs: 60_000,
+    });
+
+    if (orientationRecoveryScan.scan_id) {
+      scan = orientationRecoveryScan;
+    }
+  }
+
+  // External orientation remains last-resort only, after both local attempts.
+  if (
+    !scanIdentity(scan).exact &&
+    String(scan.image_orientation?.status || "").trim().toLowerCase() !== "completed"
+  ) {
     try {
       const normalizedSides = await normalizeInstaCompSideImages({
         frontImage: params.front,
         backImage: params.back,
       });
+
       if (
         normalizedSides.backFile &&
         normalizedSides.orientation.status === "completed"
@@ -344,17 +471,23 @@ export async function runKingmakerMacScan(params: {
           back: params.back,
           frontRotation: normalizedSides.orientation.frontRotation,
           backRotation: normalizedSides.orientation.backRotation,
-          timeoutMs: 225_000,
+          timeoutMs: 60_000,
         });
+
         if (fallbackScan.scan_id) scan = fallbackScan;
       }
     } catch (error) {
       scan.external_orientation_fallback_error =
-        error instanceof Error ? error.message : "External orientation fallback failed.";
+        error instanceof Error
+          ? error.message
+          : "External orientation fallback failed.";
     }
   }
   const identity = scanIdentity(scan);
-  const market = identity.exact && params.searchMarket !== false ? await searchMacMarketForScan(scan) : null;
+  const market =
+    identity.exact && params.searchMarket === true
+      ? await searchMacMarketForScan(scan)
+      : null;
   const pricing = market ? { suggestedPrice: suggestedPriceFromMarket(market), marketSummary: record(market.marketSummary) } : null;
   const metadata = scanMetadata(scan, market, params.imagePairSha256);
   const inventoryItemId = text(params.inventoryItemId, 200) || text(scan.card_uuid, 200) || scan.scan_id;
