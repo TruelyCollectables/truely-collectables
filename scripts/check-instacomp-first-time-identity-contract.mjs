@@ -44,7 +44,7 @@ for (const required of [
   "parallelPhysicalProof",
   "allowTitleBasedIdentityRecovery = false",
   "IDENTITY_TARGET_MS = 10_000",
-  "MAC_IDENTITY_TIMEOUT_MS = 5_500",
+  "MAC_IDENTITY_TIMEOUT_MS = 8_000",
   "const selectedRegistryIdentityId = certifiedCandidate?.identityId || null;",
   "certifiedCandidate?.fingerprintSha256 || null",
   'source: "checklist_registry"',

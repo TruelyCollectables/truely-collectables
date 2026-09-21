@@ -39,7 +39,10 @@ const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 // an identity decision.
 const IDENTITY_TARGET_MS = 10_000;
 const IMAGE_FETCH_TIMEOUT_MS = 2_000;
-const MAC_IDENTITY_TIMEOUT_MS = 5_500;
+// The local 8787 fast identity path is proven at ~6.6s.
+ // Leave enough room for that result while keeping the whole identity
+ // certification inside the 10s route target.
+const MAC_IDENTITY_TIMEOUT_MS = 8_000;
 const MAC_ARCHIVE_IMAGE_TIMEOUT_MS = 1_000;
 const REGISTRY_RECOVERY_TIMEOUT_MS = 1_000;
 
@@ -1009,10 +1012,10 @@ async function archiveWithMacBestEffort(params: {
           identityHint: params.identityHint || null,
           frontRotation: webOrientationTrusted
             ? quarterTurn(params.webOrientation?.frontRotation)
-            : undefined,
+            : 0,
           backRotation: webOrientationTrusted
             ? quarterTurn(params.webOrientation?.backRotation)
-            : undefined,
+            : 0,
           timeoutMs: Math.max(
             5_000,
             Math.min(requestedTimeout, deadline - Date.now()),
