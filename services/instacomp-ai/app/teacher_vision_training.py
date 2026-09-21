@@ -57,10 +57,11 @@ TEACHER_OUTPUT_SCHEMA = {
 }
 
 PRIZM_TRAINING_RULE = (
-    "For Panini Prizm-family cards: no qualifying bold black standalone PRIZM on the back "
-    "means Base. A qualifying back PRIZM mark means at least Silver Prizm. Stronger named "
-    "parallels require stronger front color/foil/pattern evidence such as Green, Red, Blue, "
-    "Ice, Velocity, etc."
+    "For Panini Prizm-family cards: a clearly observed bold black standalone PRIZM on the back "
+    "is positive evidence for at least Silver Prizm. Missing OCR of that mark is NOT proof of Base. "
+    "Base-vs-Silver must remain unresolved unless another physical witness proves Base. Stronger "
+    "named parallels require independent front surface color/foil/pattern evidence such as Green, "
+    "Red, Blue, Ice, Velocity, etc.; center-photo or jersey color is not parallel evidence."
 )
 
 
