@@ -84,11 +84,17 @@ def test_bold_black_prizm_back_mark_requires_standalone_dark_print():
     assert bold_black_prizm_back_mark(legal_copy, _back_image(dark=True)) is False
 
 
-def test_missing_back_prizm_mark_forces_prizm_family_to_base():
+def test_missing_back_prizm_mark_does_not_force_base_from_ocr_absence():
     evidence = _vision(back_text=None, parallel="Silver Prizm")
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
-    assert guarded.identity_hints.parallel == "Base"
-    assert any("forced to Base" in value for value in guarded.back.pattern.geometry)
+    assert guarded.identity_hints.parallel == "Silver Prizm"
+    assert any("Base-vs-Silver unresolved" in value for value in guarded.back.pattern.geometry)
+
+
+def test_missing_back_prizm_mark_leaves_unknown_parallel_unknown():
+    evidence = _vision(back_text=None, parallel=None)
+    guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
+    assert guarded.identity_hints.parallel is None
 
 
 def test_present_back_prizm_mark_sets_silver_minimum_when_parallel_is_missing():
@@ -110,7 +116,7 @@ def test_present_back_prizm_mark_preserves_stronger_non_base_evidence():
     assert guarded.identity_hints.parallel == "Green Prizm"
 
 
-def test_model_cannot_promote_silver_over_guarded_base():
+def test_model_silver_is_not_silently_rewritten_to_base_when_ocr_misses_mark():
     evidence = _vision(back_text=None, parallel=None)
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
     merged = merge_local_vision_payload(
@@ -126,7 +132,7 @@ def test_model_cannot_promote_silver_over_guarded_base():
         },
         guarded,
     )
-    assert merged["identity"]["parallel"] == "Base"
+    assert merged["identity"]["parallel"] == "Silver Prizm"
 
 
 def test_model_base_is_upgraded_to_silver_when_back_prizm_is_present():
@@ -167,7 +173,7 @@ def test_model_color_survives_when_back_prizm_is_present():
     assert merged["identity"]["parallel"] == "Green Prizm"
 
 
-def test_ollama_prompt_uses_authoritative_back_rule():
-    assert "absence is not proof of Base" not in SYSTEM_PROMPT
-    assert "bold black word PRIZM on the BACK is authoritative" in SYSTEM_PROMPT
+def test_ollama_prompt_uses_fail_closed_back_rule():
+    assert "absence from OCR is NOT proof of Base" in SYSTEM_PROMPT
+    assert "bold black standalone PRIZM word on the BACK" in SYSTEM_PROMPT
     assert "at least Silver Prizm" in SYSTEM_PROMPT
