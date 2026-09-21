@@ -168,7 +168,8 @@ export function buildInstaCompRegistryExactTitle(identityValue: unknown) {
   add(identity.year);
   add(identity.manufacturer);
 
-  const product = text(identity.product);
+  const rawProduct = text(identity.product);
+  const product = comparable(rawProduct) === "base" ? "" : rawProduct;
   const setName = text(identity.setName ?? identity.set_name);
   const subset = text(identity.subset ?? identity.insertName ?? identity.insert);
   const brand = text(identity.brand);

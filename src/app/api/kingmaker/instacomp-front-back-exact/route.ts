@@ -560,6 +560,29 @@ function candidateAi(
   };
 }
 
+function exactRegistryProduct(params: {
+  product?: unknown;
+  setName?: unknown;
+  brand?: unknown;
+  manufacturer?: unknown;
+  league?: unknown;
+}) {
+  const product = text(params.product, 200);
+  if (product && normalized(product) !== "base") return product;
+  const setName = text(params.setName, 200);
+  if (setName && normalized(setName) !== "base") return setName;
+  const brand = text(params.brand, 120);
+  const manufacturer = text(params.manufacturer, 120);
+  const league = text(params.league, 80);
+  if (brand && normalized(brand) !== normalized(manufacturer)) {
+    if (league && normalized(league) === "wnba" && /^(?:prizm|select|donruss)$/i.test(brand)) {
+      return `${brand} WNBA`;
+    }
+    return brand;
+  }
+  return null;
+}
+
 function integerOrNull(value: unknown) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -586,14 +609,23 @@ function macTrustedCandidate(
   if (!identityId || !fingerprintSha256 || !year || !manufacturer || !cardNumber || !player) {
     return null;
   }
+  const brand = text(identity.brand, 120) || manufacturer;
+  const setName = text(identity.set_name ?? identity.setName ?? identity.product, 200);
+  const league = text(identity.league, 100);
   return {
     identityId,
     fingerprintSha256,
     year,
     manufacturer,
-    brand: text(identity.brand, 120) || manufacturer,
-    product: text(identity.product ?? identity.set_name ?? identity.setName, 200),
-    setName: text(identity.set_name ?? identity.setName ?? identity.product, 200),
+    brand,
+    product: exactRegistryProduct({
+      product: identity.product,
+      setName,
+      brand,
+      manufacturer,
+      league,
+    }),
+    setName,
     cardNumber,
     player,
     serialRun: integerOrNull(identity.serial_run ?? identity.serialRun),
@@ -603,7 +635,7 @@ function macTrustedCandidate(
     variation: text(identity.variation, 160),
     team: text(identity.team, 160),
     sport: text(identity.sport, 100),
-    league: text(identity.league, 100),
+    league,
   };
 }
 
@@ -1147,6 +1179,28 @@ export async function POST(request: NextRequest) {
       ) || preScanCardNumber;
     const storedRegistryPlayer =
       text(previousRegistryLockedFields.player, 200) || preScanPlayer;
+    const storedRegistryBrand =
+      text(previousRegistryLockedFields.brand, 120) ||
+      text(preScanAi.brand, 120) ||
+      storedRegistryManufacturer;
+    const storedRegistrySetName =
+      text(
+        previousRegistryLockedFields.setName ??
+          previousRegistryLockedFields.set_name,
+        200,
+      ) || text(preScanAi.setName ?? preScanAi.set_name, 200);
+    const storedRegistryLeague =
+      text(previousRegistryLockedFields.league, 100) ||
+      text(preScanAi.league, 100);
+    const storedRegistryProduct = exactRegistryProduct({
+      product:
+        text(previousRegistryLockedFields.product, 200) ||
+        text(preScanAi.product, 200),
+      setName: storedRegistrySetName,
+      brand: storedRegistryBrand,
+      manufacturer: storedRegistryManufacturer,
+      league: storedRegistryLeague,
+    });
     if (
       stablePairHashesMatch &&
       previousInstaComp.identityComplete === true &&
@@ -1163,20 +1217,9 @@ export async function POST(request: NextRequest) {
         fingerprintSha256: previousRegistryFingerprintSha256,
         year: storedRegistryYear,
         manufacturer: storedRegistryManufacturer,
-        brand:
-          text(previousRegistryLockedFields.brand, 120) ||
-          text(preScanAi.brand, 120) ||
-          storedRegistryManufacturer,
-        product:
-          text(previousRegistryLockedFields.product, 200) ||
-          text(preScanAi.product, 200),
-        setName:
-          text(
-            previousRegistryLockedFields.setName ??
-              previousRegistryLockedFields.set_name,
-            200,
-          ) ||
-          text(preScanAi.setName ?? preScanAi.set_name, 200),
+        brand: storedRegistryBrand,
+        product: storedRegistryProduct,
+        setName: storedRegistrySetName,
         subset:
           text(previousRegistryLockedFields.subset, 160) ||
           text(preScanAi.subset, 160),
@@ -1209,9 +1252,7 @@ export async function POST(request: NextRequest) {
         sport:
           text(previousRegistryLockedFields.sport, 100) ||
           text(preScanAi.sport, 100),
-        league:
-          text(previousRegistryLockedFields.league, 100) ||
-          text(preScanAi.league, 100),
+        league: storedRegistryLeague,
       };
     }
 
