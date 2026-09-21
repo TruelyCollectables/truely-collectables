@@ -22,6 +22,7 @@ class CardIdentity(BaseModel):
     year: str | None = None
     manufacturer: str | None = None
     brand: str | None = None
+    product: str | None = None
     set_name: str | None = None
     subset: str | None = None
     player: str | None = None
