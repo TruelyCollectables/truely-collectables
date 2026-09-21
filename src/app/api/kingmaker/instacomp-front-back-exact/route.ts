@@ -2335,6 +2335,7 @@ export async function POST(request: NextRequest) {
         identitySource: certifiedCandidate ? "mac_registry_exact" : "first_time_visual_only",
         identityComplete,
         identityRuleApplied: "mac_registry_uuid_fingerprint_plus_physical_parallel_proof_under_10s",
+        identityTargetMs: IDENTITY_TARGET_MS,
         hasBackImage: true,
         humanVerified: false,
         trustedForIdentity: Boolean(certifiedCandidate),
