@@ -694,6 +694,64 @@ def _parallel_hint(
     return None
 
 
+def _front_rookie_mark(front: SideVisionEvidence) -> bool:
+    """Physical rookie witness used for variation classification.
+
+    A Rookie Variation requires a rookie/RC mark on the FRONT. Keep this
+    separate from generic OCR text so a back-side biography/stat line cannot
+    manufacture Rookie Variation status.
+    """
+    for observation in front.ocr:
+        if float(observation.confidence or 0.0) < 0.45:
+            continue
+        normalized = " ".join(str(observation.text or "").upper().split())
+        if re.search(r"\b(?:RC|ROOKIE)\b", normalized):
+            return True
+    return False
+
+
+def _back_variation_mark(back: SideVisionEvidence | None) -> bool:
+    """Return True only for a physically large standalone V on the BACK.
+
+    Panini Prizm variation backs use a large standalone V mark. A normal letter
+    V embedded in player copy is not enough. The box must be physically large
+    either absolutely or relative to the surrounding OCR text.
+    """
+    if back is None or not back.ocr:
+        return False
+
+    readable_heights = sorted(
+        float(observation.box.height or 0.0)
+        for observation in back.ocr
+        if float(observation.confidence or 0.0) >= 0.35
+        and float(observation.box.height or 0.0) > 0
+    )
+    median_height = (
+        readable_heights[len(readable_heights) // 2]
+        if readable_heights
+        else 0.0
+    )
+
+    for observation in back.ocr:
+        if float(observation.confidence or 0.0) < 0.35:
+            continue
+        token = re.sub(r"[^A-Z]", "", str(observation.text or "").upper())
+        if token != "V":
+            continue
+
+        height = float(observation.box.height or 0.0)
+        width = float(observation.box.width or 0.0)
+        absolute_large = height >= 0.055 and width >= 0.030
+        relative_large = (
+            median_height > 0
+            and height >= 0.040
+            and height >= median_height * 1.40
+        )
+        if absolute_large or relative_large:
+            return True
+    return False
+
+
 def build_identity_hints(
     *,
     front: SideVisionEvidence,
@@ -703,6 +761,17 @@ def build_identity_hints(
     observations = [*front.ocr, *(back.ocr if back else [])]
     text = _all_text(observations)
     exact_serial = serial.exact_stamp if serial.stamp_present else None
+
+    front_rookie_mark = _front_rookie_mark(front)
+    back_variation_mark = _back_variation_mark(back)
+    variation = (
+        "Rookie Variation"
+        if back_variation_mark and front_rookie_mark
+        else "Variation"
+        if back_variation_mark
+        else None
+    )
+
     return CardIdentity(
         year=_year_hint(observations),
         manufacturer=_manufacturer_hint(text),
@@ -712,11 +781,12 @@ def build_identity_hints(
         subset=_subset_hint(observations),
         card_number=_card_number_hint(observations),
         parallel=_parallel_hint(front=front, back=back),
+        variation=variation,
         serial_number=exact_serial,
         serial_run=serial.visible_denominator,
         autograph=True if re.search(r"\b(?:autograph|authentic signature)\b", text, re.I) else None,
         memorabilia=True if re.search(r"\b(?:game-used|player-worn|memorabilia|relic|jersey|patch)\b", text, re.I) else None,
-        rookie=True if re.search(r"\b(?:rookie|rc)\b", text, re.I) else None,
+        rookie=True if front_rookie_mark or re.search(r"\b(?:rookie|rc)\b", text, re.I) else None,
     )
 
 
