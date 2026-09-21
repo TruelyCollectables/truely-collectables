@@ -2066,8 +2066,11 @@ export async function POST(request: NextRequest) {
     // Exact means exact. Registry UUID+fingerprint is necessary, but for
     // parallel-heavy cards it is not sufficient without independent physical
     // finish proof from the current images.
+    const identityDecisionElapsedMs = Date.now() - identityTraceStartedMs;
     const certifiedCandidate =
-      macCandidate && parallelDecision.status === "resolved"
+      macCandidate &&
+      parallelDecision.status === "resolved" &&
+      identityDecisionElapsedMs < IDENTITY_TARGET_MS
         ? macCandidate
         : null;
     const identityComplete = Boolean(certifiedCandidate);
@@ -2188,9 +2191,9 @@ export async function POST(request: NextRequest) {
         {
           stage: "exact_lock",
           status: identityComplete ? "pass" : "review",
-          registryIdentityId: macCandidate?.identityId || null,
+          registryIdentityId: certifiedCandidate?.identityId || null,
           registryFingerprintSha256:
-            macCandidate?.fingerprintSha256 || null,
+            certifiedCandidate?.fingerprintSha256 || null,
         },
       ],
     };
@@ -2261,7 +2264,10 @@ export async function POST(request: NextRequest) {
         checklistDecision: certifiedCandidate
           ? {
               status: "exact_match",
-              reasons: ["mac_trusted_registry_identity_preserved"],
+              reasons: [
+                "mac_trusted_registry_identity_preserved",
+                "physical_parallel_evidence_verified",
+              ],
               candidateCount: 1,
               candidateIdentityIds: [certifiedCandidate.identityId],
               productFamilies: [certifiedCandidate.product || certifiedCandidate.setName].filter(Boolean),
