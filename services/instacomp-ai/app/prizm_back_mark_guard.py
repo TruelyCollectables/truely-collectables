@@ -15,10 +15,11 @@ _PROMPT_OLD_RULE = (
     "Never force Base solely because OCR missed PRIZM."
 )
 _PROMPT_NEW_RULE = (
-    "- For Panini Prizm cards, the bold black word PRIZM on the BACK is authoritative for parallel status. "
-    "If that back mark is absent, classify the card as regular Base even when the front looks metallic, silver, colored, or patterned. "
-    "If that back mark is present, classify the card as at least Silver Prizm; only upgrade to a color or patterned Prizm when the front evidence supports that stronger parallel. "
-    "Never promote trusted style memory or a model parallel guess over the physical back-mark rule."
+    "- For Panini Prizm cards, a clearly observed bold black standalone PRIZM word on the BACK is strong positive evidence that the card is non-Base. "
+    "Its absence from OCR is NOT proof of Base because OCR can miss the mark. "
+    "If the back mark is present, classify the card as at least Silver Prizm; only upgrade to a color or patterned Prizm when independent front surface evidence supports that stronger parallel. "
+    "If the mark is not positively observed, keep Base-vs-Silver unresolved unless another physical witness proves it. "
+    "Never promote trusted style memory or a model parallel guess over contradictory physical evidence."
 )
 
 
@@ -107,10 +108,10 @@ def apply_prizm_back_mark_rule(
 ) -> LocalVisionEvidence:
     """Apply the physical Panini Prizm hierarchy before learned styling.
 
-    No bold black PRIZM on the back means regular Base. A present back PRIZM
-    mark means at least Silver Prizm. Existing stronger non-Base evidence such as
-    Green, Ice, or Velocity is preserved for the later deterministic pattern and
-    color gates to validate.
+    A positively observed bold black PRIZM back mark means at least Silver.
+    Missing OCR is never treated as proof of Base. Existing stronger non-Base
+    evidence is preserved for deterministic front-surface validation; otherwise
+    Base-vs-Silver remains unresolved and must fail closed later.
     """
     if not local_evidence_is_prizm_family(evidence):
         return evidence
@@ -145,22 +146,21 @@ def apply_prizm_back_mark_rule(
             }
         )
 
-    identity_hints = evidence.identity_hints.model_copy(update={"parallel": "Base"})
+    # OCR absence is not negative physical proof. Keep any existing independent
+    # parallel evidence unchanged and record that the back mark did not resolve
+    # Base-vs-Silver.
     if back is None:
-        return evidence.model_copy(update={"identity_hints": identity_hints})
+        return evidence
     pattern = back.pattern.model_copy(
         update={
             "geometry": [
                 *back.pattern.geometry,
-                "no authoritative bold black PRIZM back mark; Prizm family forced to Base",
+                "no decisive standalone PRIZM back mark observed; Base-vs-Silver unresolved",
             ]
         }
     )
     return evidence.model_copy(
-        update={
-            "identity_hints": identity_hints,
-            "back": back.model_copy(update={"pattern": pattern}),
-        }
+        update={"back": back.model_copy(update={"pattern": pattern})}
     )
 
 
@@ -198,8 +198,9 @@ def install_prizm_back_mark_guard() -> None:
 
             mark_present = bold_black_prizm_back_mark(local_vision)
             if not mark_present:
-                identity["parallel"] = "Base"
-                root["identity"] = identity
+                # No positive back mark is not proof of Base. Preserve the model
+                # value as advisory only; Registry/physical gates decide whether
+                # it can ever become exact.
                 return root
 
             model_parallel = identity.get("parallel")
