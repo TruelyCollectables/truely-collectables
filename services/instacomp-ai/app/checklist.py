@@ -159,6 +159,7 @@ class RegistryChecklistGateway:
                 manufacturer=_text(locked.get("manufacturer"))
                 or identity.manufacturer,
                 brand=_text(locked.get("brand")) or identity.brand,
+                product=_text(locked.get("product")) or identity.product,
                 set_name=_text(locked.get("setName") or locked.get("set_name"))
                 or identity.set_name,
                 subset=_text(locked.get("subset")) or identity.subset,
