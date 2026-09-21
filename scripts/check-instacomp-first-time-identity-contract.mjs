@@ -29,7 +29,7 @@ const exact = read(
   "src/app/api/kingmaker/instacomp-front-back-exact/route.ts",
 );
 for (const required of [
-  "year_product_player_card_then_color_pattern_serial",
+  "mac_registry_uuid_fingerprint_plus_physical_parallel_proof_under_10s",
   "archiveWithMacBestEffort",
   "const identityComplete = Boolean(certifiedCandidate);",
   'receipt.checklistOutcome !== "exact_match"',
