@@ -152,9 +152,10 @@ def _color_name(hue: float, saturation: float, value: float) -> str:
     return "pink"
 
 
-def analyze_colors(image: np.ndarray) -> ColorEvidence:
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    pixels = hsv.reshape(-1, 3)
+def _color_evidence_from_pixels(pixels: np.ndarray) -> ColorEvidence:
+    if pixels.size == 0:
+        return ColorEvidence()
+    pixels = pixels.reshape(-1, 3)
     if len(pixels) > 80_000:
         stride = max(1, len(pixels) // 80_000)
         pixels = pixels[::stride]
@@ -162,11 +163,17 @@ def analyze_colors(image: np.ndarray) -> ColorEvidence:
     counts: Counter[str] = Counter()
     saturation_values: list[float] = []
     brightness_values: list[float] = []
+    metallic_pixels = 0
     for hue, saturation, value in pixels:
-        name = _color_name(float(hue), float(saturation), float(value))
+        hue_value = float(hue)
+        saturation_value = float(saturation)
+        brightness_value = float(value)
+        name = _color_name(hue_value, saturation_value, brightness_value)
         counts[name] += 1
-        saturation_values.append(float(saturation) / 255.0)
-        brightness_values.append(float(value) / 255.0)
+        saturation_values.append(saturation_value / 255.0)
+        brightness_values.append(brightness_value / 255.0)
+        if saturation_value < 58 and 105 < brightness_value < 245:
+            metallic_pixels += 1
 
     total = max(1, sum(counts.values()))
     proportions = {
@@ -174,21 +181,49 @@ def analyze_colors(image: np.ndarray) -> ColorEvidence:
         for name, count in counts.most_common()
         if count / total >= 0.015
     }
-    dominant = list(proportions)[:4]
-    metallic_score = float(
-        np.mean(
-            (hsv[:, :, 1] < 58)
-            & (hsv[:, :, 2] > 105)
-            & (hsv[:, :, 2] < 245)
-        )
-    )
     return ColorEvidence(
-        dominant_colors=dominant,
+        dominant_colors=list(proportions)[:4],
         proportions=proportions,
         mean_saturation=round(float(np.mean(saturation_values)), 4),
         mean_brightness=round(float(np.mean(brightness_values)), 4),
-        metallic_score=round(metallic_score, 4),
+        metallic_score=round(metallic_pixels / total, 4),
     )
+
+
+def analyze_colors(image: np.ndarray) -> ColorEvidence:
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    return _color_evidence_from_pixels(hsv)
+
+
+def analyze_surface_colors(image: np.ndarray) -> ColorEvidence:
+    """Measure likely card-treatment color without letting the center photo vote.
+
+    Parallel colors usually live in the border/frame treatment. Jerseys, skin,
+    court/field backgrounds, and team colors inside the central photo are a
+    major source of false Orange/Green/Blue classifications, so this witness is
+    deliberately restricted to a broad perimeter ring.
+    """
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    height, width = hsv.shape[:2]
+    if height < 20 or width < 20:
+        return _color_evidence_from_pixels(hsv)
+
+    y, x = np.ogrid[:height, :width]
+    outer = (
+        (x >= int(width * 0.025))
+        & (x < int(width * 0.975))
+        & (y >= int(height * 0.025))
+        & (y < int(height * 0.975))
+    )
+    center = (
+        (x >= int(width * 0.25))
+        & (x < int(width * 0.75))
+        & (y >= int(height * 0.18))
+        & (y < int(height * 0.82))
+    )
+    ring = outer & ~center
+    pixels = hsv[ring]
+    return _color_evidence_from_pixels(pixels)
 
 
 def _angle_entropy(angles: list[float]) -> float:
@@ -730,12 +765,17 @@ def _analyze_side(
         errors.append(_bounded_stage_error(side, "opencv_decode_failed", error))
 
     colors = ColorEvidence()
+    surface_colors = ColorEvidence()
     pattern = PatternEvidence()
     if image is not None:
         try:
             colors = analyze_colors(image)
         except Exception as error:
             errors.append(_bounded_stage_error(side, "opencv_color_failed", error))
+        try:
+            surface_colors = analyze_surface_colors(image)
+        except Exception as error:
+            errors.append(_bounded_stage_error(side, "opencv_surface_color_failed", error))
         try:
             pattern = analyze_pattern(image)
         except Exception as error:
@@ -748,6 +788,7 @@ def _analyze_side(
             height=max(1, height),
             ocr=observations,
             colors=colors,
+            surface_colors=surface_colors,
             pattern=pattern,
             errors=errors,
         ),
