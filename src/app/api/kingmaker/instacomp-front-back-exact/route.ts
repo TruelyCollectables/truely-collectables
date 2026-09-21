@@ -34,6 +34,15 @@ export const maxDuration = 300;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
+// Identity certification has one job: exact-or-review in under ten seconds.
+// No pricing, listing, or title evidence is allowed to extend or manufacture
+// an identity decision.
+const IDENTITY_TARGET_MS = 10_000;
+const IMAGE_FETCH_TIMEOUT_MS = 2_000;
+const MAC_IDENTITY_TIMEOUT_MS = 5_500;
+const MAC_ARCHIVE_IMAGE_TIMEOUT_MS = 1_000;
+const REGISTRY_RECOVERY_TIMEOUT_MS = 1_000;
+
 type JsonRecord = Record<string, unknown>;
 type ImageRow = {
   image_url: string | null;
@@ -61,6 +70,7 @@ type MacReceipt = {
     back: NonNullable<InstaCompAiLocalScan["local_vision"]>["back_centering"] | null;
   };
   error: string | null;
+  physicalParallelEvidence: string[];
 };
 
 type MacArchiveResult = {
@@ -381,7 +391,7 @@ async function downloadImage(url: string, side: "front" | "back") {
     // response is rejected before any bytes are accepted.
     redirect: "manual",
     cache: "no-store",
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
     headers: { "User-Agent": "TCOS-InstaComp-FirstTimeIdentity/1.0" },
   });
   if (response.status >= 300 && response.status < 400) {
@@ -682,31 +692,136 @@ function macCoreEvidence(
   };
 }
 
-function macParallelDecision(candidate: InstaCompChecklistCandidate) {
+function normalizedParallelLabel(value: unknown) {
+  return normalized(value)
+    .replace(/\bprizms?\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function scanPhysicalParallelEvidence(scan: InstaCompAiLocalScan) {
+  const localVision = record(scan.local_vision);
+  const hints = record(localVision.identity_hints);
+  const front = record(localVision.front);
+  const pattern = record(front.pattern);
+  const suggestionEvidence = record(scan.local_suggestion?.evidence);
+  return Array.from(
+    new Set(
+      [
+        text(hints.parallel, 160)
+          ? `hint:${text(hints.parallel, 160)}`
+          : null,
+        text(pattern.label, 160)
+          ? `pattern:${text(pattern.label, 160)}`
+          : null,
+        ...textList(suggestionEvidence.foil_or_pattern, 12).map(
+          (value) => `foil:${value}`,
+        ),
+        ...textList(suggestionEvidence.front_notes, 12).map(
+          (value) => `front:${value}`,
+        ),
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  ).slice(0, 24);
+}
+
+function parallelNeedsPhysicalProof(candidate: InstaCompChecklistCandidate) {
+  const family = [
+    candidate.brand,
+    candidate.product,
+    candidate.setName,
+    candidate.manufacturer,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    /\bprizm\b/i.test(family) ||
+    normalizedParallelLabel(candidate.parallel || "Base") !== "base"
+  );
+}
+
+function parallelPhysicalProof(
+  candidate: InstaCompChecklistCandidate,
+  receipt: MacReceipt,
+) {
+  if (!parallelNeedsPhysicalProof(candidate)) {
+    return {
+      proven: true,
+      evidence: ["non_prizm_base_registry_exact"],
+    };
+  }
+
+  const target = normalizedParallelLabel(candidate.parallel || "Base");
+  const evidence = receipt.physicalParallelEvidence || [];
+  for (const raw of evidence) {
+    const split = raw.indexOf(":");
+    const kind = split >= 0 ? raw.slice(0, split) : "";
+    const detail = split >= 0 ? raw.slice(split + 1) : raw;
+    const label = normalizedParallelLabel(detail);
+    if ((kind === "hint" || kind === "pattern") && label === target) {
+      return {
+        proven: true,
+        evidence: [raw, "physical_parallel_evidence_verified"],
+      };
+    }
+    if (
+      target === "base" &&
+      /(?:forced[_ -]?base|without standalone prizm|no standalone prizm|base physical)/i.test(
+        detail,
+      )
+    ) {
+      return {
+        proven: true,
+        evidence: [raw, "physical_parallel_evidence_verified"],
+      };
+    }
+  }
+
+  return {
+    proven: false,
+    evidence: [
+      ...evidence,
+      `physical_parallel_unproven:${candidate.parallel || "Base"}`,
+    ],
+  };
+}
+
+function macParallelDecision(
+  candidate: InstaCompChecklistCandidate,
+  receipt: MacReceipt,
+) {
   const serialRun = candidate.serialRun || null;
   const parallel = candidate.parallel || "Base";
   const matchedIdentityIds = candidate.identityId ? [candidate.identityId] : [];
+  const proof = parallelPhysicalProof(candidate, receipt);
   return {
-    status: "resolved" as const,
-    selectedParallel: parallel,
-    selectedIdentityId: candidate.identityId,
-    confidence: 0.99,
-    evidence:
-      "Mac InstaComp AI supplied a trusted exact Registry identity; no second visual parallel vote was required.",
+    status: proof.proven ? ("resolved" as const) : ("ambiguous" as const),
+    selectedParallel: proof.proven ? parallel : null,
+    selectedIdentityId: proof.proven ? candidate.identityId : null,
+    confidence: proof.proven ? 0.99 : 0,
+    evidence: proof.proven
+      ? "Registry identity and fresh physical finish evidence agree."
+      : "Registry row found, but the physical finish was not independently proven. Exact lock is blocked.",
     candidateParallels: [parallel],
     features: {
       dominantColor: null,
-      pattern: "uncertain" as const,
+      pattern: proof.proven ? ("other" as const) : ("uncertain" as const),
       serialStampPresent: serialRun ? true : null,
       serialStampText: serialRun ? `/${serialRun}` : null,
       serialRun,
       autographPresent: candidate.isAuto,
       relicPresent: candidate.isRelic,
-      confidence: 0.99,
-      evidence: ["mac_trusted_registry_identity"],
+      confidence: proof.proven ? 0.99 : 0,
+      evidence: proof.evidence,
     },
-    matchedIdentityIds,
-    rejectionReasons: {},
+    matchedIdentityIds: proof.proven ? matchedIdentityIds : [],
+    rejectionReasons: proof.proven
+      ? {}
+      : {
+          [candidate.identityId || "registry_candidate"]: [
+            "physical_parallel_not_proven",
+          ],
+        },
   };
 }
 
@@ -724,10 +839,10 @@ async function archiveWithMacBestEffort(params: {
     // Stay well inside the public request ceiling. A slow/hung Mac scan must
     // return a saved review item instead of letting Cloudflare/browser abort the
     // request after ~200 seconds with no useful handoff.
-    const deadline = Date.now() + (params.deepRecovery ? 100_000 : 45_000);
+    const deadline = Date.now() + MAC_IDENTITY_TIMEOUT_MS;
     const webOrientationTrusted =
       params.webOrientation?.status === "completed";
-    for (const requestedTimeout of [params.deepRecovery ? 95_000 : 40_000]) {
+    for (const requestedTimeout of [MAC_IDENTITY_TIMEOUT_MS]) {
       attempts += 1;
       try {
         scan = await analyzeWithInstaCompAiLocal({
@@ -759,8 +874,16 @@ async function archiveWithMacBestEffort(params: {
     const scanId = text(scan.scan_id, 100);
     if (!scanId) throw new Error("Mac archive returned no scan ID.");
     const [frontFile, backFile] = await Promise.all([
-      fetchInstaCompAiLocalScanImage({ scanId, side: "front", timeoutMs: 10_000 }),
-      fetchInstaCompAiLocalScanImage({ scanId, side: "back", timeoutMs: 10_000 }),
+      fetchInstaCompAiLocalScanImage({
+        scanId,
+        side: "front",
+        timeoutMs: MAC_ARCHIVE_IMAGE_TIMEOUT_MS,
+      }),
+      fetchInstaCompAiLocalScanImage({
+        scanId,
+        side: "back",
+        timeoutMs: MAC_ARCHIVE_IMAGE_TIMEOUT_MS,
+      }),
     ]);
     const resolvedOrientation = completedMacOrientation(scan, params.webOrientation);
     return {
@@ -788,6 +911,7 @@ async function archiveWithMacBestEffort(params: {
           resolvedOrientation.status === "completed"
             ? null
             : "Mac archive orientation requires review.",
+        physicalParallelEvidence: scanPhysicalParallelEvidence(scan),
       },
       frontFile,
       backFile,
@@ -819,6 +943,9 @@ async function archiveWithMacBestEffort(params: {
           error instanceof Error ? error.message : "Mac archive failed.",
           500,
         ),
+        physicalParallelEvidence: scan
+          ? scanPhysicalParallelEvidence(scan)
+          : [],
       },
       frontFile: null,
       backFile: null,
@@ -1332,7 +1459,7 @@ export async function POST(request: NextRequest) {
             text(preScanAi.variation, 160),
           ocrText: preScanTitleText,
         },
-        5_000,
+        REGISTRY_RECOVERY_TIMEOUT_MS,
       );
       const stableMatch = stableDecision.match;
       const stableIdentityId = validUuid(stableMatch?.identityId);
@@ -1356,8 +1483,21 @@ export async function POST(request: NextRequest) {
     // return that exact identity immediately even when durable orientation proof
     // is missing. Orientation remains review-only and publication can stay
     // blocked, but identity must not fall into the slow physical Mac pipeline.
+    const previousParallelEvidence = textList(
+      record(record(previousInstaComp.parallelDecision).features).evidence,
+      24,
+    );
+    const stablePairParallelCertified = Boolean(
+      stablePairRegistryCandidate &&
+        (
+          !parallelNeedsPhysicalProof(stablePairRegistryCandidate) ||
+          previousParallelEvidence.includes(
+            "physical_parallel_evidence_verified",
+          )
+        ),
+    );
     const stablePairArchive: MacArchiveResult | null =
-      stablePairRegistryCandidate
+      stablePairRegistryCandidate && stablePairParallelCertified
         ? {
             receipt: {
               scanId: text(previousInstaComp.scanId, 100),
@@ -1409,6 +1549,11 @@ export async function POST(request: NextRequest) {
                 back: null,
               },
               error: null,
+              physicalParallelEvidence: textList(
+                record(record(previousInstaComp.parallelDecision).features)
+                  .evidence,
+                24,
+              ),
             },
             frontFile,
             backFile,
@@ -1700,11 +1845,12 @@ export async function POST(request: NextRequest) {
     }> = [];
     const recoveryMatches = new Map<string, InstaCompChecklistCandidate>();
 
-    // The first physical scan can fail closed because OCR misses a printed label
-    // even when strong title evidence already exists. Retry only against the SAME
-    // Mac-local Registry, in bounded stages, and only accept a UUID+fingerprint
-    // exact match. Title text is evidence, never identity authority.
+    // Listing/seller titles and stale web AI are not identity evidence.
+    // Missing Mac-local image+Registry proof stays review instead of being
+    // "rescued" by title text.
+    const allowTitleBasedIdentityRecovery = false;
     if (
+      allowTitleBasedIdentityRecovery &&
       !macCandidate &&
       titleHints.year &&
       titleHints.manufacturer &&
@@ -1765,7 +1911,7 @@ export async function POST(request: NextRequest) {
               variation: typed ? titleVariationHint : null,
               ocrText: recoveryOcrText,
             },
-            12_000,
+            REGISTRY_RECOVERY_TIMEOUT_MS,
           );
           const recovered = decision.match;
           const recoveredIdentityId = validUuid(recovered?.identityId);
@@ -1891,7 +2037,7 @@ export async function POST(request: NextRequest) {
     // Do not use the web database as an identity authority. The Mac receipt is
     // the only exact Registry lock accepted here; missing locks remain review-only.
     const parallelDecision = (macCandidate
-      ? macParallelDecision(macCandidate)
+      ? macParallelDecision(macCandidate, macReceipt)
       : {
           status: "ambiguous",
           selectedParallel: null,
@@ -1917,11 +2063,16 @@ export async function POST(request: NextRequest) {
           matchedIdentityIds: [],
           rejectionReasons: {},
         }) as ParallelVisionDecision;
-    // Exact means exact: never promote a partial visual read to completed identity.
-    // A card is complete only after the Mac Registry returns a trusted exact UUID + fingerprint.
-    const identityComplete = Boolean(macCandidate);
-    const resolvedAi = macCandidate
-      ? candidateAi(macCandidate, core, parallelDecision)
+    // Exact means exact. Registry UUID+fingerprint is necessary, but for
+    // parallel-heavy cards it is not sufficient without independent physical
+    // finish proof from the current images.
+    const certifiedCandidate =
+      macCandidate && parallelDecision.status === "resolved"
+        ? macCandidate
+        : null;
+    const identityComplete = Boolean(certifiedCandidate);
+    const resolvedAi = certifiedCandidate
+      ? candidateAi(certifiedCandidate, core, parallelDecision)
       : {
       year: visualYear,
       manufacturer: visualManufacturer,
@@ -1976,6 +2127,8 @@ export async function POST(request: NextRequest) {
       startedAt: identityTraceStartedAt,
       completedAt: new Date().toISOString(),
       elapsedMs: Date.now() - identityTraceStartedMs,
+      targetMs: IDENTITY_TARGET_MS,
+      withinTarget: Date.now() - identityTraceStartedMs <= IDENTITY_TARGET_MS,
       failureStage: identityComplete
         ? null
         : macReceipt.checklistOutcome === "input_incomplete"
@@ -2060,10 +2213,10 @@ export async function POST(request: NextRequest) {
     const collectibleAsset = record(metadata.collectible_asset);
     const selectedParallel = resolvedAi.parallel || null;
     const selectedIsBase = normalized(selectedParallel) === "base";
-    const selectedRegistryIdentityId = macCandidate?.identityId || null;
-    const selectedRegistryFingerprintSha256 = macCandidate?.fingerprintSha256 || null;
-    const nextTitle = macCandidate
-      ? canonicalTitle({ candidate: macCandidate, core })
+    const selectedRegistryIdentityId = certifiedCandidate?.identityId || null;
+    const selectedRegistryFingerprintSha256 = certifiedCandidate?.fingerprintSha256 || null;
+    const nextTitle = certifiedCandidate
+      ? canonicalTitle({ candidate: certifiedCandidate, core })
       : reviewTitle(core, titleText);
 
     const nextMetadata = {
@@ -2079,7 +2232,7 @@ export async function POST(request: NextRequest) {
       },
       instacomp: {
         ...previousInstaComp,
-        source: macCandidate
+        source: certifiedCandidate
           ? "mac_registry_scanner"
           : text(previousInstaComp.source, 120) || "kingmaker_exact_scan_intake_v2",
         schema: "truely.instacompInventoryIdentity.v6",
@@ -2105,13 +2258,13 @@ export async function POST(request: NextRequest) {
         registryIdentityId: selectedRegistryIdentityId,
         registryFingerprintSha256: selectedRegistryFingerprintSha256,
         pricingGroupKey: selectedRegistryFingerprintSha256,
-        checklistDecision: macCandidate
+        checklistDecision: certifiedCandidate
           ? {
               status: "exact_match",
               reasons: ["mac_trusted_registry_identity_preserved"],
               candidateCount: 1,
-              candidateIdentityIds: [macCandidate.identityId],
-              productFamilies: [macCandidate.product || macCandidate.setName].filter(Boolean),
+              candidateIdentityIds: [certifiedCandidate.identityId],
+              productFamilies: [certifiedCandidate.product || certifiedCandidate.setName].filter(Boolean),
               productFilterApplied: true,
             }
           : {
@@ -2129,12 +2282,12 @@ export async function POST(request: NextRequest) {
               productFilterApplied: false,
             },
         checklistIdentity: {
-          status: macCandidate ? "identified" : "review_required",
+          status: certifiedCandidate ? "identified" : "review_required",
           source: "checklist_registry",
-          aiIdentificationRequired: !macCandidate,
+          aiIdentificationRequired: !certifiedCandidate,
           registryIdentityId: selectedRegistryIdentityId,
           registryFingerprintSha256: selectedRegistryFingerprintSha256,
-          lockedFields: macCandidate
+          lockedFields: certifiedCandidate
             ? {
                 year: resolvedAi.year,
                 manufacturer: resolvedAi.manufacturer,
@@ -2153,7 +2306,7 @@ export async function POST(request: NextRequest) {
                 isRelic: resolvedAi.isRelic,
               }
             : {},
-          reviewFields: macCandidate
+          reviewFields: certifiedCandidate
             ? undefined
             : {
                 year: resolvedAi.year,
@@ -2165,20 +2318,20 @@ export async function POST(request: NextRequest) {
                 parallel: resolvedAi.parallel || null,
                 variation: resolvedAi.variation || null,
               },
-          reasons: macCandidate
-            ? ["mac_trusted_registry_identity_preserved"]
+          reasons: certifiedCandidate
+            ? ["mac_trusted_registry_identity_preserved", "physical_parallel_evidence_verified"]
             : ["mac_registry_exact_identity_required"],
           checkedAt,
         },
         parallelDecision,
         parallelVisualFeatures: parallelDecision.features,
         identityTrace,
-        identitySource: macCandidate ? "mac_registry_exact" : "first_time_visual_only",
+        identitySource: certifiedCandidate ? "mac_registry_exact" : "first_time_visual_only",
         identityComplete,
         identityRuleApplied: "year_product_player_card_then_color_pattern_serial",
         hasBackImage: true,
         humanVerified: false,
-        trustedForIdentity: Boolean(macCandidate),
+        trustedForIdentity: Boolean(certifiedCandidate),
         manualIdentityEdit: false,
         manualIdentityLocked: false,
         identityRefreshRequired: !identityComplete,
@@ -2234,13 +2387,13 @@ export async function POST(request: NextRequest) {
         title: nextTitle,
         ai: resolvedAi,
         coreVisualEvidence: core,
-        checklistDecision: macCandidate
+        checklistDecision: certifiedCandidate
           ? {
               status: "exact_match",
               reasons: ["mac_trusted_registry_identity_preserved"],
               candidateCount: 1,
-              candidateIdentityIds: [macCandidate.identityId],
-              productFamilies: [macCandidate.product || macCandidate.setName].filter(Boolean),
+              candidateIdentityIds: [certifiedCandidate.identityId],
+              productFamilies: [certifiedCandidate.product || certifiedCandidate.setName].filter(Boolean),
               productFilterApplied: true,
             }
           : {
