@@ -25,7 +25,19 @@ def _normalized(value: object) -> str:
 
 
 def _product_family(text: str | None, identity: CardIdentity | None = None) -> str | None:
-    haystack = _normalized(" ".join(filter(None, [text, identity.brand if identity else None])))
+    haystack = _normalized(
+        " ".join(
+            filter(
+                None,
+                [
+                    text,
+                    identity.brand if identity else None,
+                    identity.product if identity else None,
+                    identity.set_name if identity else None,
+                ],
+            )
+        )
+    )
     families = [
         ("o-pee-chee platinum", ("o-pee-chee platinum", "o pee chee platinum", "opc platinum")),
         ("upper deck allure", ("allure",)),
@@ -76,8 +88,19 @@ def _angle_closeness(left: float | None, right: float | None) -> float | None:
 def _pattern_similarity(current: LocalVisionEvidence, learned: LocalVisionEvidence) -> tuple[float, list[str]]:
     current_pattern = current.front.pattern
     learned_pattern = learned.front.pattern
-    current_colors = current.front.colors
-    learned_colors = learned.front.colors
+    # Parallel color must come from the card-frame treatment, not the center
+    # photo. Fall back only for historical examples created before surface color
+    # evidence existed.
+    current_colors = (
+        current.front.surface_colors
+        if current.front.surface_colors.proportions
+        else current.front.colors
+    )
+    learned_colors = (
+        learned.front.surface_colors
+        if learned.front.surface_colors.proportions
+        else learned.front.colors
+    )
 
     weighted: list[tuple[float, float, str]] = []
 
@@ -163,7 +186,11 @@ def find_trusted_pattern_style(
     current_manufacturer = _normalized(current.identity_hints.manufacturer)
     current_family = _product_family(current.combined_text, current.identity_hints)
     current_pattern = current.front.pattern
-    current_colors = current.front.colors
+    current_colors = (
+        current.front.surface_colors
+        if current.front.surface_colors.proportions
+        else current.front.colors
+    )
     has_visual_signal = (
         current_pattern.label != "unknown"
         or current_pattern.line_count >= 8
@@ -217,10 +244,25 @@ def find_trusted_pattern_style(
     best_score, best_parallel, best_matches = ranked[0]
     runner_up = ranked[1][0] if len(ranked) > 1 else 0.0
     support_count = len(best_matches)
-    threshold = 0.94 if support_count == 1 else 0.90
+
+    # False exact locks are more expensive than review. One-shot style memory is
+    # advisory unless it is almost identical; repeated independently-confirmed
+    # examples may graduate at a slightly lower threshold.
+    if support_count == 1:
+        threshold = 0.985
+        minimum_margin = 0.060
+    elif support_count == 2:
+        threshold = 0.965
+        minimum_margin = 0.050
+    else:
+        threshold = 0.950
+        minimum_margin = 0.045
     if not current_family:
-        threshold = max(threshold, 0.96)
-    if best_score < threshold or (runner_up and best_score - runner_up < 0.035):
+        threshold = max(threshold, 0.990)
+        minimum_margin = max(minimum_margin, 0.070)
+    if best_score < threshold or (
+        runner_up and best_score - runner_up < minimum_margin
+    ):
         return None
 
     reasons = list(dict.fromkeys(
@@ -257,6 +299,7 @@ def apply_trusted_pattern_style(
             "scores": {
                 **evidence.front.pattern.scores,
                 "trusted_style_memory": hint.score,
+                "trusted_style_memory_support": float(hint.support_count),
             },
             "geometry": [
                 *evidence.front.pattern.geometry,
