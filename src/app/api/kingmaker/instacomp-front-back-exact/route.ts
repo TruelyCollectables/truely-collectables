@@ -71,6 +71,7 @@ type MacReceipt = {
   };
   error: string | null;
   physicalParallelEvidence: string[];
+  physicalParallelFeatures: JsonRecord | null;
 };
 
 type MacArchiveResult = {
@@ -699,30 +700,64 @@ function normalizedParallelLabel(value: unknown) {
     .trim();
 }
 
-function scanPhysicalParallelEvidence(scan: InstaCompAiLocalScan) {
+function scanPhysicalParallelFeatures(scan: InstaCompAiLocalScan) {
   const localVision = record(scan.local_vision);
   const hints = record(localVision.identity_hints);
   const front = record(localVision.front);
+  const back = record(localVision.back);
   const pattern = record(front.pattern);
-  const suggestionEvidence = record(scan.local_suggestion?.evidence);
-  return Array.from(
-    new Set(
-      [
-        text(hints.parallel, 160)
-          ? `hint:${text(hints.parallel, 160)}`
-          : null,
-        text(pattern.label, 160)
-          ? `pattern:${text(pattern.label, 160)}`
-          : null,
-        ...textList(suggestionEvidence.foil_or_pattern, 12).map(
-          (value) => `foil:${value}`,
-        ),
-        ...textList(suggestionEvidence.front_notes, 12).map(
-          (value) => `front:${value}`,
-        ),
-      ].filter((value): value is string => Boolean(value)),
-    ),
-  ).slice(0, 24);
+  const patternScores = record(pattern.scores);
+  const surfaceColorsRaw = record(front.surface_colors ?? front.surfaceColors);
+  const wholeColors = record(front.colors);
+  const surfaceColors = Object.keys(surfaceColorsRaw).length
+    ? surfaceColorsRaw
+    : wholeColors;
+  const serial = record(localVision.serial);
+  const backPattern = record(back.pattern);
+  return {
+    hintParallel: text(hints.parallel, 160),
+    patternLabel: text(pattern.label, 80),
+    patternConfidence: Number(pattern.confidence) || 0,
+    patternScores,
+    surfaceColorProportions: record(surfaceColors.proportions),
+    surfaceDominantColors: textList(surfaceColors.dominant_colors, 8),
+    surfaceMetallicScore: Number(surfaceColors.metallic_score) || 0,
+    styleMemoryScore: Number(patternScores.trusted_style_memory) || 0,
+    styleMemorySupport:
+      Number(patternScores.trusted_style_memory_support) || 0,
+    backGeometry: textList(backPattern.geometry, 20),
+    serialStampPresent:
+      typeof serial.stamp_present === "boolean"
+        ? serial.stamp_present
+        : null,
+    serialStampText: text(serial.exact_stamp, 80),
+    serialRun: integerOrNull(serial.visible_denominator),
+    autographPresent:
+      typeof hints.autograph === "boolean" ? hints.autograph : null,
+    relicPresent:
+      typeof hints.memorabilia === "boolean" ? hints.memorabilia : null,
+  } satisfies JsonRecord;
+}
+
+function scanPhysicalParallelEvidence(scan: InstaCompAiLocalScan) {
+  const features = scanPhysicalParallelFeatures(scan);
+  const patternScores = record(features.patternScores);
+  const proportions = record(features.surfaceColorProportions);
+  return [
+    `pattern:${text(features.patternLabel, 80) || "unknown"}:${Number(features.patternConfidence || 0).toFixed(3)}`,
+    `surface_colors:${Object.entries(proportions)
+      .sort((left, right) => Number(right[1]) - Number(left[1]))
+      .slice(0, 6)
+      .map(([key, value]) => `${key}=${Number(value).toFixed(3)}`)
+      .join(",") || "none"}`,
+    `metallic:${Number(features.surfaceMetallicScore || 0).toFixed(3)}`,
+    `style_memory:${Number(features.styleMemoryScore || 0).toFixed(3)}:support=${Number(features.styleMemorySupport || 0)}`,
+    ...textList(features.backGeometry, 12).map((value) => `back:${value}`),
+    ...Object.entries(patternScores)
+      .filter(([key]) => key !== "trusted_style_memory" && key !== "trusted_style_memory_support")
+      .slice(0, 8)
+      .map(([key, value]) => `pattern_score:${key}=${Number(value).toFixed(3)}`),
+  ].slice(0, 32);
 }
 
 function parallelNeedsPhysicalProof(candidate: InstaCompChecklistCandidate) {
@@ -740,6 +775,52 @@ function parallelNeedsPhysicalProof(candidate: InstaCompChecklistCandidate) {
   );
 }
 
+const PHYSICAL_PARALLEL_COLORS = [
+  "black",
+  "blue",
+  "bronze",
+  "brown",
+  "gold",
+  "green",
+  "orange",
+  "pink",
+  "purple",
+  "red",
+  "silver",
+  "teal",
+  "white",
+  "yellow",
+] as const;
+
+function expectedPhysicalColor(target: string) {
+  return (
+    PHYSICAL_PARALLEL_COLORS.find((color) =>
+      new RegExp(`\\b${color}\\b`, "i").test(target),
+    ) || null
+  );
+}
+
+function proportion(value: JsonRecord, key: string) {
+  const parsed = Number(value[key]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function strongestChromaticColor(proportions: JsonRecord) {
+  const chromatic = PHYSICAL_PARALLEL_COLORS.filter(
+    (color) => !["black", "brown", "silver", "white"].includes(color),
+  )
+    .map((color) => [color, proportion(proportions, color)] as const)
+    .sort((left, right) => right[1] - left[1]);
+  return chromatic[0] || (["yellow", 0] as const);
+}
+
+function strongStyleMemoryMatches(target: string, features: JsonRecord) {
+  const score = Number(features.styleMemoryScore) || 0;
+  const support = Number(features.styleMemorySupport) || 0;
+  const hint = normalizedParallelLabel(features.hintParallel);
+  return hint === target && support >= 2 && score >= 0.97;
+}
+
 function parallelPhysicalProof(
   candidate: InstaCompChecklistCandidate,
   receipt: MacReceipt,
@@ -752,36 +833,110 @@ function parallelPhysicalProof(
   }
 
   const target = normalizedParallelLabel(candidate.parallel || "Base");
+  const features = record(receipt.physicalParallelFeatures);
   const evidence = receipt.physicalParallelEvidence || [];
-  for (const raw of evidence) {
-    const split = raw.indexOf(":");
-    const kind = split >= 0 ? raw.slice(0, split) : "";
-    const detail = split >= 0 ? raw.slice(split + 1) : raw;
-    const label = normalizedParallelLabel(detail);
-    if ((kind === "hint" || kind === "pattern") && label === target) {
-      return {
-        proven: true,
-        evidence: [raw, "physical_parallel_evidence_verified"],
-      };
-    }
-    if (
-      target === "base" &&
-      /(?:forced[_ -]?base|without standalone prizm|no standalone prizm|base physical)/i.test(
-        detail,
-      )
-    ) {
-      return {
-        proven: true,
-        evidence: [raw, "physical_parallel_evidence_verified"],
-      };
-    }
+  const pattern = normalized(text(features.patternLabel, 80));
+  const patternConfidence = Number(features.patternConfidence) || 0;
+  const proportions = record(features.surfaceColorProportions);
+  const expectedColor = expectedPhysicalColor(target);
+  const [strongestColor, strongestColorShare] =
+    strongestChromaticColor(proportions);
+  const expectedColorShare = expectedColor
+    ? proportion(proportions, expectedColor)
+    : 0;
+  const backGeometry = textList(features.backGeometry, 20).join(" ");
+  const prizmBackPresent =
+    /authoritative bold black prizm back mark present/i.test(backGeometry);
+  const prizmForcedBase =
+    /no authoritative bold black prizm back mark.*forced to base/i.test(
+      backGeometry,
+    );
+  const styleMatch = strongStyleMemoryMatches(target, features);
+
+  const serialRun = integerOrNull(features.serialRun);
+  if (candidate.serialRun && serialRun !== candidate.serialRun) {
+    return {
+      proven: false,
+      evidence: [
+        ...evidence,
+        `physical_serial_mismatch:${serialRun || "none"}!=${candidate.serialRun}`,
+      ],
+    };
   }
 
+  if (target === "base") {
+    const proven = prizmForcedBase;
+    return {
+      proven,
+      evidence: [
+        ...evidence,
+        proven
+          ? "physical_parallel_evidence_verified"
+          : "base_missing_authoritative_back_mark_absence",
+      ],
+    };
+  }
+
+  const prizmFamily = /\bprizm\b/i.test(
+    [candidate.brand, candidate.product, candidate.setName]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (prizmFamily && !prizmBackPresent) {
+    return {
+      proven: false,
+      evidence: [...evidence, "nonbase_prizm_requires_back_prizm_mark"],
+    };
+  }
+
+  let geometryMatches = false;
+  if (/\bvelocity\b/.test(target)) {
+    geometryMatches = pattern === "velocity" && patternConfidence >= 0.70;
+  } else if (/\b(?:cracked\s+)?ice\b/.test(target)) {
+    geometryMatches =
+      pattern === "cracked_ice" && patternConfidence >= 0.70;
+  } else if (/\bcheckerboard\b/.test(target)) {
+    geometryMatches =
+      pattern === "checkerboard" && patternConfidence >= 0.70;
+  } else if (/\b(?:sparkle|glitter)\b/.test(target)) {
+    geometryMatches = pattern === "sparkle" && patternConfidence >= 0.70;
+  } else {
+    // Solid Prizm/color treatments have no repeated geometric motif. Require
+    // the physical back PRIZM mark plus surface color/metal response, or a
+    // repeated operator-confirmed style-memory witness.
+    geometryMatches =
+      prizmBackPresent &&
+      (Number(features.surfaceMetallicScore) >= 0.16 || styleMatch);
+  }
+
+  let colorMatches = true;
+  if (expectedColor) {
+    if (expectedColor === "silver" || expectedColor === "white") {
+      colorMatches =
+        expectedColorShare >= 0.14 &&
+        strongestColorShare < 0.10;
+    } else {
+      colorMatches =
+        expectedColorShare >= 0.10 &&
+        strongestColor === expectedColor &&
+        expectedColorShare >= strongestColorShare;
+    }
+  } else if (/\bice\b/.test(target)) {
+    // Plain Ice must show the ice geometry without a strong colored treatment.
+    colorMatches = strongestColorShare < 0.10;
+  }
+
+  const proven = styleMatch || (geometryMatches && colorMatches);
   return {
-    proven: false,
+    proven,
     evidence: [
       ...evidence,
-      `physical_parallel_unproven:${candidate.parallel || "Base"}`,
+      `physical_geometry_match:${geometryMatches}`,
+      `physical_color_match:${colorMatches}`,
+      `style_memory_match:${styleMatch}`,
+      proven
+        ? "physical_parallel_evidence_verified"
+        : `physical_parallel_unproven:${candidate.parallel || "Base"}`,
     ],
   };
 }
@@ -912,6 +1067,7 @@ async function archiveWithMacBestEffort(params: {
             ? null
             : "Mac archive orientation requires review.",
         physicalParallelEvidence: scanPhysicalParallelEvidence(scan),
+        physicalParallelFeatures: scanPhysicalParallelFeatures(scan),
       },
       frontFile,
       backFile,
@@ -946,6 +1102,9 @@ async function archiveWithMacBestEffort(params: {
         physicalParallelEvidence: scan
           ? scanPhysicalParallelEvidence(scan)
           : [],
+        physicalParallelFeatures: scan
+          ? scanPhysicalParallelFeatures(scan)
+          : null,
       },
       frontFile: null,
       backFile: null,
@@ -1553,6 +1712,9 @@ export async function POST(request: NextRequest) {
                 record(record(previousInstaComp.parallelDecision).features)
                   .evidence,
                 24,
+              ),
+              physicalParallelFeatures: record(
+                record(previousInstaComp.parallelDecision).features,
               ),
             },
             frontFile,
