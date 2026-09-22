@@ -497,6 +497,7 @@ export async function analyzeWithInstaCompAiLocal(params: {
   frontRotation?: 0 | 90 | 180 | 270 | null;
   backRotation?: 0 | 90 | 180 | 270 | null;
   deepRecovery?: boolean;
+  forceFreshIdentity?: boolean;
 }): Promise<InstaCompAiLocalScan> {
   const body = new FormData();
   body.append("front", params.front, "front.jpg");
@@ -510,6 +511,9 @@ export async function analyzeWithInstaCompAiLocal(params: {
   }
   if (params.deepRecovery === true) {
     body.append("deep_recovery", "true");
+  }
+  if (params.forceFreshIdentity === true) {
+    body.append("force_fresh_identity", "true");
   }
   if (params.identityHint && Object.keys(params.identityHint).length) {
     body.append("identity_hint_json", JSON.stringify(params.identityHint));
