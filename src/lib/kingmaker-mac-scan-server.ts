@@ -86,9 +86,16 @@ export function scanIdentity(scan: InstaCompAiLocalScan) {
   const hints = record(localVision.identity_hints);
   const suggestion = record(scan.local_suggestion);
   const suggestionIdentity = record(suggestion.identity);
+  const checklistOutcome = text(scan.checklist?.outcome, 80)?.toLowerCase();
+  const scanStatus = text(scan.status, 80)?.toLowerCase();
+  const trustedByMac =
+    scanStatus === "trusted_memory_match" ||
+    scanStatus === "autonomy_auto_accept" ||
+    Object.keys(trusted).length > 0;
   const exact =
-    scan.pricing_allowed === true &&
-    Boolean(text(scan.checklist?.identity_id, 200));
+    checklistOutcome === "exact_match" &&
+    Boolean(text(scan.checklist?.identity_id, 200)) &&
+    trustedByMac;
 
   // Exact Registry truth always wins. Review-required scans still retain every
   // physical identity fact that Apple Vision/local parsing actually read,
