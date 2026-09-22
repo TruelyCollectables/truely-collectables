@@ -619,8 +619,19 @@ class KingmakerAccounting:
         card_number = str(self._identity_value(scan_identity, "card_number", "cardNumber") or "").strip().lstrip("#")
         if not card_number or not re.search(rf"(?:#\s*|card\s*(?:no\.?|number|#)?\s*){re.escape(card_number)}\b", text, re.I):
             reasons.append("title_card_number_mismatch")
-        brand = _norm(self._identity_value(scan_identity, "brand", "manufacturer"))
-        if brand and not all(token in normalized.split() for token in brand.split() if len(token) >= 3):
+        brand = _norm(self._identity_value(scan_identity, "brand"))
+        manufacturer = _norm(self._identity_value(scan_identity, "manufacturer"))
+        brand_tokens = [token for token in brand.split() if len(token) >= 3]
+        manufacturer_tokens = [token for token in manufacturer.split() if len(token) >= 3]
+        brand_proven = (
+            (brand_tokens and all(token in normalized.split() for token in brand_tokens))
+            or (
+                manufacturer_tokens
+                and all(token in normalized.split() for token in manufacturer_tokens)
+            )
+            or (not brand_tokens and not manufacturer_tokens)
+        )
+        if not brand_proven:
             reasons.append("title_brand_mismatch")
         set_name = _norm(self._identity_value(scan_identity, "set_name", "setName", "product"))
         set_tokens = [token for token in set_name.split() if len(token) >= 4 and token not in {"card", "cards", "base", "wnba", "nba", "mlb"}]
@@ -695,7 +706,8 @@ class KingmakerAccounting:
 
         player = _norm(self._identity_value(scan_identity, "player"))
         year = str(self._identity_value(scan_identity, "year") or "").strip()
-        brand = _norm(self._identity_value(scan_identity, "brand", "manufacturer"))
+        brand = _norm(self._identity_value(scan_identity, "brand"))
+        manufacturer = _norm(self._identity_value(scan_identity, "manufacturer"))
         set_name = _norm(self._identity_value(scan_identity, "set_name", "setName", "product"))
         card_number = _norm(self._identity_value(scan_identity, "card_number", "cardNumber"))
         parallel = _norm_parallel(self._identity_value(scan_identity, "parallel")) or "base"
@@ -714,11 +726,16 @@ class KingmakerAccounting:
         required = {
             "player": (player, _norm(row["player"])),
             "year": (year, str(row["year"] or "").strip()),
-            "brand": (brand, _norm(row["brand"])),
             "set": (set_name, _norm(row["set_name"])),
             "card_number": (card_number, _norm(row["card_number"])),
         }
         reasons: list[str] = []
+        row_brand = _norm(row["brand"])
+        accepted_brand_values = {value for value in (brand, manufacturer) if value}
+        if not row_brand or not accepted_brand_values:
+            reasons.append("missing_brand_evidence")
+        elif row_brand not in accepted_brand_values:
+            reasons.append("brand_mismatch")
         for label, (left, right) in required.items():
             if not left or not right:
                 reasons.append(f"missing_{label}_evidence")
