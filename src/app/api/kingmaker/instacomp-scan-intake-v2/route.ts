@@ -13,6 +13,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 300;
 
+// Receiving identity is authoritative on the Mac-local InstaComp pipeline.
+// Do not reintroduce a Supabase-first placeholder scan before this handoff.
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
