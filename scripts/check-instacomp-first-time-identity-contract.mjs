@@ -107,18 +107,29 @@ const intake = read(
 );
 requireText(
   intake,
-  'from "../instacomp-front-back-exact/route"',
-  "Fresh scanner intake must use the repaired exact route.",
+  "runKingmakerMacScan",
+  "Fresh scanner intake must use the Mac-local KINGMAKER scan server.",
+);
+requireText(
+  intake,
+  'sourceOfTruth: "mac_local"',
+  "Fresh scanner intake must declare the Mac-local identity authority.",
+);
+forbidText(
+  intake,
+  "createSupabaseServerClient",
+  "Fresh scanner intake must not use Supabase as the scanner identity authority.",
 );
 forbidText(
   intake,
   "persistNormalizedInstaCompImagePair",
-  "Fresh scanner intake must not store provisional raw images before the Mac-normalized exact pass.",
+  "Fresh scanner intake must not store provisional raw images before the Mac-local normalized scan pass.",
 );
 requireText(
   intake,
-  'exactForm.set("frontImage", front)',
-  "Fresh scanner intake must hand original uploads directly to the exact Mac-normalized route.",
+  `front,
+      back,`,
+  "Fresh scanner intake must hand the original front/back uploads directly to the Mac-local scan server.",
 );
 
 const batchQueue = read("src/app/kingmaker/KingmakerInstaCompQueue.tsx");
