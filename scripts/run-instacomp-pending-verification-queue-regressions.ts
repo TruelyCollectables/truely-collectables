@@ -140,6 +140,8 @@ const scannerSource = readFileSync(
 assert.match(routeSource, /for \(let from = 0; ; from \+= 1000\)/);
 assert.match(routeSource, /queueCounts/);
 assert.match(routeSource, /requestedQueue === "verification"/);
+assert.match(routeSource, /refreshMac/);
+assert.match(routeSource, /if \(refreshMac\) try/);
 assert.match(clientSource, /Resale Pending/);
 assert.match(clientSource, /Pending Verification/);
 assert.match(pageSource, /instacomp-pending\?queue=\$\{queue\}/);
@@ -235,6 +237,10 @@ function assertPriceGuideInstaCompContract() {
   assert.match(pendingClient, /function PriceGuidePanel/);
   assert.match(pendingClient, /Weekly median sold trend/);
   assert.match(pendingClient, /exact sold transactions remain InstaComp pricing authority/);
+assert.match(pendingClient, /skipInitialCardsReloadRef/);
+assert.match(pendingClient, /renderedCards = visibleCards\.slice/);
+assert.match(pendingClient, /loading="lazy"/);
+assert.match(pendingClient, /Load 24 more/);
   assert.match(pendingRoute, /centering/);
   assert.match(pendingClient, /CENTERING ESTIMATE/);
   assert.match(pendingClient, /LEFT \/ RIGHT/);

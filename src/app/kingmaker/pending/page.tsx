@@ -80,6 +80,7 @@ export default async function KingmakerPendingPage({
       initialQueue={queue}
       initialFolder={folder}
       initialCards={items as never}
+      initialLoaded={response?.ok === true}
       initialQueueCounts={{
         listings: Math.max(0, Number(data.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(data.queueCounts?.verification || 0)),

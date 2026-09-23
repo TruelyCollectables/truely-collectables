@@ -536,7 +536,23 @@ export async function runKingmakerMacScan(params: {
   return { scan, inventoryItem, market, pricing, ai: record(metadata.instacomp).ai as JsonRecord, identityComplete: identity.exact };
 }
 
-export async function findMacDuplicateByImagePair(imagePairSha256: string) {
-  const { items } = await listMacKingmakerInventory();
-  return items.find((item) => text(record(item.metadata?.instacomp).imagePairSha256, 100) === imagePairSha256) || null;
+export async function findMacDuplicateByImagePair(
+  imagePairSha256: string,
+  timeoutMs = 2_500,
+) {
+  try {
+    const { items } = await listMacKingmakerInventory(timeoutMs);
+    return (
+      items.find(
+        (item) =>
+          text(record(item.metadata?.instacomp).imagePairSha256, 100) ===
+          imagePairSha256,
+      ) || null
+    );
+  } catch {
+    // Duplicate lookup is a guard, not identity authority. Exact image pairs
+    // are still bound by the Mac scan store, so a slow inventory enumeration
+    // must never block a fresh physical scan.
+    return null;
+  }
 }

@@ -617,6 +617,7 @@ export async function GET(request: Request) {
       account.email === "sales@trulycollectables.com";
     const requestUrl = new URL(request.url);
     const requestedQueue = requestUrl.searchParams.get("queue");
+    const refreshMac = requestUrl.searchParams.get("refreshMac") === "1";
     const requestedBatch = String(
       requestUrl.searchParams.get("batch") || "",
     ).trim();
@@ -645,10 +646,9 @@ export async function GET(request: Request) {
     });
 
     // The website owns staging/listing state; InstaComp identity truth is Mac-local.
-    // Project only a complete, fingerprinted exact Registry identity onto the
-    // response so a normal Pending reload reflects background recovery without
-    // another physical scan or "Read Card" click.
-    try {
+    // Scan intake mirrors Mac results into staging immediately, so a normal page
+    // load must never wait on a live Mac inventory walk. Explicit recovery only.
+    if (refreshMac) try {
       const macByInventoryId = await loadExactMacPendingTruth();
       for (const row of inventoryRows as any[]) {
         const macItem = macByInventoryId.get(String(row.id));
@@ -682,8 +682,8 @@ export async function GET(request: Request) {
         }
       }
     } catch {
-      // Keep Pending usable from listing-state storage when the Mac is
-      // temporarily unreachable. Never synthesize or downgrade identity.
+      // Recovery enrichment is additive. Durable staging remains the normal
+      // page-load source and we never synthesize or downgrade identity.
     }
 
     const instaCompRows = inventoryRows.filter((row: any) => {

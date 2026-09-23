@@ -581,6 +581,8 @@ function CardImageInspector({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={url}
+            loading="lazy"
+            decoding="async"
             alt={`${title} ${side}`}
             draggable={false}
             className={zoom === 1 ? "mx-auto max-h-full max-w-full object-contain" : "block h-auto max-w-none select-none object-contain"}
@@ -684,6 +686,7 @@ export default function KingmakerPendingPage({
   initialQueue,
   initialFolder = "pending",
   initialCards = [],
+  initialLoaded = false,
   initialQueueCounts = { listings: 0, verification: 0 },
   initialFolderCounts = {
     pending: 0,
@@ -700,6 +703,7 @@ export default function KingmakerPendingPage({
   initialQueue: PendingQueue;
   initialFolder?: ListingFolder;
   initialCards?: PendingCard[];
+  initialLoaded?: boolean;
   initialQueueCounts?: { listings: number; verification: number };
   initialFolderCounts?: Record<CountedListingFolder, number>;
 }) {
@@ -728,6 +732,8 @@ export default function KingmakerPendingPage({
   const [priceGuideSweepNonce, setPriceGuideSweepNonce] = useState(0);
   const priceGuideAttemptedRef = useRef<Set<string>>(new Set());
   const priceGuideWorkerRunningRef = useRef(false);
+  const skipInitialCardsReloadRef = useRef(initialLoaded);
+  const [renderLimit, setRenderLimit] = useState(24);
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
   const [folder, setFolder] = useState<ListingFolder>(initialFolder);
@@ -939,8 +945,40 @@ export default function KingmakerPendingPage({
   }, []);
 
   useEffect(() => {
+    if (skipInitialCardsReloadRef.current) {
+      skipInitialCardsReloadRef.current = false;
+      setLoading(false);
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          if (!session?.access_token) return;
+          const response = await fetch(
+            "/api/account/seller/inventory/instacomp-job-status",
+            {
+              headers: { Authorization: "Bearer " + session.access_token },
+              cache: "no-store",
+            },
+          );
+          const data = await response.json().catch(() => ({}));
+          if (response.ok) {
+            setJobs(
+              data.statuses && typeof data.statuses === "object"
+                ? data.statuses
+                : {},
+            );
+          }
+        } catch {
+          // Job badges are additive; first paint must not depend on them.
+        }
+      })();
+      return;
+    }
     void load(queue, folder);
   }, [load, queue, folder]);
+
+  useEffect(() => {
+    setRenderLimit(24);
+  }, [queue, folder]);
 
   useEffect(() => {
     if (priceGuideWorkerRunningRef.current) return;
@@ -2030,6 +2068,7 @@ export default function KingmakerPendingPage({
         ),
       )
     : cards;
+  const renderedCards = visibleCards.slice(0, renderLimit);
 
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950">
@@ -2355,7 +2394,7 @@ export default function KingmakerPendingPage({
         ) : null}
 
         <section className="mt-6 space-y-6">
-          {visibleCards.map((card) => {
+          {renderedCards.map((card) => {
             const job = jobs[card.inventoryItemId];
             const pairReady = hasValidPair(card);
             const isBusy = busyId === card.inventoryItemId;
@@ -3284,6 +3323,17 @@ export default function KingmakerPendingPage({
               </article>
             );
           })}
+          {renderedCards.length < visibleCards.length ? (
+            <div className="flex justify-center py-4">
+              <button
+                type="button"
+                onClick={() => setRenderLimit((value) => value + 24)}
+                className="rounded-xl border-2 border-neutral-900 bg-white px-5 py-3 text-sm font-black shadow-[4px_4px_0_#111]"
+              >
+                Load 24 more · {visibleCards.length - renderedCards.length} remaining
+              </button>
+            </div>
+          ) : null}
         </section>
       </div>
     </main>
