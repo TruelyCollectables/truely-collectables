@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runExactMacIdentity } from "../../../kingmaker/instacomp-front-back-exact/route";
+import { listMacKingmakerInventory } from "../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,82 @@ function forwardedHeaders(request: Request) {
   }
   headers.set("content-type", "application/json");
   return headers;
+}
+
+function exactIdentityFromMacItem(item: JsonRecord | null) {
+  if (!item) return null;
+  const metadata = record(item.metadata);
+  const instacomp = record(metadata.instacomp);
+  const checklistDecision = record(instacomp.checklistDecision);
+  const checklistIdentity = record(instacomp.checklistIdentity);
+  const orientation = record(instacomp.imageOrientation);
+  const ai = Object.keys(record(instacomp.identity)).length
+    ? record(instacomp.identity)
+    : record(instacomp.ai);
+
+  const registryIdentityId =
+    text(instacomp.registryIdentityId) ||
+    text(checklistIdentity.registryIdentityId) ||
+    text(checklistIdentity.identityId);
+  const registryFingerprintSha256 =
+    text(instacomp.registryFingerprintSha256) ||
+    text(checklistIdentity.registryFingerprintSha256) ||
+    text(checklistIdentity.fingerprintSha256);
+
+  const exact =
+    instacomp.identityComplete === true &&
+    instacomp.trustedForIdentity === true &&
+    checklistDecision.status === "exact_match" &&
+    (checklistIdentity.status === "exact_match" ||
+      checklistIdentity.status === "identified") &&
+    Boolean(registryIdentityId) &&
+    Boolean(registryFingerprintSha256) &&
+    text(ai.player ?? ai.playerName) &&
+    text(ai.year) &&
+    text(ai.cardNumber ?? ai.card_number) &&
+    text(orientation.status) === "completed" &&
+    instacomp.imageOrientationPersisted === true &&
+    instacomp.imagePersistenceVerified === true;
+
+  if (!exact) return null;
+  return {
+    status: "identified" as const,
+    source: "checklist_registry" as const,
+    aiIdentificationRequired: false,
+    registryIdentityId,
+    registryFingerprintSha256,
+    checkedAt: new Date().toISOString(),
+    lockedFields: {
+      year: text(ai.year),
+      manufacturer: text(ai.manufacturer),
+      brand: text(ai.brand),
+      product: text(ai.product),
+      setName: text(ai.setName ?? ai.set_name),
+      subset: text(ai.subset),
+      cardNumber: text(ai.cardNumber ?? ai.card_number),
+      player: text(ai.player ?? ai.playerName),
+      team: text(ai.team),
+      sport: text(ai.sport),
+      league: text(ai.league),
+      parallel:
+        text(ai.checklistParallel ?? ai.parallel ?? ai.parallelName) || "Base",
+      variation: text(ai.variation),
+      serialRun: serialRun(ai.serialRun ?? ai.printRun ?? ai.serialNumber),
+      isAuto:
+        typeof ai.isAuto === "boolean"
+          ? ai.isAuto
+          : typeof ai.autograph === "boolean"
+            ? ai.autograph
+            : null,
+      isRelic:
+        typeof ai.isRelic === "boolean"
+          ? ai.isRelic
+          : typeof ai.memorabilia === "boolean"
+            ? ai.memorabilia
+            : null,
+    },
+    reasons: ["mac_commercial_inventory_exact_registry_receipt"],
+  };
 }
 
 function exactIdentityFromPayload(payload: JsonRecord) {
@@ -93,6 +170,36 @@ export async function POST(request: Request) {
       },
       { status: 400 },
     );
+  }
+
+  // The Mac commercial-inventory receipt is the identity authority. If it
+  // already contains a complete exact Registry receipt for this physical card,
+  // pricing does not need to rerun front/back recognition.
+  try {
+    const { items } = await listMacKingmakerInventory(5_000);
+    const macItem =
+      items.find((item) => item.inventoryItemId === inventoryItemId) || null;
+    const identity = exactIdentityFromMacItem(
+      macItem ? (macItem as unknown as JsonRecord) : null,
+    );
+    if (identity) {
+      return NextResponse.json(
+        {
+          success: true,
+          identityComplete: true,
+          identity,
+          title: text(macItem?.title),
+          registryIdentityId: identity.registryIdentityId,
+          registryFingerprintSha256: identity.registryFingerprintSha256,
+          sourceOfTruth: "mac_local",
+          verificationPath: "mac_commercial_inventory_exact_receipt",
+        },
+        { status: 200, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  } catch {
+    // Fall through to the physical front/back exact certification path. A Mac
+    // bridge timeout must never manufacture an exact identity.
   }
 
   const exactRequest = new NextRequest(
