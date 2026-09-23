@@ -8,9 +8,6 @@ import {
   buildInstaCompQueries,
   type InstaCompAiResult,
 } from "../../../../../../lib/instacomp";
-import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
-import { getTeacherExactMarketProviders } from "../../../../../../lib/instacomp-teacher-market-provider";
-import { getFanaticsExactSoldProvider } from "../../../../../../lib/instacomp-fanatics-sold-provider";
 import { calculateInstaCompSweetSpot } from "../../../../../../lib/instacomp-sweet-spot";
 import {
   assertSafeInstaCompRemoteImageUrl,
@@ -182,14 +179,6 @@ function dedupeEvidence(values: Evidence[], limit: number) {
       return true;
     })
     .slice(0, limit);
-}
-
-function isExcludedEvidence(row: Evidence) {
-  return row.flags.some((flag) =>
-    /excluded|guidance comp|parallel mismatch|not exact parallel|visual mismatch|inconclusive|unavailable/i.test(
-      flag,
-    ),
-  );
 }
 
 function isPricingEligibleEvidence(row: Evidence, lane: "sold" | "active") {
@@ -487,26 +476,6 @@ async function persistMacMarketLearning(params: {
   }
 }
 
-
-function providerCoverageRow(provider: {
-  source: string;
-  label: string;
-  status: string;
-  message: string | null;
-  results: unknown[];
-  searchUrl?: string;
-  attempts?: unknown[];
-}) {
-  return {
-    source: provider.source,
-    label: provider.label,
-    status: provider.status,
-    resultCount: provider.results.length,
-    message: provider.message,
-    searchUrl: provider.searchUrl || null,
-    attempts: Array.isArray(provider.attempts) ? provider.attempts : [],
-  };
-}
 
 async function scanIdentity(params: {
   request: NextRequest;
@@ -857,46 +826,25 @@ export async function POST(request: NextRequest) {
     );
     const macMarketHasPricing = macMarket.status === "ready" && macPricingSold.length > 0;
 
-    let fanaticsSold: any = {
-      source: "fanatics_collect_sales_history",
-      label: "Fanatics Collect Sales History",
-      status: "skipped",
-      message: "Skipped because the Mac-first market search returned exact pricing evidence.",
-      results: [],
+    // Pricing authority is eBay-only. Do not fall through to Fanatics, outside
+    // teachers, 130point, or any alternate sold-price provider when eBay has no
+    // exact market result. A no-comp result must remain a no-comp result.
+    const soldReview = {
+      accepted: [] as Evidence[],
+      rejected: [] as Evidence[],
+      reviewedCount: 0,
+      titleOverrides: 0,
+      configured: true,
+      model: "mac_local_ebay_exact_market_gate",
     };
-    let teacher: Awaited<ReturnType<typeof getTeacherExactMarketProviders>> | null = null;
-    let teacherFailure: string | null = null;
-    if (!macMarketHasPricing) {
-      fanaticsSold = await getFanaticsExactSoldProvider({ exactTitle: item.title, ai: marketAi });
-      try {
-        teacher = await getTeacherExactMarketProviders({ exactTitle: item.title, ai: marketAi });
-      } catch (error) {
-        teacherFailure = sanitizeInstaCompProviderError(
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
-    const teacherSold: any = teacher?.sold || {
-      source: "teacher_consensus_exact_sold",
-      label: "Outside AI Teacher Consensus Sold",
-      status: macMarketHasPricing ? "skipped" : "error",
-      message: macMarketHasPricing
-        ? "Skipped because the Mac-first market search returned exact pricing evidence."
-        : teacherFailure || "Outside teacher market search failed.",
-      results: [],
+    const activeReview = {
+      accepted: [] as Evidence[],
+      rejected: [] as Evidence[],
+      reviewedCount: 0,
+      titleOverrides: 0,
+      configured: true,
+      model: "mac_local_ebay_exact_market_gate",
     };
-    const teacherActive: any = teacher?.active || {
-      source: "teacher_discovery_active",
-      label: "Outside AI Teacher Active Discovery",
-      status: macMarketHasPricing ? "skipped" : "error",
-      message: macMarketHasPricing
-        ? "Skipped because the Mac-first market search returned exact pricing evidence."
-        : teacherFailure || "Outside teacher market search failed.",
-      results: [],
-    };
-
-    // OpenAI Web is intentionally excluded from exact-market search. A no-comp
-    // result must remain a no-comp result rather than triggering paid AI search.
 
     const preservedTrustedSold =
       currentInstaComp.trustedForPricing === true && useStoredIdentity
@@ -905,64 +853,17 @@ export async function POST(request: NextRequest) {
           )
         : [];
     const trustedSoldEvidence = dedupeEvidence(
-      [
-        ...preservedTrustedSold,
-        ...macMarket.sold,
-        ...evidenceList(fanaticsSold.results, 20),
-        ...evidenceList(teacherSold.results, 20),
-      ],
+      [...preservedTrustedSold, ...macMarket.sold],
       50,
     );
-    const discoverySoldCandidates: Evidence[] = [];
-    const teacherActiveCandidates = evidenceList(teacherActive.results, 20);
-    const discoveryActiveCandidates = teacherActiveCandidates.slice(0, 30);
-    let soldReview: any = {
-      accepted: [],
-      rejected: [],
-      reviewedCount: 0,
-      titleOverrides: 0,
-      configured: true,
-      model: "mac_local_exact_market_gate",
-    };
-    let activeReview: any = {
-      accepted: [],
-      rejected: [],
-      reviewedCount: 0,
-      titleOverrides: 0,
-      configured: true,
-      model: "mac_local_exact_market_gate",
-    };
-    if (!macMarketHasPricing) {
-      [soldReview, activeReview] = await Promise.all([
-        verifyInstaCompCompetitionImages({
-          targetFrontImage: files[0],
-          targetAi: marketAi,
-          candidates: discoverySoldCandidates,
-        }),
-        verifyInstaCompCompetitionImages({
-          targetFrontImage: files[0],
-          targetAi: marketAi,
-          candidates: discoveryActiveCandidates,
-        }),
-      ]);
-    }
 
     const excludedCompUrls = new Set(stringList(currentInstaComp.excludedCompUrls));
-    const acceptedDiscoverySold = dedupeEvidence(
-      evidenceList(soldReview.accepted, 20).filter((row) => !isExcludedEvidence(row)),
-      20,
+    const acceptedSoldEvidence = trustedSoldEvidence.filter(
+      (row) => !excludedCompUrls.has(row.url),
     );
-    const acceptedSoldEvidence = dedupeEvidence(
-      [...trustedSoldEvidence, ...acceptedDiscoverySold],
-      50,
-    ).filter((row) => !excludedCompUrls.has(row.url));
-    const activeCompetition = dedupeEvidence(
-      [
-        ...macMarket.active,
-        ...evidenceList(activeReview.accepted, 30).filter((row) => !isExcludedEvidence(row)),
-      ],
-      30,
-    ).filter((row) => !excludedCompUrls.has(row.url));
+    const activeCompetition = dedupeEvidence(macMarket.active, 30).filter(
+      (row) => !excludedCompUrls.has(row.url),
+    );
     const soldCompEvidence = acceptedSoldEvidence.filter((row) =>
       isPricingEligibleEvidence(row, "sold"),
     );
@@ -976,10 +877,7 @@ export async function POST(request: NextRequest) {
       ],
       60,
     );
-    const rejectedCandidates = dedupeEvidence(
-      [...evidenceList(soldReview.rejected, 30), ...evidenceList(activeReview.rejected, 30)],
-      60,
-    );
+    const rejectedCandidates: Evidence[] = [];
 
     const rawPricingAnalysis = calculateInstaCompSweetSpot({
       sold: soldCompEvidence,
@@ -1034,13 +932,6 @@ export async function POST(request: NextRequest) {
         attempts: [],
       },
       ...macCoverage,
-      ...(!macMarketHasPricing
-        ? [
-            providerCoverageRow(fanaticsSold),
-            providerCoverageRow(teacherSold),
-            providerCoverageRow(teacherActive),
-          ]
-        : []),
     ];
     const exactMarketQueries = Array.from(
       new Set(
@@ -1065,8 +956,7 @@ export async function POST(request: NextRequest) {
       one30pointUrl: null,
       mercariUrl:
         coverageLink("mac_chrome_mercari_active") || compLinks.mercariUrl,
-      fanaticsUrl:
-        coverageLink("fanatics_collect_sales_history") || compLinks.fanaticsUrl,
+      fanaticsUrl: null,
       broadCardMarketUrl: compLinks.broadCardMarketUrl,
     };
 
@@ -1122,7 +1012,7 @@ export async function POST(request: NextRequest) {
           ? currentInstaComp.excludedCompEvidence
           : [],
         providerCoverage,
-        teacherAttempts: teacher?.attempts || [],
+        teacherAttempts: [],
         sourceLinks,
         exactMarketVisualReview: {
           soldReviewed: soldReview.reviewedCount,
@@ -1180,7 +1070,7 @@ export async function POST(request: NextRequest) {
         trainingAllowed: marketLearning?.student_training_eligible === true,
       },
       marketLearning,
-      teacherAttempts: teacher?.attempts || [],
+      teacherAttempts: [],
       providerProblems: providerCoverage.filter((row) =>
         ["error", "failed", "not_configured", "challenge"].includes(String(row.status)),
       ),
