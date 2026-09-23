@@ -987,53 +987,61 @@ export default function KingmakerPendingPage({
 
   useEffect(() => {
     if (priceGuideWorkerRunningRef.current) return;
-    const eligible = cards.filter((card) => {
-      const identity = card.instaComp.identity || {};
-      const priceGuideStatus = String(
-        card.instaComp.priceGuideStatus ||
-          card.instaComp.priceGuideCoverage?.status ||
-          "",
-      );
-      const oneYearGuide =
-        String(card.instaComp.priceGuide?.period || "")
-          .trim()
-          .toLowerCase() === "1 year";
-      const terminalStatus =
-        (priceGuideStatus === "live" && oneYearGuide) ||
-        ["no_matches", "identity_mismatch"].includes(priceGuideStatus);
-      return Boolean(
-        card.inventoryItemId &&
-        identity.player &&
-        identity.year &&
-        identity.cardNumber &&
-        !terminalStatus &&
-        !priceGuideAttemptedRef.current.has(card.inventoryItemId),
-      );
-    });
+    const eligible = cards
+      .filter((card) => {
+        const identity = card.instaComp.identity || {};
+        const priceGuideStatus = String(
+          card.instaComp.priceGuideStatus ||
+            card.instaComp.priceGuideCoverage?.status ||
+            "",
+        );
+        const oneYearGuide =
+          String(card.instaComp.priceGuide?.period || "")
+            .trim()
+            .toLowerCase() === "1 year";
+        const terminalStatus =
+          (priceGuideStatus === "live" && oneYearGuide) ||
+          ["no_matches", "identity_mismatch"].includes(priceGuideStatus);
+        return Boolean(
+          card.inventoryItemId &&
+            identity.player &&
+            identity.year &&
+            identity.cardNumber &&
+            !terminalStatus &&
+            !priceGuideAttemptedRef.current.has(card.inventoryItemId),
+        );
+      })
+      .slice(0, 6);
     if (!eligible.length) return;
 
-    priceGuideWorkerRunningRef.current = true;
-    for (const card of eligible) priceGuideAttemptedRef.current.add(card.inventoryItemId);
-
-    void (async () => {
-      try {
-        const session = await getFreshAccountSession(5 * 60, false);
-        const accessToken = session?.access_token || "";
-        if (!accessToken) return;
-        for (const card of eligible) {
-          try {
-            await refreshPriceGuide(card, false, accessToken);
-          } catch {
-            // The card stays visible with an explicit retryable error state.
-          }
-        }
-      } catch {
-        // Price Guide backfill is additive and must not block Pending.
-      } finally {
-        priceGuideWorkerRunningRef.current = false;
-        setPriceGuideSweepNonce((value) => value + 1);
+    const timer = window.setTimeout(() => {
+      priceGuideWorkerRunningRef.current = true;
+      for (const card of eligible) {
+        priceGuideAttemptedRef.current.add(card.inventoryItemId);
       }
-    })();
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          const accessToken = session?.access_token || "";
+          if (!accessToken) return;
+          for (const card of eligible) {
+            try {
+              await refreshPriceGuide(card, false, accessToken);
+            } catch {
+              // Retry stays available on the card.
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 125));
+          }
+        } catch {
+          // Background price-guide work never blocks Pending.
+        } finally {
+          priceGuideWorkerRunningRef.current = false;
+          setPriceGuideSweepNonce((value) => value + 1);
+        }
+      })();
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
   }, [cards, priceGuideSweepNonce, refreshPriceGuide]);
 
   useEffect(() => {
@@ -1041,51 +1049,76 @@ export default function KingmakerPendingPage({
     const eligible = cards
       .flatMap((card) => physicalMembersForCard(card))
       .filter((member) =>
-        Boolean(
-          member.inventoryItemId &&
-          member.scanId,
-        ),
+        Boolean(member.inventoryItemId && member.scanId),
       );
     if (!eligible.length) {
       setPurchaseMatches({});
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+      };
     }
-    void (async () => {
-      try {
-        const session = await getFreshAccountSession(5 * 60, false);
-        if (!session?.access_token) return;
-        const response = await fetch("/api/account/seller/instacomp-purchase-match", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            items: eligible.map((member) => ({
-              cardUuid: member.cardUuid || "",
-              inventoryItemId: member.inventoryItemId,
-              scanId: member.scanId,
-              identity: member.identity,
-            })),
-          }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || data.ok !== true || !Array.isArray(data.results)) return;
-        const next: Record<string, PurchaseMatchState> = {};
-        for (const row of data.results) {
-          if (row?.inventoryItemId) next[String(row.inventoryItemId)] = row as PurchaseMatchState;
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          if (!session?.access_token) return;
+          const allResults: any[] = [];
+          for (let index = 0; index < eligible.length && !cancelled; index += 50) {
+            const batch = eligible.slice(index, index + 50);
+            const response = await fetch("/api/account/seller/instacomp-purchase-match", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + session.access_token,
+              },
+              body: JSON.stringify({
+                items: batch.map((member) => ({
+                  cardUuid: member.cardUuid || "",
+                  inventoryItemId: member.inventoryItemId,
+                  scanId: member.scanId,
+                  identity: member.identity,
+                })),
+              }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.ok && data.ok === true && Array.isArray(data.results)) {
+              allResults.push(...data.results);
+            }
+            if (index + 50 < eligible.length) {
+              await new Promise((resolve) => window.setTimeout(resolve, 150));
+            }
+          }
+          if (cancelled) return;
+          const next: Record<string, PurchaseMatchState> = {};
+          for (const row of allResults) {
+            if (row?.inventoryItemId) {
+              next[String(row.inventoryItemId)] = row as PurchaseMatchState;
+            }
+          }
+          setPurchaseMatches(next);
+          const pending = allResults.filter(
+            (row: any) => row?.status === "pending_purchase",
+          );
+          if (pending.length) {
+            setNotice(
+              "PURCHASE MATCH FOUND — " +
+                pending.length +
+                " scanned physical card" +
+                (pending.length === 1 ? "" : "s") +
+                " waiting to be received.",
+            );
+          }
+        } catch {
+          // Acquisition matching is additive and never blocks normal work.
         }
-        if (cancelled) return;
-        setPurchaseMatches(next);
-        const pending = data.results.filter((row: any) => row?.status === "pending_purchase");
-        if (pending.length) {
-          setNotice(`PURCHASE MATCH FOUND — ${pending.length} scanned physical card${pending.length === 1 ? "" : "s"} waiting to be received.`);
-        }
-      } catch {
-        // Acquisition matching is additive and must never block normal KINGMAKER work.
-      }
-    })();
-    return () => { cancelled = true; };
+      })();
+    }, 900);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [cards]);
 
   async function receivePurchase(
