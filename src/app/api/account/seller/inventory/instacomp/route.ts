@@ -25,6 +25,7 @@ import {
   isTrustedInstaCompMacUrl,
 } from "../../../../../../lib/instacomp-mac-credentials";
 import { getInstaCompAiLocalScanArchive } from "../../../../../../lib/instacomp-ai-local";
+import { getMacKingmakerInventoryItem } from "../../../../../../lib/kingmaker-mac-scan-server";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
 
 export const runtime = "nodejs";
@@ -592,11 +593,72 @@ export async function POST(request: NextRequest) {
 
     let metadata = recordValue(item.metadata);
     let currentInstaComp = recordValue(metadata.instacomp);
-    const storedAi = recordValue(currentInstaComp.ai);
-    const trustedStoredIdentity =
+    let storedAi = recordValue(currentInstaComp.ai);
+    let trustedStoredIdentity =
       currentInstaComp.humanVerified === true || currentInstaComp.trustedForIdentity === true;
+
+    // Pricing must never downgrade an already exact card just because website
+    // staging is missing the pricing-shaped AI copy. Mac-local Checklist
+    // Registry truth is authoritative, so repair the pricing view from the Mac
+    // receipt before considering any fresh identity scan.
+    if (!(trustedStoredIdentity && hasUsableStoredIdentity(storedAi))) {
+      try {
+        const macItem = await getMacKingmakerInventoryItem(item.id);
+        const macMetadata = recordValue(macItem?.metadata);
+        const macInstaComp = recordValue(macMetadata.instacomp);
+        const macChecklistDecision = recordValue(macInstaComp.checklistDecision);
+        const macChecklistIdentity = recordValue(macInstaComp.checklistIdentity);
+        const macAi = recordValue(macInstaComp.ai);
+        const macIdentity = recordValue(macInstaComp.identity);
+        const macPricingIdentity = hasUsableStoredIdentity(macAi) ? macAi : macIdentity;
+        const macRegistryIdentityId = String(
+          macInstaComp.registryIdentityId ||
+            macChecklistIdentity.registryIdentityId ||
+            macChecklistIdentity.identityId ||
+            "",
+        ).trim();
+        const macRegistryFingerprintSha256 = String(
+          macInstaComp.registryFingerprintSha256 ||
+            macChecklistIdentity.registryFingerprintSha256 ||
+            macChecklistIdentity.fingerprintSha256 ||
+            "",
+        ).trim();
+        const macExact =
+          macInstaComp.identityComplete === true &&
+          macInstaComp.trustedForIdentity === true &&
+          macChecklistDecision.status === "exact_match" &&
+          macChecklistIdentity.status === "exact_match" &&
+          Boolean(macRegistryIdentityId) &&
+          Boolean(macRegistryFingerprintSha256) &&
+          hasUsableStoredIdentity(macPricingIdentity);
+
+        if (macExact) {
+          storedAi = macPricingIdentity;
+          trustedStoredIdentity = true;
+          currentInstaComp = {
+            ...currentInstaComp,
+            ...macInstaComp,
+            ai: macPricingIdentity,
+            identity:
+              Object.keys(macIdentity).length > 0 ? macIdentity : macPricingIdentity,
+            registryIdentityId: macRegistryIdentityId,
+            registryFingerprintSha256: macRegistryFingerprintSha256,
+            identityComplete: true,
+            trustedForIdentity: true,
+            identitySource: "mac_checklist_registry_exact",
+          };
+          metadata = { ...metadata, instacomp: currentInstaComp };
+        }
+      } catch {
+        // If the Mac bridge is temporarily unavailable, preserve fail-closed
+        // behavior. Pricing may not trigger an identity downgrade.
+      }
+    }
+
     const useStoredIdentity =
-      body?.forceIdentityRescan !== true && trustedStoredIdentity && hasUsableStoredIdentity(storedAi);
+      body?.forceIdentityRescan !== true &&
+      trustedStoredIdentity &&
+      hasUsableStoredIdentity(storedAi);
 
     const sourceUrls = normalizeListingImageUrls([
       ...(imageRows || []).map((row: any) => row.image_url),
@@ -628,6 +690,15 @@ export async function POST(request: NextRequest) {
     let identitySource = "stored_human_verified_identity";
     if (useStoredIdentity) {
       ai = storedAi as InstaCompAiResult;
+    } else if (body?.forceIdentityRescan !== true) {
+      return NextResponse.json(
+        {
+          error:
+            "Exact Mac-local Checklist Registry identity is required before pricing. Pricing will not re-identify or downgrade this card.",
+          code: "CHECKLIST_IDENTITY_REQUIRED",
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
     } else {
       const scan = await scanIdentity({
         request,
