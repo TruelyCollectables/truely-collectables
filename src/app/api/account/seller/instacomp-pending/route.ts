@@ -443,7 +443,9 @@ async function readPendingCandidateInventoryPages(params: {
         .from("inventory_items")
         .select(params.columns)
         .eq("store_id", params.storeId)
-        .in("status", ["draft", "active"]);
+        // Pending is a staging queue. Active rows are published/current inventory
+        // and never belong in the live Pending result set.
+        .eq("status", "draft");
 
       query = params.ownerAccount
         ? query.or(
