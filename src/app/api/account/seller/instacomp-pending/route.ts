@@ -918,17 +918,10 @@ export async function GET(request: Request) {
           .filter((value): value is string => Boolean(value)),
       ),
     );
-    const allOwnedRows =
-      rows.length > 0
-        ? await readOwnedInventoryPages({
-            supabase,
-            storeId,
-            accountId: account.id,
-            ownerAccount: isStoreOwnerAccount,
-            columns:
-              "id,legacy_product_id,status,quantity,price,card_uuid,metadata,title,sku,created_at",
-          })
-        : [];
+    // The first ownership query already contains every field needed for
+    // duplicate/pricing-group reconciliation. Reusing it avoids a second full
+    // inventory scan on every Pending request.
+    const allOwnedRows = rows.length > 0 ? inventoryRows : [];
     const pricingGroups = new Map<string, any[]>();
     for (const ownedRow of allOwnedRows || []) {
       const key = effectiveInstaCompPricingGroupKey(ownedRow.metadata);
@@ -951,29 +944,6 @@ export async function GET(request: Request) {
     });
 
     const itemIds = rows.map((row: any) => String(row.id));
-    // Keep PostgREST `in(...)` URLs bounded. Large verification queues can hold
-    // thousands of UUIDs, which otherwise overrun the HTTP/2 request before
-    // Supabase ever evaluates it.
-    const storedImages: StoredImage[] = [];
-    for (let index = 0; index < itemIds.length; index += 100) {
-      const itemIdBatch = itemIds.slice(index, index + 100);
-      const { data, error } = await supabase
-        .from("inventory_images")
-        .select("inventory_item_id,image_url,alt_text,sort_order,is_primary")
-        .in("inventory_item_id", itemIdBatch)
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      storedImages.push(...((data || []) as StoredImage[]));
-    }
-
-    const imageRowsByItem = new Map<string, StoredImage[]>();
-    for (const image of (storedImages || []) as StoredImage[]) {
-      const key = String(image.inventory_item_id);
-      const current = imageRowsByItem.get(key) || [];
-      current.push(image);
-      imageRowsByItem.set(key, current);
-    }
-
     const productIds = Array.from(
       new Set(
         [...rows, ...relevantOwnedRows]
@@ -983,44 +953,81 @@ export async function GET(request: Request) {
           ),
       ),
     );
-    const products: any[] = [];
-    for (let index = 0; index < productIds.length; index += 250) {
-      const productIdBatch = productIds.slice(index, index + 250);
-      const { data, error } = await supabase
-        .from("products")
-        .select(
-          "id,card_uuid,sku,title,player,image_url,price,quantity,archived_at,listing_status,ebay_item_id",
-        )
-        .eq("store_id", storeId)
-        .in("id", productIdBatch);
-      if (error) throw error;
-      products.push(...(data || []));
+
+    // Images, linked products, and live website inventory are independent once
+    // the Pending rows are known. Run them concurrently instead of stacking
+    // multiple Supabase round trips before first byte.
+    const [storedImages, products, liveWebsiteProducts] = await Promise.all([
+      (async () => {
+        const result: StoredImage[] = [];
+        for (let index = 0; index < itemIds.length; index += 100) {
+          const itemIdBatch = itemIds.slice(index, index + 100);
+          const { data, error } = await supabase
+            .from("inventory_images")
+            .select(
+              "inventory_item_id,image_url,alt_text,sort_order,is_primary",
+            )
+            .in("inventory_item_id", itemIdBatch)
+            .order("sort_order", { ascending: true });
+          if (error) throw error;
+          result.push(...((data || []) as StoredImage[]));
+        }
+        return result;
+      })(),
+      (async () => {
+        const result: any[] = [];
+        for (let index = 0; index < productIds.length; index += 250) {
+          const productIdBatch = productIds.slice(index, index + 250);
+          const { data, error } = await supabase
+            .from("products")
+            .select(
+              "id,card_uuid,sku,title,player,image_url,price,quantity,archived_at,listing_status,ebay_item_id",
+            )
+            .eq("store_id", storeId)
+            .in("id", productIdBatch);
+          if (error) throw error;
+          result.push(...(data || []));
+        }
+        return result;
+      })(),
+      (async () => {
+        const result: WebsiteInventoryProduct[] = [];
+        for (let start = 0; ; start += 1000) {
+          const { data, error } = await supabase
+            .from("products")
+            .select(
+              "id,title,player,price,quantity,archived_at,listing_status",
+            )
+            .eq("store_id", storeId)
+            .is("archived_at", null)
+            .gt("quantity", 0)
+            .gt("price", 0)
+            .range(start, start + 999);
+          if (error) throw error;
+          const batch = (data || []) as WebsiteInventoryProduct[];
+          result.push(...batch);
+          if (batch.length < 1000) break;
+        }
+        return result;
+      })(),
+    ]);
+
+    const imageRowsByItem = new Map<string, StoredImage[]>();
+    for (const image of storedImages) {
+      const key = String(image.inventory_item_id);
+      const current = imageRowsByItem.get(key) || [];
+      current.push(image);
+      imageRowsByItem.set(key, current);
     }
 
     const productMap = new Map(
       products.map((product: any) => [product.id, product]),
     );
 
-    // Website inventory is a separate channel surface from inventory_items.
-    // Older live products can still be sellable while their linked inventory row
-    // remains draft, so current-inventory alerts must inspect the website product
-    // itself instead of trusting inventory_items.status.
-    const liveWebsiteProducts: WebsiteInventoryProduct[] = [];
-    for (let start = 0; ; start += 1000) {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id,title,player,price,quantity,archived_at,listing_status")
-        .eq("store_id", storeId)
-        .is("archived_at", null)
-        .gt("quantity", 0)
-        .gt("price", 0)
-        .range(start, start + 999);
-      if (error) throw error;
-      const batch = (data || []) as WebsiteInventoryProduct[];
-      liveWebsiteProducts.push(...batch);
-      if (batch.length < 1000) break;
-    }
-    const liveWebsiteProductsByAnchor = new Map<string, WebsiteInventoryProduct[]>();
+    const liveWebsiteProductsByAnchor = new Map<
+      string,
+      WebsiteInventoryProduct[]
+    >();
     for (const websiteProduct of liveWebsiteProducts) {
       const key = websiteProductAnchorKey(websiteProduct);
       if (!key) continue;
