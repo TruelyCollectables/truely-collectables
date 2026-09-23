@@ -568,7 +568,7 @@ export async function archiveKingmakerMacReviewFallback(params: {
     front_sha256: archive.front_sha256,
     back_sha256: archive.back_sha256,
     image_pair_sha256:
-      archive.image_pair_sha256 || params.imagePairSha256,
+      archive.image_pair_sha256 || params.imagePairSha256 || undefined,
     image_orientation: {
       status: "review_required",
       source: "supervised_archive_fast_intake_fallback",
