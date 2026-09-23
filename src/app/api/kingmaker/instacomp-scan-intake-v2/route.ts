@@ -46,8 +46,10 @@ export async function POST(request: NextRequest) {
     if (frontSha256 === backSha256) {
       return NextResponse.json({ success: false, code: "FRONT_BACK_IMAGES_DUPLICATE", error: "Front and back photos must be different images." }, { status: 409 });
     }
-    const imagePairSha256 = createHash("sha256").update(`${frontSha256}:${backSha256}`).digest("hex");
-    const duplicate = await findMacDuplicateByImagePair(imagePairSha256);
+    const inputImagePairSha256 = createHash("sha256")
+      .update(`front:${frontSha256}|back:${backSha256}`)
+      .digest("hex");
+    const duplicate = await findMacDuplicateByImagePair(inputImagePairSha256);
     if (duplicate && !forceFreshIdentity) {
       return NextResponse.json({
         success: true, stage: "review_required", identityComplete: false,
@@ -61,7 +63,7 @@ export async function POST(request: NextRequest) {
       result = await runKingmakerMacScan({
       front,
       back,
-        imagePairSha256,
+        imagePairSha256: inputImagePairSha256,
         inventoryItemId: forceFreshIdentity
           ? duplicate?.inventoryItemId || null
           : null,
@@ -76,13 +78,29 @@ export async function POST(request: NextRequest) {
       result = await archiveKingmakerMacReviewFallback({
         front,
         back,
-        imagePairSha256,
+        imagePairSha256: inputImagePairSha256,
         reason:
           error instanceof Error
             ? `Fast identity pass failed: ${error.message}`
             : "Fast identity pass failed before an exact identity was returned.",
       });
     }
+    const staging = await mirrorKingmakerScanToPendingStaging({
+      accountId: account.id,
+      result,
+    });
+    after(async () => {
+      try {
+        await persistKingmakerPendingStagingImages(staging);
+      } catch (error) {
+        console.error("KINGMAKER staging image persistence failed", {
+          inventoryItemId: result.inventoryItem.inventoryItemId,
+          scanId: result.scan.scan_id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+
     if (result.identityComplete) {
       after(async () => {
         try {
@@ -115,6 +133,8 @@ export async function POST(request: NextRequest) {
       pricingSucceeded: false,
       pricingBackgroundQueued: result.identityComplete,
       imagesPreserved: true,
+      stagingMirrored: true,
+      imagePairSha256: result.scan.image_pair_sha256 || null,
       sourceOfTruth: "mac_local",
       durationMs: Date.now() - startedAt,
     }, { status: result.identityComplete ? 201 : 202, headers: { "Cache-Control": "no-store" } });

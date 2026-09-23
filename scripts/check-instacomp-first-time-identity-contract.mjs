@@ -132,6 +132,37 @@ requireText(
   "Fresh scanner intake must hand the original front/back uploads directly to the Mac-local scan server.",
 );
 
+requireText(
+  intake,
+  "mirrorKingmakerScanToPendingStaging",
+  "Fresh scanner intake must durably mirror every Mac result into Pending staging.",
+);
+requireText(
+  intake,
+  "persistKingmakerPendingStagingImages(staging)",
+  "Fresh scanner intake must persist the Mac-normalized front/back pair after staging.",
+);
+requireText(
+  intake,
+  "front:${frontSha256}|back:${backSha256}",
+  "Fresh scanner input-pair receipt must use the same pair-hash grammar as the Mac.",
+);
+
+const macScanServer = read("src/lib/kingmaker-mac-scan-server.ts");
+for (const required of [
+  "fastPassOnly?: boolean;",
+  "params.fastPassOnly !== true",
+  "text(scan.image_pair_sha256, 128) || text(imagePairSha256, 128)",
+  "inputImagePairSha256: text(imagePairSha256, 128)",
+]) {
+  requireText(
+    macScanServer,
+    required,
+    `Mac scan helper hardening contract is missing: ${required}`,
+  );
+}
+
+
 const batchQueue = read("src/app/kingmaker/KingmakerInstaCompQueue.tsx");
 requireText(
   batchQueue,

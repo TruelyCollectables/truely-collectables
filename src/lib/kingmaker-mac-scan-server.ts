@@ -360,12 +360,15 @@ function scanMetadata(scan: InstaCompAiLocalScan, market: JsonRecord | null, ima
   const identity = scanIdentity(scan);
   const pricing = suggestedPriceFromMarket(market);
   const localVision = record(scan.local_vision);
+  const canonicalImagePairSha256 =
+    text(scan.image_pair_sha256, 128) || text(imagePairSha256, 128);
   return {
     instacomp: {
       source: "kingmaker_mac_scan",
       scanId: scan.scan_id,
       cardUuid: scan.card_uuid || null,
-      imagePairSha256: imagePairSha256 || null,
+      imagePairSha256: canonicalImagePairSha256,
+      inputImagePairSha256: text(imagePairSha256, 128),
       ai: { ...identity, internalScanId: scan.scan_id, confidence: identity.exact ? 0.99 : 0 },
       imageOrientation: orientationReceipt(scan),
       centering: {
@@ -565,7 +568,7 @@ export async function archiveKingmakerMacReviewFallback(params: {
     front_sha256: archive.front_sha256,
     back_sha256: archive.back_sha256,
     image_pair_sha256:
-      params.imagePairSha256 || archive.image_pair_sha256,
+      archive.image_pair_sha256 || params.imagePairSha256,
     image_orientation: {
       status: "review_required",
       source: "supervised_archive_fast_intake_fallback",
@@ -641,9 +644,13 @@ export async function findMacDuplicateByImagePair(
     const { items } = await listMacKingmakerInventory(timeoutMs);
     return (
       items.find(
-        (item) =>
-          text(record(item.metadata?.instacomp).imagePairSha256, 100) ===
-          imagePairSha256,
+        (item) => {
+          const instacomp = record(item.metadata?.instacomp);
+          return (
+            text(instacomp.imagePairSha256, 128) === imagePairSha256 ||
+            text(instacomp.inputImagePairSha256, 128) === imagePairSha256
+          );
+        },
       ) || null
     );
   } catch {
