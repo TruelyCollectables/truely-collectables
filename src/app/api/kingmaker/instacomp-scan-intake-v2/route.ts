@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { ensureAccountStoreMembership, getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import { getActiveStoreId } from "../../../../lib/stores";
 import {
   findMacDuplicateByImagePair,
   refreshKingmakerMacMarketForScan,
@@ -17,6 +19,17 @@ export const maxDuration = 300;
 // Do not reintroduce a Supabase-first placeholder scan before this handoff.
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textValue(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
+}
 
 function validateFile(value: FormDataEntryValue | null, side: "front" | "back") {
   if (!(value instanceof File) || value.size <= 0) throw new Error(`${side} image is required.`);
@@ -60,6 +73,88 @@ export async function POST(request: NextRequest) {
       forceFreshIdentity,
       replaceManualIdentity,
     });
+
+    // Mac-local remains the identity authority. The website stores only the
+    // staging/listing row so a successful receive can never disappear from the
+    // Pending UI while a later Mac inventory projection is slow or unavailable.
+    const supabase = createSupabaseServerClient({ admin: true });
+    const storeId = getActiveStoreId();
+    const macMetadata = recordValue(result.inventoryItem.metadata);
+    const macInstaComp = recordValue(macMetadata.instacomp);
+    const scanId = textValue(result.scan.scan_id) || textValue(macInstaComp.scanId);
+    const projectedQueue = result.identityComplete
+      ? "pending_listings"
+      : "pending_verification";
+    const projectedSource = result.identityComplete
+      ? "mac_local_registry_exact"
+      : "mac_local_received_review";
+    const metadata = {
+      ...macMetadata,
+      listingReviewRequired: !result.identityComplete,
+      listingWorkflow: {
+        ...recordValue(macMetadata.listingWorkflow),
+        queue: projectedQueue,
+        source: "kingmaker_scan_intake_v2_staging_mirror",
+      },
+      pending_verification: {
+        ...recordValue(macMetadata.pending_verification),
+        status: result.identityComplete ? "resolved" : "pending_verification",
+        source: "kingmaker_scan_intake_v2_staging_mirror",
+      },
+      instacomp: {
+        ...macInstaComp,
+        source: projectedSource,
+        scanId,
+        frontImageUrl:
+          textValue(macInstaComp.frontImageUrl) ||
+          (scanId
+            ? "/api/kingmaker/scan-image?scanId=" +
+              encodeURIComponent(scanId) +
+              "&side=front"
+            : null),
+        backImageUrl:
+          textValue(macInstaComp.backImageUrl) ||
+          (scanId
+            ? "/api/kingmaker/scan-image?scanId=" +
+              encodeURIComponent(scanId) +
+              "&side=back"
+            : null),
+        hasBackImage: true,
+        identityComplete: result.identityComplete,
+        trustedForIdentity: result.identityComplete,
+        lastStatus: result.identityComplete
+          ? "identity_complete"
+          : "review_required",
+        lastStage: result.identityComplete
+          ? "registry_exact"
+          : "received_review",
+        pricingStatus: result.identityComplete
+          ? "identity_complete_pricing_pending"
+          : "blocked_identity_review_required",
+      },
+    };
+    const { error: stagingError } = await supabase
+      .from("inventory_items")
+      .upsert(
+        {
+          id: result.inventoryItem.inventoryItemId,
+          store_id: storeId,
+          seller_account_id: account.id,
+          card_uuid: result.scan.card_uuid || null,
+          sku: result.inventoryItem.sku || null,
+          title: result.inventoryItem.title || "Mac-local received card",
+          description: result.inventoryItem.description || null,
+          category: result.inventoryItem.category || "Trading Card Singles",
+          condition: result.inventoryItem.condition || "Near Mint or Better",
+          status: "draft",
+          quantity: Math.max(1, Number(result.inventoryItem.quantity || 1)),
+          price: Math.max(0, Number(result.inventoryItem.price || 0)),
+          metadata,
+        },
+        { onConflict: "id" },
+      );
+    if (stagingError) throw stagingError;
+
     if (result.identityComplete) {
       after(async () => {
         try {
