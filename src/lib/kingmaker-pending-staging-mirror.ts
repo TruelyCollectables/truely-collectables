@@ -110,9 +110,11 @@ export async function mirrorKingmakerScanToPendingStaging(params: {
     card_uuid: scan.card_uuid || null,
     sku: item.sku || null,
     title: item.title || "Mac-local received card",
-    description: item.description || null,
-    category: item.category || "Trading Card Singles",
-    condition: item.condition || "Near Mint or Better",
+    description: exact
+      ? "Mac-local KINGMAKER draft with exact Registry identity."
+      : "Mac-local KINGMAKER draft awaiting exact identity review.",
+    category: "Trading Card Singles",
+    condition: "Near Mint or Better",
     status: "draft",
     quantity: Math.max(1, Number(item.quantity || 1)),
     price: Math.max(0, Number(item.price || 0)),
