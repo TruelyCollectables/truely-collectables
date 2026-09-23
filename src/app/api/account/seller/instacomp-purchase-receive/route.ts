@@ -35,9 +35,30 @@ export async function POST(request: Request) {
     const acquisitionItemId = Number(body.acquisitionItemId || 0);
     const disposition =
       body.disposition === "investment_stash" ? "investment_stash" : "resale";
-    if (!inventoryItemId || acquisitionItemId <= 0 || !text(body.scanId)) {
+    if (acquisitionItemId <= 0) {
       return Response.json(
-        { error: "A verified physical scan and exact purchase match are required." },
+        { error: "A purchase match is required." },
+        { status: 400 },
+      );
+    }
+
+    if (!inventoryItemId && !text(body.scanId)) {
+      const data = await postInstaCompMacAccounting(
+        "/v1/kingmaker/accounting/receive",
+        {
+          card_uuid: "",
+          inventory_item_id: "",
+          scan_id: "",
+          acquisition_item_id: acquisitionItemId,
+          disposition,
+        },
+      );
+      return Response.json(data, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    if (!inventoryItemId || !text(body.scanId)) {
+      return Response.json(
+        { error: "A verified physical scan is required to finish Pending Sale or Stash." },
         { status: 400 },
       );
     }
