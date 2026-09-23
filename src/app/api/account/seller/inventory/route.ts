@@ -68,7 +68,7 @@ type SellerInventoryResponseItem = {
   createdAt: string | null;
   ebayItemId: string | null;
   imageUrl: string | null;
-  authenticity: AuthenticityProfile;
+  authenticity: AuthenticityProfile | null;
   shippingPlan: {
     method: ShippingMethod;
     label: string;
@@ -78,16 +78,8 @@ type SellerInventoryResponseItem = {
     coverageRequired: boolean;
     coverageType: string;
     sellerProtectionOptedIn: boolean;
-    sellerProtectionProvider: string;
-    sellerProtectionRate: number;
-    sellerProtectionMaxCoverage: number;
     sellerProtectionFeeEstimate: number;
     sellerProtectionCoveredAmount: number;
-    sellerProtectionCoverageBasis: string;
-    sellerProtectionClaimRule: string;
-    sellerProtectionRefundRule: string;
-    sellerProtectionReimbursesShipping: boolean;
-    sellerProtectionLegalLabel: string;
     reason: string | null;
   };
   instaComp: {
@@ -100,7 +92,7 @@ type SellerInventoryResponseItem = {
     listingPriceSource: string | null;
     hasBackImage: boolean;
   };
-  promotion: ListingPromotion;
+  promotion: ListingPromotion | null;
   activationReadiness: {
     ready: boolean;
     blockers: InventoryActivationBlocker[];
@@ -109,6 +101,34 @@ type SellerInventoryResponseItem = {
 
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
+}
+
+const DEFAULT_AUTHENTICITY_PROFILE = extractAuthenticityProfile(null);
+const DEFAULT_LISTING_PROMOTION = listingPromotionFromMetadata(null);
+const SHARED_SELLER_PROTECTION_POLICY = (() => {
+  const policy = getUnder20SellerProtection({
+    method: "STANDARD_ENVELOPE",
+    subtotal: 1,
+    sellerOptedIn: true,
+  });
+  return {
+    sellerProtectionProvider: policy.provider,
+    sellerProtectionRate: policy.rate,
+    sellerProtectionMaxCoverage: policy.maxCoverage,
+    sellerProtectionCoverageBasis: policy.coverageBasis,
+    sellerProtectionClaimRule: policy.claimTrigger,
+    sellerProtectionRefundRule: policy.sellerRefundRule,
+    sellerProtectionReimbursesShipping: policy.reimbursesShipping,
+    sellerProtectionLegalLabel: policy.legalLabel,
+  };
+})();
+
+function isDefaultAuthenticity(profile: AuthenticityProfile) {
+  return JSON.stringify(profile) === JSON.stringify(DEFAULT_AUTHENTICITY_PROFILE);
+}
+
+function isDefaultPromotion(promotion: ListingPromotion) {
+  return JSON.stringify(promotion) === JSON.stringify(DEFAULT_LISTING_PROMOTION);
 }
 
 function moneyNumber(value: number | string | null | undefined) {
@@ -191,16 +211,8 @@ function sellerInventoryShippingPlan(
     coverageRequired: coverage.required,
     coverageType: coverage.coverageType,
     sellerProtectionOptedIn,
-    sellerProtectionProvider: sellerProtection.provider,
-    sellerProtectionRate: sellerProtection.rate,
-    sellerProtectionMaxCoverage: sellerProtection.maxCoverage,
     sellerProtectionFeeEstimate: sellerProtection.feeAmount,
     sellerProtectionCoveredAmount: sellerProtection.coveredAmount,
-    sellerProtectionCoverageBasis: sellerProtection.coverageBasis,
-    sellerProtectionClaimRule: sellerProtection.claimTrigger,
-    sellerProtectionRefundRule: sellerProtection.sellerRefundRule,
-    sellerProtectionReimbursesShipping: sellerProtection.reimbursesShipping,
-    sellerProtectionLegalLabel: sellerProtection.legalLabel,
     reason: resolved.reason,
   };
 }
@@ -256,13 +268,19 @@ function mapInventoryItem(
     createdAt: item.created_at,
     ebayItemId: product?.ebay_item_id || null,
     imageUrl: product?.image_url || null,
-    authenticity: extractAuthenticityProfile(item.metadata),
+    authenticity: (() => {
+      const profile = extractAuthenticityProfile(item.metadata);
+      return isDefaultAuthenticity(profile) ? null : profile;
+    })(),
     shippingPlan: sellerInventoryShippingPlan(
       moneyNumber(item.price),
       item.metadata,
     ),
     instaComp: instacompSummary(item.metadata),
-    promotion: listingPromotionFromMetadata(item.metadata),
+    promotion: (() => {
+      const promotion = listingPromotionFromMetadata(item.metadata);
+      return isDefaultPromotion(promotion) ? null : promotion;
+    })(),
     activationReadiness: {
       ready: shouldEvaluateReadiness
         ? blockers.length === 0
@@ -324,6 +342,18 @@ export async function GET(request: Request) {
       status: "active",
     });
 
+    const requestUrl = new URL(request.url);
+    const offset = Math.max(
+      0,
+      Math.floor(Number(requestUrl.searchParams.get("offset") || 0)),
+    );
+    const limit = Math.min(
+      1000,
+      Math.max(
+        100,
+        Math.floor(Number(requestUrl.searchParams.get("limit") || 500)),
+      ),
+    );
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
     const isStoreOwnerAccount =
@@ -333,6 +363,7 @@ export async function GET(request: Request) {
       .from("inventory_items")
       .select(
         "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,updated_at,created_at",
+        { count: "exact" },
       )
       .eq("store_id", storeId)
       .order("updated_at", { ascending: false });
@@ -341,7 +372,11 @@ export async function GET(request: Request) {
       ? inventoryQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
       : inventoryQuery.eq("seller_account_id", account.id);
 
-    const { data: inventoryData, error: inventoryError } = await inventoryQuery;
+    const {
+      data: inventoryData,
+      error: inventoryError,
+      count: inventoryCount,
+    } = await inventoryQuery.range(offset, offset + limit - 1);
 
     if (inventoryError) {
       if (isMissingSellerInventoryTables(inventoryError)) {
@@ -399,7 +434,6 @@ export async function GET(request: Request) {
     const items = inventoryItems.map((item) =>
       mapInventoryItem(item, productsById, account.id),
     );
-    const recentItems = items.slice(0, 12);
     const totalQuantity = inventoryItems.reduce(
       (sum, item) => sum + Number(item.quantity || 0),
       0,
@@ -478,7 +512,11 @@ export async function GET(request: Request) {
     }).length;
 
     const summary = {
-      totalItems: inventoryItems.length,
+      totalItems: Math.max(
+        inventoryItems.length,
+        Number(inventoryCount || 0),
+      ),
+      loadedItems: inventoryItems.length,
       draftCount: inventoryItems.filter((item) => item.status === "draft").length,
       draftReadyCount,
       draftNeedsWorkCount,
@@ -504,7 +542,22 @@ export async function GET(request: Request) {
         success: true,
         summary,
         items,
-        recentItems,
+        recentItems: items.slice(0, 12),
+        defaults: {
+          authenticity: DEFAULT_AUTHENTICITY_PROFILE,
+          promotion: DEFAULT_LISTING_PROMOTION,
+          shippingPolicy: SHARED_SELLER_PROTECTION_POLICY,
+        },
+        pagination: {
+          offset,
+          limit,
+          returned: inventoryItems.length,
+          total: Math.max(inventoryItems.length, Number(inventoryCount || 0)),
+          hasMore:
+            offset + inventoryItems.length <
+            Math.max(inventoryItems.length, Number(inventoryCount || 0)),
+          nextOffset: offset + inventoryItems.length,
+        },
       },
       {
         headers: sellerInventoryHeaders(summary),

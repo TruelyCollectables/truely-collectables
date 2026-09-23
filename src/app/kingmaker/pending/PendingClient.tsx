@@ -379,14 +379,19 @@ function hasValidPair(card: PendingCard) {
 }
 
 function physicalMembersForCard(card: PendingCard): PhysicalInventoryMember[] {
-  if (card.commercialGroup?.members?.length) return card.commercialGroup.members;
+  if (card.commercialGroup?.members?.length) {
+    return card.commercialGroup.members.map((member) => ({
+      ...member,
+      // Grouped copies share one exact Registry identity. Do not duplicate the
+      // full identity blob on every physical member in the API payload.
+      identity: member.identity || card.instaComp.identity || null,
+    }));
+  }
   return [{
     inventoryItemId: card.inventoryItemId,
     scanId: card.instaComp.scanId || null,
     cardUuid: card.instaComp.cardUuid || null,
     identity: card.instaComp.identity || null,
-    frontImageUrl: card.frontImageUrl,
-    backImageUrl: card.backImageUrl,
     inventoryLifecycle: card.inventoryLifecycle || null,
   }];
 }
@@ -1038,9 +1043,7 @@ export default function KingmakerPendingPage({
       .filter((member) =>
         Boolean(
           member.inventoryItemId &&
-          member.scanId &&
-          member.identity?.player &&
-          member.identity?.cardNumber,
+          member.scanId,
         ),
       );
     if (!eligible.length) {

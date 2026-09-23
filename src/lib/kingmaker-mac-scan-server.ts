@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import {
   analyzeWithInstaCompAiLocal,
+  archiveInstaCompAiLocalSupervisedScan,
   type InstaCompAiLocalScan,
 } from "./instacomp-ai-local";
 import { normalizeInstaCompSideImages } from "./instacomp-image-orientation";
@@ -429,6 +430,8 @@ export async function runKingmakerMacScan(params: {
   searchMarket?: boolean;
   forceFreshIdentity?: boolean;
   replaceManualIdentity?: boolean;
+  scanTimeoutMs?: number;
+  fastPassOnly?: boolean;
 }) : Promise<KingmakerMacScanResult> {
   // IDENTITY-FIRST FAST LANE:
   // Most seller scans arrive upright. Try the known-fast 0/0 physical scan first.
@@ -440,7 +443,9 @@ export async function runKingmakerMacScan(params: {
     frontRotation: 0,
     backRotation: 0,
     forceFreshIdentity: params.forceFreshIdentity === true,
-    timeoutMs: params.forceFreshIdentity === true ? 12_000 : 30_000,
+    timeoutMs:
+      params.scanTimeoutMs ??
+      (params.forceFreshIdentity === true ? 12_000 : 30_000),
   });
   if (!scan.scan_id) throw new Error("Mac-local InstaComp scan returned no scan ID.");
 
@@ -448,6 +453,7 @@ export async function runKingmakerMacScan(params: {
   // to the Mac's full local orientation/identity pipeline. Upside-down or
   // sideways cards therefore retain the existing recovery path.
   if (
+    params.fastPassOnly !== true &&
     !scanIdentity(scan).exact &&
     !(
       params.forceFreshIdentity === true &&
@@ -470,6 +476,7 @@ export async function runKingmakerMacScan(params: {
 
   // External orientation remains last-resort only, after both local attempts.
   if (
+    params.fastPassOnly !== true &&
     !scanIdentity(scan).exact &&
     String(scan.image_orientation?.status || "").trim().toLowerCase() !== "completed"
   ) {
@@ -534,6 +541,96 @@ export async function runKingmakerMacScan(params: {
     ? (await updateMacKingmakerDraft(params.inventoryItemId!, draft)) || existing
     : await createMacKingmakerDraft(draft);
   return { scan, inventoryItem, market, pricing, ai: record(metadata.instacomp).ai as JsonRecord, identityComplete: identity.exact };
+}
+
+
+
+export async function archiveKingmakerMacReviewFallback(params: {
+  front: File;
+  back: File;
+  imagePairSha256?: string | null;
+  inventoryItemId?: string | null;
+  reason?: string | null;
+}): Promise<KingmakerMacScanResult> {
+  const archive = await archiveInstaCompAiLocalSupervisedScan({
+    front: params.front,
+    back: params.back,
+    timeoutMs: 12_000,
+  });
+  const scan: InstaCompAiLocalScan = {
+    schema_version: "tcos.instacomp-ai.scan.v1",
+    scan_id: archive.scan_id,
+    card_uuid: archive.card_uuid,
+    status: "needs_review",
+    front_sha256: archive.front_sha256,
+    back_sha256: archive.back_sha256,
+    image_pair_sha256:
+      params.imagePairSha256 || archive.image_pair_sha256,
+    image_orientation: {
+      status: "review_required",
+      source: "supervised_archive_fast_intake_fallback",
+      front_rotation: 0,
+      back_rotation: 0,
+      front_confidence: 0,
+      back_confidence: 0,
+      front_evidence: [],
+      back_evidence: [],
+    },
+    local_vision: null,
+    pricing_allowed: false,
+    learning_allowed: false,
+    trusted_identity: null,
+    local_suggestion: null,
+    match_source: "none",
+    checklist: {
+      outcome: "input_incomplete",
+      identity_id: null,
+      identity: null,
+      source_receipts: ["supervised_archive_fast_intake_fallback"],
+      reasons: [
+        params.reason ||
+          "Foreground identity pass did not finish inside the intake latency budget.",
+      ],
+    },
+    next_action:
+      "Card images are safely archived. Continue exact identity recovery in Pending Verification.",
+  };
+  const metadata = scanMetadata(
+    scan,
+    null,
+    params.imagePairSha256 || archive.image_pair_sha256,
+  );
+  const inventoryItemId =
+    text(params.inventoryItemId, 200) ||
+    text(archive.card_uuid, 200) ||
+    archive.scan_id;
+  const draft = {
+    inventoryItemId,
+    cardUuid: archive.card_uuid,
+    title: scanTitle(scan),
+    sku: `scan-${String(inventoryItemId).slice(0, 12)}`,
+    description:
+      "Mac-local KINGMAKER draft safely archived; exact identity review required.",
+    player: null,
+    sport: null,
+    category: "Trading Card Singles",
+    condition: "Near Mint or Better",
+    price: 0,
+    imageUrl: kingmakerScanImageUrl(archive.scan_id, "front"),
+    metadata,
+  };
+  const inventoryItem = params.inventoryItemId
+    ? (await updateMacKingmakerDraft(params.inventoryItemId, draft)) ||
+      (await createMacKingmakerDraft(draft))
+    : await createMacKingmakerDraft(draft);
+  return {
+    scan,
+    inventoryItem,
+    market: null,
+    pricing: null,
+    ai: record(metadata.instacomp).ai as JsonRecord,
+    identityComplete: false,
+  };
 }
 
 export async function findMacDuplicateByImagePair(

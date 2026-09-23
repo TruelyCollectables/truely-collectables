@@ -101,42 +101,50 @@ export default function ReceivingClient() {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
 
-      try {
-        const pending = await jsonFetch(
-          "/api/account/seller/instacomp-pending",
-          session.access_token,
-        );
-        const eligible = (Array.isArray(pending.items) ? pending.items : [])
-          .map((item: PendingItem) => ({
-            cardUuid: String(item?.instaComp?.cardUuid || ""),
-            inventoryItemId: String(item?.inventoryItemId || ""),
-            scanId: String(item?.instaComp?.scanId || ""),
-            identity: item?.instaComp?.identity || {},
-          }))
-          .filter((item: any) =>
-            Boolean(
-              item.inventoryItemId &&
-              item.scanId &&
-              item.identity?.player &&
-              item.identity?.cardNumber,
-            ),
-          );
-        if (eligible.length) {
-          await jsonFetch(
-            "/api/account/seller/instacomp-purchase-match",
-            session.access_token,
-            { method: "POST", body: JSON.stringify({ items: eligible }) },
-          );
-        }
-      } catch {
-        // Receiving still loads the ledger if Pending matching is temporarily unavailable.
-      }
-
+      // First paint owns the critical path: load the purchase ledger immediately.
+      // Pending scan matching is additive and must never hold Receiving hostage.
       const data = await jsonFetch(
         "/api/account/seller/instacomp-purchases",
         session.access_token,
       );
       setPayload(data as Payload);
+
+      void (async () => {
+        try {
+          const pending = await jsonFetch(
+            "/api/account/seller/instacomp-pending?queue=listings",
+            session.access_token,
+          );
+          const eligible = (Array.isArray(pending.items) ? pending.items : [])
+            .map((item: PendingItem) => ({
+              cardUuid: String(item?.instaComp?.cardUuid || ""),
+              inventoryItemId: String(item?.inventoryItemId || ""),
+              scanId: String(item?.instaComp?.scanId || ""),
+              identity: item?.instaComp?.identity || {},
+            }))
+            .filter((item: any) =>
+              Boolean(
+                item.inventoryItemId &&
+                item.scanId &&
+                item.identity?.player &&
+                item.identity?.cardNumber,
+              ),
+            );
+          if (!eligible.length) return;
+          await jsonFetch(
+            "/api/account/seller/instacomp-purchase-match",
+            session.access_token,
+            { method: "POST", body: JSON.stringify({ items: eligible }) },
+          );
+          const refreshed = await jsonFetch(
+            "/api/account/seller/instacomp-purchases",
+            session.access_token,
+          );
+          setPayload(refreshed as Payload);
+        } catch {
+          // Matching is background enrichment; the ledger remains usable.
+        }
+      })();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load Receiving.");
     } finally {

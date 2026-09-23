@@ -23,8 +23,51 @@ import {
   type StoredAccountSession,
 } from "../../account/account-session";
 
+function hydrateInventoryItems(data: any): SellerInventoryItem[] {
+  const defaults =
+    data?.defaults && typeof data.defaults === "object" ? data.defaults : {};
+  const defaultAuthenticity =
+    defaults.authenticity && typeof defaults.authenticity === "object"
+      ? defaults.authenticity
+      : {
+          status: "not_applicable",
+          autographSource: "none",
+          certProvider: null,
+          certNumber: null,
+          guaranteedAuthenticators: [],
+          provenanceEvidence: null,
+          authenticityNotes: null,
+        };
+  const defaultPromotion =
+    defaults.promotion && typeof defaults.promotion === "object"
+      ? defaults.promotion
+      : {
+          onSale: false,
+          originalPrice: null,
+          discountPercent: 0,
+          automaticFreeShipping: false,
+          discountCouponCode: null,
+          discountCouponPercent: 0,
+          freeShippingCouponCode: null,
+        };
+  const shippingPolicy =
+    defaults.shippingPolicy && typeof defaults.shippingPolicy === "object"
+      ? defaults.shippingPolicy
+      : {};
+  return (Array.isArray(data?.items) ? data.items : []).map((item: any) => ({
+    ...item,
+    authenticity: item.authenticity || defaultAuthenticity,
+    promotion: item.promotion || defaultPromotion,
+    shippingPlan: {
+      ...shippingPolicy,
+      ...(item.shippingPlan || {}),
+    },
+  })) as SellerInventoryItem[];
+}
+
 type SellerInventorySummary = {
   totalItems: number;
+  loadedItems?: number;
   draftCount: number;
   draftReadyCount: number;
   draftNeedsWorkCount: number;
@@ -35,6 +78,15 @@ type SellerInventorySummary = {
   instacompReadyDraftCount: number;
   totalQuantity: number;
   totalDraftValue: number;
+};
+
+type SellerInventoryPagination = {
+  offset: number;
+  limit: number;
+  returned: number;
+  total: number;
+  hasMore: boolean;
+  nextOffset: number;
 };
 
 type SellerInventoryItem = {
@@ -718,6 +770,15 @@ export default function SellerInventoryPage() {
   const [initialFilters] = useState(initialInventoryFilters);
   const [summary, setSummary] = useState<SellerInventorySummary | null>(null);
   const [items, setItems] = useState<SellerInventoryItem[]>([]);
+  const [pagination, setPagination] = useState<SellerInventoryPagination>({
+    offset: 0,
+    limit: 500,
+    returned: 0,
+    total: 0,
+    hasMore: false,
+    nextOffset: 0,
+  });
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState("");
@@ -780,6 +841,7 @@ export default function SellerInventoryPage() {
   const [focusInventoryItemId, setFocusInventoryItemId] = useState(
     initialFilters.inventoryItemId,
   );
+  const [renderLimit, setRenderLimit] = useState(80);
 
   function syncInventoryUrl(next: {
     search?: string;
@@ -870,36 +932,107 @@ export default function SellerInventoryPage() {
     setLastBulkInventoryFailures([]);
   }
 
-  async function loadInventory(accessToken: string, options?: { silent?: boolean }) {
-    if (options?.silent) {
+  async function loadInventory(
+    accessToken: string,
+    options?: { silent?: boolean; append?: boolean },
+  ) {
+    const append = options?.append === true;
+    if (append) {
+      setLoadingMore(true);
+    } else if (options?.silent) {
       setRefreshing(true);
     } else {
       setLoading(true);
     }
 
     try {
-      const response = await fetch("/api/account/seller/inventory", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
+      const offset = append ? pagination.nextOffset : 0;
+      const response = await fetch(
+        "/api/account/seller/inventory?offset=" + offset + "&limit=500",
+        {
+          headers: {
+            Authorization: "Bearer " + accessToken,
+          },
         },
-      });
+      );
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || "Could not load seller inventory.");
       }
 
-      applyLoadedInventory(
-        (data.summary || null) as SellerInventorySummary | null,
-        (data.items || []) as SellerInventoryItem[],
-      );
+      const pageItems = hydrateInventoryItems(data);
+      const nextPagination = {
+        offset: Math.max(0, Number(data.pagination?.offset || offset)),
+        limit: Math.max(1, Number(data.pagination?.limit || 500)),
+        returned: Math.max(0, Number(data.pagination?.returned || pageItems.length)),
+        total: Math.max(0, Number(data.pagination?.total || pageItems.length)),
+        hasMore: data.pagination?.hasMore === true,
+        nextOffset: Math.max(
+          0,
+          Number(data.pagination?.nextOffset || offset + pageItems.length),
+        ),
+      } satisfies SellerInventoryPagination;
+      setPagination(nextPagination);
+
+      if (append) {
+        const byId = new Map(
+          items.map((item) => [item.inventoryItemId, item] as const),
+        );
+        for (const item of pageItems) byId.set(item.inventoryItemId, item);
+        const mergedItems = Array.from(byId.values());
+        const pageSummary = (data.summary || null) as SellerInventorySummary | null;
+        const mergedSummary =
+          summary && pageSummary
+            ? {
+                ...summary,
+                totalItems: Math.max(
+                  nextPagination.total,
+                  summary.totalItems || 0,
+                ),
+                loadedItems: mergedItems.length,
+                draftCount: summary.draftCount + pageSummary.draftCount,
+                draftReadyCount:
+                  summary.draftReadyCount + pageSummary.draftReadyCount,
+                draftNeedsWorkCount:
+                  summary.draftNeedsWorkCount + pageSummary.draftNeedsWorkCount,
+                activeCount: summary.activeCount + pageSummary.activeCount,
+                archivedCount: summary.archivedCount + pageSummary.archivedCount,
+                storeOwnedCount:
+                  summary.storeOwnedCount + pageSummary.storeOwnedCount,
+                instacompDraftCount:
+                  summary.instacompDraftCount + pageSummary.instacompDraftCount,
+                instacompReadyDraftCount:
+                  summary.instacompReadyDraftCount +
+                  pageSummary.instacompReadyDraftCount,
+                totalQuantity:
+                  summary.totalQuantity + pageSummary.totalQuantity,
+                totalDraftValue:
+                  summary.totalDraftValue + pageSummary.totalDraftValue,
+              }
+            : pageSummary;
+        applyLoadedInventory(mergedSummary, mergedItems);
+      } else {
+        const pageSummary = (data.summary || null) as SellerInventorySummary | null;
+        applyLoadedInventory(
+          pageSummary
+            ? {
+                ...pageSummary,
+                totalItems: nextPagination.total,
+                loadedItems: pageItems.length,
+              }
+            : null,
+          pageItems,
+        );
+      }
       setError("");
     } catch (nextError: any) {
-      applyLoadedInventory(null, []);
+      if (!append) applyLoadedInventory(null, []);
       setError(nextError.message || "Could not load seller inventory.");
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }
 
@@ -933,37 +1066,9 @@ export default function SellerInventoryPage() {
     let cancelled = false;
 
     const timeout = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/account/seller/inventory", {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          });
-          const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(data.error || "Could not load seller inventory.");
-          }
-
-          if (!cancelled) {
-            applyLoadedInventory(
-              (data.summary || null) as SellerInventorySummary | null,
-              (data.items || []) as SellerInventoryItem[],
-            );
-            setError("");
-          }
-        } catch (nextError: any) {
-          if (!cancelled) {
-            applyLoadedInventory(null, []);
-            setError(nextError.message || "Could not load seller inventory.");
-          }
-        } finally {
-          if (!cancelled) {
-            setLoading(false);
-          }
-        }
-      })();
+      if (!cancelled) {
+        void loadInventory(session.access_token);
+      }
     }, 0);
 
     return () => {
@@ -1048,6 +1153,18 @@ export default function SellerInventoryPage() {
     }, 2500);
     return () => window.clearTimeout(timer);
   }, [focusInventoryItemId, filteredItems.length]);
+
+  useEffect(() => {
+    setRenderLimit(80);
+  }, [search, statusFilter, readinessFilter, sourceFilter, focusInventoryItemId]);
+
+  const renderedItems = useMemo(
+    () =>
+      focusInventoryItemId.trim()
+        ? filteredItems
+        : filteredItems.slice(0, renderLimit),
+    [filteredItems, focusInventoryItemId, renderLimit],
+  );
 
   const visibleInventoryItemIds = useMemo(
     () => filteredItems.map((item) => item.inventoryItemId),
@@ -1475,7 +1592,7 @@ export default function SellerInventoryPage() {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: "Bearer " + session.access_token,
           },
         },
       );
@@ -1511,7 +1628,7 @@ export default function SellerInventoryPage() {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: "Bearer " + session.access_token,
           },
         },
       );
@@ -1584,7 +1701,7 @@ export default function SellerInventoryPage() {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: "Bearer " + session.access_token,
           },
           body: JSON.stringify({
             title: editorTitle,
@@ -1639,7 +1756,7 @@ export default function SellerInventoryPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: "Bearer " + session.access_token,
           },
           body: JSON.stringify({ mode }),
         },
@@ -1864,7 +1981,7 @@ export default function SellerInventoryPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: "Bearer " + session.access_token,
         },
         body: JSON.stringify({
           action,
@@ -1922,7 +2039,7 @@ export default function SellerInventoryPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: "Bearer " + session.access_token,
           },
           body: JSON.stringify({
             action,
@@ -2322,8 +2439,9 @@ export default function SellerInventoryPage() {
                     Bulk controls
                   </p>
                   <p className="mt-1 text-sm text-neutral-700">
-                    {selectedInventoryItemIds.length} selected across the workspace,{" "}
-                    {selectedVisibleCount} visible in the current filter view.
+                    {selectedInventoryItemIds.length} selected across the loaded workspace,{" "}
+                    {selectedVisibleCount} visible in the current filter view.{" "}
+                    Loaded {items.length.toLocaleString()} of {pagination.total.toLocaleString()} total inventory rows.
                   </p>
                 </div>
 
@@ -3086,7 +3204,7 @@ export default function SellerInventoryPage() {
             </div>
           ) : (
             <div className="grid gap-4 p-5 xl:grid-cols-2">
-              {filteredItems.map((item) => (
+              {renderedItems.map((item) => (
                 <article
                   key={item.inventoryItemId}
                   data-inventory-item-id={item.inventoryItemId}
@@ -3701,6 +3819,39 @@ export default function SellerInventoryPage() {
                   ) : null}
                 </article>
               ))}
+              {renderedItems.length < filteredItems.length ? (
+                <div className="col-span-full flex justify-center py-3">
+                  <button
+                    type="button"
+                    onClick={() => setRenderLimit((value) => value + 80)}
+                    className="rounded-md border-2 border-neutral-900 bg-white px-5 py-3 text-sm font-black shadow-[4px_4px_0_#111]"
+                  >
+                    Load 80 more · {filteredItems.length - renderedItems.length} remaining
+                  </button>
+                </div>
+              ) : null}
+              {renderedItems.length >= filteredItems.length && pagination.hasMore ? (
+                <div className="col-span-full flex flex-col items-center gap-2 py-3">
+                  <p className="text-xs font-semibold text-neutral-600">
+                    Filters and search currently apply to the {items.length.toLocaleString()} loaded rows.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={loadingMore || !session?.access_token}
+                    onClick={() =>
+                      session?.access_token &&
+                      void loadInventory(session.access_token, { append: true })
+                    }
+                    className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white disabled:opacity-50"
+                  >
+                    {loadingMore
+                      ? "Loading next 500…"
+                      : "Load next 500 · " +
+                        Math.max(0, pagination.total - items.length).toLocaleString() +
+                        " not loaded"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
         </section>

@@ -1112,7 +1112,6 @@ export async function GET(request: Request) {
       const graderVerification = recordValue(metadata.grader_verification);
       const sellerReview = recordValue(metadata.seller_review);
       const sourceLinks = recordValue(instaComp.sourceLinks);
-      const pricingAnalysis = recordValue(instaComp.pricingAnalysis);
       const dualMarketplace = recordValue(metadata.dual_marketplace);
       const dualWebsite = recordValue(dualMarketplace.website);
       const dualEbay = recordValue(dualMarketplace.ebay);
@@ -1369,7 +1368,6 @@ export async function GET(request: Request) {
         imageUrl: displayFrontUrl,
         frontImageUrl: displayFrontUrl,
         backImageUrl: displayBackUrl,
-        images: storedPair.images,
         storedImageCount: storedPair.storedImageCount,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -1617,67 +1615,6 @@ export async function GET(request: Request) {
                 0,
             ),
           ),
-          pricingAnalysis: {
-            strategy:
-              textValue(localCertifiedPricingAnalysis.strategy) ||
-              textValue(pricingAnalysis.strategy) ||
-              "no_market",
-            soldCount: Math.max(
-              0,
-              Number(
-                localCertifiedPricingAnalysis.soldCount ??
-                  pricingAnalysis.soldCount ??
-                  0,
-              ),
-            ),
-            activeCount: Math.max(
-              0,
-              Number(
-                localCertifiedPricingAnalysis.activeCount ??
-                  pricingAnalysis.activeCount ??
-                  0,
-              ),
-            ),
-            soldLow: optionalPrice(
-              localCertifiedPricingAnalysis.soldLow ?? pricingAnalysis.soldLow,
-            ),
-            soldMedian: optionalPrice(
-              localCertifiedPricingAnalysis.soldMedian ??
-                pricingAnalysis.soldMedian,
-            ),
-            soldAverage: optionalPrice(
-              localCertifiedPricingAnalysis.soldAverage ??
-                pricingAnalysis.soldAverage,
-            ),
-            soldHigh: optionalPrice(
-              localCertifiedPricingAnalysis.soldHigh ??
-                pricingAnalysis.soldHigh,
-            ),
-            activeLow: optionalPrice(
-              localCertifiedPricingAnalysis.activeLow ??
-                pricingAnalysis.activeLow,
-            ),
-            activeMedian: optionalPrice(
-              localCertifiedPricingAnalysis.activeMedian ??
-                pricingAnalysis.activeMedian,
-            ),
-            activeAverage: optionalPrice(
-              localCertifiedPricingAnalysis.activeAverage ??
-                pricingAnalysis.activeAverage,
-            ),
-            activeHigh: optionalPrice(
-              localCertifiedPricingAnalysis.activeHigh ??
-                pricingAnalysis.activeHigh,
-            ),
-            soldListTarget: optionalPrice(
-              localCertifiedPricingAnalysis.soldListTarget ??
-                pricingAnalysis.soldListTarget,
-            ),
-            competitiveTarget: optionalPrice(
-              localCertifiedPricingAnalysis.competitiveTarget ??
-                pricingAnalysis.competitiveTarget,
-            ),
-          },
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
           listingPrice: optionalPrice(instaComp.listingPrice),
           listingPriceSource: textValue(instaComp.listingPriceSource),
@@ -1785,9 +1722,6 @@ export async function GET(request: Request) {
                         inventoryItemId: item.inventoryItemId,
                         scanId: item.instaComp.scanId || null,
                         cardUuid: item.instaComp.cardUuid || null,
-                        identity: item.instaComp.identity || null,
-                        frontImageUrl: item.frontImageUrl || null,
-                        backImageUrl: item.backImageUrl || null,
                         inventoryLifecycle: item.inventoryLifecycle || null,
                       },
                     ],
@@ -1813,9 +1747,6 @@ export async function GET(request: Request) {
                 inventoryItemId: item.inventoryItemId,
                 scanId: item.instaComp.scanId || null,
                 cardUuid: item.instaComp.cardUuid || null,
-                identity: item.instaComp.identity || null,
-                frontImageUrl: item.frontImageUrl || null,
-                backImageUrl: item.backImageUrl || null,
                 inventoryLifecycle: item.inventoryLifecycle || null,
               });
               existing.commercialGroup.pendingRows += 1;

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { ensureAccountStoreMembership, getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import {
+  archiveKingmakerMacReviewFallback,
   findMacDuplicateByImagePair,
   refreshKingmakerMacMarketForScan,
   runKingmakerMacScan,
@@ -55,15 +56,33 @@ export async function POST(request: NextRequest) {
         duplicate: { inventoryItemId: duplicate.inventoryItemId, title: duplicate.title, status: duplicate.status, price: duplicate.price, quantity: duplicate.quantity, matchType: "exact_scan_pair" },
       }, { status: 202, headers: { "Cache-Control": "no-store" } });
     }
-    const result = await runKingmakerMacScan({
+    let result;
+    try {
+      result = await runKingmakerMacScan({
       front,
       back,
-      imagePairSha256,
-      inventoryItemId: forceFreshIdentity ? duplicate?.inventoryItemId || null : null,
-      searchMarket: false,
-      forceFreshIdentity,
-      replaceManualIdentity,
-    });
+        imagePairSha256,
+        inventoryItemId: forceFreshIdentity
+          ? duplicate?.inventoryItemId || null
+          : null,
+        searchMarket: false,
+        forceFreshIdentity,
+        replaceManualIdentity,
+        scanTimeoutMs: forceFreshIdentity ? 12_000 : 10_000,
+        fastPassOnly: !forceFreshIdentity,
+      });
+    } catch (error) {
+      if (forceFreshIdentity) throw error;
+      result = await archiveKingmakerMacReviewFallback({
+        front,
+        back,
+        imagePairSha256,
+        reason:
+          error instanceof Error
+            ? `Fast identity pass failed: ${error.message}`
+            : "Fast identity pass failed before an exact identity was returned.",
+      });
+    }
     if (result.identityComplete) {
       after(async () => {
         try {
