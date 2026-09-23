@@ -38,18 +38,26 @@ export function instaCompPendingQueueFromMetadata(
 
   const registryIdentityId =
     text(instacomp.registryIdentityId) ||
-    text(checklistIdentity.registryIdentityId);
+    text(checklistIdentity.registryIdentityId) ||
+    text(checklistIdentity.identityId);
   const registryFingerprintSha256 =
     text(instacomp.registryFingerprintSha256) ||
-    text(checklistIdentity.registryFingerprintSha256);
+    text(checklistIdentity.registryFingerprintSha256) ||
+    text(checklistIdentity.fingerprintSha256);
+
+  const legacyRegistryReceipt =
+    checklistIdentity.source === "checklist_registry" &&
+    checklistIdentity.status === "identified" &&
+    macReceipt.checklistOutcome === "exact_match";
+  const macLocalRegistryReceipt =
+    text(instacomp.identitySource) === "mac_checklist_registry_exact" &&
+    checklistIdentity.status === "exact_match";
 
   const exactRegistryIdentity =
     instacomp.identityComplete === true &&
     instacomp.trustedForIdentity === true &&
     checklistDecision.status === "exact_match" &&
-    checklistIdentity.source === "checklist_registry" &&
-    checklistIdentity.status === "identified" &&
-    macReceipt.checklistOutcome === "exact_match" &&
+    (legacyRegistryReceipt || macLocalRegistryReceipt) &&
     Boolean(registryIdentityId) &&
     Boolean(registryFingerprintSha256);
 

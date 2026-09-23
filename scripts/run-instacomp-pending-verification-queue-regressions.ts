@@ -89,6 +89,26 @@ assert.equal(
 );
 assert.equal(
   instaCompPendingQueueFromMetadata({
+    listingWorkflow: { queue: "pending_verification" },
+    instacomp: {
+      ...verifiedOrientation.instacomp,
+      identityComplete: true,
+      trustedForIdentity: true,
+      identitySource: "mac_checklist_registry_exact",
+      checklistDecision: { status: "exact_match" },
+      checklistIdentity: {
+        status: "exact_match",
+        identityId: "22222222-2222-4222-8222-222222222222",
+        fingerprintSha256: "fingerprint-2",
+      },
+    },
+  }),
+  "listings",
+  "current Mac-local exact UUID/fingerprint receipt may promote the card",
+);
+
+assert.equal(
+  instaCompPendingQueueFromMetadata({
     ...verifiedOrientation,
     listing_workflow: { queue: "pending_verification" },
   }),
