@@ -429,39 +429,61 @@ function isGenericTitle(value: unknown) {
 const PENDING_INVENTORY_COLUMNS =
   "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at";
 
-async function readOwnedInventoryPages(params: {
+async function readPendingCandidateInventoryPages(params: {
   supabase: ReturnType<typeof createSupabaseServerClient>;
   storeId: string;
   accountId: string;
   ownerAccount: boolean;
   columns: string;
-  draftOnly?: boolean;
 }) {
-  const rows: any[] = [];
+  const readQuery = async (candidate: "instacomp" | "legacy_identity") => {
+    const rows: any[] = [];
+    for (let from = 0; ; from += 1000) {
+      let query: any = params.supabase
+        .from("inventory_items")
+        .select(params.columns)
+        .eq("store_id", params.storeId)
+        .in("status", ["draft", "active"]);
 
-  for (let from = 0; ; from += 1000) {
-    let query = params.supabase
-      .from("inventory_items")
-      .select(params.columns)
-      .eq("store_id", params.storeId);
+      query = params.ownerAccount
+        ? query.or(
+            "seller_account_id.eq." +
+              params.accountId +
+              ",seller_account_id.is.null",
+          )
+        : query.eq("seller_account_id", params.accountId);
 
-    if (params.draftOnly) query = query.eq("status", "draft");
+      query =
+        candidate === "instacomp"
+          ? query.not("metadata->instacomp", "is", null)
+          : query.or(
+              "metadata->card_identity.not.is.null,metadata->cardIdentity.not.is.null,metadata->sale_identity.not.is.null",
+            );
 
-    query = params.ownerAccount
-      ? query.or(
-          `seller_account_id.eq.${params.accountId},seller_account_id.is.null`,
-        )
-      : query.eq("seller_account_id", params.accountId);
+      const { data, error } = await query
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + 999);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) return rows;
+    }
+  };
 
-    const { data, error } = await query
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + 999);
-
-    if (error) throw error;
-    rows.push(...(data || []));
-    if (!data || data.length < 1000) return rows;
+  const [instaCompRows, legacyIdentityRows] = await Promise.all([
+    readQuery("instacomp"),
+    readQuery("legacy_identity"),
+  ]);
+  const byId = new Map<string, any>();
+  for (const row of [...instaCompRows, ...legacyIdentityRows]) {
+    byId.set(String(row.id), row);
   }
+  return [...byId.values()].sort((left, right) => {
+    const created = String(left.created_at || "").localeCompare(
+      String(right.created_at || ""),
+    );
+    return created || String(left.id).localeCompare(String(right.id));
+  });
 }
 
 function optionalPrice(value: unknown) {
@@ -636,13 +658,12 @@ export async function GET(request: Request) {
       requestedFolder === "investment"
         ? requestedFolder
         : "pending";
-    const inventoryRows = await readOwnedInventoryPages({
+    const inventoryRows = await readPendingCandidateInventoryPages({
       supabase,
       storeId,
       accountId: account.id,
       ownerAccount: isStoreOwnerAccount,
       columns: PENDING_INVENTORY_COLUMNS,
-      draftOnly: false,
     });
 
     // The website owns staging/listing state; InstaComp identity truth is Mac-local.
