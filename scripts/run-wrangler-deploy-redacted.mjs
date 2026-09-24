@@ -122,6 +122,73 @@ async function ensureProductionRoutes(configPath) {
   console.log(
     `Cloudflare production routes verified for ${worker}: ${desired.map((route) => route.pattern).join(", ")}`,
   );
+
+  const hostnames = Array.from(
+    new Set(
+      desired
+        .map((route) => route.pattern.replace(/\/\*$/, ""))
+        .filter((hostname) => hostname && !hostname.includes("*")),
+    ),
+  );
+  const domainsBase = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/domains`;
+  let attachedDomains = await cloudflareJson(domainsBase);
+  attachedDomains = Array.isArray(attachedDomains) ? attachedDomains : [];
+
+  for (const hostname of hostnames) {
+    const current = attachedDomains.find((domain) => domain?.hostname === hostname);
+    const dnsBase = `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`;
+    const removedRecords = [];
+    if (!current) {
+      const records = await cloudflareJson(
+        `${dnsBase}?name=${encodeURIComponent(hostname)}`,
+      );
+      for (const record of Array.isArray(records) ? records : []) {
+        if (!["A", "AAAA", "CNAME"].includes(String(record?.type || ""))) continue;
+        removedRecords.push({
+          type: record.type,
+          name: record.name,
+          content: record.content,
+          ttl: record.ttl,
+          proxied: record.proxied,
+        });
+        await cloudflareJson(`${dnsBase}/${encodeURIComponent(record.id)}`, {
+          method: "DELETE",
+        });
+      }
+    }
+    try {
+      await cloudflareJson(domainsBase, {
+        method: "PUT",
+        body: JSON.stringify({
+          hostname,
+          service: worker,
+          zone_id: zoneId,
+          zone_name: zoneName,
+        }),
+      });
+    } catch (error) {
+      for (const record of removedRecords) {
+        await cloudflareJson(dnsBase, {
+          method: "POST",
+          body: JSON.stringify(record),
+        }).catch(() => null);
+      }
+      throw error;
+    }
+  }
+
+  const verifiedDomains = await cloudflareJson(domainsBase);
+  for (const hostname of hostnames) {
+    const active = Array.isArray(verifiedDomains)
+      ? verifiedDomains.find((domain) => domain?.hostname === hostname)
+      : null;
+    if (!active || String(active.service || "") !== worker) {
+      throw new Error(`Cloudflare Worker Custom Domain is not active: ${hostname}`);
+    }
+  }
+  console.log(
+    `Cloudflare Worker Custom Domains verified for ${worker}: ${hostnames.join(", ")}`,
+  );
 }
 
 const result = spawnSync(
