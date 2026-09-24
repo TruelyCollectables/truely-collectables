@@ -1,5 +1,5 @@
 export type ChecklistRegistryReceipt = {
-  status: "identified" | "review_required";
+  status: "identified" | "exact_match" | "review_required";
   source: "checklist_registry";
   registryIdentityId: string | null;
   registryFingerprintSha256: string | null;
@@ -18,32 +18,96 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function readChecklistRegistryReceipt(metadataValue: unknown): ChecklistRegistryReceipt {
+function matchingIdentityFields(params: {
+  candidate: Record<string, unknown>;
+  receiptIdentityId: string | null;
+}) {
+  const candidateIdentityId =
+    textValue(params.candidate.registryIdentityId) ||
+    textValue(params.candidate.identityId);
+  if (
+    !params.receiptIdentityId ||
+    !candidateIdentityId ||
+    candidateIdentityId !== params.receiptIdentityId
+  ) {
+    return {};
+  }
+  return params.candidate;
+}
+
+export function readChecklistRegistryReceipt(
+  metadataValue: unknown,
+): ChecklistRegistryReceipt {
   const metadata = recordValue(metadataValue);
   const instaComp = recordValue(metadata.instacomp);
   const receipt = recordValue(instaComp.checklistIdentity);
+  const exactAudit = recordValue(instaComp.identityExactAudit);
+  const rawStatus = String(receipt.status || "").trim().toLowerCase();
+  const status: ChecklistRegistryReceipt["status"] =
+    rawStatus === "exact_match"
+      ? "exact_match"
+      : rawStatus === "identified"
+        ? "identified"
+        : "review_required";
+  const registryIdentityId =
+    textValue(receipt.registryIdentityId) ||
+    textValue(receipt.identityId) ||
+    textValue(exactAudit.identityId);
+  const registryFingerprintSha256 =
+    textValue(receipt.registryFingerprintSha256) ||
+    textValue(receipt.fingerprintSha256) ||
+    textValue(exactAudit.fingerprintSha256);
+
+  const explicitLockedFields = recordValue(receipt.lockedFields);
+  const manualIdentity = matchingIdentityFields({
+    candidate: recordValue(instaComp.manualIdentity),
+    receiptIdentityId: registryIdentityId,
+  });
+  const aiIdentity = matchingIdentityFields({
+    candidate: recordValue(instaComp.ai),
+    receiptIdentityId: registryIdentityId,
+  });
+  const lockedFields =
+    Object.keys(explicitLockedFields).length > 0
+      ? explicitLockedFields
+      : Object.keys(manualIdentity).length > 0
+        ? manualIdentity
+        : aiIdentity;
+
   return {
-    status: receipt.status === "identified" ? "identified" : "review_required",
+    status,
     source: "checklist_registry",
-    registryIdentityId: textValue(receipt.registryIdentityId),
-    registryFingerprintSha256: textValue(receipt.registryFingerprintSha256),
-    checkedAt: textValue(receipt.checkedAt),
+    registryIdentityId,
+    registryFingerprintSha256,
+    checkedAt:
+      textValue(receipt.checkedAt) ||
+      textValue(exactAudit.auditedAt) ||
+      null,
     reasons: Array.isArray(receipt.reasons)
-      ? receipt.reasons.map((reason) => String(reason)).filter(Boolean).slice(0, 50)
+      ? receipt.reasons
+          .map((reason) => String(reason))
+          .filter(Boolean)
+          .slice(0, 50)
       : [],
-    lockedFields: recordValue(receipt.lockedFields),
+    lockedFields,
   };
 }
 
 export function checklistRegistryReceiptBlockers(metadataValue: unknown) {
   const receipt = readChecklistRegistryReceipt(metadataValue);
   const blockers: string[] = [];
-  if (receipt.status !== "identified") blockers.push("checklist_identity_review_required");
+  if (!["identified", "exact_match"].includes(receipt.status)) {
+    blockers.push("checklist_identity_review_required");
+  }
   if (!receipt.registryIdentityId) blockers.push("missing_registry_identity_id");
-  if (!receipt.registryFingerprintSha256) blockers.push("missing_registry_fingerprint");
+  if (!receipt.registryFingerprintSha256) {
+    blockers.push("missing_registry_fingerprint");
+  }
   if (!receipt.checkedAt) blockers.push("missing_registry_checked_at");
   for (const field of ["year", "manufacturer", "cardNumber", "player"] as const) {
-    if (!textValue(receipt.lockedFields[field])) blockers.push(`missing_locked_${field}`);
+    if (!textValue(receipt.lockedFields[field])) {
+      blockers.push(`missing_locked_${field}`);
+    }
   }
   return Array.from(new Set(blockers));
 }

@@ -1017,12 +1017,140 @@ class KingmakerAccounting:
                         "reason": "exact_identity_not_proven:" + ",".join(reasons),
                         "match": self._purchase_row_payload(row),
                     }
+                bound_card_uuid = card_uuid or str(scan.get("scanCardUuid") or "").strip()
+                if not bound_card_uuid:
+                    return {
+                        "status": "scan_required",
+                        "inventoryItemId": inventory_item_id,
+                        "scanId": scan["scanId"],
+                        "reason": "physical_card_uuid_required_for_misc_fallback",
+                        "match": None,
+                    }
+
+                # No exact eBay/Mercari purchase exists for this exact physical
+                # scan. Per KINGMAKER acquisition policy, bind a Misc/unknown-cost
+                # fallback to this card so receiving/listing can continue without
+                # inventing a marketplace purchase. A later proved marketplace
+                # acquisition can replace only this Misc fallback.
+                misc_purchase_id = f"misc:{bound_card_uuid}"
+                misc_row = db.execute(
+                    "SELECT * FROM acquisition_items WHERE purchase_id=? AND lower(source)='misc' "
+                    "AND status!='superseded' ORDER BY id DESC LIMIT 1",
+                    (misc_purchase_id,),
+                ).fetchone()
+                now = _utc_now()
+                if not misc_row:
+                    evidence_text = json.dumps(
+                        {
+                            "source": "automatic_no_market_purchase_match_fallback",
+                            "registryIdentityId": registry_identity_id,
+                            "scanId": scan["scanId"],
+                        },
+                        sort_keys=True,
+                    )
+                    cursor = db.execute(
+                        "INSERT INTO acquisition_items("
+                        "purchase_id,source,purchased_at,title,card_uuid,player,year,brand,set_name,"
+                        "card_number,parallel,serial_family,grading_company,is_auto,is_relic,"
+                        "allocated_cost,cost_status,status,evidence,created_at,registry_identity_id,"
+                        "identity_status"
+                        ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            misc_purchase_id,
+                            "Misc",
+                            None,
+                            None,
+                            bound_card_uuid,
+                            player,
+                            str(scan_identity.get("year") or "").strip() or None,
+                            _norm(scan_identity.get("brand") or scan_identity.get("manufacturer")) or None,
+                            _norm(scan_identity.get("setName") or scan_identity.get("set_name") or scan_identity.get("product")) or None,
+                            card_number,
+                            _norm_parallel(scan_identity.get("parallel")) or None,
+                            _serial_family(
+                                scan_identity.get("serialNumber")
+                                or scan_identity.get("serial_number")
+                                or (
+                                    f"/{scan_identity.get('serialRun')}"
+                                    if scan_identity.get("serialRun")
+                                    else ""
+                                )
+                            )
+                            or None,
+                            _norm(scan_identity.get("gradingCompany") or scan_identity.get("grading_company"))
+                            or None,
+                            None
+                            if scan_identity.get("isAuto") is None
+                            else int(bool(scan_identity.get("isAuto"))),
+                            None
+                            if scan_identity.get("isRelic") is None
+                            else int(bool(scan_identity.get("isRelic"))),
+                            0.0,
+                            "unknown",
+                            "received",
+                            evidence_text,
+                            now,
+                            registry_identity_id,
+                            "registry_exact_misc_fallback",
+                        ),
+                    )
+                    misc_row = db.execute(
+                        "SELECT * FROM acquisition_items WHERE id=?",
+                        (int(cursor.lastrowid),),
+                    ).fetchone()
+
+                payload = self._purchase_row_payload(misc_row)
+                snapshot = json.dumps(
+                    {
+                        "registryIdentity": scan_identity,
+                        "registryIdentityId": registry_identity_id,
+                        "purchase": payload,
+                    },
+                    sort_keys=True,
+                    default=str,
+                )
+                scan_snapshot = json.dumps(scan, sort_keys=True, default=str)
+                db.execute(
+                    "INSERT INTO physical_inventory_receipts("
+                    "inventory_item_id,scan_id,card_uuid,acquisition_item_id,status,disposition,"
+                    "inventory_state,match_confidence,match_reason,matched_at,scan_verified_at,"
+                    "scan_snapshot_json,received_at,receipt_mode,linked_at,snapshot_json"
+                    ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        inventory_item_id,
+                        scan["scanId"],
+                        bound_card_uuid,
+                        int(misc_row["id"]),
+                        "received",
+                        "resale",
+                        "resale_ready",
+                        1.0,
+                        "automatic_misc_fallback:no_exact_unreceived_purchase",
+                        now,
+                        now,
+                        scan_snapshot,
+                        now,
+                        "received_new_misc_fallback",
+                        None,
+                        snapshot,
+                    ),
+                )
+                db.execute(
+                    "UPDATE acquisition_items SET status='received', registry_identity_id=COALESCE(registry_identity_id, ?) WHERE id=?",
+                    (registry_identity_id, int(misc_row["id"])),
+                )
                 return {
-                    "status": "no_match",
+                    "status": "received",
+                    "inventoryState": "resale_ready",
+                    "disposition": "resale",
                     "inventoryItemId": inventory_item_id,
                     "scanId": scan["scanId"],
-                    "reason": "no_exact_unreceived_purchase",
-                    "match": None,
+                    "confidence": 1.0,
+                    "reason": "automatic_misc_fallback:no_exact_unreceived_purchase",
+                    "receiptMode": "received_new_misc_fallback",
+                    "linkedAt": None,
+                    "receivedAt": now,
+                    "match": payload,
                 }
 
             row, reasons = exact[0]
@@ -1561,7 +1689,11 @@ class KingmakerAccounting:
         # resale vs investment_stash and advance that reservation to received.
         with self._connect() as db:
             rows = db.execute(
-                f"SELECT inventory_item_id,scan_id,status,disposition,inventory_state,acquisition_item_id,receipt_mode FROM physical_inventory_receipts WHERE inventory_item_id IN ({placeholders})",
+                f"SELECT r.inventory_item_id,r.scan_id,r.status,r.disposition,r.inventory_state,"
+                f"r.acquisition_item_id,r.receipt_mode,a.source,a.purchased_at,a.allocated_cost,a.cost_status "
+                f"FROM physical_inventory_receipts r "
+                f"JOIN acquisition_items a ON a.id=r.acquisition_item_id "
+                f"WHERE r.inventory_item_id IN ({placeholders})",
                 ids,
             ).fetchall()
         tracked = []
@@ -1588,6 +1720,10 @@ class KingmakerAccounting:
                 "inventoryState": str(row["inventory_state"]),
                 "acquisitionItemId": int(row["acquisition_item_id"]),
                 "receiptMode": row["receipt_mode"],
+                "source": str(row["source"] or "Misc"),
+                "purchasedAt": row["purchased_at"],
+                "allocatedCost": float(row["allocated_cost"] or 0),
+                "costStatus": str(row["cost_status"] or "unknown"),
             }
             tracked.append(item)
             if item["status"] not in {"received", "linked_existing"}:

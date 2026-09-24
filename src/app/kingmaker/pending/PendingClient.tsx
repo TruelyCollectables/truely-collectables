@@ -122,6 +122,17 @@ type PendingCard = {
   backImageUrl: string | null;
   storedImageCount: number;
   activationReadiness?: { ready?: boolean; blockers?: string[] } | null;
+  listingReadiness?: {
+    ready: boolean;
+    coreReady: boolean;
+    websiteReady: boolean;
+    ebayReady: boolean;
+    mercariReady: boolean;
+    blockers: string[];
+    checks: Array<{ code: string; label: string; ready: boolean }>;
+    acquisitionSource?: string | null;
+    registryIdentityId?: string | null;
+  } | null;
   websiteInventory?: {
     current: boolean;
     quantity: number;
@@ -1152,6 +1163,7 @@ export default function KingmakerPendingPage({
             }
           }
           setPurchaseMatches(next);
+          void load(queue, folder);
           const pending = allResults.filter(
             (row: any) => row?.status === "pending_purchase",
           );
@@ -1177,7 +1189,7 @@ export default function KingmakerPendingPage({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [cards]);
+  }, [cards, folder, load, queue]);
 
   async function receivePurchase(
     card: PendingCard,
@@ -2553,6 +2565,8 @@ export default function KingmakerPendingPage({
             const websitePublishBlocked =
               websiteLinkBlocked || websiteInventoryNeedsReconciliation;
             const duplicateProtection = card.duplicateProtection || null;
+            const listingReadiness = card.listingReadiness || null;
+            const listingReady = listingReadiness?.ready === true;
             const exactCopyMergeReady = Boolean(
               websiteCurrent &&
                 exactWebsiteProductIds.length === 1 &&
@@ -2661,6 +2675,27 @@ export default function KingmakerPendingPage({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {queue === "listings" && listingReadiness ? (
+                      <span
+                        title={
+                          listingReady
+                            ? "Exact identity, 1-year pricing check, photos, condition, quantity, acquisition source, seller pricing, and duplicate state are ready."
+                            : listingReadiness.checks
+                                .filter((check) => !check.ready)
+                                .map((check) => check.label)
+                                .join(" · ")
+                        }
+                        className={`rounded-full px-3 py-1 text-xs font-black ${
+                          listingReady
+                            ? "bg-emerald-300 text-emerald-950"
+                            : "bg-red-300 text-red-950"
+                        }`}
+                      >
+                        {listingReady
+                          ? "READY TO LIST"
+                          : `NOT READY · ${listingReadiness.blockers.length} BLOCKER${listingReadiness.blockers.length === 1 ? "" : "S"}`}
+                      </span>
+                    ) : null}
                     {pendingPurchase ? (
                       <span className="rounded-full bg-orange-400 px-3 py-1 text-xs font-black text-orange-950">
                         PENDING PURCHASE · MATCH FOUND
@@ -3342,7 +3377,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-website")}
-                          disabled={publishWebsitePrice <= 0 || websitePublishBlocked || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || websitePublishBlocked || listingReadiness?.websiteReady !== true || Boolean(busyId)}
                           className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {websiteCurrent && linkedExactWebsiteProduct ? "Update Website" : "List Website"} · {money(publishWebsitePrice)}
@@ -3350,7 +3385,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-ebay")}
-                          disabled={publishEbayPrice <= 0 || !ebayCardConditionReady || Boolean(busyId)}
+                          disabled={publishEbayPrice <= 0 || !ebayCardConditionReady || listingReadiness?.ebayReady !== true || Boolean(busyId)}
                           className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {ebayListed ? "Update eBay" : "List eBay"} · {money(publishEbayPrice)}
@@ -3358,7 +3393,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-mercari")}
-                          disabled={publishMercariPrice <= 0 || Boolean(busyId) || channelPricing?.mercariStatus === "active"}
+                          disabled={publishMercariPrice <= 0 || listingReadiness?.mercariReady !== true || Boolean(busyId) || channelPricing?.mercariStatus === "active"}
                           className="rounded-xl bg-fuchsia-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {channelPricing?.mercariStatus === "active" ? "Mercari LIVE" : `List Mercari · ${money(publishMercariPrice)}`}
@@ -3366,7 +3401,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-website-mercari")}
-                          disabled={publishWebsitePrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || listingReadiness?.websiteReady !== true || listingReadiness?.mercariReady !== true || Boolean(busyId)}
                           className="rounded-xl bg-purple-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {websiteListed || channelPricing?.mercariStatus === "active" ? "Update / List Website + Mercari" : "List Website + Mercari"}
@@ -3374,7 +3409,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-all-3") }
-                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || !ebayCardConditionReady || Boolean(busyId)}
+                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || !ebayCardConditionReady || listingReadiness?.websiteReady !== true || listingReadiness?.ebayReady !== true || listingReadiness?.mercariReady !== true || Boolean(busyId)}
                           className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                         >
                           {websiteListed || ebayListed || channelPricing?.mercariStatus === "active" ? "Update / List All 3" : "List All 3"}

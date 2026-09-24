@@ -40,6 +40,7 @@ import {
   calculateDualMarketplacePricing,
   normalizeDualMarketplaceFeeProfile,
 } from "../../../../../lib/dual-marketplace-pricing";
+import { buildKingmakerListingReadiness } from "../../../../../lib/kingmaker-listing-readiness";
 
 export const dynamic = "force-dynamic";
 
@@ -1117,6 +1118,7 @@ export async function GET(request: Request) {
       const graderVerification = recordValue(metadata.grader_verification);
       const sellerReview = recordValue(metadata.seller_review);
       const sourceLinks = recordValue(instaComp.sourceLinks);
+      const acquisition = recordValue(instaComp.acquisition);
       const dualMarketplace = recordValue(metadata.dual_marketplace);
       const dualWebsite = recordValue(dualMarketplace.website);
       const dualEbay = recordValue(dualMarketplace.ebay);
@@ -1331,6 +1333,26 @@ export async function GET(request: Request) {
       if (existingActiveRows.length > 0 && !duplicateDecisionResolved) {
         blockers.push("duplicate_decision_required");
       }
+
+      const listingReadiness = buildKingmakerListingReadiness({
+        metadata: effectiveMetadata,
+        frontImageUrl: displayFrontUrl,
+        backImageUrl: displayBackUrl,
+        condition: row.condition,
+        quantity: row.quantity,
+        acquisitionSource: textValue(acquisition.source),
+        duplicateDecisionRequired:
+          existingActiveRows.length > 0 && !duplicateDecisionResolved,
+        websitePrice: websiteChannelPrice,
+        ebayPrice: ebayChannelPrice,
+        mercariPrice: optionalPrice(dualMercari.price) || ebayChannelPrice,
+        ebayCardCondition: textValue(dualEbay.cardCondition),
+        graded: Boolean(
+          textValue(collectibleAsset.grading_company) ||
+            textValue(ai.gradingCompany),
+        ),
+      });
+
       const existingMatches = existingActiveRows
         .map((candidate: any) => {
           const candidateProduct = candidate.legacy_product_id
@@ -1384,6 +1406,7 @@ export async function GET(request: Request) {
           ready: blockers.length === 0,
           blockers,
         },
+        listingReadiness,
         websiteInventory: {
           current: exactWebsiteProducts.length > 0,
           quantity: exactWebsiteProducts.reduce(
@@ -1774,6 +1797,50 @@ export async function GET(request: Request) {
                     ...item.activationReadiness.blockers,
                   ]),
                 ),
+              };
+              existing.listingReadiness = {
+                ...existing.listingReadiness,
+                ready:
+                  existing.listingReadiness.ready &&
+                  item.listingReadiness.ready,
+                coreReady:
+                  existing.listingReadiness.coreReady &&
+                  item.listingReadiness.coreReady,
+                websiteReady:
+                  existing.listingReadiness.websiteReady &&
+                  item.listingReadiness.websiteReady,
+                ebayReady:
+                  existing.listingReadiness.ebayReady &&
+                  item.listingReadiness.ebayReady,
+                mercariReady:
+                  existing.listingReadiness.mercariReady &&
+                  item.listingReadiness.mercariReady,
+                blockers: Array.from(
+                  new Set([
+                    ...existing.listingReadiness.blockers,
+                    ...item.listingReadiness.blockers,
+                  ]),
+                ),
+                checks: existing.listingReadiness.checks.map(
+                  (check: { code: string; label: string; ready: boolean }) => {
+                    const peer = item.listingReadiness.checks.find(
+                      (candidate: { code: string; ready: boolean }) =>
+                        candidate.code === check.code,
+                    );
+                    return {
+                      ...check,
+                      ready: check.ready && Boolean(peer?.ready),
+                    };
+                  },
+                ),
+                acquisitionSource:
+                  existing.listingReadiness.acquisitionSource &&
+                  item.listingReadiness.acquisitionSource
+                    ? existing.listingReadiness.acquisitionSource ===
+                      item.listingReadiness.acquisitionSource
+                      ? existing.listingReadiness.acquisitionSource
+                      : "Mixed"
+                    : null,
               };
               return groups;
             }, new Map<string, any>()),

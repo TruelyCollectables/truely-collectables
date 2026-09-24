@@ -12,6 +12,95 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+      async () => {
+        while (nextIndex < items.length) {
+          const item = items[nextIndex++];
+          await worker(item);
+        }
+      },
+    ),
+  );
+}
+
+async function mirrorPurchaseMatches(
+  results: Array<Record<string, unknown>>,
+) {
+  const usable = results
+    .map((result) => ({
+      result,
+      inventoryItemId: text(result.inventoryItemId),
+      match: record(result.match),
+    }))
+    .filter(
+      (entry) =>
+        Boolean(entry.inventoryItemId) && Boolean(text(entry.match.source)),
+    );
+  if (!usable.length) return;
+
+  const supabase = createSupabaseServerClient({ admin: true });
+  const storeId = getActiveStoreId();
+  const ids = Array.from(new Set(usable.map((entry) => entry.inventoryItemId)));
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("id,metadata")
+    .eq("store_id", storeId)
+    .in("id", ids);
+  if (error) throw error;
+  const byId = new Map(usable.map((entry) => [entry.inventoryItemId, entry]));
+
+  await runWithConcurrency(data || [], 8, async (row: any) => {
+    const entry = byId.get(String(row.id));
+    if (!entry) return;
+    const metadata = record(row.metadata);
+    const instaComp = record(metadata.instacomp);
+    const match = entry.match;
+    const updatedAt = new Date().toISOString();
+    const nextMetadata = {
+      ...metadata,
+      instacomp: {
+        ...instaComp,
+        acquisition: {
+          ...record(instaComp.acquisition),
+          source: text(match.source) || "Misc",
+          acquisitionItemId:
+            Number(match.acquisitionItemId || match.purchaseId || 0) || null,
+          purchaseId: text(match.purchaseId) || null,
+          purchaseDate: text(match.purchaseDate) || null,
+          allocatedCost: Number(match.allocatedCost || 0),
+          costStatus:
+            Number(match.allocatedCost || 0) > 0 ? "known" : "unknown",
+          receiptStatus: text(entry.result.status) || null,
+          inventoryState: text(entry.result.inventoryState) || null,
+          disposition: text(entry.result.disposition) || null,
+          authority: "mac_local_accounting",
+          updatedAt,
+        },
+      },
+    };
+    const { error: updateError } = await supabase
+      .from("inventory_items")
+      .update({ metadata: nextMetadata, updated_at: updatedAt })
+      .eq("store_id", storeId)
+      .eq("id", row.id);
+    if (updateError) throw updateError;
+  });
+}
+
 async function assertPermittedInventoryIds(
   account: { id: string; email?: string | null },
   inventoryItemIds: string[],
@@ -92,6 +181,13 @@ export async function POST(request: Request) {
         { items: bulkItems },
         30_000,
       );
+      try {
+        await mirrorPurchaseMatches(
+          Array.isArray(data?.results) ? data.results : [],
+        );
+      } catch (error) {
+        console.error("KINGMAKER purchase-match mirror failed", error);
+      }
       return Response.json(data, {
         headers: { "Cache-Control": "no-store" },
       });
@@ -118,6 +214,17 @@ export async function POST(request: Request) {
             : {},
       },
     );
+    try {
+      await mirrorPurchaseMatches([
+        {
+          ...record(data),
+          inventoryItemId:
+            text(record(data).inventoryItemId) || inventoryItemId,
+        },
+      ]);
+    } catch (error) {
+      console.error("KINGMAKER purchase-match mirror failed", error);
+    }
 
     return Response.json(data, {
       headers: { "Cache-Control": "no-store" },

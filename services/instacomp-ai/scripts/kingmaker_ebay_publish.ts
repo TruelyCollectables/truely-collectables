@@ -9,11 +9,24 @@ import {
   type EbayInventoryPublishInput,
 } from "../../../src/lib/ebay-inventory-publisher";
 
-type RunnerMode = "readiness" | "publish" | "revise" | "oauth_exchange" | "inventory_snapshot";
+type RunnerMode = "readiness" | "publish" | "revise" | "verify" | "oauth_exchange" | "inventory_snapshot";
+type EbayVerificationInput = {
+  listingId: string;
+  offerId?: string | null;
+  sku?: string | null;
+  title: string;
+  price: number;
+  quantity: number;
+  minimumImageCount?: number;
+  imageUrls?: string[];
+  condition?: string | null;
+  cardCondition?: string | null;
+};
 type RunnerPayload = {
   mode?: RunnerMode;
   item?: EbayInventoryPublishInput;
   revision?: EbayExistingRevisionInput;
+  verification?: EbayVerificationInput;
   code?: string;
   redirectUri?: string;
 };
@@ -121,6 +134,29 @@ async function refreshAccessToken(refreshToken: string, scopes = [INVENTORY_SCOP
     refresh_token: refreshToken,
     scope: scopes.join(" "),
   }));
+}
+async function ebayGet(accessToken: string, path: string) {
+  const response = await fetch(`${apiRoot()}${path}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+      "Content-Language": "en-US",
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      String(
+        data?.errors?.[0]?.message ||
+          data?.error_description ||
+          data?.error ||
+          `eBay GET ${response.status}`,
+      ),
+    );
+  }
+  return data as Record<string, any>;
 }
 function tradingXmlBlocks(xml: string, tag: string) {
   return Array.from(
@@ -302,6 +338,171 @@ async function tradingCall(accessToken: string, callName: string, requestXml: st
   return xml;
 }
 
+
+
+function normalizedComparable(value: unknown) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+async function verifyLiveEbayListing(
+  refreshToken: string,
+  expected: EbayVerificationInput,
+) {
+  const listingId = String(expected.listingId || "").trim();
+  if (!listingId) throw new Error("eBay verification requires a listing ID.");
+  const token = await refreshAccessToken(refreshToken, [BASE_SCOPE, INVENTORY_SCOPE]);
+  const accessToken = String(token.access_token || "");
+
+  let inventoryItem: Record<string, any> | null = null;
+  let offer: Record<string, any> | null = null;
+  const sku = String(expected.sku || "").trim();
+  const offerId = String(expected.offerId || "").trim();
+  if (sku && !sku.startsWith("legacy-ebay-")) {
+    try {
+      inventoryItem = await ebayGet(
+        accessToken,
+        `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+      );
+    } catch {
+      inventoryItem = null;
+    }
+  }
+  if (offerId && offerId !== "legacy-trading") {
+    try {
+      offer = await ebayGet(
+        accessToken,
+        `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
+      );
+    } catch {
+      offer = null;
+    }
+  }
+
+  const xml = await tradingCall(
+    accessToken,
+    "GetItem",
+    `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <DetailLevel>ReturnAll</DetailLevel>
+  <IncludeItemSpecifics>true</IncludeItemSpecifics>
+  <ItemID>${escapeTradingXml(listingId)}</ItemID>
+</GetItemRequest>`,
+  );
+  const itemXml = tradingXmlText(xml, "Item");
+  const tradingTitle = tradingXmlText(itemXml, "Title");
+  const tradingPrice = tradingNumber(
+    tradingXmlText(itemXml, "CurrentPrice") ||
+      tradingXmlText(itemXml, "StartPrice"),
+    0,
+  );
+  const tradingQuantity = Math.max(
+    0,
+    Math.floor(tradingNumber(tradingXmlText(itemXml, "Quantity"), 0)),
+  );
+  const picture = tradingXmlText(itemXml, "PictureDetails");
+  const tradingImageUrls = Array.from(
+    new Set(
+      tradingXmlBlocks(picture, "PictureURL")
+        .map((value) =>
+          tradingXmlText(`<PictureURL>${value}</PictureURL>`, "PictureURL"),
+        )
+        .filter(Boolean),
+    ),
+  );
+  const tradingAspectsMap = tradingAspects(itemXml);
+  const tradingCardCondition =
+    firstTradingAspect(tradingAspectsMap, "Card Condition") ||
+    firstTradingAspect(tradingAspectsMap, "Condition") ||
+    tradingXmlText(itemXml, "ConditionDisplayName");
+  const tradingCondition = tradingXmlText(itemXml, "ConditionDisplayName");
+  const listingStatus =
+    tradingXmlText(itemXml, "ListingStatus") ||
+    tradingXmlText(itemXml, "SellingStatus");
+
+  const inventoryProduct = inventoryItem?.product || {};
+  const inventoryAspects =
+    inventoryProduct?.aspects && typeof inventoryProduct.aspects === "object"
+      ? inventoryProduct.aspects
+      : {};
+  const submittedImageUrls = Array.isArray(inventoryProduct?.imageUrls)
+    ? inventoryProduct.imageUrls.map(String).filter(Boolean)
+    : [];
+  const submittedTitle = String(inventoryProduct?.title || "").trim();
+  const submittedCondition = String(inventoryItem?.condition || "").trim();
+  const submittedCardCondition = Array.isArray(inventoryAspects?.["Card Condition"])
+    ? String(inventoryAspects["Card Condition"][0] || "").trim()
+    : "";
+  const offerListingId = String(offer?.listing?.listingId || "").trim();
+  const offerPrice = Number(offer?.pricingSummary?.price?.value || 0);
+  const offerQuantity = Math.max(0, Math.floor(Number(offer?.availableQuantity || 0)));
+
+  const title = submittedTitle || tradingTitle;
+  const price = offerPrice > 0 ? offerPrice : tradingPrice;
+  const quantity = offerQuantity > 0 ? offerQuantity : tradingQuantity;
+  const liveCondition = submittedCondition || tradingCondition;
+  const liveCardCondition = submittedCardCondition || tradingCardCondition;
+  const liveImageUrls = submittedImageUrls.length
+    ? submittedImageUrls
+    : tradingImageUrls;
+  const minimumImageCount = Math.max(
+    2,
+    Math.floor(Number(expected.minimumImageCount || 2)),
+  );
+  const expectedImageUrls = Array.isArray(expected.imageUrls)
+    ? Array.from(new Set(expected.imageUrls.map(String).filter(Boolean)))
+    : [];
+  const exactSubmittedImages =
+    expectedImageUrls.length === 0 ||
+    submittedImageUrls.length === 0 ||
+    expectedImageUrls.every((url) => submittedImageUrls.includes(url));
+
+  const checks = {
+    listingId:
+      tradingXmlText(itemXml, "ItemID") === listingId &&
+      (!offerListingId || offerListingId === listingId),
+    title:
+      normalizedComparable(title) === normalizedComparable(expected.title),
+    price: Math.abs(price - Number(expected.price || 0)) < 0.011,
+    quantity: quantity === Math.floor(Number(expected.quantity || 0)),
+    images:
+      liveImageUrls.length >= minimumImageCount && exactSubmittedImages,
+    condition: expected.condition ? Boolean(liveCondition) : true,
+    cardCondition: expected.cardCondition
+      ? normalizedComparable(liveCardCondition).includes(
+          normalizedComparable(expected.cardCondition),
+        ) ||
+        normalizedComparable(expected.cardCondition).includes(
+          normalizedComparable(liveCardCondition),
+        )
+      : true,
+  };
+  const failed = Object.entries(checks)
+    .filter(([, passed]) => passed !== true)
+    .map(([name]) => name);
+  return {
+    verified: failed.length === 0,
+    checkedAt: new Date().toISOString(),
+    source: "ebay_inventory_plus_trading_readback",
+    listingId,
+    offerId: expected.offerId || null,
+    sku: expected.sku || tradingXmlText(itemXml, "SKU") || null,
+    title,
+    price,
+    quantity,
+    imageCount: liveImageUrls.length,
+    imageUrls: liveImageUrls,
+    exactSubmittedImages,
+    condition: liveCondition || null,
+    cardCondition: liveCardCondition || null,
+    listingStatus: listingStatus || null,
+    checks,
+    failed,
+  };
+}
+
 async function reviseLegacyTradingListing(refreshToken: string, revision: EbayExistingRevisionInput) {
   const listingId = String(revision.listingId || "").trim();
   const sku = String(revision.sku || "").trim();
@@ -332,7 +533,12 @@ async function main() {
   const raw = await readStdin();
   const payload = JSON.parse(raw || "{}") as RunnerPayload;
   const mode = payload.mode || "publish";
-  const price = Number(payload.item?.price ?? payload.revision?.price ?? 0);
+  const price = Number(
+    payload.item?.price ??
+      payload.revision?.price ??
+      payload.verification?.price ??
+      0,
+  );
   applyVerifiedStoreDefaults(price);
 
   if (mode === "oauth_exchange") {
@@ -367,6 +573,17 @@ async function main() {
   if (mode === "inventory_snapshot") {
     const snapshot = await inventorySnapshot(tokenRecord.refreshToken);
     process.stdout.write(JSON.stringify({ ok: true, mode, ...snapshot }));
+    return;
+  }
+  if (mode === "verify") {
+    if (!payload.verification) {
+      throw new Error("KINGMAKER eBay verification payload is missing.");
+    }
+    const verification = await verifyLiveEbayListing(
+      tokenRecord.refreshToken,
+      payload.verification,
+    );
+    process.stdout.write(JSON.stringify({ ok: true, mode, verification }));
     return;
   }
   if (mode === "revise") {

@@ -18,6 +18,10 @@ import {
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
+import {
+  assertKingmakerListingReadiness,
+  buildKingmakerListingReadiness,
+} from "../../../../../../lib/kingmaker-listing-readiness";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -327,10 +331,10 @@ export async function POST(request: Request) {
         });
     if (!groupRows.some((row) => row.id === requested.id)) groupRows.unshift(requested);
 
+    let physicalReadiness: any = null;
     if (action !== "save") {
-      let readiness: any;
       try {
-        readiness = await postInstaCompMacAccounting(
+        physicalReadiness = await postInstaCompMacAccounting(
           "/v1/kingmaker/accounting/listing-readiness",
           { inventory_item_ids: groupRows.map((row) => String(row.id)) },
           15_000,
@@ -345,8 +349,10 @@ export async function POST(request: Request) {
           { status: 503 },
         );
       }
-      if (readiness?.ready !== true) {
-        const rawBlocked = Array.isArray(readiness?.blocked) ? readiness.blocked : [];
+      if (physicalReadiness?.ready !== true) {
+        const rawBlocked = Array.isArray(physicalReadiness?.blocked)
+          ? physicalReadiness.blocked
+          : [];
         const groupRowsById = new Map(
           groupRows.map((row) => [String(row.id), row]),
         );
@@ -391,6 +397,23 @@ export async function POST(request: Request) {
     }
 
     const liveRows = groupRows.filter(liveChannelRow);
+    if (
+      action !== "save" &&
+      liveRows.length === 1 &&
+      liveRows[0].id !== requested.id
+    ) {
+      return Response.json(
+        {
+          success: false,
+          code: "EXACT_DUPLICATE_MERGE_REQUIRED",
+          error:
+            "This exact card already has one live listing. Use KINGMAKER Merge first so quantity is reconciled without creating or silently revising a duplicate listing.",
+          existingInventoryItemId: liveRows[0].id,
+          requestedInventoryItemId: requested.id,
+        },
+        { status: 409 },
+      );
+    }
     if (liveRows.length > 1) {
       return Response.json(
         {
@@ -543,6 +566,61 @@ export async function POST(request: Request) {
     const bestOfferEnabled =
       body.bestOfferEnabled === true || storedEbay.bestOfferEnabled === true;
 
+    const trackedPhysical = Array.isArray(physicalReadiness?.tracked)
+      ? physicalReadiness.tracked
+      : [];
+    const trackedByInventoryId = new Map<string, any>(
+      trackedPhysical.map((row: any) => [
+        String(row?.inventoryItemId || ""),
+        row,
+      ]),
+    );
+    const acquisitionSources = groupRows
+      .map((row) =>
+        text(
+          trackedByInventoryId.get(String(row.id))?.source,
+          120,
+        ),
+      )
+      .filter((value): value is string => Boolean(value));
+    const acquisitionSource =
+      acquisitionSources.length === groupRows.length
+        ? Array.from(new Set(acquisitionSources)).join(" + ")
+        : null;
+
+    const listingReadiness = buildKingmakerListingReadiness({
+      metadata,
+      frontImageUrl: imageUrls[0] || null,
+      backImageUrl: imageUrls[1] || null,
+      condition: keeper.condition,
+      quantity: totalQuantity,
+      acquisitionSource,
+      duplicateDecisionRequired: false,
+      websitePrice,
+      ebayPrice,
+      mercariPrice,
+      ebayCardCondition: cardCondition,
+      graded: Boolean(generated.grader),
+    });
+
+    if (action !== "save") {
+      if (action === "publish-website") {
+        assertKingmakerListingReadiness(listingReadiness, "website");
+      } else if (action === "publish-ebay") {
+        assertKingmakerListingReadiness(listingReadiness, "ebay");
+      } else if (action === "publish-mercari" || action === "prepare-mercari") {
+        assertKingmakerListingReadiness(listingReadiness, "mercari");
+      } else if (action === "publish-both") {
+        assertKingmakerListingReadiness(listingReadiness, "website");
+        assertKingmakerListingReadiness(listingReadiness, "ebay");
+      } else if (action === "publish-website-mercari") {
+        assertKingmakerListingReadiness(listingReadiness, "website");
+        assertKingmakerListingReadiness(listingReadiness, "mercari");
+      } else if (action === "publish-all-3") {
+        assertKingmakerListingReadiness(listingReadiness, "all");
+      }
+    }
+
     const nextMetadata: UnknownRecord = {
       ...metadata,
       instacomp: {
@@ -550,6 +628,20 @@ export async function POST(request: Request) {
         pricingGroupKey: groupKey || effectiveInstaCompPricingGroupKey(metadata),
         commercialQuantity: totalQuantity,
         commercialKeeperInventoryItemId: keeper.id,
+        acquisition: {
+          ...record(instaComp.acquisition),
+          source: acquisitionSource,
+          trackedPhysicalCopies: trackedPhysical.map((row: any) => ({
+            inventoryItemId: text(row?.inventoryItemId, 120),
+            acquisitionItemId: Number(row?.acquisitionItemId || 0) || null,
+            source: text(row?.source, 120),
+            purchasedAt: text(row?.purchasedAt, 120),
+            allocatedCost: Number(row?.allocatedCost || 0),
+            costStatus: text(row?.costStatus, 40),
+          })),
+          updatedAt: now,
+          authority: "mac_local_accounting",
+        },
       },
       dual_marketplace: {
         ...dual,
@@ -673,7 +765,10 @@ export async function POST(request: Request) {
     }
 
     let ebayResult: any = null;
+    let ebayAttempt: any = null;
+    let ebayVerification: any = null;
     let websitePublished = false;
+    let websiteVerification: any = null;
     const mercariPrepared = false;
     let mercariPublished = false;
     let mercariResult: any = null;
@@ -834,7 +929,7 @@ export async function POST(request: Request) {
                 { mode: "publish", confirmation: "PUBLISH_LIVE", item: ebayItem },
                 150_000,
               );
-          ebayResult = {
+          const pendingEbayResult = {
             listingId: String(macEbay.listingId || ""),
             offerId: String(macEbay.offerId || ""),
             createdOffer: existingEbayListingId ? false : macEbay.createdOffer === true,
@@ -842,9 +937,43 @@ export async function POST(request: Request) {
             revisedExisting: Boolean(existingEbayListingId),
             warnings: Array.isArray(macEbay.warnings) ? macEbay.warnings : [],
           };
-          if (!ebayResult.listingId || !ebayResult.offerId) {
+          if (!pendingEbayResult.listingId || !pendingEbayResult.offerId) {
             throw new Error("The Mac-local eBay publisher did not return a listing ID and offer ID.");
           }
+          ebayAttempt = pendingEbayResult;
+          const verificationResponse = await postInstaCompMacAccounting(
+            "/v1/kingmaker/accounting/ebay-bridge",
+            {
+              mode: "verify",
+              verification: {
+                listingId: pendingEbayResult.listingId,
+                offerId: pendingEbayResult.offerId,
+                sku,
+                title: ebayItem.title,
+                price: ebayPrice,
+                quantity: totalQuantity,
+                minimumImageCount: 2,
+                imageUrls: imageUrls.slice(0, 12),
+                condition: ebayItem.condition,
+                cardCondition: cardCondition || null,
+              },
+            },
+            60_000,
+          );
+          const verification = record(verificationResponse.verification);
+          ebayVerification = verification;
+          if (verification.verified !== true) {
+            const failed = Array.isArray(verification.failed)
+              ? verification.failed.map(String).join(", ")
+              : "unknown verification failure";
+            throw new Error(
+              `eBay listing was created/revised but failed live read-back verification: ${failed}.`,
+            );
+          }
+          ebayResult = {
+            ...pendingEbayResult,
+            verification,
+          };
           const latestDual = record(nextMetadata.dual_marketplace);
           nextMetadata.dual_marketplace = {
             ...latestDual,
@@ -856,6 +985,8 @@ export async function POST(request: Request) {
               publishedAt: new Date().toISOString(),
               lastAttemptAt: new Date().toISOString(),
               warnings: ebayResult.warnings || [],
+              verification: ebayResult.verification,
+              verificationStatus: "verified",
               lastError: null,
             },
           };
@@ -886,17 +1017,41 @@ export async function POST(request: Request) {
         ...latestDual,
         ebay: {
           ...record(latestDual.ebay),
-          status: "draft",
+          status: ebayAttempt?.listingId ? "verification_failed" : "draft",
+          listingId:
+            ebayAttempt?.listingId ||
+            text(record(latestDual.ebay).listingId, 120) ||
+            null,
+          offerId:
+            ebayAttempt?.offerId ||
+            text(record(latestDual.ebay).offerId, 120) ||
+            null,
+          verification: ebayVerification,
+          verificationStatus: ebayAttempt?.listingId
+            ? "verification_failed"
+            : "not_run",
           lastError: ebayError,
           lastAttemptAt: new Date().toISOString(),
         },
       };
+      const failedAt = new Date().toISOString();
       await supabase
         .from("inventory_items")
-        .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+        .update({ metadata: nextMetadata, updated_at: failedAt })
         .eq("store_id", storeId)
         .eq("id", keeper.id)
         .throwOnError();
+      if (ebayAttempt?.listingId && linkedProductId) {
+        await supabase
+          .from("products")
+          .update({
+            ebay_item_id: ebayAttempt.listingId,
+            last_seen_at: failedAt,
+          })
+          .eq("store_id", storeId)
+          .eq("id", linkedProductId)
+          .throwOnError();
+      }
     }
 
     if (action === "publish-website" || action === "publish-both" || action === "publish-website-mercari" || action === "publish-all-3") {
@@ -904,6 +1059,23 @@ export async function POST(request: Request) {
         if (!linkedProductId) {
           throw new Error("Website product linkage could not be established.");
         }
+        const attemptedAt = new Date().toISOString();
+        const wasWebsiteLive =
+          keeper.status === "active" &&
+          linkedProduct != null &&
+          isSellableWebsiteProduct(linkedProduct);
+        const latestDual = record(nextMetadata.dual_marketplace);
+        nextMetadata.dual_marketplace = {
+          ...latestDual,
+          website: {
+            ...record(latestDual.website),
+            status: "verification_pending",
+            publishedAt: attemptedAt,
+            lastAttemptAt: attemptedAt,
+            lastError: null,
+          },
+        };
+
         const { error: inventoryError } = await supabase
           .from("inventory_items")
           .update({
@@ -913,19 +1085,8 @@ export async function POST(request: Request) {
             status: "active",
             quantity: totalQuantity,
             price: websitePrice,
-            metadata: {
-              ...nextMetadata,
-              dual_marketplace: {
-                ...record(nextMetadata.dual_marketplace),
-                website: {
-                  ...record(record(nextMetadata.dual_marketplace).website),
-                  status: "active",
-                  publishedAt: new Date().toISOString(),
-                  lastError: null,
-                },
-              },
-            },
-            updated_at: new Date().toISOString(),
+            metadata: nextMetadata,
+            updated_at: attemptedAt,
           })
           .eq("store_id", storeId)
           .eq("id", keeper.id);
@@ -948,6 +1109,138 @@ export async function POST(request: Request) {
           .eq("store_id", storeId)
           .eq("id", linkedProductId);
         if (productError) throw productError;
+
+        const [inventoryRead, productRead, imageRead] = await Promise.all([
+          supabase
+            .from("inventory_items")
+            .select("id,legacy_product_id,sku,title,status,quantity,price")
+            .eq("store_id", storeId)
+            .eq("id", keeper.id)
+            .maybeSingle(),
+          supabase
+            .from("products")
+            .select("id,sku,title,listing_status,quantity,price,image_url,archived_at")
+            .eq("store_id", storeId)
+            .eq("id", linkedProductId)
+            .maybeSingle(),
+          supabase
+            .from("inventory_images")
+            .select("image_url,sort_order,is_primary")
+            .eq("inventory_item_id", keeper.id)
+            .order("sort_order", { ascending: true }),
+        ]);
+        if (inventoryRead.error) throw inventoryRead.error;
+        if (productRead.error) throw productRead.error;
+        if (imageRead.error) throw imageRead.error;
+
+        const liveInventory = inventoryRead.data;
+        const liveProduct = productRead.data;
+        const liveImages = Array.from(
+          new Set(
+            (imageRead.data || [])
+              .map((row: any) => String(row.image_url || "").trim())
+              .filter(Boolean),
+          ),
+        );
+        const expectedImages = Array.from(
+          new Set(imageUrls.slice(0, 2).map(String).filter(Boolean)),
+        );
+        const checks = {
+          inventoryActive: liveInventory?.status === "active",
+          productLinked:
+            Number(liveInventory?.legacy_product_id || 0) === linkedProductId,
+          sku:
+            String(liveInventory?.sku || "") === sku &&
+            String(liveProduct?.sku || "") === sku,
+          title:
+            String(liveInventory?.title || "").trim() === websiteTitle.trim() &&
+            String(liveProduct?.title || "").trim() === websiteTitle.trim(),
+          quantity:
+            Number(liveInventory?.quantity || 0) === totalQuantity &&
+            Number(liveProduct?.quantity || 0) === totalQuantity,
+          price:
+            Math.abs(Number(liveInventory?.price || 0) - websitePrice) < 0.011 &&
+            Math.abs(Number(liveProduct?.price || 0) - websitePrice) < 0.011,
+          productLive:
+            liveProduct?.listing_status === "live" &&
+            liveProduct?.archived_at == null,
+          images:
+            liveImages.length >= 2 &&
+            expectedImages.every((url) => liveImages.includes(url)),
+        };
+        const failed = Object.entries(checks)
+          .filter(([, passed]) => passed !== true)
+          .map(([name]) => name);
+        websiteVerification = {
+          verified: failed.length === 0,
+          checkedAt: new Date().toISOString(),
+          source: "supabase_storefront_readback",
+          productId: linkedProductId,
+          inventoryItemId: keeper.id,
+          imageCount: liveImages.length,
+          checks,
+          failed,
+        };
+
+        if (websiteVerification.verified !== true) {
+          const failedMessage = failed.join(", ") || "unknown verification failure";
+          const failureDual = record(nextMetadata.dual_marketplace);
+          nextMetadata.dual_marketplace = {
+            ...failureDual,
+            website: {
+              ...record(failureDual.website),
+              status: "verification_failed",
+              verificationStatus: "verification_failed",
+              verification: websiteVerification,
+              lastError: `Website read-back verification failed: ${failedMessage}.`,
+              lastAttemptAt: new Date().toISOString(),
+            },
+          };
+          await supabase
+            .from("inventory_items")
+            .update({
+              status: wasWebsiteLive ? "active" : "draft",
+              metadata: nextMetadata,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("store_id", storeId)
+            .eq("id", keeper.id)
+            .throwOnError();
+          if (!wasWebsiteLive) {
+            await supabase
+              .from("products")
+              .update({ quantity: 0, listing_status: "draft" })
+              .eq("store_id", storeId)
+              .eq("id", linkedProductId)
+              .throwOnError();
+          }
+          throw new Error(
+            `Website listing failed live read-back verification: ${failedMessage}.`,
+          );
+        }
+
+        const verifiedDual = record(nextMetadata.dual_marketplace);
+        nextMetadata.dual_marketplace = {
+          ...verifiedDual,
+          website: {
+            ...record(verifiedDual.website),
+            status: "active",
+            verificationStatus: "verified",
+            verification: websiteVerification,
+            publishedAt: attemptedAt,
+            lastAttemptAt: websiteVerification.checkedAt,
+            lastError: null,
+          },
+        };
+        await supabase
+          .from("inventory_items")
+          .update({
+            metadata: nextMetadata,
+            updated_at: websiteVerification.checkedAt,
+          })
+          .eq("store_id", storeId)
+          .eq("id", keeper.id)
+          .throwOnError();
         websitePublished = true;
       } catch (error) {
         errors.push(error instanceof Error ? error.message : "Website publishing failed.");
@@ -986,8 +1279,14 @@ export async function POST(request: Request) {
         cardCondition: cardCondition || null,
         ebayCategoryId: text(record(record(nextMetadata.dual_marketplace).ebay).categoryId, 40) || generated.ebayCategoryId,
         pricing,
+        listingReadiness,
         websitePublished,
+        websiteVerified: websiteVerification?.verified === true,
+        websiteVerification,
         ebayPublished: Boolean(ebayResult),
+        ebayVerified: ebayResult?.verification?.verified === true,
+        ebayVerification:
+          ebayResult?.verification || ebayVerification || null,
         ebayUpdated: ebayResult?.revisedExisting === true,
         ebayListingId: ebayResult?.listingId || null,
         ebayOfferId: ebayResult?.offerId || null,
