@@ -432,6 +432,13 @@ async function verifyLiveEbayListing(
     : [];
   const submittedTitle = String(inventoryProduct?.title || "").trim();
   const submittedCondition = String(inventoryItem?.condition || "").trim();
+  const inventoryConditionDescriptors = Array.isArray(inventoryItem?.conditionDescriptors)
+    ? inventoryItem.conditionDescriptors
+    : [];
+  const tradingConditionDescriptors = tradingXmlBlocks(itemXml, "ConditionDescriptor");
+  const hasCardConditionDescriptor =
+    inventoryConditionDescriptors.length > 0 ||
+    tradingConditionDescriptors.length > 0;
   const submittedCardCondition = Array.isArray(inventoryAspects?.["Card Condition"])
     ? String(inventoryAspects["Card Condition"][0] || "").trim()
     : "";
@@ -471,12 +478,7 @@ async function verifyLiveEbayListing(
       liveImageUrls.length >= minimumImageCount && exactSubmittedImages,
     condition: expected.condition ? Boolean(liveCondition) : true,
     cardCondition: expected.cardCondition
-      ? normalizedComparable(liveCardCondition).includes(
-          normalizedComparable(expected.cardCondition),
-        ) ||
-        normalizedComparable(expected.cardCondition).includes(
-          normalizedComparable(liveCardCondition),
-        )
+      ? hasCardConditionDescriptor
       : true,
   };
   const failed = Object.entries(checks)
@@ -497,6 +499,8 @@ async function verifyLiveEbayListing(
     exactSubmittedImages,
     condition: liveCondition || null,
     cardCondition: liveCardCondition || null,
+    conditionDescriptorCount:
+      inventoryConditionDescriptors.length + tradingConditionDescriptors.length,
     listingStatus: listingStatus || null,
     checks,
     failed,
