@@ -134,7 +134,7 @@ const WORKBENCH_URL =
 const MANUAL_URL =
   "/api/account/seller/inventory/instacomp-manual-identity";
 const AUTO_SCAN_URL =
-  "/api/account/seller/inventory/instacomp-front-back";
+  "/api/kingmaker/instacomp-front-back-exact";
 const DIAGNOSTIC_URL =
   "/api/account/seller/inventory/instacomp-checklist-audit";
 

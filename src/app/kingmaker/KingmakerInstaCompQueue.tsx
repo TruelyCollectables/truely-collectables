@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getFreshAccountSession } from "../account/account-session";
 import {
   instaCompDropFileSignature,
@@ -128,6 +128,18 @@ export default function KingmakerInstaCompQueue() {
   const [pageNotice, setPageNotice] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const acceptedSignatures = useRef<Set<string>>(new Set());
+  const previewUrlsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const previewUrls = previewUrlsRef.current;
+    return () => {
+      for (const url of previewUrls) {
+        URL.revokeObjectURL(url);
+      }
+      previewUrls.clear();
+    };
+  }, []);
+
   // Serialize every drop/selection through one component-wide queue. Individual
   // batches already use concurrency=1, but two overlapping drops used to create
   // two independent queues and therefore two simultaneous Mac scans.
@@ -187,6 +199,19 @@ export default function KingmakerInstaCompQueue() {
         throw new Error(result.error || "InstaComp intake failed.");
       }
 
+      const nextFrontPreview =
+        result.normalizedImages?.frontImageUrl || card.frontPreview;
+      const nextBackPreview =
+        result.normalizedImages?.backImageUrl || card.backPreview;
+      for (const [previous, next] of [
+        [card.frontPreview, nextFrontPreview],
+        [card.backPreview, nextBackPreview],
+      ] as const) {
+        if (previous?.startsWith("blob:") && previous !== next) {
+          URL.revokeObjectURL(previous);
+          previewUrlsRef.current.delete(previous);
+        }
+      }
       patch(card.id, {
         status:
           result.success === true && result.identityComplete === true
@@ -194,8 +219,8 @@ export default function KingmakerInstaCompQueue() {
             : "review",
         result,
         durationMs: Date.now() - startedAt,
-        frontPreview: result.normalizedImages?.frontImageUrl || card.frontPreview,
-        backPreview: result.normalizedImages?.backImageUrl || card.backPreview,
+        frontPreview: nextFrontPreview,
+        backPreview: nextBackPreview,
         error: result.error || null,
       });
     } catch (error) {
@@ -236,22 +261,28 @@ export default function KingmakerInstaCompQueue() {
         setPageError("No new card images were added. Choose JPEG, PNG, or WebP fronts and backs.");
         return;
       }
-      const prepared = pairing.pairs.map((pair) => ({
-        id: crypto.randomUUID(),
-        front: pair.front,
-        back: pair.back,
-        frontPreview: pair.front ? URL.createObjectURL(pair.front) : "",
-        backPreview: pair.back ? URL.createObjectURL(pair.back) : null,
-        status: "queued" as const,
-        result: null,
-        error: !pair.front
-          ? "Front image missing."
-          : pair.back
-            ? null
-            : "Back image missing.",
-        durationMs: null,
-        savingPrice: false,
-      }));
+      const prepared = pairing.pairs.map((pair) => {
+        const frontPreview = pair.front ? URL.createObjectURL(pair.front) : "";
+        const backPreview = pair.back ? URL.createObjectURL(pair.back) : null;
+        if (frontPreview) previewUrlsRef.current.add(frontPreview);
+        if (backPreview) previewUrlsRef.current.add(backPreview);
+        return {
+          id: crypto.randomUUID(),
+          front: pair.front,
+          back: pair.back,
+          frontPreview,
+          backPreview,
+          status: "queued" as const,
+          result: null,
+          error: !pair.front
+            ? "Front image missing."
+            : pair.back
+              ? null
+              : "Back image missing.",
+          durationMs: null,
+          savingPrice: false,
+        };
+      });
       setCards((current) => [...prepared, ...current]);
       setPageNotice(
         `${prepared.length} card${prepared.length === 1 ? "" : "s"} queued from ${files.length - pairing.duplicateCount} image${files.length - pairing.duplicateCount === 1 ? "" : "s"}.${pairing.duplicateCount ? ` ${pairing.duplicateCount} duplicate file${pairing.duplicateCount === 1 ? " was" : "s were"} ignored.` : ""}`,

@@ -416,6 +416,25 @@ function money(value: unknown) {
 }
 
 const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
+const BULK_PRICE_CONCURRENCY = 5;
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const runners = Array.from(
+    { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex++];
+        await worker(item);
+      }
+    },
+  );
+  await Promise.all(runners);
+}
 
 function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
   const suggested = Number(value);
@@ -738,6 +757,8 @@ export default function KingmakerPendingPage({
   const priceGuideAttemptedRef = useRef<Set<string>>(new Set());
   const priceGuideWorkerRunningRef = useRef(false);
   const skipInitialCardsReloadRef = useRef(initialLoaded);
+  const forcedAuthRefreshDoneRef = useRef(false);
+  const purchaseMatchSignatureRef = useRef("");
   const [renderLimit, setRenderLimit] = useState(24);
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
@@ -846,7 +867,11 @@ export default function KingmakerPendingPage({
       }
     try {
       let accessToken: string | null = null;
-      if (typeof window !== "undefined") {
+      if (!forcedAuthRefreshDoneRef.current) {
+        const session = await getFreshAccountSession(5 * 60, true);
+        accessToken = session?.access_token?.trim() || null;
+        forcedAuthRefreshDoneRef.current = Boolean(accessToken);
+      } else if (typeof window !== "undefined") {
         try {
           const raw = window.localStorage.getItem("tcos_account_session");
           if (raw) {
@@ -884,7 +909,7 @@ export default function KingmakerPendingPage({
       const focus = locationParams.get("focus");
       const extraParams = `${batch ? `&batch=${encodeURIComponent(batch)}` : ""}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`;
       const [cardsResult, statusResult] = await Promise.allSettled([
-        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}&folder=${requestedFolder}${extraParams}`, { headers, cache: "no-store" }),
+        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}&folder=${requestedFolder}&surface=kingmaker${extraParams}`, { headers, cache: "no-store" }),
         fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
       ]);
       const cardsResponse = cardsResult.status === "fulfilled" ? cardsResult.value : null;
@@ -1052,17 +1077,46 @@ export default function KingmakerPendingPage({
         Boolean(member.inventoryItemId && member.scanId),
       );
     if (!eligible.length) {
+      purchaseMatchSignatureRef.current = "";
       setPurchaseMatches({});
       return () => {
         cancelled = true;
       };
     }
 
+    const signature = eligible
+      .map((member) =>
+        [
+          member.cardUuid,
+          member.inventoryItemId,
+          member.scanId,
+          member.identity?.year,
+          member.identity?.player,
+          member.identity?.cardNumber,
+          member.identity?.parallel,
+        ]
+          .map((value) => String(value || "").trim().toLowerCase())
+          .join("~"),
+      )
+      .sort()
+      .join("|");
+    if (purchaseMatchSignatureRef.current === signature) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    purchaseMatchSignatureRef.current = signature;
+
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
           const session = await getFreshAccountSession(5 * 60, false);
-          if (!session?.access_token) return;
+          if (!session?.access_token) {
+            if (purchaseMatchSignatureRef.current === signature) {
+              purchaseMatchSignatureRef.current = "";
+            }
+            return;
+          }
           const allResults: any[] = [];
           for (let index = 0; index < eligible.length && !cancelled; index += 50) {
             const batch = eligible.slice(index, index + 50);
@@ -1082,9 +1136,10 @@ export default function KingmakerPendingPage({
               }),
             });
             const data = await response.json().catch(() => ({}));
-            if (response.ok && data.ok === true && Array.isArray(data.results)) {
-              allResults.push(...data.results);
+            if (!response.ok || data.ok !== true || !Array.isArray(data.results)) {
+              throw new Error(String(data.error || data.detail || "Purchase matching failed."));
             }
+            allResults.push(...data.results);
             if (index + 50 < eligible.length) {
               await new Promise((resolve) => window.setTimeout(resolve, 150));
             }
@@ -1110,6 +1165,9 @@ export default function KingmakerPendingPage({
             );
           }
         } catch {
+          if (purchaseMatchSignatureRef.current === signature) {
+            purchaseMatchSignatureRef.current = "";
+          }
           // Acquisition matching is additive and never blocks normal work.
         }
       })();
@@ -1925,7 +1983,7 @@ export default function KingmakerPendingPage({
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      await Promise.all(priceable.map(async (card) => {
+      await runWithConcurrency(priceable, BULK_PRICE_CONCURRENCY, async (card) => {
         const price = compAdjustedPrice(card.instaComp.suggestedPrice, adjustmentPercent);
         if (!price) throw new Error(`${card.title}: InstaComp price is unavailable.`);
         const response = await fetch("/api/account/seller/instacomp-scan/price", {
@@ -1940,7 +1998,7 @@ export default function KingmakerPendingPage({
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(`${card.title}: ${data.error || "bulk price failed"}`);
-      }));
+      });
       setNotice(`Comp-based prices saved for ${priceable.length} selected exact-card group${priceable.length === 1 ? "" : "s"}.`);
       await load(queue || queueFromLocation());
     } catch (error) {

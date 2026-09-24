@@ -64,7 +64,7 @@ export default async function KingmakerPendingPage({
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.getAll().map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const response = await getPendingCards(
-    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${dataFolder}${batch ? `&batch=${encodeURIComponent(batch)}` : ""}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`, {
+    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${dataFolder}&surface=kingmaker${batch ? `&batch=${encodeURIComponent(batch)}` : ""}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`, {
       headers: cookieHeader ? { cookie: cookieHeader } : undefined,
     }),
   ).catch(() => null);

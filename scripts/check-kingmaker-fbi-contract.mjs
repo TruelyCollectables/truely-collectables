@@ -22,8 +22,9 @@ const forbidText = (file, value, reason) => {
 requireText("rotation", "persistNormalizedInstaCompImagePair", "rotation must persist normalized bytes");
 requireText("rotation", "frontFile: front", "front file must be submitted");
 requireText("rotation", "backFile: back", "back file must be submitted");
-requireText("rotation", 'frontRotation: rotatedSide === "front" ? 90 : 0', "front rotation must be explicit");
-requireText("rotation", 'backRotation: rotatedSide === "back" ? 90 : 0', "back rotation must be explicit");
+requireText("rotation", "const submittedRotatedPair = Boolean(front && back)", "route must distinguish browser-pre-rotated pairs from stored-image fallback");
+requireText("rotation", '!submittedRotatedPair && rotatedSide === "front" ? 90 : 0', "stored front fallback must rotate exactly once");
+requireText("rotation", '!submittedRotatedPair && rotatedSide === "back" ? 90 : 0', "stored back fallback must rotate exactly once");
 requireText("page", "Retry This Card", "failed cards need an attached retry action");
 requireText("page", "Replace Manual Identity with AI", "manual identity replacement must be explicit");
 requireText("page", "job?.error", "durable per-card errors must be displayed");

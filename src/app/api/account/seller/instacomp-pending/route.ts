@@ -641,6 +641,9 @@ export async function GET(request: Request) {
       account.email === "sales@trulycollectables.com";
     const requestUrl = new URL(request.url);
     const requestedQueue = requestUrl.searchParams.get("queue");
+    const compactKingmaker =
+      requestUrl.searchParams.get("surface") === "kingmaker" ||
+      requestUrl.searchParams.get("compact") === "1";
     const refreshMac = requestUrl.searchParams.get("refreshMac") === "1";
     const requestedBatch = String(
       requestUrl.searchParams.get("batch") || "",
@@ -1671,17 +1674,21 @@ export async function GET(request: Request) {
             instaComp.priceGuideCoverage && typeof instaComp.priceGuideCoverage === "object"
               ? recordValue(instaComp.priceGuideCoverage)
               : null,
-          rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
-          excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
-          excludedCompCount: Array.isArray(instaComp.excludedCompUrls)
-            ? instaComp.excludedCompUrls.length
-            : 0,
-          providerCoverage: providerCoverageList(instaComp.providerCoverage),
-          sourceLinks: {
-            ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),
-            ebayActiveUrl: textValue(sourceLinks.ebayActiveUrl),
-            broadCardMarketUrl: textValue(sourceLinks.broadCardMarketUrl),
-          },
+          ...(compactKingmaker
+            ? {}
+            : {
+                rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
+                excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
+                excludedCompCount: Array.isArray(instaComp.excludedCompUrls)
+                  ? instaComp.excludedCompUrls.length
+                  : 0,
+                providerCoverage: providerCoverageList(instaComp.providerCoverage),
+                sourceLinks: {
+                  ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),
+                  ebayActiveUrl: textValue(sourceLinks.ebayActiveUrl),
+                  broadCardMarketUrl: textValue(sourceLinks.broadCardMarketUrl),
+                },
+              }),
           identitySummary,
           identityReadout,
           identityTrace:

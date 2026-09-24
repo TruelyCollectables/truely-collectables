@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
@@ -386,70 +386,16 @@ export async function POST(request: NextRequest) {
 
     const internalScanId = clean(ai.internalScanId, 100);
     const internalEngineConfigured = hasConfiguredInstaCompAiLocal();
-    let effectiveInternalScanId = internalScanId;
-    let recoveredInternalCardUuid: string | null = null;
-    let learningReceiptRecovered = false;
-
-    let learningStatus:
-      | "stored"
-      | "pending_internal_connection"
-      | "missing_internal_scan_receipt" = "missing_internal_scan_receipt";
-    let learningLessonId: string | null = null;
-    let learningError: string | null = null;
-
-    if (!effectiveInternalScanId && internalEngineConfigured) {
-      try {
-        const recoveredReceipt = await recoverMissingInternalScanReceipt({
-          supabase,
-          inventoryItemId,
-          cardUuid: nullableText(item.card_uuid, 100),
-          metadata,
-        });
-        effectiveInternalScanId = recoveredReceipt.scanId;
-        recoveredInternalCardUuid = recoveredReceipt.cardUuid;
-        learningReceiptRecovered = true;
-      } catch (error) {
-        learningError =
-          error instanceof Error
-            ? error.message.slice(0, 500)
-            : "The missing Mac-local scan receipt could not be reconstructed.";
-        if (!/no distinct stored front\/back image pair/i.test(learningError)) {
-          learningStatus = "pending_internal_connection";
-        }
-      }
-    }
-
-    if (effectiveInternalScanId && internalEngineConfigured) {
-      try {
-        const lesson = await confirmInstaCompAiLocalLesson({
-          scanId: effectiveInternalScanId,
-          identity: sellerLessonIdentity({
-            ai,
-            body,
-            storedParallel,
-            normalizedPrintRun,
-          }),
-          operatorId: account.id,
-          notes: `Seller confirmed inventory item ${inventoryItemId}: ${displayTitle}`,
-        });
-        learningStatus = "stored";
-        learningLessonId = lesson.lessonId;
-        learningError = null;
-      } catch (error) {
-        learningStatus = "pending_internal_connection";
-        learningError =
-          error instanceof Error
-            ? error.message.slice(0, 500)
-            : "InstaComp internal lesson could not be stored.";
-      }
-    } else if (effectiveInternalScanId && !internalEngineConfigured) {
-      learningStatus = "pending_internal_connection";
-      learningError =
-        "InstaComp internal engine is not configured for this runtime.";
-    } else if (!learningError) {
-      learningError =
-        "No Mac-local scan receipt or recoverable stored front/back image pair is available for this correction.";
-    }
+    const effectiveInternalScanId = internalScanId;
+    const recoveredInternalCardUuid: string | null = null;
+    const learningReceiptRecovered = false;
+    const learningStatus = internalEngineConfigured
+      ? "queued"
+      : "pending_internal_connection";
+    const learningLessonId: string | null = null;
+    const learningError = internalEngineConfigured
+      ? null
+      : "InstaComp internal engine is not configured for this runtime.";
 
     const manualIdentity = {
       sport: nullableText(body.sport, 100),
@@ -589,6 +535,128 @@ export async function POST(request: NextRequest) {
         { error: "This card changed status before the edit could be saved. Reload Master Listings and try again." },
         { status: 409 },
       );
+    }
+
+    if (internalEngineConfigured) {
+      const lessonIdentity = sellerLessonIdentity({
+        ai,
+        body,
+        storedParallel,
+        normalizedPrintRun,
+      });
+      after(async () => {
+        const backgroundSupabase = createSupabaseServerClient({ admin: true });
+        let backgroundScanId = internalScanId;
+        let backgroundCardUuid: string | null = null;
+        let backgroundStatus:
+          | "stored"
+          | "pending_internal_connection"
+          | "missing_internal_scan_receipt" = "missing_internal_scan_receipt";
+        let backgroundLessonId: string | null = null;
+        let backgroundError: string | null = null;
+
+        if (!backgroundScanId) {
+          try {
+            const recoveredReceipt = await recoverMissingInternalScanReceipt({
+              supabase: backgroundSupabase,
+              inventoryItemId,
+              cardUuid: nullableText(item.card_uuid, 100),
+              metadata: nextMetadata,
+            });
+            backgroundScanId = recoveredReceipt.scanId;
+            backgroundCardUuid = recoveredReceipt.cardUuid;
+          } catch (error) {
+            backgroundError =
+              error instanceof Error
+                ? error.message.slice(0, 500)
+                : "The missing Mac-local scan receipt could not be reconstructed.";
+            if (!/no distinct stored front\/back image pair/i.test(backgroundError)) {
+              backgroundStatus = "pending_internal_connection";
+            }
+          }
+        }
+
+        if (backgroundScanId) {
+          try {
+            const lesson = await confirmInstaCompAiLocalLesson({
+              scanId: backgroundScanId,
+              identity: lessonIdentity,
+              operatorId: account.id,
+              notes: `Seller confirmed inventory item ${inventoryItemId}: ${displayTitle}`,
+            });
+            backgroundStatus = "stored";
+            backgroundLessonId = lesson.lessonId;
+            backgroundError = null;
+          } catch (error) {
+            backgroundStatus = "pending_internal_connection";
+            backgroundError =
+              error instanceof Error
+                ? error.message.slice(0, 500)
+                : "InstaComp internal lesson could not be stored.";
+          }
+        } else if (!backgroundError) {
+          backgroundError =
+            "No Mac-local scan receipt or recoverable stored front/back image pair is available for this correction.";
+        }
+
+        try {
+          const { data: current, error: currentError } = await backgroundSupabase
+            .from("inventory_items")
+            .select("metadata,card_uuid,updated_at,status")
+            .eq("id", inventoryItemId)
+            .eq("store_id", storeId)
+            .neq("status", "archived")
+            .neq("status", "sold")
+            .maybeSingle();
+          if (currentError || !current) return;
+
+          const currentMetadata = record(current.metadata);
+          const currentReview = record(currentMetadata.seller_review);
+          if (clean(currentReview.edited_at, 100) !== editedAt) return;
+
+          const currentInstaComp = record(currentMetadata.instacomp);
+          const currentAi = record(currentInstaComp.ai);
+          const learningUpdatedAt = new Date().toISOString();
+          const patchedMetadata = {
+            ...currentMetadata,
+            instacomp: {
+              ...currentInstaComp,
+              learningStatus: backgroundStatus,
+              learningLessonId: backgroundLessonId,
+              learningError: backgroundError,
+              learningUpdatedAt,
+              ai: {
+                ...currentAi,
+                internalScanId: backgroundScanId || null,
+                internalCardUuid:
+                  backgroundCardUuid ||
+                  nullableText(currentAi.internalCardUuid, 100),
+              },
+            },
+          };
+
+          const patch: Record<string, unknown> = {
+            metadata: patchedMetadata,
+            updated_at: learningUpdatedAt,
+          };
+          if (!current.card_uuid && backgroundCardUuid) {
+            patch.card_uuid = backgroundCardUuid;
+          }
+          await backgroundSupabase
+            .from("inventory_items")
+            .update(patch)
+            .eq("id", inventoryItemId)
+            .eq("store_id", storeId)
+            .neq("status", "archived")
+            .neq("status", "sold")
+            .eq("updated_at", current.updated_at);
+        } catch (error) {
+          console.error("KINGMAKER background learning persistence failed", {
+            inventoryItemId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
     }
 
     return NextResponse.json({

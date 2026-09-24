@@ -127,6 +127,7 @@ export async function POST(request: NextRequest) {
     if (!item) return NextResponse.json({ error: "Pending card was not found." }, { status: 404 });
 
     const metadata = record(item.metadata);
+    const submittedRotatedPair = Boolean(front && back);
     if (!front || !back) {
       const { data: storedImages, error: imageError } = await supabase
         .from("inventory_images")
@@ -159,8 +160,10 @@ export async function POST(request: NextRequest) {
         status: "completed",
         model: null,
         source: "seller_manual_pixel_rotation",
-        frontRotation: 0,
-        backRotation: 0,
+        frontRotation:
+          !submittedRotatedPair && rotatedSide === "front" ? 90 : 0,
+        backRotation:
+          !submittedRotatedPair && rotatedSide === "back" ? 90 : 0,
         frontConfidence: 1,
         backConfidence: 1,
         reason: `Seller manually rotated the stored ${rotatedSide} image pixels 90 degrees clockwise and verified the persisted pair.`,

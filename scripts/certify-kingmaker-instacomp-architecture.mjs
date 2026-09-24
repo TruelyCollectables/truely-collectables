@@ -99,9 +99,9 @@ const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.t
 for (const required of [
   "fetchInstaCompAiLocalScanImage",
   "canonicalImagesRecovered: true",
-  "const identityComplete = Boolean(macCandidate);",
-  "const selectedRegistryIdentityId = macCandidate?.identityId || null;",
-  "trustedForIdentity: Boolean(macCandidate)",
+  "const identityComplete = Boolean(certifiedCandidate);",
+  "const selectedRegistryIdentityId = certifiedCandidate?.identityId || null;",
+  "trustedForIdentity: Boolean(certifiedCandidate)",
   'source: "checklist_registry"',
   '"identity_review_required"',
   "completedMacOrientation(scan, params.webOrientation)",
@@ -176,8 +176,9 @@ for (const required of [
   "ensureAccountStoreMembership",
   'status: "completed"',
   'source: "seller_manual_pixel_rotation"',
-  "frontRotation: 0",
-  "backRotation: 0",
+  "const submittedRotatedPair = Boolean(front && back)",
+  '!submittedRotatedPair && rotatedSide === "front" ? 90 : 0',
+  '!submittedRotatedPair && rotatedSide === "back" ? 90 : 0',
   "published: false",
 ]) {
   requireText(auditedRotate, required, "persisted KINGMAKER manual image rotation route");

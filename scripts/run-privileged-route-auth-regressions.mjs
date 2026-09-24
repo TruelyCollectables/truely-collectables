@@ -4,7 +4,12 @@ import { readFile } from "node:fs/promises";
 const read = async (path) =>
   readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-const proxy = await read("src/proxy.ts");
+let proxy;
+try {
+  proxy = await read("src/proxy.ts");
+} catch {
+  proxy = await read("src/request-gate.ts");
+}
 const actorGuard = await read("src/lib/instacomp-job-server.ts");
 
 for (const fragment of [

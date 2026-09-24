@@ -58,6 +58,23 @@ function boundedConfidence(value: unknown) {
   return Math.max(0, Math.min(1, parsed));
 }
 
+function standalonePrizmFromBackEvidence(value: unknown) {
+  const lines = textList(value, 12);
+  for (const raw of lines) {
+    const candidate = raw
+      .replace(/^back:/i, "")
+      .replace(/[®™]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    // Copyright/product text containing Prizm is not a standalone designation.
+    // Only a physically OCR'd standalone PRIZM line is positive finish evidence.
+    if (/^prizm$/i.test(candidate)) {
+      return { value: true as const, confidence: 0.95 };
+    }
+  }
+  return { value: null, confidence: 0 };
+}
+
 function macOrientationReceipt(
   scan: InstaCompAiLocalScan,
   webOrientation: {
@@ -77,6 +94,16 @@ function macOrientationReceipt(
     frontEvidenceText.length > 0 &&
     backEvidenceText.length > 0;
 
+  const macDesignation = standalonePrizmFromBackEvidence(
+    receipt.back_evidence,
+  );
+  const backStandalonePrizm =
+    webOrientation.backStandalonePrizm ?? macDesignation.value;
+  const backDesignationConfidence = Math.max(
+    boundedConfidence(webOrientation.backDesignationConfidence),
+    macDesignation.confidence,
+  );
+
   return {
     status: completed ? "completed" : "review_required",
     model: text(receipt.source, 100) || "mac_apple_vision_ocr",
@@ -87,10 +114,8 @@ function macOrientationReceipt(
     backConfidence,
     frontEvidenceText,
     backEvidenceText,
-    backStandalonePrizm: webOrientation.backStandalonePrizm ?? null,
-    backDesignationConfidence: boundedConfidence(
-      webOrientation.backDesignationConfidence,
-    ),
+    backStandalonePrizm,
+    backDesignationConfidence,
     reason: completed
       ? "The Mac normalized each archived side with Apple Vision text-orientation evidence before website storage."
       : "The Mac did not return decisive orientation evidence for both sides, so this card is held outside listing intake.",
@@ -458,11 +483,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The old web-orientation referee never produced a usable standalone-PRIZM
-    // witness here (its fields were always null/0). Parallel/finish safety stays
-    // inside the Mac physical-evidence + Registry pipeline instead of paying a
-    // remote 60-second call that did not strengthen this gate.
-    const selectBackMarkerUsable = false;
+    // 2025 Select WNBA has a physically validated Base-vs-parallel witness:
+    // parallel backs carry a standalone PRIZM designation while Base backs do not.
+    // This witness is contradiction-only: it never rewrites Registry identity.
+    const selectBackMarkerUsable =
+      /^2025/.test(fields.year || "") &&
+      /select/i.test(fields.brand || fields.product || "") &&
+      /wnba/i.test(fields.league || "") &&
+      typeof macImageOrientation.backStandalonePrizm === "boolean" &&
+      Number(macImageOrientation.backDesignationConfidence || 0) >= 0.90;
+    const registryClaimsParallel = Boolean(
+      fields.parallel && !/^Base(?: Set)?$/i.test(fields.parallel),
+    );
+    const selectBackMarkerConflict = selectBackMarkerUsable && (
+      (macImageOrientation.backStandalonePrizm === true && !registryClaimsParallel) ||
+      (macImageOrientation.backStandalonePrizm === false && registryClaimsParallel)
+    );
+    if (selectBackMarkerConflict) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PHYSICAL_FINISH_CONFLICT",
+          error:
+            "The physical 2025 Select back disagrees with the Registry Base/parallel state. The card is held for finish verification; its Registry identity was not rewritten.",
+          scan,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
 
     const imagePairSha256 = text(scan.image_pair_sha256, 128);
     const frontSha256 = text(scan.front_sha256, 128);
