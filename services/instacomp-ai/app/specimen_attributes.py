@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .models import CardIdentity, SpecimenAttributes
-from .ollama import extract_json, prepare_ollama_image
+from .ollama import extract_json, prepare_fast_identity_image, prepare_ollama_image
 
 
 SYSTEM_PROMPT = """You are InstaComp Patch Color Intelligence, a specimen-only vision pass.
@@ -170,6 +170,146 @@ def _build_result(raw: RawSpecimenVision, identity: CardIdentity) -> SpecimenAtt
     )
 
 
+
+_CLOUDFLARE_CONFIDENCE = {"high": 0.95, "medium": 0.75, "low": 0.50}
+
+
+def _parse_cloudflare_specimen(raw_response: object) -> RawSpecimenVision:
+    if isinstance(raw_response, dict):
+        data = dict(raw_response)
+    else:
+        text = str(raw_response or "").strip()
+        if not text:
+            raise ValueError("Cloudflare specimen response was empty")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            object_match = re.search(r"\{.*?\}", text, re.S)
+            if object_match:
+                try:
+                    data = json.loads(object_match.group(0))
+                except json.JSONDecodeError:
+                    data = {}
+            else:
+                data = {}
+            count_match = re.search(r"Patch\s+Color\s+Count\s*[:*]+\s*(\d+)", text, re.I)
+            colors_match = re.search(r"Patch\s+Colors?\s*[:*]+\s*([^\n]+)", text, re.I)
+            confidence_match = re.search(
+                r"Observation\s+Confidence\s*[:*]+\s*([^\n]+)", text, re.I
+            )
+            uncertainty_match = re.search(r"Uncertainty\s*[:*]+\s*([^\n]+)", text, re.I)
+            if count_match:
+                data["patch_color_count"] = int(count_match.group(1))
+            if colors_match:
+                value = re.sub(r"[*_]", "", colors_match.group(1)).strip(" .")
+                data["patch_colors"] = [
+                    part.strip()
+                    for part in re.split(r"\s*(?:,|\band\b|/|\+)\s*", value, flags=re.I)
+                    if part.strip()
+                ]
+            if confidence_match:
+                data["observation_confidence"] = re.sub(
+                    r"[*_]", "", confidence_match.group(1)
+                ).strip(" .")
+            if uncertainty_match:
+                data["uncertainty"] = re.sub(
+                    r"[*_]", "", uncertainty_match.group(1)
+                ).strip(" .")
+
+    colors = _unique_colors(list(data.get("patch_colors") or []))
+    count = data.get("patch_color_count")
+    try:
+        count = int(count) if count is not None else (len(colors) or None)
+    except (TypeError, ValueError):
+        count = len(colors) or None
+
+    confidence_value = data.get("observation_confidence", 0)
+    if isinstance(confidence_value, str):
+        lowered = confidence_value.casefold().strip(" .")
+        confidence = next(
+            (score for label, score in _CLOUDFLARE_CONFIDENCE.items() if label in lowered),
+            0.0,
+        )
+        if confidence == 0.0:
+            match = re.search(r"\d+(?:\.\d+)?", lowered)
+            if match:
+                confidence = float(match.group(0))
+                if confidence > 1:
+                    confidence /= 100.0
+    else:
+        try:
+            confidence = float(confidence_value or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+    raw_uncertainty = data.get("uncertainty")
+    uncertainty: list[str] = []
+    if isinstance(raw_uncertainty, list):
+        uncertainty = [str(v).strip() for v in raw_uncertainty if str(v).strip()]
+    elif isinstance(raw_uncertainty, (int, float)):
+        if float(raw_uncertainty) > 0.25:
+            uncertainty = [f"cloudflare_uncertainty:{float(raw_uncertainty):.2f}"]
+    elif raw_uncertainty is not None:
+        value = str(raw_uncertainty).strip()
+        try:
+            numeric_uncertainty = float(value)
+        except ValueError:
+            numeric_uncertainty = None
+        if numeric_uncertainty is not None:
+            if numeric_uncertainty > 0.25:
+                uncertainty = [f"cloudflare_uncertainty:{numeric_uncertainty:.2f}"]
+        elif value and value.casefold() not in {"low", "none", "no", "n/a", "null"}:
+            uncertainty = [value]
+
+    if not colors or count is None:
+        raise ValueError("Cloudflare specimen response did not contain visible patch colors")
+
+    return RawSpecimenVision(
+        patch_color_count=count,
+        patch_colors=colors,
+        observation_confidence=max(0.0, min(confidence or 0.90, 1.0)),
+        uncertainty=uncertainty,
+    )
+
+
+async def _cloudflare_specimen_attributes(
+    front: bytes,
+    identity: CardIdentity,
+    settings: Settings,
+) -> SpecimenAttributes | None:
+    account_id = str(settings.cloudflare_account_id or "").strip()
+    token = str(settings.cloudflare_workers_ai_token or "").strip()
+    if not account_id or not token:
+        return None
+
+    model = "@cf/meta/llama-3.2-11b-vision-instruct"
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    image = "data:image/jpeg;base64," + base64.b64encode(
+        prepare_fast_identity_image(front)
+    ).decode("ascii")
+    prompt = (
+        "The canonical trading-card identity is already locked and must not be changed. "
+        "Inspect ONLY the physical memorabilia/jersey/patch material inside the visible patch window. "
+        "Ignore printed card art, foil, borders, text, player uniform image, and background. "
+        "Return JSON only with patch_color_count, patch_colors, observation_confidence, uncertainty. "
+        "If physical patch colors are visible, patch_colors MUST list every distinct visible material color "
+        "and patch_color_count MUST equal the number of unique listed colors. "
+        "Team identity is irrelevant to the physical color observation."
+    )
+    timeout = min(max(float(settings.patch_color_vision_timeout_seconds or 12.0), 4.0), 15.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"prompt": prompt, "image": image, "max_tokens": 160, "temperature": 0},
+        )
+    response.raise_for_status()
+    raw_response = (response.json().get("result") or {}).get("response")
+    raw = _parse_cloudflare_specimen(raw_response)
+    result = _build_result(raw, identity)
+    return result.model_copy(update={"source": "post_identity_cloudflare_vision"})
+
+
 async def analyze_specimen_attributes(
     front: bytes,
     back: bytes | None,
@@ -181,9 +321,13 @@ async def analyze_specimen_attributes(
     if not _is_memorabilia(identity):
         return SpecimenAttributes(status="not_applicable", identity_fields_mutated=False)
 
-    prepared = [prepare_ollama_image(front)]
-    if back:
-        prepared.append(prepare_ollama_image(back))
+    cloudflare = await _cloudflare_specimen_attributes(front, identity, settings)
+    if cloudflare is not None:
+        return cloudflare
+
+    # Local Ollama is a fail-closed fallback only. One compact front image keeps
+    # specimen work bounded and avoids wedged reused VLM workers.
+    prepared = [prepare_fast_identity_image(front)]
     images = [base64.b64encode(value).decode("ascii") for value in prepared]
     model = str(settings.patch_color_vision_model or "").strip() or settings.ollama_model
     prompt = (
@@ -196,11 +340,11 @@ async def analyze_specimen_attributes(
         "messages": [{"role": "user", "content": prompt, "images": images}],
         "stream": False,
         "format": RAW_SCHEMA,
-        "keep_alive": "15m",
+        "keep_alive": 0,
         "options": {
             "temperature": 0.0,
-            "num_ctx": 4096,
-            "num_predict": 1024,
+            "num_ctx": 2048,
+            "num_predict": 256,
             "seed": 0,
         },
     }
