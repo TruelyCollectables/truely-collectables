@@ -441,6 +441,41 @@ function prospectFamilies(players) {
   });
 }
 
+function marketTargetFamilies(players) {
+  return players.flatMap((player) => {
+    const id = slug(player);
+    return [
+      {
+        familyId: `market-target.${id}.broad-cards`,
+        scope: "market_targets",
+        lane: "market_signal_cards",
+        watchedPerson: player,
+        itemType: "market_signal_sports_card",
+        query: `${player} trading card`,
+        required: true,
+      },
+      {
+        familyId: `market-target.${id}.rookies`,
+        scope: "market_targets",
+        lane: "market_signal_rookies",
+        watchedPerson: player,
+        itemType: "market_signal_rookie_card",
+        query: `${player} rookie card`,
+        required: true,
+      },
+      {
+        familyId: `market-target.${id}.premium`,
+        scope: "market_targets",
+        lane: "market_signal_premium",
+        watchedPerson: player,
+        itemType: "market_signal_premium_card",
+        query: `${player} card parallel refractor prizm optic young guns autograph numbered`,
+        required: true,
+      },
+    ];
+  });
+}
+
 function signedBaseballFamilies(players) {
   return players.flatMap((player) => {
     const id = slug(player);
@@ -552,6 +587,9 @@ export function buildDealHunterEbayQueryFamilies({
   }
   if (normalizedScope === "signed_baseballs") {
     return signedBaseballFamilies(prospectPlayers);
+  }
+  if (normalizedScope === "market_targets") {
+    return marketTargetFamilies(prospectPlayers);
   }
   if (normalizedScope === "music_comedy_autographs") {
     return musicComedyAutographFamilies();
@@ -676,6 +714,17 @@ export function screenDealHunterEbayTitle({
     }
     if (!UPPER_DECK_SIGNAL.test(value)) {
       reviewReasons.push("upper_deck_not_explicit_verify_product");
+    }
+  }
+
+  if (family?.scope === "market_targets") {
+    if (!analysis.targetMatch.matched) {
+      rejectionReasons.push("watched_player_not_matched");
+    } else if (!analysis.targetMatchedInTitle) {
+      reviewReasons.push("watched_player_supported_by_metadata_not_title_verify_image");
+    }
+    if (!analysis.categoryLooksLikeCard) {
+      reviewReasons.push("possible_wrong_category_listing_verify_item");
     }
   }
 

@@ -20,6 +20,7 @@ const SCOPES = new Set([
   "baseball_prospects",
   "signed_baseballs",
   "music_comedy_autographs",
+  "market_targets",
   "all",
 ]);
 

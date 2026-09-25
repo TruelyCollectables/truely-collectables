@@ -328,6 +328,7 @@ console.log(
         "fernando_mendoza_nfl",
         "baseball_prospects",
         "signed_baseballs",
+        "market_targets",
         "all",
       ],
       arbitraryQueryAccepted: false,
