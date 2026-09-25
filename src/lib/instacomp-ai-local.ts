@@ -1,4 +1,4 @@
-import type { InstaCompAiResult } from "./instacomp";
+import type { InstaCompAiResult, InstaCompSpecimenAttributes } from "./instacomp";
 import { getConfiguredInstaCompMacKey, getConfiguredInstaCompMacUrl } from "./instacomp-mac-credentials";
 
 export type InstaCompAiLocalVisualEvidence = {
@@ -73,6 +73,7 @@ export type InstaCompAiLocalScan = {
     back_centering?: InstaCompAiLocalCentering | null;
     [key: string]: unknown;
   } | null;
+  specimen_attributes?: Record<string, unknown> | null;
   pricing_allowed: boolean;
   learning_allowed: boolean;
   trusted_identity?: Record<string, unknown> | null;
@@ -368,6 +369,45 @@ function confidence(value: unknown) {
   return Math.max(0, Math.min(numeric > 1 ? numeric / 100 : numeric, 1));
 }
 
+function nullableBoolean(value: unknown): boolean | null {
+  return value === true ? true : value === false ? false : null;
+}
+
+function localSpecimenAttributes(
+  scan: InstaCompAiLocalScan,
+): InstaCompSpecimenAttributes | null {
+  const specimen = record(scan.specimen_attributes);
+  const status = text(specimen.status);
+  const allowed = new Set(["disabled", "not_applicable", "observed", "uncertain", "unavailable"]);
+  if (!status || !allowed.has(status)) return null;
+  const count = Number(specimen.patch_color_count);
+  const patchColorCount =
+    Number.isInteger(count) && count >= 1 && count <= 12 ? count : null;
+  return {
+    status: status as InstaCompSpecimenAttributes["status"],
+    patchColorCount,
+    patchColors: textList(specimen.patch_colors),
+    patchType: text(specimen.patch_type),
+    patchLocation: text(specimen.patch_location),
+    logoPatch: nullableBoolean(specimen.logo_patch),
+    laundryTag: nullableBoolean(specimen.laundry_tag),
+    shield: nullableBoolean(specimen.shield),
+    button: nullableBoolean(specimen.button),
+    seam: nullableBoolean(specimen.seam),
+    lettering: nullableBoolean(specimen.lettering),
+    primePatch: nullableBoolean(specimen.prime_patch),
+    autographInkColor: text(specimen.autograph_ink_color),
+    teamColorMatch: nullableBoolean(specimen.team_color_match),
+    teamColorMatchColors: textList(specimen.team_color_match_colors),
+    teamColorMatchConfidence: confidence(specimen.team_color_match_confidence),
+    observationConfidence: confidence(specimen.observation_confidence),
+    titleSuffix: text(specimen.title_suffix),
+    descriptionNote: text(specimen.description_note),
+    uncertainty: textList(specimen.uncertainty),
+    identityFieldsMutated: false,
+  };
+}
+
 export function instaCompAiLocalScanToAi(
   scan: InstaCompAiLocalScan,
 ): InstaCompAiResultWithInternalReceipt | null {
@@ -449,6 +489,7 @@ export function instaCompAiLocalScanToAi(
     conditionGuess: null,
     confidence: identityConfidence,
     notes: notes || null,
+    specimenAttributes: localSpecimenAttributes(scan),
     internalScanId: safeScanId(scan.scan_id),
     internalCardUuid: safeCardUuid(scan.card_uuid),
     internalStatus: scan.status,

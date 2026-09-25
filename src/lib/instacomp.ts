@@ -8,6 +8,30 @@ import {
   normalizeGradingCompany,
 } from "./grading-cert";
 
+export type InstaCompSpecimenAttributes = {
+  status: "disabled" | "not_applicable" | "observed" | "uncertain" | "unavailable";
+  patchColorCount: number | null;
+  patchColors: string[];
+  patchType: string | null;
+  patchLocation: string | null;
+  logoPatch: boolean | null;
+  laundryTag: boolean | null;
+  shield: boolean | null;
+  button: boolean | null;
+  seam: boolean | null;
+  lettering: boolean | null;
+  primePatch: boolean | null;
+  autographInkColor: string | null;
+  teamColorMatch: boolean | null;
+  teamColorMatchColors: string[];
+  teamColorMatchConfidence: number;
+  observationConfidence: number;
+  titleSuffix: string | null;
+  descriptionNote: string | null;
+  uncertainty: string[];
+  identityFieldsMutated: false;
+};
+
 export type InstaCompAiResult = {
   player: string | null;
   year: string | null;
@@ -32,6 +56,7 @@ export type InstaCompAiResult = {
   conditionGuess: string | null;
   confidence: number;
   notes: string | null;
+  specimenAttributes?: InstaCompSpecimenAttributes | null;
 };
 
 export type InstaCompProviderSource = string;

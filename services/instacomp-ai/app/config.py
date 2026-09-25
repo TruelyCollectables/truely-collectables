@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5vl:7b"
     ollama_timeout_seconds: float = 120.0
 
+    # Patch Color Intelligence is a post-identity specimen-enrichment pass.
+    # It may observe the exact physical card, but it can never create or modify
+    # canonical Checklist Registry identity.
+    patch_color_intelligence_enabled: bool = True
+    patch_color_vision_model: str = ""
+    patch_color_vision_timeout_seconds: float = 60.0
+
     # Legacy live Ollama reader is OFF by default. Local large models are tutors
     # for supervised training, not scan-time identity fallbacks. This can only be
     # re-enabled deliberately for an engineering comparison run.

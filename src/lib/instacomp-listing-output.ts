@@ -45,13 +45,21 @@ export function buildInstaCompListingOutput(params: {
     manualInscriptionText: params.manualInscriptionText,
   });
 
+  const specimen = params.ai.specimenAttributes;
+  const specimenPublishable =
+    specimen?.status === "observed" &&
+    specimen.identityFieldsMutated === false &&
+    specimen.observationConfidence >= 0.85;
+
   const titleTokens = unique([
     base.titleSuffix || null,
     inscriptionTitleToken(universalInscription),
+    specimenPublishable ? specimen?.titleSuffix : null,
   ]);
   const sellerDescriptionFacts = unique([
     ...base.descriptionFacts,
     inscriptionDescriptionFact(universalInscription),
+    specimenPublishable ? specimen?.descriptionNote : null,
   ]);
   const publicationReviewReasons = unique([
     ...base.inscription.reviewReasons,

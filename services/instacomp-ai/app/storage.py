@@ -158,6 +158,7 @@ class MemoryStore:
                     back_perceptual_hash TEXT,
                     local_suggestion_json TEXT,
                     local_vision_json TEXT,
+                    specimen_attributes_json TEXT,
                     checklist_json TEXT NOT NULL,
                     status TEXT NOT NULL
                 );
@@ -202,6 +203,7 @@ class MemoryStore:
                 "front_perceptual_hash",
                 "back_perceptual_hash",
                 "local_vision_json",
+                "specimen_attributes_json",
             ]:
                 if column not in existing:
                     db.execute(f"ALTER TABLE scans ADD COLUMN {column} TEXT")
@@ -241,6 +243,7 @@ class MemoryStore:
         back_perceptual_hash: str | None = None,
         local_suggestion: dict | None,
         local_vision: dict | None = None,
+        specimen_attributes: dict | None = None,
         checklist: dict,
         status: str,
     ) -> None:
@@ -266,8 +269,8 @@ class MemoryStore:
                     image_pair_sha256, front_reference_sha256,
                     back_reference_sha256, front_perceptual_hash,
                     back_perceptual_hash, local_suggestion_json,
-                    local_vision_json, checklist_json, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    local_vision_json, specimen_attributes_json, checklist_json, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_id,
@@ -282,6 +285,7 @@ class MemoryStore:
                     back_perceptual_hash,
                     json.dumps(local_suggestion) if local_suggestion else None,
                     json.dumps(local_vision) if local_vision else None,
+                    json.dumps(specimen_attributes) if specimen_attributes else None,
                     json.dumps(checklist),
                     status,
                 ),
@@ -338,6 +342,11 @@ class MemoryStore:
             "local_vision": (
                 json.loads(row["local_vision_json"])
                 if row["local_vision_json"]
+                else None
+            ),
+            "specimen_attributes": (
+                json.loads(row["specimen_attributes_json"])
+                if row["specimen_attributes_json"]
                 else None
             ),
             "checklist": json.loads(row["checklist_json"]),

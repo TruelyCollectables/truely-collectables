@@ -34,8 +34,10 @@ from .models import (
     LessonCreate,
     LessonRecord,
     MemoryMatch,
+    SpecimenAttributes,
 )
 from .ollama import OllamaReader
+from .specimen_attributes import analyze_specimen_attributes
 from .registry_routes import build_registry_router
 from .printed_evidence import (
     identity_from_printed_evidence,
@@ -228,6 +230,28 @@ def _safe_ollama_error_detail(value: object, limit: int = 240) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
     text = re.sub(r"[^A-Za-z0-9 .,:;_\-/()\[\]{}'\"=]+", "?", text)
     return text[:limit]
+
+
+async def _specimen_after_identity(
+    *,
+    front: bytes,
+    back: bytes | None,
+    trusted_identity: CardIdentity,
+) -> SpecimenAttributes:
+    """Run specimen enrichment after Registry identity without affecting identity."""
+    try:
+        return await analyze_specimen_attributes(
+            front,
+            back,
+            trusted_identity,
+            settings,
+        )
+    except Exception as exc:
+        return SpecimenAttributes(
+            status="unavailable",
+            uncertainty=[f"specimen_enrichment_failed:{type(exc).__name__.lower()}"],
+            identity_fields_mutated=False,
+        )
 
 
 def _merge_identity(primary: CardIdentity, fallback: CardIdentity) -> CardIdentity:
@@ -461,6 +485,7 @@ def _save_scan(
     local_vision,
     checklist_result: ChecklistResult,
     status: str,
+    specimen_attributes: SpecimenAttributes | None = None,
 ) -> None:
     store.save_scan(
         scan_id=scan_id,
@@ -480,6 +505,9 @@ def _save_scan(
         ),
         local_vision=(
             local_vision.model_dump(mode="json") if local_vision else None
+        ),
+        specimen_attributes=(
+            specimen_attributes.model_dump(mode="json") if specimen_attributes else None
         ),
         checklist=checklist_result.model_dump(mode="json"),
         status=status,
@@ -814,6 +842,11 @@ async def analyze_scan(
         checklist_result = memory_registry_result
         pricing_allowed = True
         status = "trusted_memory_match"
+        specimen_attributes = await _specimen_after_identity(
+            front=front_image.content,
+            back=back_image.content if back_image else None,
+            trusted_identity=trusted_identity,
+        )
         _save_scan(
             scan_id=scan_id,
             card_uuid=physical_card_uuid,
@@ -825,6 +858,7 @@ async def analyze_scan(
             local_vision=local_vision,
             checklist_result=checklist_result,
             status=status,
+            specimen_attributes=specimen_attributes,
         )
         return AnalyzeResponse(
             scan_id=scan_id,
@@ -850,6 +884,7 @@ async def analyze_scan(
             memory_matches=[image_memory],
             local_suggestion=None,
             local_vision=local_vision,
+            specimen_attributes=specimen_attributes,
             checklist=checklist_result,
             trusted_identity=trusted_identity,
             match_source=_memory_source(image_memory),
@@ -893,6 +928,11 @@ async def analyze_scan(
     ):
         trusted_identity = printed_registry.identity
         status = "trusted_memory_match"
+        specimen_attributes = await _specimen_after_identity(
+            front=front_image.content,
+            back=back_image.content if back_image else None,
+            trusted_identity=trusted_identity,
+        )
         _save_scan(
             scan_id=scan_id,
             card_uuid=physical_card_uuid,
@@ -904,6 +944,7 @@ async def analyze_scan(
             local_vision=local_vision,
             checklist_result=printed_registry,
             status=status,
+            specimen_attributes=specimen_attributes,
         )
         store.create_lesson(
             LessonCreate(
@@ -938,6 +979,7 @@ async def analyze_scan(
             memory_matches=[],
             local_suggestion=None,
             local_vision=local_vision,
+            specimen_attributes=specimen_attributes,
             checklist=printed_registry,
             trusted_identity=trusted_identity,
             match_source="checklist_registry",
@@ -1096,6 +1138,16 @@ async def analyze_scan(
                 "do not hand the live identity decision to a teacher model."
             )
 
+    specimen_attributes = (
+        await _specimen_after_identity(
+            front=front_image.content,
+            back=back_image.content if back_image else None,
+            trusted_identity=trusted_identity,
+        )
+        if trusted_identity
+        else None
+    )
+
     suggestion_back_evidence = (
         list(
             dict.fromkeys(
@@ -1128,6 +1180,7 @@ async def analyze_scan(
         memory_matches=memory_matches,
         local_suggestion=suggestion,
         local_vision=local_vision,
+        specimen_attributes=specimen_attributes,
         checklist=checklist_result,
         trusted_identity=trusted_identity,
         match_source=match_source,
@@ -1148,6 +1201,7 @@ async def analyze_scan(
         local_vision=local_vision,
         checklist_result=checklist_result,
         status=status,
+        specimen_attributes=specimen_attributes,
     )
     if pricing_allowed and trusted_identity:
         store.create_lesson(

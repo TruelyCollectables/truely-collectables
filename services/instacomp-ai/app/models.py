@@ -161,6 +161,34 @@ class ModelSuggestion(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class SpecimenAttributes(BaseModel):
+    schema_version: Literal["tcos.instacomp-ai.specimen-attributes.v1"] = (
+        "tcos.instacomp-ai.specimen-attributes.v1"
+    )
+    status: Literal["disabled", "not_applicable", "observed", "uncertain", "unavailable"]
+    source: str = "post_identity_local_vision"
+    patch_color_count: int | None = Field(default=None, ge=1, le=12)
+    patch_colors: list[str] = Field(default_factory=list)
+    patch_type: str | None = None
+    patch_location: str | None = None
+    logo_patch: bool | None = None
+    laundry_tag: bool | None = None
+    shield: bool | None = None
+    button: bool | None = None
+    seam: bool | None = None
+    lettering: bool | None = None
+    prime_patch: bool | None = None
+    autograph_ink_color: str | None = None
+    team_color_match: bool | None = None
+    team_color_match_colors: list[str] = Field(default_factory=list)
+    team_color_match_confidence: float = Field(default=0, ge=0, le=1)
+    observation_confidence: float = Field(default=0, ge=0, le=1)
+    title_suffix: str | None = None
+    description_note: str | None = None
+    uncertainty: list[str] = Field(default_factory=list)
+    identity_fields_mutated: Literal[False] = False
+
+
 class ChecklistOutcome(str, Enum):
     NOT_CONFIGURED = "not_configured"
     INPUT_INCOMPLETE = "input_incomplete"
@@ -212,6 +240,7 @@ class AnalyzeResponse(BaseModel):
     memory_matches: list[MemoryMatch] = Field(default_factory=list)
     local_suggestion: ModelSuggestion | None = None
     local_vision: LocalVisionEvidence | None = None
+    specimen_attributes: SpecimenAttributes | None = None
     checklist: ChecklistResult
     trusted_identity: CardIdentity | None = None
     match_source: Literal[
