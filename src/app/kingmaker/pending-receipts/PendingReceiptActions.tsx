@@ -9,10 +9,12 @@ export default function PendingReceiptActions({
   acquisitionItemId,
   status,
   hasScan,
+  onChanged,
 }: {
   acquisitionItemId: number;
   status: string;
   hasScan: boolean;
+  onChanged?: () => void | Promise<void>;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -49,6 +51,7 @@ export default function PendingReceiptActions({
       if (!response.ok || data.ok !== true || data.status !== "received_unscanned") {
         throw new Error(data.error || data.detail || "Could not receive this purchase.");
       }
+      if (onChanged) await onChanged();
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
