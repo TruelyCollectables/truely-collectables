@@ -137,8 +137,8 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class CommercialInventoryRequest(BaseModel):
-    action: str = Field(default="list", pattern="^(list|refresh|create|update)$")
-    items: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    action: str = Field(default="list", pattern="^(list|get|find_image_pair|refresh|create|update|project_master|project_master_reset|master_list)$")
+    items: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
 
 
 class InventoryDispositionRequest(BaseModel):
@@ -428,6 +428,28 @@ def build_kingmaker_accounting_router(
     @router.post("/commercial-inventory")
     def commercial_inventory_route(request: CommercialInventoryRequest):
         try:
+            if request.action in {"project_master", "project_master_reset"}:
+                result = commercial_inventory.project_master_listings(
+                    request.items,
+                    replace=request.action == "project_master_reset",
+                )
+                return {"ok": True, **result}
+
+            if request.action == "master_list":
+                options = request.items[0] if request.items else {}
+                folder = str(options.get("folder") or "").strip() or None
+                pending_queue = str(options.get("pendingQueue") or "").strip() or None
+                compact = str(options.get("compact") or "").strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                }
+                result = commercial_inventory.list_master_listing_projection(
+                    folder=folder,
+                    pending_queue=pending_queue,
+                    compact=compact,
+                )
+                return {"ok": True, **result}
             if request.action in {"list", "refresh"}:
                 items = commercial_inventory.list_items()
                 snapshot: dict[str, Any] | None = None

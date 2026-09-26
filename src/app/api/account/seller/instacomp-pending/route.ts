@@ -226,7 +226,7 @@ async function loadMacMasterListingProjection(params: {
   const key = getConfiguredInstaCompMacKey();
   const headers = new Headers({ "Content-Type": "application/json" });
   if (key) headers.set("X-InstaComp-AI-Key", key);
-  const options: Record<string, string> = {};
+  const options: Record<string, string> = { compact: "1" };
   if (params.folder) options.folder = params.folder;
   if (params.pendingQueue) options.pendingQueue = params.pendingQueue;
   try {
@@ -781,14 +781,17 @@ export async function GET(request: Request) {
         : "pending";
     const macProjection = compactKingmaker
       ? await loadMacMasterListingProjection({
-          folder: queue === "listings" ? folder : undefined,
-          pendingQueue: queue === "verification" ? "verification" : undefined,
+          folder: queue === "verification" ? "pending" : folder,
+          pendingQueue:
+            queue === "verification"
+              ? "verification"
+              : folder === "pending"
+                ? "listings"
+                : undefined,
         })
       : null;
     const useMacListingProjection =
       compactKingmaker &&
-      queue === "listings" &&
-      folder !== "pending" &&
       macProjection?.sourceAuthority === "mac_local_sqlite" &&
       Array.isArray(macProjection.items);
     const inventoryRows = useMacListingProjection

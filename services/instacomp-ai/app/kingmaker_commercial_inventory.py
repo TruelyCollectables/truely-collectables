@@ -16,6 +16,431 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _record(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _text(value: Any) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _identity_value(value: Any) -> str | None:
+    candidate = _text(value)
+    if not candidate:
+        return None
+    normalized = candidate.lower()
+    if normalized in {
+        "identity review required",
+        "review required",
+        "untitled item",
+        "permanent uuid missing",
+    }:
+        return None
+    if __import__("re").match(r"^no\.?\s*", candidate, __import__("re").I) and len(candidate.split()) <= 3:
+        return None
+    return candidate
+
+
+def _slug(value: Any) -> str:
+    import re
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    normalized = "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    )
+    normalized = normalized.strip().lower().replace("'", "").replace("’", "")
+    normalized = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    return normalized or "none"
+
+
+def _normalize_subset_label(value: str) -> str:
+    import re
+
+    normalized = re.sub(r"\s+", " ", value.lower()).strip()
+    aliases = {
+        "all american": "All American",
+        "all-american": "All American",
+        "crunch time": "Crunch Time",
+        "crunch-time": "Crunch Time",
+        "future watch": "Future Watch",
+        "young guns": "Young Guns",
+        "spectrum fx": "Spectrum FX",
+    }
+    return aliases.get(normalized, value)
+
+
+def _identity_pricing_group_key(identity_value: Any) -> str | None:
+    identity = _record(identity_value)
+    year = _identity_value(identity.get("year"))
+    manufacturer = _identity_value(identity.get("manufacturer")) or _identity_value(identity.get("brand"))
+    product = (
+        _identity_value(identity.get("setName"))
+        or _identity_value(identity.get("set_name"))
+        or _identity_value(identity.get("product"))
+    )
+    subset = (
+        _identity_value(identity.get("subset"))
+        or _identity_value(identity.get("insertName"))
+        or _identity_value(identity.get("insert"))
+        or _identity_value(identity.get("seriesName"))
+        or _identity_value(identity.get("series"))
+        or _identity_value(identity.get("parallelName"))
+        or _identity_value(identity.get("parallel"))
+        or _identity_value(identity.get("player"))
+        or _identity_value(identity.get("playerName"))
+        or _identity_value(identity.get("subject"))
+    )
+    card_number = _identity_value(identity.get("cardNumber")) or _identity_value(identity.get("card_number"))
+    player = _identity_value(identity.get("player")) or _identity_value(identity.get("playerName"))
+    team = _identity_value(identity.get("team"))
+    parallel = (
+        _identity_value(identity.get("parallel"))
+        or _identity_value(identity.get("checklistParallel"))
+        or _identity_value(identity.get("parallelName"))
+        or _identity_value(identity.get("variation"))
+    )
+    serial = (
+        _identity_value(identity.get("serialNumber"))
+        or _identity_value(identity.get("serial_number"))
+        or _identity_value(identity.get("printRun"))
+        or _identity_value(identity.get("serialRun"))
+    )
+    pieces = [
+        "identity",
+        year,
+        manufacturer,
+        product,
+        _normalize_subset_label(subset) if subset else None,
+        card_number,
+        player,
+        team,
+        parallel,
+        serial,
+    ]
+    pieces = [piece for piece in pieces if piece]
+    return "|".join(_slug(piece) for piece in pieces) if len(pieces) > 1 else None
+
+
+def _effective_pricing_group_key(metadata_value: Any) -> str | None:
+    metadata = _record(metadata_value)
+    instacomp = _record(metadata.get("instacomp"))
+    manual_identity = _record(instacomp.get("manualIdentity"))
+    if instacomp.get("manualIdentityLocked") is True and manual_identity:
+        manual_key = _identity_pricing_group_key(manual_identity)
+        if manual_key:
+            return manual_key
+    checklist_identity = _record(instacomp.get("checklistIdentity"))
+    channel_draft = _record(instacomp.get("channelDraft"))
+    ai_identity = _record(instacomp.get("ai"))
+    locked_fields = _record(checklist_identity.get("lockedFields"))
+    return (
+        _text(checklist_identity.get("registryFingerprintSha256"))
+        or _text(channel_draft.get("registryFingerprintSha256"))
+        or _text(instacomp.get("registryFingerprintSha256"))
+        or _identity_pricing_group_key(locked_fields)
+        or _identity_pricing_group_key(ai_identity)
+        or _identity_pricing_group_key(instacomp.get("identity"))
+        or _identity_pricing_group_key(metadata.get("card_identity"))
+        or _identity_pricing_group_key(metadata.get("sale_identity"))
+        or _text(instacomp.get("pricingGroupKey"))
+    )
+
+
+def _master_listing_group_key(row: dict[str, Any]) -> str:
+    metadata = _record(row.get("metadata"))
+    instacomp = _record(metadata.get("instacomp"))
+    asset = _record(metadata.get("collectible_asset"))
+    ai = _record(instacomp.get("ai"))
+    unique_physical = bool(
+        _text(asset.get("exact_serial_number"))
+        or _text(asset.get("grading_cert_number"))
+        or _text(ai.get("gradingCertNumber"))
+        or _text(ai.get("certificationNumber"))
+    )
+    group_key = None if unique_physical else _effective_pricing_group_key(metadata)
+    inventory_item_id = _text(row.get("id")) or _text(row.get("inventory_item_id")) or "unknown"
+    return f"group:{group_key}" if group_key else f"physical:{inventory_item_id}"
+
+
+def _master_listing_queue(metadata_value: Any) -> str:
+    metadata = _record(metadata_value)
+    instacomp = _record(metadata.get("instacomp"))
+    image_orientation = _record(instacomp.get("imageOrientation"))
+    checklist_decision = _record(instacomp.get("checklistDecision"))
+    checklist_identity = _record(instacomp.get("checklistIdentity"))
+    mac_receipt = _record(instacomp.get("macReceipt"))
+
+    front = _text(instacomp.get("frontImageUrl"))
+    back = _text(instacomp.get("backImageUrl"))
+    distinct_pair = bool(front and back and front != back)
+    orientation_verified = (
+        _text(image_orientation.get("status")) == "completed"
+        and instacomp.get("imageOrientationPersisted") is True
+        and (instacomp.get("imagePersistenceVerified") is True or distinct_pair)
+    )
+    manual_locked = (
+        instacomp.get("manualIdentityLocked") is True
+        and instacomp.get("identityComplete") is True
+    )
+    identity_id = (
+        _text(instacomp.get("registryIdentityId"))
+        or _text(checklist_identity.get("registryIdentityId"))
+        or _text(checklist_identity.get("identityId"))
+    )
+    fingerprint = (
+        _text(instacomp.get("registryFingerprintSha256"))
+        or _text(checklist_identity.get("registryFingerprintSha256"))
+        or _text(checklist_identity.get("fingerprintSha256"))
+    )
+    legacy_receipt = (
+        checklist_identity.get("source") == "checklist_registry"
+        and checklist_identity.get("status") == "identified"
+        and mac_receipt.get("checklistOutcome") == "exact_match"
+    )
+    local_receipt = (
+        _text(instacomp.get("identitySource")) == "mac_checklist_registry_exact"
+        and checklist_identity.get("status") == "exact_match"
+    )
+    exact_registry = (
+        instacomp.get("identityComplete") is True
+        and instacomp.get("trustedForIdentity") is True
+        and checklist_decision.get("status") == "exact_match"
+        and (legacy_receipt or local_receipt)
+        and bool(identity_id)
+        and bool(fingerprint)
+    )
+    if not orientation_verified:
+        return "verification"
+    if manual_locked:
+        return "listings"
+    return "listings" if exact_registry else "verification"
+
+
+def _master_listing_relevant(row: dict[str, Any]) -> bool:
+    metadata = _record(row.get("metadata"))
+    instacomp = _record(metadata.get("instacomp"))
+    card_identity = _record(metadata.get("card_identity"))
+    legacy_identity = _record(metadata.get("cardIdentity"))
+    sale_identity = _record(metadata.get("sale_identity"))
+    workflow = _record(metadata.get("listingWorkflow"))
+    legacy_workflow = _record(metadata.get("listing_workflow"))
+    pending_verification = _record(metadata.get("pending_verification"))
+    recovered = _record(instacomp.get("recoveredImageUrls"))
+
+    has_source = bool(_text(instacomp.get("source")) or _text(instacomp.get("scanId")))
+    has_identity = any(
+        _text(identity.get(key))
+        for identity in (card_identity, legacy_identity, sale_identity)
+        for key in ("year", "player", "cardNumber", "card_number")
+    )
+    queue_hint = (
+        _text(workflow.get("queue"))
+        or _text(legacy_workflow.get("queue"))
+        or _text(pending_verification.get("status"))
+    )
+    has_scan_pair = bool(_text(instacomp.get("imagePairSha256")))
+    source_images = instacomp.get("sourceImageUrls")
+    has_images = bool(
+        _text(recovered.get("front"))
+        or _text(recovered.get("back"))
+        or (
+            isinstance(source_images, list)
+            and any(_text(value) for value in source_images)
+        )
+    )
+    if (
+        not has_source
+        and not has_identity
+        and not has_images
+        and not has_scan_pair
+        and queue_hint not in {"pending_verification", "pending"}
+    ):
+        return False
+    if (
+        queue_hint in {"pending_verification", "pending"}
+        or has_images
+        or has_identity
+        or has_scan_pair
+    ):
+        return True
+    return bool(
+        instacomp.get("identityComplete") is True
+        or _text(instacomp.get("lastStatus")) in {"identity_complete", "review_required"}
+        or _text(instacomp.get("pricingStatus"))
+        == "identity_complete_pricing_pending"
+    )
+
+
+def _master_listing_folder(row: dict[str, Any]) -> str:
+    metadata = _record(row.get("metadata"))
+    lifecycle = _record(metadata.get("inventory_lifecycle"))
+    if _text(lifecycle.get("disposition")) == "investment_stash" or _text(
+        lifecycle.get("state")
+    ) == "investment_stash":
+        return "investment"
+    dual = _record(metadata.get("dual_marketplace"))
+    projection = _record(metadata.get("master_listing_projection"))
+    website = _record(dual.get("website"))
+    ebay = _record(dual.get("ebay"))
+    mercari = _record(dual.get("mercari"))
+    website_active = (
+        projection.get("websiteActive") is True
+        or _text(website.get("status")) == "active"
+    )
+    ebay_active = (
+        projection.get("ebayActive") is True
+        or _text(ebay.get("status")) in {"active", "linked"}
+    )
+    mercari_active = (
+        projection.get("mercariActive") is True
+        or _text(mercari.get("status")) in {"active", "linked", "live"}
+    )
+    if website_active and ebay_active and mercari_active:
+        return "all3"
+    if website_active and ebay_active:
+        return "both"
+    if website_active and mercari_active:
+        return "website_mercari"
+    if ebay_active and mercari_active:
+        return "ebay_mercari"
+    if website_active:
+        return "website"
+    if ebay_active:
+        return "ebay"
+    if mercari_active:
+        return "mercari"
+    return "pending"
+
+
+_MASTER_LISTING_COMPACT_METADATA_KEYS = {
+    "collectible_asset",
+    "inventory_lifecycle",
+    "listingWorkflow",
+    "listing_workflow",
+    "pending_verification",
+    "card_identity",
+    "cardIdentity",
+    "sale_identity",
+    "seller_review",
+    "titleNormalization",
+    "verified_reference",
+    "card",
+    "grader_verification",
+    "ebay_image_urls",
+    "master_listing_projection",
+    "acquisition",
+}
+
+_MASTER_LISTING_COMPACT_INSTACOMP_KEYS = {
+    "acquisition",
+    "ai",
+    "backImageSource",
+    "backImageUrl",
+    "backSha256",
+    "cardUuid",
+    "centering",
+    "checklistDecision",
+    "checklistIdentity",
+    "duplicateGroup",
+    "duplicateInventoryDecision",
+    "frontImageUrl",
+    "frontSha256",
+    "hasBackImage",
+    "humanVerified",
+    "identity",
+    "identityComplete",
+    "identitySource",
+    "identityTrace",
+    "imageOrientation",
+    "imageOrientationPersisted",
+    "imagePairSha256",
+    "imagePersistenceVerified",
+    "kingmakerReviewBatchId",
+    "lastStatus",
+    "listingPrice",
+    "listingPriceSource",
+    "macReceipt",
+    "manualIdentity",
+    "manualIdentityLocked",
+    "manualListingTitle",
+    "manualListingTitleLocked",
+    "marketPrice",
+    "priceGuideCheckedAt",
+    "priceGuideMessage",
+    "priceGuideStatus",
+    "pricingCheckedAt",
+    "pricingGroupKey",
+    "pricingReason",
+    "pricingStatus",
+    "recoveredImageUrls",
+    "registryFingerprintSha256",
+    "registryIdentityId",
+    "reliableSoldCompCount",
+    "scanId",
+    "source",
+    "sourceImageUrls",
+    "suggestedPrice",
+    "trustedForIdentity",
+}
+
+
+def _compact_master_listing_row(row: dict[str, Any]) -> dict[str, Any]:
+    compact = dict(row or {})
+    metadata = _record(compact.get("metadata"))
+    instacomp = _record(metadata.get("instacomp"))
+    compact_metadata = {
+        key: metadata[key]
+        for key in _MASTER_LISTING_COMPACT_METADATA_KEYS
+        if key in metadata
+    }
+    compact_metadata["instacomp"] = {
+        key: instacomp[key]
+        for key in _MASTER_LISTING_COMPACT_INSTACOMP_KEYS
+        if key in instacomp
+    }
+
+    dual = _record(metadata.get("dual_marketplace"))
+    website = _record(dual.get("website"))
+    ebay = _record(dual.get("ebay"))
+    mercari = _record(dual.get("mercari"))
+    compact_metadata["dual_marketplace"] = {
+        "website": {
+            key: website[key]
+            for key in ("status", "price")
+            if key in website
+        },
+        "ebay": {
+            key: ebay[key]
+            for key in (
+                "status",
+                "price",
+                "cardCondition",
+                "categoryId",
+                "lastError",
+                "lastAttemptAt",
+                "itemId",
+                "itemUrl",
+            )
+            if key in ebay
+        },
+        "mercari": {
+            key: mercari[key]
+            for key in (
+                "status",
+                "price",
+                "itemId",
+                "itemUrl",
+                "sourceListingId",
+                "account",
+            )
+            if key in mercari
+        },
+    }
+    compact["metadata"] = compact_metadata
+    return compact
+
 def _read_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -174,6 +599,21 @@ class KingmakerCommercialInventory:
         db.execute("PRAGMA foreign_keys=ON")
         return db
 
+    def _read_connect(self) -> sqlite3.Connection:
+        """Fast read-only connection for seller-facing inventory projections.
+
+        The database is initialized once when the KINGMAKER router starts. Re-running
+        schema DDL and WAL negotiation for every Pending-page read made a simple
+        inventory list take ~10 seconds on the external authority volume, causing
+        the web bridge's 2-second deadline to silently omit received-review cards.
+        """
+        uri = f"file:{self.path}?mode=ro"
+        db = sqlite3.connect(uri, uri=True, timeout=5)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        db.execute("PRAGMA busy_timeout=5000")
+        return db
+
     def initialize(self) -> None:
         with self._connect() as db:
             db.executescript(
@@ -203,8 +643,166 @@ class KingmakerCommercialInventory:
                   ON commercial_inventory(sku);
                 CREATE INDEX IF NOT EXISTS commercial_inventory_status_idx
                   ON commercial_inventory(status);
+
+                CREATE TABLE IF NOT EXISTS master_listing_projection (
+                    inventory_item_id TEXT PRIMARY KEY,
+                    folder TEXT NOT NULL,
+                    pending_queue TEXT NOT NULL,
+                    source_updated_at TEXT,
+                    projected_at TEXT NOT NULL,
+                    row_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS master_listing_projection_folder_idx
+                  ON master_listing_projection(folder);
+                CREATE INDEX IF NOT EXISTS master_listing_projection_queue_idx
+                  ON master_listing_projection(pending_queue);
                 """
             )
+
+    def project_master_listings(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        replace: bool = False,
+    ) -> dict[str, Any]:
+        self.initialize()
+        stamp = _now()
+        upserted = 0
+        with self._connect() as db:
+            if replace:
+                db.execute("DELETE FROM master_listing_projection")
+            for raw in items:
+                row = dict(raw or {})
+                if not _master_listing_relevant(row):
+                    continue
+                inventory_item_id = str(
+                    row.get("id") or row.get("inventory_item_id") or ""
+                ).strip()
+                if not inventory_item_id:
+                    continue
+                folder = _master_listing_folder(row)
+                pending_queue = _master_listing_queue(row.get("metadata"))
+                db.execute(
+                    """
+                    INSERT INTO master_listing_projection(
+                      inventory_item_id,folder,pending_queue,source_updated_at,projected_at,row_json
+                    ) VALUES(?,?,?,?,?,?)
+                    ON CONFLICT(inventory_item_id) DO UPDATE SET
+                      folder=excluded.folder,
+                      pending_queue=excluded.pending_queue,
+                      source_updated_at=excluded.source_updated_at,
+                      projected_at=excluded.projected_at,
+                      row_json=excluded.row_json
+                    """,
+                    (
+                        inventory_item_id,
+                        folder,
+                        pending_queue,
+                        str(row.get("updated_at") or ""),
+                        stamp,
+                        json.dumps(
+                            _compact_master_listing_row(row),
+                            separators=(",", ":"),
+                            ensure_ascii=False,
+                        ),
+                    ),
+                )
+                upserted += 1
+        return {"upserted": upserted, **self.master_listing_projection_summary()}
+
+    def master_listing_projection_summary(self) -> dict[str, Any]:
+        self.initialize()
+        folder_names = (
+            "pending",
+            "website",
+            "ebay",
+            "mercari",
+            "both",
+            "website_mercari",
+            "ebay_mercari",
+            "all3",
+            "investment",
+        )
+        folder_groups: dict[str, set[str]] = {
+            folder: set() for folder in folder_names
+        }
+        queue_counts = {"listings": 0, "verification": 0}
+        total = 0
+        with self._read_connect() as db:
+            rows = db.execute(
+                "SELECT inventory_item_id,folder,pending_queue,row_json "
+                "FROM master_listing_projection"
+            ).fetchall()
+        for row in rows:
+            total += 1
+            folder = str(row["folder"] or "")
+            pending_queue = str(row["pending_queue"] or "")
+            if folder == "pending" and pending_queue in queue_counts:
+                queue_counts[pending_queue] += 1
+            if folder not in folder_groups:
+                continue
+            if folder == "pending" and pending_queue != "listings":
+                continue
+            try:
+                payload = json.loads(str(row["row_json"] or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            if "id" not in payload:
+                payload["id"] = str(row["inventory_item_id"] or "")
+            folder_groups[folder].add(_master_listing_group_key(payload))
+        folder_counts = {
+            folder: len(groups) for folder, groups in folder_groups.items()
+        }
+        return {
+            "sourceAuthority": "mac_local_sqlite",
+            "total": total,
+            "folderCounts": folder_counts,
+            "queueCounts": queue_counts,
+        }
+
+    def list_master_listing_projection(
+        self,
+        *,
+        folder: str | None = None,
+        pending_queue: str | None = None,
+        compact: bool = False,
+    ) -> dict[str, Any]:
+        self.initialize()
+        clauses: list[str] = []
+        params: list[Any] = []
+        if folder:
+            clauses.append("folder=?")
+            params.append(str(folder))
+        if pending_queue:
+            clauses.append("pending_queue=?")
+            params.append(str(pending_queue))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._read_connect() as db:
+            rows = db.execute(
+                "SELECT row_json FROM master_listing_projection"
+                + where
+                + " ORDER BY source_updated_at DESC, inventory_item_id",
+                params,
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(str(row["row_json"] or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            if isinstance(payload, dict) and payload:
+                items.append(
+                    _compact_master_listing_row(payload)
+                    if compact
+                    else payload
+                )
+        return {
+            **self.master_listing_projection_summary(),
+            "items": items,
+            "count": len(items),
+        }
 
     def absorb_ebay_snapshot(self, listings: list[dict[str, Any]], synced_at: str | None = None) -> dict[str, int]:
         self.initialize()
