@@ -89,9 +89,18 @@ export function buildKingmakerListingReadiness(params: {
   graded?: boolean;
 }): KingmakerListingReadiness {
   const receipt = readChecklistRegistryReceipt(params.metadata);
+  const metadata = record(params.metadata);
+  const instaComp = record(metadata.instacomp);
+  const registryBlockers = checklistRegistryReceiptBlockers(params.metadata);
+  const staleReviewStatusOnly =
+    registryBlockers.length === 1 &&
+    registryBlockers[0] === "checklist_identity_review_required";
   const exactIdentity =
-    checklistRegistryReceiptBlockers(params.metadata).length === 0 &&
-    ["identified", "exact_match"].includes(receipt.status);
+    (registryBlockers.length === 0 &&
+      ["identified", "exact_match"].includes(receipt.status)) ||
+    (staleReviewStatusOnly &&
+      instaComp.identityComplete === true &&
+      instaComp.trustedForIdentity === true);
   const frontImage = text(params.frontImageUrl);
   const backImage = text(params.backImageUrl);
   const acquisitionSource = text(params.acquisitionSource);

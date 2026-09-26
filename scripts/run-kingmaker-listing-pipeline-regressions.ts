@@ -57,6 +57,52 @@ assert.equal(ready.ready, true);
 assert.equal(ready.websiteReady, true);
 assert.equal(ready.ebayReady, true);
 
+const staleReviewOnly = structuredClone(exactMetadata);
+staleReviewOnly.instacomp.checklistIdentity.status = "review_required";
+(staleReviewOnly.instacomp as any).identityComplete = true;
+(staleReviewOnly.instacomp as any).trustedForIdentity = true;
+const staleTrustedReady = buildKingmakerListingReadiness({
+  metadata: staleReviewOnly,
+  frontImageUrl: "https://example.com/front.jpg",
+  backImageUrl: "https://example.com/back.jpg",
+  condition: "Near Mint or Better",
+  quantity: 1,
+  acquisitionSource: "Misc",
+  duplicateDecisionRequired: false,
+  websitePrice: 14.99,
+  ebayPrice: 16.99,
+  mercariPrice: 16.99,
+  ebayCardCondition: "Near Mint or Better",
+  graded: false,
+});
+assert.equal(
+  staleTrustedReady.blockers.includes("identity_not_exact"),
+  false,
+  "A structurally complete Registry receipt may ignore only a stale review status when Mac truth is already identityComplete + trustedForIdentity.",
+);
+
+const staleUntrusted = structuredClone(staleReviewOnly);
+(staleUntrusted.instacomp as any).trustedForIdentity = false;
+const staleUntrustedReadiness = buildKingmakerListingReadiness({
+  metadata: staleUntrusted,
+  frontImageUrl: "https://example.com/front.jpg",
+  backImageUrl: "https://example.com/back.jpg",
+  condition: "Near Mint or Better",
+  quantity: 1,
+  acquisitionSource: "Misc",
+  duplicateDecisionRequired: false,
+  websitePrice: 14.99,
+  ebayPrice: 16.99,
+  mercariPrice: 16.99,
+  ebayCardCondition: "Near Mint or Better",
+  graded: false,
+});
+assert.equal(
+  staleUntrustedReadiness.blockers.includes("identity_not_exact"),
+  true,
+  "A stale review status must still block when Mac truth is not explicitly trusted.",
+);
+
 const noMatch = structuredClone(exactMetadata);
 noMatch.instacomp.priceGuideStatus = "no_matches";
 delete (noMatch.instacomp as any).priceGuide;
