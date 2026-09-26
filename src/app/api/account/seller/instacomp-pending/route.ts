@@ -695,7 +695,14 @@ export async function GET(request: Request) {
       status: "active",
     });
 
-    const supabase = createSupabaseServerClient({ admin: true });
+    const supabase = createSupabaseServerClient({
+      admin: true,
+      // Master Listings is an authenticated seller/admin surface that may read
+      // 1,000+ inventory rows. Keep the storefront's 4s fail-fast guard intact,
+      // but give this heavy operational view enough time to finish a healthy
+      // PostgREST read instead of intermittently surfacing AbortError.
+      readTimeoutMs: 20_000,
+    });
     const storeId = getActiveStoreId();
     const isStoreOwnerAccount =
       account.email === "sales@truelycollectables.com" ||
@@ -871,15 +878,23 @@ export async function GET(request: Request) {
       quantity: number | null;
       archived_at: string | null;
     }> = [];
+    const linkedProductBatches: number[][] = [];
     for (let index = 0; index < scopedProductIds.length; index += 250) {
-      const productIdBatch = scopedProductIds.slice(index, index + 250);
-      const { data, error } = await supabase
-        .from("products")
-        .select("id,ebay_item_id,quantity,archived_at")
-        .eq("store_id", storeId)
-        .in("id", productIdBatch);
-      if (error) throw error;
-      linkedEbayProducts.push(...((data || []) as typeof linkedEbayProducts));
+      linkedProductBatches.push(scopedProductIds.slice(index, index + 250));
+    }
+    for (let index = 0; index < linkedProductBatches.length; index += 4) {
+      const wave = await Promise.all(
+        linkedProductBatches.slice(index, index + 4).map(async (productIdBatch) => {
+          const { data, error } = await supabase
+            .from("products")
+            .select("id,ebay_item_id,quantity,archived_at")
+            .eq("store_id", storeId)
+            .in("id", productIdBatch);
+          if (error) throw error;
+          return (data || []) as typeof linkedEbayProducts;
+        }),
+      );
+      for (const batch of wave) linkedEbayProducts.push(...batch);
     }
     const legacyEbayLinkedProductIds = new Set(
       linkedEbayProducts
@@ -928,79 +943,51 @@ export async function GET(request: Request) {
         instaCompPendingQueueFromMetadata(row.metadata) === "listings",
     );
 
+    const commercialFolderGroupKey = (row: any) => {
+      const metadata = recordValue(row.metadata);
+      const instaComp = recordValue(metadata.instacomp);
+      const collectibleAsset = recordValue(metadata.collectible_asset);
+      const ai = recordValue(instaComp.ai);
+      const uniquePhysicalCopy = Boolean(
+        textValue(collectibleAsset.exact_serial_number) ||
+          textValue(collectibleAsset.grading_cert_number) ||
+          textValue(ai.gradingCertNumber) ||
+          textValue(ai.certificationNumber),
+      );
+      const pricingGroupKey = uniquePhysicalCopy
+        ? null
+        : effectiveInstaCompPricingGroupKey(metadata);
+      return pricingGroupKey
+        ? `group:${pricingGroupKey}`
+        : `physical:${String(row.id)}`;
+    };
+    const commercialFolderCount = (targetFolder: InstaCompListingFolder) =>
+      new Set(
+        listingRows
+          .filter(
+            (row: any) =>
+              listingFolderFromMetadata(
+                row.metadata,
+                rowHasLegacyEbayListing(row),
+                rowHasLegacyWebsiteListing(row),
+              ) === targetFolder,
+          )
+          .map(commercialFolderGroupKey),
+      ).size;
+
+    // Master Listings renders one commercial/canonical row for mergeable raw
+    // duplicates. The nav must count those same actionable listings, not the
+    // hidden physical rows underneath them.
     const folderCounts = {
-      pending: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "pending",
-      ).length,
-      website: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "website",
-      ).length,
-      ebay: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "ebay",
-      ).length,
-      mercari: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "mercari",
-      ).length,
-      both: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "both",
-      ).length,
-      website_mercari: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "website_mercari",
-      ).length,
-      ebay_mercari: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "ebay_mercari",
-      ).length,
-      all3: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "all3",
-      ).length,
-      investment: listingRows.filter(
-        (row: any) =>
-          listingFolderFromMetadata(
-            row.metadata,
-            rowHasLegacyEbayListing(row),
-            rowHasLegacyWebsiteListing(row),
-          ) === "investment",
-      ).length,
+      pending: commercialFolderCount("pending"),
+      website: commercialFolderCount("website"),
+      ebay: commercialFolderCount("ebay"),
+      mercari: commercialFolderCount("mercari"),
+      both: commercialFolderCount("both"),
+      website_mercari: commercialFolderCount("website_mercari"),
+      ebay_mercari: commercialFolderCount("ebay_mercari"),
+      all3: commercialFolderCount("all3"),
+      investment: commercialFolderCount("investment"),
     };
     const rows = requestedFocus
       ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)

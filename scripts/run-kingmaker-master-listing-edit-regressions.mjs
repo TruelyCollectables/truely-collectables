@@ -154,5 +154,18 @@ assert.ok(
     client.includes("!pageError"),
   "Master Listings must preserve last valid counts and never present a failed load as zero inventory",
 );
+assert.ok(
+  pending.includes("readTimeoutMs: 20_000") &&
+    pending.includes("commercialFolderCount") &&
+    pending.includes("linkedProductBatches.slice(index, index + 4)"),
+  "Master Listings must use its operational read budget, count actionable commercial listings, and parallelize channel-state reads",
+);
+const supabaseServer = fs.readFileSync("src/lib/supabase-server.ts", "utf8");
+assert.ok(
+  supabaseServer.includes("DEFAULT_SERVER_READ_TIMEOUT_MS = 4_000") &&
+    supabaseServer.includes("readTimeoutMs?: number") &&
+    supabaseServer.includes("createBoundedReadFetch(nativeFetch, readTimeoutMs)"),
+  "Master Listings timeout override must not weaken the storefront's default 4-second Supabase fail-fast guard",
+);
 
 console.log("KINGMAKER Master Listings edit regressions passed.");

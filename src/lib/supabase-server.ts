@@ -8,7 +8,7 @@ type CloudflareFetchGlobal = typeof globalThis & {
 // storefront request. Abort it before it can pin a PostgREST transaction or
 // consume a connection long enough to cascade into a site-wide outage. Writes
 // are intentionally not covered by this timeout.
-const SERVER_READ_TIMEOUT_MS = 4_000;
+const DEFAULT_SERVER_READ_TIMEOUT_MS = 4_000;
 
 function getSupabaseUrl() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -62,7 +62,10 @@ function requestSignal(
   return undefined;
 }
 
-function createBoundedReadFetch(nativeFetch: typeof fetch): typeof fetch {
+function createBoundedReadFetch(
+  nativeFetch: typeof fetch,
+  readTimeoutMs: number,
+): typeof fetch {
   return async (input, init) => {
     const method = requestMethod(input, init);
     if (method !== "GET" && method !== "HEAD") {
@@ -79,7 +82,7 @@ function createBoundedReadFetch(nativeFetch: typeof fetch): typeof fetch {
       upstreamSignal?.addEventListener("abort", forwardAbort, { once: true });
     }
 
-    const timeout = setTimeout(() => controller.abort(), SERVER_READ_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), readTimeoutMs);
 
     try {
       return await nativeFetch(input, {
@@ -96,18 +99,26 @@ function createBoundedReadFetch(nativeFetch: typeof fetch): typeof fetch {
 function getServerFetch() {
   const nativeFetch = (globalThis as CloudflareFetchGlobal)
     .__TRUELY_CLOUDFLARE_NATIVE_FETCH__;
-  return typeof nativeFetch === "function"
-    ? createBoundedReadFetch(nativeFetch)
-    : undefined;
+  return typeof nativeFetch === "function" ? nativeFetch : undefined;
 }
 
-export function createSupabaseServerClient(options?: { admin?: boolean }) {
+export function createSupabaseServerClient(options?: {
+  admin?: boolean;
+  readTimeoutMs?: number;
+}) {
   const supabaseUrl = getSupabaseUrl();
   const supabaseKey = options?.admin ? getServiceRoleKey() : getAnonKey();
   const nativeFetch = getServerFetch();
+  const requestedReadTimeoutMs = Number(options?.readTimeoutMs);
+  const readTimeoutMs =
+    Number.isFinite(requestedReadTimeoutMs) && requestedReadTimeoutMs > 0
+      ? Math.min(60_000, Math.max(1_000, Math.floor(requestedReadTimeoutMs)))
+      : DEFAULT_SERVER_READ_TIMEOUT_MS;
 
   return createClient(supabaseUrl, supabaseKey, {
-    ...(nativeFetch ? { global: { fetch: nativeFetch } } : {}),
+    ...(nativeFetch
+      ? { global: { fetch: createBoundedReadFetch(nativeFetch, readTimeoutMs) } }
+      : {}),
     auth: {
       autoRefreshToken: false,
       persistSession: false,
