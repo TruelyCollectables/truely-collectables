@@ -27,5 +27,8 @@
   },
   "ai": {
     "binding": "AI"
+  },
+  "vars": {
+    "INSTACOMP_AI_LOCAL_URL": "https://instacomp.truelycollectables.com"
   }
 }
