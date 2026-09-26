@@ -2,23 +2,17 @@ name: Cloudflare Live Product Tail
 
 on:
   workflow_dispatch:
-    inputs:
-      rollback_version:
-        description: Known-good routed Worker version ID
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 jobs:
-  rollback:
+  inspect:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      ROLLBACK_VERSION: ${{ inputs.rollback_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,28 +20,22 @@ jobs:
           node-version: 22
       - name: Install Wrangler
         run: npm install --no-save --package-lock=false wrangler@4.122.0
-      - name: Roll back routed production Worker
+      - name: List routed Worker secret names only
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$ROLLBACK_VERSION"
-          npx --no-install wrangler rollback "$ROLLBACK_VERSION" \
-            --name truely-collectables-preview \
-            --yes \
-            --message "Incident rollback to last fully-smoked production version"
-      - name: Verify public storefront and payment boundaries
+          npx --no-install wrangler secret list --name truely-collectables-preview --format json > /tmp/secrets.json
+          node - <<'NODE'
+          const fs = require("fs");
+          const rows = JSON.parse(fs.readFileSync("/tmp/secrets.json","utf8"));
+          const names = (Array.isArray(rows) ? rows : []).map(x => String(x?.name || "")).filter(Boolean).sort();
+          console.log("SECRET_NAMES=" + names.join(","));
+          NODE
+      - name: List retained Worker versions and deployments
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in {1..12}; do
-            home="$(curl -sS --max-time 10 -o /tmp/home -w '%{http_code}' https://truelycollectables.com/ || true)"
-            checkout="$(curl -sS --max-time 10 -X POST -H 'content-type: application/json' -d '{}' -o /tmp/checkout -w '%{http_code}' https://truelycollectables.com/api/checkout || true)"
-            webhook="$(curl -sS --max-time 10 -X POST -H 'content-type: application/json' -d '{}' -o /tmp/webhook -w '%{http_code}' https://truelycollectables.com/api/stripe/webhook || true)"
-            echo "attempt=$attempt home=$home checkout=$checkout webhook=$webhook"
-            if [ "$home" = "200" ] && [ "$checkout" = "400" ] && [ "$webhook" = "400" ]; then
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Rollback deployed but payment-boundary verification did not converge."
-          exit 1
+          echo "--- VERSIONS ---"
+          npx --no-install wrangler versions list --name truely-collectables-preview 2>&1
+          echo "--- DEPLOYMENTS ---"
+          npx --no-install wrangler deployments list --name truely-collectables-preview 2>&1
