@@ -208,7 +208,7 @@ jobs:
           const body = String(process.env.BODY || '');
           let payload = null;
           try { payload = JSON.parse(body); } catch {}
-          process.exit(payload?.ok === true && payload?.serviceKeyConfigured === true ? 0 : 1);
+          process.exit(payload?.ok === true && Array.isArray(payload?.probes) && payload.probes.length > 0 && payload.probes.every((probe) => probe?.ok === true) ? 0 : 1);
           NODE
             then
               echo 'PASS routed Worker Supabase runtime binding verified.'
