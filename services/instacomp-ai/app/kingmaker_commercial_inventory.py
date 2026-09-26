@@ -648,6 +648,7 @@ class KingmakerCommercialInventory:
                     inventory_item_id TEXT PRIMARY KEY,
                     folder TEXT NOT NULL,
                     pending_queue TEXT NOT NULL,
+                    group_key TEXT,
                     source_updated_at TEXT,
                     projected_at TEXT NOT NULL,
                     row_json TEXT NOT NULL
@@ -658,6 +659,33 @@ class KingmakerCommercialInventory:
                   ON master_listing_projection(pending_queue);
                 """
             )
+            columns = {
+                str(row[1])
+                for row in db.execute("PRAGMA table_info(master_listing_projection)").fetchall()
+            }
+            if "group_key" not in columns:
+                db.execute("ALTER TABLE master_listing_projection ADD COLUMN group_key TEXT")
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS master_listing_projection_folder_group_idx "
+                "ON master_listing_projection(folder,pending_queue,group_key)"
+            )
+            stale_groups = db.execute(
+                "SELECT inventory_item_id,row_json FROM master_listing_projection "
+                "WHERE group_key IS NULL OR group_key=''"
+            ).fetchall()
+            for stale in stale_groups:
+                try:
+                    payload = json.loads(str(stale["row_json"] or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                if "id" not in payload:
+                    payload["id"] = str(stale["inventory_item_id"] or "")
+                db.execute(
+                    "UPDATE master_listing_projection SET group_key=? WHERE inventory_item_id=?",
+                    (_master_listing_group_key(payload), str(stale["inventory_item_id"])),
+                )
 
     def project_master_listings(
         self,
@@ -673,23 +701,42 @@ class KingmakerCommercialInventory:
                 db.execute("DELETE FROM master_listing_projection")
             for raw in items:
                 row = dict(raw or {})
-                if not _master_listing_relevant(row):
-                    continue
                 inventory_item_id = str(
-                    row.get("id") or row.get("inventory_item_id") or ""
+                    row.get("id")
+                    or row.get("inventory_item_id")
+                    or row.get("inventoryItemId")
+                    or ""
                 ).strip()
                 if not inventory_item_id:
                     continue
+                status = str(row.get("status") or "").strip().lower()
+                try:
+                    quantity = int(float(row.get("quantity") or 0))
+                except (TypeError, ValueError):
+                    quantity = 0
+                if (
+                    status in {"archived", "sold"}
+                    or quantity <= 0
+                    or not _master_listing_relevant(row)
+                ):
+                    db.execute(
+                        "DELETE FROM master_listing_projection WHERE inventory_item_id=?",
+                        (inventory_item_id,),
+                    )
+                    continue
                 folder = _master_listing_folder(row)
                 pending_queue = _master_listing_queue(row.get("metadata"))
+                compact_row = _compact_master_listing_row(row)
+                group_key = _master_listing_group_key(compact_row)
                 db.execute(
                     """
                     INSERT INTO master_listing_projection(
-                      inventory_item_id,folder,pending_queue,source_updated_at,projected_at,row_json
-                    ) VALUES(?,?,?,?,?,?)
+                      inventory_item_id,folder,pending_queue,group_key,source_updated_at,projected_at,row_json
+                    ) VALUES(?,?,?,?,?,?,?)
                     ON CONFLICT(inventory_item_id) DO UPDATE SET
                       folder=excluded.folder,
                       pending_queue=excluded.pending_queue,
+                      group_key=excluded.group_key,
                       source_updated_at=excluded.source_updated_at,
                       projected_at=excluded.projected_at,
                       row_json=excluded.row_json
@@ -698,10 +745,11 @@ class KingmakerCommercialInventory:
                         inventory_item_id,
                         folder,
                         pending_queue,
+                        group_key,
                         str(row.get("updated_at") or ""),
                         stamp,
                         json.dumps(
-                            _compact_master_listing_row(row),
+                            compact_row,
                             separators=(",", ":"),
                             ensure_ascii=False,
                         ),
@@ -723,38 +771,36 @@ class KingmakerCommercialInventory:
             "all3",
             "investment",
         )
-        folder_groups: dict[str, set[str]] = {
-            folder: set() for folder in folder_names
-        }
+        folder_counts = {folder: 0 for folder in folder_names}
         queue_counts = {"listings": 0, "verification": 0}
-        total = 0
         with self._read_connect() as db:
-            rows = db.execute(
-                "SELECT inventory_item_id,folder,pending_queue,row_json "
-                "FROM master_listing_projection"
+            total = int(
+                db.execute("SELECT COUNT(*) FROM master_listing_projection").fetchone()[0]
+            )
+            folder_rows = db.execute(
+                """
+                SELECT folder,COUNT(DISTINCT group_key) AS count
+                FROM master_listing_projection
+                WHERE NOT (folder='pending' AND pending_queue<>'listings')
+                GROUP BY folder
+                """
             ).fetchall()
-        for row in rows:
-            total += 1
+            queue_rows = db.execute(
+                """
+                SELECT pending_queue,COUNT(*) AS count
+                FROM master_listing_projection
+                WHERE folder='pending'
+                GROUP BY pending_queue
+                """
+            ).fetchall()
+        for row in folder_rows:
             folder = str(row["folder"] or "")
-            pending_queue = str(row["pending_queue"] or "")
-            if folder == "pending" and pending_queue in queue_counts:
-                queue_counts[pending_queue] += 1
-            if folder not in folder_groups:
-                continue
-            if folder == "pending" and pending_queue != "listings":
-                continue
-            try:
-                payload = json.loads(str(row["row_json"] or "{}"))
-            except (TypeError, ValueError, json.JSONDecodeError):
-                payload = {}
-            if not isinstance(payload, dict):
-                payload = {}
-            if "id" not in payload:
-                payload["id"] = str(row["inventory_item_id"] or "")
-            folder_groups[folder].add(_master_listing_group_key(payload))
-        folder_counts = {
-            folder: len(groups) for folder, groups in folder_groups.items()
-        }
+            if folder in folder_counts:
+                folder_counts[folder] = int(row["count"] or 0)
+        for row in queue_rows:
+            queue_name = str(row["pending_queue"] or "")
+            if queue_name in queue_counts:
+                queue_counts[queue_name] = int(row["count"] or 0)
         return {
             "sourceAuthority": "mac_local_sqlite",
             "total": total,

@@ -17,8 +17,13 @@ type JsonRecord = Record<string, unknown>;
 
 type MacCommercialItem = {
   inventoryItemId: string;
+  legacyProductId?: number | null;
+  cardUuid?: string | null;
   title: string;
   sku: string;
+  description?: string | null;
+  category?: string | null;
+  condition?: string | null;
   status: string;
   price: number;
   quantity: number;
@@ -26,6 +31,7 @@ type MacCommercialItem = {
   player?: string | null;
   sport?: string | null;
   metadata?: JsonRecord;
+  createdAt?: string | null;
   updatedAt?: string | null;
 };
 function record(value: unknown): JsonRecord {
@@ -205,6 +211,39 @@ export async function searchMacMarketForScan(scan: InstaCompAiLocalScan) {
     operatorCertifiedIdentity: false,
   });
 }
+function macMasterProjectionRow(value: JsonRecord) {
+  const inventoryItemId = text(value.inventoryItemId, 200);
+  if (!inventoryItemId) return null;
+  return {
+    id: inventoryItemId,
+    legacy_product_id: numberValue(value.legacyProductId),
+    card_uuid: text(value.cardUuid, 200),
+    sku: text(value.sku, 200),
+    title: text(value.title, 1000) || "InstaComp scan pending",
+    description: text(value.description, 100_000),
+    category: text(value.category, 500),
+    condition: text(value.condition, 500),
+    status: text(value.status, 80) || "draft",
+    quantity: Math.max(0, Math.floor(numberValue(value.quantity) || 0)),
+    price: Math.max(0, numberValue(value.price) || 0),
+    metadata: record(value.metadata),
+    created_at: text(value.createdAt, 100),
+    updated_at: text(value.updatedAt, 100) || new Date().toISOString(),
+  };
+}
+
+async function projectMacMasterListingRows(values: JsonRecord[]) {
+  const items = values
+    .map(macMasterProjectionRow)
+    .filter((value): value is NonNullable<typeof value> => Boolean(value));
+  if (!items.length) return;
+  await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    { action: "project_master", items },
+    10_000,
+  );
+}
+
 export async function listMacKingmakerInventory(timeoutMs = 30_000) {
   const response = await postInstaCompMacRegistry(
     "/v1/kingmaker/accounting/commercial-inventory",
@@ -233,7 +272,18 @@ export async function createMacKingmakerDraft(draft: JsonRecord) {
   if (!created || typeof created !== "object") {
     throw new Error("Mac-local KINGMAKER draft was not returned after create.");
   }
-  return created as MacCommercialItem;
+  const createdItem = created as MacCommercialItem;
+  await projectMacMasterListingRows([
+    {
+      ...draft,
+      ...createdItem,
+      metadata:
+        Object.keys(record(draft.metadata)).length > 0
+          ? record(draft.metadata)
+          : createdItem.metadata || {},
+    },
+  ]);
+  return createdItem;
 }
 export async function updateMacKingmakerDraft(
   inventoryItemId: string,
@@ -249,7 +299,21 @@ export async function updateMacKingmakerDraft(
   if (!result || result.success !== true) {
     throw new Error(String(result?.message || "Mac-local KINGMAKER draft update failed."));
   }
-  return getMacKingmakerInventoryItem(inventoryItemId);
+  const updated = await getMacKingmakerInventoryItem(inventoryItemId);
+  if (updated) {
+    await projectMacMasterListingRows([
+      {
+        ...updated,
+        ...edit,
+        inventoryItemId,
+        metadata:
+          Object.keys(record(edit.metadata)).length > 0
+            ? record(edit.metadata)
+            : updated.metadata || {},
+      },
+    ]);
+  }
+  return updated;
 }
 
 function registryFingerprint(scan: InstaCompAiLocalScan) {

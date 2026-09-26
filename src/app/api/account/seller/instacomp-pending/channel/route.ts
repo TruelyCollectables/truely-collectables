@@ -1264,6 +1264,39 @@ export async function POST(request: Request) {
         })
       : 0;
 
+    let masterProjectionSynced = false;
+    let masterProjectionWarning: string | null = null;
+    try {
+      const projectionIds = Array.from(
+        new Set(groupRows.map((row) => String(row.id)).filter(Boolean)),
+      );
+      for (let start = 0; start < projectionIds.length; start += 500) {
+        const batchIds = projectionIds.slice(start, start + 500);
+        const { data: projectionRows, error: projectionError } = await supabase
+          .from("inventory_items")
+          .select(
+            "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
+          )
+          .eq("store_id", storeId)
+          .in("id", batchIds);
+        if (projectionError) throw projectionError;
+        await postInstaCompMacAccounting(
+          "/v1/kingmaker/accounting/commercial-inventory",
+          {
+            action: "project_master",
+            items: projectionRows || [],
+          },
+          15_000,
+        );
+      }
+      masterProjectionSynced = true;
+    } catch (error) {
+      masterProjectionWarning =
+        error instanceof Error
+          ? error.message
+          : "Mac Master Listings projection refresh failed.";
+    }
+
     const success = errors.length === 0;
     return Response.json(
       {
@@ -1277,6 +1310,8 @@ export async function POST(request: Request) {
         memberInventoryItemIds: groupRows.map((row) => row.id),
         quantity: totalQuantity,
         archivedDuplicateCount,
+        masterProjectionSynced,
+        masterProjectionWarning,
         suggestedPrice: money(instaComp.suggestedPrice) || null,
         ebayPrice,
         websitePrice,
