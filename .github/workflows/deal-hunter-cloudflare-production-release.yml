@@ -171,6 +171,55 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/run-wrangler-deploy-redacted.mjs --config wrangler.production-route.jsonc --label "routed production Worker"
 
+      - name: Synchronize recovered Supabase runtime credentials to Cloudflare
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node <<'NODE'
+          const fs = require('node:fs');
+          const env = JSON.parse(fs.readFileSync('/tmp/deal-hunter-production-env.json', 'utf8'));
+          const anon = String(env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
+          const service = String(env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+          if (!anon) throw new Error('Recovered Supabase anon key is empty.');
+          if (!service) throw new Error('Recovered Supabase service-role key is empty.');
+          fs.writeFileSync('/tmp/runtime-supabase-anon-key', anon, { mode: 0o600 });
+          fs.writeFileSync('/tmp/runtime-supabase-service-key', service, { mode: 0o600 });
+          console.log('Recovered Supabase runtime credentials staged for Cloudflare; values withheld.');
+          NODE
+          for config in wrangler.jsonc wrangler.production-route.jsonc; do
+            npx --no-install wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY --config "$config" < /tmp/runtime-supabase-anon-key
+            npx --no-install wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config "$config" < /tmp/runtime-supabase-service-key
+          done
+          shred -u /tmp/runtime-supabase-anon-key /tmp/runtime-supabase-service-key
+          echo 'Supabase runtime credentials synchronized to both production Workers.'
+
+      - name: Verify routed Worker Supabase runtime binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint='https://truelycollectables.com/api/internal/cloudflare-supabase-runtime-probe'
+          for attempt in $(seq 1 12); do
+            body="$(curl --silent --show-error --max-time 10 "${endpoint}?release_probe=$(date +%s%N)" || true)"
+            if BODY="$body" node <<'NODE'
+          const body = String(process.env.BODY || '');
+          let payload = null;
+          try { payload = JSON.parse(body); } catch {}
+          process.exit(payload?.ok === true && payload?.serviceKeyConfigured === true ? 0 : 1);
+          NODE
+            then
+              echo 'PASS routed Worker Supabase runtime binding verified.'
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "FAILED routed Worker Supabase runtime binding verification: ${body:0:500}" >&2
+              exit 1
+            fi
+            sleep 3
+          done
       - name: Verify database-independent routed edge health
         shell: bash
         run: |
