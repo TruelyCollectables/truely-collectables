@@ -111,5 +111,34 @@ assert.ok(
     pending.includes("instaComp.identityComplete === true"),
   "Pending must recognize exact-scan identified receipts as authoritative Registry locks",
 );
+assert.ok(
+  pending.includes('.in("status", ["draft", "active"])'),
+  "Master Listings must read active inventory as well as draft staging rows",
+);
+assert.ok(
+  pending.includes("legacyWebsiteLinked = false") &&
+    pending.includes("legacyWebsiteLinkedProductIds") &&
+    pending.includes('row.status === "active"'),
+  "Listed Website inventory must classify from durable active inventory/product state",
+);
+assert.ok(
+  pending.includes('textValue(acquisition.source) || "Misc"') &&
+    pending.includes('(gradedCard ? null : "Near Mint or Better")'),
+  "Safe seller defaults must clear unmatched acquisition and raw eBay condition blockers",
+);
+const channelRoute = fs.readFileSync(
+  "src/app/api/account/seller/instacomp-pending/channel/route.ts",
+  "utf8",
+);
+assert.ok(
+  channelRoute.includes('text(storedAcquisition.source, 120) ||') &&
+    channelRoute.includes('"Misc"') &&
+    channelRoute.includes('(generated.grader ? "" : "Near Mint or Better")'),
+  "Publishing must persist the same safe acquisition/condition defaults used by Master Listings",
+);
+assert.ok(
+  client.includes("No exact sold comp produced a price. Enter one Manual Price below"),
+  "Pending must explain how the remaining seller-price blocker is cleared",
+);
 
 console.log("KINGMAKER Master Listings edit regressions passed.");

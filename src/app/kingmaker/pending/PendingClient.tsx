@@ -2697,6 +2697,19 @@ export default function KingmakerPendingPage({
                           : `NOT READY · ${listingReadiness.blockers.length} BLOCKER${listingReadiness.blockers.length === 1 ? "" : "S"}`}
                       </span>
                     ) : null}
+                    {queue === "listings" && listingReadiness && !listingReady ? (
+                      <span className="text-xs font-bold text-red-200">
+                        {listingReadiness.checks
+                          .filter((check) => !check.ready)
+                          .map((check) => check.label)
+                          .join(" · ")}
+                        {listingReadiness.blockers.every((code) =>
+                          ["missing_website_price", "missing_ebay_price", "missing_mercari_price"].includes(code),
+                        )
+                          ? " — No exact sold comp produced a price. Enter one Manual Price below; KINGMAKER derives the Website/eBay/Mercari prices from it."
+                          : ""}
+                      </span>
+                    ) : null}
                     {pendingPurchase ? (
                       <span className="rounded-full bg-orange-400 px-3 py-1 text-xs font-black text-orange-950">
                         PENDING PURCHASE · MATCH FOUND

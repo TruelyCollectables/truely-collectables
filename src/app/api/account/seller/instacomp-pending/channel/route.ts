@@ -562,7 +562,11 @@ export async function POST(request: Request) {
       text(body.ebayDescription, 100_000) ||
       text(storedEbay.description, 100_000) ||
       generated.ebayDescription;
-    const cardCondition = text(body.cardCondition, 100) || text(storedEbay.cardCondition, 100) || generated.cardCondition;
+    const cardCondition =
+      text(body.cardCondition, 100) ||
+      text(storedEbay.cardCondition, 100) ||
+      generated.cardCondition ||
+      (generated.grader ? "" : "Near Mint or Better");
     const bestOfferEnabled =
       body.bestOfferEnabled === true || storedEbay.bestOfferEnabled === true;
 
@@ -575,18 +579,19 @@ export async function POST(request: Request) {
         row,
       ]),
     );
-    const acquisitionSources = groupRows
-      .map((row) =>
-        text(
-          trackedByInventoryId.get(String(row.id))?.source,
-          120,
-        ),
-      )
-      .filter((value): value is string => Boolean(value));
-    const acquisitionSource =
-      acquisitionSources.length === groupRows.length
-        ? Array.from(new Set(acquisitionSources)).join(" + ")
-        : null;
+    const acquisitionSources = groupRows.map((row) => {
+      const rowMetadata = record(row.metadata);
+      const rowInstaComp = record(rowMetadata.instacomp);
+      const storedAcquisition = record(rowInstaComp.acquisition);
+      return (
+        text(trackedByInventoryId.get(String(row.id))?.source, 120) ||
+        text(storedAcquisition.source, 120) ||
+        "Misc"
+      );
+    });
+    const acquisitionSource = Array.from(
+      new Set(acquisitionSources),
+    ).join(" + ");
 
     const listingReadiness = buildKingmakerListingReadiness({
       metadata,

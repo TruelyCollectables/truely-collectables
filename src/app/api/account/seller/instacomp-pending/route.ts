@@ -241,6 +241,7 @@ async function loadExactMacPendingTruth() {
 function listingFolderFromMetadata(
   metadataValue: unknown,
   legacyEbayLinked = false,
+  legacyWebsiteLinked = false,
 ): InstaCompListingFolder {
   const metadata = recordValue(metadataValue);
   const lifecycle = recordValue(metadata.inventory_lifecycle);
@@ -251,7 +252,8 @@ function listingFolderFromMetadata(
     return "investment";
   const dual = recordValue(metadata.dual_marketplace);
   const websiteActive =
-    textValue(recordValue(dual.website).status) === "active";
+    textValue(recordValue(dual.website).status) === "active" ||
+    legacyWebsiteLinked;
   const ebayStatus = textValue(recordValue(dual.ebay).status);
   const ebayActive =
     ebayStatus === "active" || ebayStatus === "linked" || legacyEbayLinked;
@@ -444,9 +446,9 @@ async function readPendingCandidateInventoryPages(params: {
         .from("inventory_items")
         .select(params.columns)
         .eq("store_id", params.storeId)
-        // Pending is a staging queue. Active rows are published/current inventory
-        // and never belong in the live Pending result set.
-        .eq("status", "draft");
+        // Master Listings spans both staging and live inventory so the channel
+        // folders remain useful after a card is published.
+        .in("status", ["draft", "active"]);
 
       query = params.ownerAccount
         ? query.or(
@@ -808,12 +810,14 @@ export async function GET(request: Request) {
     const linkedEbayProducts: Array<{
       id: number;
       ebay_item_id: string | null;
+      quantity: number | null;
+      archived_at: string | null;
     }> = [];
     for (let index = 0; index < scopedProductIds.length; index += 250) {
       const productIdBatch = scopedProductIds.slice(index, index + 250);
       const { data, error } = await supabase
         .from("products")
-        .select("id,ebay_item_id")
+        .select("id,ebay_item_id,quantity,archived_at")
         .eq("store_id", storeId)
         .in("id", productIdBatch);
       if (error) throw error;
@@ -824,26 +828,45 @@ export async function GET(request: Request) {
         .filter((product) => Boolean(textValue(product.ebay_item_id)))
         .map((product) => Number(product.id)),
     );
+    const legacyWebsiteLinkedProductIds = new Set(
+      linkedEbayProducts
+        .filter(
+          (product) =>
+            !textValue(product.archived_at) &&
+            Number(product.quantity || 0) > 0,
+        )
+        .map((product) => Number(product.id)),
+    );
     const rowHasLegacyEbayListing = (row: any) =>
       typeof row.legacy_product_id === "number" &&
       legacyEbayLinkedProductIds.has(Number(row.legacy_product_id));
+    const rowHasLegacyWebsiteListing = (row: any) =>
+      row.status === "active" &&
+      typeof row.legacy_product_id === "number" &&
+      legacyWebsiteLinkedProductIds.has(Number(row.legacy_product_id));
     const rowIsUnlistedEverywhere = (row: any) =>
-      listingFolderFromMetadata(row.metadata, rowHasLegacyEbayListing(row)) ===
-      "pending";
+      listingFolderFromMetadata(
+        row.metadata,
+        rowHasLegacyEbayListing(row),
+        rowHasLegacyWebsiteListing(row),
+      ) === "pending";
 
     const queueCounts = {
       listings: scopedInstaCompRows.filter(
         (row: any) =>
+          row.status === "active" ||
           instaCompPendingQueueFromMetadata(row.metadata) === "listings",
       ).length,
       verification: scopedInstaCompRows.filter(
         (row: any) =>
+          row.status === "draft" &&
           instaCompPendingQueueFromMetadata(row.metadata) === "verification" &&
           rowIsUnlistedEverywhere(row),
       ).length,
     };
     const listingRows = scopedInstaCompRows.filter(
       (row: any) =>
+        row.status === "active" ||
         instaCompPendingQueueFromMetadata(row.metadata) === "listings",
     );
 
@@ -853,6 +876,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "pending",
       ).length,
       website: listingRows.filter(
@@ -860,6 +884,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "website",
       ).length,
       ebay: listingRows.filter(
@@ -867,6 +892,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "ebay",
       ).length,
       mercari: listingRows.filter(
@@ -874,6 +900,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "mercari",
       ).length,
       both: listingRows.filter(
@@ -881,6 +908,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "both",
       ).length,
       website_mercari: listingRows.filter(
@@ -888,6 +916,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "website_mercari",
       ).length,
       ebay_mercari: listingRows.filter(
@@ -895,6 +924,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "ebay_mercari",
       ).length,
       all3: listingRows.filter(
@@ -902,6 +932,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "all3",
       ).length,
       investment: listingRows.filter(
@@ -909,6 +940,7 @@ export async function GET(request: Request) {
           listingFolderFromMetadata(
             row.metadata,
             rowHasLegacyEbayListing(row),
+            rowHasLegacyWebsiteListing(row),
           ) === "investment",
       ).length,
     };
@@ -916,15 +948,23 @@ export async function GET(request: Request) {
       ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)
       : scopedInstaCompRows.filter((row: any) => {
           const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
-          if (rowQueue !== queue) return false;
-          if (queue === "verification") return rowIsUnlistedEverywhere(row);
+          if (queue === "verification") {
+            return (
+              row.status === "draft" &&
+              rowQueue === "verification" &&
+              rowIsUnlistedEverywhere(row)
+            );
+          }
+          if (row.status !== "active" && rowQueue !== "listings") return false;
           if (
             listingFolderFromMetadata(
               row.metadata,
               rowHasLegacyEbayListing(row),
+              rowHasLegacyWebsiteListing(row),
             ) !== folder
           )
             return false;
+          if (row.status === "active") return true;
           const metadata = recordValue(row.metadata);
           const instaComp = recordValue(metadata.instacomp);
           return (
@@ -1334,23 +1374,29 @@ export async function GET(request: Request) {
         blockers.push("duplicate_decision_required");
       }
 
+      const gradedCard = Boolean(
+        textValue(collectibleAsset.grading_company) ||
+          textValue(ai.gradingCompany),
+      );
+      const effectiveAcquisitionSource =
+        textValue(acquisition.source) || "Misc";
+      const effectiveEbayCardCondition =
+        textValue(dualEbay.cardCondition) ||
+        (gradedCard ? null : "Near Mint or Better");
       const listingReadiness = buildKingmakerListingReadiness({
         metadata: effectiveMetadata,
         frontImageUrl: displayFrontUrl,
         backImageUrl: displayBackUrl,
         condition: row.condition,
         quantity: row.quantity,
-        acquisitionSource: textValue(acquisition.source),
+        acquisitionSource: effectiveAcquisitionSource,
         duplicateDecisionRequired:
           existingActiveRows.length > 0 && !duplicateDecisionResolved,
         websitePrice: websiteChannelPrice,
         ebayPrice: ebayChannelPrice,
         mercariPrice: optionalPrice(dualMercari.price) || ebayChannelPrice,
-        ebayCardCondition: textValue(dualEbay.cardCondition),
-        graded: Boolean(
-          textValue(collectibleAsset.grading_company) ||
-            textValue(ai.gradingCompany),
-        ),
+        ebayCardCondition: effectiveEbayCardCondition,
+        graded: gradedCard,
       });
 
       const existingMatches = existingActiveRows
@@ -1652,7 +1698,7 @@ export async function GET(request: Request) {
             ebayStatus:
               textValue(dualEbay.status) ||
               (textValue(product?.ebay_item_id) ? "linked" : "draft"),
-            ebayCardCondition: textValue(dualEbay.cardCondition),
+            ebayCardCondition: effectiveEbayCardCondition,
             ebayCategoryId: textValue(dualEbay.categoryId) || "261328",
             ebayLastError: textValue(dualEbay.lastError),
             ebayLastAttemptAt: textValue(dualEbay.lastAttemptAt),
