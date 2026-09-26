@@ -1,11 +1,11 @@
-name: Checklist Registry Postgres
+name: Checklist Registry Production Schema Probe 20260816
 
 on:
   push:
     branches:
       - ops/checklist-public-web-registry-promotion-20260814
     paths:
-      - ".github/workflows/checklist-registry-postgres.yml"
+      - ".github/workflows/checklist-registry-schema-probe-20260816.yml"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ env:
   GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
 jobs:
-  probe-production-writer:
+  probe:
     runs-on: ubuntu-24.04
     environment: Production
     timeout-minutes: 10
@@ -34,7 +34,7 @@ jobs:
           mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
           test "${#candidates[@]}" -eq 1
           echo "PROJECT_REF=${candidates[0]}" >> "$GITHUB_ENV"
-      - name: Read writer function and Registry constraints
+      - name: Read Registry function and constraint definitions
         shell: bash
         run: |
           set -euo pipefail
@@ -50,7 +50,8 @@ jobs:
             where n.nspname = 'public'
               and (p.proname = 'tcos_apply_checklist_import_plan' or p.proname like 'tcos%checklist%')
           ), constraints as (
-            select c.relname as table_name,
+            select n.nspname as schema_name,
+                   c.relname as table_name,
                    con.conname as constraint_name,
                    con.contype as constraint_type,
                    pg_get_constraintdef(con.oid) as definition
