@@ -439,50 +439,108 @@ async function readPendingCandidateInventoryPages(params: {
   ownerAccount: boolean;
   columns: string;
 }) {
-  const readQuery = async (candidate: "instacomp" | "legacy_identity") => {
-    const rows: any[] = [];
+  const transientRead = (error: unknown) => {
+    const row = recordValue(error);
+    const name = String(row.name || "");
+    const message = String(row.message || error || "").toLowerCase();
+    return (
+      name === "AbortError" ||
+      name === "TimeoutError" ||
+      message.includes("aborted") ||
+      message.includes("timeout")
+    );
+  };
+
+  const readWithRetry = async <T>(
+    read: () => PromiseLike<{ data: T[] | null; error: unknown }>,
+  ) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const { data, error } = await read();
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        if (attempt >= 1 || !transientRead(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    }
+    return [] as T[];
+  };
+
+  const applyOwnerScope = (query: any) =>
+    params.ownerAccount
+      ? query.or(
+          "seller_account_id.eq." +
+            params.accountId +
+            ",seller_account_id.is.null",
+        )
+      : query.eq("seller_account_id", params.accountId);
+
+  const readCandidateIds = async (
+    candidate: "instacomp" | "legacy_identity",
+  ) => {
+    const ids: string[] = [];
     for (let from = 0; ; from += 1000) {
-      let query: any = params.supabase
-        .from("inventory_items")
-        .select(params.columns)
-        .eq("store_id", params.storeId)
-        // Master Listings spans both staging and live inventory so the channel
-        // folders remain useful after a card is published.
-        .in("status", ["draft", "active"]);
-
-      query = params.ownerAccount
-        ? query.or(
-            "seller_account_id.eq." +
-              params.accountId +
-              ",seller_account_id.is.null",
-          )
-        : query.eq("seller_account_id", params.accountId);
-
-      query =
-        candidate === "instacomp"
-          ? query.not("metadata->instacomp", "is", null)
-          : query.or(
-              "metadata->card_identity.not.is.null,metadata->cardIdentity.not.is.null,metadata->sale_identity.not.is.null",
-            );
-
-      const { data, error } = await query
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, from + 999);
-      if (error) throw error;
-      rows.push(...(data || []));
-      if (!data || data.length < 1000) return rows;
+      const batch = await readWithRetry<{ id: string }>(() => {
+        let query: any = params.supabase
+          .from("inventory_items")
+          .select("id")
+          .eq("store_id", params.storeId)
+          .in("status", ["draft", "active"]);
+        query = applyOwnerScope(query);
+        query =
+          candidate === "instacomp"
+            ? query.not("metadata->instacomp", "is", null)
+            : query.or(
+                "metadata->card_identity.not.is.null,metadata->cardIdentity.not.is.null,metadata->sale_identity.not.is.null",
+              );
+        return query
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, from + 999);
+      });
+      ids.push(...batch.map((row) => String(row.id)));
+      if (batch.length < 1000) return ids;
     }
   };
 
-  const [instaCompRows, legacyIdentityRows] = await Promise.all([
-    readQuery("instacomp"),
-    readQuery("legacy_identity"),
+  const [instaCompIds, legacyIdentityIds] = await Promise.all([
+    readCandidateIds("instacomp"),
+    readCandidateIds("legacy_identity"),
   ]);
-  const byId = new Map<string, any>();
-  for (const row of [...instaCompRows, ...legacyIdentityRows]) {
-    byId.set(String(row.id), row);
+  const candidateIds = Array.from(
+    new Set([...instaCompIds, ...legacyIdentityIds]),
+  );
+  if (!candidateIds.length) return [];
+
+  const idBatches: string[][] = [];
+  for (let index = 0; index < candidateIds.length; index += 150) {
+    idBatches.push(candidateIds.slice(index, index + 150));
   }
+
+  const rows: any[] = [];
+  for (let index = 0; index < idBatches.length; index += 4) {
+    const wave = await Promise.all(
+      idBatches.slice(index, index + 4).map((idBatch) =>
+        readWithRetry<any>(() => {
+          let query: any = params.supabase
+            .from("inventory_items")
+            .select(params.columns)
+            .eq("store_id", params.storeId)
+            .in("status", ["draft", "active"])
+            .in("id", idBatch);
+          query = applyOwnerScope(query);
+          return query
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true });
+        }),
+      ),
+    );
+    for (const batch of wave) rows.push(...batch);
+  }
+
+  const byId = new Map<string, any>();
+  for (const row of rows) byId.set(String(row.id), row);
   return [...byId.values()].sort((left, right) => {
     const created = String(left.created_at || "").localeCompare(
       String(right.created_at || ""),

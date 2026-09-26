@@ -140,5 +140,19 @@ assert.ok(
   client.includes("No exact sold comp produced a price. Enter one Manual Price below"),
   "Pending must explain how the remaining seller-price blocker is cleared",
 );
+assert.ok(
+  pending.includes('.select("id")') &&
+    pending.includes("readCandidateIds") &&
+    pending.includes("readWithRetry") &&
+    pending.includes('.in("id", idBatch)'),
+  "Master Listings must discover candidate IDs cheaply before fetching full metadata rows",
+);
+assert.ok(
+  client.includes("MASTER_LISTINGS_COUNTS_CACHE_KEY") &&
+    client.includes("writeMasterListingsCountCache") &&
+    client.includes('countsLoaded ? count : "—"') &&
+    client.includes("!pageError"),
+  "Master Listings must preserve last valid counts and never present a failed load as zero inventory",
+);
 
 console.log("KINGMAKER Master Listings edit regressions passed.");

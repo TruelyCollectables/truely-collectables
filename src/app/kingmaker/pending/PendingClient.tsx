@@ -353,6 +353,48 @@ type ListingFolder =
   | "all3"
   | "investment";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
+type MasterListingsCountSnapshot = {
+  queueCounts: { listings: number; verification: number };
+  folderCounts: Record<CountedListingFolder, number>;
+  savedAt: number;
+};
+const MASTER_LISTINGS_COUNTS_CACHE_KEY =
+  "kingmaker_master_listings_counts_v1";
+
+function readMasterListingsCountCache(): MasterListingsCountSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(MASTER_LISTINGS_COUNTS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MasterListingsCountSnapshot;
+    if (
+      !parsed ||
+      typeof parsed.savedAt !== "number" ||
+      Date.now() - parsed.savedAt > 60 * 60 * 1000
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeMasterListingsCountCache(
+  queueCounts: MasterListingsCountSnapshot["queueCounts"],
+  folderCounts: MasterListingsCountSnapshot["folderCounts"],
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      MASTER_LISTINGS_COUNTS_CACHE_KEY,
+      JSON.stringify({ queueCounts, folderCounts, savedAt: Date.now() }),
+    );
+  } catch {
+    // Counts cache is a resilience aid only.
+  }
+}
+
 type ChannelAction = "publish-website" | "publish-ebay" | "publish-mercari" | "publish-website-mercari" | "publish-all-3";
 type MergeEbayStrategy = "keep_one" | "increase_existing";
 
@@ -745,6 +787,7 @@ export default function KingmakerPendingPage({
   const [cards, setCards] = useState<PendingCard[]>(initialCards);
   const [queueCounts, setQueueCounts] = useState(initialQueueCounts);
   const [folderCounts, setFolderCounts] = useState(initialFolderCounts);
+  const [countsLoaded, setCountsLoaded] = useState(initialLoaded);
   const [jobs, setJobs] = useState<Record<string, JobStatus>>({});
   const [localStage, setLocalStage] = useState<Record<string, LocalStage>>({});
   const [localError, setLocalError] = useState<Record<string, string>>({});
@@ -861,6 +904,15 @@ export default function KingmakerPendingPage({
     setFolder(folderFromLocation());
   }, []);
 
+  useEffect(() => {
+    if (initialLoaded) return;
+    const cached = readMasterListingsCountCache();
+    if (!cached) return;
+    setQueueCounts(cached.queueCounts);
+    setFolderCounts(cached.folderCounts);
+    setCountsLoaded(true);
+  }, [initialLoaded]);
+
   const load = useCallback(async (activeQueue: PendingQueue, activeFolder: ListingFolder = folderFromLocation()) => {
     const requestedFolder = activeQueue === "verification" || activeFolder === "receipt" ? "pending" : activeFolder;
     setLoading(true);
@@ -935,11 +987,11 @@ export default function KingmakerPendingPage({
         setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
       }
       setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
-      setQueueCounts({
+      const nextQueueCounts = {
         listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
-      });
-      setFolderCounts({
+      };
+      const nextFolderCounts: Record<CountedListingFolder, number> = {
         pending: Math.max(0, Number(cardsData.folderCounts?.pending || 0)),
         website: Math.max(0, Number(cardsData.folderCounts?.website || 0)),
         ebay: Math.max(0, Number(cardsData.folderCounts?.ebay || 0)),
@@ -949,7 +1001,11 @@ export default function KingmakerPendingPage({
         ebay_mercari: Math.max(0, Number(cardsData.folderCounts?.ebay_mercari || 0)),
         all3: Math.max(0, Number(cardsData.folderCounts?.all3 || 0)),
         investment: Math.max(0, Number(cardsData.folderCounts?.investment || 0)),
-      });
+      };
+      setQueueCounts(nextQueueCounts);
+      setFolderCounts(nextFolderCounts);
+      setCountsLoaded(true);
+      writeMasterListingsCountCache(nextQueueCounts, nextFolderCounts);
       if (typeof window !== "undefined") {
         (window as any).__kingmakerPendingDebug = {
           queue: activeQueue,
@@ -968,18 +1024,25 @@ export default function KingmakerPendingPage({
         return new Set([...current].filter((id) => available.has(id)));
       });
     } catch (error) {
+      const errorMessage = message(error);
+      const aborted =
+        /AbortError|operation was aborted|aborted|timeout/i.test(errorMessage);
       if (typeof window !== "undefined") {
         (window as any).__kingmakerPendingDebug = {
           queue: activeQueue,
           folder: requestedFolder,
           stage: "error",
-          error: message(error),
+          error: errorMessage,
           itemCount: null,
           queueCounts: null,
           accessTokenHint,
         };
       }
-      setPageError(message(error));
+      setPageError(
+        aborted
+          ? "Master Listings refresh timed out. Existing inventory counts were preserved; reload to retry."
+          : errorMessage,
+      );
     } finally {
       setLoading(false);
     }
@@ -2262,7 +2325,7 @@ export default function KingmakerPendingPage({
                   : "border-neutral-400 bg-white text-neutral-950"
               }`}
             >
-              {label} · {count}
+              {label} · {value === "receipt" || countsLoaded ? count : "—"}
             </button>
           ))}
           <button
@@ -2284,14 +2347,14 @@ export default function KingmakerPendingPage({
                 : "border-neutral-400 bg-white text-neutral-950"
             }`}
           >
-            Pending Verification · {queueCounts.verification}
+            Pending Verification · {countsLoaded ? queueCounts.verification : "—"}
           </button>
         </nav>
 
         {pageError ? <div className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 p-4 font-bold text-red-900">{pageError}</div> : null}
         {notice ? <div className="mt-5 rounded-xl border-2 border-emerald-700 bg-emerald-50 p-4 font-bold text-emerald-900">{notice}</div> : null}
 
-        {!loading && !cards.length ? (
+        {!loading && !cards.length && !pageError ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
             <p className="text-xl font-black">
               {queue === "verification"
