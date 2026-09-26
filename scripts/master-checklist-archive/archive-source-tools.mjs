@@ -6,7 +6,7 @@ import { normalized, parseChecklist, sha256 } from "../mainstream-checklist/sour
 
 const TEMP_ROOT = resolve(process.cwd(), ".checklist-discovery/master-archive-tmp");
 const ARCHIVE_ROOT_NAME = ".card-checklist-master-archive";
-const STRUCTURED = new Set([".xlsx", ".xls", ".csv", ".tsv"]);
+const STRUCTURED = new Set([".xlsx", ".xls", ".csv", ".tsv", ".html", ".htm", ".txt"]);
 const CARD_NUMBER = /^(?:\d{1,5}[A-Za-z]?|[A-Z]{1,12}-?[A-Z0-9]{1,18}|NNO|NO#)$/i;
 
 function extension(name) {
@@ -21,7 +21,10 @@ function mimeFor(name) {
     case ".xls": return "application/vnd.ms-excel";
     case ".csv": return "text/csv";
     case ".tsv": return "text/tab-separated-values";
-    default: return "text/plain";
+    case ".html":
+    case ".htm": return "text/html";
+    case ".txt": return "text/plain";
+    default: return "application/octet-stream";
   }
 }
 
@@ -38,9 +41,69 @@ function structuredFiles(candidate) {
   return (candidate.files || [])
     .filter((file) => file.role === "source-download" && STRUCTURED.has(extension(file.name)))
     .sort((a, b) => {
-      const rank = new Map([[".xlsx", 0], [".xls", 1], [".csv", 2], [".tsv", 3]]);
+      const rank = new Map([
+        [".xlsx", 0], [".xls", 1], [".csv", 2], [".tsv", 3],
+        [".html", 4], [".htm", 4], [".txt", 5],
+      ]);
       return (rank.get(extension(a.name)) ?? 10) - (rank.get(extension(b.name)) ?? 10);
     });
+}
+
+function decodeEntities(value) {
+  const named = {
+    amp: "&", apos: "'", gt: ">", hellip: "…", ldquo: '"', lsquo: "'",
+    lt: "<", nbsp: " ", ndash: "-", mdash: "-", quot: '"', rdquo: '"',
+    reg: "®", rsquo: "'", trade: "™",
+  };
+  return String(value || "").replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (whole, entity) => {
+    if (/^#x/i.test(entity)) {
+      const code = Number.parseInt(entity.slice(2), 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    }
+    if (entity.startsWith("#")) {
+      const code = Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    }
+    return named[entity.toLowerCase()] ?? whole;
+  });
+}
+
+function stripFragment(value) {
+  return normalized(
+    decodeEntities(
+      String(value || "")
+        .replace(/<br\s*\/?>/gi, " ")
+        .replace(/<[^>]+>/g, " "),
+    ),
+  );
+}
+
+function htmlToSemanticText(html) {
+  let value = String(html || "")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|svg|template)[^>]*>[\s\S]*?<\/\1>/gi, " ");
+
+  value = value.replace(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi, (whole, row) => {
+    const cells = [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+      .map((match) => stripFragment(match[1]))
+      .filter(Boolean);
+    return cells.length ? `\n${cells.join(" | ")}\n` : "\n";
+  });
+
+  value = value
+    .replace(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi, (whole, heading) => {
+      const text = stripFragment(heading);
+      return text ? `\n## ${text}\n` : "\n";
+    })
+    .replace(/<(?:li|p|div|section|article|dd|dt)\b[^>]*>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+
+  const lines = decodeEntities(value)
+    .split(/\r?\n/)
+    .map(normalized)
+    .filter(Boolean);
+  return lines.filter((line, index) => line !== lines[index - 1]).join("\n");
 }
 
 function workbookToText(path, mime) {
@@ -98,6 +161,16 @@ with open(path, 'r', encoding='utf-8-sig', errors='replace', newline='') as fh:
   }
 }
 
+function sourceText(source, fileName) {
+  const ext = extension(fileName);
+  if ([".xlsx", ".xls"].includes(ext)) return workbookToText(source.path, source.mimeType);
+  if (ext === ".csv") return delimitedToText(source.bytes, ",");
+  if (ext === ".tsv") return delimitedToText(source.bytes, "\t");
+  if ([".html", ".htm"].includes(ext)) return htmlToSemanticText(source.bytes.toString("utf8"));
+  if (ext === ".txt") return source.bytes.toString("utf8").replace(/\t/g, " | ");
+  return source.bytes.toString("utf8");
+}
+
 function headerKey(value) {
   return normalized(value).toLowerCase().replace(/[^a-z0-9#]+/g, " ").trim();
 }
@@ -119,7 +192,7 @@ function parseStructuredTable(entry, text) {
   for (let index = 0; index < Math.min(lines.length, 80); index += 1) {
     if (!lines[index].includes(" | ")) continue;
     const headers = lines[index].split(" | ").map(headerKey);
-    const card = headerIndex(headers, [/^card #$/, /^card no$/, /^card number$/, /^number$/, /^#$/]);
+    const card = headerIndex(headers, [/^card #$/, /^card no$/, /^card number$/, /^number$/, /^#$/, /^no$/, /^no #$/]);
     const player = headerIndex(headers, [/^player$/, /^subject$/, /^name$/, /^athlete$/, /^cardholder$/, /^character$/]);
     if (card < 0 || player < 0) continue;
     indices = {
@@ -275,9 +348,7 @@ export function parseArchivedCandidate(entry, candidate, extractedRoot) {
   for (const file of structured) {
     try {
       const source = readArchivedFile(root, candidate, file);
-      let text;
-      if ([".xlsx", ".xls"].includes(extension(file.name))) text = workbookToText(source.path, source.mimeType);
-      else text = delimitedToText(source.bytes, extension(file.name) === ".tsv" ? "\t" : ",");
+      const text = sourceText(source, file.name);
       const tabular = parseStructuredTable(entry, text);
       const parsed = tabular || parseChecklist(entry, text);
       const checked = quality(entry, candidate, parsed, text, `structured-${extension(file.name).slice(1)}`);
@@ -353,8 +424,10 @@ export function parseSourceBytes(entry, source) {
     text = delimitedToText(source.bytes, ",");
   } else if (mime.includes("tab-separated")) {
     text = delimitedToText(source.bytes, "\t");
+  } else if (mime.includes("html") || mime.includes("xhtml")) {
+    text = htmlToSemanticText(Buffer.from(source.bytes).toString("utf8"));
   } else {
-    text = Buffer.from(source.bytes).toString("utf8");
+    text = Buffer.from(source.bytes).toString("utf8").replace(/\t/g, " | ");
   }
   const tabular = parseStructuredTable(entry, text);
   return { text, parsed: tabular || parseChecklist(entry, text) };
