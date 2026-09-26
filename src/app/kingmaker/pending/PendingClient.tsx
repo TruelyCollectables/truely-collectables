@@ -1715,6 +1715,7 @@ export default function KingmakerPendingPage({
       }
       const reconciled = Number(data.reconciled || 0);
       const blocked = Number(data.blocked || 0);
+      const duplicatesIgnored = Number(data.duplicatesIgnored || 0);
       const mercariRelistEligible = Array.isArray(data.results)
         ? data.results.filter(
             (result: { mercariAction?: string | null }) =>
@@ -1738,7 +1739,7 @@ export default function KingmakerPendingPage({
           ? ` · eBay existing listing qty increased on ${ebayIncreased}/${reconciled}${ebayFailed ? ` · ${ebayFailed} eBay update failed/held` : ""}`
           : " · eBay kept at its existing qty/reserve";
       setNotice(
-        `Exact inventory merge finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} added to the one canonical website listing with existing prices preserved${ebaySummary} · active Mercari stayed qty 1${mercariRelistEligible ? ` · ${mercariRelistEligible} sold/ended Mercari listing${mercariRelistEligible === 1 ? "" : "s"} marked eligible to relist` : ""}${blocked ? ` · ${blocked} held for reconciliation` : ""}. No duplicate eBay listing was created.`,
+        `Exact inventory merge finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} added to the one canonical website listing with existing prices preserved${ebaySummary} · active Mercari stayed qty 1${mercariRelistEligible ? ` · ${mercariRelistEligible} sold/ended Mercari listing${mercariRelistEligible === 1 ? "" : "s"} marked eligible to relist` : ""}${duplicatesIgnored ? ` · ${duplicatesIgnored} duplicate physical scan${duplicatesIgnored === 1 ? "" : "s"} ignored without increasing quantity` : ""}${blocked ? ` · ${blocked} held only because identity/listing evidence is still unsafe` : ""}. No duplicate eBay listing was created.`,
       );
       setSelectedIds(new Set());
       await load(queue || queueFromLocation());

@@ -64,22 +64,68 @@ function exactIdentityLocked(metadataValue: unknown) {
   );
 }
 
-function uniquePhysical(metadataValue: unknown) {
+function physicalEvidence(metadataValue: unknown) {
   const metadata = record(metadataValue);
   const instaComp = record(metadata.instacomp);
   const asset = record(metadata.collectible_asset);
+  const checklistIdentity = record(instaComp.checklistIdentity);
+  const locked = record(checklistIdentity.lockedFields);
   const identity = record(
     instaComp.manualIdentityLocked === true
       ? instaComp.manualIdentity
       : instaComp.ai,
   );
-  return Boolean(
-    text(asset.exact_serial_number) ||
+  const serialValue =
+    text(asset.exact_serial_number) || text(identity.serialNumber);
+  const serialMatch = String(serialValue || "").match(
+    /\b(\d{1,7})\s*\/\s*(\d{1,7})\b/,
+  );
+  const canonicalRun = Math.floor(
+    Number(locked.serialRun || identity.serialRun || 0),
+  );
+  return {
+    imagePairSha256:
+      text(instaComp.imagePairSha256) ||
+      text(instaComp.inputImagePairSha256),
+    scanId: text(instaComp.scanId),
+    exactSerialNumber: serialMatch
+      ? String(Number(serialMatch[1])) + "/" + String(Number(serialMatch[2]))
+      : null,
+    observedSerialRun: serialMatch ? Number(serialMatch[2]) : null,
+    canonicalSerialRun:
+      Number.isFinite(canonicalRun) && canonicalRun > 0 ? canonicalRun : null,
+    gradingCertNumber:
       text(asset.grading_cert_number) ||
-      text(identity.serialNumber) ||
       text(identity.certificationNumber) ||
       text(identity.gradingCertNumber),
+  };
+}
+
+function serialRunIdentityConflict(metadataValue: unknown) {
+  const evidence = physicalEvidence(metadataValue);
+  return Boolean(
+    evidence.observedSerialRun &&
+      evidence.observedSerialRun !== evidence.canonicalSerialRun,
   );
+}
+
+function samePhysicalReason(sourceMetadata: unknown, targetMetadata: unknown) {
+  const source = physicalEvidence(sourceMetadata);
+  const target = physicalEvidence(targetMetadata);
+  if (
+    source.imagePairSha256 &&
+    target.imagePairSha256 &&
+    source.imagePairSha256 === target.imagePairSha256
+  ) return "same_image_pair";
+  if (source.scanId && target.scanId && source.scanId === target.scanId) {
+    return "same_scan_id";
+  }
+  if (
+    source.exactSerialNumber &&
+    target.exactSerialNumber &&
+    source.exactSerialNumber === target.exactSerialNumber
+  ) return "same_serial_number";
+  return null;
 }
 
 function mercariMergeStatus(statusValue: unknown) {
@@ -304,8 +350,23 @@ export async function POST(request: Request) {
         });
         continue;
       }
-      if (uniquePhysical(metadata)) {
-        results.push({ inventoryItemId: row.id, status: "blocked", reason: "unique_physical_asset" });
+      const sourcePhysical = physicalEvidence(metadata);
+      if (sourcePhysical.gradingCertNumber) {
+        results.push({
+          inventoryItemId: row.id,
+          status: "blocked",
+          reason: "graded_unique_asset",
+        });
+        continue;
+      }
+      if (serialRunIdentityConflict(metadata)) {
+        results.push({
+          inventoryItemId: row.id,
+          status: "blocked",
+          reason: "serial_run_identity_conflict",
+          observedSerialRun: sourcePhysical.observedSerialRun,
+          canonicalSerialRun: sourcePhysical.canonicalSerialRun,
+        });
         continue;
       }
 
@@ -447,6 +508,58 @@ export async function POST(request: Request) {
         continue;
       }
       const existingKeeper = (activeKeepers || [])[0] || null;
+      const duplicatePhysicalReason = existingKeeper
+        ? samePhysicalReason(metadata, existingKeeper.metadata)
+        : null;
+      if (duplicatePhysicalReason) {
+        if (!dryRun) {
+          const duplicateAt = new Date().toISOString();
+          const { error: duplicateArchiveError } = await supabase
+            .from("inventory_items")
+            .update({
+              status: "archived",
+              quantity: 0,
+              legacy_product_id: null,
+              metadata: {
+                ...metadata,
+                commercial_merge: {
+                  state: "completed",
+                  reason: "duplicate_physical_scan_no_quantity",
+                  duplicateReason: duplicatePhysicalReason,
+                  keeperInventoryItemId: existingKeeper.id,
+                  websiteProductId: productId,
+                  quantityAdded: 0,
+                  mergedAt: duplicateAt,
+                  reversible: true,
+                },
+                website_inventory_reconciliation: {
+                  status: "completed",
+                  productId,
+                  keeperInventoryItemId: existingKeeper.id,
+                  addedQuantity: 0,
+                  resultingQuantity: liveProductQuantity,
+                  completedAt: duplicateAt,
+                  duplicateReason: duplicatePhysicalReason,
+                },
+              },
+              updated_at: duplicateAt,
+            })
+            .eq("store_id", storeId)
+            .eq("id", row.id)
+            .eq("status", "draft");
+          if (duplicateArchiveError) throw duplicateArchiveError;
+        }
+        results.push({
+          inventoryItemId: row.id,
+          status: "duplicate_ignored",
+          reason: duplicatePhysicalReason,
+          productId,
+          keeperInventoryItemId: existingKeeper.id,
+          addedQuantity: 0,
+          resultingQuantity: liveProductQuantity,
+        });
+        continue;
+      }
       const keeperId = text(prior.keeperInventoryItemId) || existingKeeper?.id || row.id;
       const now = new Date().toISOString();
       const sourceScanId = text(record(metadata.instacomp).scanId);
@@ -568,8 +681,6 @@ export async function POST(request: Request) {
           .from("products")
           .update({
             quantity: targetQuantity,
-            title: row.title,
-            description: row.description || target.description || null,
           })
           .eq("store_id", storeId)
           .eq("id", productId)
@@ -812,8 +923,6 @@ export async function POST(request: Request) {
           .from("inventory_items")
           .update({
             quantity: targetQuantity,
-            title: row.title,
-            description: row.description || keeper.description || null,
             metadata: keeperMetadata,
             updated_at: now,
           })
@@ -905,6 +1014,9 @@ export async function POST(request: Request) {
     const reconciled = results.filter((result) => result.status === "reconciled").length;
     const ready = results.filter((result) => result.status === "ready").length;
     const blocked = results.filter((result) => result.status === "blocked").length;
+    const duplicatesIgnored = results.filter(
+      (result) => result.status === "duplicate_ignored",
+    ).length;
     return Response.json({
       success: true,
       dryRun,
@@ -913,6 +1025,7 @@ export async function POST(request: Request) {
       reconciled,
       ready,
       blocked,
+      duplicatesIgnored,
       results,
     });
   } catch (error) {

@@ -113,5 +113,10 @@ assert(reconcileRoute.includes("exactMergeHistory"), "Exact-card merge must pers
 assert(reconcileRoute.includes('status: "prepared"'), "Website reconciliation must record a prepared absolute target before mutating quantity.");
 assert(reconcileRoute.includes('status: "completed"'), "Website reconciliation must record completion for idempotent retries.");
 assert(reconcileRoute.includes("multiple_exact_live_products"), "Website reconciliation must block ambiguous multiple exact live products.");
-assert(reconcileRoute.includes("unique_physical_asset"), "Website reconciliation must block serial/graded unique assets.");
+assert(reconcileRoute.includes("same_image_pair"), "Exact-card merge must ignore duplicate uploads with the same physical image pair.");
+assert(reconcileRoute.includes("same_serial_number"), "Exact-card merge must not double-count the same serialized physical card.");
+assert(reconcileRoute.includes("serial_run_identity_conflict"), "Serialized scans must stay blocked when physical numbering conflicts with the canonical Registry identity.");
+assert(reconcileRoute.includes("duplicate_physical_scan_no_quantity"), "Duplicate physical scans must be removed from Pending without increasing quantity.");
+assert(reconcileRoute.includes("graded_unique_asset"), "Graded/certified unique assets must remain fail-closed.");
+assert(reconcileRoute.includes("duplicatesIgnored"), "Merge responses must report ignored duplicate physical scans.");
 console.log("PASS KINGMAKER current website inventory regressions");
