@@ -79,6 +79,10 @@ const pendingClient = fs.readFileSync("src/app/kingmaker/pending/PendingClient.t
 const reconcileRoute = fs.readFileSync("src/app/api/account/seller/instacomp-pending/reconcile-website/route.ts", "utf8");
 assert(pendingRoute.includes("liveWebsiteProductsByAnchor"), "Pending API must scan sellable website products independently of inventory_items.status.");
 assert(pendingRoute.includes("websiteInventory:"), "Pending API must expose current website inventory evidence.");
+assert(pendingRoute.includes("textValue(instaComp.frontImageUrl)"), "Mac-projected Master Listings must use the stored front image URL without requiring a Supabase image-row read.");
+assert(pendingRoute.includes("textValue(instaComp.backImageUrl)"), "Mac-projected Master Listings must use the stored back image URL without requiring a Supabase image-row read.");
+assert(pendingRoute.includes("projectedWebsiteProductId"), "Mac-projected listed cards must preserve their canonical website product link.");
+assert(pendingRoute.includes("websiteActiveByProjection"), "Mac-projected channel state must drive website-listed reconciliation safely.");
 assert(channelRoute.includes("WEBSITE_LINK_IDENTITY_MISMATCH"), "Website publishing must fail closed on a mismatched live product link.");
 assert(pendingClient.includes("CURRENT WEBSITE INVENTORY"), "Pending UI must visibly flag current website inventory.");
 assert(pendingClient.includes("WEBSITE LINK MISMATCH · DO NOT PUBLISH"), "Pending UI must visibly block mismatched website links.");

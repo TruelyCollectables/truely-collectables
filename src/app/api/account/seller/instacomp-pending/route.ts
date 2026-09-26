@@ -1335,6 +1335,7 @@ export async function GET(request: Request) {
         imageRowsByItem.get(String(row.id)) || [],
       );
       const metadataBackUrl =
+        textValue(instaComp.backImageUrl) ||
         textValue(recordValue(instaComp.recoveredImageUrls).back) ||
         (Array.isArray(instaComp.sourceImageUrls)
           ? textValue(instaComp.sourceImageUrls[1])
@@ -1345,6 +1346,7 @@ export async function GET(request: Request) {
       const hasBackImage =
         storedPair.hasStoredBackImage || Boolean(metadataBackUrl);
       const metadataFrontUrl =
+        textValue(instaComp.frontImageUrl) ||
         textValue(recordValue(instaComp.recoveredImageUrls).front) ||
         (Array.isArray(instaComp.sourceImageUrls)
           ? textValue(instaComp.sourceImageUrls[0])
@@ -1567,6 +1569,29 @@ export async function GET(request: Request) {
         graded: gradedCard,
       });
 
+      const currentListingFolder = listingFolderFromMetadata(
+        metadata,
+        rowHasLegacyEbayListing(row),
+        rowHasLegacyWebsiteListing(row),
+      );
+      const websiteActiveByProjection =
+        currentListingFolder === "website" ||
+        currentListingFolder === "both" ||
+        currentListingFolder === "website_mercari" ||
+        currentListingFolder === "all3";
+      const projectedWebsiteProductId =
+        useMacListingProjection && websiteActiveByProjection
+          ? Number(row.legacy_product_id || dualWebsite.productId || 0) || null
+          : null;
+      const projectedWebsiteProduct = projectedWebsiteProductId
+        ? {
+            id: projectedWebsiteProductId,
+            title: displayTitle,
+            quantity: Math.max(0, Number(row.quantity || 0)),
+            price: websiteChannelPrice || Number(row.price || 0),
+          }
+        : null;
+
       const existingMatches = existingActiveRows
         .map((candidate: any) => {
           const candidateProduct = candidate.legacy_product_id
@@ -1609,7 +1634,9 @@ export async function GET(request: Request) {
         imageUrl: displayFrontUrl,
         frontImageUrl: displayFrontUrl,
         backImageUrl: displayBackUrl,
-        storedImageCount: storedPair.storedImageCount,
+        storedImageCount:
+          storedPair.storedImageCount ||
+          Number(Boolean(metadataFrontUrl)) + Number(Boolean(metadataBackUrl)),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         uniquePhysicalCopy,
@@ -1622,28 +1649,7 @@ export async function GET(request: Request) {
         },
         listingReadiness,
         websiteInventory: {
-          current:
-            exactWebsiteProducts.length > 0 ||
-            listingFolderFromMetadata(
-              metadata,
-              rowHasLegacyEbayListing(row),
-              rowHasLegacyWebsiteListing(row),
-            ) === "website" ||
-            listingFolderFromMetadata(
-              metadata,
-              rowHasLegacyEbayListing(row),
-              rowHasLegacyWebsiteListing(row),
-            ) === "both" ||
-            listingFolderFromMetadata(
-              metadata,
-              rowHasLegacyEbayListing(row),
-              rowHasLegacyWebsiteListing(row),
-            ) === "website_mercari" ||
-            listingFolderFromMetadata(
-              metadata,
-              rowHasLegacyEbayListing(row),
-              rowHasLegacyWebsiteListing(row),
-            ) === "all3",
+          current: exactWebsiteProducts.length > 0 || websiteActiveByProjection,
           quantity:
             exactWebsiteProducts.length > 0
               ? exactWebsiteProducts.reduce(
@@ -1651,18 +1657,38 @@ export async function GET(request: Request) {
                     sum + Math.max(0, Number(websiteProduct.quantity || 0)),
                   0,
                 )
-              : Math.max(0, Number(row.quantity || 0)),
-          productIds: exactWebsiteProducts.map((websiteProduct) => websiteProduct.id),
-          products: exactWebsiteProducts.slice(0, 10).map((websiteProduct) => ({
-            id: websiteProduct.id,
-            title: websiteProduct.title || null,
-            quantity: Math.max(0, Number(websiteProduct.quantity || 0)),
-            price: Number(websiteProduct.price || 0),
-          })),
-          linkedProductId: product?.id || null,
-          linkedProductTitle: product?.title || null,
-          linkedProductSellable: linkedWebsiteSellable,
-          linkedMatchStatus: linkedWebsiteMatch?.status || "none",
+              : projectedWebsiteProduct
+                ? projectedWebsiteProduct.quantity
+                : Math.max(0, Number(row.quantity || 0)),
+          productIds:
+            exactWebsiteProducts.length > 0
+              ? exactWebsiteProducts.map((websiteProduct) => websiteProduct.id)
+              : projectedWebsiteProduct
+                ? [projectedWebsiteProduct.id]
+                : [],
+          products:
+            exactWebsiteProducts.length > 0
+              ? exactWebsiteProducts.slice(0, 10).map((websiteProduct) => ({
+                  id: websiteProduct.id,
+                  title: websiteProduct.title || null,
+                  quantity: Math.max(0, Number(websiteProduct.quantity || 0)),
+                  price: Number(websiteProduct.price || 0),
+                }))
+              : projectedWebsiteProduct
+                ? [projectedWebsiteProduct]
+                : [],
+          linkedProductId:
+            product?.id || projectedWebsiteProductId || null,
+          linkedProductTitle:
+            product?.title || (projectedWebsiteProductId ? displayTitle : null),
+          linkedProductSellable:
+            linkedWebsiteSellable ||
+            Boolean(projectedWebsiteProductId && websiteActiveByProjection),
+          linkedMatchStatus:
+            linkedWebsiteMatch?.status ||
+            (projectedWebsiteProductId && websiteActiveByProjection
+              ? "exact"
+              : "none"),
           linkedMismatchReason:
             linkedWebsiteMatch && linkedWebsiteMatch.status !== "exact"
               ? linkedWebsiteMatch.reason
