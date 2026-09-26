@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 
 from app.config import Settings
 from app.models import CardIdentity, SpecimenAttributes
-from app.specimen_attributes import RawSpecimenVision, _build_result, analyze_specimen_attributes
+from app.specimen_attributes import (
+    RawSpecimenVision,
+    _build_result,
+    _parse_cloudflare_specimen,
+    analyze_specimen_attributes,
+)
 from app.storage import MemoryStore
 
 
@@ -110,3 +115,31 @@ def test_specimen_attributes_round_trip_separately_from_checklist(tmp_path):
     assert saved["checklist"]["identity_id"] == "registry:1"
     assert saved["specimen_attributes"]["patch_color_count"] == 2
     assert saved["specimen_attributes"]["identity_fields_mutated"] is False
+
+
+def test_cloudflare_parser_accepts_underscore_prose_and_zero_percent_uncertainty():
+    raw = _parse_cloudflare_specimen(
+        """
+        Answer: patch_color_count: 3, patch_colors: white, blue, red,
+        observation_confidence: 1, uncertainty: 0%
+        """
+    )
+    assert raw.patch_color_count == 3
+    assert raw.patch_colors == ["white", "blue", "red"]
+    assert raw.observation_confidence == 1
+    assert raw.uncertainty == []
+
+
+def test_cloudflare_parser_accepts_markdown_patch_labels():
+    raw = _parse_cloudflare_specimen(
+        """
+        **Patch Color Count:** 2
+        **Patch Colors:** Red and Blue
+        **Observation Confidence:** 100%
+        **Uncertainty:** 0%
+        """
+    )
+    assert raw.patch_color_count == 2
+    assert raw.patch_colors == ["red", "blue"]
+    assert raw.observation_confidence == 1
+    assert raw.uncertainty == []
