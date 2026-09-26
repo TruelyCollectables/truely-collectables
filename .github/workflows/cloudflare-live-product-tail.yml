@@ -1,39 +1,53 @@
 name: Cloudflare Live Product Tail
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/cloudflare-live-product-tail.yml'
   workflow_dispatch:
+    inputs:
+      rollback_version:
+        description: Known-good routed Worker version ID
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  tail:
+  rollback:
     runs-on: ubuntu-24.04
-    timeout-minutes: 4
+    timeout-minutes: 10
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      URL: https://truelycollectables.com/api/instacomp/deal-hunter/evaluate
+      ROLLBACK_VERSION: ${{ inputs.rollback_version }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Install Wrangler
         run: npm install --no-save --package-lock=false wrangler@4.122.0
-
-      - name: Tail Worker while probing product
+      - name: Roll back routed production Worker
         shell: bash
         run: |
-          set +e
-          timeout 35s npx wrangler tail truely-collectables-preview --format json > /tmp/tail.log 2>&1 &
-          tail_pid=$!
-          sleep 5
-          curl -sS --max-time 18 -X POST -H 'Content-Type: application/json' -D /tmp/product.headers -o /tmp/product.body -w 'HTTP=%{http_code} TIME=%{time_total} BYTES=%{size_download}\n' --data '{"kind":"run_complete","runId":"tail-diagnostic","status":"completed","counts":{},"summary":{}}' "$URL" || true
-          sleep 4
-          kill "$tail_pid" 2>/dev/null || true
-          wait "$tail_pid" 2>/dev/null || true
-          echo '--- response headers ---'
-          cat /tmp/product.headers 2>/dev/null || true
-          echo '--- worker tail ---'
-          cat /tmp/tail.log 2>/dev/null || true
+          set -euo pipefail
+          test -n "$ROLLBACK_VERSION"
+          npx --no-install wrangler rollback "$ROLLBACK_VERSION" \
+            --name truely-collectables-preview \
+            --yes \
+            --message "Incident rollback to last fully-smoked production version"
+      - name: Verify public storefront and payment boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            home="$(curl -sS --max-time 10 -o /tmp/home -w '%{http_code}' https://truelycollectables.com/ || true)"
+            checkout="$(curl -sS --max-time 10 -X POST -H 'content-type: application/json' -d '{}' -o /tmp/checkout -w '%{http_code}' https://truelycollectables.com/api/checkout || true)"
+            webhook="$(curl -sS --max-time 10 -X POST -H 'content-type: application/json' -d '{}' -o /tmp/webhook -w '%{http_code}' https://truelycollectables.com/api/stripe/webhook || true)"
+            echo "attempt=$attempt home=$home checkout=$checkout webhook=$webhook"
+            if [ "$home" = "200" ] && [ "$checkout" = "400" ] && [ "$webhook" = "400" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Rollback deployed but payment-boundary verification did not converge."
+          exit 1
