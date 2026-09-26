@@ -1085,33 +1085,49 @@ export async function GET(request: Request) {
     const [storedImages, products, liveWebsiteProducts] = await Promise.all([
       (async () => {
         const result: StoredImage[] = [];
+        const batches: string[][] = [];
         for (let index = 0; index < itemIds.length; index += 100) {
-          const itemIdBatch = itemIds.slice(index, index + 100);
-          const { data, error } = await supabase
-            .from("inventory_images")
-            .select(
-              "inventory_item_id,image_url,alt_text,sort_order,is_primary",
-            )
-            .in("inventory_item_id", itemIdBatch)
-            .order("sort_order", { ascending: true });
-          if (error) throw error;
-          result.push(...((data || []) as StoredImage[]));
+          batches.push(itemIds.slice(index, index + 100));
+        }
+        for (let index = 0; index < batches.length; index += 4) {
+          const wave = await Promise.all(
+            batches.slice(index, index + 4).map(async (itemIdBatch) => {
+              const { data, error } = await supabase
+                .from("inventory_images")
+                .select(
+                  "inventory_item_id,image_url,alt_text,sort_order,is_primary",
+                )
+                .in("inventory_item_id", itemIdBatch)
+                .order("sort_order", { ascending: true });
+              if (error) throw error;
+              return (data || []) as StoredImage[];
+            }),
+          );
+          for (const batch of wave) result.push(...batch);
         }
         return result;
       })(),
       (async () => {
         const result: any[] = [];
+        const batches: number[][] = [];
         for (let index = 0; index < productIds.length; index += 250) {
-          const productIdBatch = productIds.slice(index, index + 250);
-          const { data, error } = await supabase
-            .from("products")
-            .select(
-              "id,card_uuid,sku,title,player,image_url,price,quantity,archived_at,listing_status,ebay_item_id",
-            )
-            .eq("store_id", storeId)
-            .in("id", productIdBatch);
-          if (error) throw error;
-          result.push(...(data || []));
+          batches.push(productIds.slice(index, index + 250));
+        }
+        for (let index = 0; index < batches.length; index += 4) {
+          const wave = await Promise.all(
+            batches.slice(index, index + 4).map(async (productIdBatch) => {
+              const { data, error } = await supabase
+                .from("products")
+                .select(
+                  "id,card_uuid,sku,title,player,image_url,price,quantity,archived_at,listing_status,ebay_item_id",
+                )
+                .eq("store_id", storeId)
+                .in("id", productIdBatch);
+              if (error) throw error;
+              return data || [];
+            }),
+          );
+          for (const batch of wave) result.push(...batch);
         }
         return result;
       })(),
