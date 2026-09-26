@@ -190,14 +190,13 @@ export async function fetchWithAccountSession(
 
   const refreshed = await getFreshAccountSession(0, true);
 
-  if (
-    !refreshed?.access_token ||
-    refreshed.access_token === session.access_token
-  ) {
-    clearAccountSession();
+  if (!refreshed?.access_token) {
     return response;
   }
 
+  // Retry once even when Supabase returns the same access token. A transient
+  // 401 during a Cloudflare Worker swap must not erase a still-valid seller
+  // session before the replacement Worker is ready.
   response = await fetch(
     input,
     withAccountAuthorization(input, init, refreshed.access_token),
