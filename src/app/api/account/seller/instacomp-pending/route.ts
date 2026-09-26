@@ -1186,8 +1186,8 @@ export async function GET(request: Request) {
         buildIdentityReadout(metadata) ||
         null;
       const displayTitle =
-        registryExactTitle ||
         manualListingTitle ||
+        registryExactTitle ||
         generatedTitle ||
         (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
         identityReadout ||

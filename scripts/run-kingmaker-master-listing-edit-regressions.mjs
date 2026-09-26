@@ -65,14 +65,17 @@ assert.ok(
     pending.includes("exactStoredText(instaComp.manualListingTitle)"),
   "Pending must only honor the manual title when the explicit seller lock is present",
 );
-const registryExactDisplayIndex = pending.indexOf("registryExactTitle ||");
-const manualTitleDisplayIndex = pending.indexOf("manualListingTitle ||", registryExactDisplayIndex);
+const displayTitleStart = pending.indexOf("const displayTitle =");
+const displayTitleEnd = pending.indexOf("const websiteAnchor =", displayTitleStart);
+const displayTitleBlock = pending.slice(displayTitleStart, displayTitleEnd);
+const manualTitleDisplayIndex = displayTitleBlock.indexOf("manualListingTitle ||");
+const registryExactDisplayIndex = displayTitleBlock.indexOf("registryExactTitle ||");
 assert.ok(
   pending.includes("const registryExactTitle = registryIdentityLocked") &&
     pending.includes("buildInstaCompRegistryExactTitle(primaryIdentity)") &&
-    registryExactDisplayIndex >= 0 &&
-    manualTitleDisplayIndex > registryExactDisplayIndex,
-  "An exact Registry match must display the checklist-derived title ahead of seller/canonical rewrites",
+    manualTitleDisplayIndex >= 0 &&
+    registryExactDisplayIndex > manualTitleDisplayIndex,
+  "Seller-saved listing title must win presentation while exact Registry identity remains unchanged underneath",
 );
 assert.ok(
   client.includes("const identityEdited = identityEditChanged(card, edit)") &&
