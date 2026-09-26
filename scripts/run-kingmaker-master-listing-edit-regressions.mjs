@@ -155,10 +155,16 @@ assert.ok(
   "Master Listings must preserve last valid counts and never present a failed load as zero inventory",
 );
 assert.ok(
-  pending.includes("readTimeoutMs: 20_000") &&
-    pending.includes("commercialFolderCount") &&
-    pending.includes("linkedProductBatches.slice(index, index + 4)"),
-  "Master Listings must use its operational read budget, count actionable commercial listings, and parallelize channel-state reads",
+  pending.includes('action: "master_list"') &&
+    pending.includes("useMacListingProjection") &&
+    pending.includes('sourceAuthority === "mac_local_sqlite"') &&
+    pending.includes("metadata.master_listing_projection"),
+  "Listed Master Listings folders must read Mac-local authoritative projection before any Supabase inventory fallback",
+);
+assert.ok(
+  pending.includes("if (!useMacListingProjection)") &&
+    pending.includes("useMacListingProjection\n        ? [[], [], []]"),
+  "Mac-authoritative listed folders must not block on Supabase image/product inventory walks",
 );
 const supabaseServer = fs.readFileSync("src/lib/supabase-server.ts", "utf8");
 assert.ok(

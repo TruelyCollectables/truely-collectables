@@ -208,6 +208,48 @@ type MacPendingTruthItem = {
   metadata?: unknown;
 };
 
+type MacMasterProjectionPayload = {
+  ok?: boolean;
+  sourceAuthority?: string;
+  items?: any[];
+  count?: number;
+  folderCounts?: Partial<Record<InstaCompListingFolder, number>>;
+  queueCounts?: Partial<Record<InstaCompPendingQueue, number>>;
+};
+
+async function loadMacMasterListingProjection(params: {
+  folder?: InstaCompListingFolder;
+  pendingQueue?: InstaCompPendingQueue;
+}) {
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  if (!baseUrl) return null;
+  const key = getConfiguredInstaCompMacKey();
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (key) headers.set("X-InstaComp-AI-Key", key);
+  const options: Record<string, string> = {};
+  if (params.folder) options.folder = params.folder;
+  if (params.pendingQueue) options.pendingQueue = params.pendingQueue;
+  try {
+    const response = await fetch(
+      baseUrl + "/v1/kingmaker/accounting/commercial-inventory",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "master_list",
+          items: [options],
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
+      },
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as MacMasterProjectionPayload;
+  } catch {
+    return null;
+  }
+}
+
 async function loadExactMacPendingTruth() {
   const baseUrl = getConfiguredInstaCompMacUrl();
   if (!baseUrl) return new Map<string, MacPendingTruthItem>();
@@ -251,14 +293,20 @@ function listingFolderFromMetadata(
   )
     return "investment";
   const dual = recordValue(metadata.dual_marketplace);
+  const projection = recordValue(metadata.master_listing_projection);
   const websiteActive =
+    projection.websiteActive === true ||
     textValue(recordValue(dual.website).status) === "active" ||
     legacyWebsiteLinked;
   const ebayStatus = textValue(recordValue(dual.ebay).status);
   const ebayActive =
-    ebayStatus === "active" || ebayStatus === "linked" || legacyEbayLinked;
+    projection.ebayActive === true ||
+    ebayStatus === "active" ||
+    ebayStatus === "linked" ||
+    legacyEbayLinked;
   const mercariStatus = textValue(recordValue(dual.mercari).status);
   const mercariActive =
+    projection.mercariActive === true ||
     mercariStatus === "active" ||
     mercariStatus === "linked" ||
     mercariStatus === "live";
@@ -731,17 +779,31 @@ export async function GET(request: Request) {
       requestedFolder === "investment"
         ? requestedFolder
         : "pending";
-    const inventoryRows = await readPendingCandidateInventoryPages({
-      supabase,
-      storeId,
-      accountId: account.id,
-      ownerAccount: isStoreOwnerAccount,
-      columns: PENDING_INVENTORY_COLUMNS,
-    });
+    const macProjection = compactKingmaker
+      ? await loadMacMasterListingProjection({
+          folder: queue === "listings" ? folder : undefined,
+          pendingQueue: queue === "verification" ? "verification" : undefined,
+        })
+      : null;
+    const useMacListingProjection =
+      compactKingmaker &&
+      queue === "listings" &&
+      folder !== "pending" &&
+      macProjection?.sourceAuthority === "mac_local_sqlite" &&
+      Array.isArray(macProjection.items);
+    const inventoryRows = useMacListingProjection
+      ? macProjection!.items!
+      : await readPendingCandidateInventoryPages({
+          supabase,
+          storeId,
+          accountId: account.id,
+          ownerAccount: isStoreOwnerAccount,
+          columns: PENDING_INVENTORY_COLUMNS,
+        });
 
-    // The website owns staging/listing state; InstaComp identity truth is Mac-local.
-    // Scan intake mirrors Mac results into staging immediately, so a normal page
-    // load must never wait on a live Mac inventory walk. Explicit recovery only.
+    // Mac-local KINGMAKER is the inventory authority. Supabase remains a
+    // storefront/channel mirror and fallback for pending staging, but listed
+    // Master Listings folders load from the local projection first.
     if (refreshMac) try {
       const macByInventoryId = await loadExactMacPendingTruth();
       for (const row of inventoryRows as any[]) {
@@ -878,23 +940,25 @@ export async function GET(request: Request) {
       quantity: number | null;
       archived_at: string | null;
     }> = [];
-    const linkedProductBatches: number[][] = [];
-    for (let index = 0; index < scopedProductIds.length; index += 250) {
-      linkedProductBatches.push(scopedProductIds.slice(index, index + 250));
-    }
-    for (let index = 0; index < linkedProductBatches.length; index += 4) {
-      const wave = await Promise.all(
-        linkedProductBatches.slice(index, index + 4).map(async (productIdBatch) => {
-          const { data, error } = await supabase
-            .from("products")
-            .select("id,ebay_item_id,quantity,archived_at")
-            .eq("store_id", storeId)
-            .in("id", productIdBatch);
-          if (error) throw error;
-          return (data || []) as typeof linkedEbayProducts;
-        }),
-      );
-      for (const batch of wave) linkedEbayProducts.push(...batch);
+    if (!useMacListingProjection) {
+      const linkedProductBatches: number[][] = [];
+      for (let index = 0; index < scopedProductIds.length; index += 250) {
+        linkedProductBatches.push(scopedProductIds.slice(index, index + 250));
+      }
+      for (let index = 0; index < linkedProductBatches.length; index += 4) {
+        const wave = await Promise.all(
+          linkedProductBatches.slice(index, index + 4).map(async (productIdBatch) => {
+            const { data, error } = await supabase
+              .from("products")
+              .select("id,ebay_item_id,quantity,archived_at")
+              .eq("store_id", storeId)
+              .in("id", productIdBatch);
+            if (error) throw error;
+            return (data || []) as typeof linkedEbayProducts;
+          }),
+        );
+        for (const batch of wave) linkedEbayProducts.push(...batch);
+      }
     }
     const legacyEbayLinkedProductIds = new Set(
       linkedEbayProducts
@@ -924,7 +988,7 @@ export async function GET(request: Request) {
         rowHasLegacyWebsiteListing(row),
       ) === "pending";
 
-    const queueCounts = {
+    const computedQueueCounts = {
       listings: scopedInstaCompRows.filter(
         (row: any) =>
           row.status === "active" ||
@@ -937,6 +1001,13 @@ export async function GET(request: Request) {
           rowIsUnlistedEverywhere(row),
       ).length,
     };
+    const queueCounts =
+      useMacListingProjection && macProjection?.queueCounts
+        ? {
+            listings: Number(macProjection.queueCounts.listings || 0),
+            verification: Number(macProjection.queueCounts.verification || 0),
+          }
+        : computedQueueCounts;
     const listingRows = scopedInstaCompRows.filter(
       (row: any) =>
         row.status === "active" ||
@@ -978,7 +1049,7 @@ export async function GET(request: Request) {
     // Master Listings renders one commercial/canonical row for mergeable raw
     // duplicates. The nav must count those same actionable listings, not the
     // hidden physical rows underneath them.
-    const folderCounts = {
+    const computedFolderCounts = {
       pending: commercialFolderCount("pending"),
       website: commercialFolderCount("website"),
       ebay: commercialFolderCount("ebay"),
@@ -989,6 +1060,22 @@ export async function GET(request: Request) {
       all3: commercialFolderCount("all3"),
       investment: commercialFolderCount("investment"),
     };
+    const folderCounts =
+      compactKingmaker && macProjection?.folderCounts
+        ? {
+            pending: Number(macProjection.folderCounts.pending || 0),
+            website: Number(macProjection.folderCounts.website || 0),
+            ebay: Number(macProjection.folderCounts.ebay || 0),
+            mercari: Number(macProjection.folderCounts.mercari || 0),
+            both: Number(macProjection.folderCounts.both || 0),
+            website_mercari: Number(
+              macProjection.folderCounts.website_mercari || 0,
+            ),
+            ebay_mercari: Number(macProjection.folderCounts.ebay_mercari || 0),
+            all3: Number(macProjection.folderCounts.all3 || 0),
+            investment: Number(macProjection.folderCounts.investment || 0),
+          }
+        : computedFolderCounts;
     const rows = requestedFocus
       ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)
       : scopedInstaCompRows.filter((row: any) => {
@@ -1069,7 +1156,10 @@ export async function GET(request: Request) {
     // Images, linked products, and live website inventory are independent once
     // the Pending rows are known. Run them concurrently instead of stacking
     // multiple Supabase round trips before first byte.
-    const [storedImages, products, liveWebsiteProducts] = await Promise.all([
+    const [storedImages, products, liveWebsiteProducts] =
+      useMacListingProjection
+        ? [[], [], []]
+        : await Promise.all([
       (async () => {
         const result: StoredImage[] = [];
         const batches: string[][] = [];
@@ -1164,6 +1254,9 @@ export async function GET(request: Request) {
       liveWebsiteProductsByAnchor.set(key, current);
     }
 
+    const includeDetailedMarketEvidence =
+      !compactKingmaker || queue === "verification" || folder === "pending";
+
     const items = rows.map((row: any) => {
       const metadata = recordValue(row.metadata);
       const instaComp = recordValue(metadata.instacomp);
@@ -1248,8 +1341,19 @@ export async function GET(request: Request) {
           : null);
       const hasBackImage =
         storedPair.hasStoredBackImage || Boolean(metadataBackUrl);
+      const metadataFrontUrl =
+        textValue(recordValue(instaComp.recoveredImageUrls).front) ||
+        (Array.isArray(instaComp.sourceImageUrls)
+          ? textValue(instaComp.sourceImageUrls[0])
+          : null) ||
+        (Array.isArray(metadata.ebay_image_urls)
+          ? textValue(metadata.ebay_image_urls[0])
+          : null);
       const displayFrontUrl =
-        storedPair.frontImageUrl || product?.image_url || null;
+        storedPair.frontImageUrl ||
+        product?.image_url ||
+        metadataFrontUrl ||
+        null;
       const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
       const rawTitle = textValue(row.title);
       const manualListingTitle =
@@ -1515,12 +1619,36 @@ export async function GET(request: Request) {
         },
         listingReadiness,
         websiteInventory: {
-          current: exactWebsiteProducts.length > 0,
-          quantity: exactWebsiteProducts.reduce(
-            (sum, websiteProduct) =>
-              sum + Math.max(0, Number(websiteProduct.quantity || 0)),
-            0,
-          ),
+          current:
+            exactWebsiteProducts.length > 0 ||
+            listingFolderFromMetadata(
+              metadata,
+              rowHasLegacyEbayListing(row),
+              rowHasLegacyWebsiteListing(row),
+            ) === "website" ||
+            listingFolderFromMetadata(
+              metadata,
+              rowHasLegacyEbayListing(row),
+              rowHasLegacyWebsiteListing(row),
+            ) === "both" ||
+            listingFolderFromMetadata(
+              metadata,
+              rowHasLegacyEbayListing(row),
+              rowHasLegacyWebsiteListing(row),
+            ) === "website_mercari" ||
+            listingFolderFromMetadata(
+              metadata,
+              rowHasLegacyEbayListing(row),
+              rowHasLegacyWebsiteListing(row),
+            ) === "all3",
+          quantity:
+            exactWebsiteProducts.length > 0
+              ? exactWebsiteProducts.reduce(
+                  (sum, websiteProduct) =>
+                    sum + Math.max(0, Number(websiteProduct.quantity || 0)),
+                  0,
+                )
+              : Math.max(0, Number(row.quantity || 0)),
           productIds: exactWebsiteProducts.map((websiteProduct) => websiteProduct.id),
           products: exactWebsiteProducts.slice(0, 10).map((websiteProduct) => ({
             id: websiteProduct.id,
@@ -1779,29 +1907,37 @@ export async function GET(request: Request) {
                   ? "instacomp"
                   : "seller_price_required",
           },
-          soldCompEvidence: localCertifiedPricing
-            ? Array.isArray(localCertifiedPricing.exactSoldComps)
-              ? localCertifiedPricing.exactSoldComps
-                  .slice(0, 50)
-                  .map((comp) => ({
-                    title: textValue(comp.title),
-                    price: optionalPrice(comp.price),
-                    url: textValue(comp.url),
-                    sourceLabel: "Local InstaComp certified exact sold",
-                    soldAt: textValue(comp.soldAt),
-                  }))
-              : []
-            : evidenceList(instaComp.soldCompEvidence),
-          activeCompetition: evidenceList(instaComp.activeCompetition),
+          soldCompEvidence: includeDetailedMarketEvidence
+            ? localCertifiedPricing
+              ? Array.isArray(localCertifiedPricing.exactSoldComps)
+                ? localCertifiedPricing.exactSoldComps
+                    .slice(0, 50)
+                    .map((comp) => ({
+                      title: textValue(comp.title),
+                      price: optionalPrice(comp.price),
+                      url: textValue(comp.url),
+                      sourceLabel: "Local InstaComp certified exact sold",
+                      soldAt: textValue(comp.soldAt),
+                    }))
+                : []
+              : evidenceList(instaComp.soldCompEvidence)
+            : [],
+          activeCompetition: includeDetailedMarketEvidence
+            ? evidenceList(instaComp.activeCompetition)
+            : [],
           priceGuide:
-            instaComp.priceGuide && typeof instaComp.priceGuide === "object"
+            includeDetailedMarketEvidence &&
+            instaComp.priceGuide &&
+            typeof instaComp.priceGuide === "object"
               ? recordValue(instaComp.priceGuide)
               : null,
           priceGuideCheckedAt: textValue(instaComp.priceGuideCheckedAt),
           priceGuideStatus: textValue(instaComp.priceGuideStatus),
           priceGuideMessage: textValue(instaComp.priceGuideMessage),
           priceGuideCoverage:
-            instaComp.priceGuideCoverage && typeof instaComp.priceGuideCoverage === "object"
+            includeDetailedMarketEvidence &&
+            instaComp.priceGuideCoverage &&
+            typeof instaComp.priceGuideCoverage === "object"
               ? recordValue(instaComp.priceGuideCoverage)
               : null,
           ...(compactKingmaker
