@@ -240,7 +240,7 @@ async function loadMacMasterListingProjection(params: {
           items: [options],
         }),
         cache: "no-store",
-        signal: AbortSignal.timeout(8_000),
+        signal: AbortSignal.timeout(30_000),
       },
     );
     if (!response.ok) return null;
@@ -794,6 +794,16 @@ export async function GET(request: Request) {
       compactKingmaker &&
       macProjection?.sourceAuthority === "mac_local_sqlite" &&
       Array.isArray(macProjection.items);
+    if (compactKingmaker && !useMacListingProjection) {
+      return Response.json(
+        {
+          error: "Mac-local Master Listings inventory is temporarily unavailable.",
+          sourceAuthority: "mac_local_sqlite",
+          preserveExistingCounts: true,
+        },
+        { status: 503 },
+      );
+    }
     const inventoryRows = useMacListingProjection
       ? macProjection!.items!
       : await readPendingCandidateInventoryPages({
