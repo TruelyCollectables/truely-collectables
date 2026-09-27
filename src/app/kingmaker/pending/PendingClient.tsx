@@ -1051,6 +1051,21 @@ export default function KingmakerPendingPage({
   useEffect(() => {
     if (skipInitialCardsReloadRef.current) {
       skipInitialCardsReloadRef.current = false;
+      const initialQueueCount =
+        queue === "verification"
+          ? initialQueueCounts.verification
+          : initialQueueCounts.listings;
+      const hydrationMismatch =
+        initialLoaded && initialCards.length === 0 && initialQueueCount > 0;
+
+      // A non-zero server queue count with no hydrated rows is not an empty
+      // queue. Force one authenticated client reload instead of preserving a
+      // stale badge beside a false "No cards" state.
+      if (hydrationMismatch) {
+        void load(queue, folder);
+        return;
+      }
+
       setLoading(false);
       void (async () => {
         try {
@@ -1078,7 +1093,15 @@ export default function KingmakerPendingPage({
       return;
     }
     void load(queue, folder);
-  }, [load, queue, folder]);
+  }, [
+    folder,
+    initialCards.length,
+    initialLoaded,
+    initialQueueCounts.listings,
+    initialQueueCounts.verification,
+    load,
+    queue,
+  ]);
 
   useEffect(() => {
     setRenderLimit(24);
@@ -2356,6 +2379,19 @@ export default function KingmakerPendingPage({
 
         {!loading && !cards.length && !pageError ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
+            {(
+              queue === "verification"
+                ? queueCounts.verification
+                : queueCounts.listings
+            ) > 0 ? (
+              <>
+                <p className="text-xl font-black">Queue data is refreshing</p>
+                <p className="mt-2 text-neutral-600">
+                  KINGMAKER has a non-zero queue count but no hydrated card rows. Reloading the authoritative queue instead of treating it as empty.
+                </p>
+              </>
+            ) : (
+              <>
             <p className="text-xl font-black">
               {queue === "verification"
                 ? "No cards pending verification"
@@ -2384,6 +2420,8 @@ export default function KingmakerPendingPage({
                   ? "Receive a scanned purchase into Investment Stash to hold it here."
                   : "Cards move between these folders automatically as their channel status changes."}
             </p>
+              </>
+            )}
           </div>
         ) : null}
 
