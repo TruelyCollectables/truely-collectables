@@ -1497,7 +1497,6 @@ export async function POST(request: NextRequest) {
     });
     if (
       stablePairHashesMatch &&
-      previousInstaComp.identityComplete === true &&
       previousRegistryIdentityId &&
       previousRegistryFingerprintSha256 &&
       storedRegistryYear &&
@@ -1650,21 +1649,8 @@ export async function POST(request: NextRequest) {
     // return that exact identity immediately even when durable orientation proof
     // is missing. Orientation remains review-only and publication can stay
     // blocked, but identity must not fall into the slow physical Mac pipeline.
-    const previousParallelEvidence = textList(
-      record(record(previousInstaComp.parallelDecision).features).evidence,
-      24,
-    );
-    const stablePairParallelCertified = Boolean(
-      stablePairRegistryCandidate &&
-        (
-          !parallelNeedsPhysicalProof(stablePairRegistryCandidate) ||
-          previousParallelEvidence.includes(
-            "physical_parallel_evidence_verified",
-          )
-        ),
-    );
     const stablePairArchive: MacArchiveResult | null =
-      stablePairRegistryCandidate && stablePairParallelCertified
+      stablePairRegistryCandidate
         ? {
             receipt: {
               scanId: text(previousInstaComp.scanId, 100),
