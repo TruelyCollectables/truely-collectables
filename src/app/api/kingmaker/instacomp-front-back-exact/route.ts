@@ -34,15 +34,14 @@ export const maxDuration = 300;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-// Identity certification has one job: exact-or-review in under ten seconds.
-// No pricing, listing, or title evidence is allowed to extend or manufacture
-// an identity decision.
+// Identity certification should be fast, but an already-proven Registry lock
+// must never be discarded merely because image transport or the local scan
+// crossed the UI timing target.
 const IDENTITY_TARGET_MS = 10_000;
-const IMAGE_FETCH_TIMEOUT_MS = 2_000;
-// The local 8787 fast identity path is proven at ~6.6s.
- // Leave enough room for that result while keeping the whole identity
- // certification inside the 10s route target.
-const MAC_IDENTITY_TIMEOUT_MS = 8_000;
+const IMAGE_FETCH_TIMEOUT_MS = 10_000;
+// Give the local 8787 identity path enough room to return its authoritative
+// Registry receipt instead of converting a slow exact match into a failure.
+const MAC_IDENTITY_TIMEOUT_MS = 12_000;
 const MAC_ARCHIVE_IMAGE_TIMEOUT_MS = 1_000;
 const REGISTRY_RECOVERY_TIMEOUT_MS = 1_000;
 
@@ -2231,11 +2230,8 @@ export async function POST(request: NextRequest) {
     // Exact means exact. Registry UUID+fingerprint is necessary, but for
     // parallel-heavy cards it is not sufficient without independent physical
     // finish proof from the current images.
-    const identityDecisionElapsedMs = Date.now() - identityTraceStartedMs;
     const certifiedCandidate =
-      macCandidate &&
-      parallelDecision.status === "resolved" &&
-      identityDecisionElapsedMs < IDENTITY_TARGET_MS
+      macCandidate && parallelDecision.status === "resolved"
         ? macCandidate
         : null;
     const identityComplete = Boolean(certifiedCandidate);
