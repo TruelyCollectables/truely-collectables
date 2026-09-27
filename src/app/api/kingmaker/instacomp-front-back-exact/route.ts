@@ -41,8 +41,9 @@ const IDENTITY_TARGET_MS = 10_000;
 const IMAGE_FETCH_TIMEOUT_MS = 10_000;
 // Give the local 8787 identity path enough room to return its authoritative
 // Registry receipt instead of converting a slow exact match into a failure.
-const MAC_IDENTITY_TIMEOUT_MS = 12_000;
-const MAC_ARCHIVE_IMAGE_TIMEOUT_MS = 1_000;
+const MAC_IDENTITY_TIMEOUT_MS = 45_000;
+const MAC_DEEP_IDENTITY_TIMEOUT_MS = 100_000;
+const MAC_ARCHIVE_IMAGE_TIMEOUT_MS = 10_000;
 const REGISTRY_RECOVERY_TIMEOUT_MS = 1_000;
 
 type JsonRecord = Record<string, unknown>;
@@ -996,10 +997,15 @@ async function archiveWithMacBestEffort(params: {
     // Stay well inside the public request ceiling. A slow/hung Mac scan must
     // return a saved review item instead of letting Cloudflare/browser abort the
     // request after ~200 seconds with no useful handoff.
-    const deadline = Date.now() + MAC_IDENTITY_TIMEOUT_MS;
+    const identityTimeoutMs = params.deepRecovery
+      ? MAC_DEEP_IDENTITY_TIMEOUT_MS
+      : MAC_IDENTITY_TIMEOUT_MS;
+    const deadline = Date.now() + identityTimeoutMs;
     const webOrientationTrusted =
       params.webOrientation?.status === "completed";
-    for (const requestedTimeout of [MAC_IDENTITY_TIMEOUT_MS]) {
+    for (const requestedTimeout of [
+      params.deepRecovery ? 95_000 : 40_000,
+    ]) {
       attempts += 1;
       try {
         scan = await analyzeWithInstaCompAiLocal({
