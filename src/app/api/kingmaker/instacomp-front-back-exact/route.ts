@@ -1736,33 +1736,12 @@ export async function POST(request: NextRequest) {
     // not feed those hints into the Mac family fast path. Force the bounded
     // deep physical pass: images -> Registry family -> legal finish choices ->
     // exact UUID/fingerprint. This is what separates Base/Silver/Ice safely.
-    const preScanParallelText =
-      text(previousRegistryLockedFields.parallel, 160) ||
-      text(
-        preScanAi.checklistParallel ??
-          preScanAi.parallel ??
-          preScanAi.parallelName ??
-          preScanAi.variation,
-        160,
-      ) ||
-      titleSurfaceHint(preScanTitleText);
-    const preScanPrizmContext = [
-      preScanTitleText,
-      text(previousRegistryLockedFields.brand, 120),
-      text(previousRegistryLockedFields.product, 200),
-      text(previousRegistryLockedFields.setName, 200),
-      text(preScanAi.brand, 120),
-      text(preScanAi.product, 200),
-      text(preScanAi.setName, 200),
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const requiresPhysicalParallelDiscrimination = Boolean(
-      !stablePairArchive &&
-        previousInstaComp.identityComplete !== true &&
-        (/\bprizm\b/i.test(preScanPrizmContext) ||
-          (preScanParallelText && normalized(preScanParallelText) !== "base")),
-    );
+    // Do not send an unresolved card straight into deep recovery merely
+    // because the family is Prizm/non-base. The Mac service has a fast
+    // family/Registry lane that can establish the core identity first. Deep
+    // finish discrimination belongs after Registry narrowing proves that the
+    // physical treatment is genuinely ambiguous.
+    const requiresPhysicalParallelDiscrimination = false;
 
     // First-time/unresolved cards still run the physical Mac scan. Unchanged
     // exact pairs use the bounded Registry revalidation above.
