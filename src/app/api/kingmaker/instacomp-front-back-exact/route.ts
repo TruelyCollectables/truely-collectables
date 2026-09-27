@@ -23,6 +23,7 @@ import {
   type InstaCompImageOrientationReceipt,
 } from "../../../../lib/instacomp-normalized-image-storage";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../lib/instacomp-provider-safety";
+import { updateMacKingmakerDraft } from "../../../../lib/kingmaker-mac-scan-server";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
@@ -2508,6 +2509,15 @@ export async function POST(request: NextRequest) {
     if (selectedRegistryIdentityId) {
       updatePayload.card_uuid = selectedRegistryIdentityId;
     }
+
+    // Mac-local commercial inventory is KINGMAKER's listing authority. Keep
+    // the exact physical re-read and the storefront mirror on the same receipt.
+    await updateMacKingmakerDraft(inventoryItemId, {
+      title: nextTitle,
+      player: resolvedAi.player || null,
+      sport: resolvedAi.sport || null,
+      metadata: nextMetadata,
+    });
 
     const { error: updateError } = await supabase
       .from("inventory_items")
