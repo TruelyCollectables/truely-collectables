@@ -1014,6 +1014,9 @@ async function archiveWithMacBestEffort(params: {
           front: params.frontFile,
           back: params.backFile,
           identityHint: params.identityHint || null,
+          // This endpoint certifies the physical pair. Never recycle an older
+          // known-pair finish receipt when Verification explicitly re-reads it.
+          forceFreshIdentity: true,
           frontRotation: webOrientationTrusted
             ? quarterTurn(params.webOrientation?.frontRotation)
             : 0,
