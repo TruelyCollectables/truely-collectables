@@ -152,8 +152,7 @@ function stableStoredPairHashesMatch(params: {
       currentBackSha256 &&
       previousFrontSha256 !== previousBackSha256 &&
       previousFrontSha256 === currentFrontSha256 &&
-      previousBackSha256 === currentBackSha256 &&
-      params.previousInstaComp.imagePersistenceVerified === true,
+      previousBackSha256 === currentBackSha256,
   );
 }
 
