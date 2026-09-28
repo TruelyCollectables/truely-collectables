@@ -473,7 +473,8 @@ function isGenericTitle(value: unknown) {
     title.includes("identity review required") ||
     title.includes("review required") ||
     title.includes("credits") ||
-    title.includes("permanent uuid missing")
+    title.includes("permanent uuid missing") ||
+    /^(?:(?:rc|au|mem)(?:\s+|$))+$/.test(title)
   );
 }
 

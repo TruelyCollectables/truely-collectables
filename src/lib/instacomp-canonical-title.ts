@@ -221,5 +221,11 @@ export function buildInstaCompCanonicalTitle(
   const pieces = [year, product, level, cardNumber ? `#${cardNumber}` : "", player, rookie ? "RC" : "", parallel, variation, serial];
   if (identity.isAuto === true && !/\b(auto|autograph|signature)\b/i.test(pieces.join(" "))) pieces.push("AU");
   if (identity.isRelic === true && !/\b(relic|memorabilia|jersey|patch|material)\b/i.test(pieces.join(" "))) pieces.push("MEM");
-  return pieces.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const rendered = pieces.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  // Identity badges are modifiers, never a listing title. Sparse/stale AI rows
+  // can contain only isRookie/isAuto/isRelic while a complete identity lives in
+  // another metadata shape. Returning "RC" here made Pending stop its fallback
+  // chain and display a badge as the entire card title.
+  if (/^(?:(?:RC|AU|MEM)(?:\s+|$))+$/i.test(rendered)) return "";
+  return rendered;
 }

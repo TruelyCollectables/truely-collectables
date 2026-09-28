@@ -145,6 +145,13 @@ assert.equal(
 assert.notEqual(prizmRegistryIce, prizmRegistrySilver);
 assert.doesNotMatch(prizmRegistryBase, /\bBase\b/i);
 
+const badgeOnlyRookie = title({ isRookie: true });
+assert.equal(badgeOnlyRookie, "");
+const badgeOnlyAuto = title({ isAuto: true });
+assert.equal(badgeOnlyAuto, "");
+const badgeOnlyRelic = title({ isRelic: true });
+assert.equal(badgeOnlyRelic, "");
+
 const learnedRc = title({
   year: "2025", manufacturer: "Panini", product: "Prizm WNBA", setName: "Base",
   cardNumber: "122", player: "Sonia Citron", parallel: "Base",
