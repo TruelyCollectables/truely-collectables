@@ -232,7 +232,7 @@ function macMasterProjectionRow(value: JsonRecord) {
   };
 }
 
-async function projectMacMasterListingRows(values: JsonRecord[]) {
+export async function projectMacMasterListingRows(values: JsonRecord[]) {
   const items = values
     .map(macMasterProjectionRow)
     .filter((value): value is NonNullable<typeof value> => Boolean(value));

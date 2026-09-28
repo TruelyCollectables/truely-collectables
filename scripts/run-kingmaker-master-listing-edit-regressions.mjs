@@ -45,6 +45,19 @@ assert.ok(
   "Seller-saved listing title must be persisted as an explicit locked presentation override",
 );
 assert.ok(
+  route.includes('import { projectMacMasterListingRows }') &&
+    route.includes("async function persistMasterListingEditToMac") &&
+    (route.match(/await persistMasterListingEditToMac\(\{/g) || []).length >= 2,
+  "Title-only and identity edits must both be persisted to Mac-local Master Listings before success is returned",
+);
+assert.ok(
+  route.includes("legacy_product_id,sku,status,quantity,price,image_url,created_at") &&
+    route.includes("quantity: Number(item.quantity || 0)") &&
+    route.includes("metadata,") &&
+    route.includes("updatedAt,"),
+  "Mac-local projection writes must retain the full listing row instead of collapsing quantity or metadata",
+);
+assert.ok(
   route.includes("if (!identityEdited)") && route.includes("identityUnchanged: true"),
   "Title/details-only saves must bypass manual identity learning/correction",
 );

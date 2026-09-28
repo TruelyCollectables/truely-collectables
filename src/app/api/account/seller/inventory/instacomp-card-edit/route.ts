@@ -9,6 +9,7 @@ import {
   hasConfiguredInstaCompAiLocal,
   type InstaCompAiLocalLessonIdentity,
 } from "../../../../../../lib/instacomp-ai-local";
+import { projectMacMasterListingRows } from "../../../../../../lib/kingmaker-mac-scan-server";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -37,6 +38,37 @@ function nullableText(value: unknown, max = 300) {
 
 function booleanValue(value: unknown) {
   return value === true;
+}
+
+async function persistMasterListingEditToMac(params: {
+  item: JsonRecord;
+  title: string;
+  description: string | null;
+  category: string | null;
+  condition: string | null;
+  metadata: JsonRecord;
+  updatedAt: string;
+}) {
+  const { item, title, description, category, condition, metadata, updatedAt } = params;
+  await projectMacMasterListingRows([
+    {
+      inventoryItemId: clean(item.id, 100),
+      legacyProductId: item.legacy_product_id,
+      cardUuid: nullableText(item.card_uuid, 100),
+      sku: nullableText(item.sku, 200),
+      title,
+      description,
+      category,
+      condition,
+      status: clean(item.status, 80) || "draft",
+      quantity: Number(item.quantity || 0),
+      price: Number(item.price || 0),
+      imageUrl: nullableText(item.image_url, 2000),
+      metadata,
+      createdAt: nullableText(item.created_at, 100),
+      updatedAt,
+    },
+  ]);
 }
 
 
@@ -292,7 +324,7 @@ export async function POST(request: NextRequest) {
 
     let query = supabase
       .from("inventory_items")
-      .select("id,seller_account_id,card_uuid,status,metadata,description,category,condition")
+      .select("id,seller_account_id,card_uuid,legacy_product_id,sku,status,quantity,price,image_url,created_at,metadata,description,category,condition")
       .eq("id", inventoryItemId)
       .eq("store_id", storeId);
     query = isOwner
@@ -366,6 +398,16 @@ export async function POST(request: NextRequest) {
           { status: 409 },
         );
       }
+
+      await persistMasterListingEditToMac({
+        item: item as JsonRecord,
+        title: displayTitle,
+        description: nextDescription,
+        category: nextCategory,
+        condition: nextCondition,
+        metadata: nextMetadata,
+        updatedAt: editedAt,
+      });
 
       return NextResponse.json({
         success: true,
@@ -536,6 +578,16 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
+
+    await persistMasterListingEditToMac({
+      item: item as JsonRecord,
+      title: displayTitle,
+      description: nextDescription,
+      category: nextCategory,
+      condition: nextCondition,
+      metadata: nextMetadata,
+      updatedAt: editedAt,
+    });
 
     if (internalEngineConfigured) {
       const lessonIdentity = sellerLessonIdentity({
