@@ -390,7 +390,7 @@ const kingmakerPending = [
   readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8"),
 ].join("\n");
 const kingmakerFrontBackRoute = readFileSync(
-  "src/app/api/account/seller/inventory/instacomp-front-back/route.ts",
+  "src/app/api/kingmaker/instacomp-front-back-exact/route.ts",
   "utf8",
 );
 const kingmakerEditRoute = readFileSync(
@@ -424,26 +424,26 @@ for (const required of [
 requireOrder(
   intakeSource,
   'code: "CHECKLIST_IDENTITY_REQUIRED"',
-  '.contains("metadata"',
-  "Registry verification must precede duplicate checking",
+  "const [physicalDuplicate, duplicate, exactIdentityMatches]",
+  "Registry verification must precede Mac-local duplicate checking",
 );
 requireOrder(
   intakeSource,
-  '.contains("metadata"',
+  "const [physicalDuplicate, duplicate, exactIdentityMatches]",
   "const listingOutput = buildInstaCompListingOutput",
-  "duplicate checking must precede draft generation",
+  "Mac-local duplicate checking must precede draft generation",
 );
 requireOrder(
   intakeSource,
   "const listingOutput = buildInstaCompListingOutput",
-  ".insert({",
-  "listing output must be persisted with the inventory draft",
+  "const inserted = await createMacKingmakerDraft",
+  "listing output must be persisted with the Mac-local inventory draft",
 );
 requireOrder(
   intakeSource,
-  ".insert({",
+  "const inserted = await createMacKingmakerDraft",
   "await runVerifiedPricing(pricingRequest)",
-  "verified pricing must run only after the Registry-locked draft exists",
+  "verified pricing must run only after the Registry-locked Mac draft exists",
 );
 
 for (const required of [
@@ -493,13 +493,15 @@ for (const forbidden of ["rotatedImageFile"]) {
   );
 }
 for (const required of [
-  "persistNormalizedInstaCompImagePair",
+  "archiveInstaCompAiLocalSupervisedScan",
+  "updateMacKingmakerDraft",
   "getAuthenticatedAccountFromRequest",
   "ensureAccountStoreMembership",
   'status: "completed"',
   'source: "seller_manual_pixel_rotation"',
   "frontRotation: 0",
   "backRotation: 0",
+  "imagePersistenceVerified: true",
   "published: false",
 ]) {
   requireText(
@@ -522,7 +524,8 @@ for (const required of [
   );
 }
 for (const required of [
-  '.in("status", ["draft", "active"])',
+  '(status === "draft" || status === "active")',
+  "updateMacKingmakerDrafts",
   "getAuthenticatedAccountFromRequest",
   "ensureAccountStoreMembership",
   "updatedCount",
@@ -547,11 +550,12 @@ assert(
   "KINGMAKER Pending Listings restored fake Failed 100 percent progress",
 );
 for (const required of [
-  "DUPLICATE_IMAGE_BYTES",
+  "DUPLICATE_NORMALIZED_IMAGES",
   "manualIdentityLocked",
   "backEvidenceText",
   "identity_complete_pricing_pending",
-  "setNamePreserved: true",
+  "exactRegistryProduct",
+  'return `${brand} WNBA`;',
 ]) {
   requireText(
     kingmakerFrontBackRoute,
