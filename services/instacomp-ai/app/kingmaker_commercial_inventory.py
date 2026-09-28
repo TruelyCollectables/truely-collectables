@@ -938,8 +938,67 @@ class KingmakerCommercialInventory:
         finally:
             db.close()
 
+    def _schema_ready(self) -> bool:
+        """Return quickly when the current on-disk schema needs no migration.
+
+        Healthy KINGMAKER restarts should not renegotiate writable WAL/DDL on
+        the external authority volume merely to rediscover an already-current
+        schema.
+        """
+        if not self.path.exists():
+            return False
+        try:
+            with self._read_connect() as db:
+                tables = {
+                    str(row[0])
+                    for row in db.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' "
+                        "AND name IN ('commercial_inventory','master_listing_projection')"
+                    ).fetchall()
+                }
+                if tables != {"commercial_inventory", "master_listing_projection"}:
+                    return False
+                inventory_columns = {
+                    str(row[1])
+                    for row in db.execute("PRAGMA table_info(commercial_inventory)").fetchall()
+                }
+                projection_columns = {
+                    str(row[1])
+                    for row in db.execute("PRAGMA table_info(master_listing_projection)").fetchall()
+                }
+                inventory_indexes = {
+                    str(row[1])
+                    for row in db.execute("PRAGMA index_list(commercial_inventory)").fetchall()
+                }
+                projection_indexes = {
+                    str(row[1])
+                    for row in db.execute("PRAGMA index_list(master_listing_projection)").fetchall()
+                }
+            return (
+                {"inventory_item_id", "local_dirty", "last_ebay_sync_at", "raw_json"}
+                <= inventory_columns
+                and {"inventory_item_id", "folder", "pending_queue", "group_key", "row_json"}
+                <= projection_columns
+                and {
+                    "commercial_inventory_image_pair_sha256_idx",
+                    "commercial_inventory_card_uuid_idx",
+                }
+                <= inventory_indexes
+                and {
+                    "master_listing_projection_folder_group_idx",
+                    "master_listing_projection_group_idx",
+                    "master_listing_projection_folder_queue_updated_idx",
+                }
+                <= projection_indexes
+            )
+        except sqlite3.Error:
+            return False
+
     def initialize(self) -> None:
         if self._initialized:
+            return
+        if self._schema_ready():
+            self._initialized = True
             return
         with self._connect() as db:
             db.executescript(
