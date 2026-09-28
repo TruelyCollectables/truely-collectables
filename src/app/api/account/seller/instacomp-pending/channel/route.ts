@@ -21,7 +21,7 @@ import {
   publishStorefrontProduct,
   updateStorefrontProduct,
   verifyStorefrontProduct,
-} from "../../../../../../lib/storefront-publication-server";
+} from "../../../../../../lib/storefront-publication-client";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
 import { getInstaCompAiLocalPublicImageUrls } from "../../../../../../lib/instacomp-ai-local";
 import {
@@ -175,6 +175,7 @@ function generatedSku(row: any) {
 }
 
 async function archiveDuplicateDrafts(params: {
+  request: Request;
   keeperId: string;
   rows: any[];
   groupKey: string | null;
@@ -222,7 +223,7 @@ async function archiveDuplicateDrafts(params: {
       duplicate.legacy_product_id || duplicate.legacyProductId || 0,
     );
     if (!productId) continue;
-    await updateStorefrontProduct(productId, {
+    await updateStorefrontProduct(params.request, productId, {
       quantity: 0,
       listing_status: "draft",
       archived_at: params.now,
@@ -474,7 +475,7 @@ export async function POST(request: Request) {
       keeper.legacy_product_id || keeper.legacyProductId || 0,
     ) || null;
     let linkedProduct = linkedProductId
-      ? await getStorefrontProduct(linkedProductId)
+      ? await getStorefrontProduct(request, linkedProductId)
       : null;
 
     const metadata = record(keeper.metadata);
@@ -744,7 +745,7 @@ export async function POST(request: Request) {
 
     if (needsWebsitePublication && !linkedProductId) {
       try {
-        linkedProduct = await ensureStorefrontProduct({
+        linkedProduct = await ensureStorefrontProduct(request, {
           sellerAccountId: text(keeper.seller_account_id, 200) || account.id,
           sku,
           title: websiteTitle,
@@ -790,7 +791,7 @@ export async function POST(request: Request) {
     });
 
     if (linkedProductId) {
-      linkedProduct = await updateStorefrontProduct(linkedProductId, { sku });
+      linkedProduct = await updateStorefrontProduct(request, linkedProductId, { sku });
     }
 
     let ebayResult: any = null;
@@ -1021,7 +1022,7 @@ export async function POST(request: Request) {
             updatedAt: ebaySavedAt,
           });
           if (linkedProductId) {
-            linkedProduct = await updateStorefrontProduct(linkedProductId, {
+            linkedProduct = await updateStorefrontProduct(request, linkedProductId, {
               ebay_item_id: ebayResult.listingId,
               last_seen_at: ebaySavedAt,
             });
@@ -1062,7 +1063,7 @@ export async function POST(request: Request) {
         updatedAt: failedAt,
       });
       if (ebayAttempt?.listingId && linkedProductId) {
-        linkedProduct = await updateStorefrontProduct(linkedProductId, {
+        linkedProduct = await updateStorefrontProduct(request, linkedProductId, {
           ebay_item_id: ebayAttempt.listingId,
           last_seen_at: failedAt,
         });
@@ -1108,7 +1109,7 @@ export async function POST(request: Request) {
           updatedAt: attemptedAt,
         });
 
-        linkedProduct = await publishStorefrontProduct({
+        linkedProduct = await publishStorefrontProduct(request, {
           productId: linkedProductId,
           sku,
           title: websiteTitle,
@@ -1120,7 +1121,7 @@ export async function POST(request: Request) {
           imageUrl: imageUrls[0] || null,
         });
 
-        websiteVerification = await verifyStorefrontProduct({
+        websiteVerification = await verifyStorefrontProduct(request, {
           productId: linkedProductId,
           sku,
           title: websiteTitle,
@@ -1152,7 +1153,7 @@ export async function POST(request: Request) {
             updatedAt: new Date().toISOString(),
           });
           if (!wasWebsiteLive) {
-            linkedProduct = await updateStorefrontProduct(linkedProductId, {
+            linkedProduct = await updateStorefrontProduct(request, linkedProductId, {
               quantity: 0,
               listing_status: "draft",
             });
@@ -1197,6 +1198,7 @@ export async function POST(request: Request) {
     const anyPublished = websitePublished || Boolean(ebayResult) || mercariPrepared || mercariPublished;
     const archivedDuplicateCount = anyPublished
       ? await archiveDuplicateDrafts({
+          request,
           keeperId,
           rows: groupRows,
           groupKey,

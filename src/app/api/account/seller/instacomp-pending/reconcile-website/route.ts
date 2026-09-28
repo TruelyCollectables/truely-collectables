@@ -14,7 +14,7 @@ import {
   findStorefrontProductsBySku,
   getStorefrontProduct,
   updateStorefrontProduct,
-} from "../../../../../../lib/storefront-publication-server";
+} from "../../../../../../lib/storefront-publication-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,15 +83,15 @@ function websiteStatus(row: any) {
   return text(website.status, 80)?.toLowerCase() || "";
 }
 
-async function resolveWebsiteProduct(row: any) {
+async function resolveWebsiteProduct(request: Request, row: any) {
   const linkedId = websiteProductId(row);
   if (linkedId) {
-    const product = await getStorefrontProduct(linkedId);
+    const product = await getStorefrontProduct(request, linkedId);
     if (product) return product;
   }
   const sku = text(row?.sku, 120);
   if (!sku) return null;
-  const matches = await findStorefrontProductsBySku(sku, 2);
+  const matches = await findStorefrontProductsBySku(request, sku, 2);
   return matches.length === 1 ? matches[0] : null;
 }
 
@@ -224,7 +224,7 @@ export async function POST(request: Request) {
         continue;
       }
 
-      const product = await resolveWebsiteProduct(keeper);
+      const product = await resolveWebsiteProduct(request, keeper);
       if (!product?.id) {
         blocked += 1;
         results.push({
@@ -296,7 +296,7 @@ export async function POST(request: Request) {
         }
       }
 
-      await updateStorefrontProduct(product.id, {
+      await updateStorefrontProduct(request, product.id, {
         quantity: targetQuantity,
         listing_status: "live",
         archived_at: null,

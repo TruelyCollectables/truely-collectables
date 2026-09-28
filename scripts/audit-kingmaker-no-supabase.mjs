@@ -42,7 +42,7 @@ for (const url of [...urls].sort()) {
   if (!fs.existsSync(f)) continue;
   const s = fs.readFileSync(f, "utf8");
   if (
-    /createSupabaseServerClient|@supabase\/supabase-js|\.from\(["'](?:inventory_items|inventory_images|products|instacomp_|tcos_card_)/.test(
+    /createSupabaseServerClient|@supabase\/supabase-js|storefront-publication-server|\.from\(["'](?:inventory_items|inventory_images|products|instacomp_|tcos_card_)/.test(
       s,
     )
   ) {
