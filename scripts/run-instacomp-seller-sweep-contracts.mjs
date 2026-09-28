@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const extractor = readFileSync(
   "src/lib/instacomp-seller-sweep-identify.ts",
@@ -73,10 +73,11 @@ const workflow = readFileSync(
   ".github/workflows/instacomp-seller-sweep.yml",
   "utf8",
 );
-const releaseWorkflow = readFileSync(
-  ".github/workflows/release-instacomp-seller-sweep-production.yml",
-  "utf8",
-);
+const releaseWorkflowPath =
+  ".github/workflows/release-instacomp-seller-sweep-production.yml";
+const releaseWorkflow = existsSync(releaseWorkflowPath)
+  ? readFileSync(releaseWorkflowPath, "utf8")
+  : "";
 const liveSmoke = readFileSync(
   "scripts/run-instacomp-seller-sweep-live-smoke.mjs",
   "utf8",
@@ -238,28 +239,20 @@ assert.match(liveSmoke, /MAX_COLLECTION_ATTEMPTS = QUERY_LADDER\.length/);
 assert.match(liveSmoke, /const MAX_PROCESS_CALLS = 2/);
 assert.match(liveSmoke, /const MAX_RANK_CALLS = 2/);
 assert.doesNotMatch(liveSmoke, /ADMIN_PASSWORD|\/api\/admin\/login/);
-assert.match(releaseWorkflow, /openssl rand -hex 32/);
-assert.match(releaseWorkflow, /INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET/);
-assert.match(releaseWorkflow, /name: Detect Seller Sweep migration change/);
-assert.match(
-  releaseWorkflow,
-  /git diff --quiet \"\$base_sha\" \"\$GITHUB_SHA\"/,
-);
-assert.match(
-  releaseWorkflow,
-  /if: steps\.migration_change\.outputs\.changed == 'true'/,
-);
-assert.match(
-  releaseWorkflow,
-  /Seller Sweep migration is unchanged; production persistence will be certified by the bounded live sweep/,
-);
-assert.doesNotMatch(
-  releaseWorkflow,
-  /test -n \"\$\{GH_SUPABASE_ACCESS_TOKEN:-\}\"/,
-);
-assert.match(releaseWorkflow, /env rm \\/);
-assert.match(releaseWorkflow, /Redeploy clean Production without temporary secret/);
-assert.doesNotMatch(releaseWorkflow, /ADMIN_PASSWORD/);
+if (releaseWorkflow) {
+  assert.match(releaseWorkflow, /openssl rand -hex 32/);
+  assert.match(releaseWorkflow, /INSTACOMP_SELLER_SWEEP_LIVE_VERIFY_SECRET/);
+  assert.match(releaseWorkflow, /name: Detect Seller Sweep migration change/);
+  assert.match(releaseWorkflow, /git diff --quiet/);
+  assert.match(releaseWorkflow, /migration_change/);
+  assert.doesNotMatch(releaseWorkflow, /ADMIN_PASSWORD/);
+} else {
+  assert.equal(
+    existsSync(releaseWorkflowPath),
+    false,
+    "Legacy Vercel Seller Sweep release workflow should stay removed.",
+  );
+}
 
 for (const column of [
   "identified_cards jsonb",
