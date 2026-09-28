@@ -158,6 +158,12 @@ const learnedRc = title({
 }, { forceRookie: true });
 assert.equal(learnedRc, "2025 Panini Prizm #122 Sonia Citron RC");
 
+const sparseRookieMetadata = title(
+  {},
+  { metadata: { instacomp: { ai: { isRookie: true } } } },
+);
+assert.equal(sparseRookieMetadata, "");
+
 for (const value of [selectBase, prizmBase, prizmSilver, prizmVelocity, pollutedPrizmBase, prizmInsertGreen, selectParallel, selectFuture, season, mojo, fernandoMendoza, learnedRc]) {
   assert.doesNotMatch(value, /\bBase Set\b/i);
   assert.doesNotMatch(value, /\sBase$/i);

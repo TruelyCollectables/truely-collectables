@@ -218,6 +218,13 @@ export function buildInstaCompCanonicalTitle(
   const variation = text(identity.variation);
   const rookie = rookieEvidence(identity, context);
   const serial = serialDenominator(identity);
+
+  // Annotation-only evidence is not a usable card title. Sparse identity
+  // objects can inherit rookie evidence from metadata; returning "RC" here
+  // prevents the richer identity fallbacks from ever running.
+  const hasIdentityCore = Boolean(year || product || level || cardNumber || player);
+  if (!hasIdentityCore) return "";
+
   const pieces = [year, product, level, cardNumber ? `#${cardNumber}` : "", player, rookie ? "RC" : "", parallel, variation, serial];
   if (identity.isAuto === true && !/\b(auto|autograph|signature)\b/i.test(pieces.join(" "))) pieces.push("AU");
   if (identity.isRelic === true && !/\b(relic|memorabilia|jersey|patch|material)\b/i.test(pieces.join(" "))) pieces.push("MEM");
