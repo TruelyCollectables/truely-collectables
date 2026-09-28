@@ -106,22 +106,30 @@ for (const [label, source] of [
 }
 requireText(
   sellerPricing,
+  "requestMacExactMarket",
+  "Seller pricing must use the Mac-local exact eBay market stack.",
+);
+requireText(
+  sellerPricing,
+  'model: "mac_local_ebay_exact_market_gate"',
+  "Seller pricing must preserve the Mac-local eBay exact-market gate.",
+);
+requireText(
+  sellerPricing,
+  "Pricing authority is eBay-only.",
+  "Seller pricing must preserve the eBay-only no-comp boundary.",
+);
+for (const forbidden of [
   "getTeacherExactMarketProviders",
-  "Seller pricing must use the outside-teacher exact sold stack.",
-);
-requireText(
-  sellerPricing,
   "getFanaticsExactSoldProvider",
-  "Seller pricing must use direct Fanatics sold history before discovery fallbacks.",
-);
-if (sellerPricing.includes("getOpenAiExactEbayMarketProviders")) {
-  throw new Error("Seller pricing must not fall back to OpenAI Web for exact-market pricing.");
+  "getOpenAiExactEbayMarketProviders",
+  "fetch130Point",
+  "130point.com",
+]) {
+  if (sellerPricing.includes(forbidden)) {
+    throw new Error(`Seller pricing restored forbidden non-eBay exact-market fallback: ${forbidden}`);
+  }
 }
-requireText(
-  sellerPricing,
-  "OpenAI Web is intentionally excluded from exact-market search.",
-  "Seller pricing must preserve the fail-closed no-comp boundary instead of triggering paid OpenAI Web search.",
-);
 
 if (existsSync("src/app/seller/instacomp-pending/ChecklistIdentityGuard.tsx")) {
   throw new Error("The obsolete browser fetch interceptor still exists.");
