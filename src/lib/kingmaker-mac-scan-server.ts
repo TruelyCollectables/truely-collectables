@@ -244,6 +244,34 @@ export async function projectMacMasterListingRows(values: JsonRecord[]) {
   );
 }
 
+export async function listMacMasterListingRows(timeoutMs = 30_000) {
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    { action: "master_list", items: [{ compact: "0" }] },
+    timeoutMs,
+  );
+  return Array.isArray(response.items)
+    ? (response.items as JsonRecord[])
+    : [];
+}
+
+export async function getMacMasterListingRow(
+  inventoryItemId: string,
+  timeoutMs = 30_000,
+) {
+  const id = text(inventoryItemId, 200);
+  if (!id) return null;
+  const items = await listMacMasterListingRows(timeoutMs);
+  return (
+    items.find(
+      (item) =>
+        text(item.id, 200) === id ||
+        text(item.inventoryItemId, 200) === id ||
+        text(item.inventory_item_id, 200) === id,
+    ) || null
+  );
+}
+
 export async function listMacKingmakerInventory(timeoutMs = 30_000) {
   const response = await postInstaCompMacRegistry(
     "/v1/kingmaker/accounting/commercial-inventory",

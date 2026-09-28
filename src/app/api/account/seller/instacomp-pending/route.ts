@@ -738,24 +738,17 @@ export async function GET(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
-
-    const supabase = createSupabaseServerClient({
-      admin: true,
-      // Master Listings is an authenticated seller/admin surface that may read
-      // 1,000+ inventory rows. Keep the storefront's 4s fail-fast guard intact,
-      // but give this heavy operational view enough time to finish a healthy
-      // PostgREST read instead of intermittently surfacing AbortError.
-      readTimeoutMs: 20_000,
-    });
-    const storeId = getActiveStoreId();
     const isStoreOwnerAccount =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
+    if (!isStoreOwnerAccount) {
+      await ensureAccountStoreMembership({
+        accountId: account.id,
+        role: "seller",
+        status: "active",
+      });
+    }
+
     const requestUrl = new URL(request.url);
     const requestedQueue = requestUrl.searchParams.get("queue");
     const compactKingmaker =
@@ -805,19 +798,28 @@ export async function GET(request: Request) {
         { status: 503 },
       );
     }
+    // KINGMAKER/InstaComp reads are Mac-local. Only legacy/non-KINGMAKER
+    // storefront consumers may instantiate the legacy fallback client.
+    const supabase = useMacListingProjection
+      ? null
+      : createSupabaseServerClient({
+          admin: true,
+          readTimeoutMs: 20_000,
+        });
+    const storeId = useMacListingProjection ? null : getActiveStoreId();
     const inventoryRows = useMacListingProjection
       ? macProjection!.items!
       : await readPendingCandidateInventoryPages({
-          supabase,
-          storeId,
+          supabase: supabase!,
+          storeId: storeId!,
           accountId: account.id,
           ownerAccount: isStoreOwnerAccount,
           columns: PENDING_INVENTORY_COLUMNS,
         });
 
-    // Mac-local KINGMAKER is the inventory authority. Supabase remains a
-    // storefront/channel mirror and fallback for pending staging, but listed
-    // Master Listings folders load from the local projection first.
+    // Mac-local KINGMAKER is the inventory authority. Legacy storefront
+    // staging is isolated from this path; Master Listings loads from the local
+    // projection first and does not fall back when Mac authority is unavailable.
     if (refreshMac) try {
       const macByInventoryId = await loadExactMacPendingTruth();
       for (const row of inventoryRows as any[]) {
@@ -962,10 +964,10 @@ export async function GET(request: Request) {
       for (let index = 0; index < linkedProductBatches.length; index += 4) {
         const wave = await Promise.all(
           linkedProductBatches.slice(index, index + 4).map(async (productIdBatch) => {
-            const { data, error } = await supabase
+            const { data, error } = await supabase!
               .from("products")
               .select("id,ebay_item_id,quantity,archived_at")
-              .eq("store_id", storeId)
+              .eq("store_id", storeId!)
               .in("id", productIdBatch);
             if (error) throw error;
             return (data || []) as typeof linkedEbayProducts;
@@ -1183,7 +1185,7 @@ export async function GET(request: Request) {
         for (let index = 0; index < batches.length; index += 4) {
           const wave = await Promise.all(
             batches.slice(index, index + 4).map(async (itemIdBatch) => {
-              const { data, error } = await supabase
+              const { data, error } = await supabase!
                 .from("inventory_images")
                 .select(
                   "inventory_item_id,image_url,alt_text,sort_order,is_primary",
@@ -1207,12 +1209,12 @@ export async function GET(request: Request) {
         for (let index = 0; index < batches.length; index += 4) {
           const wave = await Promise.all(
             batches.slice(index, index + 4).map(async (productIdBatch) => {
-              const { data, error } = await supabase
+              const { data, error } = await supabase!
                 .from("products")
                 .select(
                   "id,card_uuid,sku,title,player,image_url,price,quantity,archived_at,listing_status,ebay_item_id",
                 )
-                .eq("store_id", storeId)
+                .eq("store_id", storeId!)
                 .in("id", productIdBatch);
               if (error) throw error;
               return data || [];
@@ -1225,12 +1227,12 @@ export async function GET(request: Request) {
       (async () => {
         const result: WebsiteInventoryProduct[] = [];
         for (let start = 0; ; start += 1000) {
-          const { data, error } = await supabase
+          const { data, error } = await supabase!
             .from("products")
             .select(
               "id,title,player,price,quantity,archived_at,listing_status",
             )
-            .eq("store_id", storeId)
+            .eq("store_id", storeId!)
             .is("archived_at", null)
             .gt("quantity", 0)
             .gt("price", 0)

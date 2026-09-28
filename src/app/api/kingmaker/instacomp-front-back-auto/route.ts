@@ -1,17 +1,16 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import {
-  ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
-} from "../../../../lib/account-auth";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import { fetchInstaCompAiLocalScanImage } from "../../../../lib/instacomp-ai-local";
 import type { InstaCompChecklistCandidate } from "../../../../lib/instacomp-checklist-first";
 import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../lib/instacomp-checklist-first-server";
 import { resolveChecklistParallelFromVision } from "../../../../lib/instacomp-checklist-parallel-vision";
 import { normalizeInstaCompSideImages } from "../../../../lib/instacomp-image-orientation";
-import { persistNormalizedInstaCompImagePair } from "../../../../lib/instacomp-normalized-image-storage";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../lib/instacomp-provider-safety";
-import { getActiveStoreId } from "../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../lib/kingmaker-mac-scan-server";
 import { getInstaCompServiceToken } from "../../../../lib/tcos-profit-hunter-secrets";
 import { POST as runInstaCompScan } from "../../instacomp/scan/route";
 
@@ -99,6 +98,28 @@ function selectedPair(rows: ImageRow[]) {
     images.find((image) => image.url !== front?.url) ||
     null;
   return { front, back, count: images.length };
+}
+
+
+function macStoredImageRows(item: JsonRecord, metadata: JsonRecord): ImageRow[] {
+  const instaComp = record(metadata.instacomp);
+  const recovered = record(instaComp.recoveredImageUrls);
+  const sourceImages = Array.isArray(instaComp.sourceImageUrls)
+    ? instaComp.sourceImageUrls
+    : [];
+  const front =
+    text(instaComp.frontImageUrl, 2_000) ||
+    text(recovered.front, 2_000) ||
+    text(sourceImages[0], 2_000) ||
+    text(item.image_url ?? item.imageUrl, 2_000);
+  const back =
+    text(instaComp.backImageUrl, 2_000) ||
+    text(recovered.back, 2_000) ||
+    text(sourceImages[1], 2_000);
+  const rows: ImageRow[] = [];
+  if (front) rows.push({ image_url: front, alt_text: "front", sort_order: 0, is_primary: true });
+  if (back && back !== front) rows.push({ image_url: back, alt_text: "back", sort_order: 1, is_primary: false });
+  return rows;
 }
 
 async function downloadImage(url: string, side: "front" | "back") {
@@ -247,8 +268,6 @@ function candidateAi(candidate: InstaCompChecklistCandidate, ai: JsonRecord) {
 }
 
 async function saveFailure(params: {
-  supabase: ReturnType<typeof createSupabaseServerClient>;
-  storeId: string;
   inventoryItemId: string;
   error: string;
   code: string;
@@ -256,42 +275,29 @@ async function saveFailure(params: {
 }) {
   if (!params.inventoryItemId) return;
   try {
-    const { data } = await params.supabase
-      .from("inventory_items")
-      .select("metadata")
-      .eq("id", params.inventoryItemId)
-      .eq("store_id", params.storeId)
-      .eq("status", "draft")
-      .maybeSingle();
-    const metadata = record(data?.metadata);
+    const item = await getMacMasterListingRow(params.inventoryItemId);
+    if (!item) return;
+    const metadata = record(item.metadata);
     const instacomp = record(metadata.instacomp);
-    await params.supabase
-      .from("inventory_items")
-      .update({
-        metadata: {
-          ...metadata,
-          instacomp: {
-            ...instacomp,
-            lastStatus: "failed",
-            lastStage: params.stage,
-            lastError: params.error,
-            lastErrorCode: params.code,
-            lastFailedAt: new Date().toISOString(),
-          },
+    await updateMacKingmakerDraft(params.inventoryItemId, {
+      metadata: {
+        ...metadata,
+        instacomp: {
+          ...instacomp,
+          lastStatus: "failed",
+          lastStage: params.stage,
+          lastError: params.error,
+          lastErrorCode: params.code,
+          lastFailedAt: new Date().toISOString(),
         },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", params.inventoryItemId)
-      .eq("store_id", params.storeId)
-      .eq("status", "draft");
+      },
+    });
   } catch {
-    // The original error is returned; failure-receipt persistence is best effort.
+    // Preserve the original error.
   }
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = createSupabaseServerClient({ admin: true });
-  const storeId = getActiveStoreId();
   let inventoryItemId = "";
 
   try {
@@ -302,11 +308,6 @@ export async function POST(request: NextRequest) {
         { status: 401 },
       );
     }
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
     const isOwner =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
@@ -336,22 +337,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: item, error: itemError } = await supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,status,title,metadata")
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .eq("status", "draft")
-      .or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      .maybeSingle();
-    if (itemError) throw itemError;
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) {
       return NextResponse.json(
         {
           success: false,
-          error: "The selected KINGMAKER draft was not found.",
+          error: "The selected Mac-local KINGMAKER card was not found.",
         },
         { status: 404 },
+      );
+    }
+    if (item.status === "archived" || item.status === "sold") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "This card is archived or sold and cannot be rescanned.",
+        },
+        { status: 409 },
       );
     }
 
@@ -373,14 +375,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: rows, error: imageError } = await supabase
-      .from("inventory_images")
-      .select("image_url,alt_text,sort_order,is_primary")
-      .eq("inventory_item_id", inventoryItemId)
-      .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-    const pair = selectedPair((rows || []) as ImageRow[]);
-    if (!pair.front?.url || !pair.back?.url || pair.front.url === pair.back.url) {
+    const pair = selectedPair(macStoredImageRows(item, metadata));
+    const previousMacReceipt = record(previousInstaComp.macReceipt);
+    const storedMacScanId = text(
+      previousInstaComp.scanId ?? previousMacReceipt.scanId,
+      100,
+    );
+    if (
+      !storedMacScanId &&
+      (!pair.front?.url || !pair.back?.url || pair.front.url === pair.back.url)
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -394,21 +398,33 @@ export async function POST(request: NextRequest) {
 
     let frontFile: File;
     let backFile: File;
-    if (multipart) {
-      const providedFront = value("frontImage");
-      const providedBack = value("backImage");
-      frontFile =
-        providedFront instanceof File
-          ? validateFile(providedFront, "front")
-          : await downloadImage(pair.front.url, "front");
-      backFile =
-        providedBack instanceof File
-          ? validateFile(providedBack, "back")
-          : await downloadImage(pair.back.url, "back");
+    const providedFront = multipart ? value("frontImage") : null;
+    const providedBack = multipart ? value("backImage") : null;
+    const hasProvidedPair =
+      providedFront instanceof File &&
+      providedFront.size > 0 &&
+      providedBack instanceof File &&
+      providedBack.size > 0;
+    if (hasProvidedPair) {
+      frontFile = validateFile(providedFront, "front");
+      backFile = validateFile(providedBack, "back");
+    } else if (storedMacScanId) {
+      [frontFile, backFile] = await Promise.all([
+        fetchInstaCompAiLocalScanImage({
+          scanId: storedMacScanId,
+          side: "front",
+          timeoutMs: 20_000,
+        }),
+        fetchInstaCompAiLocalScanImage({
+          scanId: storedMacScanId,
+          side: "back",
+          timeoutMs: 20_000,
+        }),
+      ]);
     } else {
       [frontFile, backFile] = await Promise.all([
-        downloadImage(pair.front.url, "front"),
-        downloadImage(pair.back.url, "back"),
+        downloadImage(pair.front!.url, "front"),
+        downloadImage(pair.back!.url, "back"),
       ]);
     }
 
@@ -434,17 +450,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const storedImages = await persistNormalizedInstaCompImagePair({
-      supabase,
-      storeId,
-      inventoryItemId,
-      title: item.title || "Card",
-      frontFile: normalizedSides.frontFile,
-      backFile: normalizedSides.backFile,
+    let storedImages = {
+      frontImageUrl: storedMacScanId
+        ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(storedMacScanId)}&side=front`
+        : pair.front?.url || null,
+      backImageUrl: storedMacScanId
+        ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(storedMacScanId)}&side=back`
+        : pair.back?.url || null,
+      verified: Boolean(storedMacScanId),
+      source: storedMacScanId ? "mac_local_scan_archive" : "existing_mac_pair",
       orientation: normalizedSides.orientation,
-      previousFrontImageUrl: pair.front.url,
-      previousBackImageUrl: pair.back.url,
-    });
+    };
 
     const serviceToken = getInstaCompServiceToken();
     if (!serviceToken) {
@@ -470,8 +486,6 @@ export async function POST(request: NextRequest) {
       const scanCode =
         text(scanPayload?.code, 120) || `HTTP_${scanResponse.status}`;
       await saveFailure({
-        supabase,
-        storeId,
         inventoryItemId,
         error: scanError,
         code: scanCode,
@@ -488,6 +502,17 @@ export async function POST(request: NextRequest) {
         },
         { status: scanResponse.status || 500 },
       );
+    }
+
+    const localScanId = text(scanPayload.scanId, 200);
+    if (localScanId) {
+      storedImages = {
+        frontImageUrl: `/api/kingmaker/scan-image?scanId=${encodeURIComponent(localScanId)}&side=front`,
+        backImageUrl: `/api/kingmaker/scan-image?scanId=${encodeURIComponent(localScanId)}&side=back`,
+        verified: true,
+        source: "mac_local_scan_archive",
+        orientation: normalizedSides.orientation,
+      };
     }
 
     const ai = record(scanPayload.ai);
@@ -606,17 +631,12 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    const { error: updateError } = await supabase
-      .from("inventory_items")
-      .update({
-        title: nextTitle,
-        metadata: nextMetadata,
-        updated_at: checkedAt,
-      })
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .eq("status", "draft");
-    if (updateError) throw updateError;
+    await updateMacKingmakerDraft(inventoryItemId, {
+      title: nextTitle,
+      player: resolvedAi.player || null,
+      sport: resolvedAi.sport || null,
+      metadata: nextMetadata,
+    });
 
     return NextResponse.json({
       success: true,
@@ -640,8 +660,6 @@ export async function POST(request: NextRequest) {
         ? error.message
         : "Automatic orientation and checklist identity scan failed.";
     await saveFailure({
-      supabase,
-      storeId,
       inventoryItemId,
       error: message,
       code: "INSTACOMP_AUTO_SCAN_FAILED",

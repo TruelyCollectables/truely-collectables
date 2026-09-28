@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import {
-  ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
-} from "../../../../lib/account-auth";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import {
   analyzeWithInstaCompAiLocal,
   fetchInstaCompAiLocalScanImage,
@@ -18,14 +15,12 @@ import {
 } from "../../../../lib/instacomp-title-registry-hints";
 import type { ParallelVisionDecision } from "../../../../lib/instacomp-checklist-parallel-vision";
 import type { InstaCompCoreVisualEvidence } from "../../../../lib/instacomp-core-visual-evidence";
-import {
-  persistNormalizedInstaCompImagePair,
-  type InstaCompImageOrientationReceipt,
-} from "../../../../lib/instacomp-normalized-image-storage";
+import type { InstaCompImageOrientationReceipt } from "../../../../lib/instacomp-normalized-image-storage";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../lib/instacomp-provider-safety";
-import { updateMacKingmakerDraft } from "../../../../lib/kingmaker-mac-scan-server";
-import { getActiveStoreId } from "../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -386,6 +381,42 @@ function selectedPair(rows: ImageRow[]) {
     null;
 
   return { front, back, count: images.length };
+}
+
+
+function macStoredImageRows(item: JsonRecord, metadata: JsonRecord): ImageRow[] {
+  const instaComp = record(metadata.instacomp);
+  const recovered = record(instaComp.recoveredImageUrls);
+  const sourceImages = Array.isArray(instaComp.sourceImageUrls)
+    ? instaComp.sourceImageUrls
+    : [];
+  const front =
+    text(instaComp.frontImageUrl, 2_000) ||
+    text(recovered.front, 2_000) ||
+    text(sourceImages[0], 2_000) ||
+    text(item.image_url ?? item.imageUrl, 2_000);
+  const back =
+    text(instaComp.backImageUrl, 2_000) ||
+    text(recovered.back, 2_000) ||
+    text(sourceImages[1], 2_000);
+  const rows: ImageRow[] = [];
+  if (front) {
+    rows.push({
+      image_url: front,
+      alt_text: "front",
+      sort_order: 0,
+      is_primary: true,
+    });
+  }
+  if (back && back !== front) {
+    rows.push({
+      image_url: back,
+      alt_text: "back",
+      sort_order: 1,
+      is_primary: false,
+    });
+  }
+  return rows;
 }
 
 async function downloadImage(url: string, side: "front" | "back") {
@@ -1125,8 +1156,6 @@ async function archiveWithMacBestEffort(params: {
 }
 
 async function saveFailure(params: {
-  supabase: ReturnType<typeof createSupabaseServerClient>;
-  storeId: string;
   inventoryItemId: string;
   error: string;
   code: string;
@@ -1134,42 +1163,29 @@ async function saveFailure(params: {
 }) {
   if (!params.inventoryItemId) return;
   try {
-    const { data } = await params.supabase
-      .from("inventory_items")
-      .select("metadata")
-      .eq("id", params.inventoryItemId)
-      .eq("store_id", params.storeId)
-      .eq("status", "draft")
-      .maybeSingle();
-    const metadata = record(data?.metadata);
+    const item = await getMacMasterListingRow(params.inventoryItemId);
+    if (!item) return;
+    const metadata = record(item.metadata);
     const instaComp = record(metadata.instacomp);
-    await params.supabase
-      .from("inventory_items")
-      .update({
-        metadata: {
-          ...metadata,
-          instacomp: {
-            ...instaComp,
-            lastStatus: "failed",
-            lastStage: params.stage,
-            lastError: params.error,
-            lastErrorCode: params.code,
-            lastFailedAt: new Date().toISOString(),
-          },
+    await updateMacKingmakerDraft(params.inventoryItemId, {
+      metadata: {
+        ...metadata,
+        instacomp: {
+          ...instaComp,
+          lastStatus: "failed",
+          lastStage: params.stage,
+          lastError: params.error,
+          lastErrorCode: params.code,
+          lastFailedAt: new Date().toISOString(),
         },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", params.inventoryItemId)
-      .eq("store_id", params.storeId)
-      .eq("status", "draft");
+      },
+    });
   } catch {
     // Preserve the original error.
   }
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = createSupabaseServerClient({ admin: true });
-  const storeId = getActiveStoreId();
   let inventoryItemId = "";
 
   try {
@@ -1180,11 +1196,6 @@ export async function POST(request: NextRequest) {
         { status: 401 },
       );
     }
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
     const isOwner =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
@@ -1211,19 +1222,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: item, error: itemError } = await supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,status,title,metadata")
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .eq("status", "draft")
-      .or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      .maybeSingle();
-    if (itemError) throw itemError;
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) {
       return NextResponse.json(
-        { success: false, error: "The selected KINGMAKER draft was not found." },
+        { success: false, error: "The selected Mac-local KINGMAKER card was not found." },
         { status: 404 },
+      );
+    }
+    if (item.status === "archived" || item.status === "sold") {
+      return NextResponse.json(
+        { success: false, error: "This card is archived or sold and cannot be rescanned." },
+        { status: 409 },
       );
     }
 
@@ -1252,13 +1261,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: rows, error: imageError } = await supabase
-      .from("inventory_images")
-      .select("image_url,alt_text,sort_order,is_primary")
-      .eq("inventory_item_id", inventoryItemId)
-      .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-    const pair = selectedPair((rows || []) as ImageRow[]);
+    const pair = selectedPair(macStoredImageRows(item, metadata));
+    const previousMacReceipt = record(previousInstaComp.macReceipt);
+    const storedMacScanId = text(
+      previousInstaComp.scanId ?? previousMacReceipt.scanId,
+      100,
+    );
     const providedFront = multipart ? value("frontImage") : null;
     const providedBack = multipart ? value("backImage") : null;
     const hasProvidedPair =
@@ -1268,6 +1276,7 @@ export async function POST(request: NextRequest) {
       providedBack.size > 0;
     if (
       !hasProvidedPair &&
+      !storedMacScanId &&
       (!pair.front?.url || !pair.back?.url || pair.front.url === pair.back.url)
     ) {
       return NextResponse.json(
@@ -1287,6 +1296,19 @@ export async function POST(request: NextRequest) {
     if (hasProvidedPair) {
       frontFile = validateFile(providedFront, "front");
       backFile = validateFile(providedBack, "back");
+    } else if (storedMacScanId) {
+      [frontFile, backFile] = await Promise.all([
+        fetchInstaCompAiLocalScanImage({
+          scanId: storedMacScanId,
+          side: "front",
+          timeoutMs: MAC_ARCHIVE_IMAGE_TIMEOUT_MS,
+        }),
+        fetchInstaCompAiLocalScanImage({
+          scanId: storedMacScanId,
+          side: "back",
+          timeoutMs: MAC_ARCHIVE_IMAGE_TIMEOUT_MS,
+        }),
+      ]);
     } else {
       [frontFile, backFile] = await Promise.all([
         downloadImage(pair.front!.url, "front"),
@@ -1390,41 +1412,10 @@ export async function POST(request: NextRequest) {
           }
         : null;
 
-    let preserveInputPromise: Promise<{
+    const preserveInputPromise: Promise<{
       frontImageUrl: string;
       backImageUrl: string;
     } | null> = Promise.resolve(null);
-    if (hasProvidedPair) {
-      const rawPreservationOrientation: InstaCompImageOrientationReceipt = {
-        status: "review_required",
-        model: null,
-        source: "kingmaker_raw_intake_preservation",
-        frontRotation: 0,
-        backRotation: 0,
-        frontConfidence: 0,
-        backConfidence: 0,
-        frontEvidenceText: [],
-        backEvidenceText: [],
-        backStandalonePrizm: null,
-        backDesignationConfidence: 0,
-        reason:
-          "Original front/back uploads were preserved while the Mac performed orientation and exact Registry identification.",
-      };
-      preserveInputPromise = persistNormalizedInstaCompImagePair({
-        supabase,
-        storeId,
-        inventoryItemId,
-        title: item.title || "Card",
-        frontFile,
-        backFile,
-        orientation: rawPreservationOrientation,
-        previousFrontImageUrl: pair.front?.url || null,
-        previousBackImageUrl: pair.back?.url || null,
-      }).then((preserved) => ({
-        frontImageUrl: preserved.frontImageUrl,
-        backImageUrl: preserved.backImageUrl,
-      }));
-    }
 
     const storedPairOrientation = trustedStoredPairOrientation({
       previousInstaComp,
@@ -1779,12 +1770,14 @@ export async function POST(request: NextRequest) {
               macReceipt.error ||
               "The local Mac scan was recorded but orientation still needs review.",
           };
-        const frontImageUrl =
-          preservedInputPair?.frontImageUrl ||
-          text(previousInstaComp.frontImageUrl, 2_000);
-        const backImageUrl =
-          preservedInputPair?.backImageUrl ||
-          text(previousInstaComp.backImageUrl, 2_000);
+        const frontImageUrl = macReceipt.scanId
+          ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(macReceipt.scanId)}&side=front`
+          : preservedInputPair?.frontImageUrl ||
+            text(previousInstaComp.frontImageUrl, 2_000);
+        const backImageUrl = macReceipt.scanId
+          ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(macReceipt.scanId)}&side=back`
+          : preservedInputPair?.backImageUrl ||
+            text(previousInstaComp.backImageUrl, 2_000);
         const pairPersisted = Boolean(
           frontImageUrl &&
             backImageUrl &&
@@ -1823,13 +1816,9 @@ export async function POST(request: NextRequest) {
             scannedAt: reviewAt,
           },
         };
-        const { error: reviewUpdateError } = await supabase
-          .from("inventory_items")
-          .update({ metadata: nextMetadata, updated_at: reviewAt })
-          .eq("id", inventoryItemId)
-          .eq("store_id", storeId)
-          .eq("status", "draft");
-        if (reviewUpdateError) throw reviewUpdateError;
+        await updateMacKingmakerDraft(inventoryItemId, {
+          metadata: nextMetadata,
+        });
 
         return NextResponse.json(
           {
@@ -2333,19 +2322,18 @@ export async function POST(request: NextRequest) {
       ],
     };
 
-    const storedImages = await persistNormalizedInstaCompImagePair({
-      supabase,
-      storeId,
-      inventoryItemId,
-      title: item.title || "Card",
-      frontFile: finalFrontFile,
-      backFile: finalBackFile,
+    const localScanId = macReceipt.scanId;
+    const storedImages = {
+      frontImageUrl: localScanId
+        ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(localScanId)}&side=front`
+        : preservedInputPair?.frontImageUrl || pair.front?.url || null,
+      backImageUrl: localScanId
+        ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(localScanId)}&side=back`
+        : preservedInputPair?.backImageUrl || pair.back?.url || null,
+      verified: Boolean(localScanId),
+      source: localScanId ? "mac_local_scan_archive" : "existing_pair",
       orientation: finalOrientation,
-      previousFrontImageUrl:
-        preservedInputPair?.frontImageUrl || pair.front?.url || null,
-      previousBackImageUrl:
-        preservedInputPair?.backImageUrl || pair.back?.url || null,
-    });
+    };
 
     const checkedAt = new Date().toISOString();
     const collectibleAsset = record(metadata.collectible_asset);
@@ -2501,31 +2489,14 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    const updatePayload: JsonRecord = {
-      title: nextTitle,
-      metadata: nextMetadata,
-      updated_at: checkedAt,
-    };
-    if (selectedRegistryIdentityId) {
-      updatePayload.card_uuid = selectedRegistryIdentityId;
-    }
-
-    // Mac-local commercial inventory is KINGMAKER's listing authority. Keep
-    // the exact physical re-read and the storefront mirror on the same receipt.
+    // Mac-local commercial inventory + Master Listings are the sole KINGMAKER
+    // identity/listing authority for this exact scan.
     await updateMacKingmakerDraft(inventoryItemId, {
       title: nextTitle,
       player: resolvedAi.player || null,
       sport: resolvedAi.sport || null,
       metadata: nextMetadata,
     });
-
-    const { error: updateError } = await supabase
-      .from("inventory_items")
-      .update(updatePayload)
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .eq("status", "draft");
-    if (updateError) throw updateError;
 
     return NextResponse.json(
       {
@@ -2577,8 +2548,6 @@ export async function POST(request: NextRequest) {
         ? error.message
         : "First-time visual checklist scan failed.";
     await saveFailure({
-      supabase,
-      storeId,
       inventoryItemId,
       error: failure,
       code: "INSTACOMP_FIRST_TIME_SCAN_FAILED",

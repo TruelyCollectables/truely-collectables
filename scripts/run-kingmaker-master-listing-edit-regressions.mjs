@@ -4,27 +4,20 @@ import fs from "node:fs";
 const routePath = "src/app/api/account/seller/inventory/instacomp-card-edit/route.ts";
 const route = fs.readFileSync(routePath, "utf8");
 
-const lookupStart = route.indexOf('let query = supabase');
-const lookupEnd = route.indexOf('query = isOwner', lookupStart);
-assert.ok(lookupStart >= 0 && lookupEnd > lookupStart, "card edit lookup query must exist");
-const lookup = route.slice(lookupStart, lookupEnd);
 assert.equal(
-  lookup.includes('.eq("status", "draft")'),
+  /createSupabaseServerClient|from\(["']inventory_items["']\)|from\(["']inventory_images["']\)/.test(route),
   false,
-  "Master Listings edit lookup must not be restricted to draft rows",
+  "KINGMAKER manual card edits must not read or write InstaComp/listing truth through Supabase",
 );
-
+assert.ok(
+  route.includes("getMacMasterListingRow") &&
+    route.includes("updateMacKingmakerDraft") &&
+    route.includes("async function persistMasterListingEditToMac"),
+  "KINGMAKER card edits must read and persist through Mac-local Master Listings",
+);
 assert.ok(
   route.includes('if (item.status === "archived" || item.status === "sold")'),
   "Archived/sold inventory must remain protected from editing",
-);
-assert.ok(
-  route.includes('.neq("status", "archived")') && route.includes('.neq("status", "sold")'),
-  "Save must reject a row that becomes archived/sold during the edit",
-);
-assert.ok(
-  route.includes('.select("id,status")') && route.includes('.maybeSingle()'),
-  "Save must prove the inventory row was actually updated",
 );
 assert.equal(
   route.includes('{ error: "Pending card was not found." }'),
@@ -45,17 +38,16 @@ assert.ok(
   "Seller-saved listing title must be persisted as an explicit locked presentation override",
 );
 assert.ok(
-  route.includes('import { projectMacMasterListingRows }') &&
-    route.includes("async function persistMasterListingEditToMac") &&
+  route.includes("async function persistMasterListingEditToMac") &&
+    route.includes("updateMacKingmakerDraft") &&
     (route.match(/await persistMasterListingEditToMac\(\{/g) || []).length >= 2,
-  "Title-only and identity edits must both be persisted to Mac-local Master Listings before success is returned",
+  "Title-only and identity edits must both be committed through Mac-local KINGMAKER before success is returned",
 );
 assert.ok(
-  route.includes("legacy_product_id,sku,status,quantity,price,image_url,created_at") &&
-    route.includes("quantity: Number(item.quantity || 0)") &&
-    route.includes("metadata,") &&
-    route.includes("updatedAt,"),
-  "Mac-local projection writes must retain the full listing row instead of collapsing quantity or metadata",
+  route.includes("quantity: Number(item.quantity || 0)") &&
+    route.includes("price: Number(item.price || 0)") &&
+    route.includes("metadata,"),
+  "Mac-local edits must retain quantity, price, and metadata instead of collapsing the authoritative row",
 );
 assert.ok(
   route.includes("if (!identityEdited)") && route.includes("identityUnchanged: true"),
@@ -112,6 +104,32 @@ assert.ok(
 
 const exactRoutePath = "src/app/api/kingmaker/instacomp-front-back-exact/route.ts";
 const exactRoute = fs.readFileSync(exactRoutePath, "utf8");
+assert.equal(
+  /createSupabaseServerClient|from\(["']inventory_items["']\)|from\(["']inventory_images["']\)|persistNormalizedInstaCompImagePair/.test(exactRoute),
+  false,
+  "KINGMAKER exact identity scans must not use storefront database/storage as identity or image truth",
+);
+assert.ok(
+  exactRoute.includes("getMacMasterListingRow") &&
+    exactRoute.includes("macStoredImageRows") &&
+    exactRoute.includes("updateMacKingmakerDraft"),
+  "KINGMAKER exact identity scans must read images/identity and persist receipts through the Mac-local path",
+);
+const autoRoute = fs.readFileSync(
+  "src/app/api/kingmaker/instacomp-front-back-auto/route.ts",
+  "utf8",
+);
+assert.equal(
+  /createSupabaseServerClient|from\(["']inventory_items["']\)|from\(["']inventory_images["']\)|persistNormalizedInstaCompImagePair/.test(autoRoute),
+  false,
+  "KINGMAKER automatic front/back scans must stay on the Mac-local identity/image path",
+);
+assert.ok(
+  autoRoute.includes("getMacMasterListingRow") &&
+    autoRoute.includes("macStoredImageRows") &&
+    autoRoute.includes("updateMacKingmakerDraft"),
+  "KINGMAKER automatic scans must read and persist through Mac-local KINGMAKER",
+);
 assert.ok(
   exactRoute.includes("const previousRegistryLockedFields = record(previousChecklistIdentity.lockedFields)") &&
     exactRoute.includes("text(previousRegistryLockedFields.player, 200) ||") &&
@@ -181,7 +199,13 @@ assert.ok(
     pending.includes("useMacListingProjection") &&
     pending.includes('sourceAuthority === "mac_local_sqlite"') &&
     pending.includes("metadata.master_listing_projection"),
-  "Listed Master Listings folders must read Mac-local authoritative projection before any Supabase inventory fallback",
+  "Listed Master Listings folders must read Mac-local authoritative projection before any legacy inventory fallback",
+);
+assert.ok(
+  pending.includes("const supabase = useMacListingProjection") &&
+    pending.includes("? null") &&
+    pending.includes(": createSupabaseServerClient"),
+  "KINGMAKER Mac-local loads must not instantiate the storefront database client",
 );
 assert.ok(
   pending.includes("if (!useMacListingProjection)") &&

@@ -4,14 +4,14 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import {
-  archiveInstaCompAiLocalSupervisedScan,
   confirmInstaCompAiLocalLesson,
   hasConfiguredInstaCompAiLocal,
   type InstaCompAiLocalLessonIdentity,
 } from "../../../../../../lib/instacomp-ai-local";
-import { projectMacMasterListingRows } from "../../../../../../lib/kingmaker-mac-scan-server";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,149 +49,36 @@ async function persistMasterListingEditToMac(params: {
   metadata: JsonRecord;
   updatedAt: string;
 }) {
-  const { item, title, description, category, condition, metadata, updatedAt } = params;
-  await projectMacMasterListingRows([
-    {
-      inventoryItemId: clean(item.id, 100),
-      legacyProductId: item.legacy_product_id,
-      cardUuid: nullableText(item.card_uuid, 100),
-      sku: nullableText(item.sku, 200),
-      title,
-      description,
-      category,
-      condition,
-      status: clean(item.status, 80) || "draft",
-      quantity: Number(item.quantity || 0),
-      price: Number(item.price || 0),
-      imageUrl: nullableText(item.image_url, 2000),
-      metadata,
-      createdAt: nullableText(item.created_at, 100),
-      updatedAt,
-    },
-  ]);
-}
-
-
-type StoredLearningImage = {
-  image_url: string | null;
-  alt_text: string | null;
-  sort_order: number | null;
-  is_primary: boolean | null;
-};
-
-function trustedStorageHost() {
-  const configured =
-    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-  try {
-    return new URL(configured).host.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function learningImagePair(rows: StoredLearningImage[], metadata: JsonRecord) {
-  const sorted = [...rows]
-    .filter((row) => Boolean(nullableText(row.image_url, 2000)))
-    .sort((left, right) => {
-      if (left.is_primary === true && right.is_primary !== true) return -1;
-      if (right.is_primary === true && left.is_primary !== true) return 1;
-      return Number(left.sort_order || 0) - Number(right.sort_order || 0);
-    });
-  const frontRow =
-    sorted.find((row) => row.is_primary === true) ||
-    sorted.find((row) => /\bfront\b/i.test(row.alt_text || "")) ||
-    sorted[0] ||
-    null;
-  const backRow =
-    sorted.find((row) => /\bback\b/i.test(row.alt_text || "")) ||
-    sorted.find(
-      (row) => row !== frontRow && row.image_url !== frontRow?.image_url,
-    ) ||
-    null;
-  const instaComp = record(metadata.instacomp);
-  const recovered = record(instaComp.recoveredImageUrls);
-  const sourceImages = Array.isArray(instaComp.sourceImageUrls)
-    ? instaComp.sourceImageUrls
-    : [];
-  const front =
-    nullableText(frontRow?.image_url, 2000) ||
-    nullableText(recovered.front, 2000) ||
-    nullableText(sourceImages[0], 2000);
-  const back =
-    nullableText(backRow?.image_url, 2000) ||
-    nullableText(recovered.back, 2000) ||
-    nullableText(sourceImages[1], 2000);
-  return front && back && front !== back ? { front, back } : null;
-}
-
-async function learningImageBlob(url: string, side: "front" | "back") {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`Stored ${side} image URL is invalid.`);
-  }
-  const storageHost = trustedStorageHost();
-  if (
-    parsed.protocol !== "https:" ||
-    !storageHost ||
-    parsed.host.toLowerCase() !== storageHost ||
-    !parsed.pathname.startsWith("/storage/v1/object/")
-  ) {
-    throw new Error(
-      `Stored ${side} image is not in the trusted Supabase storage origin.`,
-    );
-  }
-  const response = await fetch(parsed, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Stored ${side} image returned HTTP ${response.status}.`);
-  }
-  const bytes = await response.arrayBuffer();
-  if (bytes.byteLength < 1_000 || bytes.byteLength > 12 * 1024 * 1024) {
-    throw new Error(`Stored ${side} image has an invalid size.`);
-  }
-  const contentType = response.headers.get("content-type") || "image/jpeg";
-  if (!contentType.toLowerCase().startsWith("image/")) {
-    throw new Error(`Stored ${side} image is not an image response.`);
-  }
-  return new Blob([bytes], { type: contentType });
-}
-
-async function recoverMissingInternalScanReceipt(params: {
-  supabase: ReturnType<typeof createSupabaseServerClient>;
-  inventoryItemId: string;
-  cardUuid: string | null;
-  metadata: JsonRecord;
-}) {
-  const { data, error } = await params.supabase
-    .from("inventory_images")
-    .select("image_url,alt_text,sort_order,is_primary")
-    .eq("inventory_item_id", params.inventoryItemId)
-    .order("sort_order", { ascending: true });
-  if (error) throw error;
-  const pair = learningImagePair(
-    (data || []) as StoredLearningImage[],
-    params.metadata,
+  const { item, title, description, category, condition, metadata } = params;
+  const inventoryItemId = clean(
+    item.id ?? item.inventoryItemId ?? item.inventory_item_id,
+    100,
   );
-  if (!pair) {
-    throw new Error(
-      "No distinct stored front/back image pair is available to reconstruct the Mac-local learning receipt.",
-    );
+  if (!inventoryItemId) {
+    throw new Error("Mac-local Master Listings row is missing its inventory id.");
   }
-  const [front, back] = await Promise.all([
-    learningImageBlob(pair.front, "front"),
-    learningImageBlob(pair.back, "back"),
-  ]);
-  const archive = await archiveInstaCompAiLocalSupervisedScan({
-    front,
-    back,
-    cardUuid: params.cardUuid,
+  const status = clean(item.status, 80) || "draft";
+  if (status === "archived" || status === "sold") {
+    throw new Error("This card is no longer editable because it is archived or sold.");
+  }
+  const updated = await updateMacKingmakerDraft(inventoryItemId, {
+    title,
+    description,
+    category,
+    condition,
+    status,
+    quantity: Number(item.quantity || 0),
+    price: Number(item.price || 0),
+    imageUrl: nullableText(item.image_url ?? item.imageUrl, 2000),
+    player: nullableText(record(metadata.instacomp).manualIdentity && record(record(metadata.instacomp).manualIdentity).player, 200),
+    sport: nullableText(record(metadata.instacomp).manualIdentity && record(record(metadata.instacomp).manualIdentity).sport, 100),
+    metadata,
   });
-  return { scanId: archive.scan_id, cardUuid: archive.card_uuid };
+  if (!updated) {
+    throw new Error("Mac-local KINGMAKER did not return the edited card.");
+  }
 }
+
 
 function exactSerialStamp(value: unknown) {
   const raw = clean(value, 30).replace(/\s+/g, "");
@@ -319,24 +206,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
-
-    let query = supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,card_uuid,legacy_product_id,sku,status,quantity,price,image_url,created_at,metadata,description,category,condition")
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId);
-    query = isOwner
-      ? query.or(
-          `seller_account_id.eq.${account.id},seller_account_id.is.null`,
-        )
-      : query.eq("seller_account_id", account.id);
-    const { data: item, error: itemError } = await query.maybeSingle();
-    if (itemError) throw itemError;
+    // InstaComp/KINGMAKER identity and listing truth is Mac-local only.
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) {
       return NextResponse.json(
-        { error: "Card was not found." },
+        { error: "Mac-local Master Listings card was not found." },
         { status: 404 },
       );
     }
@@ -350,13 +224,13 @@ export async function POST(request: NextRequest) {
     const metadata = record(item.metadata);
     const nextDescription = Object.prototype.hasOwnProperty.call(body, "description")
       ? nullableText(body.description, 5000)
-      : item.description || null;
+      : nullableText(item.description, 5000);
     const nextCategory = Object.prototype.hasOwnProperty.call(body, "category")
       ? nullableText(body.category, 160)
-      : item.category || null;
+      : nullableText(item.category, 160);
     const nextCondition = Object.prototype.hasOwnProperty.call(body, "condition")
       ? nullableText(body.condition, 120)
-      : item.condition || null;
+      : nullableText(item.condition, 120);
     const instaComp = record(metadata.instacomp);
     const ai = record(instaComp.ai);
     const existingManualIdentity = record(instaComp.manualIdentity);
@@ -382,30 +256,6 @@ export async function POST(request: NextRequest) {
           manualListingTitleSavedBy: account.id,
         },
       };
-
-      const { data: updatedItem, error: updateError } = await supabase
-        .from("inventory_items")
-        .update({
-          title: displayTitle,
-          description: nextDescription,
-          category: nextCategory,
-          condition: nextCondition,
-          metadata: nextMetadata,
-          updated_at: editedAt,
-        })
-        .eq("id", inventoryItemId)
-        .eq("store_id", storeId)
-        .neq("status", "archived")
-        .neq("status", "sold")
-        .select("id,status")
-        .maybeSingle();
-      if (updateError) throw updateError;
-      if (!updatedItem) {
-        return NextResponse.json(
-          { error: "This card changed status before the edit could be saved. Reload Master Listings and try again." },
-          { status: 409 },
-        );
-      }
 
       await persistMasterListingEditToMac({
         item: item as JsonRecord,
@@ -437,7 +287,6 @@ export async function POST(request: NextRequest) {
     const internalScanId = clean(ai.internalScanId, 100);
     const internalEngineConfigured = hasConfiguredInstaCompAiLocal();
     const effectiveInternalScanId = internalScanId;
-    const recoveredInternalCardUuid: string | null = null;
     const learningReceiptRecovered = false;
     const learningStatus = internalEngineConfigured
       ? "queued"
@@ -574,8 +423,7 @@ export async function POST(request: NextRequest) {
         ai: {
           ...ai,
           internalScanId: effectiveInternalScanId || null,
-          internalCardUuid:
-            recoveredInternalCardUuid || nullableText(ai.internalCardUuid, 100),
+          internalCardUuid: nullableText(ai.internalCardUuid, 100),
           player: manualIdentity.player,
           year: manualIdentity.year,
           manufacturer: manualIdentity.manufacturer,
@@ -605,33 +453,6 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    const { data: updatedItem, error: updateError } = await supabase
-      .from("inventory_items")
-      .update({
-        title: displayTitle,
-        description: nextDescription,
-        category: nextCategory,
-        condition: nextCondition,
-        metadata: nextMetadata,
-        updated_at: editedAt,
-        ...(!item.card_uuid && recoveredInternalCardUuid
-          ? { card_uuid: recoveredInternalCardUuid }
-          : {}),
-      })
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .neq("status", "archived")
-      .neq("status", "sold")
-      .select("id,status")
-      .maybeSingle();
-    if (updateError) throw updateError;
-    if (!updatedItem) {
-      return NextResponse.json(
-        { error: "This card changed status before the edit could be saved. Reload Master Listings and try again." },
-        { status: 409 },
-      );
-    }
-
     await persistMasterListingEditToMac({
       item: item as JsonRecord,
       title: displayTitle,
@@ -650,41 +471,21 @@ export async function POST(request: NextRequest) {
         normalizedPrintRun,
       });
       after(async () => {
-        const backgroundSupabase = createSupabaseServerClient({ admin: true });
-        let backgroundScanId = internalScanId;
-        let backgroundCardUuid: string | null = null;
         let backgroundStatus:
           | "stored"
           | "pending_internal_connection"
-          | "missing_internal_scan_receipt" = "missing_internal_scan_receipt";
+          | "missing_internal_scan_receipt" = internalScanId
+            ? "pending_internal_connection"
+            : "missing_internal_scan_receipt";
         let backgroundLessonId: string | null = null;
-        let backgroundError: string | null = null;
+        let backgroundError: string | null = internalScanId
+          ? null
+          : "No Mac-local scan receipt is attached to this card; seller correction remains locked locally.";
 
-        if (!backgroundScanId) {
-          try {
-            const recoveredReceipt = await recoverMissingInternalScanReceipt({
-              supabase: backgroundSupabase,
-              inventoryItemId,
-              cardUuid: nullableText(item.card_uuid, 100),
-              metadata: nextMetadata,
-            });
-            backgroundScanId = recoveredReceipt.scanId;
-            backgroundCardUuid = recoveredReceipt.cardUuid;
-          } catch (error) {
-            backgroundError =
-              error instanceof Error
-                ? error.message.slice(0, 500)
-                : "The missing Mac-local scan receipt could not be reconstructed.";
-            if (!/no distinct stored front\/back image pair/i.test(backgroundError)) {
-              backgroundStatus = "pending_internal_connection";
-            }
-          }
-        }
-
-        if (backgroundScanId) {
+        if (internalScanId) {
           try {
             const lesson = await confirmInstaCompAiLocalLesson({
-              scanId: backgroundScanId,
+              scanId: internalScanId,
               identity: lessonIdentity,
               operatorId: account.id,
               notes: `Seller confirmed inventory item ${inventoryItemId}: ${displayTitle}`,
@@ -699,28 +500,16 @@ export async function POST(request: NextRequest) {
                 ? error.message.slice(0, 500)
                 : "InstaComp internal lesson could not be stored.";
           }
-        } else if (!backgroundError) {
-          backgroundError =
-            "No Mac-local scan receipt or recoverable stored front/back image pair is available for this correction.";
         }
 
         try {
-          const { data: current, error: currentError } = await backgroundSupabase
-            .from("inventory_items")
-            .select("metadata,card_uuid,updated_at,status")
-            .eq("id", inventoryItemId)
-            .eq("store_id", storeId)
-            .neq("status", "archived")
-            .neq("status", "sold")
-            .maybeSingle();
-          if (currentError || !current) return;
-
+          const current = await getMacMasterListingRow(inventoryItemId);
+          if (!current) return;
           const currentMetadata = record(current.metadata);
           const currentReview = record(currentMetadata.seller_review);
           if (clean(currentReview.edited_at, 100) !== editedAt) return;
 
           const currentInstaComp = record(currentMetadata.instacomp);
-          const currentAi = record(currentInstaComp.ai);
           const learningUpdatedAt = new Date().toISOString();
           const patchedMetadata = {
             ...currentMetadata,
@@ -730,33 +519,19 @@ export async function POST(request: NextRequest) {
               learningLessonId: backgroundLessonId,
               learningError: backgroundError,
               learningUpdatedAt,
-              ai: {
-                ...currentAi,
-                internalScanId: backgroundScanId || null,
-                internalCardUuid:
-                  backgroundCardUuid ||
-                  nullableText(currentAi.internalCardUuid, 100),
-              },
             },
           };
-
-          const patch: Record<string, unknown> = {
+          await persistMasterListingEditToMac({
+            item: current,
+            title: clean(current.title, 300) || displayTitle,
+            description: nullableText(current.description, 5000),
+            category: nullableText(current.category, 160),
+            condition: nullableText(current.condition, 120),
             metadata: patchedMetadata,
-            updated_at: learningUpdatedAt,
-          };
-          if (!current.card_uuid && backgroundCardUuid) {
-            patch.card_uuid = backgroundCardUuid;
-          }
-          await backgroundSupabase
-            .from("inventory_items")
-            .update(patch)
-            .eq("id", inventoryItemId)
-            .eq("store_id", storeId)
-            .neq("status", "archived")
-            .neq("status", "sold")
-            .eq("updated_at", current.updated_at);
+            updatedAt: learningUpdatedAt,
+          });
         } catch (error) {
-          console.error("KINGMAKER background learning persistence failed", {
+          console.error("KINGMAKER Mac-local learning persistence failed", {
             inventoryItemId,
             error: error instanceof Error ? error.message : String(error),
           });
