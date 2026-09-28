@@ -137,14 +137,14 @@ const scannerSource = readFileSync(
   "utf8",
 );
 
-assert.match(routeSource, /for \(let from = 0; ; from \+= 1000\)/);
 assert.match(routeSource, /queueCounts/);
 assert.match(routeSource, /requestedQueue === "verification"/);
 assert.match(routeSource, /refreshMac/);
-assert.match(routeSource, /readPendingCandidateInventoryPages/);
-assert.match(routeSource, /metadata->instacomp/);
-assert.match(routeSource, /metadata->card_identity/);
-assert.match(routeSource, /if \(refreshMac\) try/);
+assert.match(routeSource, /loadMacMasterListingProjection/);
+assert.match(routeSource, /sourceAuthority === "mac_local_sqlite"/);
+assert.match(routeSource, /Mac-local Master Listings inventory is temporarily unavailable/);
+assert.doesNotMatch(routeSource, /createSupabaseServerClient/);
+assert.doesNotMatch(routeSource, /readPendingCandidateInventoryPages/);
 assert.match(clientSource, /Resale Pending/);
 assert.match(clientSource, /Pending Verification/);
 assert.match(pageSource, /instacomp-pending\?queue=\$\{queue\}/);

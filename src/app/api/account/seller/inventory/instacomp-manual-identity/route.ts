@@ -3,8 +3,10 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { confirmInstaCompAiLocalLesson } from "../../../../../../lib/instacomp-ai-local";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  listMacMasterListingRows,
+  updateMacKingmakerDraft,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,27 +77,31 @@ async function ownerScopedDrafts(request: Request) {
     role: "seller",
     status: "active",
   });
-
-  const supabase = createSupabaseServerClient({ admin: true });
-  const storeId = getActiveStoreId();
   const isOwner =
     account.email === "sales@truelycollectables.com" ||
     account.email === "sales@trulycollectables.com";
-
-  let query = supabase
-    .from("inventory_items")
-    .select("id,seller_account_id,status,title,metadata,updated_at")
-    .eq("store_id", storeId)
-    .eq("status", "draft")
-    .order("updated_at", { ascending: false })
-    .limit(200);
-  query = isOwner
-    ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-    : query.eq("seller_account_id", account.id);
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return { account, rows: data || [], error: null, supabase, storeId };
+  const allRows = await listMacMasterListingRows({
+    folder: "pending",
+    compact: false,
+    timeoutMs: 15_000,
+  });
+  const rows = allRows
+    .filter((row: any) => {
+      const sellerAccountId = text(row.seller_account_id ?? row.sellerAccountId, 200);
+      const status = text(row.status, 80);
+      return (
+        status !== "archived" &&
+        status !== "sold" &&
+        (isOwner || !sellerAccountId || sellerAccountId === account.id)
+      );
+    })
+    .sort((left: any, right: any) =>
+      String(right.updated_at || right.updatedAt || "").localeCompare(
+        String(left.updated_at || left.updatedAt || ""),
+      ),
+    )
+    .slice(0, 200);
+  return { account, rows, error: null };
 }
 
 export async function GET(request: Request) {
@@ -139,7 +145,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const scoped = await ownerScopedDrafts(request);
-    if (!scoped.account || !scoped.supabase || !scoped.storeId) {
+    if (!scoped.account) {
       return Response.json(
         { success: false, error: scoped.error },
         { status: 401 },
@@ -185,13 +191,10 @@ export async function POST(request: Request) {
           unlockedBy: scoped.account.email || scoped.account.id,
         },
       };
-      const { error } = await scoped.supabase
-        .from("inventory_items")
-        .update({ metadata: nextMetadata, updated_at: now })
-        .eq("id", inventoryItemId)
-        .eq("store_id", scoped.storeId)
-        .eq("status", "draft");
-      if (error) throw error;
+      await updateMacKingmakerDraft(inventoryItemId, {
+        metadata: nextMetadata,
+        updatedAt: now,
+      });
       return Response.json({
         success: true,
         message: "Identity unlocked. Automatic scanning may replace it.",
@@ -304,13 +307,11 @@ export async function POST(request: Request) {
       },
     };
 
-    const { error: saveError } = await scoped.supabase
-      .from("inventory_items")
-      .update({ title, metadata: baseNextMetadata, updated_at: now })
-      .eq("id", inventoryItemId)
-      .eq("store_id", scoped.storeId)
-      .eq("status", "draft");
-    if (saveError) throw saveError;
+    await updateMacKingmakerDraft(inventoryItemId, {
+      title,
+      metadata: baseNextMetadata,
+      updatedAt: now,
+    });
 
     const internalScanId =
       text(previousAi.internalScanId, 100) ||
@@ -379,16 +380,16 @@ export async function POST(request: Request) {
         learningPromotion: learning,
       },
     };
-    const { error: receiptError } = await scoped.supabase
-      .from("inventory_items")
-      .update({ metadata: finalMetadata, updated_at: new Date().toISOString() })
-      .eq("id", inventoryItemId)
-      .eq("store_id", scoped.storeId)
-      .eq("status", "draft");
-    if (receiptError) {
+    try {
+      await updateMacKingmakerDraft(inventoryItemId, {
+        metadata: finalMetadata,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
       learning = {
         ...learning,
-        receiptPersistenceError: receiptError.message,
+        receiptPersistenceError:
+          error instanceof Error ? error.message : "Mac-local receipt persistence failed.",
       };
     }
 

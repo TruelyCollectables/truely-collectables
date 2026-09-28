@@ -14,17 +14,16 @@ const repairRoute = readFileSync(
 );
 
 assert(
-  pendingRoute.includes('.from("inventory_images")') &&
-    pendingRoute.includes(
-      '"inventory_item_id,image_url,alt_text,sort_order,is_primary"',
-    ),
-  "Pending Listings must read the stored inventory image rows.",
+  !pendingRoute.includes('.from("inventory_images")') &&
+    !pendingRoute.includes("createSupabaseServerClient"),
+  "Pending Listings must not read scan images from Supabase.",
 );
 assert(
-  pendingRoute.includes("imagePairForItem") &&
-    pendingRoute.includes("hasStoredBackImage") &&
-    pendingRoute.includes('backImageSource: storedPair.hasStoredBackImage'),
-  "Back-image status must be derived from the stored image pair.",
+  pendingRoute.includes("textValue(instaComp.frontImageUrl)") &&
+    pendingRoute.includes("textValue(instaComp.backImageUrl)") &&
+    pendingRoute.includes("displayFrontUrl") &&
+    pendingRoute.includes("displayBackUrl"),
+  "Pending Listings must derive front/back images from Mac-projected scan metadata.",
 );
 assert(
   pendingRoute.includes("backImageUrl: displayBackUrl") &&

@@ -25,10 +25,10 @@ class PurchaseMatchRequest(BaseModel):
 
 class PurchaseReceiveRequest(BaseModel):
     card_uuid: str = Field(default="", max_length=200)
-    inventory_item_id: str = Field(min_length=1, max_length=200)
+    inventory_item_id: str = Field(default="", max_length=200)
     scan_id: str = Field(default="", max_length=200)
     acquisition_item_id: int = Field(gt=0)
-    disposition: str = Field(pattern="^(resale|investment_stash)$")
+    disposition: str = Field(default="resale", pattern="^(resale|investment_stash)$")
 
 
 class PurchaseLinkExistingRequest(BaseModel):
@@ -137,7 +137,10 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class CommercialInventoryRequest(BaseModel):
-    action: str = Field(default="list", pattern="^(list|get|find_image_pair|refresh|create|update|project_master|project_master_reset|master_list)$")
+    action: str = Field(
+        default="list",
+        pattern="^(list|get|find_image_pair|find_card_uuid|refresh|create|update|project_master|project_master_reset|master_list|master_get|master_group|master_update|master_delete)$",
+    )
     items: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
 
 
@@ -365,13 +368,16 @@ def build_kingmaker_accounting_router(
     @router.post("/receive")
     def receive_purchase(request: PurchaseReceiveRequest):
         try:
-            result = accounting.receive_into_inventory(
-                request.card_uuid,
-                request.inventory_item_id,
-                request.acquisition_item_id,
-                request.scan_id,
-                request.disposition,
-            )
+            if not str(request.inventory_item_id or "").strip():
+                result = accounting.receive_without_scan(request.acquisition_item_id)
+            else:
+                result = accounting.receive_into_inventory(
+                    request.card_uuid,
+                    request.inventory_item_id,
+                    request.acquisition_item_id,
+                    request.scan_id,
+                    request.disposition,
+                )
             return {"ok": True, **result}
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -450,6 +456,145 @@ def build_kingmaker_accounting_router(
                     compact=compact,
                 )
                 return {"ok": True, **result}
+
+            if request.action == "master_group":
+                options = request.items[0] if request.items else {}
+                group_key = str(options.get("groupKey") or "").strip()
+                compact = str(options.get("compact") or "").strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                }
+                items = (
+                    commercial_inventory.list_master_listing_group(
+                        group_key,
+                        compact=compact,
+                    )
+                    if group_key
+                    else []
+                )
+                return {
+                    "ok": True,
+                    "sourceAuthority": "mac_local_sqlite",
+                    "items": items,
+                    "count": len(items),
+                    "summary": {
+                        "requestedCount": 1 if group_key else 0,
+                        "foundCount": len(items),
+                    },
+                }
+
+            if request.action == "master_delete":
+                results: list[dict[str, Any]] = []
+                for request_item in request.items:
+                    inventory_item_id = str(request_item.get("inventoryItemId") or "").strip()
+                    deleted = (
+                        commercial_inventory.delete_master_listing(inventory_item_id)
+                        if inventory_item_id
+                        else False
+                    )
+                    results.append({
+                        "inventoryItemId": inventory_item_id,
+                        "success": deleted,
+                        "status": 200 if deleted else 404,
+                        "message": (
+                            "Mac-local Master Listing deleted."
+                            if deleted
+                            else "Mac-local Master Listing was not found."
+                        ),
+                    })
+                success_count = sum(1 for result in results if result.get("success") is True)
+                return {
+                    "ok": True,
+                    "sourceAuthority": "mac_local_sqlite",
+                    "success": success_count == len(results),
+                    "summary": {
+                        "requestedCount": len(request.items),
+                        "successCount": success_count,
+                        "failureCount": len(results) - success_count,
+                    },
+                    "results": results,
+                }
+
+            if request.action == "master_update":
+                results: list[dict[str, Any]] = []
+                for edit in request.items:
+                    inventory_item_id = str(edit.get("inventoryItemId") or "").strip()
+                    if not inventory_item_id:
+                        results.append({
+                            "inventoryItemId": "",
+                            "success": False,
+                            "status": 400,
+                            "message": "inventoryItemId is required.",
+                        })
+                        continue
+                    updated = commercial_inventory.apply_master_listing_edit(
+                        inventory_item_id,
+                        edit,
+                    )
+                    if updated is None:
+                        results.append({
+                            "inventoryItemId": inventory_item_id,
+                            "success": False,
+                            "status": 404,
+                            "message": "Mac-local Master Listing was not found.",
+                        })
+                        continue
+                    results.append({
+                        "inventoryItemId": inventory_item_id,
+                        "success": True,
+                        "status": 200,
+                        "item": updated,
+                        "message": "Mac-local Master Listing saved.",
+                    })
+                success_count = sum(1 for result in results if result.get("success") is True)
+                return {
+                    "ok": True,
+                    "sourceAuthority": "mac_local_sqlite",
+                    "success": success_count == len(results),
+                    "summary": {
+                        "requestedCount": len(request.items),
+                        "processedCount": len(results),
+                        "successCount": success_count,
+                        "failureCount": len(results) - success_count,
+                    },
+                    "results": results,
+                }
+
+            if request.action == "master_get":
+                requested_ids = [
+                    str(item.get("inventoryItemId") or "").strip()
+                    for item in request.items
+                ]
+                requested_ids = [value for value in requested_ids if value]
+                compact = bool(
+                    request.items
+                    and str(request.items[0].get("compact") or "").strip().lower()
+                    in {"1", "true", "yes"}
+                )
+                items = [
+                    item
+                    for inventory_item_id in requested_ids
+                    if (
+                        item := commercial_inventory.get_master_listing_projection(
+                            inventory_item_id,
+                            compact=compact,
+                        )
+                    )
+                    is not None
+                ]
+                return {
+                    "ok": True,
+                    "sourceAuthority": "mac_local_sqlite",
+                    "items": items,
+                    "count": len(items),
+                    "summary": {
+                        "requestedCount": len(requested_ids),
+                        "foundCount": len(items),
+                        "missingCount": max(0, len(requested_ids) - len(items)),
+                    },
+                }
+
             if request.action in {"list", "refresh"}:
                 items = commercial_inventory.list_items()
                 snapshot: dict[str, Any] | None = None
@@ -481,6 +626,68 @@ def build_kingmaker_accounting_router(
                         "listingCount": int(snapshot.get("listingCount") or len(items)) if snapshot else len(items),
                         "syncedAt": snapshot.get("syncedAt") if snapshot else latest_sync,
                         "refreshed": snapshot is not None,
+                    },
+                }
+
+            if request.action == "get":
+                requested_ids = [
+                    str(item.get("inventoryItemId") or "").strip()
+                    for item in request.items
+                ]
+                requested_ids = [value for value in requested_ids if value]
+                items = [
+                    item
+                    for inventory_item_id in requested_ids
+                    if (item := commercial_inventory.get_item(inventory_item_id)) is not None
+                ]
+                return {
+                    "ok": True,
+                    "sourceOfTruth": "mac_local",
+                    "items": items,
+                    "summary": {
+                        "requestedCount": len(requested_ids),
+                        "foundCount": len(items),
+                        "missingCount": max(0, len(requested_ids) - len(items)),
+                    },
+                }
+
+            if request.action == "find_image_pair":
+                pair_hash = str(
+                    (request.items[0] if request.items else {}).get("imagePairSha256")
+                    or ""
+                ).strip()
+                item = (
+                    commercial_inventory.find_by_image_pair_sha256(pair_hash)
+                    if pair_hash
+                    else None
+                )
+                return {
+                    "ok": True,
+                    "sourceOfTruth": "mac_local",
+                    "items": [item] if item else [],
+                    "summary": {
+                        "requestedCount": 1 if pair_hash else 0,
+                        "foundCount": 1 if item else 0,
+                    },
+                }
+
+            if request.action == "find_card_uuid":
+                card_uuid = str(
+                    (request.items[0] if request.items else {}).get("cardUuid")
+                    or ""
+                ).strip()
+                item = (
+                    commercial_inventory.find_by_card_uuid(card_uuid)
+                    if card_uuid
+                    else None
+                )
+                return {
+                    "ok": True,
+                    "sourceOfTruth": "mac_local",
+                    "items": [item] if item else [],
+                    "summary": {
+                        "requestedCount": 1 if card_uuid else 0,
+                        "foundCount": 1 if item else 0,
                     },
                 }
 
@@ -546,11 +753,13 @@ def build_kingmaker_accounting_router(
                             },
                         })
                     commercial_inventory.apply_local_edit(inventory_item_id, edit, update_ebay)
+                    updated_item = commercial_inventory.get_item(inventory_item_id)
                     results.append({
                         "inventoryItemId": inventory_item_id,
                         "legacyProductId": None,
                         "success": True,
                         "status": 200,
+                        "item": updated_item,
                         "message": (
                             "Mac-local inventory saved and the existing eBay listing was updated in place."
                             if update_ebay

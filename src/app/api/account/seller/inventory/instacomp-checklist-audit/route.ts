@@ -4,12 +4,17 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { getInstaCompAiLocalScanArchive } from "../../../../../../lib/instacomp-ai-local";
+import {
+  fetchInstaCompAiLocalScanImage,
+  getInstaCompAiLocalScanArchive,
+} from "../../../../../../lib/instacomp-ai-local";
 import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../../../lib/instacomp-checklist-first-server";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../../../lib/instacomp-provider-safety";
 import { postInstaCompMacRegistry } from "../../../../../../lib/instacomp-mac-registry-client";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  listMacMasterListingRows,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 import { getInstaCompServiceToken } from "../../../../../../lib/tcos-profit-hunter-secrets";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
 
@@ -21,14 +26,6 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type JsonRecord = Record<string, unknown>;
-
-type StoredImage = {
-  inventory_item_id: string;
-  image_url: string | null;
-  alt_text: string | null;
-  sort_order: number | null;
-  is_primary: boolean | null;
-};
 
 function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -113,56 +110,37 @@ function candidateSummary(candidate: any) {
   };
 }
 
-function normalizedImages(rows: StoredImage[]) {
-  return [...rows]
-    .map((row) => ({
-      url: text(row.image_url),
-      altText: text(row.alt_text),
-      sortOrder: Number(row.sort_order || 0),
-      isPrimary: row.is_primary === true,
-    }))
-    .filter(
-      (
-        row,
-      ): row is {
-        url: string;
-        altText: string | null;
-        sortOrder: number;
-        isPrimary: boolean;
-      } => Boolean(row.url),
-    )
-    .sort((left, right) => {
-      if (left.isPrimary !== right.isPrimary) {
-        return left.isPrimary ? -1 : 1;
-      }
-      return left.sortOrder - right.sortOrder;
-    });
-}
-
-function imagePairForItem(rows: StoredImage[]) {
-  const images = normalizedImages(rows);
-  const front =
-    images.find((image) => /\bfront\b/i.test(image.altText || "")) ||
-    images.find((image) => image.isPrimary) ||
-    images[0] ||
-    null;
-  const back =
-    images.find(
-      (image) =>
-        /\bback\b/i.test(image.altText || "") && image.url !== front?.url,
-    ) ||
-    images.find((image) => !image.isPrimary && image.url !== front?.url) ||
-    images.find((image) => image.url !== front?.url) ||
-    null;
-
+function macImagePair(metadata: JsonRecord) {
+  const instaComp = record(metadata.instacomp);
+  const recovered = record(instaComp.recoveredImageUrls);
+  const sourceImages = Array.isArray(instaComp.sourceImageUrls) ? instaComp.sourceImageUrls : [];
+  const scanId = text(instaComp.scanId || record(instaComp.macReceipt).scanId);
+  const frontImageUrl =
+    text(instaComp.frontImageUrl) ||
+    text(recovered.front) ||
+    text(sourceImages[0]) ||
+    (scanId ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(scanId)}&side=front` : null);
+  const backImageUrl =
+    text(instaComp.backImageUrl) ||
+    text(recovered.back) ||
+    text(sourceImages[1]) ||
+    (scanId ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(scanId)}&side=back` : null);
+  const frontSha256 = text(instaComp.frontSha256 || instaComp.front_sha256);
+  const backSha256 = text(instaComp.backSha256 || instaComp.back_sha256);
+  const distinctUrls = Boolean(
+    scanId ||
+      (frontImageUrl && backImageUrl && frontImageUrl !== backImageUrl),
+  );
   return {
-    images,
-    frontImageUrl: front?.url || null,
-    backImageUrl: back?.url || null,
-    frontFound: Boolean(front?.url),
-    backFound: Boolean(back?.url),
-    distinctUrls: Boolean(front?.url && back?.url && front.url !== back.url),
-    storedImageCount: images.length,
+    scanId,
+    frontImageUrl,
+    backImageUrl,
+    frontFound: Boolean(frontImageUrl || scanId),
+    backFound: Boolean(backImageUrl || scanId),
+    distinctUrls,
+    storedImageCount: distinctUrls ? 2 : Number(Boolean(frontImageUrl)) + Number(Boolean(backImageUrl)),
+    frontSha256,
+    backSha256,
   };
 }
 
@@ -252,49 +230,24 @@ export async function GET(request: Request) {
     if ("response" in authentication) return authentication.response;
     const { account } = authentication;
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const isOwner =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-
-    let query = supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,status,title,sku,metadata,updated_at")
-      .eq("store_id", storeId)
-      .eq("status", "draft")
-      .order("updated_at", { ascending: false })
-      .limit(200);
-    query = isOwner
-      ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : query.eq("seller_account_id", account.id);
-
-    const [{ data: rows, error }, coverage] = await Promise.all([
-      query,
+    const [masterRows, coverage] = await Promise.all([
+      listMacMasterListingRows({ folder: "pending", compact: false, timeoutMs: 15_000 }),
       registryCoverage(),
     ]);
-    if (error) throw error;
-
-    const itemIds = (rows || []).map((row: any) => String(row.id));
-    const { data: storedImages, error: imageError } =
-      itemIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
-            .from("inventory_images")
-            .select(
-              "inventory_item_id,image_url,alt_text,sort_order,is_primary",
-            )
-            .in("inventory_item_id", itemIds)
-            .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-
-    const imagesByItem = new Map<string, StoredImage[]>();
-    for (const image of (storedImages || []) as StoredImage[]) {
-      const id = String(image.inventory_item_id);
-      const current = imagesByItem.get(id) || [];
-      current.push(image);
-      imagesByItem.set(id, current);
-    }
+    const rows = masterRows
+      .filter((row: any) => {
+        const sellerAccountId = text(row.seller_account_id ?? row.sellerAccountId);
+        return isOwner || !sellerAccountId || sellerAccountId === account.id;
+      })
+      .sort((left: any, right: any) =>
+        String(right.updated_at || right.updatedAt || "").localeCompare(
+          String(left.updated_at || left.updatedAt || ""),
+        ),
+      )
+      .slice(0, 200);
 
     const items: JsonRecord[] = [];
     for (const row of rows || []) {
@@ -316,7 +269,7 @@ export async function GET(request: Request) {
         .filter(Boolean)
         .join(" ")
         .slice(0, 12_000);
-      const pair = imagePairForItem(imagesByItem.get(String(row.id)) || []);
+      const pair = macImagePair(metadata);
       const readyForFreshImageAudit =
         pair.frontFound && pair.backFound && pair.distinctUrls;
 
@@ -556,49 +509,33 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const isOwner =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-
-    let itemQuery = supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,status,title,sku,metadata")
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .eq("status", "draft");
-    itemQuery = isOwner
-      ? itemQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : itemQuery.eq("seller_account_id", account.id);
-
-    const { data: item, error: itemError } = await itemQuery.maybeSingle();
-    if (itemError) throw itemError;
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) {
       return Response.json(
         { success: false, error: "Pending card was not found." },
         { status: 404 },
       );
     }
+    const sellerAccountId = text(item.seller_account_id ?? item.sellerAccountId);
+    if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
+      return Response.json(
+        { success: false, error: "Pending card was not found." },
+        { status: 404 },
+      );
+    }
 
-    const { data: imageRows, error: imageError } = await supabase
-      .from("inventory_images")
-      .select("inventory_item_id,image_url,alt_text,sort_order,is_primary")
-      .eq("inventory_item_id", inventoryItemId)
-      .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-
-    const pair = imagePairForItem((imageRows || []) as StoredImage[]);
-    if (!pair.frontImageUrl || !pair.backImageUrl || !pair.distinctUrls) {
+    const metadata = record(item.metadata);
+    const pair = macImagePair(metadata);
+    if (!pair.distinctUrls) {
       return Response.json(
         {
           success: false,
           error:
-            "Fresh image audit blocked: one distinct stored front and one distinct stored back are required.",
-          imageAudit: {
-            ...pair,
-            readyForFreshImageAudit: false,
-          },
+            "Fresh image audit blocked: one distinct Mac-local front and one distinct back are required.",
+          imageAudit: { ...pair, readyForFreshImageAudit: false },
           draftMutated: false,
           nothingPublished: true,
         },
@@ -606,10 +543,24 @@ export async function POST(request: Request) {
       );
     }
 
-    const [frontFile, backFile] = await Promise.all([
-      downloadStoredImage(pair.frontImageUrl, "front"),
-      downloadStoredImage(pair.backImageUrl, "back"),
-    ]);
+    let frontFile: File;
+    let backFile: File;
+    if (pair.scanId) {
+      [frontFile, backFile] = await Promise.all([
+        fetchInstaCompAiLocalScanImage({ scanId: pair.scanId, side: "front", timeoutMs: 20_000 }),
+        fetchInstaCompAiLocalScanImage({ scanId: pair.scanId, side: "back", timeoutMs: 20_000 }),
+      ]);
+    } else if (pair.frontImageUrl && pair.backImageUrl) {
+      [frontFile, backFile] = await Promise.all([
+        downloadStoredImage(pair.frontImageUrl, "front"),
+        downloadStoredImage(pair.backImageUrl, "back"),
+      ]);
+    } else {
+      return Response.json(
+        { success: false, error: "Mac-local scan images are unavailable.", draftMutated: false, nothingPublished: true },
+        { status: 409 },
+      );
+    }
     const [frontSha256, backSha256] = await Promise.all([
       digest(frontFile),
       digest(backFile),
@@ -618,14 +569,8 @@ export async function POST(request: Request) {
       return Response.json(
         {
           success: false,
-          error:
-            "Fresh image audit blocked: front and back contain the same image bytes.",
-          imageAudit: {
-            ...pair,
-            frontSha256,
-            backSha256,
-            readyForFreshImageAudit: false,
-          },
+          error: "Fresh image audit blocked: front and back contain the same image bytes.",
+          imageAudit: { ...pair, frontSha256, backSha256, readyForFreshImageAudit: false },
           draftMutated: false,
           nothingPublished: true,
         },

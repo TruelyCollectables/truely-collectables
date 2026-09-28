@@ -5,7 +5,6 @@ import {
 } from "../../../../../../lib/account-auth";
 import {
   analyzeWithInstaCompAiLocal,
-  fetchInstaCompAiLocalScanImage,
   type InstaCompAiLocalScan,
 } from "../../../../../../lib/instacomp-ai-local";
 import { buildInstaCompChannelDraft } from "../../../../../../lib/instacomp-channel-draft";
@@ -17,12 +16,13 @@ import {
 } from "../../../../../../lib/instacomp-listing-output";
 import type { InstaCompAiResult } from "../../../../../../lib/instacomp";
 import { normalizeInstaCompRotation } from "../../../../../../lib/instacomp-image-orientation";
+import type { InstaCompImageOrientationReceipt } from "../../../../../../lib/instacomp-normalized-image-storage";
 import {
-  persistNormalizedInstaCompImagePair,
-  type InstaCompImageOrientationReceipt,
-} from "../../../../../../lib/instacomp-normalized-image-storage";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+  createMacKingmakerDraft,
+  findMacDuplicateByImagePair,
+  findMacKingmakerByCardUuid,
+  listMacMasterListingGroup,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 import { POST as runVerifiedPricing } from "../../inventory/instacomp-verified/route";
 
 export const runtime = "nodejs";
@@ -157,23 +157,6 @@ function physicalCardUuid(scan: InstaCompAiLocalScan) {
 function inventoryItemHref(inventoryItemId: string) {
   const encoded = encodeURIComponent(inventoryItemId);
   return `/seller/admin/inventory/${encoded}?inventoryItemId=${encoded}`;
-}
-
-function isMissingCardUuidColumn(error: unknown) {
-  const record = recordValue(error);
-  const code = String(record.code || "").toUpperCase();
-  const message = [record.message, record.details, record.hint]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return (
-    code === "42703" ||
-    code === "PGRST204" ||
-    (message.includes("card_uuid") &&
-      (message.includes("does not exist") ||
-        message.includes("could not find") ||
-        message.includes("schema cache")))
-  );
 }
 
 function canonicalFields(identity: Record<string, unknown>) {
@@ -425,6 +408,8 @@ export async function POST(request: NextRequest) {
     const scan = await analyzeWithInstaCompAiLocal({
       front: frontFile,
       back: backFile,
+      frontRotation: null,
+      backRotation: null,
       timeoutMs: 75_000,
     });
     const macImageOrientation = macOrientationReceipt(scan, {});
@@ -540,8 +525,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     if (macImageOrientation.status !== "completed") {
       return NextResponse.json(
         {
@@ -554,28 +537,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: physicalMatches, error: physicalMatchError } = await supabase
-      .from("inventory_items")
-      .select("id,title,status,legacy_product_id")
-      .eq("store_id", storeId)
-      .eq("seller_account_id", account.id)
-      .eq("card_uuid", cardUuid)
-      .limit(1);
-    if (physicalMatchError && !isMissingCardUuidColumn(physicalMatchError)) {
-      throw physicalMatchError;
-    }
-    const physicalDuplicate = physicalMatches?.[0] || null;
+    // KINGMAKER intake is Mac-local only. Duplicate guards and pricing-group
+    // lookup hit indexed SQLite paths in parallel; no storefront database is
+    // consulted for identity, inventory, or image authority.
+    const [physicalDuplicate, duplicate, exactIdentityMatches] =
+      await Promise.all([
+        findMacKingmakerByCardUuid(cardUuid, 5_000),
+        findMacDuplicateByImagePair(imagePairSha256, 5_000),
+        listMacMasterListingGroup(registryFingerprint, {
+          compact: false,
+          timeoutMs: 5_000,
+        }),
+      ]);
+
     if (physicalDuplicate) {
       return NextResponse.json(
         {
           success: false,
           code: "DUPLICATE_PHYSICAL_CARD",
           error:
-            "This physical card UUID is already in inventory. Its existing listing was kept instead of creating a duplicate.",
+            "This physical card UUID is already in Mac-local KINGMAKER inventory. Its existing listing was kept instead of creating a duplicate.",
           duplicate: {
-            inventoryItemId: physicalDuplicate.id,
-            inventoryItemHref: inventoryItemHref(physicalDuplicate.id),
-            legacyProductId: physicalDuplicate.legacy_product_id,
+            inventoryItemId: physicalDuplicate.inventoryItemId,
+            inventoryItemHref: inventoryItemHref(
+              physicalDuplicate.inventoryItemId,
+            ),
+            legacyProductId: physicalDuplicate.legacyProductId,
             title: physicalDuplicate.title,
             status: physicalDuplicate.status,
             cardUuid,
@@ -587,25 +574,17 @@ export async function POST(request: NextRequest) {
         { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
-    const { data: existingRows, error: duplicateError } = await supabase
-      .from("inventory_items")
-      .select("id,title,status,metadata")
-      .eq("store_id", storeId)
-      .eq("seller_account_id", account.id)
-      .neq("status", "archived")
-      .contains("metadata", { instacomp: { imagePairSha256 } })
-      .limit(1);
-    if (duplicateError) throw duplicateError;
-    const duplicate = existingRows?.[0] || null;
+
     if (duplicate) {
       return NextResponse.json(
         {
           success: false,
           code: "DUPLICATE_SCAN",
-          error: "This exact front/back image pair already exists in inventory.",
+          error:
+            "This exact front/back image pair already exists in Mac-local KINGMAKER inventory.",
           duplicate: {
-            inventoryItemId: duplicate.id,
-            inventoryItemHref: inventoryItemHref(duplicate.id),
+            inventoryItemId: duplicate.inventoryItemId,
+            inventoryItemHref: inventoryItemHref(duplicate.inventoryItemId),
             title: duplicate.title,
             status: duplicate.status,
             cardUuid,
@@ -618,58 +597,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Archive retrieval is independent of exact-group lookup. Start both sides
-    // now so their tunnel round trip is hidden behind the targeted metadata queries.
-    const archiveImagePromise = Promise.all([
-      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "front" }),
-      fetchInstaCompAiLocalScanImage({ scanId: scan.scan_id, side: "back" }),
-    ]);
-
-    // Do not download the seller's entire inventory just to find one exact
-    // Registry group. Query the two persisted fingerprint locations directly
-    // and merge the small result sets in memory.
-    const [checklistGroupResult, channelGroupResult] = await Promise.all([
-      supabase
-        .from("inventory_items")
-        .select("id,legacy_product_id,status,quantity,price,metadata")
-        .eq("store_id", storeId)
-        .eq("seller_account_id", account.id)
-        .contains("metadata", {
-          instacomp: {
-            checklistIdentity: {
-              registryFingerprintSha256: registryFingerprint,
-            },
-          },
-        })
-        .limit(500),
-      supabase
-        .from("inventory_items")
-        .select("id,legacy_product_id,status,quantity,price,metadata")
-        .eq("store_id", storeId)
-        .eq("seller_account_id", account.id)
-        .contains("metadata", {
-          instacomp: {
-            channelDraft: {
-              registryFingerprintSha256: registryFingerprint,
-            },
-          },
-        })
-        .limit(500),
-    ]);
-    if (checklistGroupResult.error) throw checklistGroupResult.error;
-    if (channelGroupResult.error) throw channelGroupResult.error;
-    const exactIdentityMatches = Array.from(
-      new Map(
-        [
-          ...(checklistGroupResult.data || []),
-          ...(channelGroupResult.data || []),
-        ].map((candidate) => [candidate.id, candidate]),
-      ).values(),
-    );
     const activeGroupPrices = Array.from(
       new Set(
         exactIdentityMatches
-          .filter((candidate) => candidate.status === "active")
+          .filter((candidate) => String(candidate.status || "") === "active")
           .map((candidate) => Number(candidate.price || 0))
           .filter((candidatePrice) => candidatePrice > 0)
           .map((candidatePrice) => Math.round(candidatePrice * 100) / 100),
@@ -703,6 +634,20 @@ export async function POST(request: NextRequest) {
     });
 
     const checkedAt = new Date().toISOString();
+    const frontImageUrl =
+      `/api/kingmaker/scan-image?scanId=${encodeURIComponent(scan.scan_id)}&side=front`;
+    const backImageUrl =
+      `/api/kingmaker/scan-image?scanId=${encodeURIComponent(scan.scan_id)}&side=back`;
+    const ai = {
+      ...fields,
+      checklistParallel: fields.parallel,
+      internalScanId: scan.scan_id,
+      internalCardUuid: cardUuid,
+      registryIdentityId,
+      registryFingerprintSha256: registryFingerprint,
+      confidence: 0.99,
+      exact: true,
+    };
     const metadata = {
       instacomp: {
         source: "mac_registry_scanner",
@@ -713,8 +658,19 @@ export async function POST(request: NextRequest) {
         backSha256,
         hasBackImage: true,
         imageRequirement: "front_and_back_required_for_listing",
+        frontImageUrl,
+        backImageUrl,
+        imagePersistenceVerified: true,
+        imageOrientationPersisted: true,
         humanVerified: false,
-        pricingStatus: "not_run",
+        trustedForIdentity: true,
+        identityComplete: true,
+        identityRefreshRequired: false,
+        identitySource: "mac_checklist_registry_exact",
+        ai,
+        pricingStatus: inheritedGroupPrice
+          ? "priced_from_existing_exact_group"
+          : "identity_complete_pricing_pending",
         listingPrice: inheritedGroupPrice || null,
         listingPriceSource: inheritedGroupPrice
           ? "existing_active_exact_card_group"
@@ -726,18 +682,24 @@ export async function POST(request: NextRequest) {
         scanReceipt: scan,
         imageOrientation: macImageOrientation,
         pricingGroupKey: registryFingerprint,
+        registryIdentityId,
+        registryFingerprintSha256: registryFingerprint,
         duplicateGroup: {
           registryFingerprintSha256: registryFingerprint,
           existingRowCount: exactIdentityMatches.length,
           existingQuantity: exactIdentityMatches.reduce(
-            (sum, candidate) => sum + Math.max(0, Number(candidate.quantity || 0)),
+            (sum, candidate) =>
+              sum + Math.max(0, Number(candidate.quantity || 0)),
             0,
           ),
           existingActiveCount: exactIdentityMatches.filter(
-            (candidate) => candidate.status === "active",
+            (candidate) => String(candidate.status || "") === "active",
           ).length,
           existingProductIds: exactIdentityMatches
-            .map((candidate) => candidate.legacy_product_id)
+            .map(
+              (candidate) =>
+                candidate.legacyProductId || candidate.legacy_product_id,
+            )
             .filter(Boolean),
           detectedAt: checkedAt,
           pricingTogether: true,
@@ -758,15 +720,46 @@ export async function POST(request: NextRequest) {
             20,
           ),
         },
-        checklistIdentity: {
-          status: "identified",
+        checklistDecision: {
+          status: "exact_match",
           source: "checklist_registry",
+          candidateCount: 1,
+          candidateIdentityIds: [registryIdentityId],
+          reasons: scan.checklist?.reasons || [],
+          checkedAt,
+        },
+        checklistIdentity: {
+          status: "exact_match",
+          source: "checklist_registry",
+          identityId: registryIdentityId,
           registryIdentityId,
+          fingerprintSha256: registryFingerprint,
           registryFingerprintSha256: registryFingerprint,
           checkedAt,
           reasons: scan.checklist?.reasons || [],
           lockedFields: fields,
         },
+        parallelDecision: {
+          status: "resolved",
+          selectedParallel: fields.parallel || "Base",
+          selectedIdentityId: registryIdentityId,
+          confidence: 0.99,
+          candidateParallels: [fields.parallel || "Base"],
+        },
+        macReceipt: {
+          status: "trusted_memory_match",
+          checklistOutcome: "exact_match",
+          registryIdentityId,
+          registryFingerprintSha256: registryFingerprint,
+          scanId: scan.scan_id,
+          checklistIdentity: fields,
+          checkedAt,
+        },
+        lastStatus: "identity_complete",
+        lastStage: "complete",
+        lastError: null,
+        lastErrorCode: null,
+        scannedAt: checkedAt,
       },
       collectible_asset: {
         exact_serial_number: fields.serialNumber,
@@ -780,54 +773,47 @@ export async function POST(request: NextRequest) {
         grader_verification_status: grading.verificationStatus,
       },
       seller_review: { identity_confirmed: false },
+      listingWorkflow: {
+        queue: "pending_listings",
+        source: "mac_registry_exact_intake",
+        updatedAt: checkedAt,
+      },
+      pending_verification: {
+        status: "resolved",
+        source: "mac_registry_exact_intake",
+        resolvedAt: checkedAt,
+      },
     };
 
-    // The website stores the Mac-normalized archive, not the Worker upload.
-    // Retrieval started earlier and has been overlapping the database checks.
-    const [uprightFrontFile, uprightBackFile] = await archiveImagePromise;
-
-    const inventoryInsert = {
-      store_id: storeId,
-      seller_account_id: account.id,
+    const inserted = await createMacKingmakerDraft({
+      inventoryItemId: cardUuid,
+      cardUuid,
+      sku: `scan-${cardUuid.slice(0, 12)}`,
       title: appliedListing.title,
       description: appliedListing.description,
+      player: fields.player,
+      sport: fields.sport,
       category: "Trading Card Singles",
       condition: grading.condition,
       status: "draft",
       quantity: 1,
       price: inheritedGroupPrice,
+      imageUrl: frontImageUrl,
       metadata,
-    };
-    let { data: inserted, error: insertError } = await supabase
-      .from("inventory_items")
-      .insert({ ...inventoryInsert, card_uuid: cardUuid })
-      .select("id,title,status,price,metadata")
-      .single();
-
-    // During a rolling schema deployment, metadata remains the durable UUID
-    // handoff. Retry without the first-class column only when Postgres/PostgREST
-    // proves that card_uuid has not reached this database yet.
-    if (insertError && isMissingCardUuidColumn(insertError)) {
-      const fallback = await supabase
-        .from("inventory_items")
-        .insert(inventoryInsert)
-        .select("id,title,status,price,metadata")
-        .single();
-      inserted = fallback.data;
-      insertError = fallback.error;
-    }
-    if (insertError) throw insertError;
-    if (!inserted) throw new Error("Inventory draft was not returned after UUID intake.");
-
-    const persistedImages = await persistNormalizedInstaCompImagePair({
-      supabase,
-      storeId,
-      inventoryItemId: inserted.id,
-      title: inserted.title,
-      frontFile: uprightFrontFile,
-      backFile: uprightBackFile,
-      orientation: macImageOrientation,
     });
+    if (!inserted?.inventoryItemId) {
+      throw new Error(
+        "Mac-local KINGMAKER draft was not returned after scanner intake.",
+      );
+    }
+
+    const persistedImages = {
+      frontImageUrl,
+      backImageUrl,
+      verified: true,
+      source: "mac_local_scan_archive",
+      orientation: macImageOrientation,
+    };
 
     const requestId = `scan-${scan.scan_id}`;
     const pricingUrl = new URL(
@@ -841,7 +827,7 @@ export async function POST(request: NextRequest) {
           method: "POST",
           headers: pricingHeaders,
           body: JSON.stringify({
-            inventoryItemId: inserted.id,
+            inventoryItemId: inserted.inventoryItemId,
             aiCouncilTier: "adaptive",
             requestId,
           }),
@@ -850,14 +836,14 @@ export async function POST(request: NextRequest) {
         if (!pricingResponse.ok) {
           const payload = await pricingResponse.json().catch(() => ({}));
           console.error("KINGMAKER background pricing failed", {
-            inventoryItemId: inserted.id,
+            inventoryItemId: inserted.inventoryItemId,
             status: pricingResponse.status,
             error: payload?.error || payload?.message || null,
           });
         }
       } catch (error) {
         console.error("KINGMAKER background pricing crashed", {
-          inventoryItemId: inserted.id,
+          inventoryItemId: inserted.inventoryItemId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -869,7 +855,7 @@ export async function POST(request: NextRequest) {
         stage: "complete",
         identityComplete: true,
         cardUuid,
-        inventoryItemId: inserted.id,
+        inventoryItemId: inserted.inventoryItemId,
         title: inserted.title,
         listingOutput,
         channelDraft,

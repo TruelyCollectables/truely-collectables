@@ -2,263 +2,97 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
+import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
+import { isInstaCompPublicationIdentityConfirmed } from "../../../../../../lib/instacomp-publication-identity";
+import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
 import {
-  getEbayInventoryQuantity,
-  syncEbayQuantityAfterSale,
-} from "../../../../../../lib/ebay";
+  getMacMasterListingRow,
+  listMacMasterListingGroup,
+  updateMacKingmakerDrafts,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 import {
-  classifyWebsiteProductIdentity,
-  isSellableWebsiteProduct,
-  websiteInventoryAnchorKey,
-  websiteProductAnchorKey,
-  type WebsiteInventoryProduct,
-} from "../../../../../../lib/instacomp-current-website-inventory";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+  findStorefrontProductsBySku,
+  getStorefrontProduct,
+  updateStorefrontProduct,
+} from "../../../../../../lib/storefront-publication-server";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-type UnknownRecord = Record<string, unknown>;
+const OWNER_EMAILS = new Set([
+  "sales@truelycollectables.com",
+  "sales@trulycollectables.com",
+]);
 
-function record(value: unknown): UnknownRecord {
+function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as UnknownRecord)
+    ? (value as Record<string, unknown>)
     : {};
 }
 
-function text(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+function text(value: unknown, max = 500) {
+  const result = String(value ?? "").trim();
+  return result ? result.slice(0, max) : null;
 }
 
-type EbayMergeStrategy = "keep_one" | "increase_existing";
-
-function wholeQuantity(value: unknown) {
+function quantity(value: unknown) {
   const parsed = Math.floor(Number(value || 0));
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
-function exactIdentityLocked(metadataValue: unknown) {
-  const metadata = record(metadataValue);
-  const instaComp = record(metadata.instacomp);
-  const checklistDecision = record(instaComp.checklistDecision);
-  const checklistIdentity = record(instaComp.checklistIdentity);
-  const macReceipt = record(instaComp.macReceipt);
-  if (
-    instaComp.manualIdentityLocked === true &&
-    instaComp.identityComplete === true
-  ) {
-    return true;
-  }
-  return Boolean(
-    instaComp.identityComplete === true &&
-      instaComp.trustedForIdentity === true &&
-      checklistDecision.status === "exact_match" &&
-      checklistIdentity.source === "checklist_registry" &&
-      checklistIdentity.status === "identified" &&
-      macReceipt.checklistOutcome === "exact_match" &&
-      (text(instaComp.registryIdentityId) ||
-        text(checklistIdentity.registryIdentityId)) &&
-      (text(instaComp.registryFingerprintSha256) ||
-        text(checklistIdentity.registryFingerprintSha256)),
+function rowId(row: any) {
+  return text(row?.id ?? row?.inventoryItemId ?? row?.inventory_item_id, 200);
+}
+
+function cardUuid(row: any) {
+  const metadata = record(row?.metadata);
+  const instacomp = record(metadata.instacomp);
+  return (
+    text(row?.card_uuid ?? row?.cardUuid, 200) ||
+    text(instacomp.cardUuid, 200) ||
+    text(instacomp.internalCardUuid, 200)
   );
 }
 
-function physicalEvidence(metadataValue: unknown) {
-  const metadata = record(metadataValue);
-  const instaComp = record(metadata.instacomp);
-  const asset = record(metadata.collectible_asset);
-  const checklistIdentity = record(instaComp.checklistIdentity);
-  const locked = record(checklistIdentity.lockedFields);
-  const identity = record(
-    instaComp.manualIdentityLocked === true
-      ? instaComp.manualIdentity
-      : instaComp.ai,
-  );
-  const serialValue =
-    text(asset.exact_serial_number) || text(identity.serialNumber);
-  const serialMatch = String(serialValue || "").match(
-    /\b(\d{1,7})\s*\/\s*(\d{1,7})\b/,
-  );
-  const canonicalRun = Math.floor(
-    Number(locked.serialRun || identity.serialRun || 0),
-  );
-  return {
-    imagePairSha256:
-      text(instaComp.imagePairSha256) ||
-      text(instaComp.inputImagePairSha256),
-    scanId: text(instaComp.scanId),
-    exactSerialNumber: serialMatch
-      ? String(Number(serialMatch[1])) + "/" + String(Number(serialMatch[2]))
-      : null,
-    observedSerialRun: serialMatch ? Number(serialMatch[2]) : null,
-    canonicalSerialRun:
-      Number.isFinite(canonicalRun) && canonicalRun > 0 ? canonicalRun : null,
-    gradingCertNumber:
-      text(asset.grading_cert_number) ||
-      text(identity.certificationNumber) ||
-      text(identity.gradingCertNumber),
-  };
-}
-
-function serialRunIdentityConflict(metadataValue: unknown) {
-  const evidence = physicalEvidence(metadataValue);
-  return Boolean(
-    evidence.observedSerialRun &&
-      evidence.observedSerialRun !== evidence.canonicalSerialRun,
+function imagePair(row: any) {
+  const instacomp = record(record(row?.metadata).instacomp);
+  return (
+    text(instacomp.imagePairSha256, 128) ||
+    text(instacomp.inputImagePairSha256, 128)
   );
 }
 
-function samePhysicalReason(sourceMetadata: unknown, targetMetadata: unknown) {
-  const source = physicalEvidence(sourceMetadata);
-  const target = physicalEvidence(targetMetadata);
-  if (
-    source.imagePairSha256 &&
-    target.imagePairSha256 &&
-    source.imagePairSha256 === target.imagePairSha256
-  ) return "same_image_pair";
-  if (source.scanId && target.scanId && source.scanId === target.scanId) {
-    return "same_scan_id";
-  }
-  if (
-    source.exactSerialNumber &&
-    target.exactSerialNumber &&
-    source.exactSerialNumber === target.exactSerialNumber
-  ) return "same_serial_number";
-  return null;
+function physicalKey(row: any) {
+  return cardUuid(row) || imagePair(row) || rowId(row) || crypto.randomUUID();
 }
 
-function mercariMergeStatus(statusValue: unknown) {
-  return String(statusValue || "").trim().toLowerCase();
-}
-
-function withExactMergeChannelPolicy(
-  metadataValue: unknown,
-  params: {
-    now: string;
-    sourceInventoryItemId: string;
-    sourceScanId: string | null;
-    keeperInventoryItemId: string;
-    productId: number;
-    quantityBefore: number;
-    quantityAdded: number;
-    quantityAfter: number;
-    pricePreserved: number;
-    ebayStrategy: EbayMergeStrategy;
-  },
-) {
-  const metadata = record(metadataValue);
-  const instaComp = record(metadata.instacomp);
+function websiteProductId(row: any) {
+  const metadata = record(row?.metadata);
   const dual = record(metadata.dual_marketplace);
-  const mercari = record(dual.mercari);
-  const mercariStatusBefore = mercariMergeStatus(mercari.status) || "draft";
-  const mercariWasSold = /^(sold|ended|inactive|completed|out[_ -]?of[_ -]?stock)$/.test(
-    mercariStatusBefore,
+  const website = record(dual.website);
+  return (
+    Number(website.productId || 0) ||
+    Number(row?.legacy_product_id || row?.legacyProductId || 0) ||
+    null
   );
-  const nextMercari = mercariWasSold
-    ? {
-        ...mercari,
-        status: "eligible_to_relist",
-        relistEligible: true,
-        relistReason: "exact_inventory_quantity_added",
-        relistEligibleAt: params.now,
-      }
-    : mercari;
-  const history = Array.isArray(instaComp.exactMergeHistory)
-    ? instaComp.exactMergeHistory
-    : [];
-  const receipt = {
-    mergeId: `website-${params.sourceInventoryItemId}-${params.productId}`,
-    sourceInventoryItemId: params.sourceInventoryItemId,
-    sourceScanId: params.sourceScanId,
-    keeperInventoryItemId: params.keeperInventoryItemId,
-    websiteProductId: params.productId,
-    quantityBefore: params.quantityBefore,
-    quantityAdded: params.quantityAdded,
-    quantityAfter: params.quantityAfter,
-    pricePreserved: params.pricePreserved,
-    mergedAt: params.now,
-    channels: {
-      website: {
-        action: "increment_quantity",
-        quantityBefore: params.quantityBefore,
-        quantityAfter: params.quantityAfter,
-      },
-      ebay: {
-        action:
-          params.ebayStrategy === "increase_existing"
-            ? "increase_existing_listing_quantity"
-            : "leave_existing_listing_quantity_unchanged",
-        quantityDelta:
-          params.ebayStrategy === "increase_existing"
-            ? params.quantityAdded
-            : 0,
-        duplicateListingAllowed: false,
-      },
-      mercari: {
-        action: mercariWasSold
-          ? "mark_eligible_to_relist"
-          : "leave_existing_listing_unchanged",
-        statusBefore: mercariStatusBefore,
-        statusAfter: mercariWasSold ? "eligible_to_relist" : mercariStatusBefore,
-        quantityDelta: 0,
-      },
-    },
-  };
-  return {
-    metadata: {
-      ...metadata,
-      instacomp: {
-        ...instaComp,
-        exactMergeHistory: [...history.slice(-99), receipt],
-      },
-      dual_marketplace: {
-        ...dual,
-        mercari: nextMercari,
-      },
-    },
-    receipt,
-  };
 }
 
-function withWebsiteActive(metadataValue: unknown, productId: number, now: string) {
-  const metadata = record(metadataValue);
-  const dual = record(metadata.dual_marketplace);
-  return {
-    ...metadata,
-    dual_marketplace: {
-      ...dual,
-      website: {
-        ...record(dual.website),
-        status: "active",
-        productId,
-        reconciledAt: now,
-        lastError: null,
-      },
-    },
-  };
+function websiteStatus(row: any) {
+  const website = record(record(record(row?.metadata).dual_marketplace).website);
+  return text(website.status, 80)?.toLowerCase() || "";
 }
 
-async function readSellableWebsiteProducts(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
-  storeId: string,
-) {
-  const products: WebsiteInventoryProduct[] = [];
-  for (let start = 0; ; start += 1000) {
-    const { data, error } = await supabase
-      .from("products")
-      .select("id,title,description,player,sport,sku,ebay_item_id,price,quantity,archived_at,listing_status")
-      .eq("store_id", storeId)
-      .is("archived_at", null)
-      .gt("quantity", 0)
-      .gt("price", 0)
-      .range(start, start + 999);
-    if (error) throw error;
-    const batch = (data || []) as WebsiteInventoryProduct[];
-    products.push(...batch);
-    if (batch.length < 1000) break;
+async function resolveWebsiteProduct(row: any) {
+  const linkedId = websiteProductId(row);
+  if (linkedId) {
+    const product = await getStorefrontProduct(linkedId);
+    if (product) return product;
   }
-  return products;
+  const sku = text(row?.sku, 120);
+  if (!sku) return null;
+  const matches = await findStorefrontProductsBySku(sku, 2);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 export async function POST(request: Request) {
@@ -274,764 +108,316 @@ export async function POST(request: Request) {
     });
 
     const body = await request.json().catch(() => ({}));
-    const requestedIds = Array.isArray(body.inventoryItemIds)
-      ? Array.from(
-          new Set(
-            body.inventoryItemIds
-              .map((value: unknown) => String(value || "").trim())
-              .filter(Boolean),
-          ),
-        ).slice(0, 500)
-      : [];
-    const dryRun = body.dryRun === true;
-    const ebayStrategy: EbayMergeStrategy =
+    const ids: string[] = Array.from(
+      new Set<string>(
+        (Array.isArray(body.inventoryItemIds) ? body.inventoryItemIds : [])
+          .map((value: unknown) => text(value, 200))
+          .filter((value: string | null): value is string => Boolean(value)),
+      ),
+    ).slice(0, 500);
+    const ebayStrategy =
       body.ebayStrategy === "increase_existing"
         ? "increase_existing"
-        : "keep_one";
-    if (!requestedIds.length) {
+        : "keep_existing";
+    if (!ids.length) {
       return Response.json(
-        { success: false, error: "Choose one or more Pending cards to reconcile." },
+        { success: false, error: "Choose one or more exact-card scans to merge." },
         { status: 400 },
       );
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
-    const { data: rows, error: rowsError } = await supabase
-      .from("inventory_items")
-      .select(
-        "id,legacy_product_id,seller_account_id,status,quantity,price,title,description,sku,metadata,updated_at",
-      )
-      .eq("store_id", storeId)
-      .in("id", requestedIds);
-    if (rowsError) throw rowsError;
+    const isOwner = OWNER_EMAILS.has(String(account.email || "").toLowerCase());
+    const processedGroups = new Set<string>();
+    const results: Array<Record<string, unknown>> = [];
+    let reconciled = 0;
+    let blocked = 0;
+    let duplicatesIgnored = 0;
 
-    const ownedRows = (rows || []).filter(
-      (row: any) =>
-        row.seller_account_id === account.id || row.seller_account_id === null,
-    );
-    const websiteProducts = await readSellableWebsiteProducts(supabase, storeId);
-    const productsById = new Map(
-      websiteProducts.map((product) => [Number(product.id), product]),
-    );
-    const productsByAnchor = new Map<string, WebsiteInventoryProduct[]>();
-    for (const product of websiteProducts) {
-      const anchor = websiteProductAnchorKey(product);
-      if (!anchor) continue;
-      const current = productsByAnchor.get(anchor) || [];
-      current.push(product);
-      productsByAnchor.set(anchor, current);
-    }
-
-    const results: any[] = [];
-    for (const row of ownedRows) {
-      const rowQuantity = wholeQuantity(row.quantity);
-      const metadata = record(row.metadata);
-      const prior = record(metadata.website_inventory_reconciliation);
-      if (text(prior.status) === "completed") {
+    for (const inventoryItemId of ids) {
+      const requested = await getMacMasterListingRow(inventoryItemId, 10_000);
+      if (!requested) {
+        blocked += 1;
         results.push({
-          inventoryItemId: row.id,
-          status: "already_reconciled",
-          productId: Number(prior.productId || 0) || null,
-          addedQuantity: wholeQuantity(prior.addedQuantity),
-          resultingQuantity: wholeQuantity(prior.resultingQuantity),
+          inventoryItemId,
+          status: "blocked",
+          reason: "mac_inventory_item_not_found",
         });
         continue;
       }
-      if (row.status !== "draft" || rowQuantity < 1) {
-        results.push({ inventoryItemId: row.id, status: "skipped", reason: "not_pending_draft" });
-        continue;
-      }
-      if (!exactIdentityLocked(metadata)) {
+      const sellerAccountId = text(requested.seller_account_id, 200);
+      if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
+        blocked += 1;
         results.push({
-          inventoryItemId: row.id,
+          inventoryItemId,
           status: "blocked",
-          reason: "exact_registry_identity_required",
+          reason: "seller_scope_mismatch",
         });
         continue;
       }
-      const sourcePhysical = physicalEvidence(metadata);
-      if (sourcePhysical.gradingCertNumber) {
+      if (!isInstaCompPublicationIdentityConfirmed(requested.metadata)) {
+        blocked += 1;
         results.push({
-          inventoryItemId: row.id,
+          inventoryItemId,
           status: "blocked",
-          reason: "graded_unique_asset",
-        });
-        continue;
-      }
-      if (serialRunIdentityConflict(metadata)) {
-        results.push({
-          inventoryItemId: row.id,
-          status: "blocked",
-          reason: "serial_run_identity_conflict",
-          observedSerialRun: sourcePhysical.observedSerialRun,
-          canonicalSerialRun: sourcePhysical.canonicalSerialRun,
+          reason: "identity_not_confirmed",
         });
         continue;
       }
 
-      const anchor = websiteInventoryAnchorKey(metadata, row.title);
-      let exactProducts = anchor
-        ? (productsByAnchor.get(anchor) || []).filter(
-            (product) =>
-              classifyWebsiteProductIdentity({
-                metadata,
-                pendingTitle: row.title,
-                product,
-              }).status === "exact",
-          )
-        : [];
-      const linked = row.legacy_product_id
-        ? productsById.get(Number(row.legacy_product_id)) || null
-        : null;
-      const linkedSkuMatches = Boolean(
-        linked &&
-          isSellableWebsiteProduct(linked) &&
-          text(row.sku) &&
-          text(linked.sku) &&
-          text(row.sku) === text(linked.sku),
+      const groupKey = effectiveInstaCompPricingGroupKey(requested.metadata);
+      if (!groupKey) {
+        blocked += 1;
+        results.push({
+          inventoryItemId,
+          status: "blocked",
+          reason: "exact_pricing_group_missing",
+        });
+        continue;
+      }
+      if (processedGroups.has(groupKey)) continue;
+      processedGroups.add(groupKey);
+
+      const groupRows = (
+        await listMacMasterListingGroup(groupKey, {
+          compact: false,
+          timeoutMs: 10_000,
+        })
+      ).filter(
+        (row) =>
+          row.status !== "archived" &&
+          row.status !== "sold" &&
+          quantity(row.quantity) > 0 &&
+          effectiveInstaCompPricingGroupKey(row.metadata) === groupKey,
       );
-      if (exactProducts.length === 0 && linkedSkuMatches && linked) {
-        exactProducts = [linked];
-      }
-      if (exactProducts.length !== 1) {
+      if (!groupRows.length) {
+        blocked += 1;
         results.push({
-          inventoryItemId: row.id,
+          inventoryItemId,
           status: "blocked",
-          reason: exactProducts.length > 1 ? "multiple_exact_live_products" : "no_single_exact_live_product",
-          exactProductIds: exactProducts.map((product) => product.id),
+          reason: "exact_group_empty",
         });
         continue;
       }
 
-      const target = exactProducts[0];
-      if (linked && isSellableWebsiteProduct(linked)) {
-        const linkedMatch = classifyWebsiteProductIdentity({
-          metadata,
-          pendingTitle: row.title,
-          product: linked,
-        });
-        if (linkedMatch.status !== "exact") {
-          results.push({
-            inventoryItemId: row.id,
-            status: "blocked",
-            reason: "conflicting_live_product_link",
-            linkedProductId: linked.id,
-            linkedProductTitle: linked.title || null,
-            matchReason: linkedMatch.reason,
-          });
+      const byPhysical = new Map<string, any>();
+      for (const row of groupRows) {
+        const key = physicalKey(row);
+        if (byPhysical.has(key)) {
+          duplicatesIgnored += 1;
           continue;
         }
+        byPhysical.set(key, row);
       }
-
-      const priorStatus = text(prior.status);
-      const prepared =
-        priorStatus === "prepared" ||
-        priorStatus === "quantity_applied" ||
-        priorStatus === "channels_applied";
-      const quantityAlreadyApplied =
-        priorStatus === "quantity_applied" ||
-        priorStatus === "channels_applied";
-      const channelsAlreadyApplied = priorStatus === "channels_applied";
-      const productId = prepared
-        ? Number(prior.productId || 0)
-        : Number(target.id);
-      const { data: currentProduct, error: currentProductError } = await supabase
-        .from("products")
-        .select("quantity")
-        .eq("store_id", storeId)
-        .eq("id", productId)
-        .single();
-      if (currentProductError) throw currentProductError;
-      const liveProductQuantity = wholeQuantity(currentProduct?.quantity);
-      const baselineQuantity = prepared
-        ? wholeQuantity(prior.baselineQuantity)
-        : liveProductQuantity;
-      const addedQuantity = prepared
-        ? wholeQuantity(prior.addedQuantity)
-        : rowQuantity;
-      let targetQuantity = liveProductQuantity + addedQuantity;
-      let shouldWriteProductQuantity = !quantityAlreadyApplied;
-      if (quantityAlreadyApplied) {
-        targetQuantity = liveProductQuantity;
-      } else if (prepared) {
-        const preparedTarget = wholeQuantity(prior.targetQuantity);
-        if (liveProductQuantity < baselineQuantity) {
-          results.push({
-            inventoryItemId: row.id,
-            status: "blocked",
-            reason: "prepared_quantity_changed_downward",
-            productId,
-            baselineQuantity,
-            currentQuantity: liveProductQuantity,
-            preparedTarget,
-          });
-          continue;
-        }
-        if (liveProductQuantity >= preparedTarget) {
-          targetQuantity = liveProductQuantity;
-          shouldWriteProductQuantity = false;
-        } else if (liveProductQuantity === baselineQuantity) {
-          targetQuantity = preparedTarget;
-        } else {
-          results.push({
-            inventoryItemId: row.id,
-            status: "blocked",
-            reason: "prepared_quantity_state_ambiguous",
-            productId,
-            baselineQuantity,
-            currentQuantity: liveProductQuantity,
-            preparedTarget,
-          });
-          continue;
-        }
-      }
-      if (!productId || targetQuantity < 1 || addedQuantity < 1) {
-        results.push({ inventoryItemId: row.id, status: "blocked", reason: "invalid_reconciliation_quantity" });
-        continue;
-      }
-
-      const { data: activeKeepers, error: keeperError } = await supabase
-        .from("inventory_items")
-        .select("id,quantity,price,title,description,metadata,seller_account_id")
-        .eq("store_id", storeId)
-        .eq("legacy_product_id", productId)
-        .eq("status", "active");
-      if (keeperError) throw keeperError;
-      if ((activeKeepers || []).length > 1) {
+      const physicalRows = [...byPhysical.values()];
+      const keeper =
+        physicalRows.find((row) => websiteStatus(row) === "active") ||
+        physicalRows.find((row) => websiteProductId(row)) ||
+        requested;
+      const keeperId = rowId(keeper);
+      if (!keeperId) {
+        blocked += 1;
         results.push({
-          inventoryItemId: row.id,
+          inventoryItemId,
           status: "blocked",
-          reason: "multiple_active_inventory_keepers",
-          keeperInventoryItemIds: (activeKeepers || []).map((keeper: any) => keeper.id),
+          reason: "keeper_inventory_id_missing",
         });
         continue;
       }
-      const existingKeeper = (activeKeepers || [])[0] || null;
-      const duplicatePhysicalReason = existingKeeper
-        ? samePhysicalReason(metadata, existingKeeper.metadata)
-        : null;
-      if (duplicatePhysicalReason) {
-        if (!dryRun) {
-          const duplicateAt = new Date().toISOString();
-          const { error: duplicateArchiveError } = await supabase
-            .from("inventory_items")
-            .update({
-              status: "archived",
-              quantity: 0,
-              legacy_product_id: null,
-              metadata: {
-                ...metadata,
-                commercial_merge: {
-                  state: "completed",
-                  reason: "duplicate_physical_scan_no_quantity",
-                  duplicateReason: duplicatePhysicalReason,
-                  keeperInventoryItemId: existingKeeper.id,
-                  websiteProductId: productId,
-                  quantityAdded: 0,
-                  mergedAt: duplicateAt,
-                  reversible: true,
-                },
-                website_inventory_reconciliation: {
-                  status: "completed",
-                  productId,
-                  keeperInventoryItemId: existingKeeper.id,
-                  addedQuantity: 0,
-                  resultingQuantity: liveProductQuantity,
-                  completedAt: duplicateAt,
-                  duplicateReason: duplicatePhysicalReason,
-                },
-              },
-              updated_at: duplicateAt,
-            })
-            .eq("store_id", storeId)
-            .eq("id", row.id)
-            .eq("status", "draft");
-          if (duplicateArchiveError) throw duplicateArchiveError;
-        }
+
+      const product = await resolveWebsiteProduct(keeper);
+      if (!product?.id) {
+        blocked += 1;
         results.push({
-          inventoryItemId: row.id,
-          status: "duplicate_ignored",
-          reason: duplicatePhysicalReason,
-          productId,
-          keeperInventoryItemId: existingKeeper.id,
-          addedQuantity: 0,
-          resultingQuantity: liveProductQuantity,
+          inventoryItemId,
+          keeperInventoryItemId: keeperId,
+          status: "blocked",
+          reason: "exact_live_website_product_not_found",
         });
         continue;
       }
-      const keeperId = text(prior.keeperInventoryItemId) || existingKeeper?.id || row.id;
+
+      const existingKeeperQuantity = quantity(keeper.quantity);
+      const additionalQuantity = physicalRows
+        .filter((row) => rowId(row) !== keeperId)
+        .reduce((sum, row) => sum + quantity(row.quantity), 0);
+      const targetQuantity = Math.max(1, existingKeeperQuantity + additionalQuantity);
       const now = new Date().toISOString();
-      const sourceScanId = text(record(metadata.instacomp).scanId);
-      const pricePreserved = Number(existingKeeper?.price || target.price || row.price || 0);
-      let mergeReceipt: UnknownRecord | null = null;
-      const sourceLegacyProductId = prepared
-        ? Number(prior.sourceLegacyProductId || row.legacy_product_id || 0) || null
-        : Number(row.legacy_product_id || 0) || null;
 
-      const priorEbayPlan = record(prior.ebay);
-      const effectiveEbayStrategy: EbayMergeStrategy =
-        prepared && text(priorEbayPlan.strategy)
-          ? priorEbayPlan.strategy === "increase_existing"
-            ? "increase_existing"
-            : "keep_one"
-          : ebayStrategy;
-      let ebayPlan: UnknownRecord = priorEbayPlan;
+      const keeperMetadata = record(keeper.metadata);
+      const dual = record(keeperMetadata.dual_marketplace);
+      const website = record(dual.website);
+      const mercari = record(dual.mercari);
+      const ebay = record(dual.ebay);
+      const mercariStatus = text(mercari.status, 80)?.toLowerCase() || "";
+      const mercariAction =
+        mercariStatus === "sold" || mercariStatus === "ended"
+          ? "mark_eligible_to_relist"
+          : mercariStatus === "active"
+            ? "keep_one_active_listing"
+            : "unchanged";
+      const nextMercari =
+        mercariAction === "mark_eligible_to_relist"
+          ? {
+              ...mercari,
+              status: "eligible_to_relist",
+              relistEligibleAt: now,
+              lastError: null,
+            }
+          : mercari;
 
-      if (!text(ebayPlan.strategy)) {
-        if (
-          effectiveEbayStrategy === "increase_existing" &&
-          text(target.ebay_item_id)
-        ) {
-          let currentEbay: Awaited<ReturnType<typeof getEbayInventoryQuantity>>;
-          try {
-            currentEbay = await getEbayInventoryQuantity({
-              sku: text(target.sku),
-              ebayItemId: text(target.ebay_item_id),
-            });
-          } catch (error) {
-            results.push({
-              inventoryItemId: row.id,
-              status: "blocked",
-              reason: "ebay_quantity_read_failed",
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Could not read existing eBay quantity.",
-            });
-            continue;
-          }
-          if (
-            currentEbay.success !== true ||
-            typeof currentEbay.quantity !== "number"
-          ) {
-            results.push({
-              inventoryItemId: row.id,
-              status: "blocked",
-              reason: "ebay_quantity_read_unavailable",
-              ebay: currentEbay,
-            });
-            continue;
-          }
-          ebayPlan = {
-            strategy: effectiveEbayStrategy,
-            status: "prepared",
-            sku: currentEbay.sku || text(target.sku),
-            ebayItemId: text(target.ebay_item_id),
-            baselineQuantity: currentEbay.quantity,
-            quantityAdded: addedQuantity,
-            targetQuantity: currentEbay.quantity + addedQuantity,
-          };
-        } else {
-          ebayPlan = {
-            strategy: effectiveEbayStrategy,
-            status: "not_applicable",
-            sku: text(target.sku),
-            ebayItemId: text(target.ebay_item_id),
-            baselineQuantity: null,
-            quantityAdded: 0,
-            targetQuantity: null,
-          };
-        }
-      }
-
-      const preparedMetadata = {
-        ...metadata,
-        website_inventory_reconciliation: {
-          status: "prepared",
-          productId,
-          keeperInventoryItemId: keeperId,
-          baselineQuantity,
-          addedQuantity,
-          targetQuantity,
-          preparedAt: text(prior.preparedAt) || now,
-          sourceInventoryItemId: row.id,
-          sourceLegacyProductId,
-          ebay: ebayPlan,
-        },
-      };
-
-      if (dryRun) {
-        results.push({
-          inventoryItemId: row.id,
-          status: "ready",
-          productId,
-          keeperInventoryItemId: keeperId,
-          baselineQuantity,
-          addedQuantity,
-          resultingQuantity: targetQuantity,
-          ebayPlan,
-          promotedToKeeper: keeperId === row.id,
-        });
-        continue;
-      }
-
-      if (!prepared) {
-        const { error: prepareError } = await supabase
-          .from("inventory_items")
-          .update({ metadata: preparedMetadata, updated_at: now })
-          .eq("store_id", storeId)
-          .eq("id", row.id)
-          .eq("status", "draft");
-        if (prepareError) throw prepareError;
-      }
-
-      if (shouldWriteProductQuantity) {
-        const { data: updatedProducts, error: productError } = await supabase
-          .from("products")
-          .update({
-            quantity: targetQuantity,
-          })
-          .eq("store_id", storeId)
-          .eq("id", productId)
-          .eq("quantity", liveProductQuantity)
-          .select("id,quantity");
-        if (productError) throw productError;
-        if (!updatedProducts?.length) {
-          throw new Error(`Website product ${productId} quantity changed concurrently; retry reconciliation.`);
-        }
-      }
-
-      const quantityAppliedMetadata: UnknownRecord = {
-        ...preparedMetadata,
-        website_inventory_reconciliation: {
-          ...record(preparedMetadata.website_inventory_reconciliation),
-          status: "quantity_applied",
-          quantityAppliedAt: text(prior.quantityAppliedAt) || now,
-          appliedQuantity: targetQuantity,
-        },
-      };
-      if (!quantityAlreadyApplied) {
-        const { error: appliedMarkerError } = await supabase
-          .from("inventory_items")
-          .update({ metadata: quantityAppliedMetadata, updated_at: now })
-          .eq("store_id", storeId)
-          .eq("id", row.id)
-          .eq("status", "draft");
-        if (appliedMarkerError) throw appliedMarkerError;
-      }
-
-      let ebayAction =
-        effectiveEbayStrategy === "increase_existing"
-          ? text(target.ebay_item_id)
-            ? "increase_existing_listing_quantity_pending"
-            : "no_existing_ebay_listing_keep_reserve"
-          : "leave_existing_listing_quantity_unchanged";
-      let ebaySync: Record<string, unknown> | null = null;
-      let channelAppliedMetadata: UnknownRecord = quantityAppliedMetadata;
-
-      if (channelsAlreadyApplied) {
-        const savedEbay = record(prior.ebay);
-        ebayAction =
-          text(savedEbay.action) ||
-          (effectiveEbayStrategy === "increase_existing"
-            ? "increased_existing_listing_quantity"
-            : "leave_existing_listing_quantity_unchanged");
-        const savedSync = record(savedEbay.sync);
-        ebaySync = Object.keys(savedSync).length ? savedSync : null;
-        channelAppliedMetadata = {
-          ...quantityAppliedMetadata,
-          website_inventory_reconciliation: {
-            ...record(quantityAppliedMetadata.website_inventory_reconciliation),
-            status: "channels_applied",
-            channelsAppliedAt: text(prior.channelsAppliedAt) || now,
-            ebay: savedEbay,
-          },
-        };
-      } else {
-        let nextEbayPlan = ebayPlan;
-
-        if (
-          effectiveEbayStrategy === "increase_existing" &&
-          text(target.ebay_item_id)
-        ) {
-          const absoluteEbayTarget = wholeQuantity(ebayPlan.targetQuantity);
-          if (absoluteEbayTarget < 1) {
-            results.push({
-              inventoryItemId: row.id,
-              status: "blocked",
-              reason: "invalid_ebay_merge_target",
-              websiteQuantityApplied: true,
-              ebayPlan,
-            });
-            continue;
-          }
-
-          let update: Awaited<ReturnType<typeof syncEbayQuantityAfterSale>>;
-          try {
-            update = await syncEbayQuantityAfterSale({
-              sku: text(ebayPlan.sku) || text(target.sku),
-              ebayItemId:
-                text(ebayPlan.ebayItemId) || text(target.ebay_item_id),
-              newQuantity: absoluteEbayTarget,
-            });
-          } catch (error) {
-            update = {
-              success: false,
-              skipped: false,
-              reason:
-                error instanceof Error
-                  ? error.message
-                  : "Existing eBay listing quantity update failed.",
-            };
-          }
-
-          ebaySync = {
-            ...update,
-            previousQuantity: wholeQuantity(ebayPlan.baselineQuantity),
-            quantityAdded: addedQuantity,
-            newQuantity: absoluteEbayTarget,
-          };
-
-          if (update.success !== true) {
-            ebayAction = "increase_existing_listing_quantity_failed";
-            const failedEbayPlan = {
-              ...ebayPlan,
-              status: "failed",
-              action: ebayAction,
-              sync: ebaySync,
-              failedAt: now,
-            };
-            const failureMetadata = {
-              ...quantityAppliedMetadata,
-              website_inventory_reconciliation: {
-                ...record(quantityAppliedMetadata.website_inventory_reconciliation),
-                status: "quantity_applied",
-                ebay: failedEbayPlan,
+      let ebayAction = "kept_existing_listing_quantity";
+      let ebayError: string | null = null;
+      const ebayListingId = text(ebay.listingId, 120);
+      if (ebayStrategy === "increase_existing" && ebayListingId) {
+        try {
+          await postInstaCompMacAccounting(
+            "/v1/kingmaker/accounting/ebay-bridge",
+            {
+              mode: "revise",
+              confirmation: "REVISE_LIVE",
+              revision: {
+                sku: text(keeper.sku, 120),
+                listingId: ebayListingId,
+                title: text(ebay.title, 80) || text(keeper.title, 80),
+                description:
+                  text(ebay.description, 100_000) ||
+                  text(keeper.description, 100_000),
+                quantity: targetQuantity,
+                price: Number(ebay.price || keeper.price || 0),
               },
-            };
-            const { error: failureMarkerError } = await supabase
-              .from("inventory_items")
-              .update({ metadata: failureMetadata, updated_at: now })
-              .eq("store_id", storeId)
-              .eq("id", row.id)
-              .eq("status", "draft");
-            if (failureMarkerError) throw failureMarkerError;
-            results.push({
-              inventoryItemId: row.id,
-              status: "blocked",
-              reason: "ebay_existing_quantity_update_failed",
-              productId,
-              resultingQuantity: targetQuantity,
-              websiteQuantityApplied: true,
-              ebayAction,
-              ebaySync,
-            });
-            continue;
-          }
-
+            },
+            120_000,
+          );
           ebayAction = "increased_existing_listing_quantity";
-          nextEbayPlan = {
-            ...ebayPlan,
-            status: "applied",
-            action: ebayAction,
-            sync: ebaySync,
-            appliedAt: now,
-          };
-        } else {
-          nextEbayPlan = {
-            ...ebayPlan,
-            status: "not_applicable",
-            action: ebayAction,
-          };
+        } catch (error) {
+          ebayAction = "increase_existing_listing_quantity_failed";
+          ebayError =
+            error instanceof Error ? error.message : "eBay quantity revision failed.";
         }
-
-        channelAppliedMetadata = {
-          ...quantityAppliedMetadata,
-          website_inventory_reconciliation: {
-            ...record(quantityAppliedMetadata.website_inventory_reconciliation),
-            status: "channels_applied",
-            channelsAppliedAt: now,
-            ebay: nextEbayPlan,
-          },
-        };
-        const { error: channelMarkerError } = await supabase
-          .from("inventory_items")
-          .update({ metadata: channelAppliedMetadata, updated_at: now })
-          .eq("store_id", storeId)
-          .eq("id", row.id)
-          .eq("status", "draft");
-        if (channelMarkerError) throw channelMarkerError;
       }
 
-      if (keeperId === row.id) {
-        const mergePolicy = withExactMergeChannelPolicy(
-          channelAppliedMetadata,
-          {
-            now,
-            sourceInventoryItemId: row.id,
-            sourceScanId,
-            keeperInventoryItemId: keeperId,
-            productId,
-            quantityBefore: baselineQuantity,
-            quantityAdded: addedQuantity,
-            quantityAfter: targetQuantity,
-            pricePreserved,
-            ebayStrategy: effectiveEbayStrategy,
-          },
-        );
-        mergeReceipt = mergePolicy.receipt;
-        const completedMetadata = {
-          ...withWebsiteActive(mergePolicy.metadata, productId, now),
-          website_inventory_reconciliation: {
-            ...record(channelAppliedMetadata.website_inventory_reconciliation),
-            status: "completed",
-            completedAt: now,
-            resultingQuantity: targetQuantity,
-          },
-        };
-        const { error: promoteError } = await supabase
-          .from("inventory_items")
-          .update({
+      await updateStorefrontProduct(product.id, {
+        quantity: targetQuantity,
+        listing_status: "live",
+        archived_at: null,
+      });
+
+      const memberIds = physicalRows.map(rowId).filter(Boolean);
+      const nextKeeperMetadata = {
+        ...keeperMetadata,
+        instacomp: {
+          ...record(keeperMetadata.instacomp),
+          commercialQuantity: targetQuantity,
+          commercialKeeperInventoryItemId: keeperId,
+          pricingGroupKey: groupKey,
+        },
+        dual_marketplace: {
+          ...dual,
+          website: {
+            ...website,
+            productId: product.id,
             status: "active",
             quantity: targetQuantity,
-            price: Number(target.price || row.price || 0),
-            legacy_product_id: productId,
-            metadata: completedMetadata,
-            updated_at: now,
-          })
-          .eq("store_id", storeId)
-          .eq("id", row.id);
-        if (promoteError) throw promoteError;
-      } else {
-        const keeper = existingKeeper;
-        if (!keeper || keeper.id !== keeperId) {
-          throw new Error(`Prepared website reconciliation keeper ${keeperId} is no longer active.`);
-        }
-        const mergePolicy = withExactMergeChannelPolicy(
-          keeper.metadata,
-          {
-            now,
-            sourceInventoryItemId: row.id,
-            sourceScanId,
+            reconciledAt: now,
+            verificationStatus: "verified",
+          },
+          ebay: {
+            ...ebay,
+            lastQuantityReconcileAt: now,
+            lastQuantityReconcileError: ebayError,
+          },
+          mercari: nextMercari,
+          commercialGroup: {
+            pricingGroupKey: groupKey,
             keeperInventoryItemId: keeperId,
-            productId,
-            quantityBefore: baselineQuantity,
-            quantityAdded: addedQuantity,
-            quantityAfter: targetQuantity,
-            pricePreserved,
-            ebayStrategy: effectiveEbayStrategy,
-          },
-        );
-        mergeReceipt = mergePolicy.receipt;
-        const keeperMetadata = withWebsiteActive(
-          mergePolicy.metadata,
-          productId,
-          now,
-        );
-        const { error: keeperSaveError } = await supabase
-          .from("inventory_items")
-          .update({
+            memberInventoryItemIds: memberIds,
             quantity: targetQuantity,
-            metadata: keeperMetadata,
-            updated_at: now,
-          })
-          .eq("store_id", storeId)
-          .eq("id", keeperId)
-          .eq("status", "active");
-        if (keeperSaveError) throw keeperSaveError;
+            updatedAt: now,
+          },
+          updatedAt: now,
+        },
+        commercial_merge: {
+          keeper_inventory_item_id: keeperId,
+          pricing_group_key: groupKey,
+          website_product_id: product.id,
+          reconciled_quantity: targetQuantity,
+          reconciled_at: now,
+        },
+      };
 
-        const completedMetadata = {
-          ...channelAppliedMetadata,
-          commercial_merge: {
-            merge_id: text(mergeReceipt?.mergeId),
-            keeper_inventory_item_id: keeperId,
-            website_product_id: productId,
-            source_scan_id: sourceScanId,
-            merged_quantity: addedQuantity,
-            price_preserved: pricePreserved,
-            channel_actions: record(mergeReceipt?.channels),
-            merged_at: now,
-            reason: "exact_current_website_inventory_quantity_merge",
-            reversible: true,
+      const edits: Array<{ inventoryItemId: string; edit: Record<string, unknown> }> = [
+        {
+          inventoryItemId: keeperId,
+          edit: {
+            status: "active",
+            quantity: targetQuantity,
+            metadata: nextKeeperMetadata,
+            updatedAt: now,
           },
-          website_inventory_reconciliation: {
-            ...record(channelAppliedMetadata.website_inventory_reconciliation),
-            status: "completed",
-            completedAt: now,
-            resultingQuantity: targetQuantity,
-          },
-        };
-        const { error: archiveError } = await supabase
-          .from("inventory_items")
-          .update({
+        },
+      ];
+      for (const row of physicalRows) {
+        const id = rowId(row);
+        if (!id || id === keeperId) continue;
+        edits.push({
+          inventoryItemId: id,
+          edit: {
             status: "archived",
             quantity: 0,
-            // One canonical inventory row owns each website product. Preserve the
-            // target product in reconciliation metadata instead of violating the
-            // (store_id, legacy_product_id) uniqueness constraint on the archived source.
-            legacy_product_id: null,
-            metadata: completedMetadata,
-            updated_at: now,
-          })
-          .eq("store_id", storeId)
-          .eq("id", row.id);
-        if (archiveError) throw archiveError;
-
-        if (sourceLegacyProductId && sourceLegacyProductId !== productId) {
-          const { data: sourceProduct, error: sourceProductError } = await supabase
-            .from("products")
-            .select("id,quantity,price,archived_at,ebay_item_id")
-            .eq("store_id", storeId)
-            .eq("id", sourceLegacyProductId)
-            .maybeSingle();
-          if (sourceProductError) throw sourceProductError;
-          const sourceIsSellable =
-            sourceProduct &&
-            !sourceProduct.archived_at &&
-            Number(sourceProduct.quantity || 0) > 0 &&
-            Number(sourceProduct.price || 0) > 0;
-          const sourceHasEbay = Boolean(text(sourceProduct?.ebay_item_id));
-          if (sourceProduct && !sourceIsSellable && !sourceHasEbay) {
-            const { error: sourceArchiveError } = await supabase
-              .from("products")
-              .update({ quantity: 0, archived_at: now, listing_status: "draft" })
-              .eq("store_id", storeId)
-              .eq("id", sourceLegacyProductId);
-            if (sourceArchiveError) throw sourceArchiveError;
-          }
-        }
+            metadata: {
+              ...record(row.metadata),
+              commercial_merge: {
+                keeper_inventory_item_id: keeperId,
+                pricing_group_key: groupKey,
+                website_product_id: product.id,
+                merged_quantity: quantity(row.quantity),
+                merged_at: now,
+                reason: "exact_raw_card_consolidated_listing",
+              },
+            },
+            updatedAt: now,
+          },
+        });
       }
+      await updateMacKingmakerDrafts(edits, 20_000);
 
+      reconciled += Math.max(0, targetQuantity - existingKeeperQuantity);
       results.push({
-        inventoryItemId: row.id,
-        status: "reconciled",
-        productId,
+        inventoryItemId,
         keeperInventoryItemId: keeperId,
-        baselineQuantity,
-        addedQuantity,
-        resultingQuantity: targetQuantity,
-        pricePreserved,
-        mercariAction: text(
-          record(record(mergeReceipt?.channels).mercari).action,
-        ),
+        status: "reconciled",
+        pricingGroupKey: groupKey,
+        websiteProductId: product.id,
+        previousQuantity: existingKeeperQuantity,
+        quantity: targetQuantity,
+        mergedInventoryItemIds: memberIds.filter((id) => id !== keeperId),
+        mercariAction,
         ebayAction,
-        ebaySync,
-        promotedToKeeper: keeperId === row.id,
+        ebayError,
       });
     }
 
-    const reconciled = results.filter((result) => result.status === "reconciled").length;
-    const ready = results.filter((result) => result.status === "ready").length;
-    const blocked = results.filter((result) => result.status === "blocked").length;
-    const duplicatesIgnored = results.filter(
-      (result) => result.status === "duplicate_ignored",
-    ).length;
-    return Response.json({
-      success: true,
-      dryRun,
-      requested: requestedIds.length,
-      found: ownedRows.length,
-      reconciled,
-      ready,
-      blocked,
-      duplicatesIgnored,
-      results,
-    });
+    return Response.json(
+      {
+        success: true,
+        reconciled,
+        blocked,
+        duplicatesIgnored,
+        results,
+        sourceAuthority: "mac_local_sqlite",
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     return Response.json(
-      { success: false, error: error instanceof Error ? error.message : "Could not reconcile current website inventory." },
-      { status: 500 },
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Website reconciliation failed.",
+      },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

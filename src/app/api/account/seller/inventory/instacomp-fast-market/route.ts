@@ -18,8 +18,11 @@ import {
   listingPromotionFromMetadata,
 } from "../../../../../../lib/listing-promotions";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  listMacMasterListingRows,
+  updateMacKingmakerDrafts,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -233,22 +236,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Choose a pending card to price." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const owner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
       String(account.email || "").toLowerCase(),
     );
-    let query = supabase
-      .from("inventory_items")
-      .select("id,legacy_product_id,seller_account_id,title,price,metadata")
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId);
-    query = owner
-      ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : query.eq("seller_account_id", account.id);
-    const { data: item, error: itemError } = await query.maybeSingle();
-    if (itemError) throw itemError;
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) return NextResponse.json({ success: false, error: "Pending card was not found." }, { status: 404 });
+    const sellerAccountId = String(item.seller_account_id ?? item.sellerAccountId ?? "").trim();
+    if (!owner && sellerAccountId && sellerAccountId !== account.id) {
+      return NextResponse.json({ success: false, error: "Pending card was not found." }, { status: 404 });
+    }
 
     const metadata = record(item.metadata);
     const instaComp = record(metadata.instacomp);
@@ -332,23 +328,20 @@ export async function POST(request: NextRequest) {
     if (autoPrice) {
       let candidates: Array<JsonRecord> = [item];
       if (applyGroup) {
-        let groupQuery = supabase
-          .from("inventory_items")
-          .select("id,legacy_product_id,seller_account_id,price,metadata")
-          .eq("store_id", storeId);
-        groupQuery = owner
-          ? groupQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-          : groupQuery.eq("seller_account_id", account.id);
-        const { data: ownedRows, error: groupReadError } = await groupQuery.range(0, 4999);
-        if (groupReadError) throw groupReadError;
-        candidates = (ownedRows || []).filter(
-          (candidate) => effectiveInstaCompPricingGroupKey(candidate.metadata) === groupKey,
-        );
+        const masterRows = await listMacMasterListingRows({ compact: false, timeoutMs: 15_000 });
+        candidates = masterRows.filter((candidate) => {
+          const candidateSeller = String(candidate.seller_account_id ?? candidate.sellerAccountId ?? "").trim();
+          return (
+            (owner || !candidateSeller || candidateSeller === account.id) &&
+            effectiveInstaCompPricingGroupKey(candidate.metadata) === groupKey
+          );
+        });
         grouped = candidates.length > 1;
       }
 
-      for (const candidate of candidates) {
-        const candidateMetadata: JsonRecord = candidate.id === item.id ? record(nextMetadata) : record(candidate.metadata);
+      const edits = candidates.map((candidate) => {
+        const candidateId = String(candidate.id ?? candidate.inventoryItemId ?? candidate.inventory_item_id ?? "").trim();
+        const candidateMetadata: JsonRecord = candidateId === inventoryItemId ? record(nextMetadata) : record(candidate.metadata);
         const candidateInstaComp = record(candidateMetadata.instacomp);
         const mergedInstaComp = pricingPatch(candidateInstaComp, fastPricing);
         const candidateAlreadyPriced = Number(candidate.price || 0) > 0;
@@ -381,34 +374,23 @@ export async function POST(request: NextRequest) {
                 }),
           },
         };
-        const updatePayload = candidateAlreadyPriced
-          ? { metadata: pricedMetadata, updated_at: checkedAt }
-          : { price: effectivePrice, metadata: pricedMetadata, updated_at: checkedAt };
-        const { error: candidateUpdateError } = await supabase
-          .from("inventory_items")
-          .update(updatePayload)
-          .eq("id", candidate.id)
-          .eq("store_id", storeId);
-        if (candidateUpdateError) throw candidateUpdateError;
-        if (!candidateAlreadyPriced) {
-          priceUpdatedCount += 1;
-          if (candidate.legacy_product_id) {
-            const { error: productError } = await supabase
-              .from("products")
-              .update({ price: effectivePrice })
-              .eq("store_id", storeId)
-              .eq("id", candidate.legacy_product_id);
-            if (productError) throw productError;
-          }
-        }
-      }
+        if (!candidateAlreadyPriced) priceUpdatedCount += 1;
+        return {
+          inventoryItemId: candidateId,
+          edit: candidateAlreadyPriced
+            ? { metadata: pricedMetadata, updatedAt: checkedAt }
+            : { price: effectivePrice, metadata: pricedMetadata, updatedAt: checkedAt },
+        };
+      }).filter((entry) => Boolean(entry.inventoryItemId));
+      await updateMacKingmakerDrafts(edits, 20_000);
     } else {
-      const { error: updateError } = await supabase
-        .from("inventory_items")
-        .update({ metadata: nextMetadata, updated_at: checkedAt })
-        .eq("id", item.id)
-        .eq("store_id", storeId);
-      if (updateError) throw updateError;
+      await updateMacKingmakerDrafts(
+        [{
+          inventoryItemId,
+          edit: { metadata: nextMetadata, updatedAt: checkedAt },
+        }],
+        15_000,
+      );
     }
 
     return NextResponse.json({

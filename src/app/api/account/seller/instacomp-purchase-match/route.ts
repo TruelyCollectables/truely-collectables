@@ -3,8 +3,10 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../lib/account-auth";
 import { postInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../../lib/kingmaker-mac-scan-server";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +39,7 @@ async function runWithConcurrency<T>(
   );
 }
 
-async function mirrorPurchaseMatches(
+async function persistPurchaseMatches(
   results: Array<Record<string, unknown>>,
 ) {
   const usable = results
@@ -52,52 +54,37 @@ async function mirrorPurchaseMatches(
     );
   if (!usable.length) return;
 
-  const supabase = createSupabaseServerClient({ admin: true });
-  const storeId = getActiveStoreId();
-  const ids = Array.from(new Set(usable.map((entry) => entry.inventoryItemId)));
-  const { data, error } = await supabase
-    .from("inventory_items")
-    .select("id,metadata")
-    .eq("store_id", storeId)
-    .in("id", ids);
-  if (error) throw error;
-  const byId = new Map(usable.map((entry) => [entry.inventoryItemId, entry]));
-
-  await runWithConcurrency(data || [], 8, async (row: any) => {
-    const entry = byId.get(String(row.id));
-    if (!entry) return;
+  await runWithConcurrency(usable, 8, async (entry) => {
+    const row = await getMacMasterListingRow(entry.inventoryItemId, 5_000);
+    if (!row) return;
     const metadata = record(row.metadata);
     const instaComp = record(metadata.instacomp);
     const match = entry.match;
     const updatedAt = new Date().toISOString();
-    const nextMetadata = {
-      ...metadata,
-      instacomp: {
-        ...instaComp,
-        acquisition: {
-          ...record(instaComp.acquisition),
-          source: text(match.source) || "Misc",
-          acquisitionItemId:
-            Number(match.acquisitionItemId || match.purchaseId || 0) || null,
-          purchaseId: text(match.purchaseId) || null,
-          purchaseDate: text(match.purchaseDate) || null,
-          allocatedCost: Number(match.allocatedCost || 0),
-          costStatus:
-            Number(match.allocatedCost || 0) > 0 ? "known" : "unknown",
-          receiptStatus: text(entry.result.status) || null,
-          inventoryState: text(entry.result.inventoryState) || null,
-          disposition: text(entry.result.disposition) || null,
-          authority: "mac_local_accounting",
-          updatedAt,
+    await updateMacKingmakerDraft(entry.inventoryItemId, {
+      metadata: {
+        ...metadata,
+        instacomp: {
+          ...instaComp,
+          acquisition: {
+            ...record(instaComp.acquisition),
+            source: text(match.source) || "Misc",
+            acquisitionItemId:
+              Number(match.acquisitionItemId || match.purchaseId || 0) || null,
+            purchaseId: text(match.purchaseId) || null,
+            purchaseDate: text(match.purchaseDate) || null,
+            allocatedCost: Number(match.allocatedCost || 0),
+            costStatus:
+              Number(match.allocatedCost || 0) > 0 ? "known" : "unknown",
+            receiptStatus: text(entry.result.status) || null,
+            inventoryState: text(entry.result.inventoryState) || null,
+            disposition: text(entry.result.disposition) || null,
+            authority: "mac_local_accounting",
+            updatedAt,
+          },
         },
       },
-    };
-    const { error: updateError } = await supabase
-      .from("inventory_items")
-      .update({ metadata: nextMetadata, updated_at: updatedAt })
-      .eq("store_id", storeId)
-      .eq("id", row.id);
-    if (updateError) throw updateError;
+    });
   });
 }
 
@@ -108,32 +95,19 @@ async function assertPermittedInventoryIds(
   const ids = [...new Set(inventoryItemIds.map(text).filter(Boolean))];
   if (!ids.length) throw new Error("A verified inventory item is required.");
 
-  const supabase = createSupabaseServerClient({ admin: true });
-  const storeId = getActiveStoreId();
   const isOwner = [
     "sales@truelycollectables.com",
     "sales@trulycollectables.com",
   ].includes(text(account.email).toLowerCase());
 
-  // Mac-local KINGMAKER items may not have a Supabase storefront mirror yet.
-  // Existing mirrored rows still enforce seller ownership; missing rows are
-  // validated by the Mac scan/accounting authority in the next call.
-  const { data, error } = await supabase
-    .from("inventory_items")
-    .select("id,seller_account_id")
-    .eq("store_id", storeId)
-    .in("id", ids);
-  if (error) throw error;
-
-  if (!isOwner) {
-    const unauthorized = (data || []).some(
-      (row: { seller_account_id?: string | null }) =>
-        String(row.seller_account_id || "") !== String(account.id),
-    );
-    if (unauthorized) {
+  await runWithConcurrency(ids, 8, async (inventoryItemId) => {
+    const row = await getMacMasterListingRow(inventoryItemId, 5_000);
+    if (!row) throw new Error("One or more Mac-local inventory items were not found.");
+    const sellerAccountId = text(row.seller_account_id);
+    if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
       throw new Error("One or more inventory items are not available to this seller.");
     }
-  }
+  });
 }
 
 export async function POST(request: Request) {
@@ -182,11 +156,11 @@ export async function POST(request: Request) {
         30_000,
       );
       try {
-        await mirrorPurchaseMatches(
+        await persistPurchaseMatches(
           Array.isArray(data?.results) ? data.results : [],
         );
       } catch (error) {
-        console.error("KINGMAKER purchase-match mirror failed", error);
+        console.error("KINGMAKER purchase-match local metadata persistence failed", error);
       }
       return Response.json(data, {
         headers: { "Cache-Control": "no-store" },
@@ -215,7 +189,7 @@ export async function POST(request: Request) {
       },
     );
     try {
-      await mirrorPurchaseMatches([
+      await persistPurchaseMatches([
         {
           ...record(data),
           inventoryItemId:
@@ -223,7 +197,7 @@ export async function POST(request: Request) {
         },
       ]);
     } catch (error) {
-      console.error("KINGMAKER purchase-match mirror failed", error);
+      console.error("KINGMAKER purchase-match local metadata persistence failed", error);
     }
 
     return Response.json(data, {

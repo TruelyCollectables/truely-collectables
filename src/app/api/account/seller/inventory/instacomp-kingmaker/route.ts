@@ -4,8 +4,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { postInstaCompMacRegistry } from "../../../../../../lib/instacomp-mac-registry-client";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { listMacMasterListingRows } from "../../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,13 +13,6 @@ export const revalidate = 0;
 const MAX_WORKBENCH_CARDS = 100;
 
 type JsonRecord = Record<string, unknown>;
-type StoredImage = {
-  inventory_item_id: string;
-  image_url: string | null;
-  alt_text: string | null;
-  sort_order: number | null;
-  is_primary: boolean | null;
-};
 
 function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -46,54 +38,27 @@ function stringList(value: unknown, limit = 30) {
         .slice(0, limit)
     : [];
 }
-
-function imagePair(rows: StoredImage[]) {
-  const images = rows
-    .map((row) => ({
-      url: text(row.image_url, 2_000),
-      alt: text(row.alt_text, 300),
-      order: Number(row.sort_order || 0),
-      primary: row.is_primary === true,
-    }))
-    .filter(
-      (
-        row,
-      ): row is {
-        url: string;
-        alt: string | null;
-        order: number;
-        primary: boolean;
-      } => Boolean(row.url),
-    )
-    .sort((left, right) => {
-      if (left.primary !== right.primary) return left.primary ? -1 : 1;
-      return left.order - right.order;
-    });
-
+function imagePair(metadata: JsonRecord) {
+  const instaComp = record(metadata.instacomp);
+  const recovered = record(instaComp.recoveredImageUrls);
+  const sourceImages = Array.isArray(instaComp.sourceImageUrls) ? instaComp.sourceImageUrls : [];
   const front =
-    images.find((image) => /\bfront\b/i.test(image.alt || "")) ||
-    images.find((image) => image.primary) ||
-    images[0] ||
-    null;
+    text(instaComp.frontImageUrl, 2_000) ||
+    text(recovered.front, 2_000) ||
+    text(sourceImages[0], 2_000);
   const back =
-    images.find(
-      (image) =>
-        /\bback\b/i.test(image.alt || "") && image.url !== front?.url,
-    ) ||
-    images.find((image) => !image.primary && image.url !== front?.url) ||
-    images.find((image) => image.url !== front?.url) ||
-    null;
-
+    text(instaComp.backImageUrl, 2_000) ||
+    text(recovered.back, 2_000) ||
+    text(sourceImages[1], 2_000);
+  const scanId = text(instaComp.scanId, 100);
   return {
-    frontImageUrl: front?.url || null,
-    backImageUrl: back?.url || null,
-    frontFound: Boolean(front?.url),
-    backFound: Boolean(back?.url),
-    distinctUrls: Boolean(front?.url && back?.url && front.url !== back.url),
-    storedImageCount: images.length,
-    readyForAutomaticScan: Boolean(
-      front?.url && back?.url && front.url !== back.url,
-    ),
+    frontImageUrl: front || (scanId ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(scanId)}&side=front` : null),
+    backImageUrl: back || (scanId ? `/api/kingmaker/scan-image?scanId=${encodeURIComponent(scanId)}&side=back` : null),
+    frontFound: Boolean(front || scanId),
+    backFound: Boolean(back || scanId),
+    distinctUrls: Boolean((front && back && front !== back) || scanId),
+    storedImageCount: front && back ? 2 : scanId ? 2 : Number(Boolean(front)) + Number(Boolean(back)),
+    readyForAutomaticScan: Boolean((front && back && front !== back) || scanId),
   };
 }
 
@@ -138,51 +103,26 @@ export async function GET(request: NextRequest) {
       status: "active",
     });
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const isOwner =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-
-    let query = supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,status,title,sku,metadata,updated_at")
-      .eq("store_id", storeId)
-      .eq("status", "draft")
-      .order("updated_at", { ascending: false })
-      .limit(MAX_WORKBENCH_CARDS);
-    query = isOwner
-      ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : query.eq("seller_account_id", account.id);
-
-    const [{ data: rows, error }, coverage] = await Promise.all([
-      query,
+    const [masterRows, coverage] = await Promise.all([
+      listMacMasterListingRows({ folder: "pending", compact: false, timeoutMs: 15_000 }),
       registryCoverage(),
     ]);
-    if (error) throw error;
+    const rows = masterRows
+      .filter((row: any) => {
+        const sellerAccountId = text(row.seller_account_id ?? row.sellerAccountId, 200);
+        return isOwner || !sellerAccountId || sellerAccountId === account.id;
+      })
+      .sort((left: any, right: any) =>
+        String(right.updated_at || right.updatedAt || "").localeCompare(
+          String(left.updated_at || left.updatedAt || ""),
+        ),
+      )
+      .slice(0, MAX_WORKBENCH_CARDS);
 
-    const itemIds = (rows || []).map((row: any) => String(row.id));
-    const { data: storedImages, error: imageError } =
-      itemIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
-            .from("inventory_images")
-            .select(
-              "inventory_item_id,image_url,alt_text,sort_order,is_primary",
-            )
-            .in("inventory_item_id", itemIds)
-            .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-
-    const imagesByItem = new Map<string, StoredImage[]>();
-    for (const row of (storedImages || []) as StoredImage[]) {
-      const id = String(row.inventory_item_id);
-      const current = imagesByItem.get(id) || [];
-      current.push(row);
-      imagesByItem.set(id, current);
-    }
-
-    const items = (rows || []).map((row: any) => {
+    const items = rows.map((row: any) => {
       const metadata = record(row.metadata);
       const instaComp = record(metadata.instacomp);
       const ai = record(instaComp.ai);
@@ -204,10 +144,8 @@ export async function GET(request: NextRequest) {
         inventoryItemId: String(row.id),
         title: text(row.title, 240) || "Untitled card",
         sku: text(row.sku, 120),
-        updatedAt: row.updated_at || null,
-        imageAudit: imagePair(
-          imagesByItem.get(String(row.id)) || [],
-        ),
+        updatedAt: row.updated_at || row.updatedAt || null,
+        imageAudit: imagePair(metadata),
         identity: {
           identityComplete,
           locked: manuallyLocked,

@@ -15,9 +15,21 @@ import {
   classifyWebsiteProductIdentity,
   isSellableWebsiteProduct,
 } from "../../../../../../lib/instacomp-current-website-inventory";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  ensureStorefrontProduct,
+  getStorefrontProduct,
+  publishStorefrontProduct,
+  updateStorefrontProduct,
+  verifyStorefrontProduct,
+} from "../../../../../../lib/storefront-publication-server";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
+import { getInstaCompAiLocalPublicImageUrls } from "../../../../../../lib/instacomp-ai-local";
+import {
+  getMacMasterListingRow,
+  listMacMasterListingGroup,
+  updateMacKingmakerDraft,
+  updateMacKingmakerDrafts,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 import {
   assertKingmakerListingReadiness,
   buildKingmakerListingReadiness,
@@ -82,6 +94,10 @@ function hasDurablePhysicalScanReceipt(row: any) {
       physicalScannerSource &&
       (persistedPair || lifecycleReceipt),
   );
+}
+
+function rowId(row: any) {
+  return text(row?.id ?? row?.inventoryItemId ?? row?.inventory_item_id, 200);
 }
 
 function money(value: unknown) {
@@ -154,53 +170,63 @@ function generatedSku(row: any) {
   return (
     text(row.sku, 120) ||
     (row.legacy_product_id ? `TCOS-${row.legacy_product_id}` : null) ||
-    `KM-${String(row.id).replace(/[^a-zA-Z0-9]/g, "").slice(0, 12).toUpperCase()}`
+    `KM-${String(rowId(row) || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12).toUpperCase()}`
   );
 }
 
 async function archiveDuplicateDrafts(params: {
-  supabase: ReturnType<typeof createSupabaseServerClient>;
-  storeId: string;
   keeperId: string;
   rows: any[];
   groupKey: string | null;
   now: string;
 }) {
   const duplicates = params.rows.filter(
-    (row) => row.id !== params.keeperId && row.status === "draft",
+    (row) => rowId(row) !== params.keeperId && row.status === "draft",
   );
-  for (const duplicate of duplicates) {
+  const edits: Array<{
+    inventoryItemId: string;
+    edit: Record<string, unknown>;
+  }> = duplicates.flatMap((duplicate) => {
+    const inventoryItemId = rowId(duplicate);
+    if (!inventoryItemId) return [];
     const metadata = record(duplicate.metadata);
-    const nextMetadata = {
-      ...metadata,
-      commercial_merge: {
-        keeper_inventory_item_id: params.keeperId,
-        pricing_group_key: params.groupKey,
-        merged_quantity: wholeQuantity(duplicate.quantity),
-        merged_at: params.now,
-        reason: "exact_raw_card_consolidated_listing",
+    return [
+      {
+        inventoryItemId,
+        edit: {
+          status: "archived",
+          quantity: 0,
+          metadata: {
+            ...metadata,
+            commercial_merge: {
+              keeper_inventory_item_id: params.keeperId,
+              pricing_group_key: params.groupKey,
+              merged_quantity: wholeQuantity(duplicate.quantity),
+              merged_at: params.now,
+              reason: "exact_raw_card_consolidated_listing",
+            },
+          },
+          updatedAt: params.now,
+        },
       },
-    };
-    const { error } = await params.supabase
-      .from("inventory_items")
-      .update({
-        status: "archived",
-        quantity: 0,
-        metadata: nextMetadata,
-        updated_at: params.now,
-      })
-      .eq("store_id", params.storeId)
-      .eq("id", duplicate.id);
-    if (error) throw error;
+    ];
+  });
+  if (edits.length) {
+    await updateMacKingmakerDrafts(edits, 20_000);
+  }
 
-    if (duplicate.legacy_product_id) {
-      const { error: productError } = await params.supabase
-        .from("products")
-        .update({ quantity: 0, archived_at: params.now })
-        .eq("store_id", params.storeId)
-        .eq("id", duplicate.legacy_product_id);
-      if (productError) throw productError;
-    }
+  // Website products are a publication mirror only. KINGMAKER inventory state
+  // was committed locally above before touching the storefront mirror.
+  for (const duplicate of duplicates) {
+    const productId = Number(
+      duplicate.legacy_product_id || duplicate.legacyProductId || 0,
+    );
+    if (!productId) continue;
+    await updateStorefrontProduct(productId, {
+      quantity: 0,
+      listing_status: "draft",
+      archived_at: params.now,
+    });
   }
   return duplicates.length;
 }
@@ -273,70 +299,61 @@ export async function POST(request: Request) {
       return Response.json({ success: false, error: "Choose a KINGMAKER listing group." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
+    // Website products remain an explicit publication mirror. KINGMAKER
+    // identity, grouping, quantity, status, and channel intent come from the
+    // Mac-local Master Listings authority.
     const isOwner = OWNER_EMAILS.has(String(account.email || "").toLowerCase());
 
-    let requestedQuery = supabase
-      .from("inventory_items")
-      .select(
-        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
-      )
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId);
-    requestedQuery = isOwner
-      ? requestedQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : requestedQuery.eq("seller_account_id", account.id);
-    const { data: requested, error: requestedError } = await requestedQuery.maybeSingle();
-    if (requestedError) throw requestedError;
+    const requested = await getMacMasterListingRow(inventoryItemId, 10_000);
     if (!requested) {
-      return Response.json({ success: false, error: "Listing group not found or not owned." }, { status: 404 });
+      return Response.json(
+        { success: false, error: "Mac-local KINGMAKER listing group was not found." },
+        { status: 404 },
+      );
+    }
+    const requestedId = rowId(requested);
+    if (!requestedId) {
+      return Response.json(
+        { success: false, error: "Mac-local listing row is missing its inventory ID." },
+        { status: 409 },
+      );
+    }
+    if (
+      !isOwner &&
+      text(requested.seller_account_id, 200) &&
+      text(requested.seller_account_id, 200) !== account.id
+    ) {
+      return Response.json(
+        { success: false, error: "Listing group not found or not owned." },
+        { status: 404 },
+      );
     }
 
     const requestedUnique = uniquePhysical(requested.metadata);
     const groupKey = requestedUnique
       ? null
       : effectiveInstaCompPricingGroupKey(requested.metadata);
-
-    const ownedRows: any[] = [];
-    const ownedPageSize = 1000;
-    for (let offset = 0; ; offset += ownedPageSize) {
-      let ownedQuery = supabase
-        .from("inventory_items")
-        .select(
-          "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
-        )
-        .eq("store_id", storeId);
-      ownedQuery = isOwner
-        ? ownedQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-        : ownedQuery.eq("seller_account_id", account.id);
-      const { data: ownedPage, error: ownedError } = await ownedQuery
-        .order("id", { ascending: true })
-        .range(offset, offset + ownedPageSize - 1);
-      if (ownedError) throw ownedError;
-      ownedRows.push(...(ownedPage || []));
-      if (!ownedPage || ownedPage.length < ownedPageSize) break;
-      if (ownedRows.length >= 20_000) {
-        throw new Error("Inventory grouping exceeded the safe 20,000-row scan limit.");
-      }
-    }
-
     const groupRows = requestedUnique || !groupKey
       ? [requested]
-      : ownedRows.filter((row) => {
+      : (await listMacMasterListingGroup(groupKey, {
+          compact: false,
+          timeoutMs: 10_000,
+        })).filter((row) => {
           if (row.status === "archived" || row.status === "sold") return false;
           if (wholeQuantity(row.quantity) < 1) return false;
           if (uniquePhysical(row.metadata)) return false;
           return effectiveInstaCompPricingGroupKey(row.metadata) === groupKey;
         });
-    if (!groupRows.some((row) => row.id === requested.id)) groupRows.unshift(requested);
+    if (!groupRows.some((row) => rowId(row) === requestedId)) {
+      groupRows.unshift(requested);
+    }
 
     let physicalReadiness: any = null;
     if (action !== "save") {
       try {
         physicalReadiness = await postInstaCompMacAccounting(
           "/v1/kingmaker/accounting/listing-readiness",
-          { inventory_item_ids: groupRows.map((row) => String(row.id)) },
+          { inventory_item_ids: groupRows.map((row) => String(rowId(row) || "")).filter(Boolean) },
           15_000,
         );
       } catch (error) {
@@ -354,7 +371,7 @@ export async function POST(request: Request) {
           ? physicalReadiness.blocked
           : [];
         const groupRowsById = new Map(
-          groupRows.map((row) => [String(row.id), row]),
+          groupRows.map((row) => [String(rowId(row) || ""), row]),
         );
         // The scan-gated Receiving contract begins with purchases/inventory
         // received on or after Sep 16, 2026. Older inventory was explicitly
@@ -400,7 +417,7 @@ export async function POST(request: Request) {
     if (
       action !== "save" &&
       liveRows.length === 1 &&
-      liveRows[0].id !== requested.id
+      rowId(liveRows[0]) !== requestedId
     ) {
       return Response.json(
         {
@@ -408,8 +425,8 @@ export async function POST(request: Request) {
           code: "EXACT_DUPLICATE_MERGE_REQUIRED",
           error:
             "This exact card already has one live listing. Use KINGMAKER Merge first so quantity is reconciled without creating or silently revising a duplicate listing.",
-          existingInventoryItemId: liveRows[0].id,
-          requestedInventoryItemId: requested.id,
+          existingInventoryItemId: rowId(liveRows[0]),
+          requestedInventoryItemId: requestedId,
         },
         { status: 409 },
       );
@@ -421,13 +438,20 @@ export async function POST(request: Request) {
           error:
             "Multiple live listings already exist for this exact-card group. KINGMAKER stopped instead of creating another duplicate; reconcile the live duplicates first.",
           code: "MULTIPLE_LIVE_EXACT_CARD_LISTINGS",
-          liveInventoryItemIds: liveRows.map((row) => row.id),
+          liveInventoryItemIds: liveRows.map(rowId).filter(Boolean),
         },
         { status: 409 },
       );
     }
 
     const keeper = liveRows[0] || requested;
+    const keeperId = rowId(keeper);
+    if (!keeperId) {
+      return Response.json(
+        { success: false, error: "Mac-local keeper row is missing its inventory ID." },
+        { status: 409 },
+      );
+    }
     if (!isInstaCompPublicationIdentityConfirmed(keeper.metadata)) {
       return Response.json(
         {
@@ -446,36 +470,55 @@ export async function POST(request: Request) {
       return Response.json({ success: false, error: "Group quantity is zero." }, { status: 409 });
     }
 
-    let linkedProductId = keeper.legacy_product_id ? Number(keeper.legacy_product_id) : null;
-    const { data: linkedProduct, error: linkedProductError } = linkedProductId
-      ? await supabase
-          .from("products")
-          .select("id,sku,title,player,price,quantity,archived_at,listing_status,ebay_item_id")
-          .eq("store_id", storeId)
-          .eq("id", linkedProductId)
-          .maybeSingle()
-      : { data: null, error: null };
-    if (linkedProductError) throw linkedProductError;
+    let linkedProductId = Number(
+      keeper.legacy_product_id || keeper.legacyProductId || 0,
+    ) || null;
+    let linkedProduct = linkedProductId
+      ? await getStorefrontProduct(linkedProductId)
+      : null;
 
-    const { data: images, error: imageError } = await supabase
-      .from("inventory_images")
-      .select("inventory_item_id,image_url,sort_order,is_primary")
-      .in("inventory_item_id", [keeper.id, requested.id])
-      .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-    const imageUrls = Array.from(
-      new Set(
-        (images || [])
-          .sort((a: any, b: any) => {
-            const keeperA = a.inventory_item_id === keeper.id ? 0 : 1;
-            const keeperB = b.inventory_item_id === keeper.id ? 0 : 1;
-            return keeperA - keeperB || Number(a.sort_order || 0) - Number(b.sort_order || 0);
-          })
-          .map((image: any) => text(image.image_url, 2000))
-          .filter((value): value is string => Boolean(value)),
-      ),
-    ).slice(0, 24);
     const metadata = record(keeper.metadata);
+    const instaComp = record(metadata.instacomp);
+    const scanId =
+      text(instaComp.scanId, 120) ||
+      text(record(instaComp.ai).internalScanId, 120) ||
+      text(record(instaComp.macReceipt).scanId, 120);
+    let imageUrls = Array.from(
+      new Set(
+        [
+          text(instaComp.frontImageUrl, 2000),
+          text(instaComp.backImageUrl, 2000),
+          text(keeper.image_url ?? keeper.imageUrl, 2000),
+        ].filter(
+          (value): value is string =>
+            Boolean(value) && /^https?:\/\//i.test(String(value)),
+        ),
+      ),
+    );
+    if (scanId) {
+      try {
+        const signed = await getInstaCompAiLocalPublicImageUrls({
+          scanId,
+          ttlSeconds: 1_209_600,
+          timeoutMs: 10_000,
+        });
+        imageUrls = [signed.front, signed.back];
+      } catch (error) {
+        if (action !== "save") {
+          return Response.json(
+            {
+              success: false,
+              code: "MAC_LISTING_IMAGES_UNAVAILABLE",
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Mac-local listing images could not be authorized.",
+            },
+            { status: 503 },
+          );
+        }
+      }
+    }
     const linkedWebsiteIdentity = linkedProduct
       ? classifyWebsiteProductIdentity({
           metadata,
@@ -483,7 +526,6 @@ export async function POST(request: Request) {
           product: linkedProduct,
         })
       : null;
-    const instaComp = record(metadata.instacomp);
     const dual = record(metadata.dual_marketplace);
     const storedWebsite = record(dual.website);
     const storedEbay = record(dual.ebay);
@@ -632,7 +674,7 @@ export async function POST(request: Request) {
         ...instaComp,
         pricingGroupKey: groupKey || effectiveInstaCompPricingGroupKey(metadata),
         commercialQuantity: totalQuantity,
-        commercialKeeperInventoryItemId: keeper.id,
+        commercialKeeperInventoryItemId: keeperId,
         acquisition: {
           ...record(instaComp.acquisition),
           source: acquisitionSource,
@@ -691,8 +733,8 @@ export async function POST(request: Request) {
         },
         commercialGroup: {
           pricingGroupKey: groupKey,
-          keeperInventoryItemId: keeper.id,
-          memberInventoryItemIds: groupRows.map((row) => row.id),
+          keeperInventoryItemId: keeperId,
+          memberInventoryItemIds: groupRows.map(rowId).filter(Boolean),
           quantity: totalQuantity,
           updatedAt: now,
         },
@@ -700,73 +742,55 @@ export async function POST(request: Request) {
       },
     };
 
-    if ((action === "publish-website" || action === "publish-both" || action === "publish-website-mercari" || action === "publish-all-3") && !linkedProductId) {
-      const { data: existingProducts, error: existingProductError } = await supabase
-        .from("products")
-        .select("id")
-        .eq("store_id", storeId)
-        .eq("sku", sku)
-        .limit(2);
-      if (existingProductError) throw existingProductError;
-      if ((existingProducts || []).length > 1) {
-        return Response.json(
-          {
-            success: false,
-            error: "Multiple website product rows already use this KINGMAKER SKU. Publishing stopped to prevent duplicate inventory.",
-            code: "MULTIPLE_WEBSITE_PRODUCTS_FOR_SKU",
-            productIds: (existingProducts || []).map((row: any) => row.id),
-          },
-          { status: 409 },
-        );
-      }
-      if ((existingProducts || []).length === 1) {
-        linkedProductId = Number(existingProducts![0].id);
-      } else {
-        const { data: createdProduct, error: createProductError } = await supabase
-          .from("products")
-          .insert({
-            store_id: storeId,
-            seller_account_id: keeper.seller_account_id || account.id,
-            sku,
-            title: websiteTitle,
-            description: websiteDescription,
-            player: generated.identity.player,
-            sport: generated.identity.sport,
-            price: websitePrice,
-            quantity: 0,
-            image_url: imageUrls[0] || null,
-            listing_status: "draft",
-            archived_at: null,
-          })
-          .select("id")
-          .single();
-        if (createProductError || !createdProduct?.id) {
-          throw createProductError || new Error("Could not create the linked website product record.");
+    if (needsWebsitePublication && !linkedProductId) {
+      try {
+        linkedProduct = await ensureStorefrontProduct({
+          sellerAccountId: text(keeper.seller_account_id, 200) || account.id,
+          sku,
+          title: websiteTitle,
+          description: websiteDescription,
+          player: text(generated.identity.player, 200),
+          sport: text(generated.identity.sport, 100),
+          price: websitePrice,
+          imageUrl: imageUrls[0] || null,
+        });
+        linkedProductId = Number(linkedProduct.id);
+      } catch (error) {
+        const typed = error as Error & { code?: string; productIds?: number[] };
+        if (typed.code === "MULTIPLE_WEBSITE_PRODUCTS_FOR_SKU") {
+          return Response.json(
+            {
+              success: false,
+              error: typed.message,
+              code: typed.code,
+              productIds: typed.productIds || [],
+            },
+            { status: 409 },
+          );
         }
-        linkedProductId = Number(createdProduct.id);
+        throw error;
       }
     }
 
-    const { error: keeperSaveError } = await supabase
-      .from("inventory_items")
-      .update({
-        sku,
-        quantity: totalQuantity,
-        legacy_product_id: linkedProductId,
-        metadata: nextMetadata,
-        updated_at: now,
-      })
-      .eq("store_id", storeId)
-      .eq("id", keeper.id);
-    if (keeperSaveError) throw keeperSaveError;
+    if (linkedProductId) {
+      const currentWebsite = record(record(nextMetadata.dual_marketplace).website);
+      nextMetadata.dual_marketplace = {
+        ...record(nextMetadata.dual_marketplace),
+        website: {
+          ...currentWebsite,
+          productId: linkedProductId,
+        },
+      };
+    }
+    await updateMacKingmakerDraft(keeperId, {
+      sku,
+      quantity: totalQuantity,
+      metadata: nextMetadata,
+      updatedAt: now,
+    });
 
     if (linkedProductId) {
-      const { error: skuError } = await supabase
-        .from("products")
-        .update({ sku })
-        .eq("store_id", storeId)
-        .eq("id", linkedProductId);
-      if (skuError) throw skuError;
+      linkedProduct = await updateStorefrontProduct(linkedProductId, { sku });
     }
 
     let ebayResult: any = null;
@@ -807,7 +831,7 @@ export async function POST(request: Request) {
             {
               mode: "publish",
               item: {
-                inventoryItemId: keeper.id,
+                inventoryItemId: keeperId,
                 title: String(requested.title || keeper.title || websiteTitle || ebayTitle || generated.websiteTitle || "Trading Card"),
                 description: plainDescription || `Exact card shown in photos. ${String(keeper.title || "Trading card")}.`,
                 price: mercariPrice,
@@ -854,12 +878,10 @@ export async function POST(request: Request) {
               lastError: null,
             },
           };
-          await supabase
-            .from("inventory_items")
-            .update({ metadata: nextMetadata, updated_at: publishedAt })
-            .eq("store_id", storeId)
-            .eq("id", keeper.id)
-            .throwOnError();
+          await updateMacKingmakerDraft(keeperId, {
+            metadata: nextMetadata,
+            updatedAt: publishedAt,
+          });
           mercariPublished = true;
         } catch (error) {
           const mercariError = error instanceof Error ? error.message : "Mercari publishing failed.";
@@ -876,12 +898,10 @@ export async function POST(request: Request) {
               lastAttemptAt: attemptedAt,
             },
           };
-          await supabase
-            .from("inventory_items")
-            .update({ metadata: nextMetadata, updated_at: attemptedAt })
-            .eq("store_id", storeId)
-            .eq("id", keeper.id)
-            .throwOnError();
+          await updateMacKingmakerDraft(keeperId, {
+            metadata: nextMetadata,
+            updatedAt: attemptedAt,
+          });
         }
       }
     }
@@ -995,19 +1015,16 @@ export async function POST(request: Request) {
               lastError: null,
             },
           };
-          await supabase
-            .from("inventory_items")
-            .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
-            .eq("store_id", storeId)
-            .eq("id", keeper.id)
-            .throwOnError();
+          const ebaySavedAt = new Date().toISOString();
+          await updateMacKingmakerDraft(keeperId, {
+            metadata: nextMetadata,
+            updatedAt: ebaySavedAt,
+          });
           if (linkedProductId) {
-            await supabase
-              .from("products")
-              .update({ ebay_item_id: ebayResult.listingId, last_seen_at: new Date().toISOString() })
-              .eq("store_id", storeId)
-              .eq("id", linkedProductId)
-              .throwOnError();
+            linkedProduct = await updateStorefrontProduct(linkedProductId, {
+              ebay_item_id: ebayResult.listingId,
+              last_seen_at: ebaySavedAt,
+            });
           }
         } catch (error) {
           errors.push(error instanceof Error ? error.message : "eBay publishing failed.");
@@ -1040,26 +1057,24 @@ export async function POST(request: Request) {
         },
       };
       const failedAt = new Date().toISOString();
-      await supabase
-        .from("inventory_items")
-        .update({ metadata: nextMetadata, updated_at: failedAt })
-        .eq("store_id", storeId)
-        .eq("id", keeper.id)
-        .throwOnError();
+      await updateMacKingmakerDraft(keeperId, {
+        metadata: nextMetadata,
+        updatedAt: failedAt,
+      });
       if (ebayAttempt?.listingId && linkedProductId) {
-        await supabase
-          .from("products")
-          .update({
-            ebay_item_id: ebayAttempt.listingId,
-            last_seen_at: failedAt,
-          })
-          .eq("store_id", storeId)
-          .eq("id", linkedProductId)
-          .throwOnError();
+        linkedProduct = await updateStorefrontProduct(linkedProductId, {
+          ebay_item_id: ebayAttempt.listingId,
+          last_seen_at: failedAt,
+        });
       }
     }
 
-    if (action === "publish-website" || action === "publish-both" || action === "publish-website-mercari" || action === "publish-all-3") {
+    if (
+      action === "publish-website" ||
+      action === "publish-both" ||
+      action === "publish-website-mercari" ||
+      action === "publish-all-3"
+    ) {
       try {
         if (!linkedProductId) {
           throw new Error("Website product linkage could not be established.");
@@ -1074,6 +1089,7 @@ export async function POST(request: Request) {
           ...latestDual,
           website: {
             ...record(latestDual.website),
+            productId: linkedProductId,
             status: "verification_pending",
             publishedAt: attemptedAt,
             lastAttemptAt: attemptedAt,
@@ -1081,119 +1097,48 @@ export async function POST(request: Request) {
           },
         };
 
-        const { error: inventoryError } = await supabase
-          .from("inventory_items")
-          .update({
-            sku,
-            title: websiteTitle,
-            description: websiteDescription,
-            status: "active",
-            quantity: totalQuantity,
-            price: websitePrice,
-            metadata: nextMetadata,
-            updated_at: attemptedAt,
-          })
-          .eq("store_id", storeId)
-          .eq("id", keeper.id);
-        if (inventoryError) throw inventoryError;
+        await updateMacKingmakerDraft(keeperId, {
+          sku,
+          title: websiteTitle,
+          description: websiteDescription,
+          status: "active",
+          quantity: totalQuantity,
+          price: websitePrice,
+          metadata: nextMetadata,
+          updatedAt: attemptedAt,
+        });
 
-        const { error: productError } = await supabase
-          .from("products")
-          .update({
-            sku,
-            title: websiteTitle,
-            description: websiteDescription,
-            player: generated.identity.player,
-            sport: generated.identity.sport,
-            price: websitePrice,
-            quantity: totalQuantity,
-            image_url: imageUrls[0] || null,
-            archived_at: null,
-            listing_status: "live",
-          })
-          .eq("store_id", storeId)
-          .eq("id", linkedProductId);
-        if (productError) throw productError;
-
-        const [inventoryRead, productRead, imageRead] = await Promise.all([
-          supabase
-            .from("inventory_items")
-            .select("id,legacy_product_id,sku,title,status,quantity,price")
-            .eq("store_id", storeId)
-            .eq("id", keeper.id)
-            .maybeSingle(),
-          supabase
-            .from("products")
-            .select("id,sku,title,listing_status,quantity,price,image_url,archived_at")
-            .eq("store_id", storeId)
-            .eq("id", linkedProductId)
-            .maybeSingle(),
-          supabase
-            .from("inventory_images")
-            .select("image_url,sort_order,is_primary")
-            .eq("inventory_item_id", keeper.id)
-            .order("sort_order", { ascending: true }),
-        ]);
-        if (inventoryRead.error) throw inventoryRead.error;
-        if (productRead.error) throw productRead.error;
-        if (imageRead.error) throw imageRead.error;
-
-        const liveInventory = inventoryRead.data;
-        const liveProduct = productRead.data;
-        const liveImages = Array.from(
-          new Set(
-            (imageRead.data || [])
-              .map((row: any) => String(row.image_url || "").trim())
-              .filter(Boolean),
-          ),
-        );
-        const expectedImages = Array.from(
-          new Set(imageUrls.slice(0, 2).map(String).filter(Boolean)),
-        );
-        const checks = {
-          inventoryActive: liveInventory?.status === "active",
-          productLinked:
-            Number(liveInventory?.legacy_product_id || 0) === linkedProductId,
-          sku:
-            String(liveInventory?.sku || "") === sku &&
-            String(liveProduct?.sku || "") === sku,
-          title:
-            String(liveInventory?.title || "").trim() === websiteTitle.trim() &&
-            String(liveProduct?.title || "").trim() === websiteTitle.trim(),
-          quantity:
-            Number(liveInventory?.quantity || 0) === totalQuantity &&
-            Number(liveProduct?.quantity || 0) === totalQuantity,
-          price:
-            Math.abs(Number(liveInventory?.price || 0) - websitePrice) < 0.011 &&
-            Math.abs(Number(liveProduct?.price || 0) - websitePrice) < 0.011,
-          productLive:
-            liveProduct?.listing_status === "live" &&
-            liveProduct?.archived_at == null,
-          images:
-            liveImages.length >= 2 &&
-            expectedImages.every((url) => liveImages.includes(url)),
-        };
-        const failed = Object.entries(checks)
-          .filter(([, passed]) => passed !== true)
-          .map(([name]) => name);
-        websiteVerification = {
-          verified: failed.length === 0,
-          checkedAt: new Date().toISOString(),
-          source: "supabase_storefront_readback",
+        linkedProduct = await publishStorefrontProduct({
           productId: linkedProductId,
-          inventoryItemId: keeper.id,
-          imageCount: liveImages.length,
-          checks,
-          failed,
-        };
+          sku,
+          title: websiteTitle,
+          description: websiteDescription,
+          player: text(generated.identity.player, 200),
+          sport: text(generated.identity.sport, 100),
+          price: websitePrice,
+          quantity: totalQuantity,
+          imageUrl: imageUrls[0] || null,
+        });
+
+        websiteVerification = await verifyStorefrontProduct({
+          productId: linkedProductId,
+          sku,
+          title: websiteTitle,
+          price: websitePrice,
+          quantity: totalQuantity,
+          imageUrl: imageUrls[0] || null,
+        });
 
         if (websiteVerification.verified !== true) {
-          const failedMessage = failed.join(", ") || "unknown verification failure";
+          const failedMessage =
+            websiteVerification.failed.join(", ") ||
+            "unknown verification failure";
           const failureDual = record(nextMetadata.dual_marketplace);
           nextMetadata.dual_marketplace = {
             ...failureDual,
             website: {
               ...record(failureDual.website),
+              productId: linkedProductId,
               status: "verification_failed",
               verificationStatus: "verification_failed",
               verification: websiteVerification,
@@ -1201,23 +1146,16 @@ export async function POST(request: Request) {
               lastAttemptAt: new Date().toISOString(),
             },
           };
-          await supabase
-            .from("inventory_items")
-            .update({
-              status: wasWebsiteLive ? "active" : "draft",
-              metadata: nextMetadata,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("store_id", storeId)
-            .eq("id", keeper.id)
-            .throwOnError();
+          await updateMacKingmakerDraft(keeperId, {
+            status: wasWebsiteLive ? "active" : "draft",
+            metadata: nextMetadata,
+            updatedAt: new Date().toISOString(),
+          });
           if (!wasWebsiteLive) {
-            await supabase
-              .from("products")
-              .update({ quantity: 0, listing_status: "draft" })
-              .eq("store_id", storeId)
-              .eq("id", linkedProductId)
-              .throwOnError();
+            linkedProduct = await updateStorefrontProduct(linkedProductId, {
+              quantity: 0,
+              listing_status: "draft",
+            });
           }
           throw new Error(
             `Website listing failed live read-back verification: ${failedMessage}.`,
@@ -1229,6 +1167,7 @@ export async function POST(request: Request) {
           ...verifiedDual,
           website: {
             ...record(verifiedDual.website),
+            productId: linkedProductId,
             status: "active",
             verificationStatus: "verified",
             verification: websiteVerification,
@@ -1237,65 +1176,36 @@ export async function POST(request: Request) {
             lastError: null,
           },
         };
-        await supabase
-          .from("inventory_items")
-          .update({
-            metadata: nextMetadata,
-            updated_at: websiteVerification.checkedAt,
-          })
-          .eq("store_id", storeId)
-          .eq("id", keeper.id)
-          .throwOnError();
+        await updateMacKingmakerDraft(keeperId, {
+          status: "active",
+          sku,
+          title: websiteTitle,
+          description: websiteDescription,
+          quantity: totalQuantity,
+          price: websitePrice,
+          metadata: nextMetadata,
+          updatedAt: websiteVerification.checkedAt,
+        });
         websitePublished = true;
       } catch (error) {
-        errors.push(error instanceof Error ? error.message : "Website publishing failed.");
+        errors.push(
+          error instanceof Error ? error.message : "Website publishing failed.",
+        );
       }
     }
 
     const anyPublished = websitePublished || Boolean(ebayResult) || mercariPrepared || mercariPublished;
     const archivedDuplicateCount = anyPublished
       ? await archiveDuplicateDrafts({
-          supabase,
-          storeId,
-          keeperId: keeper.id,
+          keeperId,
           rows: groupRows,
           groupKey,
           now: new Date().toISOString(),
         })
       : 0;
 
-    let masterProjectionSynced = false;
-    let masterProjectionWarning: string | null = null;
-    try {
-      const projectionIds = Array.from(
-        new Set(groupRows.map((row) => String(row.id)).filter(Boolean)),
-      );
-      for (let start = 0; start < projectionIds.length; start += 500) {
-        const batchIds = projectionIds.slice(start, start + 500);
-        const { data: projectionRows, error: projectionError } = await supabase
-          .from("inventory_items")
-          .select(
-            "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at",
-          )
-          .eq("store_id", storeId)
-          .in("id", batchIds);
-        if (projectionError) throw projectionError;
-        await postInstaCompMacAccounting(
-          "/v1/kingmaker/accounting/commercial-inventory",
-          {
-            action: "project_master",
-            items: projectionRows || [],
-          },
-          15_000,
-        );
-      }
-      masterProjectionSynced = true;
-    } catch (error) {
-      masterProjectionWarning =
-        error instanceof Error
-          ? error.message
-          : "Mac Master Listings projection refresh failed.";
-    }
+    const masterProjectionSynced = true;
+    const masterProjectionWarning: string | null = null;
 
     const success = errors.length === 0;
     return Response.json(
@@ -1303,11 +1213,11 @@ export async function POST(request: Request) {
         success,
         partial: !success && anyPublished,
         action,
-        requestedInventoryItemId: requested.id,
-        keeperInventoryItemId: keeper.id,
+        requestedInventoryItemId: requestedId,
+        keeperInventoryItemId: keeperId,
         groupKey,
         grouped: groupRows.length > 1,
-        memberInventoryItemIds: groupRows.map((row) => row.id),
+        memberInventoryItemIds: groupRows.map(rowId).filter(Boolean),
         quantity: totalQuantity,
         archivedDuplicateCount,
         masterProjectionSynced,

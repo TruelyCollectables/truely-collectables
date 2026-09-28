@@ -2,8 +2,11 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  listMacMasterListingRows,
+  updateMacKingmakerDrafts,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 import {
   discountedListingPrice,
   listingPromotionFromMetadata,
@@ -36,36 +39,32 @@ export async function POST(request: Request) {
       return Response.json({ success: false, error: "A valid inventory item and price are required." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
-    const { data: row, error: readError } = await supabase
-      .from("inventory_items")
-      .select("id,legacy_product_id,seller_account_id,metadata")
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .eq("seller_account_id", account.id)
-      .single();
-    if (readError || !row) return Response.json({ success: false, error: "Pending item not found." }, { status: 404 });
+    const isOwner =
+      account.email === "sales@truelycollectables.com" ||
+      account.email === "sales@trulycollectables.com";
+    const row = await getMacMasterListingRow(inventoryItemId);
+    if (!row) return Response.json({ success: false, error: "Pending item not found." }, { status: 404 });
+    const sellerAccountId = String(row.seller_account_id ?? row.sellerAccountId ?? "").trim();
+    if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
+      return Response.json({ success: false, error: "Pending item not found." }, { status: 404 });
+    }
 
     const groupKey = instaCompPricingGroupKey(row.metadata) || "";
     const applyGroup = body.applyGroup !== false && Boolean(groupKey);
-    let candidates = [row];
+    let candidates: any[] = [row];
     if (applyGroup) {
-      const { data: ownedRows, error: groupReadError } = await supabase
-        .from("inventory_items")
-        .select("id,legacy_product_id,seller_account_id,metadata")
-        .eq("store_id", storeId)
-        .eq("seller_account_id", account.id)
-        .range(0, 4999);
-      if (groupReadError) throw groupReadError;
-      candidates = (ownedRows || []).filter(
-        (candidate) => instaCompPricingGroupKey(candidate.metadata) === groupKey,
-      );
+      const rows = await listMacMasterListingRows({ compact: false, timeoutMs: 15_000 });
+      candidates = rows.filter((candidate: any) => {
+        const candidateSeller = String(candidate.seller_account_id ?? candidate.sellerAccountId ?? "").trim();
+        return (
+          (isOwner || !candidateSeller || candidateSeller === account.id) &&
+          instaCompPricingGroupKey(candidate.metadata) === groupKey
+        );
+      });
     }
 
     const now = new Date().toISOString();
-    let updatedCount = 0;
-    for (const candidate of candidates) {
+    const edits = candidates.map((candidate: any) => {
       const metadata = record(candidate.metadata);
       const instaComp = record(metadata.instacomp);
       const promotion = listingPromotionFromMetadata(metadata);
@@ -93,25 +92,17 @@ export async function POST(request: Request) {
           pricingGroupKey: groupKey || null,
         },
       };
-
-      const { error: updateError } = await supabase
-        .from("inventory_items")
-        .update({ price: effectivePrice, metadata: nextMetadata, updated_at: now })
-        .eq("id", candidate.id)
-        .eq("store_id", storeId)
-        .eq("seller_account_id", account.id);
-      if (updateError) throw updateError;
-
-      if (candidate.legacy_product_id) {
-        const { error: productError } = await supabase
-          .from("products")
-          .update({ price: effectivePrice })
-          .eq("store_id", storeId)
-          .eq("id", candidate.legacy_product_id);
-        if (productError) throw productError;
-      }
-      updatedCount += 1;
-    }
+      return {
+        inventoryItemId: String(candidate.id ?? candidate.inventoryItemId ?? candidate.inventory_item_id ?? "").trim(),
+        edit: {
+          price: effectivePrice,
+          metadata: nextMetadata,
+          updatedAt: now,
+        },
+      };
+    }).filter((entry) => Boolean(entry.inventoryItemId));
+    await updateMacKingmakerDrafts(edits, 20_000);
+    const updatedCount = edits.length;
 
     return Response.json({
       success: true,

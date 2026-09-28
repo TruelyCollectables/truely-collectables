@@ -2,8 +2,10 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRows,
+  updateMacKingmakerDrafts,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,25 +65,18 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unsupported eBay Card Condition." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const isOwner =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-
-    let query = supabase
-      .from("inventory_items")
-      .select("id,metadata")
-      .eq("store_id", storeId)
-      .in("status", ["draft", "active"])
-      .in("id", ids);
-    query = isOwner
-      ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : query.eq("seller_account_id", account.id);
-    const { data: rows, error: rowError } = await query;
-    if (rowError) throw rowError;
-
-    const eligibleRows = rows || [];
+    const rows = await getMacMasterListingRows(ids, 10_000);
+    const eligibleRows = rows.filter((row: any) => {
+      const sellerAccountId = clean(row.seller_account_id ?? row.sellerAccountId, 200);
+      const status = clean(row.status, 80);
+      return (
+        (status === "draft" || status === "active") &&
+        (isOwner || !sellerAccountId || sellerAccountId === account.id)
+      );
+    });
     if (eligibleRows.length !== ids.length) {
       return Response.json(
         { error: `Only ${eligibleRows.length} of ${ids.length} selected listings were eligible for editing.` },
@@ -92,10 +87,10 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     let cardConditionUpdatedCount = 0;
     let gradedSkippedCount = 0;
-    await Promise.all(eligibleRows.map(async (row: any) => {
-      const changes: Record<string, unknown> = { updated_at: now };
-      if (category) changes.category = category;
-      if (condition) changes.condition = condition;
+    const edits = eligibleRows.map((row: any) => {
+      const edit: Record<string, unknown> = { updatedAt: now };
+      if (category) edit.category = category;
+      if (condition) edit.condition = condition;
 
       if (ebayCardCondition) {
         const metadata = record(row.metadata);
@@ -109,7 +104,7 @@ export async function POST(request: Request) {
           const ebay = record(dual.ebay);
           const channelPricing = record(instaComp.channelPricing);
           const ebayCategoryId = clean(ebay.categoryId || channelPricing.ebayCategoryId, 40);
-          changes.metadata = {
+          edit.metadata = {
             ...metadata,
             dual_marketplace: {
               ...dual,
@@ -124,13 +119,12 @@ export async function POST(request: Request) {
         }
       }
 
-      const { error } = await supabase
-        .from("inventory_items")
-        .update(changes)
-        .eq("store_id", storeId)
-        .eq("id", row.id);
-      if (error) throw error;
-    }));
+      return {
+        inventoryItemId: clean(row.id ?? row.inventoryItemId ?? row.inventory_item_id, 100),
+        edit,
+      };
+    });
+    await updateMacKingmakerDrafts(edits, 20_000);
 
     return Response.json({
       success: true,

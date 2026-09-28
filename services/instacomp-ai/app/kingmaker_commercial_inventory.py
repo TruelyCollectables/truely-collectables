@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from contextlib import contextmanager
 import base64
 import json
 import sqlite3
@@ -126,8 +127,26 @@ def _identity_pricing_group_key(identity_value: Any) -> str | None:
 def _effective_pricing_group_key(metadata_value: Any) -> str | None:
     metadata = _record(metadata_value)
     instacomp = _record(metadata.get("instacomp"))
+    seller_review = _record(metadata.get("seller_review"))
+    mac_receipt = _record(instacomp.get("macReceipt"))
+    receipt_exact = bool(
+        _text(mac_receipt.get("status")) == "trusted_memory_match"
+        and _text(mac_receipt.get("checklistOutcome")) == "exact_match"
+        and _text(mac_receipt.get("registryIdentityId"))
+        and _text(mac_receipt.get("registryFingerprintSha256"))
+    )
+    if receipt_exact:
+        return _text(mac_receipt.get("registryFingerprintSha256"))
+
     manual_identity = _record(instacomp.get("manualIdentity"))
-    if instacomp.get("manualIdentityLocked") is True and manual_identity:
+    manual_authoritative = bool(
+        instacomp.get("manualIdentityLocked") is True
+        and (
+            instacomp.get("humanVerified") is True
+            or seller_review.get("identity_confirmed") is True
+        )
+    )
+    if manual_authoritative and manual_identity:
         manual_key = _identity_pricing_group_key(manual_identity)
         if manual_key:
             return manual_key
@@ -137,6 +156,7 @@ def _effective_pricing_group_key(metadata_value: Any) -> str | None:
     locked_fields = _record(checklist_identity.get("lockedFields"))
     return (
         _text(checklist_identity.get("registryFingerprintSha256"))
+        or _text(checklist_identity.get("fingerprintSha256"))
         or _text(channel_draft.get("registryFingerprintSha256"))
         or _text(instacomp.get("registryFingerprintSha256"))
         or _identity_pricing_group_key(locked_fields)
@@ -171,6 +191,7 @@ def _master_listing_queue(metadata_value: Any) -> str:
     checklist_decision = _record(instacomp.get("checklistDecision"))
     checklist_identity = _record(instacomp.get("checklistIdentity"))
     mac_receipt = _record(instacomp.get("macReceipt"))
+    seller_review = _record(metadata.get("seller_review"))
 
     front = _text(instacomp.get("frontImageUrl"))
     back = _text(instacomp.get("backImageUrl"))
@@ -183,6 +204,10 @@ def _master_listing_queue(metadata_value: Any) -> str:
     manual_locked = (
         instacomp.get("manualIdentityLocked") is True
         and instacomp.get("identityComplete") is True
+        and (
+            instacomp.get("humanVerified") is True
+            or seller_review.get("identity_confirmed") is True
+        )
     )
     identity_id = (
         _text(instacomp.get("registryIdentityId"))
@@ -203,14 +228,38 @@ def _master_listing_queue(metadata_value: Any) -> str:
         _text(instacomp.get("identitySource")) == "mac_checklist_registry_exact"
         and checklist_identity.get("status") == "exact_match"
     )
-    exact_registry = (
-        instacomp.get("identityComplete") is True
-        and instacomp.get("trustedForIdentity") is True
-        and checklist_decision.get("status") == "exact_match"
-        and (legacy_receipt or local_receipt)
-        and bool(identity_id)
-        and bool(fingerprint)
+    current_registry_receipt = bool(
+        _text(mac_receipt.get("status")) == "trusted_memory_match"
+        and _text(mac_receipt.get("checklistOutcome")) == "exact_match"
+        and _text(mac_receipt.get("registryIdentityId"))
+        and _text(mac_receipt.get("registryFingerprintSha256"))
     )
+    exact_registry = (
+        (
+            instacomp.get("identityComplete") is True
+            and instacomp.get("trustedForIdentity") is True
+            and checklist_decision.get("status") == "exact_match"
+            and bool(identity_id)
+            and bool(fingerprint)
+        )
+        or current_registry_receipt
+    )
+    # Exact identity receipts created by the current physical/Registry pipeline
+    # predate the two legacy source-label combinations above.  Do not strand
+    # those already-certified cards in Pending Verification merely because the
+    # provenance label evolved; the hard UUID + fingerprint + trust + exact
+    # decision is the authority.  Orientation is independently proven by a
+    # persisted distinct front/back pair for these archived scans.
+    if not orientation_verified and exact_registry:
+        front = _text(instacomp.get("frontImageUrl"))
+        back = _text(instacomp.get("backImageUrl"))
+        orientation_verified = bool(
+            instacomp.get("imageOrientationPersisted") is True
+            and instacomp.get("imagePersistenceVerified") is True
+            and front
+            and back
+            and front != back
+        )
     if not orientation_verified:
         return "verification"
     if manual_locked:
@@ -441,6 +490,265 @@ def _compact_master_listing_row(row: dict[str, Any]) -> dict[str, Any]:
     compact["metadata"] = compact_metadata
     return compact
 
+
+def _normalize_local_pending_metadata(
+    metadata: dict[str, Any],
+    *,
+    inventory_item_id: str | None = None,
+) -> dict[str, Any]:
+    """Mirror authoritative received-card identity into the standard InstaComp shape.
+
+    Receiving/manual-purchase records predate the nested `metadata.instacomp.ai`
+    contract used by KINGMAKER Pending. They may already carry a fully verified
+    Registry identity at `metadata.identity`. Keep that authoritative record, but
+    also project it into the standard nested fields so every Pending consumer sees
+    the same identity instead of rendering an apparently blank card.
+    """
+    result = dict(metadata or {})
+    existing = result.get("instacomp") if isinstance(result.get("instacomp"), dict) else {}
+    mac_receipt = existing.get("macReceipt") if isinstance(existing.get("macReceipt"), dict) else {}
+    receipt_identity = (
+        mac_receipt.get("checklistIdentity")
+        if isinstance(mac_receipt.get("checklistIdentity"), dict)
+        else {}
+    )
+    receipt_registry_id = str(mac_receipt.get("registryIdentityId") or "").strip() or None
+    receipt_fingerprint = str(mac_receipt.get("registryFingerprintSha256") or "").strip() or None
+    receipt_exact = bool(
+        str(mac_receipt.get("status") or "").strip() == "trusted_memory_match"
+        and str(mac_receipt.get("checklistOutcome") or "").strip() == "exact_match"
+        and receipt_registry_id
+        and receipt_fingerprint
+        and receipt_identity
+    )
+
+    identity = result.get("identity") if isinstance(result.get("identity"), dict) else {}
+    if not identity and receipt_exact:
+        identity = {
+            **receipt_identity,
+            "registryIdentityId": receipt_registry_id,
+            "registryFingerprintSha256": receipt_fingerprint,
+        }
+        result["identity"] = identity
+        result["registryIdentityId"] = receipt_registry_id
+        result["registryFingerprintSha256"] = receipt_fingerprint
+        if mac_receipt.get("scanId"):
+            result["scanId"] = mac_receipt.get("scanId")
+    if not identity:
+        return result
+
+    def first(*values: object) -> object | None:
+        for value in values:
+            if value not in {None, ""}:
+                return value
+        return None
+
+    existing_ai = existing.get("ai") if isinstance(existing.get("ai"), dict) else {}
+
+    registry_identity_id = str(
+        first(
+            result.get("registryIdentityId"),
+            identity.get("registryIdentityId"),
+            identity.get("registry_identity_id"),
+            (existing.get("checklistIdentity") or {}).get("identityId")
+            if isinstance(existing.get("checklistIdentity"), dict)
+            else None,
+        )
+        or ""
+    ).strip() or None
+    registry_fingerprint = str(
+        first(
+            result.get("registryFingerprintSha256"),
+            identity.get("registryFingerprintSha256"),
+            identity.get("registry_fingerprint_sha256"),
+            (existing.get("checklistIdentity") or {}).get("fingerprintSha256")
+            if isinstance(existing.get("checklistIdentity"), dict)
+            else None,
+        )
+        or ""
+    ).strip() or None
+    scan_id = str(first(result.get("scanId"), existing.get("scanId")) or "").strip() or None
+    card_uuid = str(
+        first(result.get("cardUuid"), existing.get("cardUuid"), inventory_item_id)
+        or ""
+    ).strip() or None
+    player = first(identity.get("player"), identity.get("playerName"))
+    card_number = first(identity.get("cardNumber"), identity.get("card_number"))
+    parallel = first(identity.get("parallel"), identity.get("checklistParallel"))
+    serial_number = first(identity.get("serialNumber"), identity.get("serial_number"))
+    serial_run = first(identity.get("serialRun"), identity.get("serial_run"))
+    set_name = first(identity.get("setName"), identity.get("set_name"), identity.get("set"))
+    exact_identity = bool(
+        registry_identity_id and registry_fingerprint and player and card_number
+    )
+
+    ai = {
+        **existing_ai,
+        **{
+            key: value
+            for key, value in {
+                "year": identity.get("year"),
+                "manufacturer": first(identity.get("manufacturer"), identity.get("brand")),
+                "brand": first(identity.get("brand"), identity.get("manufacturer")),
+                "product": identity.get("product"),
+                "setName": set_name,
+                "set": set_name,
+                "set_name": set_name,
+                "subset": identity.get("subset"),
+                "player": player,
+                "playerName": player,
+                "team": identity.get("team"),
+                "sport": identity.get("sport"),
+                "league": identity.get("league"),
+                "cardNumber": card_number,
+                "card_number": card_number,
+                "parallel": parallel,
+                "parallelName": parallel,
+                "checklistParallel": parallel,
+                "variation": identity.get("variation"),
+                "serialNumber": serial_number,
+                "serial_number": serial_number,
+                "printRun": serial_number,
+                "serialRun": serial_run,
+                "serial_run": serial_run,
+                "rookie": identity.get("rookie"),
+                "isAuto": first(identity.get("isAuto"), identity.get("autograph")),
+                "isRelic": first(identity.get("isRelic"), identity.get("memorabilia")),
+                "registryIdentityId": registry_identity_id,
+                "registry_identity_id": registry_identity_id,
+                "internalScanId": scan_id,
+                "internalCardUuid": card_uuid,
+                "confidence": 0.99 if exact_identity else existing_ai.get("confidence", 0),
+            }.items()
+            if value not in {None, ""}
+        },
+    }
+
+    checklist_identity = (
+        dict(existing.get("checklistIdentity"))
+        if isinstance(existing.get("checklistIdentity"), dict)
+        else {}
+    )
+    if exact_identity:
+        checklist_identity.update(
+            {
+                "status": "exact_match",
+                "identityId": registry_identity_id,
+                "fingerprintSha256": registry_fingerprint,
+            }
+        )
+
+    checklist_decision = (
+        dict(existing.get("checklistDecision"))
+        if isinstance(existing.get("checklistDecision"), dict)
+        else {}
+    )
+    if exact_identity:
+        checklist_decision.update(
+            {
+                "status": "exact_match",
+                "candidateCount": 1,
+                "candidateIdentityIds": [registry_identity_id],
+            }
+        )
+
+    parallel_decision = (
+        dict(existing.get("parallelDecision"))
+        if isinstance(existing.get("parallelDecision"), dict)
+        else {}
+    )
+    if exact_identity:
+        parallel_decision.update(
+            {
+                "status": "resolved",
+                "selectedParallel": parallel or "Base",
+                "selectedIdentityId": registry_identity_id,
+                "confidence": 0.99,
+                "candidateParallels": [parallel or "Base"],
+            }
+        )
+
+    if exact_identity:
+        result["listingReviewRequired"] = False
+        listing_workflow = (
+            dict(result.get("listingWorkflow"))
+            if isinstance(result.get("listingWorkflow"), dict)
+            else {}
+        )
+        listing_workflow.update(
+            {
+                "queue": "pending_listings",
+                "source": "mac_registry_exact_auto",
+            }
+        )
+        result["listingWorkflow"] = listing_workflow
+        pending_verification = (
+            dict(result.get("pending_verification"))
+            if isinstance(result.get("pending_verification"), dict)
+            else {}
+        )
+        pending_verification.update(
+            {
+                "status": "resolved",
+                "source": "mac_registry_exact_auto",
+            }
+        )
+        result["pending_verification"] = pending_verification
+
+    result["instacomp"] = {
+        **existing,
+        "source": (
+            "mac_local_registry_exact"
+            if exact_identity
+            else existing.get("source") or "mac_local_received_review"
+        ),
+        "scanId": scan_id,
+        "cardUuid": card_uuid,
+        "ai": ai,
+        "frontImageUrl": first(existing.get("frontImageUrl"), result.get("frontImageUrl")),
+        "backImageUrl": first(existing.get("backImageUrl"), result.get("backImageUrl")),
+        "checklistDecision": checklist_decision,
+        "checklistIdentity": checklist_identity,
+        "parallelDecision": parallel_decision,
+        "identitySource": (
+            "mac_received_registry_exact"
+            if exact_identity
+            else existing.get("identitySource") or "mac_received_review"
+        ),
+        "registryIdentityId": registry_identity_id,
+        "registryFingerprintSha256": registry_fingerprint,
+        "identityComplete": exact_identity,
+        "trustedForIdentity": exact_identity,
+        "humanVerified": bool(existing.get("humanVerified") or result.get("operatorLessonId")),
+        "identityRefreshRequired": not exact_identity,
+        "lastStatus": "identity_complete" if exact_identity else "review_required",
+        "lastStage": "registry_exact" if exact_identity else "received_review",
+        "pricingStatus": (
+            "identity_complete_pricing_pending"
+            if exact_identity
+            else "blocked_identity_review_required"
+        ),
+        "pricingReason": (
+            "Exact Mac Registry identity received; pricing review remains."
+            if exact_identity
+            else "Exact Registry identity is required before pricing."
+        ),
+    }
+
+    collectible = (
+        dict(result.get("collectible_asset"))
+        if isinstance(result.get("collectible_asset"), dict)
+        else {}
+    )
+    if parallel is not None:
+        collectible["parallel_name"] = parallel
+    if serial_number is not None:
+        collectible["exact_serial_number"] = serial_number
+        collectible["print_run"] = serial_number
+    result["collectible_asset"] = collectible
+    return result
+
+
 def _read_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -590,16 +898,29 @@ class KingmakerCommercialInventory:
 
     def __init__(self, path: Path):
         self.path = path
+        # Router startup initializes the schema once. Seller-facing reads must
+        # never renegotiate WAL/schema on every request; doing that on the
+        # external authority volume can turn a simple queue read into a long
+        # blocking disk pass and make Master Listings look unavailable.
+        self._initialized = False
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        db = sqlite3.connect(self.path, timeout=5)
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA synchronous=NORMAL")
+            db.execute("PRAGMA foreign_keys=ON")
+            db.execute("PRAGMA busy_timeout=5000")
+            with db:
+                yield db
+        finally:
+            db.close()
 
-    def _read_connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _read_connect(self):
         """Fast read-only connection for seller-facing inventory projections.
 
         The database is initialized once when the KINGMAKER router starts. Re-running
@@ -609,12 +930,17 @@ class KingmakerCommercialInventory:
         """
         uri = f"file:{self.path}?mode=ro"
         db = sqlite3.connect(uri, uri=True, timeout=5)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA query_only=ON")
-        db.execute("PRAGMA busy_timeout=5000")
-        return db
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA query_only=ON")
+            db.execute("PRAGMA busy_timeout=5000")
+            yield db
+        finally:
+            db.close()
 
     def initialize(self) -> None:
+        if self._initialized:
+            return
         with self._connect() as db:
             db.executescript(
                 """
@@ -643,6 +969,14 @@ class KingmakerCommercialInventory:
                   ON commercial_inventory(sku);
                 CREATE INDEX IF NOT EXISTS commercial_inventory_status_idx
                   ON commercial_inventory(status);
+                CREATE INDEX IF NOT EXISTS commercial_inventory_image_pair_sha256_idx
+                  ON commercial_inventory(
+                    json_extract(raw_json, '$.instacomp.imagePairSha256')
+                  );
+                CREATE INDEX IF NOT EXISTS commercial_inventory_card_uuid_idx
+                  ON commercial_inventory(
+                    json_extract(raw_json, '$.instacomp.cardUuid')
+                  );
 
                 CREATE TABLE IF NOT EXISTS master_listing_projection (
                     inventory_item_id TEXT PRIMARY KEY,
@@ -669,6 +1003,14 @@ class KingmakerCommercialInventory:
                 "CREATE INDEX IF NOT EXISTS master_listing_projection_folder_group_idx "
                 "ON master_listing_projection(folder,pending_queue,group_key)"
             )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS master_listing_projection_group_idx "
+                "ON master_listing_projection(group_key)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS master_listing_projection_folder_queue_updated_idx "
+                "ON master_listing_projection(folder,pending_queue,source_updated_at DESC,inventory_item_id)"
+            )
             stale_groups = db.execute(
                 "SELECT inventory_item_id,row_json FROM master_listing_projection "
                 "WHERE group_key IS NULL OR group_key=''"
@@ -686,6 +1028,7 @@ class KingmakerCommercialInventory:
                     "UPDATE master_listing_projection SET group_key=? WHERE inventory_item_id=?",
                     (_master_listing_group_key(payload), str(stale["inventory_item_id"])),
                 )
+        self._initialized = True
 
     def project_master_listings(
         self,
@@ -808,6 +1151,182 @@ class KingmakerCommercialInventory:
             "queueCounts": queue_counts,
         }
 
+    def get_master_listing_projection(
+        self,
+        inventory_item_id: str,
+        *,
+        compact: bool = False,
+    ) -> dict[str, Any] | None:
+        self.initialize()
+        item_id = str(inventory_item_id or "").strip()
+        if not item_id:
+            return None
+        with self._read_connect() as db:
+            row = db.execute(
+                "SELECT row_json FROM master_listing_projection WHERE inventory_item_id=?",
+                (item_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(str(row["row_json"] or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict) or not payload:
+            return None
+        return _compact_master_listing_row(payload) if compact else payload
+
+    def list_master_listing_group(
+        self,
+        group_key: str,
+        *,
+        compact: bool = False,
+    ) -> list[dict[str, Any]]:
+        self.initialize()
+        key = str(group_key or "").strip()
+        if not key:
+            return []
+        with self._read_connect() as db:
+            rows = db.execute(
+                """
+                SELECT row_json
+                FROM master_listing_projection
+                WHERE group_key=?
+                ORDER BY source_updated_at DESC, inventory_item_id
+                """,
+                (key,),
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(str(row["row_json"] or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict) or not payload:
+                continue
+            items.append(_compact_master_listing_row(payload) if compact else payload)
+        return items
+
+    def delete_master_listing(self, inventory_item_id: str) -> bool:
+        self.initialize()
+        item_id = str(inventory_item_id or "").strip()
+        if not item_id:
+            return False
+        existing = self.get_master_listing_projection(item_id, compact=False)
+        if existing is None:
+            return False
+        with self._connect() as db:
+            db.execute(
+                "DELETE FROM master_listing_projection WHERE inventory_item_id=?",
+                (item_id,),
+            )
+            commercial = db.execute(
+                "SELECT status,ebay_listing_id FROM commercial_inventory WHERE inventory_item_id=?",
+                (item_id,),
+            ).fetchone()
+            if commercial is not None:
+                status = str(commercial["status"] or "").strip().lower()
+                ebay_listing_id = str(commercial["ebay_listing_id"] or "").strip()
+                if status != "active" and ebay_listing_id.startswith("local:"):
+                    db.execute(
+                        "DELETE FROM commercial_inventory WHERE inventory_item_id=?",
+                        (item_id,),
+                    )
+        return True
+
+    def apply_master_listing_edit(
+        self,
+        inventory_item_id: str,
+        edit: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        self.initialize()
+        item_id = str(inventory_item_id or "").strip()
+        if not item_id:
+            return None
+        current = self.get_master_listing_projection(item_id, compact=False)
+        if current is None:
+            return None
+
+        row = dict(current)
+        field_map = {
+            "title": "title",
+            "description": "description",
+            "player": "player",
+            "sport": "sport",
+            "category": "category",
+            "condition": "condition",
+            "status": "status",
+            "quantity": "quantity",
+            "price": "price",
+            "imageUrl": "image_url",
+            "image_url": "image_url",
+            "sku": "sku",
+        }
+        for source_key, target_key in field_map.items():
+            if source_key in edit:
+                row[target_key] = edit.get(source_key)
+
+        if isinstance(edit.get("metadata"), dict):
+            row["metadata"] = _normalize_local_pending_metadata(
+                dict(edit["metadata"]),
+                inventory_item_id=item_id,
+            )
+        elif not isinstance(row.get("metadata"), dict):
+            row["metadata"] = {}
+
+        row["id"] = str(row.get("id") or item_id)
+        row["updated_at"] = str(edit.get("updatedAt") or edit.get("updated_at") or _now())
+        if "created_at" not in row:
+            row["created_at"] = row["updated_at"]
+
+        stamp = _now()
+        with self._connect() as db:
+            if not _master_listing_relevant(row):
+                db.execute(
+                    "DELETE FROM master_listing_projection WHERE inventory_item_id=?",
+                    (item_id,),
+                )
+            else:
+                folder = _master_listing_folder(row)
+                pending_queue = _master_listing_queue(row.get("metadata"))
+                compact_row = _compact_master_listing_row(row)
+                group_key = _master_listing_group_key(compact_row)
+                db.execute(
+                    """
+                    INSERT INTO master_listing_projection(
+                      inventory_item_id,folder,pending_queue,source_updated_at,
+                      projected_at,row_json,group_key
+                    ) VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(inventory_item_id) DO UPDATE SET
+                      folder=excluded.folder,
+                      pending_queue=excluded.pending_queue,
+                      source_updated_at=excluded.source_updated_at,
+                      projected_at=excluded.projected_at,
+                      row_json=excluded.row_json,
+                      group_key=excluded.group_key
+                    """,
+                    (
+                        item_id,
+                        folder,
+                        pending_queue,
+                        str(row.get("updated_at") or stamp),
+                        stamp,
+                        json.dumps(row, separators=(",", ":"), ensure_ascii=False),
+                        group_key,
+                    ),
+                )
+
+        # Keep the channel-side commercial row synchronized when this Master
+        # Listing also exists there. The unified Master projection remains the
+        # edit authority, so a mirror-only validation failure cannot erase the
+        # accepted Master edit.
+        if self.get_item(item_id) is not None:
+            try:
+                self.apply_local_edit(item_id, edit, False)
+            except Exception:
+                pass
+        return self.get_master_listing_projection(item_id, compact=False)
+
     def list_master_listing_projection(
         self,
         *,
@@ -926,21 +1445,122 @@ class KingmakerCommercialInventory:
         return {"inserted": inserted, "updated": updated}
 
     def list_items(self) -> list[dict[str, Any]]:
-        self.initialize()
-        with self._connect() as db:
+        with self._read_connect() as db:
             rows = db.execute(
                 "SELECT * FROM commercial_inventory ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC"
             ).fetchall()
         return [self._payload(row) for row in rows]
 
     def get_item(self, inventory_item_id: str) -> dict[str, Any] | None:
-        self.initialize()
-        with self._connect() as db:
+        with self._read_connect() as db:
             row = db.execute(
                 "SELECT * FROM commercial_inventory WHERE inventory_item_id=?",
                 (str(inventory_item_id),),
             ).fetchone()
         return self._payload(row) if row else None
+
+    def find_by_image_pair_sha256(
+        self,
+        image_pair_sha256: str,
+    ) -> dict[str, Any] | None:
+        pair_hash = str(image_pair_sha256 or "").strip()
+        if not pair_hash:
+            return None
+        with self._read_connect() as db:
+            row = db.execute(
+                """
+                SELECT * FROM commercial_inventory
+                WHERE json_extract(raw_json, '$.instacomp.imagePairSha256')=?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (pair_hash,),
+            ).fetchone()
+            if row is None:
+                row = db.execute(
+                    """
+                    SELECT * FROM commercial_inventory
+                    WHERE json_extract(raw_json, '$.imagePairSha256')=?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (pair_hash,),
+                ).fetchone()
+        return self._payload(row) if row else None
+
+    def find_by_card_uuid(self, card_uuid: str) -> dict[str, Any] | None:
+        value = str(card_uuid or "").strip()
+        if not value:
+            return None
+        with self._read_connect() as db:
+            row = db.execute(
+                """
+                SELECT *
+                FROM commercial_inventory
+                WHERE inventory_item_id=?
+                   OR json_extract(raw_json, '$.instacomp.cardUuid')=?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (value, value),
+            ).fetchone()
+        return self._payload(row) if row else None
+
+    def create_local_draft(self, draft: dict[str, Any]) -> dict[str, Any]:
+        self.initialize()
+        inventory_item_id = str(draft.get("inventoryItemId") or draft.get("cardUuid") or "").strip()
+        if not inventory_item_id:
+            raise ValueError("Mac-local draft requires inventoryItemId or cardUuid")
+        stamp = _now()
+        sku = str(draft.get("sku") or f"scan-{inventory_item_id[:12]}").strip()[:100]
+        title = str(draft.get("title") or "InstaComp scan pending").strip()[:200]
+        metadata = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else draft
+        metadata = _normalize_local_pending_metadata(
+            metadata,
+            inventory_item_id=inventory_item_id,
+        )
+        raw_json = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)
+        with self._connect() as db:
+            existing = db.execute(
+                "SELECT inventory_item_id FROM commercial_inventory WHERE inventory_item_id=?",
+                (inventory_item_id,),
+            ).fetchone()
+            if existing is None:
+                db.execute(
+                    """INSERT INTO commercial_inventory(
+                      inventory_item_id,sku,ebay_listing_id,ebay_offer_id,title,description,player,sport,
+                      category,condition,status,quantity,price,image_url,local_dirty,last_ebay_sync_at,
+                      created_at,updated_at,raw_json
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        inventory_item_id, sku, f"local:{inventory_item_id}", None, title,
+                        str(draft.get("description") or "Mac-local InstaComp pending draft"),
+                        str(draft.get("player") or "").strip() or None,
+                        str(draft.get("sport") or "").strip() or None,
+                        str(draft.get("category") or "Trading Card Singles"),
+                        str(draft.get("condition") or "Near Mint or Better"),
+                        "draft", 1, max(0.0, round(float(draft.get("price") or 0), 2)),
+                        str(draft.get("imageUrl") or "").strip() or None,
+                        1, None, stamp, stamp, raw_json,
+                    ),
+                )
+            else:
+                db.execute(
+                    """UPDATE commercial_inventory SET title=?,description=?,player=?,sport=?,category=?,condition=?,
+                       status='draft',quantity=1,price=?,image_url=?,local_dirty=1,updated_at=?,raw_json=?
+                       WHERE inventory_item_id=?""",
+                    (
+                        title, str(draft.get("description") or "Mac-local InstaComp pending draft"),
+                        str(draft.get("player") or "").strip() or None,
+                        str(draft.get("sport") or "").strip() or None,
+                        str(draft.get("category") or "Trading Card Singles"),
+                        str(draft.get("condition") or "Near Mint or Better"),
+                        max(0.0, round(float(draft.get("price") or 0), 2)),
+                        str(draft.get("imageUrl") or "").strip() or None,
+                        stamp, raw_json, inventory_item_id,
+                    ),
+                )
+        return self.get_item(inventory_item_id) or {}
 
     def apply_local_edit(self, inventory_item_id: str, edit: dict[str, Any], synced_to_ebay: bool) -> dict[str, Any]:
         current = self.get_item(inventory_item_id)
@@ -962,10 +1582,17 @@ class KingmakerCommercialInventory:
         if status == "active" and price <= 0:
             raise ValueError("Active listings must have a positive price")
         stamp = _now()
+        image_url = str(edit.get("imageUrl", current.get("imageUrl") or "")).strip() or None
+        metadata = edit.get("metadata") if isinstance(edit.get("metadata"), dict) else current.get("metadata", {})
+        metadata = _normalize_local_pending_metadata(
+            metadata if isinstance(metadata, dict) else {},
+            inventory_item_id=inventory_item_id,
+        )
+        raw_json = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)
         with self._connect() as db:
             db.execute(
                 """UPDATE commercial_inventory SET title=?,description=?,player=?,sport=?,category=?,condition=?,
-                   status=?,quantity=?,price=?,local_dirty=?,updated_at=? WHERE inventory_item_id=?""",
+                   status=?,quantity=?,price=?,image_url=?,raw_json=?,local_dirty=?,updated_at=? WHERE inventory_item_id=?""",
                 (
                     title,
                     description,
@@ -976,6 +1603,8 @@ class KingmakerCommercialInventory:
                     status,
                     quantity,
                     price,
+                    image_url,
+                    raw_json,
                     0 if synced_to_ebay else 1,
                     stamp,
                     inventory_item_id,
@@ -985,6 +1614,12 @@ class KingmakerCommercialInventory:
 
     @staticmethod
     def _payload(row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            metadata = json.loads(str(row["raw_json"] or "{}"))
+        except Exception:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
         return {
             "inventoryItemId": str(row["inventory_item_id"]),
             "legacyProductId": None,
@@ -1008,5 +1643,6 @@ class KingmakerCommercialInventory:
             "localDirty": bool(row["local_dirty"]),
             "updatedAt": row["updated_at"],
             "createdAt": row["created_at"],
+            "metadata": metadata,
             "sourceOfTruth": "mac_local",
         }

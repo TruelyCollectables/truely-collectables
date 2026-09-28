@@ -2,8 +2,10 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../../../lib/kingmaker-mac-scan-server";
 
 export const dynamic = "force-dynamic";
 
@@ -18,24 +20,23 @@ function text(value: unknown) {
   return cleaned || null;
 }
 
-type StoredImage = {
-  image_url: string | null;
-  alt_text: string | null;
-  sort_order: number | null;
-  is_primary: boolean | null;
-};
-function hasDistinctStoredPair(rows: StoredImage[]) {
-  const urls = rows
-    .map((row) => text(row.image_url))
-    .filter((value): value is string => Boolean(value));
-  const unique = new Set(urls);
-  const front = rows.find(
-    (row) => /\bfront\b/i.test(row.alt_text || "") || row.is_primary === true,
+function hasDistinctMacPair(metadata: Record<string, unknown>) {
+  const instaComp = record(metadata.instacomp);
+  const macReceipt = record(instaComp.macReceipt);
+  const frontUrl = text(instaComp.frontImageUrl);
+  const backUrl = text(instaComp.backImageUrl);
+  const frontSha = text(
+    instaComp.frontSha256 ?? instaComp.front_sha256 ?? macReceipt.frontSha256,
   );
-  const back = rows.find(
-    (row) => /\bback\b/i.test(row.alt_text || "") && row.image_url !== front?.image_url,
+  const backSha = text(
+    instaComp.backSha256 ?? instaComp.back_sha256 ?? macReceipt.backSha256,
   );
-  return Boolean(front?.image_url && back?.image_url && unique.size >= 2);
+  const scanId = text(instaComp.scanId ?? macReceipt.scanId);
+  return Boolean(
+    (frontUrl && backUrl && frontUrl !== backUrl) ||
+      (frontSha && backSha && frontSha !== backSha) ||
+      (scanId && instaComp.imagePersistenceVerified === true),
+  );
 }
 
 function identityReady(metadata: Record<string, unknown>) {
@@ -66,24 +67,19 @@ export async function POST(request: Request) {
       return Response.json({ error: "Pending card is required." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const isOwner =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-    let itemQuery = supabase
-      .from("inventory_items")
-      .select("id,title,status,seller_account_id,metadata")
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId)
-      .eq("status", "draft");
-    itemQuery = isOwner
-      ? itemQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : itemQuery.eq("seller_account_id", account.id);
-    const { data: item, error: itemError } = await itemQuery.maybeSingle();
-    if (itemError) throw itemError;
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) {
       return Response.json({ error: "Pending verification card was not found." }, { status: 404 });
+    }
+    const sellerAccountId = text(item.seller_account_id ?? item.sellerAccountId);
+    if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
+      return Response.json({ error: "Pending verification card was not found." }, { status: 404 });
+    }
+    if (text(item.status) === "archived" || text(item.status) === "sold") {
+      return Response.json({ error: "This card is no longer pending." }, { status: 409 });
     }
 
     const metadata = record(item.metadata);
@@ -93,15 +89,9 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    const { data: images, error: imageError } = await supabase
-      .from("inventory_images")
-      .select("image_url,alt_text,sort_order,is_primary")
-      .eq("inventory_item_id", inventoryItemId)
-      .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-    if (!hasDistinctStoredPair((images || []) as StoredImage[])) {
+    if (!hasDistinctMacPair(metadata)) {
       return Response.json(
-        { error: "A distinct stored front and back are required before accepting verification." },
+        { error: "A distinct Mac-local front and back are required before accepting verification." },
         { status: 409 },
       );
     }
@@ -146,13 +136,10 @@ export async function POST(request: Request) {
       },
     };
 
-    const { error: updateError } = await supabase
-      .from("inventory_items")
-      .update({ metadata: nextMetadata, updated_at: now })
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId)
-      .eq("status", "draft");
-    if (updateError) throw updateError;
+    await updateMacKingmakerDraft(inventoryItemId, {
+      metadata: nextMetadata,
+      updatedAt: now,
+    });
 
     return Response.json({
       success: true,

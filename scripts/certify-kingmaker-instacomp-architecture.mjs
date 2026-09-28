@@ -88,15 +88,21 @@ for (const required of [
 }
 
 for (const required of [
-  "replaceManualIdentity",
-  'formData.set("aiCouncilTier", String(value("aiCouncilTier") || "adaptive"))',
   "runKingmakerExactFrontBack",
 ]) {
-  requireText(auditedFrontBack, required, "KINGMAKER front/back orchestration route");
+  requireText(auditedFrontBack, required, "KINGMAKER front/back compatibility route");
 }
+rejectText(
+  auditedFrontBack,
+  "createSupabaseServerClient",
+  "KINGMAKER front/back compatibility route",
+);
 
 const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.ts");
 for (const required of [
+  "replaceManualIdentity",
+  "analyzeWithInstaCompAiLocal",
+  "forceFreshIdentity: true",
   "fetchInstaCompAiLocalScanImage",
   "canonicalImagesRecovered: true",
   "const identityComplete = Boolean(certifiedCandidate);",
@@ -116,7 +122,8 @@ for (const required of [
   'stage: "orientation_review"',
   "do not rescan this card",
   "normalizedImages: storedImages",
-  "frontFile: finalFrontFile",
+  "const finalFrontFile = macArchive.frontFile ?? frontFile",
+  "digest(finalFrontFile)",
   "hasProvidedPair",
   'redirect: "manual"',
   "image redirect was blocked",
@@ -171,17 +178,28 @@ rejectText(
 );
 
 for (const required of [
-  "persistNormalizedInstaCompImagePair",
+  "archiveInstaCompAiLocalSupervisedScan",
+  "getMacMasterListingRow",
+  "updateMacKingmakerDraft",
   "getAuthenticatedAccountFromRequest",
   "ensureAccountStoreMembership",
   'status: "completed"',
   'source: "seller_manual_pixel_rotation"',
-  "const submittedRotatedPair = Boolean(front && back)",
-  '!submittedRotatedPair && rotatedSide === "front" ? 90 : 0',
-  '!submittedRotatedPair && rotatedSide === "back" ? 90 : 0',
+  "archive.front_sha256",
+  "archive.back_sha256",
+  "archive.image_pair_sha256",
+  'sourceAuthority: "mac_local"',
   "published: false",
 ]) {
   requireText(auditedRotate, required, "persisted KINGMAKER manual image rotation route");
+}
+for (const forbidden of [
+  "createSupabaseServerClient",
+  'from("inventory_items")',
+  'from("inventory_images")',
+  "persistNormalizedInstaCompImagePair",
+]) {
+  rejectText(auditedRotate, forbidden, "Mac-local KINGMAKER manual image rotation route");
 }
 
 for (const required of [

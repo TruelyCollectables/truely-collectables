@@ -2,8 +2,7 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { getActiveStoreId } from "../../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { listMacMasterListingRows } from "../../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,26 +33,14 @@ export async function GET(request: Request) {
       status: "active",
     });
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
-    const isOwner =
-      account.email === "sales@truelycollectables.com" ||
-      account.email === "sales@trulycollectables.com";
-
-    let query = supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,status,metadata,updated_at")
-      .eq("store_id", storeId)
-      .eq("status", "draft");
-    query = isOwner
-      ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : query.eq("seller_account_id", account.id);
-
-    const { data, error } = await query;
-    if (error) throw error;
+    const rows = await listMacMasterListingRows({
+      folder: "pending",
+      compact: false,
+      timeoutMs: 10_000,
+    });
 
     const statuses = Object.fromEntries(
-      (data || []).map((row: any) => {
+      rows.map((row: any) => {
         const metadata = record(row.metadata);
         const instaComp = record(metadata.instacomp);
         const ai = record(instaComp.ai);
@@ -76,7 +63,7 @@ export async function GET(request: Request) {
         const suppressStaleFailure = manualIdentityLocked || identityComplete;
 
         return [
-          String(row.id),
+          String(row.id || row.inventoryItemId || row.inventory_item_id),
           {
             status: effectiveStatus,
             stage: effectiveStage,
@@ -104,7 +91,7 @@ export async function GET(request: Request) {
             visualSerial: text(visualFeatures.serialStampText),
             visualConfidence: Number(visualFeatures.confidence || 0),
             parallelEvidence: text(parallelDecision.evidence),
-            updatedAt: row.updated_at || null,
+            updatedAt: row.updated_at || row.updatedAt || null,
           },
         ];
       }),

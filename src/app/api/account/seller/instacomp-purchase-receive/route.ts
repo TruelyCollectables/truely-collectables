@@ -3,8 +3,10 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../lib/account-auth";
 import { postInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../../lib/kingmaker-mac-scan-server";
 
 export const dynamic = "force-dynamic";
 
@@ -63,22 +65,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
+    const mirroredItem = await getMacMasterListingRow(inventoryItemId, 5_000);
     const isOwner = [
       "sales@truelycollectables.com",
       "sales@trulycollectables.com",
     ].includes(String(account.email || "").toLowerCase());
-
-    // KINGMAKER inventory is Mac-local authority. A newly scanned card may not
-    // have a storefront mirror yet, so absence from Supabase cannot block receipt.
-    const { data: mirroredItem, error: readError } = await supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,metadata")
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId)
-      .maybeSingle();
-    if (readError) throw readError;
 
     if (
       mirroredItem &&
@@ -104,7 +95,7 @@ export async function POST(request: Request) {
       return Response.json(data, { status: 409 });
     }
 
-    let storefrontMirrorUpdated = false;
+    let macInventoryUpdated = false;
     if (mirroredItem) {
       const metadata = record(mirroredItem.metadata);
       const currentLifecycle = record(metadata.inventory_lifecycle);
@@ -138,17 +129,14 @@ export async function POST(request: Request) {
         },
       };
 
-      const { error: updateError } = await supabase
-        .from("inventory_items")
-        .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
-        .eq("store_id", storeId)
-        .eq("id", inventoryItemId);
-      if (updateError) throw updateError;
-      storefrontMirrorUpdated = true;
+      await updateMacKingmakerDraft(inventoryItemId, {
+        metadata: nextMetadata,
+      });
+      macInventoryUpdated = true;
     }
 
     return Response.json(
-      { success: true, ...data, storefrontMirrorUpdated },
+      { success: true, ...data, macInventoryUpdated },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

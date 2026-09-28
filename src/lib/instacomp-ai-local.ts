@@ -573,6 +573,56 @@ export async function analyzeWithInstaCompAiLocal(params: {
   return scan;
 }
 
+export async function getInstaCompAiLocalPublicImageUrls(params: {
+  scanId: string;
+  ttlSeconds?: number;
+  timeoutMs?: number;
+}) {
+  const scanId = safeScanId(params.scanId);
+  const ttlSeconds = Math.max(
+    300,
+    Math.min(1_209_600, Math.floor(Number(params.ttlSeconds || 604_800))),
+  );
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    Math.max(1_000, params.timeoutMs || 10_000),
+  );
+  try {
+    const response = await fetch(
+      `${baseUrl()}/v1/scans/${encodeURIComponent(scanId)}/ebay-image-urls?ttl_seconds=${ttlSeconds}`,
+      {
+        method: "GET",
+        headers: requestHeaders(),
+        cache: "no-store",
+        signal: controller.signal,
+      },
+    );
+    const payload = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    if (!response.ok) {
+      throw new Error(
+        String(
+          payload.detail ||
+            payload.error ||
+            `Mac-local public image authorization failed (${response.status}).`,
+        ),
+      );
+    }
+    const urls = record(payload.urls);
+    const front = text(urls.front);
+    const back = text(urls.back);
+    if (!front || !back || front === back) {
+      throw new Error("Mac-local scan did not return a distinct signed front/back image pair.");
+    }
+    return { front, back, expires: Number(payload.expires || 0) || null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchInstaCompAiLocalScanImage(params: {
   scanId: string;
   side: "front" | "back";

@@ -7,8 +7,7 @@ import {
   getConfiguredInstaCompMacUrl,
   isTrustedInstaCompMacUrl,
 } from "../../../../../lib/instacomp-mac-credentials";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { getMacMasterListingRow, updateMacKingmakerDraft } from "../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,22 +97,15 @@ export async function POST(request: Request) {
     const force = body.force === true;
     if (!inventoryItemId) return Response.json({ error: "Inventory item is required." }, { status: 400 });
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const isOwner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
       String(account.email || "").toLowerCase(),
     );
-    let query = supabase
-      .from("inventory_items")
-      .select("id,title,seller_account_id,metadata")
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId);
-    query = isOwner
-      ? query.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : query.eq("seller_account_id", account.id);
-    const { data: item, error: readError } = await query.maybeSingle();
-    if (readError) throw readError;
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    const sellerAccountId = text(item.seller_account_id ?? item.sellerAccountId);
+    if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
+      return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    }
 
     const metadata = record(item.metadata);
     const instaComp = record(metadata.instacomp);
@@ -215,17 +207,12 @@ export async function POST(request: Request) {
     };
     const checkedAt = text(payload.priceGuide?.capturedAt) || new Date().toISOString();
 
-    // The browser-backed Price Guide lookup can take a while. Re-read metadata
-    // before writing so a seller edit made during the lookup is never clobbered
-    // by the older metadata snapshot captured at request start.
-    const { data: latestItem, error: latestError } = await supabase
-      .from("inventory_items")
-      .select("metadata")
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId)
-      .single();
-    if (latestError) throw latestError;
-    const latestMetadata = record(latestItem?.metadata);
+    // The browser-backed Price Guide lookup can take a while. Re-read the
+    // Mac-local authority before writing so a seller edit made during the
+    // lookup is never clobbered by this older request snapshot.
+    const latestItem = await getMacMasterListingRow(inventoryItemId);
+    if (!latestItem) throw new Error("Mac-local Master Listing disappeared during price-guide refresh.");
+    const latestMetadata = record(latestItem.metadata);
     const latestInstaComp = record(latestMetadata.instacomp);
     const nextInstaComp = {
       ...latestInstaComp,
@@ -236,15 +223,10 @@ export async function POST(request: Request) {
       priceGuideCoverage: coverage,
       providerCoverage: mergeProviderCoverage(latestInstaComp.providerCoverage, coverage),
     };
-    const { error: updateError } = await supabase
-      .from("inventory_items")
-      .update({
-        metadata: { ...latestMetadata, instacomp: nextInstaComp },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId);
-    if (updateError) throw updateError;
+    await updateMacKingmakerDraft(inventoryItemId, {
+      metadata: { ...latestMetadata, instacomp: nextInstaComp },
+      updatedAt: new Date().toISOString(),
+    });
 
     return Response.json({
       ok: true,

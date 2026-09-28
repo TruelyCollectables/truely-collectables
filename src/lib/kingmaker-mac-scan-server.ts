@@ -15,7 +15,7 @@ import { postInstaCompMacRegistry } from "./instacomp-mac-registry-client";
 
 type JsonRecord = Record<string, unknown>;
 
-type MacCommercialItem = {
+export type MacCommercialItem = {
   inventoryItemId: string;
   legacyProductId?: number | null;
   cardUuid?: string | null;
@@ -33,6 +33,17 @@ type MacCommercialItem = {
   metadata?: JsonRecord;
   createdAt?: string | null;
   updatedAt?: string | null;
+  id?: string | null;
+  inventory_item_id?: string | null;
+  legacy_product_id?: number | null;
+  seller_account_id?: string | null;
+  sellerAccountId?: string | null;
+  card_uuid?: string | null;
+  image_url?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  folder?: string | null;
+  pending_queue?: string | null;
 };
 function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -244,32 +255,84 @@ export async function projectMacMasterListingRows(values: JsonRecord[]) {
   );
 }
 
-export async function listMacMasterListingRows(timeoutMs = 30_000) {
+export async function listMacMasterListingRows(
+  params: {
+    folder?: string | null;
+    pendingQueue?: string | null;
+    compact?: boolean;
+    timeoutMs?: number;
+  } = {},
+) {
   const response = await postInstaCompMacRegistry(
     "/v1/kingmaker/accounting/commercial-inventory",
-    { action: "master_list", items: [{ compact: "0" }] },
+    {
+      action: "master_list",
+      items: [
+        {
+          folder: text(params.folder, 80),
+          pendingQueue: text(params.pendingQueue, 80),
+          compact: params.compact === true ? "1" : "0",
+        },
+      ],
+    },
+    params.timeoutMs ?? 30_000,
+  );
+  return Array.isArray(response.items)
+    ? (response.items as MacCommercialItem[])
+    : [];
+}
+
+export async function listMacMasterListingGroup(
+  groupKey: string,
+  params: { compact?: boolean; timeoutMs?: number } = {},
+) {
+  const key = text(groupKey, 240);
+  if (!key) return [] as MacCommercialItem[];
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    {
+      action: "master_group",
+      items: [
+        {
+          groupKey: key,
+          compact: params.compact === true ? "1" : "0",
+        },
+      ],
+    },
+    params.timeoutMs ?? 10_000,
+  );
+  return Array.isArray(response.items)
+    ? (response.items as MacCommercialItem[])
+    : [];
+}
+
+export async function getMacMasterListingRows(
+  inventoryItemIds: string[],
+  timeoutMs = 10_000,
+) {
+  const ids = Array.from(
+    new Set(inventoryItemIds.map((value) => text(value, 200)).filter(Boolean)),
+  );
+  if (!ids.length) return [] as MacCommercialItem[];
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    {
+      action: "master_get",
+      items: ids.map((inventoryItemId) => ({ inventoryItemId, compact: "0" })),
+    },
     timeoutMs,
   );
   return Array.isArray(response.items)
-    ? (response.items as JsonRecord[])
+    ? (response.items as MacCommercialItem[])
     : [];
 }
 
 export async function getMacMasterListingRow(
   inventoryItemId: string,
-  timeoutMs = 30_000,
+  timeoutMs = 10_000,
 ) {
-  const id = text(inventoryItemId, 200);
-  if (!id) return null;
-  const items = await listMacMasterListingRows(timeoutMs);
-  return (
-    items.find(
-      (item) =>
-        text(item.id, 200) === id ||
-        text(item.inventoryItemId, 200) === id ||
-        text(item.inventory_item_id, 200) === id,
-    ) || null
-  );
+  const items = await getMacMasterListingRows([inventoryItemId], timeoutMs);
+  return items[0] || null;
 }
 
 export async function listMacKingmakerInventory(timeoutMs = 30_000) {
@@ -284,9 +347,38 @@ export async function listMacKingmakerInventory(timeoutMs = 30_000) {
   };
 }
 
-export async function getMacKingmakerInventoryItem(inventoryItemId: string) {
-  const { items } = await listMacKingmakerInventory();
-  return items.find((item) => item.inventoryItemId === inventoryItemId) || null;
+export async function findMacKingmakerByCardUuid(
+  cardUuid: string,
+  timeoutMs = 5_000,
+) {
+  const value = text(cardUuid, 200);
+  if (!value) return null;
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    { action: "find_card_uuid", items: [{ cardUuid: value }] },
+    timeoutMs,
+  );
+  const items = Array.isArray(response.items)
+    ? (response.items as MacCommercialItem[])
+    : [];
+  return items[0] || null;
+}
+
+export async function getMacKingmakerInventoryItem(
+  inventoryItemId: string,
+  timeoutMs = 10_000,
+) {
+  const id = text(inventoryItemId, 200);
+  if (!id) return null;
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    { action: "get", items: [{ inventoryItemId: id }] },
+    timeoutMs,
+  );
+  const items = Array.isArray(response.items)
+    ? (response.items as MacCommercialItem[])
+    : [];
+  return items[0] || null;
 }
 
 export async function createMacKingmakerDraft(draft: JsonRecord) {
@@ -313,35 +405,80 @@ export async function createMacKingmakerDraft(draft: JsonRecord) {
   ]);
   return createdItem;
 }
+export async function deleteMacMasterListings(
+  inventoryItemIds: string[],
+  timeoutMs = 15_000,
+) {
+  const ids = Array.from(
+    new Set(inventoryItemIds.map((value) => text(value, 200)).filter(Boolean)),
+  );
+  if (!ids.length) return [] as JsonRecord[];
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    {
+      action: "master_delete",
+      items: ids.map((inventoryItemId) => ({ inventoryItemId })),
+    },
+    timeoutMs,
+  );
+  return Array.isArray(response.results)
+    ? (response.results as JsonRecord[])
+    : [];
+}
+
+export async function deleteMacMasterListing(
+  inventoryItemId: string,
+  timeoutMs = 10_000,
+) {
+  const results = await deleteMacMasterListings([inventoryItemId], timeoutMs);
+  return results[0]?.success === true;
+}
+
+export async function updateMacKingmakerDrafts(
+  edits: Array<{ inventoryItemId: string; edit: JsonRecord }>,
+  timeoutMs = 15_000,
+) {
+  const items = edits
+    .map(({ inventoryItemId, edit }) => {
+      const id = text(inventoryItemId, 200);
+      return id ? { inventoryItemId: id, ...edit, updateEbay: false } : null;
+    })
+    .filter(Boolean) as JsonRecord[];
+  if (!items.length) return [] as JsonRecord[];
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    { action: "master_update", items },
+    timeoutMs,
+  );
+  const results = Array.isArray(response.results)
+    ? (response.results as JsonRecord[])
+    : [];
+  const failed = results.find((result) => result.success !== true);
+  if (failed) {
+    throw new Error(
+      String(failed.message || "Mac-local Master Listing batch update failed."),
+    );
+  }
+  return results;
+}
+
 export async function updateMacKingmakerDraft(
   inventoryItemId: string,
   edit: JsonRecord,
 ) {
-  const response = await postInstaCompMacRegistry(
-    "/v1/kingmaker/accounting/commercial-inventory",
-    { action: "update", items: [{ inventoryItemId, ...edit, updateEbay: false }] },
-    30_000,
-  );
-  const results = Array.isArray(response.results) ? response.results : [];
-  const result = results[0] as JsonRecord | undefined;
+  const results = await updateMacKingmakerDrafts([
+    { inventoryItemId, edit },
+  ]);
+  const result = results[0];
   if (!result || result.success !== true) {
-    throw new Error(String(result?.message || "Mac-local KINGMAKER draft update failed."));
+    throw new Error(
+      String(result?.message || "Mac-local Master Listing update failed."),
+    );
   }
-  const updated = await getMacKingmakerInventoryItem(inventoryItemId);
-  if (updated) {
-    await projectMacMasterListingRows([
-      {
-        ...updated,
-        ...edit,
-        inventoryItemId,
-        metadata:
-          Object.keys(record(edit.metadata)).length > 0
-            ? record(edit.metadata)
-            : updated.metadata || {},
-      },
-    ]);
-  }
-  return updated;
+  const item = record(result.item);
+  return Object.keys(item).length > 0
+    ? (item as unknown as MacCommercialItem)
+    : ((await getMacMasterListingRow(inventoryItemId, 10_000)) as unknown as MacCommercialItem | null);
 }
 
 function registryFingerprint(scan: InstaCompAiLocalScan) {
@@ -732,23 +869,24 @@ export async function findMacDuplicateByImagePair(
   imagePairSha256: string,
   timeoutMs = 2_500,
 ) {
+  const pairHash = text(imagePairSha256, 128);
+  if (!pairHash) return null;
   try {
-    const { items } = await listMacKingmakerInventory(timeoutMs);
-    return (
-      items.find(
-        (item) => {
-          const instacomp = record(item.metadata?.instacomp);
-          return (
-            text(instacomp.imagePairSha256, 128) === imagePairSha256 ||
-            text(instacomp.inputImagePairSha256, 128) === imagePairSha256
-          );
-        },
-      ) || null
+    const response = await postInstaCompMacRegistry(
+      "/v1/kingmaker/accounting/commercial-inventory",
+      {
+        action: "find_image_pair",
+        items: [{ imagePairSha256: pairHash }],
+      },
+      timeoutMs,
     );
+    const items = Array.isArray(response.items)
+      ? (response.items as MacCommercialItem[])
+      : [];
+    return items[0] || null;
   } catch {
-    // Duplicate lookup is a guard, not identity authority. Exact image pairs
-    // are still bound by the Mac scan store, so a slow inventory enumeration
-    // must never block a fresh physical scan.
+    // Duplicate lookup is a guard, not identity authority. The indexed Mac
+    // lookup must never block a fresh physical scan if the guard is unavailable.
     return null;
   }
 }

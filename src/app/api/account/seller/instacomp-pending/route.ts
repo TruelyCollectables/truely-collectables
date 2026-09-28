@@ -8,13 +8,10 @@ import {
   buildInstaCompCanonicalTitle,
   buildInstaCompRegistryExactTitle,
 } from "../../../../../lib/instacomp-canonical-title";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import {
   effectiveInstaCompPricingGroupKey,
   summarizeInstaCompPricingGroup,
 } from "../../../../../lib/instacomp-pricing-group";
-import { normalizeListingDuplicateTitle } from "../../../../../lib/listing-duplicate-alert";
 import {
   classifyWebsiteProductIdentity,
   isSellableWebsiteProduct,
@@ -478,126 +475,6 @@ function isGenericTitle(value: unknown) {
   );
 }
 
-const PENDING_INVENTORY_COLUMNS =
-  "id,legacy_product_id,seller_account_id,card_uuid,sku,title,description,category,condition,status,quantity,price,metadata,created_at,updated_at";
-
-async function readPendingCandidateInventoryPages(params: {
-  supabase: ReturnType<typeof createSupabaseServerClient>;
-  storeId: string;
-  accountId: string;
-  ownerAccount: boolean;
-  columns: string;
-}) {
-  const transientRead = (error: unknown) => {
-    const row = recordValue(error);
-    const name = String(row.name || "");
-    const message = String(row.message || error || "").toLowerCase();
-    return (
-      name === "AbortError" ||
-      name === "TimeoutError" ||
-      message.includes("aborted") ||
-      message.includes("timeout")
-    );
-  };
-
-  const readWithRetry = async <T>(
-    read: () => PromiseLike<{ data: T[] | null; error: unknown }>,
-  ) => {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const { data, error } = await read();
-        if (error) throw error;
-        return data || [];
-      } catch (error) {
-        if (attempt >= 1 || !transientRead(error)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-    }
-    return [] as T[];
-  };
-
-  const applyOwnerScope = (query: any) =>
-    params.ownerAccount
-      ? query.or(
-          "seller_account_id.eq." +
-            params.accountId +
-            ",seller_account_id.is.null",
-        )
-      : query.eq("seller_account_id", params.accountId);
-
-  const readCandidateIds = async (
-    candidate: "instacomp" | "legacy_identity",
-  ) => {
-    const ids: string[] = [];
-    for (let from = 0; ; from += 1000) {
-      const batch = await readWithRetry<{ id: string }>(() => {
-        let query: any = params.supabase
-          .from("inventory_items")
-          .select("id")
-          .eq("store_id", params.storeId)
-          .in("status", ["draft", "active"]);
-        query = applyOwnerScope(query);
-        query =
-          candidate === "instacomp"
-            ? query.not("metadata->instacomp", "is", null)
-            : query.or(
-                "metadata->card_identity.not.is.null,metadata->cardIdentity.not.is.null,metadata->sale_identity.not.is.null",
-              );
-        return query
-          .order("created_at", { ascending: true })
-          .order("id", { ascending: true })
-          .range(from, from + 999);
-      });
-      ids.push(...batch.map((row) => String(row.id)));
-      if (batch.length < 1000) return ids;
-    }
-  };
-
-  const [instaCompIds, legacyIdentityIds] = await Promise.all([
-    readCandidateIds("instacomp"),
-    readCandidateIds("legacy_identity"),
-  ]);
-  const candidateIds = Array.from(
-    new Set([...instaCompIds, ...legacyIdentityIds]),
-  );
-  if (!candidateIds.length) return [];
-
-  const idBatches: string[][] = [];
-  for (let index = 0; index < candidateIds.length; index += 150) {
-    idBatches.push(candidateIds.slice(index, index + 150));
-  }
-
-  const rows: any[] = [];
-  for (let index = 0; index < idBatches.length; index += 4) {
-    const wave = await Promise.all(
-      idBatches.slice(index, index + 4).map((idBatch) =>
-        readWithRetry<any>(() => {
-          let query: any = params.supabase
-            .from("inventory_items")
-            .select(params.columns)
-            .eq("store_id", params.storeId)
-            .in("status", ["draft", "active"])
-            .in("id", idBatch);
-          query = applyOwnerScope(query);
-          return query
-            .order("created_at", { ascending: true })
-            .order("id", { ascending: true });
-        }),
-      ),
-    );
-    for (const batch of wave) rows.push(...batch);
-  }
-
-  const byId = new Map<string, any>();
-  for (const row of rows) byId.set(String(row.id), row);
-  return [...byId.values()].sort((left, right) => {
-    const created = String(left.created_at || "").localeCompare(
-      String(right.created_at || ""),
-    );
-    return created || String(left.id).localeCompare(String(right.id));
-  });
-}
-
 function optionalPrice(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
@@ -773,22 +650,19 @@ export async function GET(request: Request) {
       requestedFolder === "investment"
         ? requestedFolder
         : "pending";
-    const macProjection = compactKingmaker
-      ? await loadMacMasterListingProjection({
-          folder: queue === "verification" ? "pending" : folder,
-          pendingQueue:
-            queue === "verification"
-              ? "verification"
-              : folder === "pending"
-                ? "listings"
-                : undefined,
-        })
-      : null;
+    const macProjection = await loadMacMasterListingProjection({
+      folder: queue === "verification" ? "pending" : folder,
+      pendingQueue:
+        queue === "verification"
+          ? "verification"
+          : folder === "pending"
+            ? "listings"
+            : undefined,
+    });
     const useMacListingProjection =
-      compactKingmaker &&
       macProjection?.sourceAuthority === "mac_local_sqlite" &&
       Array.isArray(macProjection.items);
-    if (compactKingmaker && !useMacListingProjection) {
+    if (!useMacListingProjection) {
       return Response.json(
         {
           error: "Mac-local Master Listings inventory is temporarily unavailable.",
@@ -798,24 +672,7 @@ export async function GET(request: Request) {
         { status: 503 },
       );
     }
-    // KINGMAKER/InstaComp reads are Mac-local. Only legacy/non-KINGMAKER
-    // storefront consumers may instantiate the legacy fallback client.
-    const supabase = useMacListingProjection
-      ? null
-      : createSupabaseServerClient({
-          admin: true,
-          readTimeoutMs: 20_000,
-        });
-    const storeId = useMacListingProjection ? null : getActiveStoreId();
-    const inventoryRows = useMacListingProjection
-      ? macProjection!.items!
-      : await readPendingCandidateInventoryPages({
-          supabase: supabase!,
-          storeId: storeId!,
-          accountId: account.id,
-          ownerAccount: isStoreOwnerAccount,
-          columns: PENDING_INVENTORY_COLUMNS,
-        });
+    const inventoryRows = macProjection.items!;
 
     // Mac-local KINGMAKER is the inventory authority. Legacy storefront
     // staging is isolated from this path; Master Listings loads from the local
@@ -941,41 +798,12 @@ export async function GET(request: Request) {
         })
       : instaCompRows;
 
-    const scopedProductIds = Array.from(
-      new Set(
-        scopedInstaCompRows
-          .map((row: any) => row.legacy_product_id)
-          .filter(
-            (value: unknown): value is number => typeof value === "number",
-          ),
-      ),
-    );
     const linkedEbayProducts: Array<{
       id: number;
       ebay_item_id: string | null;
       quantity: number | null;
       archived_at: string | null;
     }> = [];
-    if (!useMacListingProjection) {
-      const linkedProductBatches: number[][] = [];
-      for (let index = 0; index < scopedProductIds.length; index += 250) {
-        linkedProductBatches.push(scopedProductIds.slice(index, index + 250));
-      }
-      for (let index = 0; index < linkedProductBatches.length; index += 4) {
-        const wave = await Promise.all(
-          linkedProductBatches.slice(index, index + 4).map(async (productIdBatch) => {
-            const { data, error } = await supabase!
-              .from("products")
-              .select("id,ebay_item_id,quantity,archived_at")
-              .eq("store_id", storeId!)
-              .in("id", productIdBatch);
-            if (error) throw error;
-            return (data || []) as typeof linkedEbayProducts;
-          }),
-        );
-        for (const batch of wave) linkedEbayProducts.push(...batch);
-      }
-    }
     const legacyEbayLinkedProductIds = new Set(
       linkedEbayProducts
         .filter((product) => Boolean(textValue(product.ebay_item_id)))
@@ -1145,106 +973,11 @@ export async function GET(request: Request) {
       current.push(ownedRow);
       pricingGroups.set(key, current);
     }
-    const pendingNormalizedTitles = new Set(
-      rows
-        .map((row: any) => normalizeListingDuplicateTitle(row.title))
-        .filter(Boolean),
-    );
-    const relevantOwnedRows = allOwnedRows.filter((ownedRow: any) => {
-      const key = effectiveInstaCompPricingGroupKey(ownedRow.metadata);
-      if (key && pricingGroupKeys.includes(key)) return true;
-      return pendingNormalizedTitles.has(
-        normalizeListingDuplicateTitle(ownedRow.title),
-      );
-    });
-
-    const itemIds = rows.map((row: any) => String(row.id));
-    const productIds = Array.from(
-      new Set(
-        [...rows, ...relevantOwnedRows]
-          .map((row: any) => row.legacy_product_id)
-          .filter(
-            (value: unknown): value is number => typeof value === "number",
-          ),
-      ),
-    );
-
-    // Images, linked products, and live website inventory are independent once
-    // the Pending rows are known. Run them concurrently instead of stacking
-    // multiple Supabase round trips before first byte.
-    const [storedImages, products, liveWebsiteProducts] =
-      useMacListingProjection
-        ? [[], [], []]
-        : await Promise.all([
-      (async () => {
-        const result: StoredImage[] = [];
-        const batches: string[][] = [];
-        for (let index = 0; index < itemIds.length; index += 100) {
-          batches.push(itemIds.slice(index, index + 100));
-        }
-        for (let index = 0; index < batches.length; index += 4) {
-          const wave = await Promise.all(
-            batches.slice(index, index + 4).map(async (itemIdBatch) => {
-              const { data, error } = await supabase!
-                .from("inventory_images")
-                .select(
-                  "inventory_item_id,image_url,alt_text,sort_order,is_primary",
-                )
-                .in("inventory_item_id", itemIdBatch)
-                .order("sort_order", { ascending: true });
-              if (error) throw error;
-              return (data || []) as StoredImage[];
-            }),
-          );
-          for (const batch of wave) result.push(...batch);
-        }
-        return result;
-      })(),
-      (async () => {
-        const result: any[] = [];
-        const batches: number[][] = [];
-        for (let index = 0; index < productIds.length; index += 250) {
-          batches.push(productIds.slice(index, index + 250));
-        }
-        for (let index = 0; index < batches.length; index += 4) {
-          const wave = await Promise.all(
-            batches.slice(index, index + 4).map(async (productIdBatch) => {
-              const { data, error } = await supabase!
-                .from("products")
-                .select(
-                  "id,card_uuid,sku,title,player,image_url,price,quantity,archived_at,listing_status,ebay_item_id",
-                )
-                .eq("store_id", storeId!)
-                .in("id", productIdBatch);
-              if (error) throw error;
-              return data || [];
-            }),
-          );
-          for (const batch of wave) result.push(...batch);
-        }
-        return result;
-      })(),
-      (async () => {
-        const result: WebsiteInventoryProduct[] = [];
-        for (let start = 0; ; start += 1000) {
-          const { data, error } = await supabase!
-            .from("products")
-            .select(
-              "id,title,player,price,quantity,archived_at,listing_status",
-            )
-            .eq("store_id", storeId!)
-            .is("archived_at", null)
-            .gt("quantity", 0)
-            .gt("price", 0)
-            .range(start, start + 999);
-          if (error) throw error;
-          const batch = (data || []) as WebsiteInventoryProduct[];
-          result.push(...batch);
-          if (batch.length < 1000) break;
-        }
-        return result;
-      })(),
-    ]);
+    // Pending reads Mac-local metadata only. Storefront database state is not
+    // an identity, image, inventory, or queue dependency.
+    const storedImages: StoredImage[] = [];
+    const products: any[] = [];
+    const liveWebsiteProducts: WebsiteInventoryProduct[] = [];
 
     const imageRowsByItem = new Map<string, StoredImage[]>();
     for (const image of storedImages) {

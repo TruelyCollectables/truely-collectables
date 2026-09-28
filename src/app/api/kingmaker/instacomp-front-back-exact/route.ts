@@ -1412,11 +1412,6 @@ export async function POST(request: NextRequest) {
           }
         : null;
 
-    const preserveInputPromise: Promise<{
-      frontImageUrl: string;
-      backImageUrl: string;
-    } | null> = Promise.resolve(null);
-
     const storedPairOrientation = trustedStoredPairOrientation({
       previousInstaComp,
       frontSha256,
@@ -1725,7 +1720,7 @@ export async function POST(request: NextRequest) {
 
     // First-time/unresolved cards still run the physical Mac scan. Unchanged
     // exact pairs use the bounded Registry revalidation above.
-    const [macArchive, preservedInputPair] = await Promise.all([
+    const macArchive = await (
       stablePairArchive
         ? Promise.resolve(stablePairArchive)
         : archiveWithMacBestEffort({
@@ -1736,9 +1731,15 @@ export async function POST(request: NextRequest) {
               ? null
               : preScanIdentityHint,
             deepRecovery: requiresPhysicalParallelDiscrimination,
-          }),
-      preserveInputPromise,
-    ]);
+          })
+    );
+    const preservedInputPair = macArchive.receipt.scanId
+      ? {
+          frontImageUrl: `/api/kingmaker/scan-image?scanId=${encodeURIComponent(macArchive.receipt.scanId)}&side=front`,
+          backImageUrl: `/api/kingmaker/scan-image?scanId=${encodeURIComponent(macArchive.receipt.scanId)}&side=back`,
+          source: "kingmaker_raw_intake_preservation",
+        }
+      : null;
 
     let macReceipt = macArchive.receipt;
     const macIdentityBeforeOrientation = macTrustedCandidate(macReceipt);
@@ -2332,6 +2333,8 @@ export async function POST(request: NextRequest) {
         : preservedInputPair?.backImageUrl || pair.back?.url || null,
       verified: Boolean(localScanId),
       source: localScanId ? "mac_local_scan_archive" : "existing_pair",
+      preservationSource:
+        preservedInputPair?.source || "kingmaker_raw_intake_preservation",
       orientation: finalOrientation,
     };
 

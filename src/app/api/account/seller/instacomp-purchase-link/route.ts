@@ -3,8 +3,10 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../lib/account-auth";
 import { postInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../../lib/kingmaker-mac-scan-server";
 
 export const dynamic = "force-dynamic";
 
@@ -36,24 +38,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // Never mutate Mac-local acquisition truth until the target storefront row
-    // has been proven to belong to this seller (or to the owner-managed null scope).
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
+    const item = await getMacMasterListingRow(inventoryItemId, 5_000);
+    if (!item) return Response.json({ error: "Mac-local inventory item not found." }, { status: 404 });
     const isOwner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
       text(account.email).toLowerCase(),
     );
-    let itemQuery = supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,metadata")
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId);
-    itemQuery = isOwner
-      ? itemQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : itemQuery.eq("seller_account_id", account.id);
-    const { data: item, error: readError } = await itemQuery.maybeSingle();
-    if (readError) throw readError;
-    if (!item) return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    if (
+      !isOwner &&
+      text(item.seller_account_id) &&
+      text(item.seller_account_id) !== account.id
+    ) {
+      return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    }
 
     const data = await postInstaCompMacAccounting("/v1/kingmaker/accounting/link-existing", {
       card_uuid: text(body.cardUuid),
@@ -95,12 +91,9 @@ export async function POST(request: Request) {
           updatedAt: new Date().toISOString(),
         },
       };
-      const { error: updateError } = await supabase
-        .from("inventory_items")
-        .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
-        .eq("store_id", storeId)
-        .eq("id", inventoryItemId);
-      if (updateError) throw updateError;
+      await updateMacKingmakerDraft(inventoryItemId, {
+        metadata: nextMetadata,
+      });
       data.quantityUnchanged = true;
       data.inventoryRowReused = true;
     }

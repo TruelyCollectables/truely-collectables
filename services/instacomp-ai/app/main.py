@@ -959,6 +959,9 @@ async def analyze_scan(
     model_error = None
     model_error_code = None
     suggestion_registry = printed_registry
+    # LOCAL EVIDENCE FALLBACK: this reader may suggest evidence, but it cannot
+    # become identity authority. Any suggestion must still resolve to one exact
+    # Checklist Registry identity with a current Registry fingerprint receipt.
     if settings.ollama_runtime_reader_enabled:
         try:
             suggestion = await reader.analyze(

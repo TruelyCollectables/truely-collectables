@@ -26,6 +26,7 @@ def row(
         "pricingGroupKey": group_key,
         "identityComplete": True,
         "manualIdentityLocked": queue == "listings",
+        "humanVerified": queue == "listings",
         "imageOrientation": {"status": "completed"},
         "imageOrientationPersisted": True,
         "imagePersistenceVerified": True,

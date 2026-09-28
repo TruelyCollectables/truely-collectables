@@ -2,8 +2,10 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../lib/account-auth";
-import { getActiveStoreId } from "../../../../../lib/stores";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../../lib/kingmaker-mac-scan-server";
 import { postInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
 
 export const dynamic = "force-dynamic";
@@ -24,22 +26,15 @@ export async function POST(request: Request) {
     const disposition = body.disposition === "investment_stash" ? "investment_stash" : "resale";
     if (!inventoryItemId) return Response.json({ error: "Inventory item is required." }, { status: 400 });
 
-    const supabase = createSupabaseServerClient({ admin: true });
-    const storeId = getActiveStoreId();
     const isOwner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
       String(account.email || "").toLowerCase(),
     );
-    let itemQuery = supabase
-      .from("inventory_items")
-      .select("id,seller_account_id,metadata")
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId);
-    itemQuery = isOwner
-      ? itemQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
-      : itemQuery.eq("seller_account_id", account.id);
-    const { data: item, error: readError } = await itemQuery.maybeSingle();
-    if (readError) throw readError;
+    const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    const sellerAccountId = String(item.seller_account_id ?? item.sellerAccountId ?? "").trim();
+    if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
+      return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    }
 
     // Ownership/existence must be proven before changing Mac-local lifecycle truth.
     const data = await postInstaCompMacAccounting("/v1/kingmaker/accounting/inventory-disposition", {
@@ -61,12 +56,10 @@ export async function POST(request: Request) {
         updatedAt: new Date().toISOString(),
       },
     };
-    const { error: updateError } = await supabase
-      .from("inventory_items")
-      .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
-      .eq("store_id", storeId)
-      .eq("id", inventoryItemId);
-    if (updateError) throw updateError;
+    await updateMacKingmakerDraft(inventoryItemId, {
+      metadata: nextMetadata,
+      updatedAt: new Date().toISOString(),
+    });
     return Response.json({ success: true, ...data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json(

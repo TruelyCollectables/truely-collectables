@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POST as runExactMacIdentity } from "../../../kingmaker/instacomp-front-back-exact/route";
-import { listMacKingmakerInventory } from "../../../../../lib/kingmaker-mac-scan-server";
+import { getMacKingmakerInventoryItem } from "../../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -176,9 +176,7 @@ export async function POST(request: Request) {
   // already contains a complete exact Registry receipt for this physical card,
   // pricing does not need to rerun front/back recognition.
   try {
-    const { items } = await listMacKingmakerInventory(5_000);
-    const macItem =
-      items.find((item) => item.inventoryItemId === inventoryItemId) || null;
+    const macItem = await getMacKingmakerInventoryItem(inventoryItemId, 5_000);
     const identity = exactIdentityFromMacItem(
       macItem ? (macItem as unknown as JsonRecord) : null,
     );

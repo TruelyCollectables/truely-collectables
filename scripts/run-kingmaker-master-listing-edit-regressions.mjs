@@ -151,15 +151,21 @@ assert.ok(
     pending.includes("instaComp.identityComplete === true"),
   "Pending must recognize exact-scan identified receipts as authoritative Registry locks",
 );
-assert.ok(
-  pending.includes('.in("status", ["draft", "active"])'),
-  "Master Listings must read active inventory as well as draft staging rows",
+assert.equal(
+  /createSupabaseServerClient|\.from\(["']inventory_items["']\)|\.from\(["']inventory_images["']\)/.test(pending),
+  false,
+  "Master Listings must not read KINGMAKER inventory or scan images from Supabase",
 );
 assert.ok(
-  pending.includes("legacyWebsiteLinked = false") &&
-    pending.includes("legacyWebsiteLinkedProductIds") &&
-    pending.includes('row.status === "active"'),
-  "Listed Website inventory must classify from durable active inventory/product state",
+  pending.includes('action: "master_list"') &&
+    pending.includes('sourceAuthority === "mac_local_sqlite"') &&
+    pending.includes("Mac-local Master Listings inventory is temporarily unavailable."),
+  "Master Listings must fail closed on the Mac-local authoritative projection",
+);
+assert.ok(
+  pending.includes("metadata.master_listing_projection") &&
+    pending.includes("listingFolderFromMetadata"),
+  "Folder classification must come from Mac-projected metadata rather than storefront inventory reads",
 );
 assert.ok(
   pending.includes('textValue(acquisition.source) || "Misc"') &&
@@ -170,6 +176,17 @@ const channelRoute = fs.readFileSync(
   "src/app/api/account/seller/instacomp-pending/channel/route.ts",
   "utf8",
 );
+assert.equal(
+  /createSupabaseServerClient|\.from\(["']inventory_items["']\)|\.from\(["']inventory_images["']\)/.test(channelRoute),
+  false,
+  "KINGMAKER channel state must not read/write inventory truth through Supabase",
+);
+assert.ok(
+  channelRoute.includes("getMacMasterListingRow") &&
+    channelRoute.includes("listMacMasterListingGroup") &&
+    channelRoute.includes("updateMacKingmakerDraft"),
+  "Channel publishing must preserve Mac-local inventory authority",
+);
 assert.ok(
   channelRoute.includes('text(storedAcquisition.source, 120) ||') &&
     channelRoute.includes('"Misc"') &&
@@ -179,13 +196,6 @@ assert.ok(
 assert.ok(
   client.includes("No exact sold comp produced a price. Enter one Manual Price below"),
   "Pending must explain how the remaining seller-price blocker is cleared",
-);
-assert.ok(
-  pending.includes('.select("id")') &&
-    pending.includes("readCandidateIds") &&
-    pending.includes("readWithRetry") &&
-    pending.includes('.in("id", idBatch)'),
-  "Master Listings must discover candidate IDs cheaply before fetching full metadata rows",
 );
 assert.ok(
   client.includes("MASTER_LISTINGS_COUNTS_CACHE_KEY") &&
@@ -199,25 +209,8 @@ assert.ok(
     pending.includes("useMacListingProjection") &&
     pending.includes('sourceAuthority === "mac_local_sqlite"') &&
     pending.includes("metadata.master_listing_projection"),
-  "Listed Master Listings folders must read Mac-local authoritative projection before any legacy inventory fallback",
+  "Master Listings folders must read Mac-local authoritative projection",
 );
-assert.ok(
-  pending.includes("const supabase = useMacListingProjection") &&
-    pending.includes("? null") &&
-    pending.includes(": createSupabaseServerClient"),
-  "KINGMAKER Mac-local loads must not instantiate the storefront database client",
-);
-assert.ok(
-  pending.includes("if (!useMacListingProjection)") &&
-    pending.includes("useMacListingProjection\n        ? [[], [], []]"),
-  "Mac-authoritative listed folders must not block on Supabase image/product inventory walks",
-);
-const supabaseServer = fs.readFileSync("src/lib/supabase-server.ts", "utf8");
-assert.ok(
-  supabaseServer.includes("DEFAULT_SERVER_READ_TIMEOUT_MS = 4_000") &&
-    supabaseServer.includes("readTimeoutMs?: number") &&
-    supabaseServer.includes("createBoundedReadFetch(nativeFetch, readTimeoutMs)"),
-  "Master Listings timeout override must not weaken the storefront's default 4-second Supabase fail-fast guard",
-);
+
 
 console.log("KINGMAKER Master Listings edit regressions passed.");
