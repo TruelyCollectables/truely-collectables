@@ -10,9 +10,10 @@ function requireText(source, value, label) {
   }
 }
 
-const route = read("src/app/api/admin/card-listing-images/route.ts");
-const page = read("src/app/kingmaker/instacomp-audit/page.tsx");
-const accountSession = read("src/app/account/account-session.ts");
+const route = read("src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts");
+const page = read("src/app/kingmaker/pending/PendingClient.tsx");
+const localAuth = read("src/lib/kingmaker-local-auth.ts");
+const localSession = read("src/app/kingmaker/kingmaker-session.ts");
 
 requireText(
   route,
@@ -24,41 +25,55 @@ requireText(
   'email === "sales@truelycollectables.com"',
   "owner email authorization",
 );
-requireText(route, ".autoOrient()", "EXIF normalization before rotation");
+requireText(
+  page,
+  "rotateClockwise90",
+  "browser pixel rotation before upload",
+);
+requireText(
+  page,
+  'form.set("frontImage", frontImage)',
+  "rotated front image submission",
+);
+requireText(
+  page,
+  'form.set("backImage", backImage)',
+  "rotated back image submission",
+);
+requireText(
+  page,
+  'Authorization: `Bearer ${session.access_token}`',
+  "KINGMAKER local session bearer propagation",
+);
+requireText(
+  localSession,
+  'KINGMAKER_LOCAL_BEARER = "kingmaker-local-admin-cookie"',
+  "local KINGMAKER session marker",
+);
+requireText(
+  localAuth,
+  "hasValidAdminRequest",
+  "HttpOnly admin-cookie authorization",
+);
 requireText(
   route,
-  'storedImageReadBack: true',
-  "permanent image read-back receipt",
+  "archiveInstaCompAiLocalSupervisedScan",
+  "Mac-local permanent image archive",
 );
 requireText(
   route,
-  'storedFront !== front || storedBack !== back',
-  "stored front/back equality gate",
+  "updateMacKingmakerDraft",
+  "Mac-local master listing persistence",
+);
+requireText(
+  route,
+  "imagePersistenceVerified: true",
+  "permanent image persistence receipt",
 );
 requireText(
   page,
-  'fetchWithAccountSession',
-  "seller-authenticated fetch helper on image request",
-);
-requireText(
-  accountSession,
-  'headers.set("Authorization", `Bearer ${accessToken}`)',
-  "seller bearer token propagation inside account fetch helper",
-);
-requireText(
-  page,
-  "await load();",
-  "post-orientation workbench reload",
-);
-requireText(
-  page,
-  '["front", item.imageAudit.frontImageUrl]',
-  "reloaded front image rendering",
-);
-requireText(
-  page,
-  '["back", item.imageAudit.backImageUrl]',
-  "reloaded back image rendering",
+  "await load(queue || queueFromLocation());",
+  "post-rotation pending reload",
 );
 
 console.log(

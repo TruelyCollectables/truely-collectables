@@ -1,6 +1,5 @@
 import "server-only";
 
-import { getEbayClientAccessToken } from "./ebay";
 import {
   filterAndRankExactMatches,
   type InstaCompAiResult,
@@ -13,6 +12,50 @@ const EBAY_SCOPE = "https://api.ebay.com/oauth/api_scope";
 const MARKETPLACE_ID = "EBAY_US";
 const CARD_CATEGORY_ID = "261328";
 const POSTAL = process.env.INSTACOMP_MARKET_POSTAL_CODE || process.env.EBAY_MARKET_POSTAL_CODE || "80202";
+
+let tokenCache: { token: string; expiresAt: number; scope: string } | null = null;
+
+async function getLocalEbayClientAccessToken(scope = EBAY_SCOPE) {
+  if (
+    tokenCache &&
+    tokenCache.scope === scope &&
+    tokenCache.expiresAt > Date.now() + 60_000
+  ) {
+    return tokenCache.token;
+  }
+  const clientId = String(process.env.EBAY_CLIENT_ID || "").trim();
+  const clientSecret = String(process.env.EBAY_CLIENT_SECRET || "").trim();
+  if (!clientId || !clientSecret) {
+    throw new Error("eBay Browse credentials are not configured.");
+  }
+  const response = await fetch(`${EBAY_API}/identity/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials", scope }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(12_000),
+  });
+  const payload = await response.json().catch(() => ({}));
+  const token = String(payload?.access_token || "").trim();
+  if (!response.ok || !token) {
+    throw new Error(
+      String(
+        payload?.error_description ||
+          payload?.error ||
+          `eBay OAuth failed (${response.status}).`,
+      ).slice(0, 240),
+    );
+  }
+  tokenCache = {
+    token,
+    scope,
+    expiresAt: Date.now() + Math.max(300, Number(payload?.expires_in || 7200)) * 1000,
+  };
+  return token;
+}
 
 type JsonRecord = Record<string, any>;
 type RawActiveComp = Omit<InstaCompComp, "matchScore" | "flags"> & { itemId?: string | null };
@@ -114,7 +157,7 @@ export async function getOfficialEbayActiveExactProvider(params: {
   }
 
   try {
-    const token = await getEbayClientAccessToken(EBAY_SCOPE);
+    const token = await getLocalEbayClientAccessToken(EBAY_SCOPE);
     const url = searchUrl(query);
     const response = await fetch(url, {
       headers: headers(token),

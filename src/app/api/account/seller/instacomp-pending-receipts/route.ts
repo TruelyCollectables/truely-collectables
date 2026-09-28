@@ -1,7 +1,7 @@
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../lib/account-auth";
+} from "../../../../../lib/kingmaker-local-auth";
 import { getInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
 
 export const dynamic = "force-dynamic";

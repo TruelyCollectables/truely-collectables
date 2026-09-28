@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../lib/account-auth";
+} from "../../../../../../lib/kingmaker-local-auth";
 import { postInstaCompMacRegistry } from "../../../../../../lib/instacomp-mac-registry-client";
 import { listMacMasterListingRows } from "../../../../../../lib/kingmaker-mac-scan-server";
 

@@ -133,15 +133,20 @@ requireText(
   "Fresh scanner intake must hand the original front/back uploads directly to the Mac-local scan server.",
 );
 
-requireText(
+forbidText(
   intake,
   "mirrorKingmakerScanToPendingStaging",
-  "Fresh scanner intake must durably mirror every Mac result into Pending staging.",
+  "Fresh scanner intake must not mirror authoritative Mac-local results back into legacy Supabase staging.",
+);
+forbidText(
+  intake,
+  "persistKingmakerPendingStagingImages",
+  "Fresh scanner intake must not duplicate Mac-local normalized images into legacy Supabase storage.",
 );
 requireText(
   intake,
-  "persistKingmakerPendingStagingImages(staging)",
-  "Fresh scanner intake must persist the Mac-normalized front/back pair after staging.",
+  'stagingMirrored: false',
+  "Fresh scanner intake must declare that the removed legacy staging mirror is not used.",
 );
 requireText(
   intake,
@@ -150,6 +155,19 @@ requireText(
 );
 
 const macScanServer = read("src/lib/kingmaker-mac-scan-server.ts");
+for (const required of [
+  "await createMacKingmakerDraft(draft)",
+  "await updateMacKingmakerDraft(params.inventoryItemId!, draft)",
+  "await createMacKingmakerDraft(draft);",
+  '"/v1/kingmaker/accounting/commercial-inventory"',
+  'action: "project_master"',
+]) {
+  requireText(
+    macScanServer,
+    required,
+    "Mac-local scanner must durably persist every fresh result into the local Master Listings store.",
+  );
+}
 for (const required of [
   "fastPassOnly?: boolean;",
   "params.fastPassOnly !== true",

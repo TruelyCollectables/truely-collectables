@@ -1,7 +1,7 @@
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../lib/account-auth";
+} from "../../../../../../lib/kingmaker-local-auth";
 import { confirmInstaCompAiLocalLesson } from "../../../../../../lib/instacomp-ai-local";
 import {
   listMacMasterListingRows,

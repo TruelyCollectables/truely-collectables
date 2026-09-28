@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchWithAccountSession } from "../../account/account-session";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -215,7 +214,7 @@ async function requestJson<T extends JsonRecord>(
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchWithAccountSession(url, {
+    const response = await fetch(url, {
       ...init,
       signal: controller.signal,
       cache: "no-store",

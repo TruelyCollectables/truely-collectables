@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/kingmaker-local-auth";
 import { fetchInstaCompAiLocalScanImage } from "../../../../lib/instacomp-ai-local";
 
 export const runtime = "nodejs";

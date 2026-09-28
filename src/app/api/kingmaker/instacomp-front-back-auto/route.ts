@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
-import { fetchInstaCompAiLocalScanImage } from "../../../../lib/instacomp-ai-local";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/kingmaker-local-auth";
+import {
+  analyzeWithInstaCompAiLocal,
+  fetchInstaCompAiLocalScanImage,
+  instaCompAiLocalScanToAi,
+} from "../../../../lib/instacomp-ai-local";
 import type { InstaCompChecklistCandidate } from "../../../../lib/instacomp-checklist-first";
 import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../lib/instacomp-checklist-first-server";
 import { resolveChecklistParallelFromVision } from "../../../../lib/instacomp-checklist-parallel-vision";
@@ -11,8 +15,6 @@ import {
   getMacMasterListingRow,
   updateMacKingmakerDraft,
 } from "../../../../lib/kingmaker-mac-scan-server";
-import { getInstaCompServiceToken } from "../../../../lib/tcos-profit-hunter-secrets";
-import { POST as runInstaCompScan } from "../../instacomp/scan/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -462,45 +464,45 @@ export async function POST(request: NextRequest) {
       orientation: normalizedSides.orientation,
     };
 
-    const serviceToken = getInstaCompServiceToken();
-    if (!serviceToken) {
-      throw new Error("The internal InstaComp service credential is missing.");
-    }
-    const scanForm = new FormData();
-    scanForm.set("frontImage", normalizedSides.frontFile);
-    scanForm.set("backImage", normalizedSides.backFile);
-    scanForm.set(
-      "aiCouncilTier",
-      String(value("aiCouncilTier") || "adaptive"),
-    );
-    const scanRequest = new NextRequest("http://localhost/api/instacomp/scan", {
-      method: "POST",
-      headers: { "x-tcos-instacomp-service-token": serviceToken },
-      body: scanForm,
-    });
-    const scanResponse = await runInstaCompScan(scanRequest);
-    const scanPayload = await scanResponse.json().catch(() => ({}));
-    if (!scanResponse.ok || scanPayload?.ok !== true || !scanPayload?.ai) {
+    let scanPayload: JsonRecord;
+    try {
+      const localScan = await analyzeWithInstaCompAiLocal({
+        front: normalizedSides.frontFile,
+        back: normalizedSides.backFile,
+        timeoutMs: 15_000,
+        forceFreshIdentity: true,
+      });
+      const localAi = instaCompAiLocalScanToAi(localScan);
+      if (!localAi) {
+        throw new Error("Mac-local InstaComp returned no structured identity.");
+      }
+      scanPayload = {
+        ok: true,
+        ai: localAi,
+        scanId: localScan.scan_id,
+        review: localScan.checklist || null,
+        status: localScan.status,
+        sourceOfTruth: "mac_local",
+      };
+    } catch (error) {
       const scanError =
-        text(scanPayload?.error, 1_000) || "Identity scan failed.";
-      const scanCode =
-        text(scanPayload?.code, 120) || `HTTP_${scanResponse.status}`;
+        error instanceof Error ? error.message : "Identity scan failed.";
       await saveFailure({
         inventoryItemId,
         error: scanError,
-        code: scanCode,
+        code: "MAC_LOCAL_IDENTITY_SCAN_FAILED",
         stage: "identity_scan",
       });
       return NextResponse.json(
         {
           success: false,
           error: scanError,
-          code: scanCode,
+          code: "MAC_LOCAL_IDENTITY_SCAN_FAILED",
           imageOrientation: normalizedSides.orientation,
           normalizedImages: storedImages,
           imagesPreserved: true,
         },
-        { status: scanResponse.status || 500 },
+        { status: 502 },
       );
     }
 

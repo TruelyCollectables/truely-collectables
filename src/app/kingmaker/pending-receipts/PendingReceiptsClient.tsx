@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getFreshAccountSession } from "../../account/account-session";
+import { getKingmakerLocalSession as getFreshAccountSession } from "../kingmaker-session";
 import PendingReceiptActions from "./PendingReceiptActions";
 
 type Receipt = {

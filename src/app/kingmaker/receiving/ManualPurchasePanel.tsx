@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { pairManualPurchaseCardPhotos } from "../../../lib/manual-purchase-photo-pairing";
-import { getFreshAccountSession } from "../../account/account-session";
+import { getKingmakerLocalSession as getFreshAccountSession } from "../kingmaker-session";
 
 type Mode = "single" | "lot";
 type AllocationMethod = "equal_split" | "manual";

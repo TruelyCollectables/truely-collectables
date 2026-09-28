@@ -5,10 +5,13 @@ const files = {
     fs.readFileSync("src/app/kingmaker/pending/page.tsx", "utf8"),
     fs.readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8"),
   ].join("\n"),
-  scan: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-front-back/route.ts", "utf8"),
+  scan: fs.readFileSync("src/app/api/kingmaker/instacomp-front-back-exact/route.ts", "utf8"),
   edit: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-card-edit/route.ts", "utf8"),
   status: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-job-status/route.ts", "utf8"),
-  rotation: fs.readFileSync("src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts", "utf8"),
+  rotation: [
+    fs.readFileSync("src/app/api/account/seller/inventory/instacomp-image-rotate/route.ts", "utf8"),
+    fs.readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8"),
+  ].join("\n"),
 };
 
 const failures = [];
@@ -19,24 +22,25 @@ const forbidText = (file, value, reason) => {
   if (files[file].includes(value)) failures.push(`${file}: ${reason}`);
 };
 
-requireText("rotation", "persistNormalizedInstaCompImagePair", "rotation must persist normalized bytes");
-requireText("rotation", "frontFile: front", "front file must be submitted");
-requireText("rotation", "backFile: back", "back file must be submitted");
-requireText("rotation", "const submittedRotatedPair = Boolean(front && back)", "route must distinguish browser-pre-rotated pairs from stored-image fallback");
-requireText("rotation", '!submittedRotatedPair && rotatedSide === "front" ? 90 : 0', "stored front fallback must rotate exactly once");
-requireText("rotation", '!submittedRotatedPair && rotatedSide === "back" ? 90 : 0', "stored back fallback must rotate exactly once");
+requireText("rotation", "archiveInstaCompAiLocalSupervisedScan", "rotation must persist the normalized pair on the Mac");
+requireText("rotation", 'form.set("frontImage", frontImage)', "front file must be submitted");
+requireText("rotation", 'form.set("backImage", backImage)', "back file must be submitted");
+requireText("rotation", "rotateClockwise90", "browser rotation must rewrite image pixels");
+requireText("rotation", 'if (side === "front") frontImage = await rotateClockwise90', "front rotation must happen exactly once before persistence");
+requireText("rotation", 'else backImage = await rotateClockwise90', "back rotation must happen exactly once before persistence");
 requireText("page", "Retry This Card", "failed cards need an attached retry action");
 requireText("page", "Replace Manual Identity with AI", "manual identity replacement must be explicit");
 requireText("page", "job?.error", "durable per-card errors must be displayed");
 forbidText("page", 'failed: 100', "failures must never be shown as fake 100 percent completion");
 forbidText("page", "window.setTimeout(() => setStage", "progress must not be simulated by timers");
 
-requireText("scan", "DUPLICATE_IMAGE_BYTES", "front and back bytes must be distinct");
+requireText("scan", "DUPLICATE_NORMALIZED_IMAGES", "front and back bytes must be distinct");
 requireText("scan", "manualIdentityLocked", "seller-corrected identities must be protected");
 requireText("scan", "backEvidenceText", "back evidence must be retained");
 requireText("scan", "identity_complete_pricing_pending", "identity must persist before pricing");
-requireText("scan", "forceWnbaBaseTitle", "WNBA base normalization must be explicit");
-requireText("scan", "setNamePreserved: true", "WNBA set name preservation must be part of the response contract");
+requireText("scan", "exactRegistryProduct", "WNBA base normalization must be explicit");
+requireText("scan", 'return `${brand} WNBA`;', "WNBA product normalization must preserve league identity");
+requireText("scan", "const setName = text(identity.set_name ?? identity.setName ?? identity.product, 200);", "registry set name must be preserved independently from product normalization");
 forbidText("scan", '.replace(/\\bprizm\\b/gi, "")', "generic Prizm removal can damage the set name");
 
 requireText("edit", "manualIdentityLocked: true", "seller edits must become authoritative");

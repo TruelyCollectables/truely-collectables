@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
-import { ensureAccountStoreMembership, getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/kingmaker-local-auth";
 import {
   archiveKingmakerMacReviewFallback,
   findMacDuplicateByImagePair,
@@ -8,10 +8,6 @@ import {
   runKingmakerMacScan,
   sha256File,
 } from "../../../../lib/kingmaker-mac-scan-server";
-import {
-  mirrorKingmakerScanToPendingStaging,
-  persistKingmakerPendingStagingImages,
-} from "../../../../lib/kingmaker-pending-staging-mirror";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +32,6 @@ export async function POST(request: NextRequest) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
     if (!account) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
     const form = await request.formData();
     const forceFreshIdentity = form.get("forceFreshIdentity") === "true";
     const replaceManualIdentity = form.get("replaceManualIdentity") === "true";
@@ -85,22 +80,6 @@ export async function POST(request: NextRequest) {
             : "Fast identity pass failed before an exact identity was returned.",
       });
     }
-    const staging = await mirrorKingmakerScanToPendingStaging({
-      accountId: account.id,
-      result,
-    });
-    after(async () => {
-      try {
-        await persistKingmakerPendingStagingImages(staging);
-      } catch (error) {
-        console.error("KINGMAKER staging image persistence failed", {
-          inventoryItemId: result.inventoryItem.inventoryItemId,
-          scanId: result.scan.scan_id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    });
-
     if (result.identityComplete) {
       after(async () => {
         try {
@@ -133,7 +112,7 @@ export async function POST(request: NextRequest) {
       pricingSucceeded: false,
       pricingBackgroundQueued: result.identityComplete,
       imagesPreserved: true,
-      stagingMirrored: true,
+      stagingMirrored: false,
       imagePairSha256: result.scan.image_pair_sha256 || null,
       sourceOfTruth: "mac_local",
       durationMs: Date.now() - startedAt,

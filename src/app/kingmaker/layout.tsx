@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import AccountSessionBoundary from "../account/AccountSessionBoundary";
+import {
+  ADMIN_SESSION_COOKIE_NAMES,
+  isValidAdminSessionValue,
+} from "../../lib/admin-session";
 import KingmakerShell from "./KingmakerShell";
 
 export const metadata: Metadata = {
@@ -9,10 +14,17 @@ export const metadata: Metadata = {
     "Seller operations powered by InstaComp AI intelligence and Checklist Registry identity.",
 };
 
-export default function KingmakerLayout({ children }: { children: ReactNode }) {
-  return (
-    <AccountSessionBoundary>
-      <KingmakerShell>{children}</KingmakerShell>
-    </AccountSessionBoundary>
-  );
+export default async function KingmakerLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const cookieStore = await cookies();
+  for (const name of ADMIN_SESSION_COOKIE_NAMES) {
+    if (await isValidAdminSessionValue(cookieStore.get(name)?.value)) {
+      return <KingmakerShell>{children}</KingmakerShell>;
+    }
+  }
+
+  redirect(`/admin/login?next=${encodeURIComponent("/kingmaker")}`);
 }

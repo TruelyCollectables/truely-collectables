@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/kingmaker-local-auth";
 import {
   analyzeWithInstaCompAiLocal,
   fetchInstaCompAiLocalScanImage,
@@ -15,7 +15,6 @@ import {
 } from "../../../../lib/instacomp-title-registry-hints";
 import type { ParallelVisionDecision } from "../../../../lib/instacomp-checklist-parallel-vision";
 import type { InstaCompCoreVisualEvidence } from "../../../../lib/instacomp-core-visual-evidence";
-import type { InstaCompImageOrientationReceipt } from "../../../../lib/instacomp-normalized-image-storage";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../lib/instacomp-provider-safety";
 import {
   getMacMasterListingRow,
@@ -43,6 +42,20 @@ const MAC_ARCHIVE_IMAGE_TIMEOUT_MS = 10_000;
 const REGISTRY_RECOVERY_TIMEOUT_MS = 1_000;
 
 type JsonRecord = Record<string, unknown>;
+type InstaCompImageOrientationReceipt = {
+  status: string;
+  model: string | null;
+  source?: string | null;
+  frontRotation: number;
+  backRotation: number;
+  frontConfidence: number;
+  backConfidence: number;
+  frontEvidenceText?: string[];
+  backEvidenceText?: string[];
+  backStandalonePrizm?: boolean | null;
+  backDesignationConfidence?: number;
+  reason: string;
+};
 type ImageRow = {
   image_url: string | null;
   alt_text: string | null;

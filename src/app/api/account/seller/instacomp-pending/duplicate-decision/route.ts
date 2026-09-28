@@ -1,7 +1,7 @@
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../lib/account-auth";
+} from "../../../../../../lib/kingmaker-local-auth";
 import { syncEbayPriceQuantity } from "../../../../../../lib/ebay";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import {

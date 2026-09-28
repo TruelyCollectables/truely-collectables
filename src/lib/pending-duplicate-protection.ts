@@ -1,4 +1,11 @@
-import { normalizeListingDuplicateTitle } from "./listing-duplicate-alert";
+function normalizeListingDuplicateTitle(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b(listing|lot|card|cards)\b/g, " ")
+    .replace(/[^a-z0-9#/.+-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function cleanText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;

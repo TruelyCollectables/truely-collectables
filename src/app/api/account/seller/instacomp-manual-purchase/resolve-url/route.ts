@@ -1,10 +1,9 @@
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../lib/account-auth";
+} from "../../../../../../lib/kingmaker-local-auth";
 import { deriveCardIdentity } from "../../../../../../lib/card-identity";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
-import { detectCardNumberFromTitle } from "../../../../../../lib/market-intel-card-number-enrichment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +45,34 @@ function aspect(aspects: EbayAspect[] | undefined, ...names: string[]) {
 
 function yes(value: unknown) {
   return /^(yes|true|1)$/i.test(clean(value));
+}
+
+function normalizeCardNumber(value: string | null | undefined) {
+  const normalized = clean(value)
+    .replace(/^(?:card\s*(?:number|no\.?|#)|no\.?)\s*/i, "")
+    .replace(/^#+/, "")
+    .replace(/[),.;:]+$/g, "")
+    .trim()
+    .toUpperCase();
+  if (!normalized || normalized.length > 24) return null;
+  if (["N/A", "NA", "NONE", "UNKNOWN", "DOES NOT APPLY"].includes(normalized)) return null;
+  if (!/^[A-Z0-9-]+$/.test(normalized)) return null;
+  if (/^(?:19|20)\d{2}$/.test(normalized)) return null;
+  if (/^\d{1,4}-\d{1,4}$/.test(normalized)) return null;
+  return normalized;
+}
+
+function detectCardNumberFromTitle(title: string) {
+  const patterns = [
+    /(?:^|\s)#\s*([A-Z0-9-]{1,24})(?=\s|$|[,;)\]])/i,
+    /\b(?:card\s*(?:number|no\.?|#)|no\.?|number)\s*#?\s*([A-Z0-9-]{1,24})\b/i,
+    /\b([A-Z]{1,7}-[A-Z0-9]{1,12})\b/i,
+  ];
+  for (const pattern of patterns) {
+    const normalized = normalizeCardNumber(title.match(pattern)?.[1]);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 function ebayLegacyId(url: URL) {

@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import { NextRequest } from "next/server";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../lib/account-auth";
+} from "../../../../../../lib/kingmaker-local-auth";
 import {
+  analyzeWithInstaCompAiLocal,
   fetchInstaCompAiLocalScanImage,
   getInstaCompAiLocalScanArchive,
+  instaCompAiLocalScanToAi,
 } from "../../../../../../lib/instacomp-ai-local";
 import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../../../lib/instacomp-checklist-first-server";
 import { assertSafeInstaCompRemoteImageUrl } from "../../../../../../lib/instacomp-provider-safety";
@@ -15,8 +16,6 @@ import {
   getMacMasterListingRow,
   listMacMasterListingRows,
 } from "../../../../../../lib/kingmaker-mac-scan-server";
-import { getInstaCompServiceToken } from "../../../../../../lib/tcos-profit-hunter-secrets";
-import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -578,42 +577,43 @@ export async function POST(request: Request) {
       );
     }
 
-    const serviceToken = getInstaCompServiceToken();
-    if (!serviceToken) {
-      return Response.json(
-        {
-          success: false,
-          error: "The internal InstaComp service credential is not configured.",
-          draftMutated: false,
-          nothingPublished: true,
-        },
-        { status: 503 },
-      );
+    let scanPayload: JsonRecord = {};
+    let scanStatus = 200;
+    try {
+      const localScan = await analyzeWithInstaCompAiLocal({
+        front: frontFile,
+        back: backFile,
+        timeoutMs: 20_000,
+        forceFreshIdentity: true,
+      });
+      const localAi = instaCompAiLocalScanToAi(localScan);
+      scanPayload = {
+        ok: Boolean(localAi),
+        scanId: localScan.scan_id,
+        ai: localAi || {},
+        review: localScan.checklist || null,
+        checklist: localScan.checklist || null,
+        code: localAi ? null : "MAC_LOCAL_IDENTITY_MISSING",
+        error: localAi ? null : "Mac-local InstaComp returned no structured identity.",
+        sourceOfTruth: "mac_local",
+      };
+      scanStatus = localAi ? 200 : 409;
+    } catch (error) {
+      scanPayload = {
+        ok: false,
+        code: "MAC_LOCAL_AUDIT_FAILED",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Mac-local InstaComp audit failed.",
+      };
+      scanStatus = 502;
     }
-
-    const formData = new FormData();
-    formData.set("frontImage", frontFile);
-    formData.set("backImage", backFile);
-    formData.set("aiCouncilTier", "adaptive");
-    formData.set("auditOnly", "true");
-
-    const scanRequest = new NextRequest("http://localhost/api/instacomp/scan", {
-      method: "POST",
-      headers: {
-        "x-tcos-instacomp-service-token": serviceToken,
-        "x-instacomp-audit-only": "true",
-      },
-      body: formData,
-    });
-    const scanResponse = await runInstaCompScan(scanRequest);
-    const rawPayload = await scanResponse.json().catch(() => ({}));
-    const scanPayload = record(rawPayload);
     const ai = record(scanPayload.ai);
 
     return Response.json(
       {
-        success:
-          scanResponse.ok && scanPayload.ok === true && Object.keys(ai).length > 0,
+        success: scanPayload.ok === true && Object.keys(ai).length > 0,
         generatedAt: new Date().toISOString(),
         inventoryItemId,
         title: text(item.title),
@@ -626,7 +626,7 @@ export async function POST(request: Request) {
           fetchedSuccessfully: true,
         },
         scan: {
-          httpStatus: scanResponse.status,
+          httpStatus: scanStatus,
           ok: scanPayload.ok === true,
           scanId: text(scanPayload.scanId),
           code: text(scanPayload.code),
@@ -642,7 +642,7 @@ export async function POST(request: Request) {
         macScanArchiveCreated: Boolean(text(scanPayload.scanId)),
       },
       {
-        status: scanResponse.ok ? 200 : scanResponse.status || 500,
+        status: scanStatus,
         headers: {
           "Cache-Control": "private, no-store, max-age=0",
           "X-Content-Type-Options": "nosniff",

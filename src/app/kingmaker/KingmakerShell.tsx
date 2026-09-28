@@ -2,11 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type ReactNode, useEffect, useState } from "react";
-import {
-  ACCOUNT_SESSION_CHANGE_EVENT,
-  getAccountSession,
-} from "../account/account-session";
+import { type ReactNode } from "react";
 
 const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
@@ -32,17 +28,7 @@ function activeRoute(
 
 export default function KingmakerShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const [accountLabel, setAccountLabel] = useState("Seller account");
-
-  useEffect(() => {
-    const refresh = () => {
-      const session = getAccountSession();
-      setAccountLabel(session?.user?.email || "Seller account");
-    };
-    refresh();
-    window.addEventListener(ACCOUNT_SESSION_CHANGE_EVENT, refresh);
-    return () => window.removeEventListener(ACCOUNT_SESSION_CHANGE_EVENT, refresh);
-  }, []);
+  const accountLabel = "KINGMAKER Admin";
 
   return (
     <div

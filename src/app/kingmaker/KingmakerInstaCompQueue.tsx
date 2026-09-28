@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getFreshAccountSession } from "../account/account-session";
+import { getKingmakerLocalSession as getFreshAccountSession } from "./kingmaker-session";
 import {
   instaCompDropFileSignature,
   pairInstaCompDropFiles,

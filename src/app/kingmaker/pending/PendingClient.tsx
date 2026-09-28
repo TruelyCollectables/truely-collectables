@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
-import { getFreshAccountSession } from "../../account/account-session";
+import { getKingmakerLocalSession as getFreshAccountSession } from "../kingmaker-session";
 import { buildInstaCompRegistryExactTitle } from "../../../lib/instacomp-canonical-title";
 
 type CardIdentity = {
@@ -811,7 +811,6 @@ export default function KingmakerPendingPage({
   const priceGuideAttemptedRef = useRef<Set<string>>(new Set());
   const priceGuideWorkerRunningRef = useRef(false);
   const skipInitialCardsReloadRef = useRef(initialLoaded);
-  const forcedAuthRefreshDoneRef = useRef(false);
   const purchaseMatchSignatureRef = useRef("");
   const [renderLimit, setRenderLimit] = useState(24);
   const router = useRouter();
@@ -929,29 +928,11 @@ export default function KingmakerPendingPage({
         };
       }
     try {
-      let accessToken: string | null = null;
-      if (!forcedAuthRefreshDoneRef.current) {
-        const session = await getFreshAccountSession(5 * 60, true);
-        accessToken = session?.access_token?.trim() || null;
-        forcedAuthRefreshDoneRef.current = Boolean(accessToken);
-      } else if (typeof window !== "undefined") {
-        try {
-          const raw = window.localStorage.getItem("tcos_account_session");
-          if (raw) {
-            const session = JSON.parse(raw) as { access_token?: string | null };
-            accessToken = typeof session.access_token === "string" && session.access_token.trim()
-              ? session.access_token.trim()
-              : null;
-          }
-        } catch {
-          accessToken = null;
-        }
-      }
+      const session = await getFreshAccountSession(5 * 60, false);
+      const accessToken = session?.access_token?.trim() || null;
       if (!accessToken) {
-        const session = await getFreshAccountSession(5 * 60, false);
-        accessToken = session?.access_token?.trim() || null;
+        throw new Error("KINGMAKER admin session is required.");
       }
-      if (!accessToken) throw new Error("Seller login is required.");
       accessTokenHint = accessToken.slice(-8);
       const headers = { Authorization: `Bearer ${accessToken}` };
       if (typeof window !== "undefined") {

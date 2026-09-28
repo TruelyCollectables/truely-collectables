@@ -1,7 +1,7 @@
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../../lib/account-auth";
+} from "../../../../../../lib/kingmaker-local-auth";
 import { getInventoryActivationBlockers } from "../../../../../../lib/inventory-activation";
 import { instaCompPendingDraftParityBlockers } from "../../../../../../lib/instacomp-pending-edit";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";

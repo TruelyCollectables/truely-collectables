@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
-} from "../../../../../lib/account-auth";
+} from "../../../../../lib/kingmaker-local-auth";
 import { getInventoryActivationBlockers } from "../../../../../lib/inventory-activation";
 import {
   buildInstaCompCanonicalTitle,
@@ -88,14 +88,33 @@ function localPricingParallel(value: unknown) {
     .trim();
 }
 
+let localCertifiedPricingCache:
+  | { mtimeMs: number; size: number; rows: LocalCertifiedPricingRow[] }
+  | null = null;
+
 function loadLocalCertifiedPricingRows(): LocalCertifiedPricingRow[] {
   try {
+    const stat = statSync(LOCAL_CERTIFIED_PRICING_PATH);
+    if (
+      localCertifiedPricingCache &&
+      localCertifiedPricingCache.mtimeMs === stat.mtimeMs &&
+      localCertifiedPricingCache.size === stat.size
+    ) {
+      return localCertifiedPricingCache.rows;
+    }
+
     const payload = JSON.parse(
       readFileSync(LOCAL_CERTIFIED_PRICING_PATH, "utf8"),
     );
-    return Array.isArray(payload?.rows) ? payload.rows : [];
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    localCertifiedPricingCache = {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      rows,
+    };
+    return rows;
   } catch {
-    return [];
+    return localCertifiedPricingCache?.rows || [];
   }
 }
 
