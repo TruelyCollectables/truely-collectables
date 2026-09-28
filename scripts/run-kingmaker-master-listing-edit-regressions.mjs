@@ -62,6 +62,15 @@ assert.ok(
   "Title/details-only saves must bypass manual identity learning/correction",
 );
 assert.ok(
+  route.includes("const existingManualIdentity = record(instaComp.manualIdentity)") &&
+    route.includes("const checklistLockedFields = record(checklistIdentity.lockedFields)") &&
+    route.includes("const sparseIdentityPayload =") &&
+    route.includes("const resolvedText =") &&
+    route.includes("player: manualIdentity.player") &&
+    route.includes("cardNumber: manualIdentity.cardNumber"),
+  "Identity edits must preserve known identity fields when a stale/sparse client payload only changes part of the card",
+);
+assert.ok(
   route.includes("const title = listingTitle(body.title, 300)") &&
     route.includes("!displayTitle.trim()"),
   "The API must validate title content without trimming the seller persisted bytes",

@@ -359,6 +359,14 @@ export async function POST(request: NextRequest) {
       : item.condition || null;
     const instaComp = record(metadata.instacomp);
     const ai = record(instaComp.ai);
+    const existingManualIdentity = record(instaComp.manualIdentity);
+    const checklistIdentity = record(instaComp.checklistIdentity);
+    const checklistLockedFields = record(checklistIdentity.lockedFields);
+    const identityFallback = {
+      ...checklistLockedFields,
+      ...ai,
+      ...existingManualIdentity,
+    };
     const collectibleAsset = record(metadata.collectible_asset);
     const sellerReview = record(metadata.seller_review);
     const editedAt = new Date().toISOString();
@@ -439,28 +447,81 @@ export async function POST(request: NextRequest) {
       ? null
       : "InstaComp internal engine is not configured for this runtime.";
 
+    const sparseIdentityPayload =
+      [
+        clean(body.year, 20),
+        clean(body.product, 160),
+        clean(body.player, 200),
+        clean(body.cardNumber ?? body.card_number, 80),
+      ].filter(Boolean).length < 3;
+    const resolvedText = (
+      bodyValue: unknown,
+      fallbackValue: unknown,
+      max: number,
+    ) => nullableText(bodyValue, max) || nullableText(fallbackValue, max);
+    const resolvedBoolean = (bodyValue: unknown, fallbackValue: unknown) =>
+      sparseIdentityPayload ? fallbackValue === true : booleanValue(bodyValue);
+
     const manualIdentity = {
-      sport: nullableText(body.sport, 100),
-      league: nullableText(body.league, 100),
-      year: nullableText(body.year, 20),
-      manufacturer: nullableText(body.manufacturer, 160),
-      brand: nullableText(body.brand, 160),
-      product: nullableText(body.product, 160),
-      setName: nullableText(body.setName ?? body.set_name, 240),
-      subset: nullableText(body.subset, 160),
-      player: nullableText(body.player, 200),
-      team: nullableText(body.team, 160),
-      cardNumber: nullableText(body.cardNumber ?? body.card_number, 80),
+      sport: resolvedText(body.sport, identityFallback.sport, 100),
+      league: resolvedText(body.league, identityFallback.league, 100),
+      year: resolvedText(body.year, identityFallback.year, 20),
+      manufacturer: resolvedText(
+        body.manufacturer,
+        identityFallback.manufacturer ?? identityFallback.brand,
+        160,
+      ),
+      brand: resolvedText(
+        body.brand,
+        identityFallback.brand ?? identityFallback.manufacturer,
+        160,
+      ),
+      product: resolvedText(body.product, identityFallback.product, 160),
+      setName: resolvedText(
+        body.setName ?? body.set_name,
+        identityFallback.setName ?? identityFallback.set_name,
+        240,
+      ),
+      subset: resolvedText(body.subset, identityFallback.subset, 160),
+      player: resolvedText(
+        body.player,
+        identityFallback.player ?? identityFallback.playerName,
+        200,
+      ),
+      team: resolvedText(body.team, identityFallback.team, 160),
+      cardNumber: resolvedText(
+        body.cardNumber ?? body.card_number,
+        identityFallback.cardNumber ?? identityFallback.card_number,
+        80,
+      ),
       parallel: exactParallel,
-      variation: nullableText(body.variation, 160),
-      serialNumber: serialStamp,
-      printRun: normalizedPrintRun,
-      isRookie: booleanValue(body.isRookie),
-      isAuto: booleanValue(body.isAuto),
-      isRelic: booleanValue(body.isRelic),
-      inscription: booleanValue(body.inscription),
-      inscriptionText: nullableText(body.inscriptionText, 300),
-      memorabiliaType: nullableText(body.memorabiliaType, 160),
+      variation: resolvedText(body.variation, identityFallback.variation, 160),
+      serialNumber:
+        serialStamp ||
+        nullableText(
+          identityFallback.serialNumber ?? identityFallback.serial_number,
+          30,
+        ),
+      printRun:
+        normalizedPrintRun ||
+        nullableText(identityFallback.printRun ?? identityFallback.serialRun, 30),
+      isRookie: resolvedBoolean(body.isRookie, identityFallback.isRookie),
+      isAuto: resolvedBoolean(body.isAuto, identityFallback.isAuto),
+      isRelic: resolvedBoolean(body.isRelic, identityFallback.isRelic),
+      inscription: resolvedBoolean(
+        body.inscription,
+        identityFallback.inscription ?? identityFallback.internalInscription,
+      ),
+      inscriptionText: resolvedText(
+        body.inscriptionText,
+        identityFallback.inscriptionText ?? identityFallback.internalInscriptionText,
+        300,
+      ),
+      memorabiliaType: resolvedText(
+        body.memorabiliaType,
+        identityFallback.memorabiliaType ?? identityFallback.internalMemorabiliaType,
+        160,
+      ),
       savedAt: editedAt,
       savedBy: account.id,
       source: "seller_manual_edit",
@@ -515,39 +576,31 @@ export async function POST(request: NextRequest) {
           internalScanId: effectiveInternalScanId || null,
           internalCardUuid:
             recoveredInternalCardUuid || nullableText(ai.internalCardUuid, 100),
-          player: nullableText(body.player ?? ai.player, 200),
-          year: nullableText(body.year ?? ai.year, 20),
-          manufacturer: nullableText(body.manufacturer ?? ai.manufacturer ?? ai.brand, 160),
-          brand: nullableText(body.brand ?? ai.brand, 160),
-          product: nullableText(body.product ?? ai.product, 160),
-          setName: nullableText(body.setName ?? ai.setName, 240),
-          set_name: nullableText(body.setName ?? body.set_name ?? ai.set_name ?? ai.setName, 240),
-          subset: nullableText(body.subset ?? ai.subset, 160),
-          league: nullableText(body.league ?? ai.league, 100),
-          variation: nullableText(body.variation ?? ai.variation, 160),
-          cardNumber: nullableText(body.cardNumber ?? ai.cardNumber, 80),
-          team: nullableText(body.team ?? ai.team, 160),
-          sport: nullableText(body.sport ?? ai.sport, 100),
-          isRookie: booleanValue(body.isRookie ?? ai.isRookie),
-          isAuto: booleanValue(body.isAuto ?? ai.isAuto),
-          isRelic: booleanValue(body.isRelic ?? ai.isRelic),
-          internalInscription: booleanValue(
-            body.inscription ?? ai.internalInscription,
-          ),
-          internalInscriptionText: nullableText(
-            body.inscriptionText ?? ai.internalInscriptionText,
-            300,
-          ),
-          internalMemorabiliaType: nullableText(
-            body.memorabiliaType ?? ai.internalMemorabiliaType,
-            160,
-          ),
+          player: manualIdentity.player,
+          year: manualIdentity.year,
+          manufacturer: manualIdentity.manufacturer,
+          brand: manualIdentity.brand,
+          product: manualIdentity.product,
+          setName: manualIdentity.setName,
+          set_name: manualIdentity.setName,
+          subset: manualIdentity.subset,
+          league: manualIdentity.league,
+          variation: manualIdentity.variation,
+          cardNumber: manualIdentity.cardNumber,
+          team: manualIdentity.team,
+          sport: manualIdentity.sport,
+          isRookie: manualIdentity.isRookie,
+          isAuto: manualIdentity.isAuto,
+          isRelic: manualIdentity.isRelic,
+          internalInscription: manualIdentity.inscription,
+          internalInscriptionText: manualIdentity.inscriptionText,
+          internalMemorabiliaType: manualIdentity.memorabiliaType,
           parallel: storedParallel,
           parallelName: storedParallel,
           checklistParallel: exactParallel,
-          serialNumber: serialStamp,
-          serial_number: serialStamp,
-          printRun: normalizedPrintRun,
+          serialNumber: manualIdentity.serialNumber,
+          serial_number: manualIdentity.serialNumber,
+          printRun: manualIdentity.printRun,
         },
       },
     };
