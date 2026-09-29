@@ -34,7 +34,7 @@ export default function KingmakerError({
           </button>
           <a
             href="/kingmaker"
-            className="rounded-xl border-2 border-neutral-900 bg-white px-5 py-3 font-black"
+            className="rounded-xl border-2 border-neutral-900 bg-white px-5 py-3 font-black text-neutral-950"
           >
             Back to KINGMAKER
           </a>
