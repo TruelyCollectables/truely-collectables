@@ -62,7 +62,12 @@ def _checklist_first_response(decision: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _registry_lock_response(decision: dict[str, Any], *, receipt_attempted: bool = False) -> dict[str, Any]:
+def _registry_lock_response(
+    decision: dict[str, Any],
+    *,
+    receipt_attempted: bool = False,
+    receipt_accepted: bool = False,
+) -> dict[str, Any]:
     match = decision.get("match") if isinstance(decision.get("match"), dict) else None
     status = str(decision.get("status") or "lookup_unavailable")
     return {
@@ -86,7 +91,7 @@ def _registry_lock_response(decision: dict[str, Any], *, receipt_attempted: bool
         "registryFingerprintSha256": (match or {}).get("fingerprintSha256"),
         "fingerprintSha256": (match or {}).get("fingerprintSha256"),
         "receiptRevalidationAttempted": receipt_attempted,
-        "receiptRevalidationAccepted": False,
+        "receiptRevalidationAccepted": receipt_accepted,
         "directExactRecoveryAccepted": False,
         "lockedFields": _locked_fields(match),
         "identificationPath": (
@@ -178,8 +183,11 @@ def build_registry_router(
             or body.get("expectedRegistryFingerprintSha256"),
             80,
         )
-        if identity_id and fingerprint:
+        receipt_attempted = bool(identity_id and fingerprint)
+        receipt_accepted = False
+        if receipt_attempted:
             decision = store.revalidate_receipt(probe, identity_id, fingerprint)
+            receipt_accepted = decision is not None
             if decision is None:
                 decision = store.resolve(probe)
         else:
@@ -187,7 +195,8 @@ def build_registry_router(
         return JSONResponse(
             _registry_lock_response(
                 decision,
-                receipt_attempted=bool(identity_id and fingerprint),
+                receipt_attempted=receipt_attempted,
+                receipt_accepted=receipt_accepted,
             )
         )
 
