@@ -37,6 +37,22 @@ assert(
   "Registry receipt validation must occur before inventory activation.",
 );
 assert(
+  publishRoute.includes(
+    'postInstaCompMacAccounting(\n        "/v1/kingmaker/accounting/listing-readiness"',
+  ),
+  "Publishing must re-check Mac-local physical inventory readiness at the final mutation boundary.",
+);
+assert(
+  publishRoute.includes('"PHYSICAL_INVENTORY_NOT_READY"') &&
+    publishRoute.includes('"MAC_INVENTORY_LEDGER_UNAVAILABLE"'),
+  "Publishing must fail closed when physical inventory is not ready or the Mac ledger is unavailable.",
+);
+assert(
+  publishRoute.indexOf('"/v1/kingmaker/accounting/listing-readiness"') <
+    publishRoute.indexOf("inventoryEngine.setStatus"),
+  "Mac physical inventory readiness must be verified before inventory activation.",
+);
+assert(
   readinessRoute.includes("checklistRegistryReceiptBlockers"),
   "Readiness must use the same server receipt blockers as publishing.",
 );

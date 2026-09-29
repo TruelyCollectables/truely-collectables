@@ -112,6 +112,30 @@ def test_projection_preserves_camel_case_source_updated_at(tmp_path: Path):
     ]
 
 
+def test_find_by_card_uuid_catches_shadow_inventory_row(tmp_path: Path):
+    inventory = KingmakerCommercialInventory(tmp_path / "commercial.sqlite3")
+    inventory.create_local_draft(
+        {
+            "inventoryItemId": "shadow-row-id",
+            "cardUuid": "permanent-card-uuid",
+            "title": "Rescan shadow",
+            "metadata": {
+                "instacomp": {
+                    "source": "mac_registry_scanner",
+                    "cardUuid": "permanent-card-uuid",
+                    "scanId": "rescan-1",
+                }
+            },
+        }
+    )
+
+    found = inventory.find_by_card_uuid("permanent-card-uuid")
+
+    assert found is not None
+    assert found["inventoryItemId"] == "shadow-row-id"
+    assert found["metadata"]["instacomp"]["cardUuid"] == "permanent-card-uuid"
+
+
 def test_archived_or_zero_quantity_rows_are_removed_from_projection(tmp_path: Path):
     inventory = KingmakerCommercialInventory(tmp_path / "commercial.sqlite3")
     inventory.project_master_listings(

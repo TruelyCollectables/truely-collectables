@@ -3,6 +3,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/kingmaker-local-auth";
 import { getInventoryActivationBlockers } from "../../../../../../lib/inventory-activation";
+import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
 import { instaCompPendingDraftParityBlockers } from "../../../../../../lib/instacomp-pending-edit";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import {
@@ -17,10 +18,50 @@ import { inventoryEngine } from "../../../../../../modules/inventory";
 
 export const dynamic = "force-dynamic";
 
+const RECEIVING_CUTOVER_MS = Date.parse("2026-09-16T00:00:00-06:00");
+
+function isPreReceivingCutoverInventory(row: any) {
+  const createdAt = Date.parse(String(row?.created_at || ""));
+  return Number.isFinite(createdAt) && createdAt < RECEIVING_CUTOVER_MS;
+}
+
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function text(value: unknown, max = 500) {
+  const result = String(value ?? "").trim();
+  return result ? result.slice(0, max) : null;
+}
+
+function hasDurablePhysicalScanReceipt(row: any) {
+  const metadata = recordValue(row?.metadata);
+  const lifecycle = recordValue(metadata.inventory_lifecycle);
+  const instacomp = recordValue(metadata.instacomp);
+  const scannerSource = text(instacomp.source);
+  const physicalScannerSource =
+    scannerSource === "kingmaker_exact_scan_intake_v2" ||
+    scannerSource === "mac_registry_scanner";
+  const completePair = Boolean(
+    text(instacomp.imagePairSha256) &&
+      text(instacomp.frontSha256) &&
+      text(instacomp.backSha256) &&
+      text(instacomp.frontSha256) !== text(instacomp.backSha256),
+  );
+  const persistedPair =
+    instacomp.imagePersistenceVerified === true ||
+    instacomp.imageOrientationPersisted === true;
+  const lifecycleReceipt =
+    text(lifecycle.state) === "received" ||
+    Boolean(text(lifecycle.receivedAt));
+
+  return Boolean(
+    completePair &&
+      physicalScannerSource &&
+      (persistedPair || lifecycleReceipt),
+  );
 }
 
 function requestedIds(body: any) {
@@ -78,7 +119,7 @@ export async function POST(request: Request) {
     let inventoryQuery = supabase
       .from("inventory_items")
       .select(
-        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata",
+        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,created_at",
       )
       .eq("store_id", storeId)
       .in("id", itemIds);
@@ -90,6 +131,54 @@ export async function POST(request: Request) {
 
     const { data: rows, error: rowsError } = await inventoryQuery;
     if (rowsError) throw rowsError;
+
+    let physicalReadiness: any = null;
+    try {
+      physicalReadiness = await postInstaCompMacAccounting(
+        "/v1/kingmaker/accounting/listing-readiness",
+        {
+          inventory_item_ids: (rows || [])
+            .map((row: any) => String(row?.id || "").trim())
+            .filter(Boolean),
+        },
+        15_000,
+      );
+    } catch (error) {
+      return Response.json(
+        {
+          success: false,
+          code: "MAC_INVENTORY_LEDGER_UNAVAILABLE",
+          error: `Publishing blocked because the Mac-local physical inventory ledger could not be verified: ${error instanceof Error ? error.message : String(error)}`,
+        },
+        { status: 503 },
+      );
+    }
+    if (physicalReadiness?.ready !== true) {
+      const rowsById = new Map(
+        (rows || []).map((row: any) => [String(row?.id || ""), row]),
+      );
+      const rawBlocked = Array.isArray(physicalReadiness?.blocked)
+        ? physicalReadiness.blocked
+        : [];
+      const blocked = rawBlocked.filter((row: any) => {
+        if (row?.reason !== "physical_inventory_receipt_missing") return true;
+        const inventory = rowsById.get(String(row?.inventoryItemId || ""));
+        if (!inventory) return true;
+        if (isPreReceivingCutoverInventory(inventory)) return false;
+        return !hasDurablePhysicalScanReceipt(inventory);
+      });
+      if (blocked.length) {
+        return Response.json(
+          {
+            success: false,
+            code: "PHYSICAL_INVENTORY_NOT_READY",
+            error: "Publishing blocked because physical inventory is not ready.",
+            blocked,
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     const productIds = (rows || [])
       .map((row: any) => row.legacy_product_id)
