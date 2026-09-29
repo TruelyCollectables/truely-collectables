@@ -180,7 +180,12 @@ def _master_listing_group_key(row: dict[str, Any]) -> str:
         or _text(ai.get("certificationNumber"))
     )
     group_key = None if unique_physical else _effective_pricing_group_key(metadata)
-    inventory_item_id = _text(row.get("id")) or _text(row.get("inventory_item_id")) or "unknown"
+    inventory_item_id = (
+        _text(row.get("id"))
+        or _text(row.get("inventory_item_id"))
+        or _text(row.get("inventoryItemId"))
+        or "unknown"
+    )
     return f"group:{group_key}" if group_key else f"physical:{inventory_item_id}"
 
 
@@ -1148,7 +1153,7 @@ class KingmakerCommercialInventory:
                         folder,
                         pending_queue,
                         group_key,
-                        str(row.get("updated_at") or ""),
+                        str(row.get("updated_at") or row.get("updatedAt") or ""),
                         stamp,
                         json.dumps(
                             compact_row,

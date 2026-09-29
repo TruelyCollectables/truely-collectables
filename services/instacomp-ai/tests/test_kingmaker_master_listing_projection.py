@@ -70,6 +70,48 @@ def test_projection_groups_exact_copies_and_keeps_counts_in_sql(tmp_path: Path):
         assert grouped == 1
 
 
+def test_projection_uses_camel_case_inventory_id_for_physical_group(tmp_path: Path):
+    inventory = KingmakerCommercialInventory(tmp_path / "commercial.sqlite3")
+    item = row("placeholder", group_key="temporary", folder="pending", queue="verification")
+    item.pop("id")
+    item["inventoryItemId"] = "physical-card-123"
+    item["metadata"]["instacomp"].pop("pricingGroupKey", None)
+    item["metadata"]["instacomp"]["identityComplete"] = False
+    item["metadata"]["instacomp"]["manualIdentityLocked"] = False
+    item["metadata"]["instacomp"]["humanVerified"] = False
+
+    inventory.project_master_listings([item], replace=True)
+
+    with inventory._read_connect() as db:
+        projected = db.execute(
+            "SELECT inventory_item_id,group_key FROM master_listing_projection"
+        ).fetchone()
+    assert projected["inventory_item_id"] == "physical-card-123"
+    assert projected["group_key"] == "physical:physical-card-123"
+
+
+def test_projection_preserves_camel_case_source_updated_at(tmp_path: Path):
+    inventory = KingmakerCommercialInventory(tmp_path / "commercial.sqlite3")
+    older = row("older", group_key="older", folder="pending")
+    newer = row("newer", group_key="newer", folder="pending")
+    older.pop("updated_at")
+    newer.pop("updated_at")
+    older["updatedAt"] = "2026-09-28T10:00:00Z"
+    newer["updatedAt"] = "2026-09-28T11:00:00Z"
+
+    inventory.project_master_listings([older, newer], replace=True)
+
+    with inventory._read_connect() as db:
+        projected = db.execute(
+            "SELECT inventory_item_id,source_updated_at "
+            "FROM master_listing_projection ORDER BY source_updated_at DESC"
+        ).fetchall()
+    assert [(r["inventory_item_id"], r["source_updated_at"]) for r in projected] == [
+        ("newer", "2026-09-28T11:00:00Z"),
+        ("older", "2026-09-28T10:00:00Z"),
+    ]
+
+
 def test_archived_or_zero_quantity_rows_are_removed_from_projection(tmp_path: Path):
     inventory = KingmakerCommercialInventory(tmp_path / "commercial.sqlite3")
     inventory.project_master_listings(
