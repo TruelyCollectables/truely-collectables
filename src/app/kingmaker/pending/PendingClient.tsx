@@ -470,6 +470,8 @@ function money(value: unknown) {
 
 const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
 const BULK_PRICE_CONCURRENCY = 5;
+const MARKET_PRICE_CONCURRENCY = 3;
+const AUTO_MARKET_BATCH_SIZE = 3;
 
 async function runWithConcurrency<T>(
   items: T[],
@@ -810,6 +812,9 @@ export default function KingmakerPendingPage({
   const [priceGuideSweepNonce, setPriceGuideSweepNonce] = useState(0);
   const priceGuideAttemptedRef = useRef<Set<string>>(new Set());
   const priceGuideWorkerRunningRef = useRef(false);
+  const [marketSweepNonce, setMarketSweepNonce] = useState(0);
+  const marketAttemptedRef = useRef<Set<string>>(new Set());
+  const marketWorkerRunningRef = useRef(false);
   const skipInitialCardsReloadRef = useRef(initialLoaded);
   const purchaseMatchSignatureRef = useRef("");
   const [renderLimit, setRenderLimit] = useState(24);
@@ -1146,6 +1151,59 @@ export default function KingmakerPendingPage({
 
     return () => window.clearTimeout(timer);
   }, [cards, priceGuideSweepNonce, refreshPriceGuide]);
+
+  useEffect(() => {
+    if (queue !== "listings" || marketWorkerRunningRef.current) return;
+    const eligible = cards
+      .filter(
+        (card) =>
+          card.instaComp.pricingStatus === "identity_complete_pricing_pending" &&
+          hasValidPair(card) &&
+          !marketAttemptedRef.current.has(card.inventoryItemId),
+      )
+      .slice(0, AUTO_MARKET_BATCH_SIZE);
+    if (!eligible.length) return;
+
+    const timer = window.setTimeout(() => {
+      marketWorkerRunningRef.current = true;
+      for (const card of eligible) {
+        marketAttemptedRef.current.add(card.inventoryItemId);
+      }
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          const accessToken = session?.access_token || "";
+          if (!accessToken) return;
+          await runWithConcurrency(
+            eligible,
+            MARKET_PRICE_CONCURRENCY,
+            async (card) => {
+              try {
+                await fetch("/api/account/seller/inventory/instacomp-fast-market", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                  },
+                  body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+                });
+              } catch {
+                // Manual retry remains available; never spin on one failed card.
+              }
+            },
+          );
+          await load("listings");
+        } catch {
+          // Background pricing must never block Pending Listings.
+        } finally {
+          marketWorkerRunningRef.current = false;
+          setMarketSweepNonce((value) => value + 1);
+        }
+      })();
+    }, 1600);
+
+    return () => window.clearTimeout(timer);
+  }, [cards, load, marketSweepNonce, queue]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1708,27 +1766,31 @@ export default function KingmakerPendingPage({
       let priced = 0;
       let noMarket = 0;
       const failures: string[] = [];
-      for (const card of selected) {
-        const response = await fetch("/api/account/seller/inventory/instacomp-fast-market", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || data.success !== true) {
-          failures.push(`${card.title}: ${data.error || "failed"}`);
-          continue;
-        }
-        const suggestion = Number(data.suggestedPrice || 0);
-        if (suggestion > 0) {
-          priced += 1;
-        } else {
-          noMarket += 1;
-        }
-      }
+      await runWithConcurrency(
+        selected,
+        MARKET_PRICE_CONCURRENCY,
+        async (card) => {
+          const response = await fetch("/api/account/seller/inventory/instacomp-fast-market", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.success !== true) {
+            failures.push(`${card.title}: ${data.error || "failed"}`);
+            return;
+          }
+          const suggestion = Number(data.suggestedPrice || 0);
+          if (suggestion > 0) {
+            priced += 1;
+          } else {
+            noMarket += 1;
+          }
+        },
+      );
       setNotice(`InstaComp finished: ${priced} priced, ${noMarket} no-exact-sold-market, ${failures.length} failed.`);
       if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
       await load(queue || queueFromLocation());
