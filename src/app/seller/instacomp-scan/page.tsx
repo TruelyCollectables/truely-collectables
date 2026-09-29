@@ -18,6 +18,8 @@ type ScannerResult = {
   scan?: any;
   ai?: Record<string, unknown> | null;
   pricing?: any;
+  retryable?: boolean;
+  durationMs?: number;
   checklistDecision?: any;
   parallelDecision?: any;
   duplicate?: {
@@ -140,13 +142,35 @@ export default function InstaCompScanPage() {
       setStage(
         "Orienting images, reading core identity, then matching color, pattern, and serial",
       );
-      const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body,
-      });
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 130_000);
+      let response: Response;
+      try {
+        response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          body,
+          signal: controller.signal,
+          cache: "no-store",
+        });
+      } catch (fetchError) {
+        if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
+          throw new Error(
+            "The scan exceeded the safety timeout. The server preserves the card pair; open Pending Listings and retry after checking InstaComp AI.",
+          );
+        }
+        throw fetchError;
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
       const payload = (await response.json()) as ScannerResult;
       setResult(payload);
+      if (response.status === 503 && payload.retryable) {
+        throw new Error(
+          payload.error ||
+            "InstaComp AI is temporarily unavailable. The card was not lost; retry after the Mac service recovers.",
+        );
+      }
       if (!response.ok && response.status !== 202 && response.status !== 207) {
         throw new Error(payload.error || "Card scan failed.");
       }

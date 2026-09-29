@@ -19,45 +19,124 @@ export const maxDuration = 300;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
+function noStoreHeaders(extra: Record<string, string> = {}) {
+  return {
+    "Cache-Control": "no-store, max-age=0",
+    "X-Content-Type-Options": "nosniff",
+    ...extra,
+  };
+}
+
 function validateFile(value: FormDataEntryValue | null, side: "front" | "back") {
-  if (!(value instanceof File) || value.size <= 0) throw new Error(`${side} image is required.`);
-  if (value.size > MAX_IMAGE_BYTES) throw new Error(`${side} image is larger than 12MB.`);
+  if (!(value instanceof File) || value.size <= 0) {
+    throw new Error(`${side} image is required.`);
+  }
+  if (value.size > MAX_IMAGE_BYTES) {
+    throw new Error(`${side} image is larger than 12MB.`);
+  }
   const type = value.type.split(";")[0].trim().toLowerCase();
-  if (!ALLOWED_TYPES.has(type)) throw new Error(`${side} image must be JPEG, PNG, or WebP.`);
+  if (!ALLOWED_TYPES.has(type)) {
+    throw new Error(`${side} image must be JPEG, PNG, or WebP.`);
+  }
   return value;
+}
+
+function isTransientLocalFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /abort|timeout|timed out|fetch failed|econnrefused|econnreset|incomplete|mac api|8787/i.test(
+    message,
+  );
+}
+
+function failureResponse(error: unknown, startedAt: number) {
+  const message =
+    error instanceof Error ? error.message : "Scanner intake failed.";
+  const transient = isTransientLocalFailure(error);
+  return NextResponse.json(
+    {
+      success: false,
+      code: transient ? "SCANNER_LOCAL_UNAVAILABLE" : "SCANNER_INTAKE_FAILED",
+      error: message,
+      retryable: transient,
+      durationMs: Date.now() - startedAt,
+    },
+    {
+      status: transient ? 503 : 500,
+      headers: noStoreHeaders(transient ? { "Retry-After": "5" } : {}),
+    },
+  );
 }
 
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
+
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
-    if (!account) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    if (!account) {
+      return NextResponse.json(
+        { success: false, code: "UNAUTHORIZED", error: "Unauthorized" },
+        { status: 401, headers: noStoreHeaders() },
+      );
+    }
+
     const form = await request.formData();
     const forceFreshIdentity = form.get("forceFreshIdentity") === "true";
     const replaceManualIdentity = form.get("replaceManualIdentity") === "true";
     const front = validateFile(form.get("front"), "front");
     const back = validateFile(form.get("back"), "back");
-    const [frontSha256, backSha256] = await Promise.all([sha256File(front), sha256File(back)]);
+    const [frontSha256, backSha256] = await Promise.all([
+      sha256File(front),
+      sha256File(back),
+    ]);
+
     if (frontSha256 === backSha256) {
-      return NextResponse.json({ success: false, code: "FRONT_BACK_IMAGES_DUPLICATE", error: "Front and back photos must be different images." }, { status: 409 });
+      return NextResponse.json(
+        {
+          success: false,
+          code: "FRONT_BACK_IMAGES_DUPLICATE",
+          error: "Front and back photos must be different images.",
+          retryable: false,
+        },
+        { status: 409, headers: noStoreHeaders() },
+      );
     }
+
     const inputImagePairSha256 = createHash("sha256")
       .update(`front:${frontSha256}|back:${backSha256}`)
       .digest("hex");
     const duplicate = await findMacDuplicateByImagePair(inputImagePairSha256);
+
     if (duplicate && !forceFreshIdentity) {
-      return NextResponse.json({
-        success: true, stage: "review_required", identityComplete: false,
-        inventoryItemId: duplicate.inventoryItemId, title: duplicate.title,
-        code: "DUPLICATE_SCAN", error: "This exact front/back image pair already exists in Mac-local KINGMAKER inventory.",
-        duplicate: { inventoryItemId: duplicate.inventoryItemId, title: duplicate.title, status: duplicate.status, price: duplicate.price, quantity: duplicate.quantity, matchType: "exact_scan_pair" },
-      }, { status: 202, headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json(
+        {
+          success: true,
+          stage: "review_required",
+          identityComplete: false,
+          inventoryItemId: duplicate.inventoryItemId,
+          title: duplicate.title,
+          code: "DUPLICATE_SCAN",
+          error:
+            "This exact front/back image pair already exists in Mac-local KINGMAKER inventory.",
+          retryable: false,
+          duplicate: {
+            inventoryItemId: duplicate.inventoryItemId,
+            title: duplicate.title,
+            status: duplicate.status,
+            price: duplicate.price,
+            quantity: duplicate.quantity,
+            matchType: "exact_scan_pair",
+          },
+          durationMs: Date.now() - startedAt,
+        },
+        { status: 202, headers: noStoreHeaders() },
+      );
     }
+
     let result;
     try {
       result = await runKingmakerMacScan({
-      front,
-      back,
+        front,
+        back,
         imagePairSha256: inputImagePairSha256,
         inventoryItemId: forceFreshIdentity
           ? duplicate?.inventoryItemId || null
@@ -69,6 +148,8 @@ export async function POST(request: NextRequest) {
         fastPassOnly: !forceFreshIdentity,
       });
     } catch (error) {
+      // A normal scan must never lose the photos because the fast identity pass
+      // timed out. Preserve the pair in Pending Listings and require review.
       if (forceFreshIdentity) throw error;
       result = await archiveKingmakerMacReviewFallback({
         front,
@@ -80,6 +161,7 @@ export async function POST(request: NextRequest) {
             : "Fast identity pass failed before an exact identity was returned.",
       });
     }
+
     if (result.identityComplete) {
       after(async () => {
         try {
@@ -92,32 +174,54 @@ export async function POST(request: NextRequest) {
         }
       });
     }
-    return NextResponse.json({
-      success: true,
-      stage: result.identityComplete ? "complete" : "review_required",
-      identityComplete: result.identityComplete,
-      cardUuid: result.scan.card_uuid || null,
-      inventoryItemId: result.inventoryItem.inventoryItemId,
-      title: result.inventoryItem.title,
-      ai: result.ai,
-      checklistDecision: result.inventoryItem.metadata?.instacomp && (result.inventoryItem.metadata.instacomp as Record<string, unknown>).checklistDecision || null,
-      parallelDecision: result.inventoryItem.metadata?.instacomp && (result.inventoryItem.metadata.instacomp as Record<string, unknown>).parallelDecision || null,
-      normalizedImages: {
-        frontImageUrl: (result.inventoryItem.metadata?.instacomp as Record<string, unknown> | undefined)?.frontImageUrl || null,
-        backImageUrl: (result.inventoryItem.metadata?.instacomp as Record<string, unknown> | undefined)?.backImageUrl || null,
+
+    return NextResponse.json(
+      {
+        success: true,
+        stage: result.identityComplete ? "complete" : "review_required",
+        identityComplete: result.identityComplete,
+        cardUuid: result.scan.card_uuid || null,
+        inventoryItemId: result.inventoryItem.inventoryItemId,
+        title: result.inventoryItem.title,
+        ai: result.ai,
+        checklistDecision:
+          result.inventoryItem.metadata?.instacomp &&
+          (result.inventoryItem.metadata.instacomp as Record<string, unknown>)
+            .checklistDecision || null,
+        parallelDecision:
+          result.inventoryItem.metadata?.instacomp &&
+          (result.inventoryItem.metadata.instacomp as Record<string, unknown>)
+            .parallelDecision || null,
+        normalizedImages: {
+          frontImageUrl:
+            (result.inventoryItem.metadata?.instacomp as Record<
+              string,
+              unknown
+            > | undefined)?.frontImageUrl || null,
+          backImageUrl:
+            (result.inventoryItem.metadata?.instacomp as Record<
+              string,
+              unknown
+            > | undefined)?.backImageUrl || null,
+        },
+        pricing: result.identityComplete
+          ? { status: "background_refresh_queued", suggestedPrice: null }
+          : null,
+        pricingSucceeded: false,
+        pricingBackgroundQueued: result.identityComplete,
+        imagesPreserved: true,
+        stagingMirrored: false,
+        imagePairSha256: result.scan.image_pair_sha256 || null,
+        sourceOfTruth: "mac_local",
+        retryable: false,
+        durationMs: Date.now() - startedAt,
       },
-      pricing: result.identityComplete
-        ? { status: "background_refresh_queued", suggestedPrice: null }
-        : null,
-      pricingSucceeded: false,
-      pricingBackgroundQueued: result.identityComplete,
-      imagesPreserved: true,
-      stagingMirrored: false,
-      imagePairSha256: result.scan.image_pair_sha256 || null,
-      sourceOfTruth: "mac_local",
-      durationMs: Date.now() - startedAt,
-    }, { status: result.identityComplete ? 201 : 202, headers: { "Cache-Control": "no-store" } });
+      {
+        status: result.identityComplete ? 201 : 202,
+        headers: noStoreHeaders(),
+      },
+    );
   } catch (error) {
-    return NextResponse.json({ success: false, code: "SCANNER_INTAKE_FAILED", error: error instanceof Error ? error.message : "Scanner intake failed.", durationMs: Date.now() - startedAt }, { status: 500 });
+    return failureResponse(error, startedAt);
   }
 }
