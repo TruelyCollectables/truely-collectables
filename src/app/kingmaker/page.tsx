@@ -1,6 +1,9 @@
 import Link from "next/link";
 import KingmakerInstaCompQueue from "./KingmakerInstaCompQueue";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const workflow = [
   ["1", "Drop front + back", "KINGMAKER sends one card pair into the real InstaComp intake."],
   ["2", "InstaComp AI identifies", "Internal visual intelligence + Checklist Registry lock the exact card identity."],

@@ -18,7 +18,8 @@ const PUBLIC_ADMIN_RECOVERY_PATHS = new Set([
 function applySecurityHeaders(response: NextResponse, req: NextRequest) {
   const isAdminOrApi =
     req.nextUrl.pathname.startsWith("/admin") ||
-    req.nextUrl.pathname.startsWith("/api");
+    req.nextUrl.pathname.startsWith("/api") ||
+    req.nextUrl.pathname.startsWith("/kingmaker");
 
   // Global browser security headers are owned by next.config.ts. Keeping a
   // second copy here produced duplicate CSP/HSTS/nosniff headers in production

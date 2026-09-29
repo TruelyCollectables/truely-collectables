@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode } from "react";
 
@@ -38,12 +37,12 @@ export default function KingmakerShell({ children }: { children: ReactNode }) {
       <header className="border-b border-slate-800 bg-slate-950/95 px-4 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-4">
           <div>
-            <Link
+            <a
               href="/kingmaker"
               className="text-xs font-black uppercase tracking-[0.28em] text-emerald-300"
             >
               KINGMAKER
-            </Link>
+            </a>
             <p className="mt-1 text-sm text-slate-300">
               Seller operations powered by InstaComp AI intelligence
             </p>
@@ -68,7 +67,7 @@ export default function KingmakerShell({ children }: { children: ReactNode }) {
             {navigation.map((item) => {
               const active = activeRoute(pathname, item);
               return (
-                <Link
+                <a
                   key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
@@ -79,7 +78,7 @@ export default function KingmakerShell({ children }: { children: ReactNode }) {
                   }`}
                 >
                   {item.label}
-                </Link>
+                </a>
               );
             })}
           </nav>
