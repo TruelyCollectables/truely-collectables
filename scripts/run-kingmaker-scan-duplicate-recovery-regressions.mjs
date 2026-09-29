@@ -20,6 +20,7 @@ const macScanServer = read("src/lib/kingmaker-mac-scan-server.ts");
 const queueUi = read("src/app/kingmaker/KingmakerInstaCompQueue.tsx");
 const scannerUi = read("src/app/seller/instacomp-scan/page.tsx");
 const listingsUi = read("src/app/kingmaker/pending/PendingClient.tsx");
+const listingsPage = read("src/app/kingmaker/pending/page.tsx");
 
 for (const required of [
   "runKingmakerMacScan",
@@ -113,7 +114,7 @@ for (const required of [
   "Retry This Card",
   "never auto-published",
 ]) {
-  requireText(listingsUi, required, "Pending Listings review contract");
+  requireText(`${listingsUi}\n${listingsPage}`, required, "Pending Listings review contract");
 }
 
 console.log("KINGMAKER backward scan smoke contract passed.");
