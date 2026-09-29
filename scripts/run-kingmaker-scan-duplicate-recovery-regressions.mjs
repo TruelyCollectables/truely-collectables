@@ -1,105 +1,119 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const intake = fs.readFileSync(
-  "src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts",
-  "utf8",
-);
-const pendingApi = fs.readFileSync(
-  "src/app/api/account/seller/instacomp-pending/route.ts",
-  "utf8",
-);
-const exactScan = fs.readFileSync(
-  "src/app/api/kingmaker/instacomp-front-back-exact/route.ts",
-  "utf8",
-);
-const repairRoute = fs.readFileSync(
-  "src/app/api/account/seller/inventory/instacomp-orphan-scan-repair/route.ts",
-  "utf8",
-);
-const queueUi = fs.readFileSync(
-  "src/app/kingmaker/KingmakerInstaCompQueue.tsx",
-  "utf8",
-);
-const listingsUi = fs.readFileSync(
-  "src/app/kingmaker/pending/PendingClient.tsx",
-  "utf8",
-);
+function read(path) {
+  return fs.readFileSync(path, "utf8");
+}
 
-assert.ok(
-  intake.includes("const isRecoverableScannerStub ="),
-  "duplicate scan intake must distinguish recoverable scanner stubs",
-);
-assert.ok(
-  intake.includes("inventoryItemId = String(duplicate.id);") &&
-    intake.includes('lastStage: "duplicate_scan_resume"'),
-  "recoverable duplicate scans must resume the existing inventory row",
-);
-assert.ok(
-  intake.includes("masterListingReviewHref") &&
-    intake.includes("reviewHref: masterListingReviewHref"),
-  "duplicate scan results must deep-link to the existing Master Listing",
-);
-assert.ok(
-  pendingApi.includes("hasScanPairReceipt") &&
-    pendingApi.includes("instaComp.imagePairSha256"),
-  "scanner stubs with a preserved pair receipt must remain visible in verification",
-);
-assert.ok(
-  pendingApi.includes("const requestedFocus") &&
-    pendingApi.includes("String(row.id) === requestedFocus"),
-  "Master Listings must support opening an exact inventory row by focus id",
-);
-assert.ok(
-  exactScan.includes('source: "kingmaker_raw_intake_preservation"') &&
-    exactScan.includes("const [macArchive, preservedInputPair] = await Promise.all([") &&
-    exactScan.includes("preserveInputPromise"),
-  "front/back preservation must run concurrently with the Mac scan instead of serially delaying it",
-);
-assert.equal(
-  exactScan.includes("normalizeInstaCompSideImages"),
-  false,
-  "seller scan requests must not block on the remote orientation referee",
-);
-assert.equal(
-  exactScan.includes("readInstaCompCoreVisualEvidence"),
-  false,
-  "unresolved seller scans must not block on weaker remote core identity inference",
-);
-assert.equal(
-  exactScan.includes("resolveChecklistParallelFromVision"),
-  false,
-  "unresolved seller scans must not block on weaker remote parallel inference",
-);
-assert.ok(
-  exactScan.includes("const webOrientationTrusted =") &&
-    exactScan.includes('params.webOrientation?.status === "completed"') &&
-    exactScan.includes("frontRotation: webOrientationTrusted") &&
-    exactScan.includes(": undefined"),
-  "Mac-local orientation must remain available when the web orientation provider fails",
-);
-assert.equal(
-  exactScan.includes('if (normalizedSides.orientation.status !== "completed")'),
-  false,
-  "web orientation failure must not block the Mac-local fallback before it runs",
-);
-assert.ok(
-  repairRoute.includes("rows.length > 1") &&
-    repairRoute.includes('.is("legacy_product_id", null)') &&
-    repairRoute.includes('.is("card_uuid", null)') &&
-    repairRoute.includes('instacomp.identityComplete !== true') &&
-    repairRoute.includes("!rowsWithImages.has"),
-  "orphan cleanup must archive only duplicate, unlinked, identity-incomplete rows with no saved images",
-);
-assert.ok(
-  queueUi.includes("card.result.reviewHref") &&
-    queueUi.includes("Already in inventory — no duplicate created"),
-  "scanner UI must open the existing row instead of a generic empty folder",
-);
-assert.ok(
-  listingsUi.includes('locationParams.get("focus")') &&
-    listingsUi.includes('searchParams.delete("focus")'),
-  "Master Listings reloads must preserve focus until the operator changes folders",
-);
+function requireText(source, text, message) {
+  assert.ok(source.includes(text), `${message}: missing ${text}`);
+}
 
-console.log("KINGMAKER duplicate scan recovery regressions passed.");
+function forbidText(source, text, message) {
+  assert.equal(source.includes(text), false, `${message}: forbidden ${text}`);
+}
+
+const intake = read("src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts");
+const pendingApi = read("src/app/api/account/seller/instacomp-pending/route.ts");
+const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.ts");
+const macScanServer = read("src/lib/kingmaker-mac-scan-server.ts");
+const queueUi = read("src/app/kingmaker/KingmakerInstaCompQueue.tsx");
+const scannerUi = read("src/app/seller/instacomp-scan/page.tsx");
+const listingsUi = read("src/app/kingmaker/pending/PendingClient.tsx");
+
+for (const required of [
+  "runKingmakerMacScan",
+  "findMacDuplicateByImagePair",
+  "archiveKingmakerMacReviewFallback",
+  "front:",
+  "back:",
+  'sourceOfTruth: "mac_local"',
+  "imagesPreserved: true",
+  "stagingMirrored: false",
+  "retryable:",
+  "durationMs:",
+]) {
+  requireText(intake, required, "backward scan intake contract");
+}
+
+for (const forbidden of [
+  "createSupabaseServerClient",
+  "persistNormalizedInstaCompImagePair",
+  "mirrorKingmakerScanToPendingStaging",
+  "persistKingmakerPendingStagingImages",
+]) {
+  forbidText(intake, forbidden, "backward scan must remain Mac-local");
+}
+
+for (const required of [
+  "FRONT_BACK_IMAGES_DUPLICATE",
+  "DUPLICATE_SCAN",
+  "imagePairSha256",
+  "SCANNER_LOCAL_UNAVAILABLE",
+  'headers: noStoreHeaders()',
+]) {
+  requireText(intake, required, "duplicate and failure recovery contract");
+}
+
+for (const required of [
+  "resolveInstaCompChecklistFirstFromRegistry",
+  "identityComplete",
+  "registryFingerprintSha256",
+  'source: "checklist_registry"',
+]) {
+  requireText(exactScan, required, "exact Registry identity contract");
+}
+
+for (const forbidden of [
+  "readInstaCompCoreVisualEvidence",
+  "resolveChecklistParallelFromVision",
+  "normalizeInstaCompSideImages",
+  "checklist_disabled_visual_ai_only",
+  "visual_ai_identity_locked_without_checklist",
+]) {
+  forbidText(exactScan, forbidden, "exact route must not bypass Registry proof");
+}
+
+for (const required of [
+  "fastPassOnly?: boolean;",
+  "imagePairSha256",
+  "createMacKingmakerDraft",
+  "updateMacKingmakerDraft",
+  '"/v1/kingmaker/accounting/commercial-inventory"',
+]) {
+  requireText(macScanServer, required, "Mac-local persistence contract");
+}
+
+for (const required of [
+  "CONCURRENCY = 1",
+  "/api/kingmaker/instacomp-scan-intake-v2",
+  "queueTailRef",
+]) {
+  requireText(queueUi, required, "serialized physical scan queue contract");
+}
+
+for (const required of [
+  "130_000",
+  "AbortController",
+  "SCANNER_LOCAL_UNAVAILABLE",
+]) {
+  requireText(scannerUi, required, "browser scan recovery contract");
+}
+
+for (const required of [
+  "imagePairSha256",
+  "inventoryItemId",
+  "queueCounts",
+]) {
+  requireText(pendingApi, required, "Pending Listings backward visibility contract");
+}
+
+for (const required of [
+  "locationParams.get(\"focus\")",
+  "Retry This Card",
+  "never auto-published",
+]) {
+  requireText(listingsUi, required, "Pending Listings review contract");
+}
+
+console.log("KINGMAKER backward scan smoke contract passed.");
