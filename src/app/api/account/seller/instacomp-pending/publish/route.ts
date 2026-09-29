@@ -4,6 +4,10 @@ import {
 } from "../../../../../../lib/kingmaker-local-auth";
 import { getInventoryActivationBlockers } from "../../../../../../lib/inventory-activation";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
+import {
+  assertKingmakerListingReadiness,
+  buildKingmakerListingReadiness,
+} from "../../../../../../lib/kingmaker-listing-readiness";
 import { instaCompPendingDraftParityBlockers } from "../../../../../../lib/instacomp-pending-edit";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import {
@@ -180,6 +184,16 @@ export async function POST(request: Request) {
       }
     }
 
+    const trackedPhysical = Array.isArray(physicalReadiness?.tracked)
+      ? physicalReadiness.tracked
+      : [];
+    const trackedByInventoryId = new Map<string, any>(
+      trackedPhysical.map((row: any) => [
+        String(row?.inventoryItemId || ""),
+        row,
+      ]),
+    );
+
     const productIds = (rows || [])
       .map((row: any) => row.legacy_product_id)
       .filter((value: unknown): value is number => typeof value === "number");
@@ -334,6 +348,51 @@ export async function POST(request: Request) {
         const product = productMap.get(row.legacy_product_id);
         if (!product)
           throw new Error("The linked product record was not found.");
+
+        const recoveredImages = recordValue(instaComp.recoveredImageUrls);
+        const sourceImageUrls = Array.isArray(instaComp.sourceImageUrls)
+          ? instaComp.sourceImageUrls
+          : [];
+        const ebayImageUrls = Array.isArray(metadata.ebay_image_urls)
+          ? metadata.ebay_image_urls
+          : [];
+        const frontImageUrl =
+          text(instaComp.frontImageUrl) ||
+          text(recoveredImages.front) ||
+          text(sourceImageUrls[0]) ||
+          text(ebayImageUrls[0]) ||
+          text(product.image_url);
+        const backImageUrl =
+          text(instaComp.backImageUrl) ||
+          text(recoveredImages.back) ||
+          text(sourceImageUrls[1]) ||
+          text(ebayImageUrls[1]);
+        const storedAcquisition = recordValue(instaComp.acquisition);
+        const acquisitionSource =
+          text(trackedByInventoryId.get(String(row.id))?.source, 120) ||
+          text(storedAcquisition.source, 120) ||
+          "Misc";
+        const collectibleAsset = recordValue(metadata.collectible_asset);
+        const ai = recordValue(instaComp.ai);
+        const graded = Boolean(
+          text(collectibleAsset.grading_company) || text(ai.gradingCompany),
+        );
+        const listingReadiness = buildKingmakerListingReadiness({
+          metadata,
+          frontImageUrl,
+          backImageUrl,
+          condition: row.condition,
+          quantity: row.quantity,
+          acquisitionSource,
+          duplicateDecisionRequired:
+            activeMatches.length > 0 && !duplicateDecisionResolved,
+          websitePrice: row.price,
+          ebayPrice: null,
+          mercariPrice: null,
+          ebayCardCondition: null,
+          graded,
+        });
+        assertKingmakerListingReadiness(listingReadiness, "website");
 
         const blockers = getInventoryActivationBlockers({
           sku: row.sku || null,

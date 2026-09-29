@@ -13,6 +13,10 @@ const registryReceipt = fs.readFileSync(
   "src/lib/instacomp-registry-receipt.ts",
   "utf8",
 );
+const listingReadiness = fs.readFileSync(
+  "src/lib/kingmaker-listing-readiness.ts",
+  "utf8",
+);
 const dashboard = fs.readFileSync(
   "src/app/seller/instacomp-pending/ChecklistReadinessDashboard.tsx",
   "utf8",
@@ -51,6 +55,22 @@ assert(
   publishRoute.indexOf('"/v1/kingmaker/accounting/listing-readiness"') <
     publishRoute.indexOf("inventoryEngine.setStatus"),
   "Mac physical inventory readiness must be verified before inventory activation.",
+);
+assert(
+  publishRoute.includes("buildKingmakerListingReadiness({") &&
+    publishRoute.includes('assertKingmakerListingReadiness(listingReadiness, "website")'),
+  "Final website activation must use the shared KINGMAKER listing-readiness contract.",
+);
+assert(
+  publishRoute.indexOf('assertKingmakerListingReadiness(listingReadiness, "website")') <
+    publishRoute.indexOf("inventoryEngine.setStatus"),
+  "Shared KINGMAKER listing readiness must pass before inventory activation.",
+);
+assert(
+  listingReadiness.includes('"price_guide_not_checked_1_year"') &&
+    listingReadiness.includes('label: "1-year eBay Price Guide checked"') &&
+    listingReadiness.includes('"price_guide_not_checked_1_year",'),
+  "The shared readiness contract must keep the 1-year eBay Price Guide as a core blocker.",
 );
 assert(
   readinessRoute.includes("checklistRegistryReceiptBlockers"),
