@@ -100,6 +100,23 @@ function payoutReady(account: SellerPayoutAccountRow | null) {
   );
 }
 
+function hasActiveMarketplaceListing(metadata: Record<string, unknown> | null) {
+  const dualMarketplace =
+    metadata && typeof metadata.dual_marketplace === "object"
+      ? (metadata.dual_marketplace as Record<string, unknown>)
+      : null;
+  const ebay =
+    dualMarketplace && typeof dualMarketplace.ebay === "object"
+      ? (dualMarketplace.ebay as Record<string, unknown>)
+      : null;
+  const website =
+    dualMarketplace && typeof dualMarketplace.website === "object"
+      ? (dualMarketplace.website as Record<string, unknown>)
+      : null;
+
+  return ebay?.status === "active" || website?.status === "active";
+}
+
 export async function POST(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -241,6 +258,17 @@ export async function POST(request: Request) {
 
       if (action === "archive") {
         const currentStatus = inventoryItem.status || "draft";
+
+        if (hasActiveMarketplaceListing(inventoryItem.metadata)) {
+          results.push({
+            inventoryItemId,
+            success: false,
+            status: 409,
+            message:
+              "Active marketplace inventory cannot be archived through the generic bulk action. End/unpublish the marketplace listing first.",
+          });
+          continue;
+        }
 
         if (currentStatus === "archived") {
           results.push({

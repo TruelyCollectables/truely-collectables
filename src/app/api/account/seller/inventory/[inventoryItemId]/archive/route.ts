@@ -16,10 +16,28 @@ type InventoryRow = {
   legacy_product_id: number | null;
   seller_account_id: string | null;
   status: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
+}
+
+function hasActiveMarketplaceListing(metadata: Record<string, unknown> | null) {
+  const dualMarketplace =
+    metadata && typeof metadata.dual_marketplace === "object"
+      ? (metadata.dual_marketplace as Record<string, unknown>)
+      : null;
+  const ebay =
+    dualMarketplace && typeof dualMarketplace.ebay === "object"
+      ? (dualMarketplace.ebay as Record<string, unknown>)
+      : null;
+  const website =
+    dualMarketplace && typeof dualMarketplace.website === "object"
+      ? (dualMarketplace.website as Record<string, unknown>)
+      : null;
+
+  return ebay?.status === "active" || website?.status === "active";
 }
 
 function isMissingSellerInventoryTables(error: { code?: string; message?: string }) {
@@ -74,7 +92,7 @@ export async function POST(
     const storeId = getActiveStoreId();
     const { data: inventoryData, error: inventoryError } = await supabase
       .from("inventory_items")
-      .select("id,legacy_product_id,seller_account_id,status")
+      .select("id,legacy_product_id,seller_account_id,status,metadata")
       .eq("id", targetInventoryItemId)
       .eq("store_id", storeId)
       .eq("seller_account_id", account.id)
@@ -98,6 +116,16 @@ export async function POST(
         {
           error:
             "Seller inventory item is missing its linked product record and cannot be archived.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (hasActiveMarketplaceListing(inventoryItem.metadata)) {
+      return Response.json(
+        {
+          error:
+            "Active marketplace inventory cannot be archived through the generic archive action. End/unpublish the marketplace listing first.",
         },
         { status: 409 },
       );

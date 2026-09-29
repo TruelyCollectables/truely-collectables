@@ -768,17 +768,15 @@ export async function syncRecentLegacyEbayQuantities(params: {
 
       if (listing.localQuantity < remoteQuantity) {
         if (listing.localQuantity === 0) {
-          await tradingCall({
-            callName: "EndFixedPriceItem",
-            accessToken,
-            ebayEnvironment: storeSettings.ebayEnvironment,
-            requestXml: `<?xml version="1.0" encoding="utf-8"?>
-<EndFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <ItemID>${escapeXml(listing.itemId)}</ItemID>
-  <EndingReason>NotAvailable</EndingReason>
-</EndFixedPriceItemRequest>`,
+          // Fail closed: a local zero can be caused by an archive/import/reconciliation
+          // mistake. Never end a still-active eBay listing from this generic quantity
+          // reconciler. Explicit sale/withdraw/end workflows own destructive eBay actions.
+          counters.unchanged += 1;
+          errors.push({
+            itemId: listing.itemId,
+            error:
+              "Blocked destructive eBay end: local quantity is 0 while eBay is still active.",
           });
-          counters.endedOnEbay += 1;
         } else {
           await tradingCall({
             callName: "ReviseFixedPriceItem",
