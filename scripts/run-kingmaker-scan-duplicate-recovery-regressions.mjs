@@ -49,7 +49,7 @@ for (const required of [
   "FRONT_BACK_IMAGES_DUPLICATE",
   "DUPLICATE_SCAN",
   "imagePairSha256",
-  "SCANNER_LOCAL_UNAVAILABLE",
+  "payload.retryable",
   'headers: noStoreHeaders()',
 ]) {
   requireText(intake, required, "duplicate and failure recovery contract");
