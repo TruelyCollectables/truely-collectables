@@ -96,7 +96,7 @@ for (const required of [
 for (const required of [
   "130_000",
   "AbortController",
-  "SCANNER_LOCAL_UNAVAILABLE",
+  "payload.retryable",
 ]) {
   requireText(scannerUi, required, "browser scan recovery contract");
 }
