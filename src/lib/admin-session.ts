@@ -124,8 +124,16 @@ export function appendAdminSessionCookies(
 }
 
 function getSessionSecret(): string {
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  return secret?.trim() || "";
+  const dedicatedSecret = process.env.ADMIN_SESSION_SECRET?.trim();
+  if (dedicatedSecret) return dedicatedSecret;
+
+  // Production recovery fallback: the routed Worker can temporarily lose a
+  // dedicated admin-session secret during Cloudflare route/Worker recreation.
+  // INSTACOMP_AI_LOCAL_KEY is a server-only, high-entropy runtime secret that
+  // is synchronized on every production release. Prefix it so the HMAC key is
+  // domain-separated from its InstaComp API-auth use.
+  const recoverySecret = process.env.INSTACOMP_AI_LOCAL_KEY?.trim();
+  return recoverySecret ? "tcos-admin-session-v3:" + recoverySecret : "";
 }
 
 function toBase64Url(bytes: ArrayBuffer): string {
