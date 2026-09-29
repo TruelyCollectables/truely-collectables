@@ -691,7 +691,19 @@ export async function GET(request: Request) {
         { status: 503 },
       );
     }
-    const inventoryRows = macProjection.items!;
+    const inventoryRows = macProjection.items!
+      .map((row: any) => {
+        const inventoryItemId = textValue(
+          row?.id || row?.inventory_item_id || row?.inventoryItemId,
+        );
+        if (!inventoryItemId) return null;
+        return {
+          ...row,
+          id: inventoryItemId,
+          inventoryItemId,
+        };
+      })
+      .filter((row: any) => Boolean(row));
 
     // Mac-local KINGMAKER is the inventory authority. Legacy storefront
     // staging is isolated from this path; Master Listings loads from the local

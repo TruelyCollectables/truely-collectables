@@ -1116,6 +1116,11 @@ class KingmakerCommercialInventory:
                 ).strip()
                 if not inventory_item_id:
                     continue
+                # Canonicalize the identifier before storing the projection.
+                # Some upstream callers provide inventoryItemId/inventory_item_id
+                # instead of id; KINGMAKER web consumers require a stable id.
+                row["id"] = inventory_item_id
+                row["inventoryItemId"] = inventory_item_id
                 status = str(row.get("status") or "").strip().lower()
                 try:
                     quantity = int(float(row.get("quantity") or 0))

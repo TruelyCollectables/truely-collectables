@@ -433,15 +433,21 @@ function hasValidPair(card: PendingCard) {
 
 function physicalMembersForCard(card: PendingCard): PhysicalInventoryMember[] {
   if (card.commercialGroup?.members?.length) {
-    return card.commercialGroup.members.map((member) => ({
-      ...member,
-      // Grouped copies share one exact Registry identity. Do not duplicate the
-      // full identity blob on every physical member in the API payload.
-      identity: member.identity || card.instaComp.identity || null,
-    }));
+    const members = card.commercialGroup.members.flatMap((member) => {
+      const inventoryItemId = String(member?.inventoryItemId || "").trim();
+      if (!inventoryItemId) return [];
+      return [{
+        ...member,
+        inventoryItemId,
+        // Grouped copies share one exact Registry identity. Do not duplicate the
+        // full identity blob on every physical member in the API payload.
+        identity: member.identity || card.instaComp.identity || null,
+      }];
+    });
+    if (members.length) return members;
   }
   return [{
-    inventoryItemId: card.inventoryItemId,
+    inventoryItemId: String(card.inventoryItemId || "").trim(),
     scanId: card.instaComp.scanId || null,
     cardUuid: card.instaComp.cardUuid || null,
     identity: card.instaComp.identity || null,
@@ -2801,7 +2807,7 @@ export default function KingmakerPendingPage({
                         Open exact master listing
                       </Link>
                       <span className="rounded-full border border-slate-600 px-3 py-1 text-xs font-black text-slate-300">
-                        ID {card.inventoryItemId.slice(0, 8)}
+                        ID {String(card.inventoryItemId || "missing").slice(0, 8)}
                       </span>
                     </div>
                     {card.instaComp.identity?.notes ? (
@@ -3045,7 +3051,7 @@ export default function KingmakerPendingPage({
                           <div key={member.inventoryItemId} className="rounded-xl border-2 border-neutral-900 bg-white p-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
-                                <p className="font-black">Physical copy {index + 1} · ID {member.inventoryItemId.slice(0, 8)}</p>
+                                <p className="font-black">Physical copy {index + 1} · ID {String(member.inventoryItemId || "missing").slice(0, 8)}</p>
                                 <p className="mt-1 break-all text-xs font-mono text-neutral-500">
                                   {member.scanId ? `SCAN ${member.scanId}` : "NO VERIFIED SCAN ID"}
                                 </p>

@@ -221,6 +221,17 @@ async function canonicalAdminHostRedirect(req: NextRequest) {
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  if (
+    (req.method === "GET" || req.method === "HEAD") &&
+    pathname.startsWith("/kingmaker") &&
+    pathname.includes("//")
+  ) {
+    const url = req.nextUrl.clone();
+    url.pathname = pathname.replace(/\/{2,}/g, "/");
+    return applySecurityHeaders(NextResponse.redirect(url, 308), req);
+  }
+
   const canonicalRedirect = canonicalDomainRedirect(req);
 
   if (canonicalRedirect) {

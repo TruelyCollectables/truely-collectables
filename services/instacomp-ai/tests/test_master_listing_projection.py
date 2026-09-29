@@ -100,3 +100,16 @@ def test_master_listing_projection_replace_removes_stale_rows(tmp_path: Path):
     assert result["folderCounts"]["ebay"] == 1
     listed = db.list_master_listing_projection(compact=True)
     assert [item["id"] for item in listed["items"]] == ["new"]
+
+
+def test_master_listing_projection_canonicalizes_inventory_item_id_alias(tmp_path: Path):
+    db = KingmakerCommercialInventory(tmp_path / "commercial.sqlite3")
+    item = row("alias-id", player="Alias Card")
+    item["inventoryItemId"] = item.pop("id")
+
+    db.project_master_listings([item], replace=True)
+
+    listed = db.list_master_listing_projection(compact=True)
+    assert listed["count"] == 1
+    assert listed["items"][0]["id"] == "alias-id"
+    assert listed["items"][0]["inventoryItemId"] == "alias-id"
