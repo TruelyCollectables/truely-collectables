@@ -126,12 +126,13 @@ forbidText(
   "persistNormalizedInstaCompImagePair",
   "Fresh scanner intake must not store provisional raw images before the Mac-local normalized scan pass.",
 );
-requireText(
-  intake,
-  `front,
-      back,`,
-  "Fresh scanner intake must hand the original front/back uploads directly to the Mac-local scan server.",
-);
+for (const required of ["front,", "back,"]) {
+  requireText(
+    intake,
+    required,
+    "Fresh scanner intake must hand the original front/back uploads directly to the Mac-local scan server.",
+  );
+}
 
 forbidText(
   intake,
