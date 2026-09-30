@@ -32,6 +32,17 @@ if (!config) {
   process.exit(2);
 }
 
+if (config.endsWith("wrangler.production-route.jsonc")) {
+  const { readFileSync } = await import("node:fs");
+  const productionConfig = readFileSync(config, "utf8");
+  for (const requiredRoute of ["truelycollectables.com/*", "www.truelycollectables.com/*"]) {
+    if (!productionConfig.includes(requiredRoute)) {
+      console.error(`REFUSING production deploy: required route is missing: ${requiredRoute}`);
+      process.exit(2);
+    }
+  }
+}
+
 async function cloudflareJson(url, options = {}) {
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
   if (!token) throw new Error("Cloudflare API token is unavailable.");
