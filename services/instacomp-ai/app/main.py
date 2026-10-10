@@ -9,12 +9,14 @@ import json
 import os
 import re
 import signal
+import sys
 import sqlite3
 from contextlib import closing
 import threading
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 from difflib import SequenceMatcher
@@ -52,15 +54,18 @@ from .images import (
 from .local_vision import (
     LOCAL_VISION_ENGINE_VERSION,
     analyze_local_vision,
+    analyze_pattern,
     analyze_treatment_colors,
     _decode_image,
     parse_serial_evidence,
+    _front_rookie_mark,
+    _back_variation_mark,
 )
 from .market_comp_routes import build_market_comp_router
 from .kingmaker_accounting_routes import build_kingmaker_accounting_router
 from .autonomy_gate import evaluate_autonomy
 from .autonomy_learning import mirror_autoaccepted_example
-from .finish_classifier import classify_registry_finish, deterministic_registry_finish_from_colors
+from .finish_classifier import classify_registry_finish, classify_registry_finish_v9_index, deterministic_registry_finish_from_colors
 from .external_metadata import apply_unique_metadata_hint
 from .lora_candidate_runtime import analyze_with_established_reader
 from .models import (
@@ -73,13 +78,17 @@ from .models import (
     LessonCreate,
     LessonRecord,
     LocalVisionEvidence,
+    SideVisionEvidence,
     MemoryMatch,
     SerialEvidence,
     ModelSuggestion,
     VisualEvidence,
+    SpecimenAttributes,
 )
 from .registry_routes import build_registry_router
-from .ollama import OllamaReader
+from .ollama import OllamaReader, prepare_ollama_image
+from .mlx_finish_runtime import prewarm_mlx_finish_runtime
+from .specimen_attributes import analyze_specimen_attributes
 from .printed_evidence import (
     identity_from_printed_evidence,
     parse_printed_evidence,
@@ -88,6 +97,7 @@ from .settings_routes import build_settings_router
 from .serial_evidence_guard import (
     reconcile_visible_denominator,
     parse_registry_bounded_serial_micro,
+    mark_serial_probe_failure_as_unresolved,
     verify_expected_serial_from_orientation_ocr,
 )
 from .scan_priority import publish_scan_priority_state
@@ -99,6 +109,11 @@ from .sentinel_sources import DEFAULT_SOURCES
 from .storage import MemoryStore, identity_fingerprint
 from .visual_memory_rerank import back_family_parallel_competition, rerank_trusted_visual_candidates, _reference_similarity
 from .training_routes import build_training_router
+
+_seller_fast_registry_context: ContextVar[bool] = ContextVar(
+    "instacomp_seller_fast_registry",
+    default=False,
+)
 
 settings.ensure_directories()
 database_path = settings.resolve_local_path(settings.database_path)
@@ -127,7 +142,25 @@ canonical_memory_store = (
 # the Registry receipt helpers are defined.  Request paths that need a cold
 # cache already execute their fallback work in the bounded fast-ID executor.
 registry_store = LocalRegistryStore(registry_database_path, Path(settings.service_root))
-registry_store.initialize()
+
+# Never make Uvicorn's listener wait for a multi-gigabyte Registry WAL index to
+# open. Warm the authoritative Mac-local Registry in a daemon thread; every
+# Registry request path still calls initialize() itself and therefore fails
+# closed if this warm-up has not completed yet.
+def _warm_registry_store_background() -> None:
+    try:
+        registry_store.initialize()
+    except (OSError, sqlite3.Error, ValueError):
+        return
+
+_registry_startup_thread = threading.Thread(
+    target=_warm_registry_store_background,
+    name="instacomp-registry-startup-warm",
+    daemon=True,
+)
+if os.getenv("INSTACOMP_AI_WARM_REGISTRY_ON_STARTUP", "0").strip().lower() in {"1", "true", "yes", "on"}:
+    _registry_startup_thread.start()
+
 fast_id_executor = ThreadPoolExecutor(
     max_workers=max(4, int(os.getenv("INSTACOMP_AI_FAST_ID_WORKERS", "16"))),
     thread_name_prefix="instacomp-fast-id",
@@ -318,19 +351,30 @@ _runtime_cache_prewarm_thread = threading.Thread(
 
 
 def _registry_fetchall(sql: str, params: tuple = ()):
-    """Run a fail-closed Registry read with a real execution deadline."""
+    """Run a fail-closed Registry read with a real execution deadline.
+
+    Seller-facing scans get one short bounded attempt. If Registry is busy, the
+    card goes to review instead of spending the whole request budget retrying a
+    database lock. Deep/background work keeps the longer retry policy.
+    """
+    seller_fast = bool(_seller_fast_registry_context.get())
     try:
         deadline_seconds = float(
-            os.getenv("INSTACOMP_AI_REGISTRY_QUERY_DEADLINE_SECONDS", "4")
+            os.getenv(
+                "INSTACOMP_AI_REGISTRY_QUERY_DEADLINE_SECONDS",
+                "1.5" if seller_fast else "4",
+            )
         )
     except ValueError:
-        deadline_seconds = 4.0
-    deadline_seconds = max(1.0, min(deadline_seconds, 10.0))
+        deadline_seconds = 1.5 if seller_fast else 4.0
+    deadline_seconds = max(0.5 if seller_fast else 1.0, min(deadline_seconds, 10.0))
+    attempts = 1 if seller_fast else 4
+    connect_timeout = min(deadline_seconds, 1.0) if seller_fast else 4.0
 
     last_error: sqlite3.OperationalError | None = None
-    for attempt in range(4):
+    for attempt in range(attempts):
         try:
-            with registry_store.read_connection(timeout_seconds=4.0) as db:
+            with registry_store.read_connection(timeout_seconds=connect_timeout) as db:
                 deadline = time.monotonic() + deadline_seconds
                 db.set_progress_handler(
                     lambda: 1 if time.monotonic() >= deadline else 0,
@@ -339,14 +383,20 @@ def _registry_fetchall(sql: str, params: tuple = ()):
                 try:
                     return db.execute(sql, params).fetchall()
                 except sqlite3.OperationalError as error:
-                    if "interrupted" in str(error).casefold():
+                    message = str(error).casefold()
+                    if "interrupted" in message:
+                        return []
+                    if seller_fast and ("locked" in message or "busy" in message):
                         return []
                     raise
                 finally:
                     db.set_progress_handler(None, 0)
         except sqlite3.OperationalError as error:
             last_error = error
-            if "locked" not in str(error).casefold() or attempt == 3:
+            message = str(error).casefold()
+            if seller_fast and ("locked" in message or "busy" in message):
+                return []
+            if "locked" not in message or attempt == attempts - 1:
                 raise
             time.sleep(0.10 * (attempt + 1))
     if last_error is not None:
@@ -423,6 +473,10 @@ scan_recovery_sentinel = ChecklistSentinel(
     # checklist recovery must run while the scan marker is active; ordinary
     # Sentinel/Deal Hunter work yields to that marker.
     respect_scan_priority=False,
+    # Keep the API listener independent of a cold multi-GB Registry WAL index.
+    # The recovery lane initializes Registry access only when a real miss occurs.
+    initialize_registry=False,
+    initialize_heavy_work=False,
 )
 scan_recovery_sentinel.store.initialize()
 scan_recovery_sentinel.store.interrupt_running_jobs(
@@ -451,7 +505,25 @@ app = FastAPI(
     ),
 )
 
-async def _wait_for_registry_writer_quiet(timeout_seconds: float = 5.0) -> bool:
+def _probe_registry_writer_quiet() -> bool:
+    """Synchronous bounded SQLite writer probe for use from a worker thread."""
+    db = sqlite3.connect(registry_database_path, timeout=0.25)
+    try:
+        db.execute("PRAGMA busy_timeout=250")
+        db.execute("BEGIN IMMEDIATE")
+        db.rollback()
+        return True
+    except sqlite3.OperationalError:
+        try:
+            db.rollback()
+        except sqlite3.Error:
+            pass
+        return False
+    finally:
+        db.close()
+
+
+async def _wait_for_registry_writer_quiet(timeout_seconds: float = 0.5) -> bool:
     """Let an already-running background Registry writer finish before a live scan.
 
     The scan-priority marker prevents new background work from entering. This
@@ -459,25 +531,8 @@ async def _wait_for_registry_writer_quiet(timeout_seconds: float = 5.0) -> bool:
     SQLite when the seller scan arrived; WAL readers may remain open.
     """
     deadline = time.monotonic() + max(0.5, float(timeout_seconds))
-
-    def probe() -> bool:
-        db = sqlite3.connect(registry_database_path, timeout=0.25)
-        try:
-            db.execute("PRAGMA busy_timeout=250")
-            db.execute("BEGIN IMMEDIATE")
-            db.rollback()
-            return True
-        except sqlite3.OperationalError:
-            try:
-                db.rollback()
-            except sqlite3.Error:
-                pass
-            return False
-        finally:
-            db.close()
-
     while time.monotonic() < deadline:
-        if await asyncio.to_thread(probe):
+        if await asyncio.to_thread(_probe_registry_writer_quiet):
             return True
         await asyncio.sleep(0.1)
     return False
@@ -499,10 +554,11 @@ async def _track_live_scan_activity(request, call_next):
             _live_scan_last_activity = time.monotonic()
             active_scans = _live_scan_inflight
         publish_scan_priority_state(active_scans)
-        # Give any writer that entered just before the priority marker a brief
-        # chance to finish. Background workers observe the marker and cannot
-        # start another Registry transaction until this scan exits.
-        await _wait_for_registry_writer_quiet()
+        # Give a pre-existing writer only a sub-second grace period. Registry is
+        # in WAL mode and seller reads are separately deadline-bounded/fail-closed;
+        # making every scan wait up to five seconds for a background writer was
+        # consuming half of the seller SLA before identity work even started.
+        await _wait_for_registry_writer_quiet(timeout_seconds=0.5)
         try:
             response = await call_next(request)
             service_ms = max(0.0, (time.perf_counter() - admitted_at) * 1000.0)
@@ -519,6 +575,180 @@ async def _track_live_scan_activity(request, call_next):
                 _live_scan_last_activity = time.monotonic()
                 active_scans = _live_scan_inflight
             publish_scan_priority_state(active_scans)
+
+
+async def _cloudflare_card_number_witness(
+    back: bytes,
+    legal_numbers: set[str] | None = None,
+) -> tuple[str | None, list[str]]:
+    """Read only the physical checklist number from bounded corner crops.
+
+    Both corner crops are queried concurrently so the seller-facing path pays at
+    most one short network timeout. Conflicting crop reads fail closed.
+    """
+    account_id = settings.cloudflare_account_id.strip()
+    token = settings.cloudflare_workers_ai_token.strip()
+    if not back or not account_id or not token:
+        return None, ["cloudflare_card_number_witness_unavailable"]
+
+    crop_receipts: list[str] = []
+    variants: list[tuple[str, bytes]] = []
+    for label, builder in (
+        ("top_left", image_orientation_reader._number_corner_left_variant),
+        ("top_left_photo", image_orientation_reader._number_corner_left_photo_variant),
+        ("top_right", image_orientation_reader._number_corner_reflow_variant),
+    ):
+        try:
+            variants.append((label, builder(back)))
+        except Exception as exc:
+            crop_receipts.append(
+                f"card_number_crop_{label}_error:{type(exc).__name__.lower()}"
+            )
+
+    model = "@cf/meta/llama-3.2-11b-vision-instruct"
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    prompt = (
+        "This image is ONLY a cropped trading-card number area. "
+        "Read the checklist/card number visible in the crop. "
+        "Ignore names, stats, years, serial numbers, jersey numbers, and decoration. "
+        'Return JSON only: {"card_number":"exact visible value or null"}.'
+    )
+
+    async def read_one(client: httpx.AsyncClient, label: str, crop: bytes):
+        receipts: list[str] = []
+        try:
+            image = "data:image/jpeg;base64," + base64.b64encode(crop).decode("ascii")
+            response = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "prompt": prompt,
+                    "image": image,
+                    "max_tokens": 40,
+                    "temperature": 0,
+                },
+            )
+            if response.status_code >= 400:
+                return None, [f"cloudflare_card_number_{label}_http_{response.status_code}"]
+            raw = (response.json().get("result") or {}).get("response")
+            if isinstance(raw, dict):
+                data = raw
+            else:
+                text_value = str(raw or "").strip()
+                try:
+                    data = json.loads(text_value)
+                except json.JSONDecodeError:
+                    match = re.search(
+                        r'"?card_number"?\s*:\s*"?([A-Za-z0-9-]+)',
+                        text_value,
+                    )
+                    data = {"card_number": match.group(1) if match else None}
+            raw_value = str(data.get("card_number") or "").strip().upper()
+            raw_value = re.sub(r"^(?:NO\.?|#)\s*", "", raw_value, flags=re.I)
+            token_match = re.search(r"[A-Z0-9][A-Z0-9-]{0,15}", raw_value)
+            value = token_match.group(0) if token_match else ""
+            if value in {"", "NULL", "NONE", "UNKNOWN", "NA"}:
+                return None, [f"cloudflare_card_number_{label}_empty"]
+            if value.isdigit() and 1900 <= int(value) <= 2035:
+                return None, [f"cloudflare_card_number_{label}_rejected_year:{value}"]
+            normalized_value = normalized_card_number(value)
+            if legal_numbers and normalized_value not in legal_numbers:
+                return None, [f"cloudflare_card_number_{label}_not_expected:{value}"]
+            return value, [
+                f"cloudflare_card_number_witness:{value}",
+                f"cloudflare_card_number_crop:{label}",
+            ]
+        except (httpx.HTTPError, asyncio.TimeoutError, ValueError, TypeError, KeyError) as exc:
+            return None, [f"cloudflare_card_number_{label}_error:{type(exc).__name__.lower()}"]
+
+    if not variants:
+        return None, [*crop_receipts, "cloudflare_card_number_no_crop_read"]
+
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            results = await asyncio.gather(
+                *(read_one(client, label, crop) for label, crop in variants)
+            )
+    except (httpx.HTTPError, asyncio.TimeoutError) as exc:
+        return None, [
+            *crop_receipts,
+            f"cloudflare_card_number_error:{type(exc).__name__.lower()}",
+        ]
+
+    values: list[str] = []
+    for value, receipts in results:
+        crop_receipts.extend(receipts)
+        if value:
+            values.append(value)
+    if not values:
+        return None, [*crop_receipts, "cloudflare_card_number_no_crop_read"]
+
+    normalized_values = {normalized_card_number(value) for value in values}
+    if len(normalized_values) != 1:
+        return None, [
+            *crop_receipts,
+            "cloudflare_card_number_conflict:" + ",".join(sorted(set(values))),
+        ]
+    return values[0], crop_receipts
+
+
+async def _cloudflare_player_name_witness(front: bytes) -> tuple[str | None, list[str]]:
+    """Read only the player/person name visibly printed on the physical front."""
+    account_id = settings.cloudflare_account_id.strip()
+    token = settings.cloudflare_workers_ai_token.strip()
+    if not front or not account_id or not token:
+        return None, ["cloudflare_player_witness_unavailable"]
+    model = "@cf/meta/llama-3.2-11b-vision-instruct"
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    prompt = (
+        "Read ONLY the player/person name visibly printed on this trading-card front. "
+        "Do not infer the name from team, uniform, jersey number, or prior knowledge. "
+        "If the printed name is not legible, return null. "
+        'Return JSON only: {"player":"exact visible printed name or null"}.'
+    )
+    try:
+        image = "data:image/jpeg;base64," + base64.b64encode(
+            prepare_ollama_image(front)
+        ).decode("ascii")
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "prompt": prompt,
+                    "image": image,
+                    "max_tokens": 48,
+                    "temperature": 0,
+                },
+            )
+        if response.status_code >= 400:
+            return None, [f"cloudflare_player_http_{response.status_code}"]
+        raw = (response.json().get("result") or {}).get("response")
+        if isinstance(raw, dict):
+            data = raw
+        else:
+            text_value = str(raw or "").strip()
+            try:
+                data = json.loads(text_value)
+            except json.JSONDecodeError:
+                match = re.search(
+                    r'"?player"?\s*:\s*"([^"]+)"',
+                    text_value,
+                    flags=re.I,
+                )
+                data = {"player": match.group(1) if match else None}
+        value = str(data.get("player") or "").strip()
+        if not value or value.casefold() in {"null", "none", "unknown", "n/a"}:
+            return None, ["cloudflare_player_empty"]
+        return value[:120], [f"cloudflare_player_witness:{value[:120]}"]
+    except (httpx.HTTPError, asyncio.TimeoutError, ValueError, TypeError, KeyError) as exc:
+        return None, [f"cloudflare_player_error:{type(exc).__name__.lower()}"]
 
 
 async def _cloudflare_workers_ai_identity(front: bytes, back: bytes | None, local_vision) -> ModelSuggestion:
@@ -787,7 +1017,7 @@ app.include_router(build_beckett_router(require_api_key, database_path))
 app.include_router(
     build_kingmaker_accounting_router(
         require_api_key,
-        settings.resolve_local_path(settings.data_database_path / "kingmaker_accounting.sqlite3"),
+        settings.resolve_local_path(settings.data_database_path) / "kingmaker_accounting.sqlite3",
         database_path,
     )
 )
@@ -846,6 +1076,28 @@ def _safe_ollama_error_detail(value: object, limit: int = 240) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
     text = re.sub(r"[^A-Za-z0-9 .,:;_\-/()\[\]{}'\"=]+", "?", text)
     return text[:limit]
+
+
+async def _specimen_after_identity(
+    *,
+    front: bytes,
+    back: bytes | None,
+    trusted_identity: CardIdentity,
+) -> SpecimenAttributes:
+    """Run specimen enrichment only after canonical Registry identity is accepted."""
+    try:
+        return await analyze_specimen_attributes(
+            front,
+            back,
+            trusted_identity,
+            settings,
+        )
+    except Exception as exc:
+        return SpecimenAttributes(
+            status="unavailable",
+            uncertainty=[f"specimen_enrichment_failed:{type(exc).__name__.lower()}"],
+            identity_fields_mutated=False,
+        )
 
 
 def _merge_identity(primary: CardIdentity, fallback: CardIdentity) -> CardIdentity:
@@ -944,7 +1196,29 @@ async def _registry_match(identity: CardIdentity, ocr_text: str | None = None) -
         "isAuto": identity.autograph if isinstance(identity.autograph, bool) else None,
         "isRelic": identity.memorabilia if isinstance(identity.memorabilia, bool) else None,
     }
-    raw = await asyncio.to_thread(registry_store.resolve, payload)
+    # A live seller scan may never wait indefinitely on a cold external-volume
+    # SQLite read.  Registry is still authoritative when it returns; on budget
+    # exhaustion the only safe outcome is unresolved, not a memory/model guess.
+    try:
+        registry_timeout_seconds = (
+            3.5 if _seller_fast_registry_context.get() else 30.0
+        )
+        raw = await asyncio.wait_for(
+            asyncio.to_thread(registry_store.resolve, payload),
+            timeout=registry_timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        return ChecklistResult(
+            outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+            reasons=["local_registry_exact_lookup_deadline_exceeded"],
+            source_receipts=["local_registry:deadline_exceeded"],
+        )
+    except (OSError, sqlite3.Error, ValueError):
+        return ChecklistResult(
+            outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+            reasons=["local_registry_exact_lookup_unavailable"],
+            source_receipts=["local_registry:unavailable"],
+        )
     status = str(raw.get("status") or "")
     match = raw.get("match") or {}
     outcome_map = {
@@ -1663,9 +1937,14 @@ async def _reprocess_saved_scan_after_registry_recovery(
                     ),
                 ),
             )
-        except Exception:
-            # Verification must not be undone by a later learning-mirror failure.
-            pass
+        except Exception as learning_mirror_error:
+            # Verification must not be undone by a later learning-mirror failure,
+            # but the failure must remain visible to the supervisor/audit logs.
+            print(
+                "InstaComp learning mirror failed after verified Registry recovery: "
+                f"{learning_mirror_error}",
+                file=sys.stderr,
+            )
     return resolved_status == "trusted_memory_match"
 
 
@@ -1784,6 +2063,34 @@ def _normalize_card_uuid(value: str | None) -> str | None:
         raise HTTPException(status_code=400, detail="card_uuid must be a valid UUID") from exc
 
 
+_commercial_inventory_database_path = (
+    Path.home() / ".instacomp-runtime" / "kingmaker_commercial_inventory.sqlite3"
+)
+
+
+def _commercial_inventory_has_physical_uuid(card_uuid: str) -> bool | None:
+    """Return whether Kingmaker owns this physical UUID; None means unavailable.
+
+    Scan history can contain old generated UUIDs from before Kingmaker assigned
+    the permanent physical-card UUID. Those stale bindings must not block a
+    legitimate current inventory card, but a UUID that is still a real
+    commercial-inventory row must never be silently rebound.
+    """
+    try:
+        if not _commercial_inventory_database_path.exists():
+            return None
+        uri = f"{_commercial_inventory_database_path.resolve().as_uri()}?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0.75)) as db:
+            row = db.execute(
+                "SELECT 1 FROM commercial_inventory "
+                "WHERE inventory_item_id=? LIMIT 1",
+                (card_uuid,),
+            ).fetchone()
+        return row is not None
+    except (OSError, sqlite3.Error, ValueError):
+        return None
+
+
 def _resolve_card_uuid(
     *,
     requested: str | None,
@@ -1793,6 +2100,24 @@ def _resolve_card_uuid(
     requested_uuid = _normalize_card_uuid(requested)
     exact_pair_uuid = store.card_uuid_for_image_pair(image_pair_sha256)
     if requested_uuid and exact_pair_uuid and requested_uuid != exact_pair_uuid:
+        requested_is_physical = _commercial_inventory_has_physical_uuid(requested_uuid)
+        existing_is_physical = _commercial_inventory_has_physical_uuid(exact_pair_uuid)
+        # A current Kingmaker physical UUID outranks an orphaned historical scan
+        # UUID. Rebind only that exact image pair, and only when the old UUID is
+        # provably absent from commercial inventory. If both are real physical
+        # cards (or the inventory DB cannot be read), fail closed instead.
+        if requested_is_physical is True and existing_is_physical is False:
+            try:
+                store.rebind_exact_image_pair_card_uuid(
+                    image_pair_sha256,
+                    exact_pair_uuid,
+                    requested_uuid,
+                )
+                rebound = store.card_uuid_for_image_pair(image_pair_sha256)
+                if rebound == requested_uuid:
+                    return requested_uuid
+            except (OSError, sqlite3.Error, ValueError):
+                pass
         raise HTTPException(
             status_code=409,
             detail=(
@@ -1938,6 +2263,19 @@ def _find_trusted_visual_candidates(
 
 
 
+def _trusted_exact_pair_core_complete(identity: CardIdentity) -> bool:
+    """Exact-pair memory may accelerate only a complete sellable card identity."""
+    return bool(
+        str(identity.year or "").strip()
+        and str(identity.player or "").strip()
+        and str(identity.card_number or "").strip()
+        and (
+            str(identity.manufacturer or "").strip()
+            or str(identity.brand or "").strip()
+        )
+    )
+
+
 def _find_exact_operator_pair(image_pair_sha256: str):
     """Find exact operator truth without running OCR or model inference.
 
@@ -1959,6 +2297,7 @@ def _find_exact_operator_pair(image_pair_sha256: str):
         if (
             "exact_image_pair" not in match.reasons
             or match.verification_state != LearningState.OPERATOR_CONFIRMED
+            or not _trusted_exact_pair_core_complete(match.identity)
         ):
             continue
         source_scan = {
@@ -1978,7 +2317,7 @@ def _find_exact_operator_pair(image_pair_sha256: str):
         candidate = store.find_trusted_exact_operator_pair(image_pair_sha256)
     except (OSError, sqlite3.Error, ValueError):
         candidate = None
-    if candidate:
+    if candidate and _trusted_exact_pair_core_complete(candidate["match"].identity):
         match = candidate["match"]
         source_scan = {
             "front_reference_sha256": candidate.get("front_reference_sha256"),
@@ -1999,7 +2338,7 @@ def _find_exact_operator_pair(image_pair_sha256: str):
         candidate = store.find_trusted_exact_registry_pair(image_pair_sha256)
     except (OSError, sqlite3.Error, ValueError):
         candidate = None
-    if candidate:
+    if candidate and _trusted_exact_pair_core_complete(candidate["match"].identity):
         source_scan = {
             "front_reference_sha256": candidate.get("front_reference_sha256"),
             "back_reference_sha256": candidate.get("back_reference_sha256"),
@@ -2018,7 +2357,7 @@ def _find_exact_operator_pair(image_pair_sha256: str):
         candidate = store.find_trusted_exact_scan_pair(image_pair_sha256)
     except (OSError, sqlite3.Error, ValueError):
         candidate = None
-    if candidate:
+    if candidate and _trusted_exact_pair_core_complete(candidate["match"].identity):
         source_scan = {
             "front_reference_sha256": candidate.get("front_reference_sha256"),
             "back_reference_sha256": candidate.get("back_reference_sha256"),
@@ -2049,7 +2388,43 @@ async def _fast_exact_operator_response(
     loop = asyncio.get_running_loop()
     found = await loop.run_in_executor(fast_id_executor, _find_exact_operator_pair, combined_hash)
     if not found:
-        return None
+        # Most scan history stores the deterministic normalized image bytes,
+        # while the HTTP request still carries the original camera/JPEG bytes.
+        # Check the normalized exact pair before paying for OCR/Registry work.
+        # This remains exact evidence (not perceptual similarity) and turns a
+        # previously learned card into the intended sub-second/low-second path.
+        try:
+            normalized_front, normalized_back = await asyncio.gather(
+                asyncio.to_thread(
+                    validate_and_normalize_image,
+                    front_content,
+                    settings.max_image_bytes,
+                ),
+                asyncio.to_thread(
+                    validate_and_normalize_image,
+                    back_content,
+                    settings.max_image_bytes,
+                ),
+            )
+        except (ValueError, OSError):
+            return None
+        normalized_hash = pair_hash(
+            normalized_front.sha256,
+            normalized_back.sha256,
+        )
+        if normalized_hash != combined_hash:
+            normalized_found = await loop.run_in_executor(
+                fast_id_executor,
+                _find_exact_operator_pair,
+                normalized_hash,
+            )
+            if normalized_found:
+                found = normalized_found
+                front_sha256 = normalized_front.sha256
+                back_sha256 = normalized_back.sha256
+                combined_hash = normalized_hash
+        if not found:
+            return None
     source_label, candidate, source_scan = found
     match = candidate["match"]
     trusted_identity = match.identity
@@ -2141,19 +2516,45 @@ async def _fast_exact_operator_response(
     # physical-card UUID. Ordinary recognition should not pay a runtime DB read.
     runtime_pair_uuid = None
     if requested_uuid and remembered_uuid and requested_uuid != remembered_uuid:
-        raise HTTPException(
-            status_code=409,
-            detail="The exact front/back image pair is already bound to another physical-card UUID.",
-        )
+        # Kingmaker inventory UUID is the physical-card authority. Historical
+        # scans sometimes used a generated scan UUID before the seller inventory
+        # UUID existed. Exact bytes + trusted identity may be safely rebound to
+        # the explicit Kingmaker UUID; this changes provenance only, never the
+        # card identity or Registry decision.
+        try:
+            await loop.run_in_executor(
+                fast_id_executor,
+                store.rebind_exact_image_pair_card_uuid,
+                combined_hash,
+                remembered_uuid,
+                requested_uuid,
+            )
+            candidate["card_uuid"] = requested_uuid
+            remembered_uuid = requested_uuid
+        except (AttributeError, OSError, sqlite3.Error, ValueError):
+            # UUID provenance repair is bookkeeping. An already-certified exact
+            # image pair still proves the card identity; keep Kingmaker's
+            # requested physical UUID and let Registry grouping preserve copies.
+            candidate["card_uuid"] = requested_uuid
+            remembered_uuid = requested_uuid
     if requested_uuid and not remembered_uuid:
         runtime_pair_uuid = await loop.run_in_executor(
             fast_id_executor, store.card_uuid_for_image_pair, combined_hash
         )
         if runtime_pair_uuid and requested_uuid != runtime_pair_uuid:
-            raise HTTPException(
-                status_code=409,
-                detail="The exact front/back image pair is already bound to another physical-card UUID.",
-            )
+            try:
+                await loop.run_in_executor(
+                    fast_id_executor,
+                    store.rebind_exact_image_pair_card_uuid,
+                    combined_hash,
+                    runtime_pair_uuid,
+                    requested_uuid,
+                )
+                runtime_pair_uuid = requested_uuid
+            except (AttributeError, OSError, sqlite3.Error, ValueError):
+                # Do not turn a provenance reconciliation failure into an
+                # identity failure. The requested physical UUID remains valid.
+                runtime_pair_uuid = requested_uuid
     # This exact byte pair is already archived and certified. Reuse its scan
     # record instead of inserting duplicate scan history on every recognition.
     scan_id = str(candidate.get("scan_id") or "")
@@ -2359,7 +2760,35 @@ def _bounded_card_number_match(target: object, observed: object) -> bool:
 
 
 def _fast_card_number_visible(card_number: object, observations) -> bool:
-    return any(_bounded_card_number_match(card_number, getattr(obs, "text", "")) for obs in observations)
+    target_code = _compact_ocr_code(card_number)
+    for obs in observations:
+        observed = getattr(obs, "text", "")
+        if _bounded_card_number_match(card_number, observed):
+            return True
+        # Prizm variation backs can merge the large adjacent V into a numeric
+        # checklist number crop (149V -> 149P is a real Apple Vision failure).
+        # Accept only on an explicit number-corner physical crop and only when
+        # the expected checklist number is purely numeric.
+        source = str(getattr(obs, "source", "") or "").casefold()
+        observed_code = _compact_ocr_code(observed)
+        for prefix in ("CARDNO", "NO"):
+            if observed_code.startswith(prefix):
+                observed_code = observed_code[len(prefix):]
+                break
+        if (
+            target_code.isdigit()
+            and "number_corner" in source
+            and (
+                observed_code in {target_code + "V", target_code + "P"}
+                or (
+                    len(observed_code) == len(target_code) + 1
+                    and observed_code.startswith(target_code)
+                    and observed_code[-1:].isalpha()
+                )
+            )
+        ):
+            return True
+    return False
 
 
 def _fast_player_visible(player: object, observations) -> bool:
@@ -2392,6 +2821,191 @@ def _fast_player_visible(player: object, observations) -> bool:
     return True
 
 
+def _fast_player_surname_score(player: object, observations) -> float:
+    """Return the strongest fresh-OCR similarity for the candidate surname."""
+    raw = str(player or "").strip()
+    if not raw:
+        return 0.0
+
+    def compact(value: object) -> str:
+        value = unicodedata.normalize("NFKD", str(value or "").casefold())
+        value = "".join(ch for ch in value if not unicodedata.combining(ch))
+        value = value.translate(str.maketrans({"в": "b"}))
+        return re.sub(r"[^a-z0-9]+", "", value)
+
+    parts = [
+        compact(token)
+        for token in re.findall(r"[^\W_]+(?:['-][^\W_]+)*", raw, flags=re.UNICODE)
+        if compact(token)
+    ]
+    if not parts or len(parts[-1]) < 4:
+        return 0.0
+    surname = parts[-1]
+
+    pool: list[str] = []
+    for item in observations:
+        text = str(getattr(item, "text", "") or "")
+        whole = compact(text)
+        if whole:
+            pool.append(whole)
+        pool.extend(
+            compact(token)
+            for token in re.findall(r"[^\W_]+(?:['-][^\W_]+)*", text, flags=re.UNICODE)
+            if compact(token)
+        )
+    return max(
+        (SequenceMatcher(None, surname, value).ratio() for value in pool if value),
+        default=0.0,
+    )
+
+
+def _fast_player_surname_visible(player: object, observations) -> bool:
+    """Require a physically printed surname for Registry family corroboration."""
+    return _fast_player_surname_score(player, observations) >= 0.82
+
+
+def _fast_local_number_corner_reflow_witness(
+    back_content: bytes,
+) -> tuple[str | None, list[str], list]:
+    """Read one explicit physical No. + value crop, never infer a number."""
+    try:
+        observations, errors = image_orientation_reader.recognize_number_corner_reflow(
+            back_content,
+            side="back",
+        )
+    except Exception as exc:
+        return None, [f"local_number_reflow_failed:{type(exc).__name__.lower()}"], []
+
+    receipts = [f"local_number_reflow_error:{value}" for value in errors]
+    candidates: list[str] = []
+    for observation in observations:
+        text = str(getattr(observation, "text", "") or "").strip().upper()
+        match = re.fullmatch(
+            r"\s*(?:NO\.?|CARD\s*(?:NO\.?|NUMBER)?)\s*[:#-]?\s*([A-Z0-9-]{1,12})\s*",
+            text,
+            re.I,
+        )
+        if not match:
+            continue
+        token = normalized_card_number(match.group(1))
+        if not token:
+            continue
+        if token.isdigit() and 1900 <= int(token) <= 2035:
+            continue
+        candidates.append(token)
+
+    unique = list(dict.fromkeys(candidates))
+    if len(unique) != 1:
+        receipts.append(f"local_number_reflow_ambiguous:{len(unique)}")
+        return None, receipts, observations
+
+    number = unique[0]
+    receipts.extend([
+        "local_number_reflow_physical_label",
+        f"local_number_reflow_value:{number}",
+    ])
+    return number, receipts, observations
+
+
+def _fast_existing_back_top_band_number_witness(
+    local_vision: LocalVisionEvidence,
+) -> tuple[str | None, list[str]]:
+    """Accept one standalone numeric card number already read from the back.
+
+    Apple Vision uses bottom-left normalized coordinates; a y value near 1.0 is
+    the printed top band where modern checklist numbers commonly live.  This
+    helper intentionally handles only that easy physical subset.  Stats rows,
+    years, mixed text, and ambiguous multiple numbers fail closed.
+    """
+    if local_vision.back is None:
+        return None, []
+
+    candidates: list[str] = []
+    for observation in local_vision.back.ocr:
+        confidence = float(getattr(observation, "confidence", 0.0) or 0.0)
+        if confidence < 0.35:
+            continue
+        box = getattr(observation, "box", None)
+        y = float(getattr(box, "y", 0.0) or 0.0) if box is not None else 0.0
+        source = str(getattr(observation, "source", "") or "")
+        # Crop-local coordinates are not full-card coordinates. The dedicated
+        # upper-right number_corner witness is already physically bounded to the
+        # printed checklist-number zone, so accept its standalone numeric token
+        # even when its crop-local y is below the full-card top-band threshold.
+        bounded_number_corner = source.endswith(":number_corner")
+        if y < 0.72 and not bounded_number_corner:
+            continue
+        text = str(getattr(observation, "text", "") or "").strip().upper()
+        match = re.fullmatch(
+            r"[ ]*(?:(?:NO[.]?|CARD[ ]*(?:NO[.]?|NUMBER))[ ]*[:#-]?[ ]*)?([0-9]{1,4})[ ]*",
+            text,
+            flags=re.I,
+        )
+        if not match:
+            continue
+        token = normalized_card_number(match.group(1))
+        if not token:
+            continue
+        if token.isdigit() and 1900 <= int(token) <= 2035:
+            continue
+        candidates.append(token)
+
+    unique = list(dict.fromkeys(candidates))
+    if len(unique) != 1:
+        return None, [f"fresh_existing_back_top_number_ambiguous:{len(unique)}"]
+    number = unique[0]
+    return number, [
+        "fresh_existing_back_top_band_card_number",
+        f"fresh_existing_back_top_band_value:{number}",
+    ]
+
+
+def _fast_registry_bounded_number_from_existing_ocr(
+    local_vision: LocalVisionEvidence,
+    *,
+    legal_numbers: set[str],
+) -> tuple[str | None, list[str]]:
+    """Use a standalone fresh BACK-OCR number only when the Registry permits it.
+
+    This is not number inference: Apple Vision must have already read the token
+    from the submitted back image, and exactly one such token may intersect the
+    visible player's Registry-legal card-number family. Stats lines and years do
+    not qualify because the observation must be a standalone number/code.
+    """
+    if local_vision.back is None or not legal_numbers:
+        return None, []
+
+    candidates: list[str] = []
+    for observation in local_vision.back.ocr:
+        confidence = float(getattr(observation, "confidence", 0.0) or 0.0)
+        if confidence < 0.35:
+            continue
+        text = str(getattr(observation, "text", "") or "").strip().upper()
+        match = re.fullmatch(
+            r"[ ]*(?:(?:NO[.]?|CARD[ ]*(?:NO[.]?|NUMBER))[ ]*[:#-]?[ ]*)?([A-Z0-9-]{1,12})[ ]*",
+            text,
+            flags=re.I,
+        )
+        if not match:
+            continue
+        token = normalized_card_number(match.group(1))
+        if not token or token not in legal_numbers:
+            continue
+        if token.isdigit() and 1900 <= int(token) <= 2035:
+            continue
+        candidates.append(token)
+
+    unique = list(dict.fromkeys(candidates))
+    if len(unique) != 1:
+        return None, [f"fresh_existing_back_ocr_legal_number_ambiguous:{len(unique)}"]
+
+    number = unique[0]
+    return number, [
+        "fresh_existing_back_ocr_registry_bounded_card_number",
+        f"fresh_existing_back_ocr_card_number:{number}",
+    ]
+
+
 def _recover_unique_registry_player_from_ocr(
     identity: CardIdentity,
     local_vision: LocalVisionEvidence,
@@ -2409,17 +3023,50 @@ def _recover_unique_registry_player_from_ocr(
     card_number = normalized_card_number(identity.card_number)
     year = str(identity.year)[:4]
 
-    # Player recovery used to materialize every full Registry row sharing this
-    # card number/year before testing visible name tokens. Probe only the player
-    # column from the covering resolve index first; fetch full metadata solely
-    # for the one physically visible name family.
-    player_rows = _registry_fetchall(
-        "SELECT DISTINCT player FROM checklist_registry_entries "
-        "INDEXED BY checklist_registry_resolve_idx "
-        "WHERE normalized_card_number=? AND year=? AND active=1 "
-        "AND player IS NOT NULL AND trim(player)<>'' LIMIT 512",
-        (card_number, year),
-    )
+    # Probe only the bounded year + physical card-number family. Keep this
+    # index-only: the 17GB Registry lives on the external authority volume, and
+    # touching table rows for thousands of same-number cards can blow the live
+    # latency budget. Both covering indexes include the exact visible family key.
+    brand_key = str(identity.brand or "").strip()
+    manufacturer_key = str(identity.manufacturer or "").strip()
+    player_rows: list[dict[str, object]] = []
+    if brand_key:
+        player_rows = [
+            dict(row)
+            for row in _registry_fetchall(
+                "SELECT DISTINCT player,brand FROM checklist_registry_entries "
+                "INDEXED BY checklist_registry_resolve_idx "
+                "WHERE normalized_card_number=? AND year=? AND brand=? AND active=1 "
+                "AND player IS NOT NULL AND trim(player)<>'' LIMIT 2048",
+                (card_number, year, brand_key),
+            )
+        ]
+    # OCR brand text is often the marketing logo (Prizm/Select) while older
+    # Registry rows may store the publisher or a longer release label. If that
+    # exact brand probe is empty, fall back to the still-physical manufacturer
+    # before dropping only that weak family filter.
+    if not player_rows and manufacturer_key:
+        player_rows = [
+            dict(row)
+            for row in _registry_fetchall(
+                "SELECT DISTINCT player,manufacturer FROM checklist_registry_entries "
+                "INDEXED BY checklist_registry_resolve_manufacturer_idx "
+                "WHERE normalized_card_number=? AND year=? AND manufacturer=? AND active=1 "
+                "AND player IS NOT NULL AND trim(player)<>'' LIMIT 2048",
+                (card_number, year, manufacturer_key),
+            )
+        ]
+    if not player_rows:
+        player_rows = [
+            dict(row)
+            for row in _registry_fetchall(
+                "SELECT DISTINCT player FROM checklist_registry_entries "
+                "INDEXED BY checklist_registry_resolve_idx "
+                "WHERE normalized_card_number=? AND year=? AND active=1 "
+                "AND player IS NOT NULL AND trim(player)<>'' LIMIT 1024",
+                (card_number, year),
+            )
+        ]
     if not player_rows:
         return identity
 
@@ -2427,19 +3074,107 @@ def _recover_unique_registry_player_from_ocr(
         *local_vision.front.ocr,
         *(local_vision.back.ocr if local_vision.back else []),
     ]
-    matched_names = [
-        str(row["player"] or "").strip()
+    full_matches = [
+        str(row.get("player") or "").strip()
         for row in player_rows
-        if str(row["player"] or "").strip()
-        and _fast_player_visible(str(row["player"]), observations)
+        if str(row.get("player") or "").strip()
+        and _fast_player_visible(str(row.get("player")), observations)
     ]
-    players = {
+    full_players = {
         normalized_text(player): player
-        for player in matched_names
+        for player in full_matches
         if player
     }
-    if len(players) != 1:
+
+    if len(full_players) == 1:
+        matched_names = full_matches
+        players = full_players
+    elif len(full_players) > 1:
         return identity
+    else:
+        # Prefer an exact/near-exact fresh OCR surname before the deliberately
+        # tolerant surname gate. This prevents narrative words such as
+        # "presence" from competing with an exact printed surname like
+        # "Iriafen" while preserving the looser recovery for damaged OCR.
+        strong_surname_matches = [
+            str(row.get("player") or "").strip()
+            for row in player_rows
+            if str(row.get("player") or "").strip()
+            and _fast_player_surname_score(
+                str(row.get("player")), observations
+            ) >= 0.94
+        ]
+        strong_players = {
+            normalized_text(player): player
+            for player in strong_surname_matches
+            if player
+        }
+        if len(strong_players) == 1:
+            players = strong_players
+            matched_names = strong_surname_matches
+        else:
+            surname_matches = [
+                str(row.get("player") or "").strip()
+                for row in player_rows
+                if str(row.get("player") or "").strip()
+                and _fast_player_surname_visible(
+                    str(row.get("player")), observations
+                )
+            ]
+            players = {
+                normalized_text(player): player
+                for player in surname_matches
+                if player
+            }
+            matched_names = surname_matches
+        if len(players) == 0 and (brand_key or manufacturer_key):
+            # A populated brand/manufacturer slice can still be the wrong
+            # normalization family (for example visible PRIZM vs a longer
+            # Registry release label). Fall back once to the exact physical
+            # card-number/year prefix, then require a unique OCR-visible name.
+            fallback_rows = [
+                dict(row)
+                for row in _registry_fetchall(
+                    "SELECT DISTINCT player FROM checklist_registry_entries "
+                    "INDEXED BY checklist_registry_resolve_idx "
+                    "WHERE normalized_card_number=? AND year=? AND active=1 "
+                    "AND player IS NOT NULL AND trim(player)<>'' LIMIT 2048",
+                    (card_number, year),
+                )
+            ]
+            fallback_full_matches = [
+                str(row.get("player") or "").strip()
+                for row in fallback_rows
+                if str(row.get("player") or "").strip()
+                and _fast_player_visible(str(row.get("player")), observations)
+            ]
+            fallback_full_players = {
+                normalized_text(player): player
+                for player in fallback_full_matches
+                if player
+            }
+            if len(fallback_full_players) == 1:
+                matched_names = fallback_full_matches
+                players = fallback_full_players
+            elif len(fallback_full_players) > 1:
+                return identity
+            else:
+                fallback_surname_matches = [
+                    str(row.get("player") or "").strip()
+                    for row in fallback_rows
+                    if str(row.get("player") or "").strip()
+                    and _fast_player_surname_visible(
+                        str(row.get("player")), observations
+                    )
+                ]
+                players = {
+                    normalized_text(player): player
+                    for player in fallback_surname_matches
+                    if player
+                }
+                matched_names = fallback_surname_matches
+        if len(players) != 1:
+            return identity
 
     player_key, player = next(iter(players.items()))
     same_player = []
@@ -2485,6 +3220,135 @@ def _recover_unique_registry_player_from_ocr(
             "league": identity.league or unique_value("league"),
         }
     )
+
+
+
+def _recover_unique_registry_player_without_number(
+    identity: CardIdentity,
+    local_vision: LocalVisionEvidence,
+) -> CardIdentity:
+    """Canonicalize a physically visible player before card-number recovery.
+
+    Probe OCR-derived name strings through the Registry player index first.
+    This avoids scanning thousands of unrelated players in a broad year/brand
+    slice and makes the fast path deterministic for obvious names.
+    """
+    if not identity.year or not (identity.brand or identity.manufacturer):
+        return identity
+
+    year = str(identity.year)[:4]
+    observations = [
+        *local_vision.front.ocr,
+        *(local_vision.back.ocr if local_vision.back else []),
+    ]
+
+    def name_case(value: str) -> str:
+        words = []
+        for raw in re.sub(r"[^A-Za-z' -]+", " ", value).split():
+            low = raw.casefold()
+            if low.startswith("mc") and len(low) > 2:
+                word = "Mc" + low[2].upper() + low[3:]
+            elif low.startswith("o'") and len(low) > 2:
+                word = "O'" + low[2].upper() + low[3:]
+            else:
+                word = low[:1].upper() + low[1:]
+            words.append(word)
+        return " ".join(words)
+
+    probes: list[str] = []
+    primary_player_probe = name_case(str(identity.player)) if identity.player else ""
+    if primary_player_probe:
+        probes.append(primary_player_probe)
+    for obs in observations:
+        raw = str(getattr(obs, "text", "") or "").strip()
+        cleaned = re.sub(r"[^A-Za-z' -]+", " ", raw)
+        cleaned = " ".join(cleaned.split())
+        parts = cleaned.split()
+        if 2 <= len(parts) <= 4 and 5 <= len(cleaned) <= 48:
+            probes.append(name_case(cleaned))
+
+    probes = list(dict.fromkeys(value for value in probes if value))
+    matched_rows: list[dict[str, object]] = []
+    for probe in probes[:24]:
+        if identity.brand:
+            rows = _registry_fetchall(
+                "SELECT player,manufacturer,brand,product,team,sport,league "
+                "FROM checklist_registry_entries INDEXED BY checklist_registry_player_idx "
+                "WHERE player=? AND active=1 AND year=? AND brand=? LIMIT 512",
+                (probe, year, str(identity.brand)),
+            )
+        else:
+            rows = _registry_fetchall(
+                "SELECT player,manufacturer,brand,product,team,sport,league "
+                "FROM checklist_registry_entries INDEXED BY checklist_registry_player_idx "
+                "WHERE player=? AND active=1 AND year=? AND manufacturer=? LIMIT 512",
+                (probe, year, str(identity.manufacturer)),
+            )
+        for raw in rows:
+            row = dict(raw)
+            player = str(row.get("player") or "").strip()
+            if player:
+                matched_rows.append(row)
+        # A player name already read from the physical card is the strongest
+        # candidate string. If its exact indexed Registry probe succeeds, do not
+        # burn the seller SLA probing every unrelated biography/team OCR line.
+        if probe == primary_player_probe and matched_rows:
+            break
+
+    players = {}
+    for row in matched_rows:
+        player = str(row.get("player") or "").strip()
+        players.setdefault(normalized_text(player), player)
+    if len(players) != 1:
+        return identity
+
+    player_key, player = next(iter(players.items()))
+    same = [
+        row for row in matched_rows
+        if normalized_text(row.get("player")) == player_key
+    ]
+
+    def unique_value(field: str) -> str | None:
+        values = {
+            str(row.get(field) or "").strip()
+            for row in same
+            if str(row.get(field) or "").strip()
+        }
+        return next(iter(values)) if len(values) == 1 else None
+
+    return identity.model_copy(
+        update={
+            "player": player,
+            "manufacturer": identity.manufacturer or unique_value("manufacturer"),
+            "brand": identity.brand or unique_value("brand"),
+            "team": identity.team or unique_value("team"),
+            "sport": identity.sport or unique_value("sport"),
+            "league": identity.league or unique_value("league"),
+        }
+    )
+
+
+def _registry_legal_card_numbers_for_player_family(identity: CardIdentity) -> set[str]:
+    """Return only Registry-legal card numbers for one visible player/year family."""
+    if not identity.year or not identity.player:
+        return set()
+    rows = _registry_fetchall(
+        "SELECT card_number,normalized_card_number,manufacturer,brand,product "
+        "FROM checklist_registry_entries INDEXED BY checklist_registry_player_idx "
+        "WHERE player=? AND active=1 AND year=? LIMIT 8192",
+        (str(identity.player), str(identity.year)[:4]),
+    )
+    legal: set[str] = set()
+    for raw in rows:
+        row = dict(raw)
+        if identity.manufacturer and normalized_text(row.get("manufacturer")) != normalized_text(identity.manufacturer):
+            continue
+        if identity.brand and normalized_text(row.get("brand")) != normalized_text(identity.brand):
+            continue
+        value = normalized_card_number(row.get("normalized_card_number") or row.get("card_number"))
+        if value:
+            legal.add(value)
+    return legal
 
 
 def _registry_numbered_runs_for_identity(identity: CardIdentity) -> list[int]:
@@ -2591,6 +3455,11 @@ async def _probe_serial_micro_for_numbered_family(
         errors.extend(front_errors)
         side_name = "front"
         micro = parse_registry_bounded_serial_micro(observations, legal_runs)
+
+    # A failed native OCR crop is not evidence that the card has no stamp.
+    # Preserve uncertainty so a numbered sibling cannot be silently accepted
+    # as Base when Apple Vision is unavailable or errors on its input.
+    micro = mark_serial_probe_failure_as_unresolved(micro, errors)
 
     front_evidence = local_vision.front
     back_evidence = local_vision.back
@@ -2832,7 +3701,17 @@ def _fast_transposed_insert_code_visible(card_number: object, observations) -> b
 
 
 def _normalized_parallel_family(value: object) -> str:
-    text = normalized_text(value)
+    raw = re.sub(
+        r"^set\s*-\s*[^-]+\s*-\s*",
+        "",
+        str(value or "").strip(),
+        flags=re.I,
+    )
+    # Some imported Select checklist aliases arrive as "- Silver Prizms"
+    # alongside canonical "Set - Concourse - Silver" rows. Strip only the
+    # malformed leading separator so both labels collapse to one finish family.
+    raw = re.sub(r"^\s*-\s*", "", raw)
+    text = normalized_text(raw)
     if not text or text == "base":
         return "base"
     parts = [part for part in text.split() if part not in {"prizm", "prizms"}]
@@ -2895,58 +3774,19 @@ def _registry_confirms_identity(identity: CardIdentity) -> bool:
 
 
 def _fast_witness_text_matches(identity: CardIdentity, observations) -> bool:
-    """Require printed card number plus all meaningful player-name tokens.
+    """Require one physical card-number witness plus the physical player name.
 
-    Apple Vision often emits first/last names as separate boxes. Treat those as
-    one physical witness instead of requiring the full player string in one OCR
-    observation. This remains fail-closed: every meaningful name token and the
-    card number must be physically visible on the back.
+    Reuse the hardened bounded checks instead of maintaining a second stricter
+    token implementation. The duplicate implementation rejected valid names
+    such as A'ja Wilson even when the fast player and card-number guards both
+    passed independently.
     """
     if not identity.card_number or not identity.player:
         return False
-
-    def compact(value: object) -> str:
-        value = unicodedata.normalize("NFKD", str(value or "").casefold())
-        value = "".join(ch for ch in value if not unicodedata.combining(ch))
-        # Normalize the Cyrillic B lookalike Apple Vision occasionally emits.
-        value = value.translate(str.maketrans({"в": "b"}))
-        return re.sub(r"[^a-z0-9]+", "", value)
-
-    if not _fast_card_number_visible(identity.card_number, observations):
-        return False
-
-    observed_values = [compact(getattr(item, "text", "")) for item in observations]
-    observed_values = [value for value in observed_values if len(value) >= 2]
-    observed_tokens: list[str] = []
-    for item in observations:
-        observed_tokens.extend(
-            compact(token) for token in re.findall(r"[^\W_]+(?:['-][^\W_]+)*", str(getattr(item, "text", "")), flags=re.UNICODE)
-            if len(compact(token)) >= 2
-        )
-    token_pool = list(dict.fromkeys([*observed_values, *observed_tokens]))
-
-    suffixes = {"jr", "sr", "ii", "iii", "iv"}
-    player_parts = [part.strip() for part in re.split(r"[/&]", str(identity.player)) if part.strip()]
-    if not player_parts:
-        return False
-    for part in player_parts:
-        target_full = compact(part)
-        if any(SequenceMatcher(None, target_full, value).ratio() >= 0.78 for value in observed_values):
-            continue
-        name_tokens = [
-            compact(token) for token in re.findall(r"[^\W_]+(?:['-][^\W_]+)*", part, flags=re.UNICODE)
-            if compact(token) and compact(token) not in suffixes
-        ]
-        if not name_tokens:
-            return False
-        for token in name_tokens:
-            if len(token) <= 2:
-                matched = token in token_pool
-            else:
-                matched = max((SequenceMatcher(None, token, value).ratio() for value in token_pool), default=0.0) >= 0.78
-            if not matched:
-                return False
-    return True
+    return (
+        _fast_card_number_visible(identity.card_number, observations)
+        and _fast_player_visible(identity.player, observations)
+    )
 
 
 def _metric_from_match_reason(match: MemoryMatch, prefix: str) -> float:
@@ -3083,6 +3923,21 @@ async def _local_vision_for_exact_pair(
     of seconds without adding evidence. Changed pixels have a different pair hash
     and always fall through to fresh local vision.
     """
+    # FRESH_FAST_OCR_BYPASS_V1
+    #
+    # A seller-facing identity scan must read the CURRENT physical pixels.
+    # Do not wait on persisted scan-history OCR or reuse an older exact-pair
+    # receipt before the fresh witness runs. This also prevents a prior wrong
+    # physical interpretation from becoming a permanent fast-path answer.
+    if fast_ocr:
+        return await analyze_local_vision(
+            front_content,
+            back_content,
+            settings,
+            fast_ocr=True,
+            precomputed_ocr=precomputed_ocr,
+        )
+
     cached = _remembered_local_vision(image_pair_sha256)
     if _local_vision_cache_reusable(cached):
         return cached
@@ -4170,30 +5025,51 @@ async def _save_scan(
     local_vision,
     checklist_result: ChecklistResult,
     status: str,
-) -> None:
-    await asyncio.to_thread(
-        store.save_scan,
-        scan_id=scan_id,
-        card_uuid=card_uuid,
-        created_at=created_at,
-        front_sha256=front_image.sha256,
-        back_sha256=back_image.sha256 if back_image else None,
-        image_pair_sha256=combined_hash,
-        front_reference_sha256=front_image.reference_sha256,
-        back_reference_sha256=(
+    specimen_attributes: SpecimenAttributes | None = None,
+) -> str:
+    save_kwargs = {
+        "scan_id": scan_id,
+        "card_uuid": card_uuid,
+        "created_at": created_at,
+        "front_sha256": front_image.sha256,
+        "back_sha256": back_image.sha256 if back_image else None,
+        "image_pair_sha256": combined_hash,
+        "front_reference_sha256": front_image.reference_sha256,
+        "back_reference_sha256": (
             back_image.reference_sha256 if back_image else None
         ),
-        front_perceptual_hash=front_image.perceptual_hash,
-        back_perceptual_hash=(back_image.perceptual_hash if back_image else None),
-        local_suggestion=(
+        "front_perceptual_hash": front_image.perceptual_hash,
+        "back_perceptual_hash": (back_image.perceptual_hash if back_image else None),
+        "local_suggestion": (
             suggestion.model_dump(mode="json") if suggestion else None
         ),
-        local_vision=(
+        "local_vision": (
             local_vision.model_dump(mode="json") if local_vision else None
         ),
-        checklist=checklist_result.model_dump(mode="json"),
-        status=status,
-    )
+        "specimen_attributes": (
+            specimen_attributes.model_dump(mode="json") if specimen_attributes else None
+        ),
+        "checklist": checklist_result.model_dump(mode="json"),
+        "status": status,
+    }
+    try:
+        await asyncio.to_thread(store.save_scan, **save_kwargs)
+        return card_uuid
+    except ValueError as error:
+        # A concurrent fresh scan can bind this exact physical pair after the
+        # request's initial UUID lookup and before the final archival insert.
+        # Keep the fresh OCR/Registry result, but append its scan event to that
+        # existing physical-card UUID rather than failing or minting a duplicate.
+        if "exact front/back image pair is already bound" not in str(error):
+            raise
+        existing_pair_uuid = await asyncio.to_thread(
+            store.card_uuid_for_image_pair, combined_hash
+        )
+        if not existing_pair_uuid:
+            raise
+        save_kwargs["card_uuid"] = existing_pair_uuid
+        await asyncio.to_thread(store.save_scan, **save_kwargs)
+        return existing_pair_uuid
 
 
 @app.post(
@@ -4452,6 +5328,19 @@ def _quarantined_physical_pair_guard(
     return None
 
 
+def _warm_identity_model_background() -> None:
+    """Best-effort Mac-local VLM prewarm without blocking API startup."""
+    if "pytest" in sys.modules:
+        return
+    if os.getenv("INSTACOMP_AI_WARM_IDENTITY_MODEL", "0").strip().lower() not in {"1", "true", "yes", "on"}:
+        return
+    try:
+        asyncio.run(reader.warm_identity_reader())
+    except Exception:
+        # Fast OCR/Registry identity remains fully usable if Ollama is unavailable.
+        return
+
+
 def _initialize_live_scan_caches() -> None:
     global _quarantine_guard_cache
     if os.getenv("INSTACOMP_AI_EXTERNAL_BACKGROUND_WORKERS", "").strip().lower() in {"1", "true", "yes", "on"}:
@@ -4461,9 +5350,243 @@ def _initialize_live_scan_caches() -> None:
     # The large trusted-memory corpus remains asynchronous. Interactive scans use
     # physical OCR/Registry until it is ready rather than waiting on its load.
     _runtime_cache_prewarm_thread.start()
+    threading.Thread(
+        target=_warm_identity_model_background,
+        name="instacomp-identity-model-prewarm",
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=prewarm_mlx_finish_runtime,
+        name="instacomp-mlx-finish-prewarm",
+        daemon=True,
+    ).start()
 
 
 _initialize_live_scan_caches()
+
+async def _physical_serial_witness_for_family_hint(
+    *,
+    front_content: bytes,
+    back_content: bytes,
+    observations,
+    expected_run: int,
+    expected_serial: str | None,
+) -> tuple[SerialEvidence | None, list[str]]:
+    """Physically prove a numbered-card stamp before Registry lock."""
+    expected_parts = None
+    if expected_serial and re.fullmatch(r"\d+\s*/\s*\d+", expected_serial.strip()):
+        left, right = expected_serial.split("/", 1)
+        expected_parts = (int(left), int(right))
+
+    def acceptable(evidence: SerialEvidence | None) -> bool:
+        return bool(
+            evidence
+            and evidence.stamp_present
+            and evidence.numerator is not None
+            and evidence.visible_denominator is not None
+            and int(evidence.visible_denominator) == int(expected_run)
+        )
+
+    receipts: list[str] = []
+    serial = parse_serial_evidence(observations)
+    if acceptable(serial):
+        receipts.append("physical_serial_source:pair_ocr")
+
+    if not acceptable(serial):
+        front_obs = [o for o in observations if getattr(o, "side", "") == "front"]
+        back_obs = [o for o in observations if getattr(o, "side", "") == "back"]
+        loop = asyncio.get_running_loop()
+        recoveries = await asyncio.gather(
+            loop.run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_serial_box_recovery(
+                    front_content, front_obs, side="front", expected_run=int(expected_run)
+                ),
+            ),
+            loop.run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_serial_box_recovery(
+                    back_content, back_obs, side="back", expected_run=int(expected_run)
+                ),
+            ),
+        )
+        for side, (items, errors) in zip(("front", "back"), recoveries):
+            receipts.extend(f"serial_box_{side}_error:{e}" for e in errors[:3])
+            for observation in items:
+                candidate = physical_serial_candidate(
+                    observation.text, expected_run=int(expected_run)
+                )
+                if candidate is None or candidate[0] is None:
+                    continue
+                numerator, denominator = candidate
+                evidence = SerialEvidence(
+                    stamp_present=True,
+                    exact_stamp=f"{int(numerator)}/{int(denominator)}",
+                    numerator=int(numerator),
+                    visible_denominator=int(denominator),
+                    side=side,
+                    confidence=float(observation.confidence),
+                    source_text=f"apple_vision_serial_box:{observation.text}",
+                    box=observation.box,
+                )
+                if acceptable(evidence):
+                    serial = evidence
+                    receipts.append("physical_serial_source:serial_box")
+                    break
+            if acceptable(serial):
+                break
+
+    if not acceptable(serial):
+        loop = asyncio.get_running_loop()
+        recoveries = await asyncio.gather(
+            loop.run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_serial_forensic(
+                    front_content, side="front"
+                ),
+            ),
+            loop.run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_serial_forensic(
+                    back_content, side="back"
+                ),
+            ),
+        )
+        for side, (items, errors) in zip(("front", "back"), recoveries):
+            receipts.extend(f"serial_forensic_{side}_error:{e}" for e in errors[:3])
+            for observation in items:
+                candidate = physical_serial_candidate(
+                    observation.text, expected_run=int(expected_run)
+                )
+                evidence = None
+                if candidate is not None and candidate[0] is not None:
+                    numerator, denominator = candidate
+                    evidence = SerialEvidence(
+                        stamp_present=True,
+                        exact_stamp=f"{int(numerator)}/{int(denominator)}",
+                        numerator=int(numerator),
+                        visible_denominator=int(denominator),
+                        side=side,
+                        confidence=float(observation.confidence),
+                        source_text=f"apple_vision_serial_forensic:{observation.text}",
+                        box=observation.box,
+                    )
+                else:
+                    # The Registry has already proven the exact numbered family and
+                    # therefore the denominator. If the forensic serial crop contains
+                    # one isolated numeric token no larger than that run, preserve the
+                    # physically visible numerator and pair it with the proven run.
+                    # This never accepts prose/card-number text because the numerator
+                    # parser requires the entire crop to be only that numeric token.
+                    numerator = physical_serial_numerator_candidate(
+                        observation.text, expected_run=int(expected_run)
+                    )
+                    if numerator is None and side == "back" and "center_serial_stamp" in str(observation.source or ""):
+                        decorated = re.fullmatch(
+                            r"[^A-Za-z0-9]*([0-9]{1,5})[^A-Za-z0-9]*",
+                            str(observation.text or "").strip(),
+                        )
+                        if decorated:
+                            value = int(decorated.group(1))
+                            if 0 <= value <= int(expected_run):
+                                numerator = value
+                    if numerator is not None:
+                        evidence = SerialEvidence(
+                            stamp_present=True,
+                            exact_stamp=f"{int(numerator)}/{int(expected_run)}",
+                            numerator=int(numerator),
+                            visible_denominator=int(expected_run),
+                            side=side,
+                            confidence=float(observation.confidence),
+                            source_text=f"apple_vision_serial_forensic_numerator:{observation.text}",
+                            box=observation.box,
+                        )
+                if acceptable(evidence):
+                    serial = evidence
+                    receipts.append("physical_serial_source:serial_forensic")
+                    break
+            if acceptable(serial):
+                break
+
+    if not acceptable(serial):
+        # One sequential lower-center stamp witness avoids the instability of
+        # burying a tiny dark-on-dark embossed numerator inside the concurrent
+        # forensic batch. Use it only on the back and only for the already-proven
+        # numbered family denominator.
+        center_obs, center_errors = await asyncio.to_thread(
+            image_orientation_reader.recognize_center_serial_stamp,
+            back_content,
+            side="back",
+        )
+        receipts.extend(f"serial_center_back_error:{e}" for e in center_errors[:3])
+        for observation in center_obs:
+            text = str(observation.text or "").strip()
+            decorated = re.fullmatch(
+                r"[^A-Za-z0-9]*([0-9]{1,5})[^A-Za-z0-9]*",
+                text,
+            )
+            if not decorated:
+                continue
+            numerator = int(decorated.group(1))
+            if not (0 <= numerator <= int(expected_run)):
+                continue
+            evidence = SerialEvidence(
+                stamp_present=True,
+                exact_stamp=f"{numerator}/{int(expected_run)}",
+                numerator=numerator,
+                visible_denominator=int(expected_run),
+                side="back",
+                confidence=float(observation.confidence),
+                source_text=f"apple_vision_center_serial_stamp:{text}",
+                box=observation.box,
+            )
+            if acceptable(evidence):
+                serial = evidence
+                receipts.append("physical_serial_source:center_serial_stamp")
+                break
+
+    if not acceptable(serial):
+        # The ensemble talks directly to Ollama. Never let a seller-facing scan
+        # wait on that fallback when the runtime reader is disabled/unavailable.
+        # Local Apple Vision remains authoritative; failure here stays fail-closed.
+        ollama_ready = False
+        if settings.ollama_runtime_reader_enabled:
+            try:
+                ollama_ready = await asyncio.wait_for(reader.health(), timeout=1.0)
+            except (asyncio.TimeoutError, OSError):
+                ollama_ready = False
+        if not ollama_ready:
+            receipts.append("serial_ocr_ensemble_skipped:ollama_unavailable")
+        else:
+            try:
+                ensemble, receipt = await asyncio.wait_for(
+                    read_serial_stamp_ensemble(
+                        front_content,
+                        back_content,
+                        expected_run=int(expected_run),
+                        expected_serial=expected_serial or None,
+                        settings=settings,
+                    ),
+                    timeout=12.0,
+                )
+            except asyncio.TimeoutError:
+                ensemble, receipt = None, None
+                receipts.append("serial_ocr_ensemble_timeout")
+            if acceptable(ensemble):
+                serial = ensemble
+                receipts.append("physical_serial_source:serial_ocr_ensemble")
+                if receipt:
+                    receipts.append(f"serial_ensemble:{str(receipt)[:160]}")
+
+    if not acceptable(serial):
+        return None, [*receipts, "physical_serial_not_proven"]
+
+    physical = f"{int(serial.numerator)}/{int(serial.visible_denominator)}"
+    receipts.append(f"physical_serial:{physical}")
+    if expected_serial and expected_serial.strip() != physical:
+        receipts.append(f"stale_serial_corrected:{expected_serial.strip()}->{physical}")
+    return serial, receipts
+
 
 async def _family_hint_registry_response(
     *,
@@ -4471,6 +5594,11 @@ async def _family_hint_registry_response(
     back_content: bytes | None,
     requested_card_uuid: str | None,
     identity_hint: CardIdentity | None,
+    front_rotation_hint: int | None = None,
+    back_rotation_hint: int | None = None,
+    preverified_card_number: str | None = None,
+    preverified_number_receipts: list[str] | None = None,
+    preverified_local_vision: LocalVisionEvidence | None = None,
 ) -> AnalyzeResponse | None:
     """Resolve a known card family without entering the deep identity path.
 
@@ -4485,8 +5613,12 @@ async def _family_hint_registry_response(
         return None
     try:
         front_result, back_result = await asyncio.gather(
-            _validate_upright_scan_image(front_content, side="front", requested_rotation=None),
-            _validate_upright_scan_image(back_content, side="back", requested_rotation=None),
+            _validate_upright_scan_image(
+                front_content, side="front", requested_rotation=front_rotation_hint
+            ),
+            _validate_upright_scan_image(
+                back_content, side="back", requested_rotation=back_rotation_hint
+            ),
         )
     except ValueError:
         return None
@@ -4505,21 +5637,263 @@ async def _family_hint_registry_response(
         "front_evidence": front_orientation["evidence"],
         "back_evidence": back_orientation["evidence"],
     }
-    observations, errors = await asyncio.get_running_loop().run_in_executor(
-        fast_id_executor,
-        lambda: image_orientation_reader.recognize_identity_witness_single(back_image.content, side="back"),
+    # Physical identity belongs to the submitted CARD PAIR, not to one side.
+    # Player names often print most clearly on the front while the checklist
+    # number is easiest to read on the back. Requiring both from back-only OCR
+    # caused correct cards to fall into the slow forensic lane.
+    # OCR the highest-fidelity physical pixels. A 0-degree normalize/re-encode
+    # can blur tiny checklist glyphs (for example Prizm "No. 144") enough for
+    # Vision to drop them even though the original seller scan reads cleanly.
+    # Only switch to normalized bytes when a real rotation was applied.
+    front_witness_bytes = (
+        front_content if int(front_image.rotation_applied or 0) == 0 else front_image.content
     )
-    witness_ok = _fast_witness_text_matches(identity_hint, observations)
-    if not witness_ok:
-        recovery, recovery_errors = await asyncio.get_running_loop().run_in_executor(
-            fast_id_executor,
-            lambda: image_orientation_reader.recognize_identity_witness_recovery(back_image.content, side="back"),
+    back_witness_bytes = (
+        back_content if int(back_image.rotation_applied or 0) == 0 else back_image.content
+    )
+    reused_local_vision = preverified_local_vision is not None
+    if reused_local_vision:
+        # Unknown-card fast scans already ran one fresh local Vision pass over
+        # these exact request bytes. Reuse those observations instead of paying
+        # for a second front/back Apple Vision read. Manual/external identity
+        # hints never enter this lane because they do not supply this object.
+        front_observations = list(preverified_local_vision.front.ocr)
+        back_observations = list(
+            preverified_local_vision.back.ocr
+            if preverified_local_vision.back is not None
+            else []
         )
-        errors = [*errors, *recovery_errors]
-        for item in recovery:
+        front_errors = list(preverified_local_vision.front.errors)
+        back_errors = list(
+            preverified_local_vision.back.errors
+            if preverified_local_vision.back is not None
+            else []
+        )
+    else:
+        (front_observations, front_errors), (back_observations, back_errors) = await asyncio.gather(
+            asyncio.get_running_loop().run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_identity_witness_single(front_witness_bytes, side="front"),
+            ),
+            asyncio.get_running_loop().run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_identity_witness_single(back_witness_bytes, side="back"),
+            ),
+        )
+    observations = list(front_observations)
+    for item in back_observations:
+        if not image_orientation_reader._is_duplicate(item, observations):
+            observations.append(item)
+    errors = [*front_errors, *back_errors]
+    effective_hint = identity_hint
+    witness_receipts: list[str] = list(preverified_number_receipts or [])
+    if reused_local_vision:
+        witness_receipts.append("fresh_same_request_local_vision_reused")
+    player_visible = _fast_player_visible(effective_hint.player, observations)
+    number_visible = _fast_card_number_visible(effective_hint.card_number, observations)
+    expected_number = normalized_card_number(effective_hint.card_number)
+
+    # The caller may already have proven the exact printed number from the tiny
+    # local No.+value reflow witness. Apply that physical fact before surname
+    # corroboration; otherwise the family path needlessly falls through to an
+    # external player witness even though both local facts are already present.
+    if (
+        not number_visible
+        and preverified_card_number
+        and expected_number
+        and normalized_card_number(preverified_card_number) == expected_number
+    ):
+        number_visible = True
+        witness_receipts.append("fresh_preverified_corner_number_witness")
+
+    if player_visible and not number_visible:
+        header_obs, header_errors = await asyncio.to_thread(
+            image_orientation_reader.recognize_back_header,
+            back_witness_bytes,
+            side="back",
+        )
+        witness_receipts.extend(f"back_header_error:{value}" for value in header_errors[:3])
+        for item in header_obs:
             if not image_orientation_reader._is_duplicate(item, observations):
                 observations.append(item)
-        witness_ok = _fast_witness_text_matches(identity_hint, observations)
+        if _fast_card_number_visible(effective_hint.card_number, header_obs):
+            number_visible = True
+            witness_receipts.append("fresh_back_header_number_witness")
+
+    # Reflective Prizm fronts often hide the first name from full-card OCR while
+    # the back still prints the surname and exact checklist number. Allow the
+    # local Registry to canonicalize that first name only when this exact target
+    # family exists; the physical number and surname remain mandatory.
+    if (
+        not player_visible
+        and number_visible
+        and _fast_player_surname_visible(effective_hint.player, observations)
+    ):
+        surname_probe = {
+            "year": effective_hint.year,
+            "manufacturer": effective_hint.manufacturer,
+            "brand": effective_hint.brand,
+            "setName": effective_hint.set_name,
+            "subset": effective_hint.subset,
+            "cardNumber": effective_hint.card_number,
+            "player": effective_hint.player,
+            "parallel": None,
+            "variation": effective_hint.variation,
+            "isAuto": effective_hint.autograph if isinstance(effective_hint.autograph, bool) else None,
+            "isRelic": effective_hint.memorabilia if isinstance(effective_hint.memorabilia, bool) else None,
+        }
+        surname_rows = await asyncio.to_thread(
+            registry_store.visible_treatment_candidates,
+            surname_probe,
+        )
+        if surname_rows:
+            player_visible = True
+            witness_receipts.append(
+                "fresh_exact_number_plus_visible_surname_registry_family"
+            )
+
+    if reused_local_vision and not (player_visible and number_visible):
+        # Preserve the old stronger identity witness as a local fallback only
+        # when the already-fresh observations are insufficient. Easy scans pay
+        # one OCR pass; hard scans retain the previous fail-closed behavior.
+        (retry_front, retry_front_errors), (retry_back, retry_back_errors) = await asyncio.gather(
+            asyncio.get_running_loop().run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_identity_witness_single(front_witness_bytes, side="front"),
+            ),
+            asyncio.get_running_loop().run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_identity_witness_single(back_witness_bytes, side="back"),
+            ),
+        )
+        for item in [*retry_front, *retry_back]:
+            if not image_orientation_reader._is_duplicate(item, observations):
+                observations.append(item)
+        errors.extend([*retry_front_errors, *retry_back_errors])
+        player_visible = _fast_player_visible(effective_hint.player, observations)
+        number_visible = _fast_card_number_visible(effective_hint.card_number, observations)
+        if (
+            not number_visible
+            and preverified_card_number
+            and expected_number
+            and normalized_card_number(preverified_card_number) == expected_number
+        ):
+            number_visible = True
+        witness_receipts.append("same_request_local_vision_reuse_fallback_identity_witness")
+
+    if not player_visible:
+        physical_player, player_receipts = await _cloudflare_player_name_witness(front_content)
+        witness_receipts.extend(player_receipts)
+        if (
+            physical_player
+            and normalized_text(physical_player) == normalized_text(effective_hint.player)
+        ):
+            player_visible = True
+            witness_receipts.append("fresh_front_cloudflare_player_witness")
+    witness_ok = player_visible and number_visible
+    expected_number = normalized_card_number(effective_hint.card_number)
+    if (
+        not witness_ok
+        and preverified_card_number
+        and expected_number
+        and normalized_card_number(preverified_card_number) == expected_number
+        and player_visible
+    ):
+        number_visible = True
+        witness_ok = True
+        witness_receipts.append("fresh_pair_player_plus_preverified_corner_number_witness")
+
+    # Prizm prints a large V on the back of photo/rookie variations. Reuse the
+    # already-tested physical marker logic on the bounded OCR observations and
+    # carry that fact into Registry narrowing.
+    if normalized_text(effective_hint.brand) == "prizm":
+        front_side = SideVisionEvidence(
+            side="front", width=1, height=1, ocr=front_observations
+        )
+        back_side = SideVisionEvidence(
+            side="back", width=1, height=1, ocr=back_observations
+        )
+        front_rookie = _front_rookie_mark(front_side)
+        back_variation = _back_variation_mark(back_side)
+
+        # On Prizm variation backs, Apple Vision can merge the large adjacent V
+        # into the checklist-number crop and OCR 149V as 149P. This is accepted
+        # only from an explicit number-corner physical crop, only when the
+        # checklist number itself is numeric, and only with an independent front
+        # rookie badge for Rookie Variation.
+        expected_code = _compact_ocr_code(effective_hint.card_number)
+        merged_variation = False
+        if expected_code.isdigit():
+            for obs in back_observations:
+                source = str(getattr(obs, "source", "") or "").casefold()
+                if "number_corner" not in source:
+                    continue
+                observed_code = _compact_ocr_code(getattr(obs, "text", ""))
+                for prefix in ("CARDNO", "NO"):
+                    if observed_code.startswith(prefix):
+                        observed_code = observed_code[len(prefix):]
+                        break
+                if observed_code in {expected_code + "V", expected_code + "P"}:
+                    merged_variation = True
+                    break
+
+        if back_variation or merged_variation:
+            variation = "Rookie Variation" if front_rookie else "Variation"
+            effective_hint = effective_hint.model_copy(
+                update={"variation": variation}
+            )
+            witness_receipts.append(
+                (
+                    "fresh_back_variation_mark:"
+                    if back_variation
+                    else "fresh_number_corner_merged_variation:"
+                )
+                + variation.replace(" ", "_").lower()
+            )
+
+    if not witness_ok and player_visible:
+        expected_number = normalized_card_number(effective_hint.card_number)
+        physical_number, number_receipts = await _cloudflare_card_number_witness(
+            back_content,
+            legal_numbers={expected_number} if expected_number else None,
+        )
+        witness_receipts.extend(number_receipts)
+        if (
+            physical_number
+            and expected_number
+            and normalized_card_number(physical_number) == expected_number
+        ):
+            number_visible = True
+            witness_ok = player_visible and number_visible
+            witness_receipts.append(
+                "fresh_pair_player_plus_expected_cloudflare_number_witness"
+            )
+
+    expected_serial_run = effective_hint.serial_run
+    if expected_serial_run is None and effective_hint.serial_number:
+        serial_match = re.search(r"/\s*(\d{1,5})\b", str(effective_hint.serial_number))
+        if serial_match:
+            expected_serial_run = int(serial_match.group(1))
+
+    physical_serial = None
+    if expected_serial_run is not None:
+        physical_serial, serial_receipts = await _physical_serial_witness_for_family_hint(
+            front_content=front_content,
+            back_content=back_content,
+            observations=observations,
+            expected_run=int(expected_serial_run),
+            expected_serial=str(effective_hint.serial_number or "").strip() or None,
+        )
+        witness_receipts.extend(serial_receipts)
+        if physical_serial is None:
+            witness_ok = False
+        else:
+            effective_hint = effective_hint.model_copy(
+                update={
+                    "serial_number": f"{int(physical_serial.numerator)}/{int(physical_serial.visible_denominator)}",
+                    "serial_run": int(physical_serial.visible_denominator),
+                }
+            )
 
     scan_id = str(uuid4())
     created_at = datetime.now(timezone.utc)
@@ -4530,9 +5904,15 @@ async def _family_hint_registry_response(
         image_pair_sha256=combined_hash,
         first_scan_id=scan_id,
     )
-    await asyncio.gather(
-        asyncio.to_thread(persist_image, front_image, image_store_path, "front"),
-        asyncio.to_thread(persist_image, back_image, image_store_path, "back"),
+    # Archival image writes are durability work, not identity evidence. Keep the
+    # seller-facing family fast path off the external-volume write latency: the
+    # generic scan path already treats these writes as background work, and the
+    # normalized bytes remain in memory for the entire identity decision.
+    asyncio.create_task(
+        asyncio.to_thread(persist_image, front_image, image_store_path, "front")
+    )
+    asyncio.create_task(
+        asyncio.to_thread(persist_image, back_image, image_store_path, "back")
     )
 
     def review(reason: str, candidate_count: int = 0, receipts: list[str] | None = None) -> AnalyzeResponse:
@@ -4549,35 +5929,100 @@ async def _family_hint_registry_response(
             image_pair_sha256=combined_hash, front_reference_sha256=front_image.reference_sha256,
             back_reference_sha256=back_image.reference_sha256, front_perceptual_hash=front_image.perceptual_hash,
             back_perceptual_hash=back_image.perceptual_hash, image_orientation=orientation_receipt,
-            back_evidence=["family_hint_back_witness_failed" if not witness_ok else "family_hint_back_witness_passed"],
+            back_evidence=[
+                "family_hint_physical_pair_witness_failed" if not witness_ok
+                else "family_hint_physical_pair_witness_passed",
+                *witness_receipts,
+            ],
             memory_matches=[], local_suggestion=None, local_vision=None, checklist=checklist,
             trusted_identity=None, match_source="none", visual_match_score=None, canonical_filename=None,
             pricing_allowed=False, learning_allowed=False, next_action=reason,
         )
 
-    if orientation_status != "completed":
-        result = review("Known family found, but both image orientations were not physically proven.")
-        await _save_scan(scan_id=scan_id, card_uuid=physical_card_uuid, created_at=created_at, front_image=front_image, back_image=back_image, combined_hash=combined_hash, suggestion=None, local_vision=None, checklist_result=result.checklist, status=result.status)
-        return result
+    # Orientation is a presentation/publication concern, not an identity fact.
+    # If the physical pair itself proves player + card number and Registry/finish
+    # locks one exact identity, retain that exact identity even when orientation
+    # confidence is review-only. Pending can fix rotation independently later.
     if not witness_ok:
-        result = review("Known family hint did not pass the fresh physical back player/card-number witness.")
+        failure_reason = (
+            "Numbered card family was found, but the physical serial stamp was not proven."
+            if expected_serial_run is not None and physical_serial is None
+            else "Known family hint did not pass the fresh physical card-pair player/card-number witness."
+        )
+        result = review(
+            failure_reason,
+            receipts=["family_hint_registry_fast_path", *witness_receipts],
+        )
         await _save_scan(scan_id=scan_id, card_uuid=physical_card_uuid, created_at=created_at, front_image=front_image, back_image=back_image, combined_hash=combined_hash, suggestion=None, local_vision=None, checklist_result=result.checklist, status=result.status)
         return result
 
+    # Pending metadata historically abused subset for player names and finish
+    # labels. Only Select physical tier is useful as a hard family discriminator.
+    subset_norm = normalized_text(effective_hint.subset)
+    player_norm = normalized_text(effective_hint.player)
+    brand_norm = normalized_text(effective_hint.brand)
+    family_subset = effective_hint.subset
+    if subset_norm == player_norm:
+        family_subset = None
+    if brand_norm != "select":
+        family_subset = None
+    elif not any(token in subset_norm for token in ("concourse", "premier", "courtside")):
+        family_subset = None
+
     probe = {
-        "year": identity_hint.year, "manufacturer": identity_hint.manufacturer,
-        "brand": identity_hint.brand, "setName": identity_hint.set_name,
-        "subset": identity_hint.subset, "cardNumber": identity_hint.card_number,
-        "player": identity_hint.player, "parallel": None,
-        "isAuto": identity_hint.autograph if isinstance(identity_hint.autograph, bool) else None,
-        "isRelic": identity_hint.memorabilia if isinstance(identity_hint.memorabilia, bool) else None,
+        "year": effective_hint.year, "manufacturer": effective_hint.manufacturer,
+        "brand": effective_hint.brand, "setName": effective_hint.set_name,
+        "subset": family_subset, "cardNumber": effective_hint.card_number,
+        "player": effective_hint.player, "parallel": None,
+        "variation": effective_hint.variation,
+        "isAuto": effective_hint.autograph if isinstance(effective_hint.autograph, bool) else None,
+        "isRelic": effective_hint.memorabilia if isinstance(effective_hint.memorabilia, bool) else None,
     }
     rows = await asyncio.to_thread(registry_store.visible_treatment_candidates, probe)
-    rows = [row for row in rows if not row.get("serial_run")]
+    hinted_serial_run = effective_hint.serial_run
+    if hinted_serial_run is not None:
+        rows = [
+            row for row in rows
+            if row.get("serial_run") is not None
+            and int(row.get("serial_run")) == int(hinted_serial_run)
+        ]
+    else:
+        rows = [row for row in rows if not row.get("serial_run")]
+    if not rows:
+        # Fail-safe family retry: set/subset/variation are parser-level hints and
+        # must never erase a Registry family already proven by year + product +
+        # player + card number. Re-query only those hard core facts, then reapply
+        # the physical serial constraint. This also makes a just-restarted Registry
+        # resilient to a transient empty first family read without guessing a finish.
+        core_probe = dict(probe)
+        core_probe["setName"] = None
+        core_probe["subset"] = None
+        core_probe["variation"] = None
+        retry_rows = await asyncio.to_thread(registry_store.visible_treatment_candidates, core_probe)
+        if hinted_serial_run is not None:
+            rows = [
+                row for row in retry_rows
+                if row.get("serial_run") is not None
+                and int(row.get("serial_run")) == int(hinted_serial_run)
+            ]
+        else:
+            rows = [row for row in retry_rows if not row.get("serial_run")]
     if not rows:
         result = review("Known physical family has no legal non-serial Registry treatment candidates.")
         await _save_scan(scan_id=scan_id, card_uuid=physical_card_uuid, created_at=created_at, front_image=front_image, back_image=back_image, combined_hash=combined_hash, suggestion=None, local_vision=None, checklist_result=result.checklist, status=result.status)
         return result
+
+    # Core physical facts may uniquely determine the insert/set even when OCR
+    # misses a stylized title (for example FIREWORKS). Registry may fill only a
+    # set name shared by every remaining legal row; it may not choose a finish.
+    unique_set_names = {
+        normalized_text(row.get("set_name")): str(row.get("set_name") or "").strip()
+        for row in rows
+        if str(row.get("set_name") or "").strip()
+    }
+    inferred_set_name = effective_hint.set_name
+    if not inferred_set_name and len(unique_set_names) == 1:
+        inferred_set_name = next(iter(unique_set_names.values()))
 
     # Collapse Registry naming aliases (Silver/Prizms Silver, Blue Velocity/Prizms Blue Velocity, etc.)
     # before asking the physical finish classifier. Duplicate semantic choices make an otherwise
@@ -4596,20 +6041,100 @@ async def _family_hint_registry_response(
             treatment_colors = dict(analyze_treatment_colors(_decode_image(front_image.content)).proportions)
         except Exception:
             treatment_colors = {}
-        finish = await classify_registry_finish(
-            front_image.content, legal_finishes,
-            base_url=settings.ollama_base_url, model=settings.ollama_model,
-            timeout=min(float(settings.ollama_timeout_seconds), 14.0),
-            color_proportions=treatment_colors,
+
+        fast_family_set_names = " ".join(
+            dict.fromkeys(
+                str(row.get("set_name") or "").strip()
+                for row in rows
+                if str(row.get("set_name") or "").strip()
+            )
         )
+        preverified_pattern = (
+            preverified_local_vision.front.pattern
+            if preverified_local_vision is not None
+            else None
+        )
+        preverified_pattern_score = max(
+            (float(v or 0.0) for v in (preverified_pattern.scores or {}).values()),
+            default=0.0,
+        ) if preverified_pattern is not None else 0.0
+        physical_pattern = (
+            preverified_pattern
+            if preverified_pattern is not None and preverified_pattern_score >= 0.10
+            else analyze_pattern(_decode_image(front_image.content))
+        )
+        finish = classify_registry_finish_v9_index(
+            legal_finishes,
+            color_proportions=treatment_colors,
+            pattern_label=physical_pattern.label,
+            pattern_scores=physical_pattern.scores,
+            pattern_geometry=physical_pattern.geometry,
+            front_image=front_image.content,
+            product_family=(
+                f"{effective_hint.year or ''} "
+                f"{effective_hint.brand or ''} "
+                f"{inferred_set_name or ''} "
+                f"{fast_family_set_names}"
+            ),
+        )
+
+        # Production identity is fail-closed. A model may be useful offline as
+        # a teacher, but it may not convert an ambiguous physical finish into an
+        # exact sellable Registry identity. Only deterministic physical evidence
+        # may select a parallel on the seller-facing family fast path.
         selected_finish = finish.parallel
-        finish_receipts = [f"finish_confidence:{finish.confidence:.3f}", *list(finish.evidence)]
+        fail_closed_finish_receipts = (
+            ["model_finish_escalation_required_fail_closed"]
+            if selected_finish is None
+            else []
+        )
+        finish_receipts = [
+            f"finish_confidence:{finish.confidence:.3f}",
+            f"pattern_label:{physical_pattern.label}",
+            f"pattern_velocity:{float(physical_pattern.scores.get('velocity', 0.0)):.3f}",
+            f"pattern_ice:{float(physical_pattern.scores.get('cracked_ice', 0.0)):.3f}",
+            "legal_finishes:" + "|".join(legal_finishes),
+            f"family_year:{effective_hint.year or ''}",
+            f"family_brand:{effective_hint.brand or ''}",
+            f"family_set:{effective_hint.set_name or ''}",
+            f"family_inferred_set:{inferred_set_name or ''}",
+            f"family_player:{effective_hint.player or ''}",
+            f"family_card:{effective_hint.card_number or ''}",
+            *list(finish.evidence),
+            *fail_closed_finish_receipts,
+        ]
+
+        # The 2025 Donruss Rated Rookies Base/Holo witness physically locates
+        # the standard card's cyan/blue frame before reading the outer border.
+        # That frame is not the Rated Rookies Signatures layout. Carry the
+        # proven physical family into exact Registry matching so signature rows
+        # cannot remain legal merely because upstream OCR did not emit auto=False.
+        if (
+            selected_finish
+            and "source:v9_donruss_blue_frame_border" in finish.evidence
+            and inferred_set_name is None
+        ):
+            standard_rows = [
+                row for row in rows
+                if normalized_text(row.get("set_name")) == "rated rookies"
+            ]
+            if standard_rows:
+                rows = standard_rows
+                inferred_set_name = "Rated Rookies"
+                finish_receipts.append("physical_family:donruss_rated_rookies_standard_frame")
     if not selected_finish:
         result = review("Registry family was proven, but the physical finish could not be locked safely.", len(rows), ["family_hint_registry_fast_path", *finish_receipts])
         await _save_scan(scan_id=scan_id, card_uuid=physical_card_uuid, created_at=created_at, front_image=front_image, back_image=back_image, combined_hash=combined_hash, suggestion=None, local_vision=None, checklist_result=result.checklist, status=result.status)
         return result
 
-    candidate = identity_hint.model_copy(update={"parallel": selected_finish, "serial_number": None, "serial_run": None})
+    candidate = effective_hint.model_copy(
+        update={
+            "set_name": inferred_set_name,
+            "parallel": selected_finish,
+            "serial_run": hinted_serial_run,
+            "subset": family_subset,
+        }
+    )
     locked = await _registry_match(candidate)
     if locked.outcome != ChecklistOutcome.EXACT_MATCH or locked.identity is None or not locked.identity_id:
         # Registry synonyms (e.g. Silver vs Prizms Silver) can leave the first label ambiguous.
@@ -4625,7 +6150,14 @@ async def _family_hint_registry_response(
         await _save_scan(scan_id=scan_id, card_uuid=physical_card_uuid, created_at=created_at, front_image=front_image, back_image=back_image, combined_hash=combined_hash, suggestion=None, local_vision=None, checklist_result=result.checklist, status=result.status)
         return result
 
-    locked.source_receipts.extend(["family_hint_registry_fast_path", "fresh_back_player_card_witness", f"physical_finish:{selected_finish}", *finish_receipts])
+    locked.source_receipts.extend([
+        "family_hint_registry_fast_path",
+        "fresh_front_back_player_card_witness",
+        *witness_receipts,
+        f"orientation_status:{orientation_status}",
+        f"physical_finish:{selected_finish}",
+        *finish_receipts,
+    ])
     await _save_scan(scan_id=scan_id, card_uuid=physical_card_uuid, created_at=created_at, front_image=front_image, back_image=back_image, combined_hash=combined_hash, suggestion=None, local_vision=None, checklist_result=locked, status="trusted_memory_match")
     return AnalyzeResponse(
         scan_id=scan_id, card_uuid=physical_card_uuid, created_at=created_at,
@@ -4633,10 +6165,10 @@ async def _family_hint_registry_response(
         image_pair_sha256=combined_hash, front_reference_sha256=front_image.reference_sha256,
         back_reference_sha256=back_image.reference_sha256, front_perceptual_hash=front_image.perceptual_hash,
         back_perceptual_hash=back_image.perceptual_hash, image_orientation=orientation_receipt,
-        back_evidence=["fresh_back_player_card_witness"], memory_matches=[], local_suggestion=None,
+        back_evidence=["fresh_front_back_player_card_witness"], memory_matches=[], local_suggestion=None,
         local_vision=None, checklist=locked, trusted_identity=locked.identity,
         match_source="checklist_registry", visual_match_score=None,
-        canonical_filename=canonical_filename(locked.identity), pricing_allowed=False,
+        canonical_filename=canonical_filename(locked.identity), pricing_allowed=_registry_exact_ready(locked),
         learning_allowed=False, next_action="Exact Registry identity locked from the known family and fresh physical finish evidence.",
     )
 
@@ -4655,6 +6187,7 @@ async def analyze_scan(
     front_rotation: int | None = Form(default=None),
     back_rotation: int | None = Form(default=None),
     deep_recovery: bool = Form(default=False),
+    force_fresh_identity: bool = Form(default=False),
     background_tasks: BackgroundTasks = None,
 ) -> AnalyzeResponse:
     front_content = await front.read()
@@ -4677,12 +6210,17 @@ async def analyze_scan(
     # discrimination and local model recovery can run before the card is sent
     # back to review. Deep recovery is never enabled implicitly.
     interactive_fast_scan = not deep_recovery
+    if interactive_fast_scan:
+        # ContextVars propagate through asyncio.to_thread, so every Registry
+        # helper in this seller request inherits the same fail-fast DB budget.
+        _seller_fast_registry_context.set(True)
     # The web orientation referee has already proven these exact uploaded bytes
     # upright. For a 0-degree certified pair, preserve the original byte hashes
     # and return operator truth before JPEG normalization, quarantine/reference
     # scans, image writes, or any fresh external Registry read.
     if (
-        trusted_orientation_hints
+        not force_fresh_identity
+        and trusted_orientation_hints
         and front_rotation == 0
         and (back_content is None or back_rotation == 0)
         and back_content is not None
@@ -4716,13 +6254,212 @@ async def analyze_scan(
             back_content=back_content,
             requested_card_uuid=card_uuid,
             identity_hint=identity_hint,
+            front_rotation_hint=front_rotation,
+            back_rotation_hint=back_rotation,
         )
         if family_fast is not None:
             return family_fast
 
+    # TRUE FAST UNKNOWN-CARD LANE:
+    # A normal seller scan gets one fresh Apple Vision/OpenCV pass. If that pass
+    # yields the core family, hand it directly to the bounded Registry/finish
+    # resolver above. Do not enter the deep orientation/model recovery stack on
+    # the seller-facing request; unresolved cards become explicit pass-two work.
+    if identity_hint is None and back_content is not None and interactive_fast_scan:
+        fast_local_vision = await analyze_local_vision(
+            front_content,
+            back_content,
+            settings,
+            fast_ocr=True,
+        )
+        fast_hint = await asyncio.to_thread(
+            _recover_unique_registry_player_from_ocr,
+            fast_local_vision.identity_hints,
+            fast_local_vision,
+        )
+        preverified_card_number = None
+        preverified_number_receipts: list[str] = []
+
+        # Seller-facing unknown cards get ONE physical read. If that pass did
+        # not produce the core identity, return review immediately and let the
+        # isolated deep-recovery worker do extra crops / broader Registry probes.
+        # This prevents a hard card from making the scanner feel slow.
+        preverified_card_number = (
+            normalized_card_number(fast_hint.card_number)
+            if fast_hint.card_number
+            else None
+        )
+        preverified_number_receipts: list[str] = (
+            [f"fast_ocr_card_number:{preverified_card_number}"]
+            if preverified_card_number
+            else []
+        )
+
+        if fast_hint != fast_local_vision.identity_hints:
+            fast_local_vision = fast_local_vision.model_copy(
+                update={"identity_hints": fast_hint}
+            )
+        fast_core_ready = bool(
+            fast_hint.year
+            and fast_hint.player
+            and fast_hint.card_number
+            and (fast_hint.brand or fast_hint.manufacturer)
+        )
+
+        # HARDENED FAST SECOND-LOOK:
+        # One incomplete Apple Vision pass should not automatically create a
+        # Verification card. Give the SAME physical pair one short local VLM
+        # read for only the missing core fields, then force those facts back
+        # through the fresh player/card-number witness and exact Registry lock.
+        # This reader cannot make a card pricing-eligible by itself.
+        if not fast_core_ready:
+            fast_core = await classify_core_identity(
+                front_content,
+                back_content,
+                base_url=settings.ollama_base_url,
+                model=settings.ollama_model,
+                timeout=min(max(float(settings.ollama_timeout_seconds), 4.0), 6.0),
+            )
+            if fast_core.confidence >= 0.92:
+                fast_hint = fast_hint.model_copy(
+                    update={
+                        "year": fast_hint.year or fast_core.year,
+                        "manufacturer": (
+                            fast_hint.manufacturer or fast_core.manufacturer
+                        ),
+                        "brand": fast_hint.brand or fast_core.brand,
+                        "player": fast_hint.player or fast_core.player,
+                        "card_number": (
+                            fast_hint.card_number or fast_core.card_number
+                        ),
+                        "team": fast_hint.team or fast_core.team,
+                    }
+                )
+                fast_core_ready = bool(
+                    fast_hint.year
+                    and fast_hint.player
+                    and fast_hint.card_number
+                    and (fast_hint.brand or fast_hint.manufacturer)
+                )
+                if fast_core_ready:
+                    preverified_card_number = normalized_card_number(
+                        fast_hint.card_number
+                    )
+                    if preverified_card_number:
+                        preverified_number_receipts.append(
+                            "fast_local_core_second_look_card_number:"
+                            + preverified_card_number
+                        )
+
+        if fast_core_ready:
+            family_fast = await _family_hint_registry_response(
+                front_content=front_content,
+                back_content=back_content,
+                requested_card_uuid=card_uuid,
+                identity_hint=fast_hint,
+                front_rotation_hint=front_rotation,
+                back_rotation_hint=back_rotation,
+                preverified_card_number=preverified_card_number,
+                preverified_number_receipts=preverified_number_receipts,
+                preverified_local_vision=fast_local_vision,
+            )
+            if family_fast is not None:
+                return family_fast
+
+        applied_front_rotation = front_rotation if front_rotation in {0, 90, 180, 270} else 0
+        applied_back_rotation = back_rotation if back_rotation in {0, 90, 180, 270} else 0
+        fast_front, fast_back = await asyncio.gather(
+            asyncio.to_thread(
+                validate_and_normalize_image,
+                front_content,
+                settings.max_image_bytes,
+                rotation=applied_front_rotation,
+            ),
+            asyncio.to_thread(
+                validate_and_normalize_image,
+                back_content,
+                settings.max_image_bytes,
+                rotation=applied_back_rotation,
+            ),
+        )
+        fast_scan_id = str(uuid4())
+        fast_created_at = datetime.now(timezone.utc)
+        fast_pair_hash = pair_hash(fast_front.sha256, fast_back.sha256)
+        fast_card_uuid = await asyncio.to_thread(
+            _resolve_card_uuid,
+            requested=card_uuid,
+            image_pair_sha256=fast_pair_hash,
+            first_scan_id=fast_scan_id,
+        )
+        fast_checklist = ChecklistResult(
+            outcome=ChecklistOutcome.INPUT_INCOMPLETE,
+            identity=None,
+            candidate_count=0,
+            reasons=["fast_physical_core_identity_unresolved"],
+            source_receipts=["fast_unknown_local_vision"],
+        )
+        # Review/archive durability must not consume the seller response SLA.
+        # The normalized bytes and hashes are already fixed for this scan row;
+        # write the image files asynchronously just like the exact family lane.
+        asyncio.create_task(
+            asyncio.to_thread(persist_image, fast_front, image_store_path, "front")
+        )
+        asyncio.create_task(
+            asyncio.to_thread(persist_image, fast_back, image_store_path, "back")
+        )
+        await _save_scan(
+            scan_id=fast_scan_id,
+            card_uuid=fast_card_uuid,
+            created_at=fast_created_at,
+            front_image=fast_front,
+            back_image=fast_back,
+            combined_hash=fast_pair_hash,
+            suggestion=None,
+            local_vision=fast_local_vision,
+            checklist_result=fast_checklist,
+            status="needs_review",
+        )
+        return AnalyzeResponse(
+            scan_id=fast_scan_id,
+            card_uuid=fast_card_uuid,
+            created_at=fast_created_at,
+            status="needs_review",
+            front_sha256=fast_front.sha256,
+            back_sha256=fast_back.sha256,
+            image_pair_sha256=fast_pair_hash,
+            front_reference_sha256=fast_front.reference_sha256,
+            back_reference_sha256=fast_back.reference_sha256,
+            front_perceptual_hash=fast_front.perceptual_hash,
+            back_perceptual_hash=fast_back.perceptual_hash,
+            image_orientation={
+                "status": "completed" if trusted_orientation_hints else "review_required",
+                "source": "fast_unknown_local_vision",
+                "front_rotation": applied_front_rotation,
+                "back_rotation": applied_back_rotation,
+            },
+            back_evidence=[],
+            memory_matches=[],
+            local_suggestion=None,
+            local_vision=fast_local_vision,
+            checklist=fast_checklist,
+            trusted_identity=None,
+            match_source="none",
+            visual_match_score=None,
+            canonical_filename=canonical_filename(fast_hint),
+            pricing_allowed=False,
+            learning_allowed=False,
+            next_action="Fast physical pass preserved the card; run isolated deep recovery only for this unresolved card.",
+        )
+
     # Normalize the source pair once. The quarantine guard and the common
     # upright orientation path consume the same canonical 0-degree pixels, so
-    # do not decode/resize/hash the same images twice.
+    # do not decode/resize/hash the same images twice. If decoding fails, give
+    # the quarantine guard one bounded chance to recognize already-rejected
+    # physical evidence before returning HTTP 400; quarantine evidence must not
+    # become unreviewable merely because the raw upload is malformed.
+    quarantined = None
+    prepared_front = None
+    prepared_back = None
     try:
         prepared_front_task = asyncio.to_thread(
             validate_and_normalize_image,
@@ -4742,17 +6479,23 @@ async def analyze_scan(
             )
         else:
             prepared_front = await prepared_front_task
-            prepared_back = None
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        quarantined = await asyncio.to_thread(
+            _quarantined_physical_pair_guard,
+            front_content,
+            back_content,
+        )
+        if quarantined is None:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    quarantined = await asyncio.to_thread(
-        _quarantined_physical_pair_guard,
-        front_content,
-        back_content,
-        prepared_front=prepared_front,
-        prepared_back=prepared_back,
-    )
+    if quarantined is None:
+        quarantined = await asyncio.to_thread(
+            _quarantined_physical_pair_guard,
+            front_content,
+            back_content,
+            prepared_front=prepared_front,
+            prepared_back=prepared_back,
+        )
     if quarantined is not None:
         qfront, qback, qrow, qfs, qbs, qfd, qbd = quarantined
         qid = str(uuid4())
@@ -4833,7 +6576,7 @@ async def analyze_scan(
     # Unsworth to recycle the API. Prove orientation first, then use the bounded
     # post-orientation identity pipeline. Exact cached pairs still retain their
     # sub-second fast path here.
-    if not trusted_orientation_hints:
+    if not force_fresh_identity and not trusted_orientation_hints:
         fast_exact = await _fast_exact_operator_response(
             front_content=front_content,
             back_content=back_content,
@@ -4936,7 +6679,11 @@ async def analyze_scan(
     # Trusted orientation is now independently proven. Before writing the same
     # pixels back to external storage or touching the 16 GB Registry, reuse an
     # already operator-certified exact pair entirely from the prewarmed RAM index.
-    if orientation_status == "completed" and back_image is not None:
+    if (
+        not force_fresh_identity
+        and orientation_status == "completed"
+        and back_image is not None
+    ):
         # Preserve exact-byte identity when both physical uploads are already
         # upright. Re-encoding a JPEG during normalization changes SHA-256 even
         # when every pixel is unchanged, which used to make known exact pairs
@@ -4970,7 +6717,13 @@ async def analyze_scan(
         persist_tasks.append(
             asyncio.to_thread(persist_image, back_image, image_store_path, "back")
         )
-    await asyncio.gather(*persist_tasks)
+    # Archival copies are required for later audit/training, but they are not
+    # identity evidence. On the external Mac volume these writes can briefly
+    # block behind a checkpoint; never make fresh OCR/Registry identity wait for
+    # all three image variants to land. The normalized bytes above remain the
+    # physical source of truth for this request.
+    for persist_task in persist_tasks:
+        asyncio.create_task(persist_task)
 
     scan_id = str(uuid4())
     created_at = datetime.now(timezone.utc)
@@ -5012,6 +6765,31 @@ async def analyze_scan(
             printed_identity = _merge_identity(printed_identity, physical_identity)
 
         registry_identity_locked = _registry_exact_ready(checklist_result)
+        # The orientation-review branch returns before the normal final physical
+        # treatment discriminator. Do not let its provisional Base row become a
+        # treatment conclusion when local pixels contain a serial-shaped witness
+        # but not a legible stamp. The complete family must remain unresolved.
+        if (
+            registry_identity_locked
+            and checklist_result.identity
+            and not checklist_result.identity.serial_run
+            and local_vision.serial.suspected_stamp
+            and not local_vision.serial.stamp_present
+        ):
+            checklist_result = ChecklistResult(
+                outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+                candidate_count=max(1, checklist_result.candidate_count),
+                reasons=["ambiguous_physical_serial_stamp_requires_resolution"],
+                source_receipts=[
+                    *checklist_result.source_receipts,
+                    "physical_serial_guard:ambiguous_stamp",
+                    *[
+                        f"physical_serial_guard:suspected_run:{run}"
+                        for run in local_vision.serial.suspected_runs
+                    ],
+                ],
+            )
+            registry_identity_locked = False
         if registry_identity_locked:
             checklist_result.reasons = list(
                 dict.fromkeys(
@@ -5096,12 +6874,46 @@ async def analyze_scan(
     # year/player/card family. Never scan the full trusted-memory corpus on the
     # customer request path; that 100k-row comparison used to add 50-60 seconds.
     local_vision = orientation_probe_local_vision
-    if interactive_fast_scan:
+    if force_fresh_identity or interactive_fast_scan:
+        # SOURCE_PIXEL_IDENTITY_V1
+        #
+        # Identity must read the preserved physical upload whenever orientation
+        # required no rotation. JPEG normalization/re-encoding can destroy tiny
+        # printed witnesses such as card numbers and can make Apple Vision time
+        # out on reflective Prizm surfaces.
+        #
+        # Archive hashes/storage remain canonical normalized images. Only the
+        # physical identity reader receives the original pixels.
+        identity_front_content = (
+            front_content
+            if int(front_image.rotation_applied or 0) == 0
+            else front_image.content
+        )
+        identity_back_content = (
+            back_content
+            if back_image is not None
+            and back_content is not None
+            and int(back_image.rotation_applied or 0) == 0
+            else (
+                back_image.content
+                if back_image is not None
+                else None
+            )
+        )
+
         local_vision = await _local_vision_for_exact_pair(
-            front_image.content,
-            back_image.content if back_image else None,
+            identity_front_content,
+            identity_back_content,
             combined_hash,
-            fast_ocr=True,
+            # Identity V9: forceFreshIdentity means bypass remembered answers,
+            # not resurrect the retired full V6 OCR fan-out. Interactive scans
+            # always use the bounded fresh physical reader; explicit deep
+            # recovery may still use the fuller forensic lane.
+            fast_ocr=interactive_fast_scan,
+            # Orientation OCR was generated from these exact submitted pixels
+            # moments ago. It is fresh physical evidence, not identity memory,
+            # so forceFreshIdentity may safely reuse it instead of re-reading
+            # the same image bytes.
             precomputed_ocr=orientation_precomputed_ocr or None,
         )
         recovered_hint = await asyncio.to_thread(
@@ -5114,6 +6926,75 @@ async def analyze_scan(
                 update={"identity_hints": recovered_hint}
             )
         hint = local_vision.identity_hints
+
+        # FAST_MISSING_NUMBER_RECOVERY_V1
+        #
+        # The one-pass seller OCR intentionally stays cheap. If that pass proves
+        # the player/product but misses the small printed checklist number, run
+        # the already-bounded back recovery witnesses once. This is still fresh
+        # physical OCR (contrast/header/number corners), not memory or a model.
+        # Rebuild LocalVision from the merged observations without re-running OCR.
+        if (
+            interactive_fast_scan
+            and not hint.card_number
+            and identity_back_content is not None
+            and local_vision.back is not None
+        ):
+            recovery_observations, recovery_errors = await asyncio.get_running_loop().run_in_executor(
+                fast_id_executor,
+                lambda: image_orientation_reader.recognize_identity_witness_recovery(
+                    identity_back_content,
+                    side="back",
+                ),
+            )
+            if recovery_observations:
+                merged_back_observations = list(local_vision.back.ocr)
+                for observation in recovery_observations:
+                    if not image_orientation_reader._is_duplicate(
+                        observation,
+                        merged_back_observations,
+                    ):
+                        merged_back_observations.append(observation)
+                recovered_local_vision = await analyze_local_vision(
+                    identity_front_content,
+                    identity_back_content,
+                    settings,
+                    fast_ocr=True,
+                    precomputed_ocr={
+                        "front": list(local_vision.front.ocr),
+                        "back": merged_back_observations,
+                    },
+                )
+                if recovered_local_vision.identity_hints.card_number:
+                    local_vision = recovered_local_vision
+                    hint = local_vision.identity_hints
+                    # The first Registry player-recovery pass ran before the
+                    # targeted OCR supplied the missing number. Run it once more
+                    # now that year + card number are physically proven.
+                    recovered_hint = await asyncio.to_thread(
+                        _recover_unique_registry_player_from_ocr,
+                        hint,
+                        local_vision,
+                    )
+                    if recovered_hint != hint:
+                        local_vision = local_vision.model_copy(
+                            update={"identity_hints": recovered_hint}
+                        )
+                        hint = recovered_hint
+            elif recovery_errors:
+                local_vision = local_vision.model_copy(
+                    update={
+                        "back": local_vision.back.model_copy(
+                            update={
+                                "errors": [
+                                    *local_vision.back.errors,
+                                    *recovery_errors,
+                                ]
+                            }
+                        )
+                    }
+                )
+
         # Tiny foil serial stamps are easiest to destroy with JPEG normalization.
         # Run the dedicated micro-stamp probe against the original uploaded bytes,
         # while all broader identity OCR continues to use the normalized canonical
@@ -5183,8 +7064,15 @@ async def analyze_scan(
                 ),
             )
 
+        # A seller-requested fresh identity must read the submitted pixels. Prior
+        # exact-pair and visual-memory lessons may be audited afterward, but they
+        # cannot supply player, treatment, UUID, or a fast-path answer.
         image_memory_candidates = []
-        if back_image and all(str(value or "").strip() for value in (hint.year, hint.player, hint.card_number)):
+        if (
+            not force_fresh_identity
+            and back_image
+            and all(str(value or "").strip() for value in (hint.year, hint.player, hint.card_number))
+        ):
             for source_label, memory_store, candidate_image_root in (
                 ("canonical_training", canonical_memory_store, canonical_memory_image_store_path),
                 ("runtime", store, image_store_path),
@@ -5498,9 +7386,12 @@ async def analyze_scan(
                         # physical treatment color evidence here; unresolved
                         # ambiguity falls through to the conservative Registry
                         # treatment lane/review instead of blocking the scan.
-                        memory_finish = deterministic_registry_finish_from_colors(
+                        memory_finish = classify_registry_finish_v9_index(
                             memory_legal_finishes,
-                            treatment_colors,
+                            color_proportions=treatment_colors,
+                            pattern_label=local_vision.front.pattern.label if local_vision else None,
+                            front_image=front_image.content,
+                            product_family=f"{trusted_identity.year or ''} {trusted_identity.brand or ''} {trusted_identity.set_name or ''}",
                         )
                     else:
                         memory_finish = await classify_registry_finish(
@@ -5604,6 +7495,11 @@ async def analyze_scan(
         if stale_identity_memory or stale_numbered_memory or stale_parallel_memory:
             checklist_result = None
         else:
+            specimen_attributes = await _specimen_after_identity(
+                front=front_image.content,
+                back=back_image.content if back_image else None,
+                trusted_identity=trusted_identity,
+            )
             await _save_scan(
                 scan_id=scan_id,
                 card_uuid=physical_card_uuid,
@@ -5615,6 +7511,7 @@ async def analyze_scan(
                 local_vision=local_vision,
                 checklist_result=checklist_result,
                 status=status,
+                specimen_attributes=specimen_attributes,
             )
             return AnalyzeResponse(
                 scan_id=scan_id,
@@ -5640,6 +7537,7 @@ async def analyze_scan(
                 memory_matches=[image_memory],
                 local_suggestion=None,
                 local_vision=local_vision,
+                specimen_attributes=specimen_attributes,
                 checklist=checklist_result,
                 trusted_identity=trusted_identity,
                 match_source=_memory_source(image_memory),
@@ -5855,10 +7753,19 @@ async def analyze_scan(
         preflight_registry = None
     preflight_exact_identity = None
     preflight_exact_registry = None
+    preflight_physical_finish_proven = False
     if preflight_registry and preflight_registry.outcome == ChecklistOutcome.EXACT_MATCH:
         printed_identity = preflight_identity
         preflight_exact_identity = preflight_identity
         preflight_exact_registry = preflight_registry
+        # The preflight runs only the deterministic, Registry-bounded physical
+        # finish chooser. A non-Base result from it is already a positive pixel
+        # witness, not a parser default, so later wrapper/alias expansion may
+        # canonicalize it but must not erase it back to Base or unknown.
+        preflight_physical_finish_proven = bool(
+            preflight_identity.parallel
+            and normalized_text(preflight_identity.parallel) != "base"
+        )
 
     # Registry-first treatment discriminator: color is allowed to choose only
     # among parallels that are legal for the hard visible card family.
@@ -5871,6 +7778,12 @@ async def analyze_scan(
         "isAuto": printed_identity.autograph if isinstance(printed_identity.autograph, bool) else None,
         "isRelic": printed_identity.memorabilia if isinstance(printed_identity.memorabilia, bool) else None,
     }
+    # Base from OCR is a placeholder, never a Registry-family filter.  Passing
+    # it into visible_treatment_candidates would discard Green/Ice/etc. before
+    # V9 can inspect their physical perimeter evidence.
+    if normalized_text(candidate_ai.get("parallel") or "Base") == "base":
+        candidate_ai["parallel"] = None
+        printed_identity = printed_identity.model_copy(update={"parallel": None})
     legal_rows = await asyncio.to_thread(registry_store.visible_treatment_candidates, candidate_ai)
 
     # A preliminary/default parallel is advisory until treatment discrimination.
@@ -5884,7 +7797,7 @@ async def analyze_scan(
         or (visible_run is None and not row.get("serial_run"))
     ]
     treatment_names = {normalized_text(row.get("parallel")) for row in treatment_rows if normalized_text(row.get("parallel"))}
-    if len(treatment_names) > 1:
+    if len(treatment_names) > 1 and not preflight_physical_finish_proven:
         printed_identity = printed_identity.model_copy(update={"parallel": None})
         candidate_ai["parallel"] = None
         # A preflight exact lock that depended on the preliminary finish cannot
@@ -6251,7 +8164,11 @@ async def analyze_scan(
             or (visible_run is None and not row.get("serial_run"))
         ]
         final_treatment_names = {normalized_text(row.get("parallel")) for row in final_treatment_rows if normalized_text(row.get("parallel"))}
-        if len(final_treatment_names) > 1 and printed_identity.parallel:
+        if (
+            len(final_treatment_names) > 1
+            and printed_identity.parallel
+            and not preflight_physical_finish_proven
+        ):
             printed_identity = printed_identity.model_copy(update={"parallel": None})
             candidate_ai["parallel"] = None
             preflight_exact_identity = None
@@ -6322,6 +8239,21 @@ async def analyze_scan(
             if len(exact_pattern_rows) == 1:
                 printed_identity = printed_identity.model_copy(update={"parallel": str(exact_pattern_rows[0].get("parallel"))})
 
+        # A parser/default Base label is not treatment evidence. When the
+        # Registry family contains alternatives, clear it before V9 so the local
+        # perimeter classifier can prove a real color/pattern or return unknown.
+        provisional_legal_finishes = {
+            normalized_text(row.get("parallel") or "Base")
+            for row in legal_rows
+            if not row.get("serial_run")
+        }
+        if (
+            normalized_text(printed_identity.parallel or "Base") == "base"
+            and len(provisional_legal_finishes) > 1
+        ):
+            printed_identity = printed_identity.model_copy(update={"parallel": None})
+            candidate_ai["parallel"] = None
+
         # Final physical finish discriminator: the VLM sees only legal Registry
         # rows for this already-bounded card family. It is evidence, not authority;
         # the selected row must still survive the authoritative Registry lookup.
@@ -6356,31 +8288,90 @@ async def analyze_scan(
                 # Seller-facing scans stay fast: resolve simple color-only legal
                 # families from the physical treatment perimeter before considering
                 # any VLM. This is deterministic and still bounded by Registry rows.
-                finish = deterministic_registry_finish_from_colors(
+                registry_family_names = " ".join(
+                    dict.fromkeys(
+                        str(row.get("set_name") or "").strip()
+                        for row in legal_rows
+                        if str(row.get("set_name") or "").strip()
+                    )
+                )
+                finish = classify_registry_finish_v9_index(
                     legal_finishes,
-                    treatment_colors,
+                    color_proportions=treatment_colors,
+                    pattern_label=local_vision.front.pattern.label if local_vision else None,
+                    pattern_scores=local_vision.front.pattern.scores if local_vision else None,
+                    pattern_geometry=local_vision.front.pattern.geometry if local_vision else None,
+                    front_image=front_image.content,
+                    product_family=(
+                        f"{candidate_ai.get('year') or ''} "
+                        f"{candidate_ai.get('brand') or ''} "
+                        f"{candidate_ai.get('setName') or ''} "
+                        f"{registry_family_names}"
+                    ),
                 )
 
-                # Pattern/compound ambiguities still use the bounded VLM, but only
-                # off the interactive fast path so scanning never waits on a model.
-                if len(legal_finishes) > 1 and not interactive_fast_scan:
-                    if not finish.parallel:
-                        try:
-                            finish = await classify_registry_finish(
-                                front_image.content,
-                                legal_finishes,
-                                base_url=settings.ollama_base_url,
-                                model=settings.ollama_model,
-                                timeout=min(settings.ollama_timeout_seconds, 45.0),
-                                color_proportions=treatment_colors,
-                            )
-                        except (httpx.HTTPError, ValueError, TypeError, KeyError):
-                            finish = None
+                # Pattern/compound ambiguities use a Registry-bounded VLM only
+                # after deterministic physical rules are inconclusive. Interactive
+                # scans take the fast external-first lane so exact finish identity
+                # stays inside the seller scan SLA instead of being deferred to review.
+                if len(legal_finishes) > 1 and not finish.parallel:
+                    try:
+                        finish = await classify_registry_finish(
+                            front_image.content,
+                            legal_finishes,
+                            base_url=settings.ollama_base_url,
+                            model=settings.ollama_model,
+                            timeout=min(
+                                settings.ollama_timeout_seconds,
+                                8.0 if interactive_fast_scan else 45.0,
+                            ),
+                            color_proportions=treatment_colors,
+                            fast_external_first=interactive_fast_scan,
+                        )
+                    except (httpx.HTTPError, ValueError, TypeError, KeyError):
+                        finish = None
                 if finish and finish.parallel:
                     chosen_finish = str(finish.parallel)
                     printed_identity = printed_identity.model_copy(update={"parallel": chosen_finish})
                     # Re-resolve the bounded family with the newly observed finish.
                     candidate_ai["parallel"] = chosen_finish
+
+                    # A physically proven treatment can also identify the exact
+                    # Registry set family when only one legal family owns that
+                    # treatment for this year/player/card configuration. This is
+                    # not set-name guessing: the treatment came from current
+                    # pixels and the family is selected only from already-bounded
+                    # Registry rows.
+                    chosen_key = normalized_text(chosen_finish)
+                    chosen_rows = [
+                        row for row in legal_rows
+                        if normalized_text(row.get("parallel") or "Base") == chosen_key
+                        and (
+                            (local_vision.serial.stamp_present
+                             and int(row.get("serial_run") or 0)
+                                 == int(local_vision.serial.visible_denominator or 0))
+                            or (not local_vision.serial.stamp_present and not row.get("serial_run"))
+                        )
+                    ]
+                    chosen_sets = {
+                        str(row.get("set_name") or "").strip()
+                        for row in chosen_rows
+                        if str(row.get("set_name") or "").strip()
+                    }
+                    if len(chosen_sets) == 1:
+                        chosen_set = next(iter(chosen_sets))
+                        candidate_ai["setName"] = chosen_set
+                        printed_identity = printed_identity.model_copy(
+                            update={"set_name": chosen_set}
+                        )
+                        # Do not preserve a contradictory generic/empty subset as
+                        # a filter after the exact treatment has selected the set.
+                        if (
+                            not printed_identity.subset
+                            or normalized_text(printed_identity.subset)
+                               in {"donruss", "donruss wnba", "panini donruss wnba"}
+                        ):
+                            candidate_ai["subset"] = None
 
     # Preserve the Registry-derived product family used for treatment narrowing.
     # This prevents the final authoritative lookup from falling back to a generic
@@ -6393,7 +8384,22 @@ async def analyze_scan(
 
     # PRIMARY ENGINE STEP TWO: bounded printed text and the Checklist
     # Registry. A checklist-known card does not need a teacher model.
-    if preflight_exact_registry is not None and preflight_exact_identity is not None:
+    preflight_base_requires_finish_proof = bool(
+        preflight_exact_identity
+        and normalized_text(preflight_exact_identity.parallel or "Base") == "base"
+        and len(
+            {
+                normalized_text(row.get("parallel") or "Base")
+                for row in legal_rows
+                if not row.get("serial_run")
+            }
+        ) > 1
+    )
+    if (
+        preflight_exact_registry is not None
+        and preflight_exact_identity is not None
+        and not preflight_base_requires_finish_proof
+    ):
         # An exact bounded preflight is already an authoritative Registry lock.
         # Preserve it across the legacy candidate ladder; weaker downstream
         # parsing may enrich diagnostics but may never overwrite exact truth.
@@ -6449,20 +8455,87 @@ async def analyze_scan(
     # necessary, choose only among legal Registry finishes, and revalidate the
     # same card before returning needs_review.
     if printed_registry.outcome != ChecklistOutcome.EXACT_MATCH:
-        repaired_identity, repaired_registry = await repair_scan_identity(
-            printed_identity,
-            text=printed_text,
+        # INTERACTIVE_FAIL_FAST_V1
+        # Seller/Receiving scans have already completed fresh physical OCR,
+        # bounded Registry lookup, serial guards, and deterministic finish
+        # discrimination above. The forensic self-repair ladder can scan many
+        # Registry rows and is intentionally reserved for deep/background work.
+        # On the interactive path, return the honest review state now rather
+        # than blocking the seller for tens of seconds trying to force an exact
+        # identity. Images and physical hints remain persisted for later repair.
+        if not interactive_fast_scan:
+            repaired_identity, repaired_registry = await repair_scan_identity(
+                printed_identity,
+                text=printed_text,
+                local_vision=local_vision,
+                front=front_image.content,
+                registry_store=registry_store,
+                registry_match=_registry_match,
+                checklist_recovery=_attempt_scan_checklist_recovery,
+                allow_external_recovery=True,
+                allow_model_disambiguation=True,
+            )
+            if repaired_registry.outcome == ChecklistOutcome.EXACT_MATCH:
+                printed_identity = repaired_identity
+                printed_registry = repaired_registry
+    # A Registry exact candidate cannot survive a contradiction with a fresh
+    # physical core fact.  This must happen before the normal exact-response
+    # branch: review-only exposure is not enough when the checklist receipt
+    # itself names another player/card.  Keep the legal-family audit trail, but
+    # return unresolved and let the seller inspect the physical card.
+    if (
+        printed_registry.outcome == ChecklistOutcome.EXACT_MATCH
+        and printed_registry.identity
+        and printed_registry.identity_id
+    ):
+        physical_gate = evaluate_autonomy(
+            checklist=printed_registry,
+            printed_identity=printed_identity,
             local_vision=local_vision,
-            front=front_image.content,
-            registry_store=registry_store,
-            registry_match=_registry_match,
-            checklist_recovery=_attempt_scan_checklist_recovery,
-            allow_external_recovery=not interactive_fast_scan,
-            allow_model_disambiguation=not interactive_fast_scan,
+            orientation_status=orientation_status,
         )
-        if repaired_registry.outcome == ChecklistOutcome.EXACT_MATCH:
-            printed_identity = repaired_identity
-            printed_registry = repaired_registry
+        core_conflicts = [
+            conflict
+            for conflict in physical_gate.conflicts
+            if conflict.startswith(("local:player:", "local:card_number:", "local:year:"))
+        ]
+        if core_conflicts:
+            printed_registry = ChecklistResult(
+                outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+                candidate_count=max(1, printed_registry.candidate_count, len(legal_rows)),
+                reasons=["fresh_physical_core_conflicts_with_registry_exact_candidate"],
+                source_receipts=[
+                    *printed_registry.source_receipts,
+                    "physical_core_guard:registry_exact_rejected",
+                    *[f"physical_core_guard:{conflict}" for conflict in core_conflicts],
+                ],
+            )
+    # Base is not a physical treatment observation.  When the proven Registry
+    # family contains multiple non-serial finishes, a parser default of Base is
+    # insufficient to expose an exact identity.  This prevents a Green/Ice/etc.
+    # card from being silently relabeled Base merely because the treatment
+    # classifier lacked positive evidence.
+    if (
+        printed_registry.outcome == ChecklistOutcome.EXACT_MATCH
+        and printed_registry.identity
+        and normalized_text(printed_registry.identity.parallel or "Base") == "base"
+    ):
+        legal_non_serial_finishes = {
+            normalized_text(row.get("parallel") or "Base")
+            for row in legal_rows
+            if not row.get("serial_run")
+        }
+        observed_finish = normalized_text(local_vision.identity_hints.parallel)
+        if len(legal_non_serial_finishes) > 1 and not observed_finish:
+            printed_registry = ChecklistResult(
+                outcome=ChecklistOutcome.SET_PRESENT_NO_EXACT_MATCH,
+                candidate_count=max(1, printed_registry.candidate_count, len(legal_rows)),
+                reasons=["base_finish_requires_positive_physical_evidence"],
+                source_receipts=[
+                    *printed_registry.source_receipts,
+                    "physical_finish_guard:base_not_inferred_from_absence",
+                ],
+            )
     if (
         printed_registry.outcome == ChecklistOutcome.EXACT_MATCH
         and printed_registry.identity
@@ -6487,6 +8560,21 @@ async def analyze_scan(
             }
         )
         status = "trusted_memory_match" if autonomy.decision == "AUTO_ACCEPT" else "needs_review"
+        # A Registry row is a legal candidate, not an exposed exact identity when
+        # current physical treatment evidence conflicts. Keep the receipt for
+        # review/audit, but fail closed at the public identity boundary.
+        exposed_trusted_identity = (
+            trusted_identity if autonomy.decision == "AUTO_ACCEPT" else None
+        )
+        specimen_attributes = (
+            await _specimen_after_identity(
+                front=front_image.content,
+                back=back_image.content if back_image else None,
+                trusted_identity=exposed_trusted_identity,
+            )
+            if exposed_trusted_identity
+            else None
+        )
         await _save_scan(
             scan_id=scan_id,
             card_uuid=physical_card_uuid,
@@ -6498,6 +8586,7 @@ async def analyze_scan(
             local_vision=local_vision,
             checklist_result=printed_registry,
             status=status,
+            specimen_attributes=specimen_attributes,
         )
         learning_mirror_scheduled = False
         if (
@@ -6556,17 +8645,20 @@ async def analyze_scan(
             memory_matches=[],
             local_suggestion=None,
             local_vision=local_vision,
+            specimen_attributes=specimen_attributes,
             checklist=printed_registry,
-            trusted_identity=trusted_identity,
-            match_source="checklist_registry",
+            trusted_identity=exposed_trusted_identity,
+            match_source=("checklist_registry" if exposed_trusted_identity else "none"),
             visual_match_score=None,
-            canonical_filename=canonical_filename(trusted_identity),
-            pricing_allowed=autonomy.pricing_allowed,
+            canonical_filename=canonical_filename(exposed_trusted_identity),
+            pricing_allowed=autonomy.pricing_allowed and not force_fresh_identity,
             learning_allowed=bool(autonomy.learning_allowed and learning_mirror_scheduled),
             autonomy_decision=autonomy.decision,
             autonomy_receipt=autonomy_receipt,
             next_action=(
-                "Autonomy gate accepted the Registry identity; continue to verified comps."
+                "Fresh physical identity is accepted; pricing remains a separate workflow."
+                if autonomy.decision == "AUTO_ACCEPT" and force_fresh_identity
+                else "Autonomy gate accepted the Registry identity; continue to verified comps."
                 if autonomy.decision == "AUTO_ACCEPT"
                 else "Independent evidence conflicts or is insufficient; send this card to manual review."
             ),
@@ -6671,10 +8763,17 @@ async def analyze_scan(
         proposed_identity = _merge_identity(printed_identity, suggestion.identity)
     else:
         proposed_identity = printed_identity
+    # A forced fresh identity is a physical re-read, not a history lookup. Text
+    # memory can carry a stale treatment label even after image-pair memory has
+    # been disabled, so it must not be allowed to bypass V9 in this mode.
     memory_matches = (
-        await asyncio.to_thread(store.search, proposed_identity)
-        if any(proposed_identity.model_dump().values())
-        else []
+        []
+        if force_fresh_identity
+        else (
+            await asyncio.to_thread(store.search, proposed_identity)
+            if any(proposed_identity.model_dump().values())
+            else []
+        )
     )
     trusted_text_match = next(
         (
@@ -6803,7 +8902,10 @@ async def analyze_scan(
                 ]
             }
         )
-        pricing_allowed = autonomy.pricing_allowed
+        # A forced-fresh seller request is an identity-only operation.  Pricing
+        # is intentionally a separate later workflow even after local Registry
+        # identity has been accepted.
+        pricing_allowed = autonomy.pricing_allowed and not force_fresh_identity
         if autonomy.decision != "AUTO_ACCEPT":
             status = "needs_review"
             next_action = "Autonomy gate blocked this exact Registry identity because independent evidence conflicts or is insufficient."
@@ -6813,6 +8915,16 @@ async def analyze_scan(
             "learning_allowed": False, "pricing_allowed": False,
             "reasons": [f"scan_status:{status}"], "supports": [], "conflicts": [],
         }
+
+    specimen_attributes = (
+        await _specimen_after_identity(
+            front=front_image.content,
+            back=back_image.content if back_image else None,
+            trusted_identity=trusted_identity,
+        )
+        if trusted_identity is not None and status == "trusted_memory_match"
+        else None
+    )
 
     suggestion_back_evidence = (
         list(
@@ -6846,6 +8958,7 @@ async def analyze_scan(
         memory_matches=memory_matches,
         local_suggestion=suggestion,
         local_vision=local_vision,
+        specimen_attributes=specimen_attributes,
         checklist=checklist_result,
         trusted_identity=trusted_identity,
         match_source=match_source,
@@ -6857,7 +8970,7 @@ async def analyze_scan(
         autonomy_receipt=autonomy_receipt,
         next_action=next_action,
     )
-    await _save_scan(
+    persisted_card_uuid = await _save_scan(
         scan_id=scan_id,
         card_uuid=physical_card_uuid,
         created_at=created_at,
@@ -6868,7 +8981,11 @@ async def analyze_scan(
         local_vision=local_vision,
         checklist_result=checklist_result,
         status=status,
+        specimen_attributes=specimen_attributes,
     )
+    if persisted_card_uuid and persisted_card_uuid != physical_card_uuid:
+        physical_card_uuid = persisted_card_uuid
+        result.card_uuid = persisted_card_uuid
     if (
         autonomy is not None
         and autonomy.learning_allowed

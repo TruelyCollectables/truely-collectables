@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
@@ -6,15 +7,170 @@ import { getInventoryActivationBlockers } from "../../../../../lib/inventory-act
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import {
-  instaCompPricingGroupKey,
+  effectiveInstaCompPricingGroupKey,
   summarizeInstaCompPricingGroup,
 } from "../../../../../lib/instacomp-pricing-group";
 import {
   instaCompPendingQueueFromMetadata,
   type InstaCompPendingQueue,
 } from "../../../../../lib/instacomp-pending-queue";
+import {
+  kingmakerScanImageUrl,
+  listMacKingmakerInventory,
+} from "../../../../../lib/kingmaker-mac-scan-server";
+import { buildInstaCompCanonicalTitle } from "../../../../../lib/instacomp-canonical-title";
+import {
+  calculateCustomWebsitePricing,
+  calculateDualMarketplacePricing,
+  normalizeDualMarketplaceFeeProfile,
+} from "../../../../../lib/dual-marketplace-pricing";
 
 export const dynamic = "force-dynamic";
+
+const LOCAL_CERTIFIED_PRICING_PATH =
+  process.env.INSTACOMP_CERTIFIED_PRICING_PATH ||
+  "/Volumes/InstaCompAI/training/audits/km252-instacomp-final-v17-20260907.json";
+
+type LocalCertifiedPricingRow = {
+  n?: number;
+  id?: string;
+  identity?: Record<string, unknown>;
+  status?: string;
+  pricing?: Record<string, unknown>;
+  exactSoldComps?: Array<Record<string, unknown>>;
+  registryBound?: boolean;
+};
+
+function localPricingText(value: unknown) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function localPricingCardNumber(value: unknown) {
+  return localPricingText(value).replace(/\s+/g, "");
+}
+
+function localPricingParallel(value: unknown) {
+  return localPricingText(value)
+    .replace(/\bprizms?\b/g, " ")
+    .replace(/\bparallel\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+let localCertifiedPricingCache:
+  | { rows: LocalCertifiedPricingRow[]; expiresAt: number }
+  | null = null;
+
+async function loadLocalCertifiedPricingRows(): Promise<LocalCertifiedPricingRow[]> {
+  const now = Date.now();
+  if (localCertifiedPricingCache && localCertifiedPricingCache.expiresAt > now) {
+    return localCertifiedPricingCache.rows;
+  }
+  try {
+    const payload = JSON.parse(
+      await readFile(LOCAL_CERTIFIED_PRICING_PATH, "utf8"),
+    );
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    localCertifiedPricingCache = { rows, expiresAt: now + 30_000 };
+    return rows;
+  } catch {
+    localCertifiedPricingCache = { rows: [], expiresAt: now + 5_000 };
+    return [];
+  }
+}
+
+function localCertifiedPricingForIdentity(
+  rows: LocalCertifiedPricingRow[],
+  identity: Record<string, unknown>,
+) {
+  const year = localPricingText(identity.year);
+  const player = localPricingText(identity.player || identity.playerName);
+  const cardNumber = localPricingCardNumber(
+    identity.cardNumber || identity.card_number,
+  );
+  const parallelRaw = localPricingText(
+    identity.parallel ||
+      identity.checklistParallel ||
+      identity.parallelName ||
+      identity.variation,
+  );
+  const parallel = localPricingParallel(parallelRaw);
+  if (!year || !player || !cardNumber || !parallel) return null;
+
+  const isAuto = identity.isAuto === true;
+  const isRelic = identity.isRelic === true;
+  const brand = localPricingText(identity.brand || identity.manufacturer);
+  const product = localPricingText(
+    identity.product || identity.setName || identity.set_name,
+  );
+
+  const candidates = rows
+    .map((row) => {
+      const candidate = recordValue(row.identity);
+      if (localPricingText(candidate.year) !== year) return null;
+      if (localPricingText(candidate.player || candidate.playerName) !== player)
+        return null;
+      if (
+        localPricingCardNumber(
+          candidate.cardNumber || candidate.card_number,
+        ) !== cardNumber
+      )
+        return null;
+      const candidateParallelRaw = localPricingText(
+        candidate.parallel ||
+          candidate.checklistParallel ||
+          candidate.parallelName ||
+          candidate.variation,
+      );
+      if (localPricingParallel(candidateParallelRaw) !== parallel) return null;
+      if (
+        (candidate.isAuto === true) !== isAuto ||
+        (candidate.isRelic === true) !== isRelic
+      )
+        return null;
+
+      let score = 100;
+      if (candidateParallelRaw === parallelRaw) score += 40;
+      const candidateBrand = localPricingText(
+        candidate.brand || candidate.manufacturer,
+      );
+      const candidateProduct = localPricingText(
+        candidate.product || candidate.setName || candidate.set_name,
+      );
+      if (
+        brand &&
+        candidateBrand &&
+        (brand === candidateBrand ||
+          brand.includes(candidateBrand) ||
+          candidateBrand.includes(brand))
+      )
+        score += 10;
+      if (
+        product &&
+        candidateProduct &&
+        (product === candidateProduct ||
+          product.includes(candidateProduct) ||
+          candidateProduct.includes(product))
+      )
+        score += 8;
+      if (row.registryBound === true) score += 2;
+      score += Math.min(20, Number(recordValue(row.pricing).soldCount || 0));
+      return { row, score };
+    })
+    .filter(
+      (value): value is { row: LocalCertifiedPricingRow; score: number } =>
+        Boolean(value),
+    )
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.row || null;
+}
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -24,6 +180,36 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function firstTextValue(...values: unknown[]) {
+  for (const value of values) {
+    const candidate = textValue(value);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function environmentNumber(name: string, fallback: number) {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw)) return fallback;
+  return raw >= 1 && raw <= 100 && name.includes("PERCENT") ? raw / 100 : raw;
+}
+
+function pendingChannelFeeProfile() {
+  return normalizeDualMarketplaceFeeProfile({
+    ebayPercent: environmentNumber("TCOS_EBAY_FEE_PERCENT", 0.1325),
+    ebayFixed: environmentNumber("TCOS_EBAY_FIXED_FEE", 0.4),
+    ebayFixedUnderTen: environmentNumber("TCOS_EBAY_FIXED_FEE_UNDER_10", 0.3),
+    promotedPercent: environmentNumber("TCOS_EBAY_PROMOTED_PERCENT", 0),
+    websitePercent: environmentNumber("TCOS_WEBSITE_PROCESSING_PERCENT", 0.029),
+    websiteFixed: environmentNumber("TCOS_WEBSITE_FIXED_FEE", 0.3),
+    minimumWebsiteDiscountPercent: environmentNumber(
+      "TCOS_MINIMUM_WEBSITE_DISCOUNT_PERCENT",
+      0.03,
+    ),
+    websitePriceEnding: environmentNumber("TCOS_WEBSITE_PRICE_ENDING", 0.99),
+  });
 }
 
 function identityValue(value: unknown) {
@@ -65,7 +251,8 @@ const GENERIC_PLAYER_PHRASES = new Set([
 ]);
 
 function identityPlayerValue(identity: Record<string, unknown>) {
-  const candidate = identityValue(identity.player) || identityValue(identity.playerName);
+  const candidate =
+    identityValue(identity.player) || identityValue(identity.playerName);
   if (!candidate) return null;
   const normalized = candidate.toLowerCase();
   if (GENERIC_PLAYER_PHRASES.has(normalized)) return null;
@@ -74,8 +261,10 @@ function identityPlayerValue(identity: Record<string, unknown>) {
 
 function normalizeSubsetLabel(value: string) {
   const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
-  if (normalized === "all american" || normalized === "all-american") return "All American";
-  if (normalized === "crunch time" || normalized === "crunch-time") return "Crunch Time";
+  if (normalized === "all american" || normalized === "all-american")
+    return "All American";
+  if (normalized === "crunch time" || normalized === "crunch-time")
+    return "Crunch Time";
   if (normalized === "future watch") return "Future Watch";
   if (normalized === "young guns") return "Young Guns";
   if (normalized === "spectrum fx") return "Spectrum FX";
@@ -97,90 +286,86 @@ function identitySubsetValue(identity: Record<string, unknown>) {
   if (!candidate) return null;
   const normalized = candidate.toLowerCase();
   if (normalized === "base") return null;
-  if (GENERIC_PLAYER_PHRASES.has(normalized)) return normalizeSubsetLabel(candidate);
+  if (GENERIC_PLAYER_PHRASES.has(normalized))
+    return normalizeSubsetLabel(candidate);
   return normalizeSubsetLabel(candidate);
 }
 
 function buildIdentitySummary(identity: Record<string, unknown>) {
-  const setName = textValue(identity.setName) || textValue(identity.set_name);
-  const product = textValue(identity.product);
-  const subset = identitySubsetValue(identity);
-  const brand = textValue(identity.brand) || textValue(identity.manufacturer);
-  const player = identityPlayerValue(identity);
-  const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
-  const pieces = [
-    textValue(identity.year),
-    brand,
-    normalizedSetName || product,
-    subset,
-    textValue(identity.cardNumber) || textValue(identity.card_number)
-      ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
-      : null,
-    player || textValue(identity.playerName),
-    textValue(identity.team) ? `(${textValue(identity.team)})` : null,
-  ].filter(Boolean);
-  const surfaceVariation =
-    textValue(identity.variation) ||
-    textValue(identity.parallel) ||
-    textValue(identity.checklistParallel) ||
-    textValue(identity.parallelName);
-  const summary = pieces.join(" ").replace(/\s+/g, " ").trim();
-  return summary
-    ? [
-        `Card read: ${summary}.`,
-        surfaceVariation ? `Surface variation: ${surfaceVariation}.` : null,
-      ]
-        .filter(Boolean)
-      .join(" ")
-    : null;
+  const canonical = buildInstaCompCanonicalTitle(identity);
+  return canonical ? `Card read: ${canonical}.` : null;
 }
 
 function buildIdentityReadout(identity: Record<string, unknown>) {
-  const year = textValue(identity.year);
-  const manufacturer = identityValue(identity.manufacturer) || identityValue(identity.brand);
-  const setName = identityValue(identity.setName) || identityValue(identity.set_name) || identityValue(identity.product);
-  const subset = identitySubsetValue(identity);
-  const cardNumber = identityValue(identity.cardNumber) || identityValue(identity.card_number);
-  const player = identityPlayerValue(identity);
-  const team = identityValue(identity.team);
-  const parallel =
-    identityValue(identity.parallel) ||
-    identityValue(identity.checklistParallel) ||
-    identityValue(identity.parallelName) ||
-    identityValue(identity.variation);
-  const pieces = [
-    year,
-    manufacturer,
-    setName,
-    subset,
-    cardNumber ? `#${cardNumber}` : null,
-    player,
-    team ? `(${team})` : null,
-    parallel,
-  ].filter(Boolean);
-  return pieces.join(" ").replace(/\s+/g, " ").trim() || null;
+  return buildInstaCompCanonicalTitle(identity) || null;
 }
 
-function buildIdentityTitle(identity: Record<string, unknown>) {
-  const setName = textValue(identity.setName) || textValue(identity.set_name);
-  const product = textValue(identity.product);
-  const subset = identitySubsetValue(identity);
-  const brand = textValue(identity.brand) || textValue(identity.manufacturer);
-  const player = identityPlayerValue(identity);
-  const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
-  const pieces = [
-    textValue(identity.year),
-    brand,
-    normalizedSetName || product,
-    subset,
-    textValue(identity.cardNumber) || textValue(identity.card_number)
-      ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
-      : null,
-    player || textValue(identity.playerName),
-    textValue(identity.parallel) || textValue(identity.checklistParallel) || textValue(identity.parallelName),
-    textValue(identity.team) ? `(${textValue(identity.team)})` : null,
-  ].filter(Boolean);
-  return pieces.join(" ").replace(/\s+/g, " ").trim() || null;
+function instaCompProjectionEvidence(row: any) {
+  const metadata = recordValue(row.metadata);
+  const instaComp = recordValue(metadata.instacomp);
+  const cardIdentity = recordValue(metadata.card_identity);
+  const saleIdentity = recordValue(metadata.sale_identity);
+  const queueHint =
+    textValue(recordValue(metadata.listingWorkflow).queue) ||
+    textValue(recordValue(metadata.listing_workflow).queue) ||
+    textValue(recordValue(metadata.pending_verification).status);
+  const recovered = recordValue(instaComp.recoveredImageUrls);
+  const hasStoredImageHint =
+    Boolean(textValue(recovered.front) || textValue(recovered.back)) ||
+    (Array.isArray(instaComp.sourceImageUrls) &&
+      instaComp.sourceImageUrls.some((value: unknown) => Boolean(textValue(value))));
+  const hasStoredIdentity = Boolean(
+    textValue(cardIdentity.year) ||
+      textValue(cardIdentity.player) ||
+      textValue(cardIdentity.cardNumber) ||
+      textValue(cardIdentity.card_number) ||
+      textValue(saleIdentity.year) ||
+      textValue(saleIdentity.player) ||
+      textValue(saleIdentity.cardNumber) ||
+      textValue(saleIdentity.card_number),
+  );
+  const hasInstaCompSource = Boolean(
+    textValue(instaComp.source) || textValue(instaComp.scanId),
+  );
+  return {
+    hasInstaCompSource,
+    hasStoredIdentity,
+    hasStoredImageHint,
+    queueHint,
+    instaComp,
+  };
+}
+
+function isInstaCompPendingCandidate(row: any) {
+  const evidence = instaCompProjectionEvidence(row);
+  // Cards explicitly promoted to the physical Resale Ready state have left
+  // the Pending Listings workflow. Keep them out of Pending even though they
+  // still carry complete Mac-local identity and image evidence.
+  if (evidence.queueHint === "resale_ready") return false;
+  if (
+    !evidence.hasInstaCompSource &&
+    !evidence.hasStoredIdentity &&
+    !evidence.hasStoredImageHint &&
+    evidence.queueHint !== "pending_verification" &&
+    evidence.queueHint !== "pending"
+  ) {
+    return false;
+  }
+  if (
+    evidence.queueHint === "pending_verification" ||
+    evidence.queueHint === "pending" ||
+    evidence.hasStoredImageHint ||
+    evidence.hasStoredIdentity
+  ) {
+    return true;
+  }
+  return (
+    evidence.instaComp.identityComplete === true ||
+    textValue(evidence.instaComp.lastStatus) === "identity_complete" ||
+    textValue(evidence.instaComp.lastStatus) === "review_required" ||
+    textValue(evidence.instaComp.pricingStatus) ===
+      "identity_complete_pricing_pending"
+  );
 }
 
 function isGenericTitle(value: unknown) {
@@ -246,7 +431,9 @@ function optionalPrice(value: unknown) {
 function evidenceList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .filter(
+      (entry) => entry && typeof entry === "object" && !Array.isArray(entry),
+    )
     .map((entry) => {
       const row = entry as Record<string, unknown>;
       return {
@@ -259,7 +446,8 @@ function evidenceList(value: unknown) {
         url: textValue(row.url),
         imageUrl: textValue(row.imageUrl),
         source: textValue(row.source),
-        sourceLabel: textValue(row.sourceLabel) || textValue(row.source) || "Source",
+        sourceLabel:
+          textValue(row.sourceLabel) || textValue(row.source) || "Source",
         sourceCategory: textValue(row.sourceCategory),
         matchScore:
           Number.isFinite(Number(row.matchScore)) && Number(row.matchScore) >= 0
@@ -280,7 +468,9 @@ function evidenceList(value: unknown) {
 function providerCoverageList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .filter(
+      (entry) => entry && typeof entry === "object" && !Array.isArray(entry),
+    )
     .map((entry) => {
       const row = entry as Record<string, unknown>;
       return {
@@ -363,6 +553,163 @@ function imagePairForItem(rows: StoredImage[]) {
   };
 }
 
+function macReceivedReviewPendingRow(item: any, accountId: string) {
+  const metadata = recordValue(item?.metadata);
+  const sourceAuthority = textValue(metadata.sourceAuthority);
+  if (
+    sourceAuthority !== "mac_local" ||
+    textValue(item?.status) !== "draft"
+  ) {
+    return null;
+  }
+
+  const existingInstaComp = recordValue(metadata.instacomp);
+  const existingAi = recordValue(existingInstaComp.ai);
+  const legacyIdentity = recordValue(metadata.identity);
+  const identity = { ...legacyIdentity, ...existingAi };
+  const existingChecklistIdentity = recordValue(existingInstaComp.checklistIdentity);
+  const scanId = firstTextValue(existingInstaComp.scanId, metadata.scanId);
+  const inventoryItemId = textValue(item?.inventoryItemId);
+  const cardUuid =
+    firstTextValue(existingInstaComp.cardUuid, metadata.cardUuid) || inventoryItemId;
+  const registryIdentityId =
+    textValue(existingChecklistIdentity.identityId) ||
+    textValue(metadata.registryIdentityId) ||
+    textValue(identity.registryIdentityId) ||
+    textValue(identity.registry_identity_id);
+  if (!scanId || !inventoryItemId || !cardUuid) return null;
+
+  const registryFingerprintSha256 = firstTextValue(
+    metadata.registryFingerprintSha256,
+    identity.registryFingerprintSha256,
+    existingChecklistIdentity.fingerprintSha256,
+  );
+  const exactIdentity = Boolean(
+    registryIdentityId &&
+      registryFingerprintSha256 &&
+      ((existingInstaComp.identityComplete === true &&
+        existingInstaComp.trustedForIdentity === true &&
+        textValue(existingChecklistIdentity.status) === "exact_match") ||
+        (textValue(identity.player) &&
+          firstTextValue(identity.cardNumber, identity.card_number))),
+  );
+  const serialNumber = firstTextValue(
+    identity.serialNumber,
+    identity.serial_number,
+    metadata.visibleSerial,
+  );
+  const frontImageUrl = kingmakerScanImageUrl(scanId, "front");
+  const backImageUrl = kingmakerScanImageUrl(scanId, "back");
+  const existingOrientation = recordValue(existingInstaComp.imageOrientation);
+  const projectedQueue = exactIdentity
+    ? "pending_listings"
+    : "pending_verification";
+  const projectedSource = exactIdentity
+    ? "mac_local_registry_exact"
+    : "mac_local_received_review";
+
+  return {
+    id: inventoryItemId,
+    legacy_product_id: null,
+    seller_account_id: accountId,
+    card_uuid: cardUuid,
+    sku: textValue(item?.sku),
+    title: textValue(item?.title) || "Mac-local received card",
+    description: textValue(item?.description),
+    category: textValue(item?.category) || "Trading Card Singles",
+    condition: textValue(item?.condition) || "Near Mint or Better",
+    status: "draft",
+    quantity: Math.max(1, Number(item?.quantity || 1)),
+    price: Math.max(0, Number(item?.price || 0)),
+    metadata: {
+      ...metadata,
+      listingReviewRequired: !exactIdentity,
+      listingWorkflow: {
+        ...recordValue(metadata.listingWorkflow),
+        queue: projectedQueue,
+        source: projectedSource,
+      },
+      pending_verification: {
+        ...recordValue(metadata.pending_verification),
+        status: exactIdentity ? "resolved" : "pending_verification",
+        source: projectedSource,
+      },
+      instacomp: {
+        ...existingInstaComp,
+        source: projectedSource,
+        scanId,
+        cardUuid,
+        ai: {
+          ...identity,
+          internalScanId: scanId,
+          internalCardUuid: cardUuid,
+          checklistParallel:
+            firstTextValue(
+              identity.checklistParallel,
+              identity.parallelName,
+              identity.parallel,
+            ) || "Base",
+          confidence: exactIdentity ? 0.99 : 0,
+        },
+        identityComplete: exactIdentity,
+        trustedForIdentity: exactIdentity,
+        humanVerified: existingInstaComp.humanVerified === true,
+        checklistIdentity: {
+          ...existingChecklistIdentity,
+          status: exactIdentity ? "exact_match" : "review_required",
+          identityId: registryIdentityId,
+          fingerprintSha256: registryFingerprintSha256,
+        },
+        // Orientation is a physical-card fact and must not be downgraded just
+        // because identity is temporarily being re-evaluated. Once a completed
+        // persisted orientation exists, preserve it until explicit contradictory
+        // image evidence is recorded.
+        imageOrientation:
+          textValue(existingOrientation.status) === "completed" &&
+          existingInstaComp.imageOrientationPersisted === true
+            ? existingOrientation
+            : exactIdentity
+              ? existingOrientation
+              : {
+                  status: "review_required",
+                  source: "mac_receiving_review_hold",
+                  frontRotation: 0,
+                  backRotation: 0,
+                  reason:
+                    "Mac-local identity remains unresolved after automated scan recovery.",
+                },
+        imageOrientationPersisted:
+          existingInstaComp.imageOrientationPersisted === true,
+        imagePersistenceVerified: true,
+        frontImageUrl,
+        backImageUrl,
+        hasBackImage: true,
+        lastStatus: exactIdentity ? "identity_complete" : "review_required",
+        lastStage: exactIdentity ? "registry_exact" : "received_review",
+        pricingStatus: exactIdentity
+          ? textValue(existingInstaComp.pricingStatus) ||
+            "identity_complete_pricing_pending"
+          : "blocked_identity_review_required",
+        pricingReason: exactIdentity
+          ? textValue(existingInstaComp.pricingReason) ||
+            "Exact trusted Mac Registry identity is complete; human identity verification is not required."
+          : "Exact Registry identity is required before pricing.",
+      },
+      collectible_asset: {
+        ...recordValue(metadata.collectible_asset),
+        exact_serial_number: serialNumber,
+        print_run: serialNumber,
+      },
+      seller_review: {
+        ...recordValue(metadata.seller_review),
+        identity_confirmed: false,
+      },
+    },
+    created_at: item?.createdAt || item?.updatedAt || null,
+    updated_at: item?.updatedAt || item?.createdAt || null,
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -381,66 +728,125 @@ export async function GET(request: Request) {
     const isStoreOwnerAccount =
       account.email === "sales@truelycollectables.com" ||
       account.email === "sales@trulycollectables.com";
-    const requestedQueue = new URL(request.url).searchParams.get("queue");
+    const requestUrl = new URL(request.url);
+    const requestedQueue = requestUrl.searchParams.get("queue");
+    const compactKingmaker =
+      requestUrl.searchParams.get("surface") === "kingmaker" ||
+      requestUrl.searchParams.get("compact") === "1";
     const queue: InstaCompPendingQueue =
       requestedQueue === "verification" ? "verification" : "listings";
+
+    // Verification must be able to discover Mac-only received cards, so it
+    // starts one full Mac inventory read in parallel with website staging.
+    // Listings can use targeted Mac reads after staging rows are known.
+    const verificationMacInventoryPromise =
+      queue === "verification"
+        ? listMacKingmakerInventory(10_000)
+            .then((inventory) => ({ inventory, error: null as unknown }))
+            .catch((error: unknown) => ({ inventory: null, error }))
+        : null;
+    const localCertifiedPricingPromise = loadLocalCertifiedPricingRows();
+
     const inventoryRows = await readOwnedInventoryPages({
       supabase,
       storeId,
       accountId: account.id,
       ownerAccount: isStoreOwnerAccount,
       columns: PENDING_INVENTORY_COLUMNS,
-      draftOnly: false,
+      // KINGMAKER Pending is a staging queue. Active/listed inventory must never
+      // re-enter Pending after publication or an external marketplace sync.
+      draftOnly: true,
     });
-    const instaCompRows = inventoryRows.filter((row: any) => {
-      const metadata = recordValue(row.metadata);
-      const instaComp = recordValue(metadata.instacomp);
-      const cardIdentity = recordValue(metadata.card_identity);
-      const saleIdentity = recordValue(metadata.sale_identity);
-      const hasInstaCompSource = Boolean(
-        textValue(instaComp.source) || textValue(instaComp.scanId),
-      );
-      const hasStoredIdentity = Boolean(
-        textValue(cardIdentity.year) ||
-          textValue(cardIdentity.player) ||
-          textValue(cardIdentity.cardNumber) ||
-          textValue(cardIdentity.card_number) ||
-          textValue(saleIdentity.year) ||
-          textValue(saleIdentity.player) ||
-          textValue(saleIdentity.cardNumber) ||
-          textValue(saleIdentity.card_number),
-      );
-      const queueHint = textValue(recordValue(metadata.listingWorkflow).queue) ||
-        textValue(recordValue(metadata.listing_workflow).queue) ||
-        textValue(recordValue(metadata.pending_verification).status);
-      const hasStoredImageHint =
-        textValue(instaComp.recoveredImageUrls && (instaComp.recoveredImageUrls as Record<string, unknown>).front) ||
-        textValue(instaComp.recoveredImageUrls && (instaComp.recoveredImageUrls as Record<string, unknown>).back) ||
-        (Array.isArray(instaComp.sourceImageUrls) && instaComp.sourceImageUrls.some((value: unknown) => Boolean(textValue(value))));
-      if (
-        !hasInstaCompSource &&
-        !hasStoredIdentity &&
-        !hasStoredImageHint &&
-        queueHint !== "pending_verification" &&
-        queueHint !== "pending"
-      ) {
-        return false;
+
+    // Both Pending Verification and Pending Listings must be able to
+    // discover Mac-local received cards that do not yet have a website staging
+    // row. The Mac is authoritative for KINGMAKER identity/listing preparation,
+    // so a targeted lookup based only on Supabase IDs can hide newly prepared
+    // cards from the seller UI.
+    const macInventoryPromise =
+      verificationMacInventoryPromise ||
+      listMacKingmakerInventory(10_000)
+        .then((inventory) => ({ inventory, error: null as unknown }))
+        .catch((error: unknown) => ({ inventory: null, error }));
+
+    // AI / identity truth is Mac-local. Pending listing rows are still the
+    // website's staging/listing state, but when the Mac has a complete,
+    // fingerprinted exact Registry identity for the same inventoryItemId we
+    // project that truth into this response immediately. This makes Reload show
+    // completed background recoveries without requiring another physical scan
+    // or a separate "Read Card" click.
+    try {
+      // Mac truth projection is additive to the website staging queue.
+      // Never make the seller wait 30 seconds for the optional bridge just to
+      // see cards that are already stored in listing-state storage.
+      const macProjection = await macInventoryPromise;
+      if (!macProjection.inventory) {
+        const detail =
+          macProjection.error instanceof Error
+            ? macProjection.error.message
+            : "Mac projection unavailable.";
+        throw new Error("Mac projection unavailable: " + detail);
       }
-      if (
-        queueHint === "pending_verification" ||
-        queueHint === "pending" ||
-        hasStoredImageHint ||
-        hasStoredIdentity
-      ) {
-        return true;
-      }
-      return (
-        instaComp.identityComplete === true ||
-        textValue(instaComp.lastStatus) === "identity_complete" ||
-        textValue(instaComp.lastStatus) === "review_required" ||
-        textValue(instaComp.pricingStatus) === "identity_complete_pricing_pending"
+      const macInventory = macProjection.inventory;
+      const macByInventoryId = new Map(
+        macInventory.items.map((item) => [String(item.inventoryItemId), item]),
       );
-    });
+      for (const row of inventoryRows as any[]) {
+        const macItem = macByInventoryId.get(String(row.id));
+        if (!macItem) continue;
+        const macMetadata = recordValue(macItem.metadata);
+        const macInstaComp = recordValue(macMetadata.instacomp);
+        const macChecklistIdentity = recordValue(macInstaComp.checklistIdentity);
+        const exactMacTruth =
+          macInstaComp.identityComplete === true &&
+          macInstaComp.trustedForIdentity === true &&
+          textValue(macChecklistIdentity.status) === "exact_match" &&
+          Boolean(textValue(macChecklistIdentity.identityId)) &&
+          Boolean(textValue(macChecklistIdentity.fingerprintSha256));
+        if (!exactMacTruth) continue;
+
+        const existingMetadata = recordValue(row.metadata);
+        row.metadata = {
+          ...existingMetadata,
+          instacomp: {
+            ...recordValue(existingMetadata.instacomp),
+            ...macInstaComp,
+            source: "mac_local_pending_projection",
+          },
+          collectible_asset: {
+            ...recordValue(existingMetadata.collectible_asset),
+            ...recordValue(macMetadata.collectible_asset),
+          },
+        };
+        if (!textValue(row.card_uuid) && textValue(macInstaComp.cardUuid)) {
+          row.card_uuid = textValue(macInstaComp.cardUuid);
+        }
+      }
+
+      // Receiving is Mac-authoritative. A card received locally into review
+      // must remain visible in Pending Verification even when no Supabase
+      // staging row exists yet. Project those Mac-only drafts into this response
+      // without writing them to Supabase or changing AI authority.
+      const existingInventoryIds = new Set(
+        (inventoryRows as any[]).map((row) => String(row.id)),
+      );
+      for (const macItem of macInventory.items) {
+        const inventoryItemId = String(macItem.inventoryItemId || "");
+        if (!inventoryItemId || existingInventoryIds.has(inventoryItemId)) continue;
+        const projected = macReceivedReviewPendingRow(macItem, account.id);
+        if (!projected) continue;
+        (inventoryRows as any[]).push(projected);
+        existingInventoryIds.add(inventoryItemId);
+      }
+    } catch (error) {
+      // Verification is a physical/Mac-authority queue. Returning an apparently
+      // empty verification page when the Mac projection timed out can make
+      // received cards look deleted. Fail visibly instead. The ordinary listings
+      // queue remains available from website staging data during a Mac outage.
+      if (queue === "verification") throw error;
+    }
+
+    const instaCompRows = inventoryRows.filter(isInstaCompPendingCandidate);
     const queueCounts = {
       listings: instaCompRows.filter(
         (row: any) =>
@@ -461,46 +867,89 @@ export async function GET(request: Request) {
         instaComp.identityComplete === true ||
         textValue(instaComp.lastStatus) === "identity_complete" ||
         textValue(instaComp.lastStatus) === "review_required" ||
-        textValue(instaComp.pricingStatus) === "identity_complete_pricing_pending"
+        textValue(instaComp.pricingStatus) ===
+          "identity_complete_pricing_pending"
       );
     });
 
     const pricingGroupKeys = Array.from(
       new Set(
         rows
-          .map((row: any) => instaCompPricingGroupKey(row.metadata))
+          .map((row: any) => effectiveInstaCompPricingGroupKey(row.metadata))
           .filter((value): value is string => Boolean(value)),
       ),
     );
-    // Duplicate-group counts only need pending rows plus active rows that
-    // already persist an InstaComp pricingGroupKey. Avoid downloading every
-    // inventory row and its full metadata payload for this summary.
-    let activePricingGroupRows: any[] = [];
-    if (pricingGroupKeys.length > 0) {
-      let activeGroupQuery = supabase
+    const itemIds = rows.map((row: any) => String(row.id));
+    const productIds = Array.from(
+      new Set(
+        rows
+          .map((row: any) => row.legacy_product_id)
+          .filter(
+            (value: unknown): value is number => typeof value === "number",
+          ),
+      ),
+    );
+
+    // These reads are independent. Run them together so Pending pays only for
+    // the slowest lookup instead of active groups -> images -> products serially.
+    const activeGroupPromise = (async () => {
+      if (pricingGroupKeys.length === 0) return { data: [] as any[], error: null };
+      let query = supabase
         .from("inventory_items")
         .select(
           "id,legacy_product_id,status,quantity,pricing_group_key:metadata->instacomp->>pricingGroupKey",
         )
         .eq("store_id", storeId)
         .eq("status", "active")
-        .not("metadata->instacomp->>pricingGroupKey", "is", null);
-
-      activeGroupQuery = isStoreOwnerAccount
-        ? activeGroupQuery.or(
+        .in("metadata->instacomp->>pricingGroupKey", pricingGroupKeys);
+      query = isStoreOwnerAccount
+        ? query.or(
             `seller_account_id.eq.${account.id},seller_account_id.is.null`,
           )
-        : activeGroupQuery.eq("seller_account_id", account.id);
+        : query.eq("seller_account_id", account.id);
+      return await query;
+    })();
 
-      const { data: activeGroupData, error: activeGroupError } =
-        await activeGroupQuery;
-      if (activeGroupError) throw activeGroupError;
-      activePricingGroupRows = activeGroupData || [];
-    }
+    const storedImagesPromise = (async () => {
+      if (itemIds.length === 0) return { data: [] as StoredImage[], error: null };
+      return await supabase
+        .from("inventory_images")
+        .select("inventory_item_id,image_url,alt_text,sort_order,is_primary")
+        .in("inventory_item_id", itemIds)
+        .order("sort_order", { ascending: true });
+    })();
+
+    const productsPromise = (async () => {
+      if (productIds.length === 0) return { data: [] as any[], error: null };
+      return await supabase
+        .from("products")
+        .select("id,card_uuid,image_url,price,quantity,archived_at")
+        .eq("store_id", storeId)
+        .in("id", productIds);
+    })();
+
+    const [
+      localCertifiedPricingRows,
+      activeGroupResult,
+      imageResult,
+      productResult,
+    ] = await Promise.all([
+      localCertifiedPricingPromise,
+      activeGroupPromise,
+      storedImagesPromise,
+      productsPromise,
+    ]);
+
+    if (activeGroupResult.error) throw activeGroupResult.error;
+    if (imageResult.error) throw imageResult.error;
+    if (productResult.error) throw productResult.error;
+    const activePricingGroupRows = activeGroupResult.data || [];
+    const storedImages = imageResult.data || [];
+    const products = productResult.data || [];
 
     const pricingGroups = new Map<string, any[]>();
     for (const ownedRow of rows || []) {
-      const key = instaCompPricingGroupKey(ownedRow.metadata);
+      const key = effectiveInstaCompPricingGroupKey(ownedRow.metadata);
       if (!key || !pricingGroupKeys.includes(key)) continue;
       const current = pricingGroups.get(key) || [];
       current.push(ownedRow);
@@ -514,46 +963,16 @@ export async function GET(request: Request) {
       pricingGroups.set(key, current);
     }
 
-    const itemIds = rows.map((row: any) => String(row.id));
-    const { data: storedImages, error: imageError } =
-      itemIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
-            .from("inventory_images")
-            .select(
-              "inventory_item_id,image_url,alt_text,sort_order,is_primary",
-            )
-            .in("inventory_item_id", itemIds)
-            .order("sort_order", { ascending: true });
-    if (imageError) throw imageError;
-
     const imageRowsByItem = new Map<string, StoredImage[]>();
-    for (const image of (storedImages || []) as StoredImage[]) {
+    for (const image of storedImages as StoredImage[]) {
       const key = String(image.inventory_item_id);
       const current = imageRowsByItem.get(key) || [];
       current.push(image);
       imageRowsByItem.set(key, current);
     }
 
-    const productIds = Array.from(
-      new Set(
-        rows
-          .map((row: any) => row.legacy_product_id)
-          .filter((value: unknown): value is number => typeof value === "number"),
-      ),
-    );
-    const { data: products, error: productError } =
-      productIds.length === 0
-        ? { data: [], error: null }
-        : await supabase
-            .from("products")
-            .select("id,card_uuid,image_url,price,quantity,archived_at")
-            .eq("store_id", storeId)
-            .in("id", productIds);
-    if (productError) throw productError;
-
     const productMap = new Map(
-      (products || []).map((product: any) => [product.id, product]),
+      products.map((product: any) => [product.id, product]),
     );
 
     const items = rows.map((row: any) => {
@@ -561,14 +980,30 @@ export async function GET(request: Request) {
       const instaComp = recordValue(metadata.instacomp);
       const imageOrientation = recordValue(instaComp.imageOrientation);
       const ai = recordValue(instaComp.ai);
+      const manualIdentity = recordValue(instaComp.manualIdentity);
+      const manualIdentityLocked = instaComp.manualIdentityLocked === true;
+      const primaryIdentity = manualIdentityLocked ? manualIdentity : ai;
+      const localCertifiedPricing = manualIdentityLocked
+        ? localCertifiedPricingForIdentity(
+            localCertifiedPricingRows,
+            primaryIdentity,
+          )
+        : null;
+      const localCertifiedPricingAnalysis = recordValue(
+        localCertifiedPricing?.pricing,
+      );
       const collectibleAsset = recordValue(metadata.collectible_asset);
       const graderVerification = recordValue(metadata.grader_verification);
       const sellerReview = recordValue(metadata.seller_review);
       const sourceLinks = recordValue(instaComp.sourceLinks);
       const pricingAnalysis = recordValue(instaComp.pricingAnalysis);
+      const dualMarketplace = recordValue(metadata.dual_marketplace);
+      const dualWebsite = recordValue(dualMarketplace.website);
+      const dualEbay = recordValue(dualMarketplace.ebay);
+      const dualMercari = recordValue(dualMarketplace.mercari);
       const cardIdentity = recordValue(metadata.card_identity);
       const saleIdentity = recordValue(metadata.sale_identity);
-      const pricingGroupKey = instaCompPricingGroupKey(metadata);
+      const pricingGroupKey = effectiveInstaCompPricingGroupKey(metadata);
       const pricingGroupRows = pricingGroupKey
         ? pricingGroups.get(pricingGroupKey) || []
         : [];
@@ -578,7 +1013,17 @@ export async function GET(request: Request) {
       const storedPair = imagePairForItem(
         imageRowsByItem.get(String(row.id)) || [],
       );
+      const metadataFrontUrl =
+        textValue(instaComp.frontImageUrl) ||
+        textValue(recordValue(instaComp.recoveredImageUrls).front) ||
+        (Array.isArray(instaComp.sourceImageUrls)
+          ? textValue(instaComp.sourceImageUrls[0])
+          : null) ||
+        (Array.isArray(metadata.ebay_image_urls)
+          ? textValue(metadata.ebay_image_urls[0])
+          : null);
       const metadataBackUrl =
+        textValue(instaComp.backImageUrl) ||
         textValue(recordValue(instaComp.recoveredImageUrls).back) ||
         (Array.isArray(instaComp.sourceImageUrls)
           ? textValue(instaComp.sourceImageUrls[1])
@@ -589,20 +1034,21 @@ export async function GET(request: Request) {
       const hasBackImage =
         storedPair.hasStoredBackImage || Boolean(metadataBackUrl);
       const displayFrontUrl =
-        storedPair.frontImageUrl || product?.image_url || null;
+        storedPair.frontImageUrl || metadataFrontUrl || product?.image_url || null;
       const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
       const rawTitle = textValue(row.title);
+      const canonicalTitleContext = { metadata, rawTitle };
       const generatedTitle =
-        buildIdentityTitle(ai) ||
-        buildIdentityTitle(recordValue(metadata.card)) ||
-        buildIdentityTitle(cardIdentity) ||
-        buildIdentityTitle(saleIdentity) ||
-        buildIdentityTitle(recordValue(metadata.verified_reference)) ||
-        buildIdentityTitle(recordValue(metadata.collectible_asset)) ||
-        buildIdentityTitle(metadata) ||
+        buildInstaCompCanonicalTitle(primaryIdentity, canonicalTitleContext) ||
+        buildInstaCompCanonicalTitle(recordValue(metadata.card), canonicalTitleContext) ||
+        buildInstaCompCanonicalTitle(cardIdentity, canonicalTitleContext) ||
+        buildInstaCompCanonicalTitle(saleIdentity, canonicalTitleContext) ||
+        buildInstaCompCanonicalTitle(recordValue(metadata.verified_reference), canonicalTitleContext) ||
+        buildInstaCompCanonicalTitle(recordValue(metadata.collectible_asset), canonicalTitleContext) ||
+        buildInstaCompCanonicalTitle(metadata, canonicalTitleContext) ||
         null;
       const identitySummary =
-        buildIdentitySummary(ai) ||
+        buildIdentitySummary(primaryIdentity) ||
         buildIdentitySummary(recordValue(metadata.card)) ||
         buildIdentitySummary(cardIdentity) ||
         buildIdentitySummary(saleIdentity) ||
@@ -611,7 +1057,7 @@ export async function GET(request: Request) {
         buildIdentitySummary(metadata) ||
         null;
       const identityReadout =
-        buildIdentityReadout(ai) ||
+        buildIdentityReadout(primaryIdentity) ||
         buildIdentityReadout(recordValue(metadata.card)) ||
         buildIdentityReadout(cardIdentity) ||
         buildIdentityReadout(saleIdentity) ||
@@ -620,25 +1066,46 @@ export async function GET(request: Request) {
         buildIdentityReadout(metadata) ||
         null;
       const displayTitle =
-        identityReadout ||
-        identitySummary ||
         generatedTitle ||
+        identityReadout ||
         (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
+        identitySummary ||
         rawTitle ||
         "Untitled item";
 
       const suggestedPrice = optionalPrice(
-        Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
-          ? instaComp.suggestedPrice
-          : instaComp.marketPrice,
+        localCertifiedPricingAnalysis.instacomp ??
+          localCertifiedPricingAnalysis.suggestedPrice ??
+          (Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
+            ? instaComp.suggestedPrice
+            : instaComp.marketPrice),
       );
       const pricingStatus =
-        textValue(instaComp.pricingStatus) ||
+        (localCertifiedPricing && suggestedPrice !== null
+          ? "suggested_from_local_certified_exact_sold_comps"
+          : textValue(instaComp.pricingStatus)) ||
         (suggestedPrice === null
           ? "not_run"
           : suggestedPrice > 0
             ? "suggested_from_reliable_sold_comps"
             : "seller_price_required");
+      const feeProfile = pendingChannelFeeProfile();
+      const storedEbayPrice = optionalPrice(dualEbay.price);
+      const storedWebsitePrice = optionalPrice(dualWebsite.price);
+      const channelAnchor =
+        storedEbayPrice || optionalPrice(instaComp.listingPrice) || suggestedPrice;
+      const calculatedChannels = calculateDualMarketplacePricing(
+        channelAnchor || 0,
+        feeProfile,
+      );
+      const ebayChannelPrice = storedEbayPrice || calculatedChannels.ebayPrice || 0;
+      const websiteChannelPrice =
+        storedWebsitePrice || calculatedChannels.websitePrice || 0;
+      const channelPricing = calculateCustomWebsitePricing(
+        ebayChannelPrice,
+        websiteChannelPrice,
+        feeProfile,
+      );
 
       const effectiveMetadata = hasBackImage
         ? {
@@ -666,7 +1133,9 @@ export async function GET(request: Request) {
         textValue(collectibleAsset.grading_cert_number) ||
         textValue(ai.gradingCertNumber) ||
         textValue(ai.certificationNumber);
-      const uniquePhysicalCopy = Boolean(exactSerialNumber || gradingCertNumber);
+      const uniquePhysicalCopy = Boolean(
+        exactSerialNumber || gradingCertNumber,
+      );
 
       return {
         inventoryItemId: row.id,
@@ -701,6 +1170,10 @@ export async function GET(request: Request) {
           source: textValue(instaComp.source),
           scanId: textValue(instaComp.scanId),
           humanVerified: instaComp.humanVerified === true,
+          identityComplete: instaComp.identityComplete === true,
+          trustedForIdentity: instaComp.trustedForIdentity === true,
+          identityRefreshRequired: instaComp.identityRefreshRequired === true,
+          checklistStatus: textValue(recordValue(instaComp.checklistDecision).status),
           cardUuid:
             textValue(row.card_uuid) ||
             textValue(product?.card_uuid) ||
@@ -712,85 +1185,119 @@ export async function GET(request: Request) {
             ? summarizeInstaCompPricingGroup(pricingGroupRows)
             : null,
           identity: {
-            sport: textValue(ai.sport),
-            league: textValue(ai.league),
-            year:
-              textValue(ai.year) ||
-              textValue(cardIdentity.year) ||
-              textValue(saleIdentity.year),
-            manufacturer:
-              textValue(ai.manufacturer) ||
-              textValue(ai.brand) ||
-              textValue(cardIdentity.manufacturer) ||
-              textValue(cardIdentity.brand) ||
-              textValue(saleIdentity.manufacturer) ||
-              textValue(saleIdentity.brand),
-            brand:
-              textValue(ai.brand) ||
-              textValue(cardIdentity.brand) ||
-              textValue(saleIdentity.brand),
-            product:
-              textValue(ai.product) ||
-              textValue(cardIdentity.product) ||
-              textValue(saleIdentity.product),
-            setName:
-              textValue(ai.setName) ||
-              textValue(ai.set_name) ||
-              textValue(cardIdentity.setName) ||
-              textValue(cardIdentity.set_name) ||
-              textValue(saleIdentity.setName) ||
-              textValue(saleIdentity.set_name),
-            subset:
-              identitySubsetValue(ai) ||
-              identitySubsetValue(recordValue(metadata.card)) ||
-              identitySubsetValue(cardIdentity) ||
-              identitySubsetValue(saleIdentity) ||
-              identitySubsetValue(recordValue(metadata.verified_reference)),
-            player:
-              identityPlayerValue(ai) ||
-              identityPlayerValue(cardIdentity) ||
-              identityPlayerValue(saleIdentity),
-            team:
-              textValue(ai.team) ||
-              textValue(cardIdentity.team) ||
-              textValue(saleIdentity.team),
-            cardNumber:
-              textValue(ai.cardNumber) ||
-              textValue(ai.card_number) ||
-              textValue(cardIdentity.cardNumber) ||
-              textValue(cardIdentity.card_number) ||
-              textValue(saleIdentity.cardNumber) ||
-              textValue(saleIdentity.card_number),
-            parallel:
-              textValue(ai.checklistParallel) ||
-              textValue(ai.parallelName) ||
-              textValue(ai.parallel) ||
-              textValue(cardIdentity.parallel) ||
-              textValue(saleIdentity.parallel),
-            variation:
-              textValue(ai.variation) ||
-              textValue(cardIdentity.variation) ||
-              textValue(saleIdentity.variation),
-            notes: textValue(ai.notes) || buildIdentitySummary(ai) || buildIdentitySummary(cardIdentity) || buildIdentitySummary(saleIdentity),
-            serialNumber:
-              textValue(ai.serialNumber) ||
-              textValue(cardIdentity.serialNumber) ||
-              textValue(saleIdentity.serialNumber) ||
-              exactSerialNumber,
-            isRookie: ai.isRookie === true || collectibleAsset.rookie === true,
-            isAuto: ai.isAuto === true || collectibleAsset.autograph === true,
-            isRelic: ai.isRelic === true || collectibleAsset.memorabilia === true,
-            inscription:
-              ai.internalInscription === true || collectibleAsset.inscription === true,
-            inscriptionText:
-              textValue(ai.internalInscriptionText) ||
-              textValue(collectibleAsset.inscription_text),
-            memorabiliaType:
-              textValue(ai.internalMemorabiliaType) ||
-              textValue(collectibleAsset.memorabilia_type),
+            sport: textValue(primaryIdentity.sport),
+            league: textValue(primaryIdentity.league),
+            year: manualIdentityLocked
+              ? textValue(primaryIdentity.year)
+              : textValue(primaryIdentity.year) ||
+                textValue(cardIdentity.year) ||
+                textValue(saleIdentity.year),
+            manufacturer: manualIdentityLocked
+              ? textValue(primaryIdentity.manufacturer)
+              : textValue(primaryIdentity.manufacturer) ||
+                textValue(primaryIdentity.brand) ||
+                textValue(cardIdentity.manufacturer) ||
+                textValue(cardIdentity.brand) ||
+                textValue(saleIdentity.manufacturer) ||
+                textValue(saleIdentity.brand),
+            brand: manualIdentityLocked
+              ? textValue(primaryIdentity.brand)
+              : textValue(primaryIdentity.brand) ||
+                textValue(cardIdentity.brand) ||
+                textValue(saleIdentity.brand),
+            product: manualIdentityLocked
+              ? textValue(primaryIdentity.product)
+              : textValue(primaryIdentity.product) ||
+                textValue(cardIdentity.product) ||
+                textValue(saleIdentity.product),
+            setName: manualIdentityLocked
+              ? textValue(primaryIdentity.setName) ||
+                textValue(primaryIdentity.set_name)
+              : textValue(primaryIdentity.setName) ||
+                textValue(primaryIdentity.set_name) ||
+                textValue(cardIdentity.setName) ||
+                textValue(cardIdentity.set_name) ||
+                textValue(saleIdentity.setName) ||
+                textValue(saleIdentity.set_name),
+            subset: manualIdentityLocked
+              ? identitySubsetValue(primaryIdentity)
+              : identitySubsetValue(primaryIdentity) ||
+                identitySubsetValue(recordValue(metadata.card)) ||
+                identitySubsetValue(cardIdentity) ||
+                identitySubsetValue(saleIdentity) ||
+                identitySubsetValue(recordValue(metadata.verified_reference)),
+            player: manualIdentityLocked
+              ? identityPlayerValue(primaryIdentity)
+              : identityPlayerValue(primaryIdentity) ||
+                identityPlayerValue(cardIdentity) ||
+                identityPlayerValue(saleIdentity),
+            team: manualIdentityLocked
+              ? textValue(primaryIdentity.team)
+              : textValue(primaryIdentity.team) ||
+                textValue(cardIdentity.team) ||
+                textValue(saleIdentity.team),
+            cardNumber: manualIdentityLocked
+              ? textValue(primaryIdentity.cardNumber) ||
+                textValue(primaryIdentity.card_number)
+              : textValue(primaryIdentity.cardNumber) ||
+                textValue(primaryIdentity.card_number) ||
+                textValue(cardIdentity.cardNumber) ||
+                textValue(cardIdentity.card_number) ||
+                textValue(saleIdentity.cardNumber) ||
+                textValue(saleIdentity.card_number),
+            parallel: manualIdentityLocked
+              ? textValue(primaryIdentity.parallel)
+              : textValue(primaryIdentity.checklistParallel) ||
+                textValue(primaryIdentity.parallelName) ||
+                textValue(primaryIdentity.parallel) ||
+                textValue(cardIdentity.parallel) ||
+                textValue(saleIdentity.parallel),
+            variation: manualIdentityLocked
+              ? textValue(primaryIdentity.variation)
+              : textValue(primaryIdentity.variation) ||
+                textValue(cardIdentity.variation) ||
+                textValue(saleIdentity.variation),
+            notes:
+              textValue(primaryIdentity.notes) ||
+              buildIdentitySummary(ai) ||
+              buildIdentitySummary(cardIdentity) ||
+              buildIdentitySummary(saleIdentity),
+            serialNumber: manualIdentityLocked
+              ? textValue(primaryIdentity.serialNumber)
+              : textValue(ai.serialNumber) ||
+                textValue(cardIdentity.serialNumber) ||
+                textValue(saleIdentity.serialNumber) ||
+                exactSerialNumber,
+            isRookie: manualIdentityLocked
+              ? primaryIdentity.isRookie === true
+              : ai.isRookie === true || collectibleAsset.rookie === true,
+            isAuto: manualIdentityLocked
+              ? primaryIdentity.isAuto === true
+              : ai.isAuto === true || collectibleAsset.autograph === true,
+            isRelic: manualIdentityLocked
+              ? primaryIdentity.isRelic === true
+              : ai.isRelic === true || collectibleAsset.memorabilia === true,
+            inscription: manualIdentityLocked
+              ? primaryIdentity.inscription === true
+              : ai.internalInscription === true ||
+                collectibleAsset.inscription === true,
+            inscriptionText: manualIdentityLocked
+              ? textValue(primaryIdentity.inscriptionText)
+              : textValue(ai.internalInscriptionText) ||
+                textValue(collectibleAsset.inscription_text),
+            memorabiliaType: manualIdentityLocked
+              ? textValue(primaryIdentity.memorabiliaType)
+              : textValue(ai.internalMemorabiliaType) ||
+                textValue(collectibleAsset.memorabilia_type),
           },
-          serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
+          serialNumber: manualIdentityLocked
+            ? textValue(primaryIdentity.serialNumber)
+            : textValue(ai.serialNumber) || exactSerialNumber,
           hasBackImage,
+          centering: {
+            front: recordValue(recordValue(instaComp.centering).front),
+            back: recordValue(recordValue(instaComp.centering).back),
+          },
           imageOrientation: {
             verified:
               imageOrientation.status === "completed" &&
@@ -812,6 +1319,10 @@ export async function GET(request: Request) {
           suggestedPrice,
           pricingStatus,
           pricingReason:
+            (localCertifiedPricing
+              ? textValue(localCertifiedPricingAnalysis.explanation) ||
+                "Local human-certified exact sold comps produced this suggestion."
+              : null) ||
             textValue(instaComp.pricingReason) ||
             (pricingStatus === "not_run"
               ? "InstaComp pricing has not run yet."
@@ -820,46 +1331,126 @@ export async function GET(request: Request) {
                 : "Reliable sold comps produced this suggestion."),
           reliableSoldCompCount: Math.max(
             0,
-            Number(instaComp.reliableSoldCompCount || 0),
+            Number(
+              localCertifiedPricingAnalysis.soldCount ??
+                instaComp.reliableSoldCompCount ??
+                0,
+            ),
           ),
           pricingAnalysis: {
-            strategy: textValue(pricingAnalysis.strategy) || "no_market",
-            soldCount: Math.max(0, Number(pricingAnalysis.soldCount || 0)),
-            activeCount: Math.max(0, Number(pricingAnalysis.activeCount || 0)),
-            soldLow: optionalPrice(pricingAnalysis.soldLow),
-            soldMedian: optionalPrice(pricingAnalysis.soldMedian),
-            soldAverage: optionalPrice(pricingAnalysis.soldAverage),
-            soldHigh: optionalPrice(pricingAnalysis.soldHigh),
-            activeLow: optionalPrice(pricingAnalysis.activeLow),
-            activeMedian: optionalPrice(pricingAnalysis.activeMedian),
-            activeAverage: optionalPrice(pricingAnalysis.activeAverage),
-            activeHigh: optionalPrice(pricingAnalysis.activeHigh),
-            soldListTarget: optionalPrice(pricingAnalysis.soldListTarget),
-            competitiveTarget: optionalPrice(pricingAnalysis.competitiveTarget),
+            strategy:
+              textValue(localCertifiedPricingAnalysis.strategy) ||
+              textValue(pricingAnalysis.strategy) ||
+              "no_market",
+            soldCount: Math.max(
+              0,
+              Number(
+                localCertifiedPricingAnalysis.soldCount ??
+                  pricingAnalysis.soldCount ??
+                  0,
+              ),
+            ),
+            activeCount: Math.max(
+              0,
+              Number(
+                localCertifiedPricingAnalysis.activeCount ??
+                  pricingAnalysis.activeCount ??
+                  0,
+              ),
+            ),
+            soldLow: optionalPrice(
+              localCertifiedPricingAnalysis.soldLow ?? pricingAnalysis.soldLow,
+            ),
+            soldMedian: optionalPrice(
+              localCertifiedPricingAnalysis.soldMedian ??
+                pricingAnalysis.soldMedian,
+            ),
+            soldAverage: optionalPrice(
+              localCertifiedPricingAnalysis.soldAverage ??
+                pricingAnalysis.soldAverage,
+            ),
+            soldHigh: optionalPrice(
+              localCertifiedPricingAnalysis.soldHigh ??
+                pricingAnalysis.soldHigh,
+            ),
+            activeLow: optionalPrice(
+              localCertifiedPricingAnalysis.activeLow ??
+                pricingAnalysis.activeLow,
+            ),
+            activeMedian: optionalPrice(
+              localCertifiedPricingAnalysis.activeMedian ??
+                pricingAnalysis.activeMedian,
+            ),
+            activeAverage: optionalPrice(
+              localCertifiedPricingAnalysis.activeAverage ??
+                pricingAnalysis.activeAverage,
+            ),
+            activeHigh: optionalPrice(
+              localCertifiedPricingAnalysis.activeHigh ??
+                pricingAnalysis.activeHigh,
+            ),
+            soldListTarget: optionalPrice(
+              localCertifiedPricingAnalysis.soldListTarget ??
+                pricingAnalysis.soldListTarget,
+            ),
+            competitiveTarget: optionalPrice(
+              localCertifiedPricingAnalysis.competitiveTarget ??
+                pricingAnalysis.competitiveTarget,
+            ),
           },
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
+          priceGuide: recordValue(instaComp.priceGuide),
           listingPrice: optionalPrice(instaComp.listingPrice),
           listingPriceSource: textValue(instaComp.listingPriceSource),
-          soldCompEvidence: evidenceList(instaComp.soldCompEvidence),
-          activeCompetition: evidenceList(instaComp.activeCompetition),
-          rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
-          excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
-          excludedCompCount: Array.isArray(instaComp.excludedCompUrls)
-            ? instaComp.excludedCompUrls.length
-            : 0,
-          providerCoverage: providerCoverageList(instaComp.providerCoverage),
-          sourceLinks: {
-            ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),
-            ebayActiveUrl: textValue(sourceLinks.ebayActiveUrl),
-            broadCardMarketUrl: textValue(sourceLinks.broadCardMarketUrl),
+          channelPricing: {
+            ...channelPricing,
+            websiteStatus: textValue(dualWebsite.status) || "draft",
+            ebayStatus: textValue(dualEbay.status) || "draft",
+            mercariStatus: textValue(dualMercari.status) || "draft",
+            mercariSourceListingId: textValue(dualMercari.sourceListingId),
+            calculatedFrom: storedEbayPrice
+              ? "saved_ebay_price"
+              : suggestedPrice
+                ? "instacomp"
+                : "seller_price_required",
           },
+          soldCompEvidence: localCertifiedPricing
+            ? Array.isArray(localCertifiedPricing.exactSoldComps)
+              ? localCertifiedPricing.exactSoldComps
+                  .slice(0, 50)
+                  .map((comp) => ({
+                    title: textValue(comp.title),
+                    price: optionalPrice(comp.price),
+                    url: textValue(comp.url),
+                    sourceLabel: "Local InstaComp certified exact sold",
+                    soldAt: textValue(comp.soldAt),
+                  }))
+              : []
+            : evidenceList(instaComp.soldCompEvidence),
+          activeCompetition: evidenceList(instaComp.activeCompetition),
+          ...(compactKingmaker
+            ? {}
+            : {
+                rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
+                excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
+                excludedCompCount: Array.isArray(instaComp.excludedCompUrls)
+                  ? instaComp.excludedCompUrls.length
+                  : 0,
+                providerCoverage: providerCoverageList(instaComp.providerCoverage),
+                sourceLinks: {
+                  ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),
+                  ebayActiveUrl: textValue(sourceLinks.ebayActiveUrl),
+                  broadCardMarketUrl: textValue(sourceLinks.broadCardMarketUrl),
+                },
+              }),
           identitySummary,
           identityReadout,
           gradingCompany:
             textValue(collectibleAsset.grading_company) ||
             textValue(ai.gradingCompany),
           gradingGrade:
-            textValue(collectibleAsset.grading_grade) || textValue(ai.gradeValue),
+            textValue(collectibleAsset.grading_grade) ||
+            textValue(ai.gradeValue),
           gradingCertNumber,
           graderVerificationStatus: effectiveGraderStatus(metadata),
           graderVerificationUrl:
@@ -869,10 +1460,77 @@ export async function GET(request: Request) {
       };
     });
 
+    const commercialItems =
+      queue === "listings"
+        ? Array.from(
+            items.reduce((groups, item) => {
+              const groupKey =
+                item.uniquePhysicalCopy !== true
+                  ? item.instaComp.pricingGroupKey
+                  : null;
+              const key = groupKey || `physical:${item.inventoryItemId}`;
+              const existing = groups.get(key);
+              if (!existing) {
+                groups.set(key, {
+                  ...item,
+                  commercialGroup: {
+                    mergeable: Boolean(groupKey),
+                    memberInventoryItemIds: [item.inventoryItemId],
+                    pendingRows: 1,
+                    pendingQuantity: Math.max(1, Number(item.quantity || 1)),
+                    activeRows: Number(item.instaComp.duplicateGroup?.activeRows || 0),
+                    totalQuantity: Number(
+                      item.instaComp.duplicateGroup?.totalQuantity ||
+                        item.quantity ||
+                        1,
+                    ),
+                  },
+                });
+                return groups;
+              }
+
+              existing.commercialGroup.memberInventoryItemIds.push(
+                item.inventoryItemId,
+              );
+              existing.commercialGroup.pendingRows += 1;
+              existing.commercialGroup.pendingQuantity += Math.max(
+                1,
+                Number(item.quantity || 1),
+              );
+              existing.quantity = existing.commercialGroup.pendingQuantity;
+              existing.activationReadiness = {
+                ready:
+                  existing.activationReadiness.ready &&
+                  item.activationReadiness.ready,
+                blockers: Array.from(
+                  new Set([
+                    ...existing.activationReadiness.blockers,
+                    ...item.activationReadiness.blockers,
+                  ]),
+                ),
+              };
+              return groups;
+            }, new Map<string, any>()),
+          ).map(([, item]) => item)
+        : items.map((item) => ({
+            ...item,
+            commercialGroup: {
+              mergeable: false,
+              memberInventoryItemIds: [item.inventoryItemId],
+              pendingRows: 1,
+              pendingQuantity: Math.max(1, Number(item.quantity || 1)),
+              activeRows: Number(item.instaComp.duplicateGroup?.activeRows || 0),
+              totalQuantity: Number(
+                item.instaComp.duplicateGroup?.totalQuantity || item.quantity || 1,
+              ),
+            },
+          }));
+
     return Response.json(
       {
-        items,
-        count: items.length,
+        items: commercialItems,
+        count: commercialItems.length,
+        physicalRowCount: items.length,
         queue,
         queueCounts,
         imageAudit: {

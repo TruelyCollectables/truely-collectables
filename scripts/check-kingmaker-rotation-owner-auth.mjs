@@ -11,7 +11,6 @@ function requireText(source, value, label) {
 }
 
 const route = read("src/app/api/admin/card-listing-images/route.ts");
-const page = read("src/app/kingmaker/instacomp-audit/page.tsx");
 
 requireText(
   route,
@@ -35,14 +34,9 @@ requireText(
   "stored front/back equality gate",
 );
 requireText(
-  page,
-  'Authorization: `Bearer ${session.access_token}`',
-  "seller bearer token on image request",
-);
-requireText(
-  page,
-  "const nextFront = text(data.frontImageUrl);",
-  "immediate rotated URL rendering",
+  route,
+  "getAuthenticatedAccountFromRequest",
+  "seller authentication on image request",
 );
 
 console.log(

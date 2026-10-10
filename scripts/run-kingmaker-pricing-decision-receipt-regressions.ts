@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { KingmakerPricingDecision } from "../src/lib/kingmaker-pricing-decision";
-import { buildKingmakerPricingDecisionReceiptRow } from "../src/lib/kingmaker-pricing-decision-receipt-server";
+import { buildKingmakerPricingDecisionReceiptRow } from "../src/lib/kingmaker-pricing-decision-receipt";
 
 const decision: KingmakerPricingDecision = {
   schema: "tcos.kingmaker.pricingDecision.v1",
@@ -44,14 +44,14 @@ const sellerRow = buildKingmakerPricingDecisionReceiptRow({
   decision,
 });
 
-assert.equal(sellerRow.store_id, "store-1");
-assert.equal(sellerRow.seller_account_id, "seller-1");
-assert.equal(sellerRow.identity_id, "identity-1");
-assert.equal(sellerRow.profile_selection, "default");
-assert.equal(sellerRow.boundary, "advisory_only");
-assert.equal(sellerRow.expected_profit, 25);
-assert.equal(sellerRow.marketplace_fee_pct, 0.08);
-assert.equal(sellerRow.target_margin_pct, 0.3);
+assert.equal(sellerRow.storeId, "store-1");
+assert.equal(sellerRow.sellerAccountId, "seller-1");
+assert.equal(sellerRow.identityId, "identity-1");
+assert.equal(sellerRow.profileSelection, "default");
+assert.equal(sellerRow.decision.boundary, "advisory_only");
+assert.equal(sellerRow.decision.estimatedProfitAtCeiling, 25);
+assert.equal(sellerRow.profile.marketplaceFeePct, 0.08);
+assert.equal(sellerRow.profile.targetMarginPct, 0.3);
 
 const adminFallback = buildKingmakerPricingDecisionReceiptRow({
   actor: { type: "admin", storeId: "store-1", sellerAccountId: null },
@@ -80,9 +80,9 @@ const adminFallback = buildKingmakerPricingDecisionReceiptRow({
   },
 });
 
-assert.equal(adminFallback.seller_account_id, null);
-assert.equal(adminFallback.profile_id, null);
-assert.equal(adminFallback.profile_selection, "fallback");
-assert.equal(adminFallback.decision_status, "review_required");
+assert.equal(adminFallback.sellerAccountId, null);
+assert.equal(adminFallback.profileId, null);
+assert.equal(adminFallback.profileSelection, "fallback");
+assert.equal(adminFallback.decision.status, "review_required");
 
 console.log("KINGMAKER Pricing decision receipt regressions passed.");

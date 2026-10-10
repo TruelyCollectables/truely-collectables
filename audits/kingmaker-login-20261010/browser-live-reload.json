@@ -1,0 +1,12 @@
+{
+  "projectionError": false,
+  "api": [
+    {
+      "path": "/api/account/seller/instacomp-pending",
+      "durationMs": 144.90000000596046,
+      "waitMs": 131.5,
+      "downloadMs": 0.7000000029802322,
+      "status": 502
+    }
+  ]
+}

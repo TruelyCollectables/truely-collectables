@@ -17,24 +17,29 @@ export function instaCompPendingQueueFromMetadata(
   const metadata = record(metadataValue);
   const instacomp = record(metadata.instacomp);
   const imageOrientation = record(instacomp.imageOrientation);
-  const workflow = record(metadata.listingWorkflow);
-  const legacyWorkflow = record(metadata.listing_workflow);
-  const queue =
-    text(workflow.queue) ||
-    text(legacyWorkflow.queue) ||
-    text(record(metadata.pending_verification).status);
-
-  const explicitlyHeld =
-    queue === "pending_verification" || queue === "pending";
+  const frontImageUrl = text(instacomp.frontImageUrl);
+  const backImageUrl = text(instacomp.backImageUrl);
+  const hasDistinctMacPair = Boolean(
+    frontImageUrl && backImageUrl && frontImageUrl !== backImageUrl,
+  );
+  const identityComplete =
+    instacomp.identityComplete === true ||
+    text(instacomp.lastStatus) === "identity_complete";
+  const checklistIdentity = record(instacomp.checklistIdentity);
+  const exactTrustedIdentity =
+    identityComplete &&
+    instacomp.trustedForIdentity === true &&
+    text(checklistIdentity.status) === "exact_match" &&
+    Boolean(text(checklistIdentity.identityId)) &&
+    Boolean(text(checklistIdentity.fingerprintSha256)) &&
+    hasDistinctMacPair;
   const orientationVerified =
     text(imageOrientation.status) === "completed" &&
     instacomp.imageOrientationPersisted === true &&
-    instacomp.imagePersistenceVerified === true;
+    (instacomp.imagePersistenceVerified === true || hasDistinctMacPair);
 
-  // Pending Listings is an executable seller workspace, not a raw-upload
-  // gallery. A card cannot enter it until both Mac-canonical image files were
-  // stored and read back. Uploads with a timeout or ambiguous orientation stay
-  // in the verification lane for automatic recovery instead of displaying bad
-  // pixels as if they were listing-ready.
-  return explicitlyHeld || !orientationVerified ? "verification" : "listings";
+  // Identity and physical orientation are independent gates. A distinct
+  // front/back pair does not establish that either image is upright.
+  if (!orientationVerified) return "verification";
+  return exactTrustedIdentity ? "listings" : "verification";
 }

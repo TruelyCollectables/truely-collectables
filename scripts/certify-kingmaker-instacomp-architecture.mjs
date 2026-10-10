@@ -87,21 +87,27 @@ for (const required of [
 const exactScan = read("src/app/api/kingmaker/instacomp-front-back-exact/route.ts");
 for (const required of [
   "fetchInstaCompAiLocalScanImage",
-  "canonicalImagesRecovered: true",
-  "completedMacOrientation(scan, params.webOrientation)",
+  "runKingmakerMacScan",
+  "sha256File",
+  "DUPLICATE_IMAGE_BYTES",
+  'nothingPublished: true',
+  'sourceOfTruth: "mac_local"',
+]) {
+  requireText(exactScan, required, "KINGMAKER exact scan boundary");
+}
+const macScanServer = read("src/lib/kingmaker-mac-scan-server.ts");
+for (const required of [
+  "frontRotation: 0",
+  "backRotation: 0",
   "frontRotation: null",
   "backRotation: null",
-  "Web orientation is retained as diagnostics only",
-  "macArchive.orientation.status !== \"completed\"",
-  "frontDataUrl: finalFrontDataUrl",
-  "frontFile: finalFrontFile",
-  "hasProvidedPair",
-  "previousFrontImageUrl: pair.front?.url || null",
-  'redirect: "manual"',
-  "image redirect was blocked",
-  'imageOrientationPersisted: finalOrientation.status === "completed"',
+  "normalizeInstaCompSideImages",
+  "imageOrientationPersisted",
+  "imagePersistenceVerified: true",
+  "kingmakerScanImageUrl",
+  "manualIdentityLocked",
 ]) {
-  requireText(exactScan, required, "Mac-canonical orientation handoff");
+  requireText(macScanServer, required, "Mac-canonical orientation handoff");
 }
 const activationFirewall = read("src/lib/inventory-activation.ts");
 for (const required of [
@@ -154,7 +160,7 @@ for (const required of [
   "multiple",
   "pairInstaCompDropFiles",
   "runInstaCompBatchQueue",
-  'fetch("/api/kingmaker/instacomp-scan-intake-v2"',
+  'fetch("/api/account/seller/instacomp-scan/intake"',
   "duplicate file",
 ]) {
   requireText(batchQueue, required, "KINGMAKER multi-card batch intake");
@@ -306,8 +312,11 @@ for (const forbiddenImport of [
 ]) {
   rejectText(macMain, forbiddenImport, "Mac InstaComp service");
 }
-requireText(macMain, "checklist_gateway.match", "Mac Registry boundary");
-requireText(macMain, "checklist_result.identity_id", "Mac Registry receipt");
+requireText(macMain, "registry_store.resolve", "Mac Registry boundary");
+requireText(macMain, "registry_timeout_seconds = (", "Mac Registry fail-closed latency budget");
+requireText(macMain, "3.5 if _seller_fast_registry_context.get() else 30.0", "Mac Registry seller-fast latency budget");
+requireText(macMain, 'identity_id=match.get("identityId")', "Mac Registry identity receipt");
+requireText(macMain, "registry_fingerprint:", "Mac Registry fingerprint receipt");
 
 console.log(
   JSON.stringify(

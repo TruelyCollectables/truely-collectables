@@ -6,12 +6,15 @@ import { type ReactNode, useEffect, useState } from "react";
 import {
   ACCOUNT_SESSION_CHANGE_EVENT,
   getAccountSession,
+  clearAccountSession,
 } from "../account/account-session";
 
 const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
   { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
+  { href: "/kingmaker/pending-receipts", label: "Pending Receipts", exact: false },
   { href: "/kingmaker/listings", label: "Master Listings", exact: false },
+  { href: "/kingmaker/resale-ready", label: "Resale Ready", exact: false },
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
   { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
   { href: "/kingmaker/sourcing", label: "Sourcing", exact: false },
@@ -31,17 +34,26 @@ function activeRoute(
 
 export default function KingmakerShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const [accountLabel, setAccountLabel] = useState("Seller account");
+  const [accountLabel, setAccountLabel] = useState("Signed out");
+  const [signedIn, setSignedIn] = useState(false);
+  const [loginHref, setLoginHref] = useState("/account/login?next=%2Fkingmaker");
 
   useEffect(() => {
     const refresh = () => {
       const session = getAccountSession();
-      setAccountLabel(session?.user?.email || "Seller account");
+      const valid = Boolean(session?.access_token && Number(session.expires_at || 0) * 1000 > Date.now());
+      setSignedIn(valid);
+      setAccountLabel(valid ? session?.user?.email || "Seller account" : "Signed out");
+      setLoginHref(`/account/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
     };
     refresh();
     window.addEventListener(ACCOUNT_SESSION_CHANGE_EVENT, refresh);
-    return () => window.removeEventListener(ACCOUNT_SESSION_CHANGE_EVENT, refresh);
-  }, []);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(ACCOUNT_SESSION_CHANGE_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, [pathname]);
 
   return (
     <div
@@ -65,6 +77,11 @@ export default function KingmakerShell({ children }: { children: ReactNode }) {
             <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-2 text-slate-300">
               {accountLabel}
             </span>
+            {signedIn ? (
+              <button type="button" onClick={() => clearAccountSession()} className="rounded-lg bg-emerald-400 px-4 py-2 font-bold text-slate-950">Kingmaker Logout</button>
+            ) : (
+              <Link href={loginHref} prefetch={false} className="rounded-lg bg-emerald-400 px-4 py-2 font-bold text-slate-950">Kingmaker Login</Link>
+            )}
             <span className="rounded-full border border-emerald-800 bg-emerald-950/40 px-3 py-2 font-bold text-emerald-200">
               Registry controls identity
             </span>

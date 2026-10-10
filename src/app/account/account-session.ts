@@ -116,6 +116,13 @@ export async function getFreshAccountSession(
         refresh_token: latestSession.refresh_token,
       });
 
+      // Logout or a newer login can occur while the refresh request is pending.
+      // Never let an old response restore a cleared session or replace a new one.
+      const currentSession = getAccountSession();
+      if (!currentSession || currentSession.refresh_token !== latestSession.refresh_token) {
+        return currentSession;
+      }
+
       if (error || !data.session) {
         if (sessionIsExpired(latestExpiresAtMs)) {
           clearAccountSession();

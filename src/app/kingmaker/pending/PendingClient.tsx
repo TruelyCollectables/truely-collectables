@@ -5,7 +5,8 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getFreshAccountSession } from "../../account/account-session";
+import { getFreshAccountSession, fetchWithAccountSession } from "../../account/account-session";
+import { buildInstaCompCanonicalTitle } from "../../../lib/instacomp-canonical-title";
 
 type CardIdentity = {
   sport?: string | null;
@@ -40,6 +41,19 @@ type CompEvidence = {
   listedAt?: string | null;
 };
 
+type CenteringSide = {
+  measurable?: boolean;
+  horizontal_measurable?: boolean;
+  vertical_measurable?: boolean;
+  horizontal_ratio?: string | null;
+  vertical_ratio?: string | null;
+  confidence?: number | null;
+  horizontal_confidence?: number | null;
+  vertical_confidence?: number | null;
+  design_classification?: string | null;
+  warning?: string | null;
+};
+
 type PendingCard = {
   inventoryItemId: string;
   title: string;
@@ -48,11 +62,21 @@ type PendingCard = {
   condition?: string | null;
   sku: string | null;
   price?: number | null;
+  quantity?: number;
+  commercialGroup?: {
+    mergeable: boolean;
+    memberInventoryItemIds: string[];
+    pendingRows: number;
+    pendingQuantity: number;
+    activeRows: number;
+    totalQuantity: number;
+  } | null;
   frontImageUrl: string | null;
   backImageUrl: string | null;
   storedImageCount: number;
   activationReadiness?: { ready?: boolean; blockers?: string[] } | null;
   instaComp: {
+    scanId?: string | null;
     cardUuid?: string | null;
     pricingGroupKey?: string | null;
     duplicateGroup?: {
@@ -68,7 +92,39 @@ type PendingCard = {
     identityReadout?: string | null;
     suggestedPrice?: number | null;
     listingPrice?: number | null;
+    priceGuide?: {
+      period?: string | null;
+      medianSoldPrice?: number | null;
+      lastSoldPrice?: number | null;
+      lastSoldDate?: string | null;
+      soldPriceLow?: number | null;
+      soldPriceHigh?: number | null;
+      sellerCount?: number | null;
+      listingCount?: number | null;
+      soldCount?: number | null;
+      capturedAt?: string | null;
+    } | null;
+    channelPricing?: {
+      ebayPrice: number;
+      ebayEstimatedFees: number;
+      ebayEstimatedNet: number;
+      websitePrice: number;
+      websiteEstimatedFees: number;
+      websiteEstimatedNet: number;
+      customerSavings: number;
+      customerSavingsPercent: number;
+      netDifference: number;
+      websiteStatus?: string | null;
+      ebayStatus?: string | null;
+      mercariStatus?: string | null;
+      mercariSourceListingId?: string | null;
+      calculatedFrom?: string | null;
+    } | null;
     reliableSoldCompCount?: number;
+    centering?: {
+      front?: CenteringSide | null;
+      back?: CenteringSide | null;
+    } | null;
     imageOrientation?: {
       verified: boolean;
       status?: string | null;
@@ -81,6 +137,30 @@ type PendingCard = {
     activeCompetition?: CompEvidence[];
     identity?: CardIdentity | null;
   };
+};
+
+type PurchaseMatchRecord = {
+  acquisitionItemId: number;
+  purchaseId: string;
+  source: string;
+  purchaseDate?: string | null;
+  title?: string | null;
+  seller?: string | null;
+  orderNumber?: string | null;
+  sourceLot?: string | null;
+  listingUrl?: string | null;
+  allocatedCost: number | null;
+  costStatus?: "known" | "unknown" | string | null;
+  serialFamily?: string | null;
+  parallel?: string | null;
+  status?: string | null;
+};
+
+type PurchaseMatchState = {
+  status: "no_match" | "possible_match" | "pending_purchase" | "received" | string;
+  confidence?: number | null;
+  reason?: string | null;
+  match?: PurchaseMatchRecord | null;
 };
 
 type JobStatus = {
@@ -109,6 +189,7 @@ type EditState = {
   year: string;
   manufacturer: string;
   brand: string;
+  product: string;
   setName: string;
   subset: string;
   player: string;
@@ -127,11 +208,13 @@ type EditState = {
 
 type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
 type PendingQueue = "listings" | "verification";
+type ChannelAction = "publish-website" | "publish-ebay" | "publish-both" | "prepare-mercari";
 
-function queueFromLocation(): PendingQueue {
+function queueFromLocation(): PendingQueue | null {
   if (typeof window === "undefined") return "listings";
   const queue = new URLSearchParams(window.location.search).get("queue");
-  return queue === "verification" ? "verification" : "listings";
+  if (queue === "verification" || queue === "listings") return queue;
+  return null;
 }
 
 function message(error: unknown) {
@@ -162,35 +245,24 @@ function money(value: unknown) {
 }
 
 const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
+const BULK_PRICE_CONCURRENCY = 5;
 
-const GENERIC_PLAYER_PHRASES = new Set([
-  "all american",
-  "all-american",
-  "crunch time",
-  "crunch-time",
-  "base",
-  "chrome",
-  "donruss",
-  "heritage",
-  "league leaders",
-  "prizm",
-  "prizms",
-  "score",
-  "select",
-  "topps",
-  "upper deck",
-  "bowman",
-  "rookie",
-]);
-
-function normalizeSubsetLabel(value: string) {
-  const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
-  if (normalized === "all american" || normalized === "all-american") return "All American";
-  if (normalized === "crunch time" || normalized === "crunch-time") return "Crunch Time";
-  if (normalized === "future watch") return "Future Watch";
-  if (normalized === "young guns") return "Young Guns";
-  if (normalized === "spectrum fx") return "Spectrum FX";
-  return value.trim();
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const runners = Array.from(
+    { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex++];
+        await worker(item);
+      }
+    },
+  );
+  await Promise.all(runners);
 }
 
 function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
@@ -200,78 +272,16 @@ function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
     : null;
 }
 
-function serialRunLabel(value: string) {
-  const match = String(value || "").match(/\/(\d{1,6})$/);
-  return match ? `/${Number(match[1])}` : "";
-}
-
-function identityReadout(card: PendingCard) {
-  const identity = card.instaComp.identity || {};
-  const clean = (value?: string | null) => {
-    const text = value?.trim() || "";
-    if (!text) return "";
-    const normalized = text.toLowerCase();
-    if (
-      normalized === "identity review required" ||
-      normalized === "review required" ||
-      normalized === "untitled item" ||
-      normalized === "permanent uuid missing"
-      || normalized.includes("identity review required")
-      || normalized.includes("review required")
-      || normalized.includes("credits")
-    ) {
-      return "";
-    }
-    if (/^no\.?\s*/i.test(text) && text.split(/\s+/).length <= 3) return "";
-    return text;
-  };
-  const blockedPlayerValues = new Set(
-    [identity.setName, identity.subset, identity.product, identity.brand, identity.manufacturer]
-      .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
-      .map((value) => value.trim().toLowerCase()),
-  );
-  const year = clean(identity.year);
-  const manufacturer = clean(identity.manufacturer || identity.brand);
-  const setName = clean(identity.setName || identity.subset);
-  const subset = identity.subset ? normalizeSubsetLabel(identity.subset) : "";
-  const cardNumber = clean(identity.cardNumber);
-  const playerCandidate = (identity.player || "").trim().toLowerCase();
-  const player = blockedPlayerValues.has(playerCandidate) || GENERIC_PLAYER_PHRASES.has(playerCandidate)
-    ? ""
-    : clean(identity.player);
-  const team = clean(identity.team);
-  const parallel = clean(identity.parallel || identity.variation);
-  const pieces = [
-    year,
-    manufacturer,
-    setName,
-    subset,
-    cardNumber ? `#${cardNumber.replace(/^#/, "")}` : "",
-    player,
-    team ? `(${team})` : "",
-    parallel,
-  ].filter(Boolean);
-  return pieces.join(" ").replace(/\s+/g, " ").trim();
-}
-
 function standardizedTitle(edit: EditState) {
-  const setName = /^base$/i.test(edit.setName.trim()) ? "" : edit.setName.trim();
-  const parallel = /^base$/i.test(edit.parallel.trim()) ? "" : edit.parallel.trim();
-  const product = edit.brand.trim() || edit.manufacturer.trim();
-  return [
-    edit.year.trim(),
-    product,
-    setName,
-    edit.cardNumber.trim() ? `#${edit.cardNumber.trim().replace(/^#/, "")}` : "",
-    edit.player.trim(),
-    parallel,
-    serialRunLabel(edit.printRun),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\bBase\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return buildInstaCompCanonicalTitle(
+    {
+      year: edit.year, manufacturer: edit.manufacturer, brand: edit.brand, product: edit.product,
+      setName: edit.setName, subset: edit.subset, cardNumber: edit.cardNumber, player: edit.player,
+      parallel: edit.parallel, variation: edit.variation, serialNumber: edit.printRun,
+      isRookie: edit.isRookie, isAuto: edit.isAuto, isRelic: edit.isRelic,
+    },
+    { rawTitle: edit.title, forceRookie: edit.isRookie },
+  );
 }
 
 function initialEdit(card: PendingCard): EditState {
@@ -286,6 +296,7 @@ function initialEdit(card: PendingCard): EditState {
     year: identity.year || "",
     manufacturer: identity.manufacturer || "",
     brand: identity.brand || identity.manufacturer || "",
+    product: identity.product || "",
     setName: identity.setName || "",
     subset: identity.subset || "",
     player: identity.player || "",
@@ -352,109 +363,15 @@ export default function KingmakerPendingPage({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState("");
   const [notice, setNotice] = useState("");
+  const [purchaseMatches, setPurchaseMatches] = useState<Record<string, PurchaseMatchState>>({});
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
   const initialHydrationRef = useRef(initialLoaded);
+  const purchaseMatchSignatureRef = useRef("");
 
   useEffect(() => {
-    setQueue(queueFromLocation());
-  }, []);
-
-  const load = useCallback(async (activeQueue: PendingQueue) => {
-    setLoading(true);
-    setPageError("");
-    let accessTokenHint: string | null = null;
-    if (typeof window !== "undefined") {
-      (window as any).__kingmakerPendingDebug = {
-        queue: activeQueue,
-          stage: "starting",
-          itemCount: null,
-          queueCounts: null,
-          accessTokenHint: null,
-        };
-      }
-    try {
-      let accessToken: string | null = null;
-      if (typeof window !== "undefined") {
-        try {
-          const raw = window.localStorage.getItem("tcos_account_session");
-          if (raw) {
-            const session = JSON.parse(raw) as { access_token?: string | null };
-            accessToken = typeof session.access_token === "string" && session.access_token.trim()
-              ? session.access_token.trim()
-              : null;
-          }
-        } catch {
-          accessToken = null;
-        }
-      }
-      if (!accessToken) {
-        const session = await getFreshAccountSession(5 * 60, false);
-        accessToken = session?.access_token?.trim() || null;
-      }
-      if (!accessToken) throw new Error("Seller login is required.");
-      accessTokenHint = accessToken.slice(-8);
-      const headers = { Authorization: `Bearer ${accessToken}` };
-      if (typeof window !== "undefined") {
-        (window as any).__kingmakerPendingDebug = {
-          queue: activeQueue,
-          stage: "fetching",
-          itemCount: null,
-          queueCounts: null,
-          accessTokenHint,
-        };
-      }
-      const [cardsResult, statusResult] = await Promise.allSettled([
-        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}`, { headers, cache: "no-store" }),
-        fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
-      ]);
-      const cardsResponse = cardsResult.status === "fulfilled" ? cardsResult.value : null;
-      const statusResponse = statusResult.status === "fulfilled" ? statusResult.value : null;
-      const cardsData = cardsResponse ? await cardsResponse.json().catch(() => ({})) : {};
-      const statusData = statusResponse ? await statusResponse.json().catch(() => ({})) : {};
-      if (!cardsResponse) throw new Error("Could not load pending cards.");
-      if (!cardsResponse.ok) throw new Error(cardsData.error || "Could not load pending cards.");
-      if (statusResponse && !statusResponse.ok) {
-        setJobs({});
-      } else {
-        setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
-      }
-      setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
-      setQueueCounts({
-        listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
-        verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
-      });
-      if (typeof window !== "undefined") {
-        (window as any).__kingmakerPendingDebug = {
-          queue: activeQueue,
-          stage: "loaded",
-          itemCount: Array.isArray(cardsData.items) ? cardsData.items.length : -1,
-          queueCounts: {
-            listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
-            verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
-          },
-          accessTokenHint,
-        };
-      }
-      setSelectedIds((current) => {
-        const available = new Set((Array.isArray(cardsData.items) ? cardsData.items : []).map((card: PendingCard) => card.inventoryItemId));
-        return new Set([...current].filter((id) => available.has(id)));
-      });
-    } catch (error) {
-      if (typeof window !== "undefined") {
-        (window as any).__kingmakerPendingDebug = {
-          queue: activeQueue,
-          stage: "error",
-          error: message(error),
-          itemCount: null,
-          queueCounts: null,
-          accessTokenHint,
-        };
-      }
-      setPageError(message(error));
-    } finally {
-      setLoading(false);
-    }
+    const queueFromUrl = queueFromLocation();
+    if (queueFromUrl) setQueue(queueFromUrl);
   }, []);
 
   const loadJobStatusOnly = useCallback(async () => {
@@ -474,9 +391,97 @@ export default function KingmakerPendingPage({
     }
   }, []);
 
+
+  const load = useCallback(async (activeQueue: PendingQueue) => {
+    setLoading(true);
+    setPageError("");
+    if (typeof window !== "undefined") {
+      (window as any).__kingmakerPendingDebug = {
+        queue: activeQueue,
+          stage: "starting",
+          itemCount: null,
+          queueCounts: null,
+        };
+      }
+    try {
+      const session = await getFreshAccountSession();
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      if (typeof window !== "undefined") {
+        (window as any).__kingmakerPendingDebug = {
+          queue: activeQueue,
+          stage: "fetching",
+          itemCount: null,
+          queueCounts: null,
+        };
+      }
+      // Secondary job status must never hold up the inventory list.
+      void loadJobStatusOnly();
+      const pendingUrl = `/api/account/seller/instacomp-pending?queue=${activeQueue}&surface=kingmaker`;
+      let cardsResponse = await fetchWithAccountSession(pendingUrl);
+      // Tunnel reconnections can briefly return 502/503/504 while the Mac is
+      // healthy. Retry this read only; seller mutations are never retried here.
+      for (const delayMs of [500, 1500]) {
+        if (![502, 503, 504].includes(cardsResponse.status)) break;
+        await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        cardsResponse = await fetchWithAccountSession(pendingUrl);
+      }
+      const cardsData = await cardsResponse.json().catch(() => ({}));
+      if (!cardsResponse.ok) throw new Error(cardsData.error || "Could not load pending cards.");
+      setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
+      setQueueCounts({
+        listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
+        verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
+      });
+      if (typeof window !== "undefined") {
+        (window as any).__kingmakerPendingDebug = {
+          queue: activeQueue,
+          stage: "loaded",
+          itemCount: Array.isArray(cardsData.items) ? cardsData.items.length : -1,
+          queueCounts: {
+            listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
+            verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
+          },
+        };
+      }
+      setSelectedIds((current) => {
+        const available = new Set((Array.isArray(cardsData.items) ? cardsData.items : []).map((card: PendingCard) => card.inventoryItemId));
+        return new Set([...current].filter((id) => available.has(id)));
+      });
+    } catch (error) {
+      if (typeof window !== "undefined") {
+        (window as any).__kingmakerPendingDebug = {
+          queue: activeQueue,
+          stage: "error",
+          error: message(error),
+          itemCount: null,
+          queueCounts: null,
+        };
+      }
+      setPageError(message(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [loadJobStatusOnly]);
+
+
   useEffect(() => {
     if (initialHydrationRef.current && queue === initialQueue) {
       initialHydrationRef.current = false;
+      const initialQueueCount =
+        queue === "verification"
+          ? initialQueueCounts.verification
+          : initialQueueCounts.listings;
+      const hydrationMismatch =
+        initialLoaded && initialCards.length === 0 && initialQueueCount > 0;
+
+      // A non-zero server count with an empty hydrated item list is not a real
+      // empty queue. Force one authenticated client reload so KINGMAKER cannot
+      // show "No cards" while retaining a stale/non-zero queue badge.
+      if (hydrationMismatch) {
+        void load(queue);
+        return;
+      }
+
       setLoading(false);
       const timer = window.setTimeout(() => {
         void loadJobStatusOnly();
@@ -484,7 +489,136 @@ export default function KingmakerPendingPage({
       return () => window.clearTimeout(timer);
     }
     void load(queue);
-  }, [initialQueue, load, loadJobStatusOnly, queue]);
+  }, [
+    initialCards.length,
+    initialLoaded,
+    initialQueue,
+    initialQueueCounts.listings,
+    initialQueueCounts.verification,
+    load,
+    loadJobStatusOnly,
+    queue,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const eligible = cards.filter((card) =>
+      Boolean(card.instaComp.cardUuid && card.instaComp.identity?.player && card.instaComp.identity?.cardNumber),
+    );
+    if (!eligible.length) {
+      purchaseMatchSignatureRef.current = "";
+      setPurchaseMatches({});
+      return () => { cancelled = true; };
+    }
+    const signature = eligible
+      .map((card) =>
+        [
+          card.instaComp.cardUuid,
+          card.inventoryItemId,
+          card.instaComp.scanId,
+          card.instaComp.identity?.year,
+          card.instaComp.identity?.player,
+          card.instaComp.identity?.cardNumber,
+          card.instaComp.identity?.parallel,
+        ]
+          .map((value) => String(value || "").trim().toLowerCase())
+          .join("~"),
+      )
+      .sort()
+      .join("|");
+    if (purchaseMatchSignatureRef.current === signature) {
+      return () => { cancelled = true; };
+    }
+    purchaseMatchSignatureRef.current = signature;
+    void (async () => {
+      try {
+        const session = await getFreshAccountSession(5 * 60, false);
+        if (!session?.access_token) return;
+        const response = await fetch("/api/account/seller/instacomp-purchase-match", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            items: eligible.map((card) => ({
+              cardUuid: card.instaComp.cardUuid,
+              inventoryItemId: card.inventoryItemId,
+              scanId: card.instaComp.scanId,
+              identity: card.instaComp.identity,
+            })),
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.ok !== true || !Array.isArray(data.results)) {
+          if (purchaseMatchSignatureRef.current === signature) {
+            purchaseMatchSignatureRef.current = "";
+          }
+          return;
+        }
+        const next: Record<string, PurchaseMatchState> = {};
+        for (const row of data.results) {
+          if (row?.cardUuid) next[String(row.cardUuid)] = row as PurchaseMatchState;
+        }
+        if (cancelled) return;
+        setPurchaseMatches(next);
+        const pending = data.results.filter((row: any) => row?.status === "pending_purchase");
+        if (pending.length) {
+          setNotice(`PURCHASE MATCH FOUND — ${pending.length} scanned card${pending.length === 1 ? "" : "s"} waiting to be received into inventory.`);
+        }
+      } catch {
+        if (purchaseMatchSignatureRef.current === signature) {
+          purchaseMatchSignatureRef.current = "";
+        }
+        // Purchase matching is additive; never block the normal KINGMAKER queue.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cards]);
+
+  async function receivePurchase(card: PendingCard, disposition: "resale" | "investment_stash") {
+    const cardUuid = card.instaComp.cardUuid || "";
+    const purchase = cardUuid ? purchaseMatches[cardUuid] : null;
+    const acquisitionItemId = Number(purchase?.match?.acquisitionItemId || 0);
+    if (!cardUuid || acquisitionItemId <= 0) return;
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-purchase-receive", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          cardUuid,
+          inventoryItemId: card.inventoryItemId,
+          scanId: card.instaComp.scanId,
+          acquisitionItemId,
+          disposition,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true || data.status !== "received") {
+        throw new Error(data.error || data.detail || "Could not receive the matched purchase.");
+      }
+      setPurchaseMatches((current) => ({
+        ...current,
+        [cardUuid]: { ...purchase!, status: "received", match: data.match || purchase?.match },
+      }));
+      const receivedMatch = data.match || purchase?.match;
+      const costNote = receivedMatch?.costStatus === "unknown"
+        ? "acquisition cost unknown"
+        : `${money(receivedMatch?.allocatedCost)} cost basis`;
+      setNotice(`${card.title}: RECEIVED · ${disposition === "investment_stash" ? "STASH" : "PENDING SALE"} · ${receivedMatch?.source || "Purchase"} · ${costNote}.`);
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   function setEditValue<K extends keyof EditState>(id: string, key: K, value: EditState[K]) {
     setEdits((current) => ({
@@ -505,7 +639,7 @@ export default function KingmakerPendingPage({
       setPageError("Blank no longer means Base. Enter Base or the exact checklist parallel.");
       return;
     }
-    const finalTitle = standardizedTitle(edit) || edit.title.trim();
+    const finalTitle = edit.title.trim() || standardizedTitle(edit);
     if (!finalTitle) {
       setPageError("The corrected card needs enough identity fields to build a listing title.");
       return;
@@ -572,6 +706,224 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function runInstaComp(card: PendingCard) {
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/inventory/instacomp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          inventoryItemId: card.inventoryItemId,
+          aiCouncilTier: "adaptive",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "InstaComp pricing failed.");
+      }
+      setNotice(
+        Number(data.suggestedPrice || 0) > 0
+          ? `${card.title}: InstaComp ${money(data.suggestedPrice)} from ${Number(data.reliableSoldCompCount || 0)} exact sold comp${Number(data.reliableSoldCompCount || 0) === 1 ? "" : "s"}.`
+          : `${card.title}: no exact sold comps passed; seller pricing is required.`,
+      );
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runSelectedInstaComp() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) {
+      setPageError("Select one or more exact-card groups first.");
+      return;
+    }
+    setBusyId("bulk");
+    setPageError("");
+    setNotice(`Running InstaComp on ${selected.length} selected group${selected.length === 1 ? "" : "s"}…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      let priced = 0;
+      let noMarket = 0;
+      const failures: string[] = [];
+      for (const card of selected) {
+        const response = await fetch("/api/account/seller/inventory/instacomp", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ inventoryItemId: card.inventoryItemId, aiCouncilTier: "adaptive" }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true) failures.push(`${card.title}: ${data.error || "failed"}`);
+        else if (Number(data.suggestedPrice || 0) > 0) priced += 1;
+        else noMarket += 1;
+      }
+      setNotice(`InstaComp finished: ${priced} priced, ${noMarket} no-exact-sold-market, ${failures.length} failed.`);
+      if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function publishChannels(targets: PendingCard[], action: ChannelAction) {
+    if (!targets.length) {
+      setPageError("Select one or more exact-card groups first.");
+      return;
+    }
+    const label =
+      action === "publish-website"
+        ? "website"
+        : action === "publish-ebay"
+          ? "eBay"
+          : action === "prepare-mercari"
+            ? "Mercari bulk import queue"
+            : "website + eBay";
+    const confirmation = action === "prepare-mercari"
+      ? `Prepare ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} for Mercari bulk import? KINGMAKER will ensure the eBay source listing exists, then mark it ready for Mercari's desktop cross-listing importer.`
+      : `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}? Group quantities and the channel prices shown on screen will be used.`;
+    if (!window.confirm(confirmation)) return;
+
+    setBusyId(targets.length === 1 ? targets[0].inventoryItemId : "bulk");
+    setPageError("");
+    setNotice(action === "prepare-mercari"
+      ? `Preparing ${targets.length} group${targets.length === 1 ? "" : "s"} for Mercari bulk import…`
+      : `Publishing ${targets.length} group${targets.length === 1 ? "" : "s"} to ${label}…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      let completed = 0;
+      const failures: string[] = [];
+      for (const card of targets) {
+        const channel = card.instaComp.channelPricing;
+        const response = await fetch("/api/account/seller/instacomp-pending/channel", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action,
+            inventoryItemId: card.inventoryItemId,
+            ebayPrice: channel?.ebayPrice || undefined,
+            websitePrice: channel?.websitePrice || undefined,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true) {
+          failures.push(`${card.title}: ${data.error || data.errors?.join("; ") || "publish failed"}`);
+        } else {
+          completed += 1;
+        }
+      }
+      setNotice(action === "prepare-mercari"
+        ? `Prepared ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} for Mercari bulk import. Open Mercari on desktop and run its eBay cross-listing import; Mercari will create drafts for review.`
+        : `Published ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}.`);
+      if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
+      setSelectedIds(new Set());
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function mergeIntoExisting(targets: PendingCard[]) {
+    const mergeable = targets.filter(
+      (card) =>
+        Boolean(card.instaComp.pricingGroupKey) &&
+        Number(card.instaComp.duplicateGroup?.activeRows || 0) === 1,
+    );
+    if (!mergeable.length) {
+      setPageError(
+        "None of the selected scans has exactly one active listing with the same exact Registry fingerprint.",
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `Merge ${mergeable.length} selected exact-card scan${mergeable.length === 1 ? "" : "s"} into their existing active listing? Existing selling prices are kept. Website quantity increases; Mercari quantity stays unchanged unless its old listing is sold.`,
+      )
+    ) {
+      return;
+    }
+
+    const groups = new Map<string, PendingCard[]>();
+    for (const card of mergeable) {
+      const key = card.instaComp.pricingGroupKey!;
+      groups.set(key, [...(groups.get(key) || []), card]);
+    }
+
+    setBusyId("bulk-merge");
+    setPageError("");
+    setNotice(`Merging ${mergeable.length} exact-card scan${mergeable.length === 1 ? "" : "s"}…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      let mergedCards = 0;
+      let quantityAdded = 0;
+      const failures: string[] = [];
+
+      for (const groupCards of groups.values()) {
+        const ids = Array.from(
+          new Set(
+            groupCards.flatMap((card) =>
+              card.commercialGroup?.memberInventoryItemIds?.length
+                ? card.commercialGroup.memberInventoryItemIds
+                : [card.inventoryItemId],
+            ),
+          ),
+        );
+        const response = await fetch(
+          "/api/account/seller/instacomp-pending/merge-existing",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ sourceInventoryItemIds: ids }),
+          },
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true) {
+          failures.push(
+            `${groupCards[0]?.title || "Exact card"}: ${data.error || "merge failed"}`,
+          );
+          continue;
+        }
+        mergedCards += ids.length;
+        quantityAdded += Number(data.quantityDelta || 0);
+      }
+
+      setSelectedIds(new Set());
+      setNotice(
+        `Merged ${mergedCards} scanned card${mergedCards === 1 ? "" : "s"} into existing exact listings; website quantity increased by ${quantityAdded}. Existing prices were preserved.`,
+      );
+      if (failures.length) setPageError(failures.slice(0, 4).join(" · "));
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function toggleSelected(id: string) {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -598,7 +950,11 @@ export default function KingmakerPendingPage({
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
-          inventoryItemIds: selected.map((card) => card.inventoryItemId),
+          inventoryItemIds: Array.from(new Set(selected.flatMap((card) =>
+            card.commercialGroup?.memberInventoryItemIds?.length
+              ? card.commercialGroup.memberInventoryItemIds
+              : [card.inventoryItemId],
+          ))),
           category: bulkCategory.trim() || undefined,
           condition: bulkCondition.trim() || undefined,
         }),
@@ -634,7 +990,7 @@ export default function KingmakerPendingPage({
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
-      await Promise.all(priceable.map(async (card) => {
+      await runWithConcurrency(priceable, BULK_PRICE_CONCURRENCY, async (card) => {
         const price = compAdjustedPrice(card.instaComp.suggestedPrice, adjustmentPercent);
         if (!price) throw new Error(`${card.title}: InstaComp price is unavailable.`);
         const response = await fetch("/api/account/seller/instacomp-scan/price", {
@@ -649,7 +1005,7 @@ export default function KingmakerPendingPage({
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(`${card.title}: ${data.error || "bulk price failed"}`);
-      }));
+      });
       setNotice(`Comp-based prices saved for ${priceable.length} selected exact-card group${priceable.length === 1 ? "" : "s"}.`);
       await load(queue || queueFromLocation());
     } catch (error) {
@@ -803,14 +1159,29 @@ export default function KingmakerPendingPage({
 
         {!loading && !cards.length ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
-            <p className="text-xl font-black">
-              {queue === "verification" ? "No cards pending verification" : "No master listing drafts"}
-            </p>
-            <p className="mt-2 text-neutral-600">
-              {queue === "verification"
-                ? "Held cards will remain available here without crowding the new-listing queue."
-                : "Drop the next front/back pair on the KINGMAKER home page."}
-            </p>
+            {(
+              queue === "verification"
+                ? queueCounts.verification
+                : queueCounts.listings
+            ) > 0 ? (
+              <>
+                <p className="text-xl font-black">Queue data is refreshing</p>
+                <p className="mt-2 text-neutral-600">
+                  KINGMAKER has a non-zero queue count but no hydrated card rows. Reloading the authoritative queue instead of treating it as empty.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xl font-black">
+                  {queue === "verification" ? "No cards pending verification" : "No master listing drafts"}
+                </p>
+                <p className="mt-2 text-neutral-600">
+                  {queue === "verification"
+                    ? "Held cards will remain available here without crowding the new-listing queue."
+                    : "Drop the next front/back pair on the KINGMAKER home page."}
+                </p>
+              </>
+            )}
           </div>
         ) : null}
 
@@ -853,6 +1224,71 @@ export default function KingmakerPendingPage({
                 </button>
               ))}
             </div>
+            {queue === "verification" ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
+                <span className="mr-2 text-sm font-black">Exact inventory merge:</span>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() =>
+                    void mergeIntoExisting(
+                      cards.filter((card) => selectedIds.has(card.inventoryItemId)),
+                    )
+                  }
+                  className="rounded-lg bg-emerald-800 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Merge Selected → Existing Exact Listing
+                </button>
+                <span className="text-xs font-semibold text-neutral-600">
+                  Registry fingerprint must match exactly; website quantity increases, Mercari stays one listing.
+                </span>
+              </div>
+            ) : null}
+            {queue === "listings" ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
+                <span className="mr-2 text-sm font-black">Selected group actions:</span>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void runSelectedInstaComp()}
+                  className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Run InstaComp Selected
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-website")}
+                  className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → Website
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-ebay")}
+                  className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → eBay
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "prepare-mercari")}
+                  className="rounded-lg bg-fuchsia-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Prepare Selected → Mercari
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-both")}
+                  className="rounded-lg bg-neutral-950 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → Both
+                </button>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -876,6 +1312,19 @@ export default function KingmakerPendingPage({
             const soldCompEvidence = card.instaComp.soldCompEvidence || [];
             const activeCompetition = card.instaComp.activeCompetition || [];
             const suggested = Number(card.instaComp.suggestedPrice || 0);
+            const priceGuide = card.instaComp.priceGuide || null;
+            const channelPricing = card.instaComp.channelPricing || null;
+            const purchaseMatch = card.instaComp.cardUuid
+              ? purchaseMatches[card.instaComp.cardUuid] || null
+              : null;
+            const purchaseRecord = purchaseMatch?.match || null;
+            const pendingPurchase = purchaseMatch?.status === "pending_purchase";
+            const receivedPurchase = purchaseMatch?.status === "received";
+            const possiblePurchase = purchaseMatch?.status === "possible_match";
+            const groupQuantity = Math.max(
+              1,
+              Number(card.commercialGroup?.totalQuantity || card.quantity || 1),
+            );
             const priceChoices = suggested > 0
               ? COMP_ADJUSTMENTS.map((adjustment) => ({
                   label: adjustment === 0 ? "InstaComp" : `${adjustment > 0 ? "+" : ""}${adjustment}%`,
@@ -894,11 +1343,9 @@ export default function KingmakerPendingPage({
                     <input type="checkbox" aria-label={`Select ${card.title}`} checked={selectedIds.has(card.inventoryItemId)} onChange={() => toggleSelected(card.inventoryItemId)} className="mt-1 h-5 w-5 accent-emerald-400" />
                     <div className="min-w-0">
                     <h2 className="font-black">{card.title}</h2>
-                    {card.instaComp.identityReadout || card.instaComp.identitySummary || identityReadout(card) ? (
-                      <p className="mt-1 text-xs font-semibold text-emerald-200">
-                        {card.instaComp.identityReadout || card.instaComp.identitySummary || identityReadout(card)}
-                      </p>
-                    ) : null}
+                    <p className="mt-1 text-xs font-semibold text-emerald-200">
+                      Canonical listing title · exact identity fields shown below
+                    </p>
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
                     </p>
@@ -918,14 +1365,30 @@ export default function KingmakerPendingPage({
                         {card.instaComp.identity.notes}
                       </p>
                     ) : null}
-                    {card.instaComp.duplicateGroup && card.instaComp.duplicateGroup.totalRows > 1 ? (
-                      <p className="mt-1 text-xs font-black text-amber-300">
-                        EXACT-CARD GROUP · {card.instaComp.duplicateGroup.totalQuantity} copies · {card.instaComp.duplicateGroup.activeRows} active · priced together
-                      </p>
+                    {groupQuantity > 1 ? (
+                      <div className="mt-2 space-y-1 rounded-lg border border-amber-400/60 bg-amber-950/40 px-3 py-2 text-xs font-black text-amber-200">
+                        <p>
+                          ONE COMMERCIAL LISTING · QTY {groupQuantity} · {card.commercialGroup?.pendingRows || 1} pending physical row{Number(card.commercialGroup?.pendingRows || 1) === 1 ? "" : "s"} · {card.commercialGroup?.activeRows || 0} already active
+                        </p>
+                        <p className="text-amber-100">Exact raw duplicates are priced and published together; scan history stays attached underneath.</p>
+                      </div>
                     ) : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {pendingPurchase ? (
+                      <span className="rounded-full bg-orange-400 px-3 py-1 text-xs font-black text-orange-950">
+                        PENDING PURCHASE · MATCH FOUND
+                      </span>
+                    ) : receivedPurchase ? (
+                      <span className="rounded-full bg-emerald-300 px-3 py-1 text-xs font-black text-emerald-950">
+                        RECEIVED INVENTORY
+                      </span>
+                    ) : possiblePurchase ? (
+                      <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">
+                        POSSIBLE PURCHASE MATCH
+                      </span>
+                    ) : null}
                     {queue === "verification" ? (
                       <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
                         PENDING VERIFICATION
@@ -936,6 +1399,50 @@ export default function KingmakerPendingPage({
                     </span>
                   </div>
                 </div>
+
+                {purchaseRecord && (pendingPurchase || receivedPurchase || possiblePurchase) ? (
+                  <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : receivedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : receivedPurchase ? "text-emerald-950" : "text-amber-950"}`}>
+                          {pendingPurchase ? "PURCHASE MATCH FOUND — RECEIVE BEFORE LISTING" : receivedPurchase ? "PURCHASE RECEIVED — COST BASIS ATTACHED" : "POSSIBLE PURCHASE MATCH — REVIEW"}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-neutral-700">
+                          KINGMAKER matched this scanned physical card against the Mac-local acquisition ledger.
+                        </p>
+                      </div>
+                      {pendingPurchase ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void receivePurchase(card, "resale")}
+                            className="rounded-xl border-2 border-neutral-950 bg-neutral-950 px-5 py-3 font-black text-white disabled:opacity-40"
+                          >
+                            {isBusy ? "Receiving…" : "Receive → Pending Sale"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void receivePurchase(card, "investment_stash")}
+                            className="rounded-xl border-2 border-neutral-950 bg-white px-5 py-3 font-black text-neutral-950 disabled:opacity-40"
+                          >
+                            {isBusy ? "Receiving…" : "Receive → Stash"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Source</p><p className="font-black">{purchaseRecord.source || "Misc"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">What we paid</p><p className="font-black">{purchaseRecord.costStatus === "unknown" ? "Unknown" : money(purchaseRecord.allocatedCost)}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Purchased</p><p className="font-black">{purchaseRecord.purchaseDate || "Date unavailable"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Order / Purchase ID</p><p className="break-all font-black">{purchaseRecord.orderNumber || purchaseRecord.purchaseId}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Seller</p><p className="font-bold">{purchaseRecord.seller || "Not captured"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3 sm:col-span-2"><p className="text-xs font-black uppercase text-neutral-500">Purchase listing / lot</p><p className="font-bold">{purchaseRecord.sourceLot || purchaseRecord.title || "Not captured"}</p></div>
+                      <div className="rounded-xl border border-neutral-300 bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Match confidence</p><p className="font-black">{purchaseMatch?.confidence ? `${Math.round(Number(purchaseMatch.confidence) * 100)}%` : "Stored match"}</p></div>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="border-b-2 border-neutral-900 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 font-black">
@@ -969,6 +1476,36 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
+                <div className="border-b-2 border-neutral-900 bg-blue-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-black">eBay Price Guide · 1 year</p>
+                      <p className="text-xs font-semibold text-neutral-600">
+                        Authenticated eBay insights for this exact Registry identity.
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${
+                      String(priceGuide?.period || "").toLowerCase() === "1 year"
+                        ? "bg-emerald-100 text-emerald-900"
+                        : "bg-amber-100 text-amber-900"
+                    }`}>
+                      {String(priceGuide?.period || "").toLowerCase() === "1 year"
+                        ? "1-year window confirmed"
+                        : "1-year guide pending / unavailable"}
+                    </span>
+                  </div>
+                  {String(priceGuide?.period || "").toLowerCase() === "1 year" ? (
+                    <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3 lg:grid-cols-6">
+                      <div className="rounded-lg bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Median sold</p><p className="font-black">{money(priceGuide?.medianSoldPrice)}</p></div>
+                      <div className="rounded-lg bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Last sold</p><p className="font-black">{money(priceGuide?.lastSoldPrice)}</p><p className="text-xs text-neutral-500">{priceGuide?.lastSoldDate || "—"}</p></div>
+                      <div className="rounded-lg bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">12-mo range</p><p className="font-black">{money(priceGuide?.soldPriceLow)} – {money(priceGuide?.soldPriceHigh)}</p></div>
+                      <div className="rounded-lg bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Sold</p><p className="font-black">{Number(priceGuide?.soldCount || 0)}</p></div>
+                      <div className="rounded-lg bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Sellers</p><p className="font-black">{Number(priceGuide?.sellerCount || 0)}</p></div>
+                      <div className="rounded-lg bg-white p-3"><p className="text-xs font-black uppercase text-neutral-500">Listings</p><p className="font-black">{Number(priceGuide?.listingCount || 0)}</p></div>
+                    </div>
+                  ) : null}
+                </div>
+
                 {(soldCompEvidence.length || activeCompetition.length) ? (
                   <div className="grid gap-4 border-b-2 border-neutral-900 bg-neutral-50 p-4 lg:grid-cols-2">
                     <MarketEvidencePanel
@@ -989,6 +1526,13 @@ export default function KingmakerPendingPage({
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                   {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => {
                     const orientationVerified = card.instaComp.imageOrientation?.verified === true;
+                    const centering = card.instaComp.centering?.[side] || null;
+                    const horizontalMeasured =
+                      centering?.horizontal_measurable === true ||
+                      Boolean(centering?.horizontal_ratio);
+                    const verticalMeasured =
+                      centering?.vertical_measurable === true ||
+                      Boolean(centering?.vertical_ratio);
                     return (
                       <figure key={side} className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
                         <figcaption className={`mb-2 text-xs font-black uppercase tracking-wider ${orientationVerified ? "text-emerald-800" : "text-red-800"}`}>
@@ -1008,6 +1552,50 @@ export default function KingmakerPendingPage({
                           ) : (
                             <div className="font-black text-red-800">{side.toUpperCase()} MISSING</div>
                           )}
+                        </div>
+                        <div className="mt-3 rounded-lg border border-neutral-300 bg-white p-3 text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-black">Centering estimate</span>
+                            <span className={`rounded-full px-2 py-1 text-[11px] font-black ${
+                              centering?.measurable
+                                ? "bg-emerald-100 text-emerald-900"
+                                : horizontalMeasured || verticalMeasured
+                                  ? "bg-amber-100 text-amber-900"
+                                  : "bg-neutral-200 text-neutral-700"
+                            }`}>
+                              {centering?.measurable
+                                ? "2-axis confident"
+                                : horizontalMeasured || verticalMeasured
+                                  ? "partial only"
+                                  : "not confidently measurable"}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <div>
+                              <p className="text-xs font-bold uppercase text-neutral-500">
+                                Left / Right
+                              </p>
+                              <p className="font-black">
+                                {horizontalMeasured
+                                  ? centering?.horizontal_ratio || "Measured"
+                                  : "No reliable frame"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold uppercase text-neutral-500">
+                                Top / Bottom
+                              </p>
+                              <p className="font-black">
+                                {verticalMeasured
+                                  ? centering?.vertical_ratio || "Measured"
+                                  : "No reliable frame"}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs font-semibold text-neutral-500">
+                            {centering?.design_classification || "unknown design"} · confidence{" "}
+                            {Math.round(Number(centering?.confidence || 0) * 100)}%
+                          </p>
                         </div>
                       </figure>
                     );
@@ -1039,12 +1627,54 @@ export default function KingmakerPendingPage({
                   </div>
                 ) : null}
 
+                {channelPricing && channelPricing.ebayPrice > 0 ? (
+                  <div className="border-t-2 border-neutral-900 bg-sky-50 p-4">
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-black">Channel selling prices · QTY {groupQuantity}</p>
+                        <p className="text-sm font-semibold text-neutral-600">Calculated from the selected InstaComp/base price before you publish.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs font-black">
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing.websiteStatus || "draft"}</span>
+                        <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">eBay: {channelPricing.ebayStatus || "draft"}</span>
+                        <span className="rounded-full bg-fuchsia-100 px-3 py-1 text-fuchsia-900">Mercari: {channelPricing.mercariStatus || "draft"}</span>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                      <div className="rounded-xl border-2 border-violet-700 bg-white p-3">
+                        <p className="text-xs font-black uppercase text-violet-700">InstaComp</p>
+                        <p className="text-2xl font-black">{money(card.instaComp.listingPrice || card.instaComp.suggestedPrice)}</p>
+                      </div>
+                      <div className="rounded-xl border-2 border-blue-700 bg-white p-3">
+                        <p className="text-xs font-black uppercase text-blue-700">eBay price</p>
+                        <p className="text-2xl font-black">{money(channelPricing.ebayPrice)}</p>
+                        <p className="mt-1 text-xs font-bold text-neutral-600">Fees {money(channelPricing.ebayEstimatedFees)} · net {money(channelPricing.ebayEstimatedNet)}</p>
+                      </div>
+                      <div className="rounded-xl border-2 border-emerald-700 bg-white p-3">
+                        <p className="text-xs font-black uppercase text-emerald-700">Website price</p>
+                        <p className="text-2xl font-black">{money(channelPricing.websitePrice)}</p>
+                        <p className="mt-1 text-xs font-bold text-neutral-600">Fees {money(channelPricing.websiteEstimatedFees)} · net {money(channelPricing.websiteEstimatedNet)}</p>
+                      </div>
+                      <div className="rounded-xl border-2 border-neutral-400 bg-white p-3">
+                        <p className="text-xs font-black uppercase text-neutral-600">Buyer saves</p>
+                        <p className="text-2xl font-black">{money(channelPricing.customerSavings)}</p>
+                        <p className="mt-1 text-xs font-bold text-neutral-600">{Number(channelPricing.customerSavingsPercent || 0).toFixed(1)}% vs eBay</p>
+                      </div>
+                      <div className="rounded-xl border-2 border-neutral-400 bg-white p-3">
+                        <p className="text-xs font-black uppercase text-neutral-600">Website net edge</p>
+                        <p className="text-2xl font-black">{money(channelPricing.netDifference)}</p>
+                        <p className="mt-1 text-xs font-bold text-neutral-600">Website net minus eBay net</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 {editingId === card.inventoryItemId && edit ? (
                   <div className="border-t-2 border-neutral-900 bg-amber-50 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-xl font-black">Correct any field</h3>
-                        <p className="mt-1 text-sm font-semibold text-neutral-600">Saving locks this identity as operator-confirmed truth. Structural Base is always removed from the displayed title.</p>
+                        <p className="mt-1 text-sm font-semibold text-neutral-600">Saving makes your values operator-confirmed truth. Your typed Listing Title is saved exactly; use Rebuild Standard Title only when you want KINGMAKER to rewrite it.</p>
                       </div>
                       <button
                         type="button"
@@ -1061,7 +1691,8 @@ export default function KingmakerPendingPage({
                       </div>
                       <Field label="Year" value={edit.year} onChange={(value) => setEditValue(card.inventoryItemId, "year", value)} />
                       <Field label="Manufacturer" value={edit.manufacturer} onChange={(value) => setEditValue(card.inventoryItemId, "manufacturer", value)} />
-                      <Field label="Product / Brand" value={edit.brand} onChange={(value) => setEditValue(card.inventoryItemId, "brand", value)} />
+                      <Field label="Brand" value={edit.brand} onChange={(value) => setEditValue(card.inventoryItemId, "brand", value)} />
+                      <Field label="Product" value={edit.product} placeholder="Prizm, Select, Donruss…" onChange={(value) => setEditValue(card.inventoryItemId, "product", value)} />
                       <Field label="Set / Insert / Level" value={edit.setName} onChange={(value) => setEditValue(card.inventoryItemId, "setName", value)} />
                       <Field label="Subset" value={edit.subset} onChange={(value) => setEditValue(card.inventoryItemId, "subset", value)} />
                       <Field label="Player" value={edit.player} onChange={(value) => setEditValue(card.inventoryItemId, "player", value)} />
@@ -1121,12 +1752,68 @@ export default function KingmakerPendingPage({
                 ) : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-neutral-900 p-4">
-                  <p className="text-sm font-bold">Stored image rows: {card.storedImageCount || 0} · quantity 1 physical card · never auto-published</p>
+                  <p className="text-sm font-bold">Stored image rows: {card.storedImageCount || 0} · commercial listing quantity {groupQuantity}{groupQuantity > 1 ? " from exact raw duplicate scans" : ""} · nothing auto-publishes</p>
                   <div className="flex flex-wrap gap-2">
+                    {queue === "listings" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void runInstaComp(card)}
+                          disabled={!pairReady || Boolean(busyId)}
+                          className="rounded-xl bg-violet-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          Run InstaComp
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-website")}
+                          disabled={!channelPricing?.websitePrice || Boolean(busyId)}
+                          className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          List Website · {money(channelPricing?.websitePrice)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-ebay")}
+                          disabled={!channelPricing?.ebayPrice || Boolean(busyId)}
+                          className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          List eBay · {money(channelPricing?.ebayPrice)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "prepare-mercari")}
+                          disabled={!channelPricing?.ebayPrice || Boolean(busyId) || channelPricing?.mercariStatus === "ready_to_import"}
+                          className="rounded-xl bg-fuchsia-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {channelPricing?.mercariStatus === "ready_to_import" ? "Mercari Ready to Import" : `Prepare Mercari · ${money(channelPricing?.ebayPrice)}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-both")}
+                          disabled={!channelPricing?.websitePrice || !channelPricing?.ebayPrice || Boolean(busyId)}
+                          className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          List Both
+                        </button>
+                      </>
+                    ) : null}
+                    {queue === "verification" &&
+                    card.instaComp.pricingGroupKey &&
+                    Number(card.instaComp.duplicateGroup?.activeRows || 0) === 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => void mergeIntoExisting([card])}
+                        disabled={Boolean(busyId)}
+                        className="rounded-xl bg-emerald-800 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                      >
+                        Merge → Existing Exact Listing
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => beginEdit(card)}
-                      disabled={Boolean(busyId)}
+                      disabled={isBusy}
                       className="rounded-xl bg-amber-600 px-4 py-3 font-black text-white disabled:bg-neutral-400"
                     >
                       Edit All Fields

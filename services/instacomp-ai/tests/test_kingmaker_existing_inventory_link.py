@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import sqlite3
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from app.kingmaker_accounting import KingmakerAccounting
+
+
+class ExistingInventoryPurchaseLinkTest(unittest.TestCase):
+    def test_link_existing_keeps_one_physical_receipt_and_becomes_listing_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            accounting_db = root / "accounting.sqlite3"
+            scan_db = root / "scans.sqlite3"
+            with sqlite3.connect(scan_db) as db:
+                db.execute(
+                    """CREATE TABLE scans (
+                    scan_id TEXT PRIMARY KEY, card_uuid TEXT, created_at TEXT,
+                    front_sha256 TEXT, back_sha256 TEXT, image_pair_sha256 TEXT, status TEXT, checklist_json TEXT
+                    )"""
+                )
+                db.execute(
+                    "INSERT INTO scans VALUES (?,?,?,?,?,?,?,?)",
+                    ("scan-existing-1", "card-kiki-149-red-power-75", "2026-09-17T00:00:00Z", "front", "back", "pair", "trusted_memory_match", json.dumps({"outcome": "exact_match", "identity_id": "registry-kiki-149-red-power-75", "identity": {"player": "Kiki Iriafen", "year": "2025", "brand": "Panini", "setName": "Panini Prizm WNBA", "cardNumber": "149", "parallel": "Red Power", "serialNumber": "41/75", "isAuto": False, "isRelic": False}})),
+                )
+
+            ledger = KingmakerAccounting(accounting_db, scan_db)
+            ledger.initialize()
+            ledger.record_acquisition_item({
+                "purchase_id": "03-15011-06269",
+                "source": "eBay",
+                "purchased_at": "2026-09-17",
+                "source_key": "ebay:03-15011-06269:unit:1",
+                "identity_status": "source_exact",
+                "title": "Kiki Iriafen Red Power /75 #149",
+                "card_uuid": "card-kiki-149-red-power-75",
+                "allocated_cost": 23.37,
+                "identity": {
+                    "player": "Kiki Iriafen", "year": "2025", "brand": "Panini", "setName": "Panini Prizm WNBA",
+                    "cardNumber": "149", "parallel": "Red Power", "serialNumber": "41/75",
+                    "isAuto": False, "isRelic": False,
+                },
+            })
+            match = ledger.match_or_reserve_purchase(
+                {
+                    "player": "Kiki Iriafen", "year": "2025", "brand": "Panini", "setName": "Panini Prizm WNBA",
+                    "cardNumber": "149", "parallel": "Red Power", "serialNumber": "41/75",
+                    "isAuto": False, "isRelic": False,
+                },
+                "card-kiki-149-red-power-75", "inventory-existing-1", "scan-existing-1",
+            )
+            self.assertEqual(match["status"], "received")
+            self.assertEqual(match["receiptMode"], "received_new")
+            self.assertEqual(match["inventoryState"], "resale_ready")
+            self.assertIsNotNone(match.get("receivedAt"))
+
+            readiness = ledger.listing_readiness(["inventory-existing-1"])
+            self.assertTrue(readiness["ready"])
+            self.assertEqual(readiness["tracked"][0]["status"], "received")
+            with sqlite3.connect(accounting_db) as db:
+                receipt_count = db.execute("SELECT COUNT(*) FROM physical_inventory_receipts").fetchone()[0]
+                received_at = db.execute("SELECT received_at FROM physical_inventory_receipts").fetchone()[0]
+            self.assertEqual(receipt_count, 1)
+            self.assertIsNotNone(received_at)
+
+
+if __name__ == "__main__":
+    unittest.main()

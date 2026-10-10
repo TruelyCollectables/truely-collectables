@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureAccountStoreMembership, getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import { fetchInstaCompAiLocalScanImage } from "../../../../lib/instacomp-ai-local";
-import { getMacKingmakerInventoryItem, runKingmakerMacScan } from "../../../../lib/kingmaker-mac-scan-server";
+import { getMacKingmakerInventoryItem, runKingmakerMacScan, sha256File } from "../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +45,20 @@ export async function POST(request: NextRequest) {
         fetchInstaCompAiLocalScanImage({ scanId, side: "front" }),
         fetchInstaCompAiLocalScanImage({ scanId, side: "back" }),
       ]);
+    }
+    const [frontSha256, backSha256] = await Promise.all([
+      sha256File(front),
+      sha256File(back),
+    ]);
+    if (frontSha256 === backSha256) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "DUPLICATE_IMAGE_BYTES",
+          error: "Front and back photos must be different images.",
+        },
+        { status: 409 },
+      );
     }
     const result = await runKingmakerMacScan({ front, back, inventoryItemId, searchMarket: false });
     const nextInstaComp = record(result.inventoryItem.metadata?.instacomp);

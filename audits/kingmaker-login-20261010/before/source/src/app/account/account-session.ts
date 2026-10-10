@@ -1,0 +1,211 @@
+"use client";
+
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+const STORAGE_KEY = "tcos_account_session";
+export const ACCOUNT_SESSION_CHANGE_EVENT = "tcos-account-session-change";
+let refreshClient: SupabaseClient | null = null;
+let refreshInFlight: Promise<StoredAccountSession | null> | null = null;
+
+export type StoredAccountSession = {
+  access_token: string;
+  refresh_token: string;
+  expires_at?: number;
+  user?: {
+    id?: string;
+    email?: string;
+  };
+};
+
+function notifyAccountSessionChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(ACCOUNT_SESSION_CHANGE_EVENT));
+}
+
+export function saveAccountSession(session: StoredAccountSession | null) {
+  if (!session) return;
+
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  notifyAccountSessionChange();
+}
+
+export function getAccountSession(): StoredAccountSession | null {
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as StoredAccountSession;
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+    notifyAccountSessionChange();
+    return null;
+  }
+}
+
+export function clearAccountSession() {
+  window.localStorage.removeItem(STORAGE_KEY);
+  notifyAccountSessionChange();
+}
+
+function getRefreshClient() {
+  if (refreshClient) return refreshClient;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) return null;
+
+  refreshClient = createClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  return refreshClient;
+}
+
+function sessionIsExpired(expiresAtMs: number) {
+  return expiresAtMs <= 0 || expiresAtMs <= Date.now();
+}
+
+export async function getFreshAccountSession(
+  minimumValiditySeconds = 5 * 60,
+  forceRefresh = false,
+): Promise<StoredAccountSession | null> {
+  const session = getAccountSession();
+
+  if (!session) return null;
+
+  const expiresAtMs = Number(session.expires_at || 0) * 1000;
+
+  if (
+    !forceRefresh &&
+    expiresAtMs > 0 &&
+    expiresAtMs - Date.now() > minimumValiditySeconds * 1000
+  ) {
+    return session;
+  }
+
+  if (!session.refresh_token) {
+    if (sessionIsExpired(expiresAtMs)) {
+      clearAccountSession();
+      return null;
+    }
+
+    return session;
+  }
+
+  const client = getRefreshClient();
+
+  if (!client) {
+    if (sessionIsExpired(expiresAtMs)) {
+      clearAccountSession();
+      return null;
+    }
+
+    return session;
+  }
+
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const latestSession = getAccountSession() || session;
+      const latestExpiresAtMs = Number(latestSession.expires_at || 0) * 1000;
+      const { data, error } = await client.auth.refreshSession({
+        refresh_token: latestSession.refresh_token,
+      });
+
+      if (error || !data.session) {
+        if (sessionIsExpired(latestExpiresAtMs)) {
+          clearAccountSession();
+          return null;
+        }
+
+        return latestSession;
+      }
+
+      const refreshed: StoredAccountSession = {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at,
+        user: {
+          id: data.user?.id || latestSession.user?.id,
+          email: data.user?.email || latestSession.user?.email,
+        },
+      };
+
+      saveAccountSession(refreshed);
+      return refreshed;
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+
+  return refreshInFlight;
+}
+
+function withAccountAuthorization(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  accessToken: string,
+): RequestInit {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  return {
+    ...init,
+    headers,
+    cache: init.cache || "no-store",
+  };
+}
+
+function unauthorizedResponse() {
+  return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+export async function fetchWithAccountSession(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  const session = await getFreshAccountSession();
+
+  if (!session?.access_token) {
+    return unauthorizedResponse();
+  }
+
+  let response = await fetch(
+    input,
+    withAccountAuthorization(input, init, session.access_token),
+  );
+
+  if (response.status !== 401) return response;
+
+  const refreshed = await getFreshAccountSession(0, true);
+
+  if (
+    !refreshed?.access_token ||
+    refreshed.access_token === session.access_token
+  ) {
+    clearAccountSession();
+    return response;
+  }
+
+  response = await fetch(
+    input,
+    withAccountAuthorization(input, init, refreshed.access_token),
+  );
+
+  if (response.status === 401) {
+    clearAccountSession();
+  }
+
+  return response;
+}

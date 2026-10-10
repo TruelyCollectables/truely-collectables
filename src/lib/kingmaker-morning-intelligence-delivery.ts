@@ -3,13 +3,12 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { Resend } from "resend";
 import { getMarketIntelDeliveryConfig } from "./market-intel-delivery";
-import { createSupabaseServerClient } from "./supabase-server";
+import { claimKingmakerMacDelivery, completeKingmakerMacDelivery, getKingmakerMacLatestSentFingerprint } from "./kingmaker-mac-server";
 import { renderKingmakerMorningIntelligenceEmail } from "./kingmaker-morning-intelligence-email";
 import { buildLiveKingmakerMorningIntelligence } from "./kingmaker-morning-intelligence-live";
 
 const STATE_SCHEMA = "tcos.kingmakerMorningIntelligenceDelivery.v2";
 const TIME_ZONE = "America/Denver";
-const CLAIM_TTL_SECONDS = 15 * 60;
 
 type DeliveryMode = "full" | "compact" | "withheld";
 
@@ -67,17 +66,7 @@ function deliverySummary(payload: {
 }
 
 async function latestSentFingerprint() {
-  const supabase = createSupabaseServerClient({ admin: true });
-  const { data, error } = await supabase
-    .from("tcos_kingmaker_delivery_runs")
-    .select("fingerprint")
-    .eq("status", "sent")
-    .order("delivered_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`KINGMAKER delivery ledger read failed: ${error.message}`);
-  const value = String(data?.fingerprint || "").trim();
-  return value || null;
+  return (await getKingmakerMacLatestSentFingerprint()).fingerprint;
 }
 
 async function claimDelivery(input: {
@@ -87,32 +76,15 @@ async function claimDelivery(input: {
   mode: DeliveryMode;
   claimToken: string;
 }) {
-  const supabase = createSupabaseServerClient({ admin: true });
-  const { data, error } = await supabase.rpc("tcos_claim_kingmaker_delivery", {
-    p_delivery_key: input.deliveryKey,
-    p_delivery_date: input.deliveryDate,
-    p_fingerprint: input.fingerprint,
-    p_mode: input.mode,
-    p_claim_token: input.claimToken,
-    p_claim_ttl_seconds: CLAIM_TTL_SECONDS,
-  });
-  if (error) throw new Error(`KINGMAKER delivery claim failed: ${error.message}`);
-  const claim = Array.isArray(data) ? data[0] : data;
-  return claim ? (claim as DeliveryClaim) : null;
+  const result = await claimKingmakerMacDelivery(input);
+  return result.claim ? (result.claim as DeliveryClaim) : null;
 }
 
-async function updateClaim(
-  claim: DeliveryClaim,
-  values: Record<string, unknown>,
-) {
-  const supabase = createSupabaseServerClient({ admin: true });
-  const { error } = await supabase
-    .from("tcos_kingmaker_delivery_runs")
-    .update({ ...values, updated_at: new Date().toISOString() })
-    .eq("id", claim.id)
-    .eq("claim_token", claim.claim_token)
-    .eq("status", "claimed");
-  if (error) throw new Error(`KINGMAKER delivery ledger update failed: ${error.message}`);
+async function updateClaim(claim: DeliveryClaim, values: Record<string, unknown>) {
+  await completeKingmakerMacDelivery(claim.id, {
+    claimToken: claim.claim_token,
+    ...values,
+  });
 }
 
 export type DeliverKingmakerMorningIntelligenceOptions = {

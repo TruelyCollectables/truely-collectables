@@ -11,9 +11,19 @@ const workflow = [
 
 const queues = [
   {
+    href: "/kingmaker/pending-receipts",
+    title: "Pending Receipts",
+    description: "Receive arrivals immediately; add front/back photos later without creating another purchase.",
+  },
+  {
     href: "/kingmaker/listings",
     title: "Master Listings",
     description: "Correct identity, review images and comps, choose price, and finish the listing.",
+  },
+  {
+    href: "/kingmaker/resale-ready",
+    title: "Resale Ready",
+    description: "Comp-priced cards moved out of Pending Listings and ready for seller review and listing.",
   },
   {
     href: "/kingmaker/inventory",

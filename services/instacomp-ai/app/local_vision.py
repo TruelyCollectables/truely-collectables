@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from difflib import SequenceMatcher
 import asyncio
 import io
 import math
+from concurrent.futures import ThreadPoolExecutor
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Iterable
@@ -28,27 +28,13 @@ from .models import (
     SideVisionEvidence,
 )
 
-# Bump whenever OCR/parsing/pattern semantics change. Exact-image cache entries
-# without this precise engine marker are treated as stale and recomputed once.
-LOCAL_VISION_ENGINE_VERSION = "2026-09-18.4"
-
 MANUFACTURERS = {
     "panini": "Panini",
     "topps": "Topps",
+    "bowman": "Bowman",
     "upper deck": "Upper Deck",
     "leaf": "Leaf",
-}
-
-BRANDS = {
-    "prizm": "Prizm",
-    "prism": "Prizm",
-    "przm": "Prizm",
-    "przn": "Prizm",
-    "select": "Select",
     "donruss": "Donruss",
-    "optic": "Donruss Optic",
-    "mosaic": "Mosaic",
-    "bowman": "Bowman",
     "fleer": "Fleer",
     "score": "Score",
     "o-pee-chee": "O-Pee-Chee",
@@ -64,15 +50,10 @@ PLAYER_STOPWORDS = {
     "rookie",
     "card",
     "cards",
-    "no",
     "basketball",
     "official",
     "trading",
     "copyright",
-    "american",
-    "mcdonald's",
-    "mcdonalds",
-    "all",
     "concourse",
     "premier",
     "courtside",
@@ -86,26 +67,28 @@ PLAYER_STOPWORDS = {
     "ice",
 }
 
+PLAYER_PHRASE_STOPWORDS = {
+    "chicago sky",
+    "dallas wings",
+    "golden state valkyries",
+    "indiana fever",
+    "los angeles sparks",
+    "seattle storm",
+    "ucla health",
+    "washington mystics",
+}
+
+PLAYER_TRAILING_CONTEXT_WORDS = {
+    "chicago",
+    "dallas",
+    "indiana",
+    "seattle",
+    "washington",
+}
+
 SUBSET_PHRASES = {
     "all american": "All American",
-    "all-stars": "All-Stars",
-    "all stars": "All-Stars",
-    "all-sta": "All-Stars",
-    "draft picks": "Draft Picks",
     "crunch time": "Crunch Time",
-    "en fuego": "En Fuego",
-    "fireworks": "Fireworks",
-    "freworks": "Fireworks",
-    "rated rookies": "Rated Rookies",
-    "rated rookie": "Rated Rookies",
-    "rated": "Rated Rookies",
-    "tunnel vision": "Tunnel Vision",
-    "snapshots": "Snapshots",
-    "premier level": "Base Set - Premier Level",
-    "concourse": "Base Set - Concourse",
-    "cuncourse": "Base Set - Concourse",
-    "cohcourse": "Base Set - Concourse",
-    "courtside": "Base Set - Courtside",
 }
 
 SET_TITLE_STOPWORDS = {
@@ -169,9 +152,10 @@ def _color_name(hue: float, saturation: float, value: float) -> str:
     return "pink"
 
 
-def analyze_colors(image: np.ndarray) -> ColorEvidence:
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    pixels = hsv.reshape(-1, 3)
+def _color_evidence_from_pixels(pixels: np.ndarray) -> ColorEvidence:
+    if pixels.size == 0:
+        return ColorEvidence()
+    pixels = pixels.reshape(-1, 3)
     if len(pixels) > 80_000:
         stride = max(1, len(pixels) // 80_000)
         pixels = pixels[::stride]
@@ -179,11 +163,17 @@ def analyze_colors(image: np.ndarray) -> ColorEvidence:
     counts: Counter[str] = Counter()
     saturation_values: list[float] = []
     brightness_values: list[float] = []
+    metallic_pixels = 0
     for hue, saturation, value in pixels:
-        name = _color_name(float(hue), float(saturation), float(value))
+        hue_value = float(hue)
+        saturation_value = float(saturation)
+        brightness_value = float(value)
+        name = _color_name(hue_value, saturation_value, brightness_value)
         counts[name] += 1
-        saturation_values.append(float(saturation) / 255.0)
-        brightness_values.append(float(value) / 255.0)
+        saturation_values.append(saturation_value / 255.0)
+        brightness_values.append(brightness_value / 255.0)
+        if saturation_value < 58 and 105 < brightness_value < 245:
+            metallic_pixels += 1
 
     total = max(1, sum(counts.values()))
     proportions = {
@@ -191,21 +181,49 @@ def analyze_colors(image: np.ndarray) -> ColorEvidence:
         for name, count in counts.most_common()
         if count / total >= 0.015
     }
-    dominant = list(proportions)[:4]
-    metallic_score = float(
-        np.mean(
-            (hsv[:, :, 1] < 58)
-            & (hsv[:, :, 2] > 105)
-            & (hsv[:, :, 2] < 245)
-        )
-    )
     return ColorEvidence(
-        dominant_colors=dominant,
+        dominant_colors=list(proportions)[:4],
         proportions=proportions,
         mean_saturation=round(float(np.mean(saturation_values)), 4),
         mean_brightness=round(float(np.mean(brightness_values)), 4),
-        metallic_score=round(metallic_score, 4),
+        metallic_score=round(metallic_pixels / total, 4),
     )
+
+
+def analyze_colors(image: np.ndarray) -> ColorEvidence:
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    return _color_evidence_from_pixels(hsv)
+
+
+def analyze_surface_colors(image: np.ndarray) -> ColorEvidence:
+    """Measure likely card-treatment color without letting the center photo vote.
+
+    Parallel colors usually live in the border/frame treatment. Jerseys, skin,
+    court/field backgrounds, and team colors inside the central photo are a
+    major source of false Orange/Green/Blue classifications, so this witness is
+    deliberately restricted to a broad perimeter ring.
+    """
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    height, width = hsv.shape[:2]
+    if height < 20 or width < 20:
+        return _color_evidence_from_pixels(hsv)
+
+    y, x = np.ogrid[:height, :width]
+    outer = (
+        (x >= int(width * 0.025))
+        & (x < int(width * 0.975))
+        & (y >= int(height * 0.025))
+        & (y < int(height * 0.975))
+    )
+    center = (
+        (x >= int(width * 0.25))
+        & (x < int(width * 0.75))
+        & (y >= int(height * 0.18))
+        & (y < int(height * 0.82))
+    )
+    ring = outer & ~center
+    pixels = hsv[ring]
+    return _color_evidence_from_pixels(pixels)
 
 
 def _angle_entropy(angles: list[float]) -> float:
@@ -218,35 +236,8 @@ def _angle_entropy(angles: list[float]) -> float:
     return min(1.0, entropy / math.log2(12))
 
 
-def analyze_treatment_colors(image: np.ndarray) -> ColorEvidence:
-    """Measure likely foil/border treatment while suppressing player/photo center."""
-    h, w = image.shape[:2]
-    if h < 8 or w < 8:
-        return analyze_colors(image)
-    # Card treatments usually repeat around the perimeter. Exclude the central
-    # portrait/jersey region so team colors cannot dominate parallel identity.
-    border_y = max(1, int(h * 0.18)); border_x = max(1, int(w * 0.18))
-    mask = np.ones((h, w), dtype=bool)
-    mask[border_y:h-border_y, border_x:w-border_x] = False
-    pixels = image[mask]
-    if len(pixels) < 100:
-        return analyze_colors(image)
-    return analyze_colors(pixels.reshape((-1, 1, 3)))
-
-
 def analyze_pattern(image: np.ndarray) -> PatternEvidence:
-    # Surface finish lives primarily in the border/foil treatment. Running edge
-    # geometry across the whole card makes player outlines, lettering and frame
-    # design look like cracked ice. Suppress the portrait/text-heavy center.
-    h, w = image.shape[:2]
-    work = image.copy()
-    if h >= 80 and w >= 80:
-        y0, y1 = int(h * 0.18), int(h * 0.82)
-        x0, x1 = int(w * 0.18), int(w * 0.82)
-        border_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        neutral = int(np.median(border_gray))
-        work[y0:y1, x0:x1] = neutral
-    gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
     edges = cv2.Canny(gray, 60, 165)
     edge_density = float(np.mean(edges > 0))
@@ -352,12 +343,6 @@ def analyze_pattern(image: np.ndarray) -> PatternEvidence:
     confidence = 0.0
     if ordered[0][1] >= 0.62 and ordered[0][1] - ordered[1][1] >= 0.08:
         label, confidence = ordered[0]
-    # Dense orthogonal borders/frames are ubiquitous in card design and made
-    # the checkerboard heuristic saturate on ordinary Select cards. Do not emit
-    # checkerboard from line geometry alone; it needs a future cell/repetition
-    # detector that can prove an actual checkerboard treatment.
-    if label == "checkerboard":
-        label, confidence = "unknown", 0.0
 
     geometry: list[str] = []
     if len(angles) >= 8:
@@ -388,87 +373,50 @@ def analyze_pattern(image: np.ndarray) -> PatternEvidence:
 
 
 def parse_serial_evidence(observations: Iterable[OCRObservation]) -> SerialEvidence:
-    values = list(observations)
-    clean_candidates: list[tuple[float, OCRObservation, re.Match[str]]] = []
-    noisy_candidates: list[tuple[float, OCRObservation, re.Match[str]]] = []
+    exact_candidates: list[tuple[float, OCRObservation, re.Match[str]]] = []
     denominator_candidates: list[tuple[float, OCRObservation, int]] = []
-
-    bare_serial_re = re.compile(
-        r"^\s*[#(\[{]*\s*(?:\d{1,5}\s*/\s*\d{1,6}|\d{1,5}\s+(?:OF|of)\s+\d{1,6})\s*[)\]}.,;:!]*\s*$"
-    )
-    explicit_serial_cue_re = re.compile(r"\b(?:serial|numbered|copy)\b", re.I)
-
-    for observation in values:
-        text = str(observation.text or "").strip()
-        exact_hits: list[re.Match[str]] = []
+    for observation in observations:
         for pattern in (SERIAL_EXACT_RE, SERIAL_OF_RE):
-            exact_hits.extend(pattern.finditer(text))
-        if exact_hits:
-            for match in exact_hits:
-                # A fraction embedded in biography/stat prose (for example
-                # "game, 8/15...Finished fifth...") is not a stamped serial.
-                # Treat only an isolated fraction or explicit SERIAL/NUMBERED/COPY
-                # marking as authoritative from a single OCR channel.
-                if bare_serial_re.match(text) or (explicit_serial_cue_re.search(text) and len(text.split()) <= 8):
-                    clean_candidates.append((float(observation.confidence), observation, match))
-                else:
-                    noisy_candidates.append((float(observation.confidence), observation, match))
-            # Do not also reinterpret the denominator inside a rejected noisy
-            # x/N fraction as denominator-only evidence.
-            continue
-        for match in SERIAL_DENOMINATOR_RE.finditer(text):
-            denominator_candidates.append((float(observation.confidence), observation, int(match.group(1))))
+            match = pattern.search(observation.text)
+            if match:
+                exact_candidates.append((observation.confidence, observation, match))
+        for match in SERIAL_DENOMINATOR_RE.finditer(observation.text):
+            denominator_candidates.append(
+                (observation.confidence, observation, int(match.group(1)))
+            )
 
-    def candidate_tuple(item: tuple[float, OCRObservation, re.Match[str]]) -> tuple[int, int]:
-        return int(item[2].group(1)), int(item[2].group(2))
-
-    def valid_candidates(items: list[tuple[float, OCRObservation, re.Match[str]]]):
-        out = []
-        for item in items:
-            numerator, denominator = candidate_tuple(item)
-            source_lower = str(item[1].text or "").lower()
-            if numerator > denominator:
-                continue
-            if "©" in str(item[1].text or "") and ("panini" in source_lower or "america" in source_lower):
-                continue
-            out.append(item)
-        return out
-
-    clean_candidates = valid_candidates(clean_candidates)
-    if clean_candidates:
-        pairs = {candidate_tuple(item) for item in clean_candidates}
-        if len(pairs) > 1:
-            denoms = {pair[1] for pair in pairs}
-            if len(denoms) == 1:
-                return SerialEvidence(stamp_present=False, visible_denominator=next(iter(denoms)))
-            return SerialEvidence(stamp_present=False)
-        confidence, observation, match = max(clean_candidates, key=lambda value: value[0])
-        numerator, denominator = candidate_tuple((confidence, observation, match))
-        return SerialEvidence(stamp_present=True, exact_stamp=f"{numerator}/{denominator}", numerator=numerator,
-            visible_denominator=denominator, side=observation.side, confidence=round(confidence, 4),
-            source_text=observation.text, box=observation.box)
-
-    noisy_candidates = valid_candidates(noisy_candidates)
-    grouped: dict[tuple[int, int], list[tuple[float, OCRObservation, re.Match[str]]]] = {}
-    for item in noisy_candidates:
-        grouped.setdefault(candidate_tuple(item), []).append(item)
-    corroborated = []
-    for pair, items in grouped.items():
-        channels = {(str(item[1].side), str(item[1].source)) for item in items}
-        if len(channels) >= 2:
-            corroborated.append((max(item[0] for item in items), pair, max(items, key=lambda item: item[0])))
-    if corroborated:
-        _, (numerator, denominator), best = max(corroborated, key=lambda item: item[0])
-        confidence, observation, _ = best
-        return SerialEvidence(stamp_present=True, exact_stamp=f"{numerator}/{denominator}", numerator=numerator,
-            visible_denominator=denominator, side=observation.side, confidence=round(confidence, 4),
-            source_text=observation.text, box=observation.box)
+    if exact_candidates:
+        confidence, observation, match = max(exact_candidates, key=lambda value: value[0])
+        numerator = int(match.group(1))
+        denominator = int(match.group(2))
+        return SerialEvidence(
+            stamp_present=True,
+            exact_stamp=f"{numerator}/{denominator}",
+            numerator=numerator,
+            visible_denominator=denominator,
+            side=observation.side,
+            confidence=round(confidence, 4),
+            source_text=observation.text,
+            box=observation.box,
+        )
 
     if denominator_candidates:
-        confidence, observation, denominator = max(denominator_candidates, key=lambda value: value[0])
-        return SerialEvidence(stamp_present=False, exact_stamp=None, numerator=None, visible_denominator=denominator,
-            side=observation.side, confidence=round(confidence, 4), source_text=observation.text, box=observation.box)
+        confidence, observation, denominator = max(
+            denominator_candidates, key=lambda value: value[0]
+        )
+        return SerialEvidence(
+            stamp_present=False,
+            exact_stamp=None,
+            numerator=None,
+            visible_denominator=denominator,
+            side=observation.side,
+            confidence=round(confidence, 4),
+            source_text=observation.text,
+            box=observation.box,
+        )
+
     return SerialEvidence(stamp_present=False)
+
 
 def _all_text(observations: Iterable[OCRObservation]) -> str:
     return "\n".join(dict.fromkeys(value.text for value in observations if value.text))
@@ -476,41 +424,6 @@ def _all_text(observations: Iterable[OCRObservation]) -> str:
 
 def _year_hint(observations: Iterable[OCRObservation]) -> str | None:
     values = list(observations)
-    # If a complete product/footer line prints a hobby season (2023-24,
-    # 2025-26), that first year is the release year. Return it before the
-    # copyright-year vote can swamp it with duplicate OCR passes. Historical
-    # stat seasons do not qualify because they lack a product-line witness.
-    product_tokens = (
-        "o-pee-chee", "o pee chee", "sp authentic", "spx",
-        "sp game used", "metal universe", "credentials", "synergy",
-        "upper deck ice", "topps chrome", "bowman chrome",
-        "donruss", "select", "prizm",
-    )
-    season_candidates: list[tuple[float, int]] = []
-    for observation in values:
-        raw = str(observation.text or "")
-        match = re.search(r"\b(20\d{2})\s*[-–]\s*(\d{2})\b", raw)
-        if not match:
-            continue
-        ox = observation.box.x + observation.box.width / 2
-        oy = observation.box.y + observation.box.height / 2
-        nearby = [raw]
-        for candidate in values:
-            if candidate is observation or candidate.side != observation.side:
-                continue
-            cx = candidate.box.x + candidate.box.width / 2
-            cy = candidate.box.y + candidate.box.height / 2
-            if abs(cy - oy) <= 0.085 and abs(cx - ox) <= 0.62:
-                nearby.append(str(candidate.text or ""))
-        season_context = " ".join(nearby).lower()
-        # Hockey product footers often split the stylized brand logo into an
-        # unreadable neighboring OCR box, while the plain word HOCKEY remains
-        # clean. A season range + HOCKEY on the same footer row is itself strong
-        # release evidence and cannot be a stats-table season row.
-        if any(token in season_context for token in product_tokens) or "hockey" in season_context:
-            season_candidates.append((float(observation.confidence), int(match.group(1))))
-    if season_candidates:
-        return str(max(season_candidates, key=lambda item: item[0])[1])
     scores: dict[int, float] = {}
     for observation in values:
         text = str(observation.text or "")
@@ -536,19 +449,6 @@ def _year_hint(observations: Iterable[OCRObservation]) -> str | None:
             score = max(0.05, float(observation.confidence))
             if observation.side == "back":
                 score += 0.15
-            # Multi-year sports releases use the FIRST year of the printed
-            # season (e.g. 2023-24 O-Pee-Chee Platinum, 2025-26 SPx). When a
-            # season range is printed on the actual product/footer line, it is
-            # stronger release evidence than the following copyright year.
-            season_match = re.search(r"\b(20\d{2})\s*[-–]\s*(\d{2})\b", context)
-            product_footer = any(token in lowered for token in (
-                "o-pee-chee", "o pee chee", "sp authentic", "spx",
-                "sp game used", "metal universe", "credentials", "synergy",
-                "upper deck ice", "topps chrome", "bowman chrome",
-                "donruss", "select", "prizm",
-            ))
-            if season_match and int(season_match.group(1)) == year and product_footer:
-                score += 8.0
             # Product/copyright lines describe the card's release year and must
             # outrank historical season/stat rows such as "2024 WNBA TOTALS".
             if any(name in lowered for name in MANUFACTURERS):
@@ -573,53 +473,16 @@ def _manufacturer_hint(text: str) -> str | None:
     return None
 
 
-def _brand_hint(text: str) -> str | None:
-    lowered = text.lower()
-    for needle, canonical in BRANDS.items():
-        if re.search(rf"\b{re.escape(needle)}\b", lowered):
-            return canonical
-    return None
-
-
 def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
-    values = [
-        value for value in observations
-        if not (value.side == "back" and value.source in {"apple_vision:title_upper", "apple_vision:title_middle"})
-    ]
-
-    # Crop-local title OCR is a front-only text witness. Historical back title
-    # crops have unremapped coordinates and must never influence card-number
-    # layout; filter them defensively for archived/replayed evidence.
-
-    # A dedicated top-left physical crop is scoped only to the printed
-    # number corner. Its boxes are crop-local, so use the source contract rather
-    # than pretending those coordinates are full-card coordinates.
-    for observation in values:
-        if observation.source != "apple_vision:number_corner_left":
-            continue
-        if observation.confidence < 0.45:
-            continue
-        match = re.fullmatch(
-            r"[^A-Z0-9]*([A-Z]{0,4}\d+[A-Z0-9-]{0,8})[^A-Z0-9]*",
-            str(observation.text or "").strip().upper(),
-        )
-        if not match:
-            continue
-        token = match.group(1)
-        if token.isdigit() and 1900 <= int(token) <= 2035:
-            continue
-        return token
+    values = list(observations)
 
     # Score complete labeled hits instead of returning the first regex match.
     # Biographical copy can contain phrases such as "No. 1 overall pick"; that
     # is not the printed card number and must never outrank the short upper-back
-    # card-number marking. Topps CMP# values are manufacturing/product codes,
-    # never card numbers.
+    # card-number marking.
     labeled: list[tuple[float, str]] = []
     for observation in values:
         text = str(observation.text or "").strip()
-        if re.search(r"\bCMP\s*#?\s*\d+", text, re.I):
-            continue
         for pattern in CARD_NUMBER_PATTERNS:
             match = pattern.search(text)
             if not match:
@@ -649,27 +512,6 @@ def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
         best_score, best_token = max(labeled, key=lambda value: value[0])
         if best_score >= 2.5:
             return best_token
-
-    # Apple Vision can emit the printed card-number label and value as two
-    # consecutive text observations with conservative 0.50 confidence even
-    # though the reading itself is exact (for example "No." then "100").
-    # Preserve that explicit print relationship before any geometric fallback.
-    # Requiring adjacency, the same side/source, and a compact legal token keeps
-    # statistics-table numbers from becoming card identity.
-    for index, label in enumerate(values[:-1]):
-        if not re.fullmatch(r"(?:no\.?|card(?:\s*(?:no\.?|number))?)", str(label.text or "").strip(), re.I):
-            continue
-        for candidate in values[index + 1:index + 3]:
-            if candidate.side != label.side or candidate.source != label.source:
-                continue
-            token = str(candidate.text or "").strip().upper().lstrip("#").strip()
-            if not re.fullmatch(r"[A-Z]{0,4}\d+[A-Z0-9-]{0,8}", token):
-                continue
-            if token.isdigit() and 1900 <= int(token) <= 2035:
-                continue
-            if float(candidate.confidence or 0.0) < 0.45:
-                continue
-            return token
 
     # Apple Vision frequently separates the printed "No." label and the value
     # into adjacent OCR boxes. Pair those boxes geometrically instead of asking
@@ -721,155 +563,75 @@ def _card_number_hint(observations: Iterable[OCRObservation]) -> str | None:
         value.text.strip().upper()
         for value in candidates
         if value.side == "back"
-        # Native Apple Vision's fast witness path uses a conservative 0.50
-        # confidence even for clean printed card numbers. This fallback is still
-        # fail-closed because it accepts only ONE distinct legal token in the
-        # upper back, away from the stats table.
-        and value.confidence >= 0.45
+        and value.confidence >= 0.72
         and (value.box.y + value.box.height / 2) >= 0.72
     }
     return next(iter(upper_back_tokens)) if len(upper_back_tokens) == 1 else None
 
 
+def _ascii_text(value: str) -> str:
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+
+
+def _player_observation_candidates(observation: OCRObservation) -> list[str]:
+    cleaned = re.sub(r"[^A-Za-z .'-]+", " ", _ascii_text(str(observation.text or "")))
+    cleaned = " ".join(cleaned.split()).strip(" .-")
+    words = cleaned.split()
+    if not 2 <= len(words) <= 5:
+        return []
+    lowered_words = {word.lower().strip(".'-") for word in words}
+    if lowered_words & PLAYER_STOPWORDS:
+        return []
+    normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+    if normalized in SUBSET_PHRASES or normalized in PLAYER_PHRASE_STOPWORDS:
+        return []
+    if "health" in lowered_words:
+        return []
+    if any(len(word) < 2 for word in words):
+        return []
+    candidates = [cleaned]
+    if len(words) >= 3 and words[-1].lower().strip(".'-") in PLAYER_TRAILING_CONTEXT_WORDS:
+        candidates.append(" ".join(words[:-1]))
+    return candidates
+
+
 def _player_hint(observations: Iterable[OCRObservation]) -> str | None:
-    observations = list(observations)
-    # A real player name commonly appears more than once across front/back crops.
-    # Repetition is strong evidence and prevents a large team/logo crop from
-    # stealing the player slot on foil-heavy cards.
-    repeated: dict[str, tuple[float, str, int]] = {}
+    grouped: dict[str, dict[str, Any]] = {}
+    has_back = False
     for observation in observations:
-        cleaned = "".join(ch if (ch.isalpha() or ch in " .'-") else " " for ch in observation.text)
-        cleaned = " ".join(cleaned.split()).strip(" .-")
-        words = cleaned.split()
-        if not 2 <= len(words) <= 5:
-            continue
-        lowered_words = {word.lower().strip(".'-") for word in words}
-        normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
-        if lowered_words & PLAYER_STOPWORDS or normalized in SUBSET_PHRASES:
-            continue
-        score, label, count = repeated.get(normalized, (0.0, cleaned, 0))
-        repeated[normalized] = (max(score, float(observation.confidence)), label, count + 1)
-    repeated_names = [(score + min(0.5, count * 0.12), label) for score, label, count in repeated.values() if count >= 2]
-    # Do not let repeated foil/logo garbage outrank an exact all-caps back name.
-    # The back label is the strongest compact printed player witness and is
-    # evaluated first below; repeated OCR remains the next fallback.
-
-    # A single exact high-confidence back name is still hard printed evidence.
-    # Prefer it when it is a compact all-caps label; biography sentences are
-    # excluded by the compact-name and stopword guards below.
-    exact_back_names = []
-    for observation in observations:
-        text = str(observation.text or "").strip()
-        cleaned = "".join(ch if (ch.isalpha() or ch in " .'-") else " " for ch in text)
-        cleaned = " ".join(cleaned.split()).strip(" .-")
-        words = cleaned.split()
-        normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
-        if observation.side == "back" and observation.confidence >= 0.97 and 2 <= len(words) <= 4 and text == text.upper() and normalized not in SUBSET_PHRASES and not ({w.lower().strip(".\'-") for w in words} & PLAYER_STOPWORDS):
-            # Names are alphabetic labels; reject stat/header tokens while keeping
-            # ordinary two-to-four-word player names. A sufficiently wide exact
-            # all-caps label is stronger than small table headings/logos.
-            if all(re.fullmatch(r"[A-Za-z][A-Za-z.'-]*", w) for w in words) and observation.box.width >= 0.18:
-                exact_back_names.append((observation.box.width * observation.box.height, cleaned))
-    if exact_back_names:
-        return max(exact_back_names, key=lambda value: value[0])[1]
-    if repeated_names:
-        return max(repeated_names, key=lambda value: value[0])[1]
-
-    # If front artwork does not repeat the name, a high-confidence back label
-    # is still authoritative printed evidence. Prefer a compact back name near
-    # the upper/title area before falling back to front-only heuristics.
-    back_candidates: list[tuple[float, str]] = []
-    for observation in observations:
-        if observation.side != "back" or observation.confidence < 0.90:
-            continue
-        cleaned = "".join(ch if (ch.isalpha() or ch in " .'-") else " " for ch in observation.text)
-        cleaned = " ".join(cleaned.split()).strip(" .-")
-        words = cleaned.split()
-        if not 2 <= len(words) <= 4:
-            continue
-        lowered_words = {word.lower().strip(".'-") for word in words}
-        normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
-        if lowered_words & PLAYER_STOPWORDS or normalized in SUBSET_PHRASES:
-            continue
-        if any(len(word) < 2 for word in words):
-            continue
-        cy = observation.box.y + observation.box.height / 2
-        position_bonus = 0.12 if cy >= 0.55 else 0.0
-        score = observation.confidence + position_bonus + min(0.4, observation.box.height * 4) + min(0.2, observation.box.width)
-        back_candidates.append((score, cleaned))
-    if back_candidates:
-        return max(back_candidates, key=lambda value: value[0])[1]
-
-    candidates: list[tuple[float, str]] = []
-    for observation in observations:
-        if observation.side != "front":
-            continue
-        cleaned = "".join(ch if (ch.isalpha() or ch in " .'-") else " " for ch in observation.text)
-        cleaned = " ".join(cleaned.split()).strip(" .-")
-        words = cleaned.split()
-        if not 2 <= len(words) <= 5:
-            continue
-        lowered_words = {word.lower().strip(".'-") for word in words}
-        if lowered_words & PLAYER_STOPWORDS:
-            continue
-        normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
-        if normalized in SUBSET_PHRASES:
-            continue
-        if any(len(word) < 2 for word in words):
-            continue
-        score = observation.confidence * (0.7 + min(0.3, observation.box.height * 5))
-        candidates.append((score, cleaned))
-    return max(candidates, default=(0.0, None), key=lambda value: value[0])[1]
+        has_back = has_back or observation.side == "back"
+        for cleaned in _player_observation_candidates(observation):
+            normalized = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+            if not normalized:
+                continue
+            score = observation.confidence * (0.7 + min(0.3, observation.box.height * 5))
+            if observation.side == "back":
+                score += 0.15
+            current = grouped.setdefault(
+                normalized,
+                {"score": 0.0, "label": cleaned, "sides": set()},
+            )
+            current["score"] += score
+            current["sides"].add(observation.side)
+            if len(cleaned) > len(str(current["label"])):
+                current["label"] = cleaned
+    if has_back:
+        grouped = {
+            key: value
+            for key, value in grouped.items()
+            if {"front", "back"}.issubset(value["sides"])
+        }
+    if not grouped:
+        return None
+    best = max(grouped.values(), key=lambda value: float(value["score"]))
+    return str(best["label"]).upper()
 
 
 def _subset_hint(observations: Iterable[OCRObservation]) -> str | None:
-    values = list(observations)
-    # Subset evidence normally must exist in a single printed OCR observation.
-    # Never synthesize phrases by joining unrelated biography lines.
-    for observation in values:
-        text = re.sub(r"\s+", " ", str(observation.text or "").lower()).strip()
-        for phrase, label in SUBSET_PHRASES.items():
-            # Short clipped aliases are valid only as compact title observations,
-            # not as substrings inside biography text such as "All-Star nods".
-            if phrase in {"all-sta"} and len(text.split()) > 3:
-                continue
-            if phrase in text:
-                return label
-        # Foil/title OCR often clips one end of ALL-STARS. Accept only a compact
-        # standalone title fragment, never narrative prose.
-        compact = re.sub(r"[^a-z-]+", "", text)
-        if compact in {"ald-sta", "all-sta", "i-sta", "-stars", "stars"}:
-            return "All-Stars"
-
-    # The Donruss Rated Rookie logo is often printed as two stacked words.
-    # Fast Apple Vision can independently clip/corrupt them (for example ATEO
-    # over OOHIE). Permit this one two-line reconstruction only when both lines
-    # are compact, come from the same OCR variant, occupy the lower-left logo
-    # region, and are spatially adjacent. This is physical logo evidence, not a
-    # free-form join across card prose.
-    front_logo = [
-        value for value in values
-        if value.side == "front"
-        and value.box.x < 0.35
-        and value.box.y < 0.22
-        and len(re.sub(r"[^a-z]+", "", str(value.text or "").lower())) in range(3, 9)
-    ]
-    for first in front_logo:
-        first_text = re.sub(r"[^a-z]+", "", str(first.text or "").lower())
-        for second in front_logo:
-            if second is first or str(first.source or "") != str(second.source or ""):
-                continue
-            if abs(first.box.x - second.box.x) > 0.08:
-                continue
-            if abs(first.box.y - second.box.y) > 0.10:
-                continue
-            second_text = re.sub(r"[^a-z]+", "", str(second.text or "").lower())
-            for rated_text, rookie_text in ((first_text, second_text), (second_text, first_text)):
-                if (
-                    SequenceMatcher(None, rated_text, "rated").ratio() >= 0.60
-                    and SequenceMatcher(None, rookie_text, "rookie").ratio() >= 0.60
-                ):
-                    return "Rated Rookies"
+    text = _all_text(observations).lower()
+    for phrase, label in SUBSET_PHRASES.items():
+        if phrase in text:
+            return label
     return None
 
 
@@ -925,13 +687,69 @@ def _parallel_hint(
     confidence = float(front.pattern.confidence or 0)
     if confidence < 0.70:
         return None
-    # Raw surface geometry is advisory evidence, not card identity. Generic foil,
-    # borders, photography, and scanner reflections repeatedly resemble named
-    # patterns (especially Cracked Ice). The Registry candidate family must be
-    # established from hard printed evidence before a named parallel can lock.
-    # Keep these scores in PatternEvidence for downstream checklist-constrained
-    # discrimination, but never inject a named parallel into identity hints here.
+    if label == "velocity":
+        return "Velocity Prizm"
+    if label == "cracked_ice":
+        return "Cracked Ice Prizm"
     return None
+
+
+def _front_rookie_mark(front: SideVisionEvidence) -> bool:
+    """Physical rookie witness used for variation classification.
+
+    A Rookie Variation requires a rookie/RC mark on the FRONT. Keep this
+    separate from generic OCR text so a back-side biography/stat line cannot
+    manufacture Rookie Variation status.
+    """
+    for observation in front.ocr:
+        if float(observation.confidence or 0.0) < 0.45:
+            continue
+        normalized = " ".join(str(observation.text or "").upper().split())
+        if re.search(r"\b(?:RC|ROOKIE)\b", normalized):
+            return True
+    return False
+
+
+def _back_variation_mark(back: SideVisionEvidence | None) -> bool:
+    """Return True only for a physically large standalone V on the BACK.
+
+    Panini Prizm variation backs use a large standalone V mark. A normal letter
+    V embedded in player copy is not enough. The box must be physically large
+    either absolutely or relative to the surrounding OCR text.
+    """
+    if back is None or not back.ocr:
+        return False
+
+    readable_heights = sorted(
+        float(observation.box.height or 0.0)
+        for observation in back.ocr
+        if float(observation.confidence or 0.0) >= 0.35
+        and float(observation.box.height or 0.0) > 0
+    )
+    median_height = (
+        readable_heights[len(readable_heights) // 2]
+        if readable_heights
+        else 0.0
+    )
+
+    for observation in back.ocr:
+        if float(observation.confidence or 0.0) < 0.35:
+            continue
+        token = re.sub(r"[^A-Z]", "", str(observation.text or "").upper())
+        if token != "V":
+            continue
+
+        height = float(observation.box.height or 0.0)
+        width = float(observation.box.width or 0.0)
+        absolute_large = height >= 0.055 and width >= 0.030
+        relative_large = (
+            median_height > 0
+            and height >= 0.040
+            and height >= median_height * 1.40
+        )
+        if absolute_large or relative_large:
+            return True
+    return False
 
 
 def build_identity_hints(
@@ -943,27 +761,32 @@ def build_identity_hints(
     observations = [*front.ocr, *(back.ocr if back else [])]
     text = _all_text(observations)
     exact_serial = serial.exact_stamp if serial.stamp_present else None
+
+    front_rookie_mark = _front_rookie_mark(front)
+    back_variation_mark = _back_variation_mark(back)
+    variation = (
+        "Rookie Variation"
+        if back_variation_mark and front_rookie_mark
+        else "Variation"
+        if back_variation_mark
+        else None
+    )
+
     return CardIdentity(
         year=_year_hint(observations),
         manufacturer=_manufacturer_hint(text),
-        # Product/release and insert/subset are independent dimensions. Brand
-        # logos such as PRIZM/SELECT/DONRUSS establish the release family while
-        # FIREWORKS/ALL AMERICAN/PREMIER LEVEL establish the subset. Previously
-        # we copied subset into set_name, which discarded visible product-line
-        # evidence and left dozens of legal Registry parallels unresolved.
-        brand=_brand_hint(text),
+        # Keep the actual player and the insert/subset separate.
         player=_player_hint(observations),
-        # Product-line/brand text is retrieval evidence, not a set-name lock.
-        # The authoritative Registry resolves the release/set family later.
         set_name=None,
         subset=_subset_hint(observations),
         card_number=_card_number_hint(observations),
         parallel=_parallel_hint(front=front, back=back),
+        variation=variation,
         serial_number=exact_serial,
         serial_run=serial.visible_denominator,
-        autograph=True if re.search(r"\b(?:autograph|authentic signature|signatures?)\b", text, re.I) else None,
-        memorabilia=True if re.search(r"\b(?:game-used|player-worn|memorabilia|relic|patch)\b", text, re.I) else None,
-        rookie=True if re.search(r"\b(?:rookie|rc)\b", text, re.I) else None,
+        autograph=True if re.search(r"\b(?:autograph|authentic signature)\b", text, re.I) else None,
+        memorabilia=True if re.search(r"\b(?:game-used|player-worn|memorabilia|relic|jersey|patch)\b", text, re.I) else None,
+        rookie=True if front_rookie_mark or re.search(r"\b(?:rookie|rc)\b", text, re.I) else None,
     )
 
 
@@ -977,8 +800,6 @@ def _analyze_side(
     side: str,
     ocr: AppleVisionOCR | None,
     ocr_init_error: Exception | None = None,
-    fast_ocr: bool = False,
-    precomputed_ocr: list[OCRObservation] | None = None,
 ) -> tuple[SideVisionEvidence, bool]:
     """Analyze one side without allowing any witness stage to erase the rest.
 
@@ -990,24 +811,14 @@ def _analyze_side(
     errors: list[str] = []
     observations: list[OCRObservation] = []
 
-    if precomputed_ocr is not None:
-        observations = [
-            observation.model_copy(deep=True)
-            for observation in precomputed_ocr
-        ]
-    elif ocr is None:
+    if ocr is None:
         if ocr_init_error is not None:
             errors.append(_bounded_stage_error(side, "apple_vision_init_failed", ocr_init_error))
         else:
             errors.append(f"{side}:apple_vision_unavailable")
     else:
         try:
-            if fast_ocr:
-                observations, ocr_errors = ocr.recognize_identity_witness(
-                    content, side=side
-                )
-            else:
-                observations, ocr_errors = ocr.recognize(content, side=side)
+            observations, ocr_errors = ocr.recognize(content, side=side)
             errors.extend(ocr_errors)
         except Exception as error:
             errors.append(_bounded_stage_error(side, "apple_vision_stage_failed", error))
@@ -1024,12 +835,17 @@ def _analyze_side(
         errors.append(_bounded_stage_error(side, "opencv_decode_failed", error))
 
     colors = ColorEvidence()
+    surface_colors = ColorEvidence()
     pattern = PatternEvidence()
     if image is not None:
         try:
             colors = analyze_colors(image)
         except Exception as error:
             errors.append(_bounded_stage_error(side, "opencv_color_failed", error))
+        try:
+            surface_colors = analyze_surface_colors(image)
+        except Exception as error:
+            errors.append(_bounded_stage_error(side, "opencv_surface_color_failed", error))
         try:
             pattern = analyze_pattern(image)
         except Exception as error:
@@ -1042,6 +858,7 @@ def _analyze_side(
             height=max(1, height),
             ocr=observations,
             colors=colors,
+            surface_colors=surface_colors,
             pattern=pattern,
             errors=errors,
         ),
@@ -1057,9 +874,6 @@ def analyze_local_vision_sync(
     front: bytes,
     back: bytes | None,
     settings: Settings,
-    *,
-    fast_ocr: bool = False,
-    precomputed_ocr: dict[str, list[OCRObservation]] | None = None,
 ) -> LocalVisionEvidence:
     data_root = settings.resolve_local_path(settings.database_path).parent
 
@@ -1070,55 +884,21 @@ def analyze_local_vision_sync(
     except Exception as error:
         ocr_init_error = error
 
-    # Front and back are independent physical witnesses. Apple Vision previously
-    # processed every OCR variant for the front and only then started the back,
-    # making a two-sided card pay both OCR latencies serially. Run the two side
-    # analyses concurrently while preserving front/back ordering in the result.
+    front_evidence, front_opencv_ok = _analyze_side(
+        front,
+        side="front",
+        ocr=ocr,
+        ocr_init_error=ocr_init_error,
+    )
+    back_evidence: SideVisionEvidence | None = None
+    back_opencv_ok = False
     if back:
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="instacomp-local-vision") as pool:
-            front_future = pool.submit(
-                _analyze_side,
-                front,
-                side="front",
-                ocr=ocr,
-                ocr_init_error=ocr_init_error,
-                fast_ocr=fast_ocr,
-                precomputed_ocr=(
-                    precomputed_ocr.get("front")
-                    if precomputed_ocr is not None
-                    else None
-                ),
-            )
-            back_future = pool.submit(
-                _analyze_side,
-                back,
-                side="back",
-                ocr=ocr,
-                ocr_init_error=ocr_init_error,
-                fast_ocr=fast_ocr,
-                precomputed_ocr=(
-                    precomputed_ocr.get("back")
-                    if precomputed_ocr is not None
-                    else None
-                ),
-            )
-            front_evidence, front_opencv_ok = front_future.result()
-            back_evidence, back_opencv_ok = back_future.result()
-    else:
-        front_evidence, front_opencv_ok = _analyze_side(
-            front,
-            side="front",
+        back_evidence, back_opencv_ok = _analyze_side(
+            back,
+            side="back",
             ocr=ocr,
             ocr_init_error=ocr_init_error,
-            fast_ocr=fast_ocr,
-            precomputed_ocr=(
-                precomputed_ocr.get("front")
-                if precomputed_ocr is not None
-                else None
-            ),
         )
-        back_evidence = None
-        back_opencv_ok = False
 
     observations = [
         *front_evidence.ocr,
@@ -1158,49 +938,39 @@ def analyze_local_vision_sync(
 
     front_centering = None
     back_centering = None
-
-    # Seller-facing fast identification is IDENTITY ONLY.
-    # Centering is condition/grading evidence and must never consume latency
-    # before an exact card identity is returned.
-    if not fast_ocr and precomputed_ocr is None:
-        with ThreadPoolExecutor(
-            max_workers=2 if back else 1,
-            thread_name_prefix="instacomp-centering",
-        ) as centering_pool:
-            front_centering_future = centering_pool.submit(
-                measure_card_centering, front
+    # Centering is independent of OCR/identity, and the two card sides are
+    # independent of one another. Measure them concurrently so condition
+    # evidence does not add two serial OpenCV passes to a seller-facing scan.
+    with ThreadPoolExecutor(
+        max_workers=2 if back else 1,
+        thread_name_prefix="instacomp-centering",
+    ) as centering_pool:
+        front_centering_future = centering_pool.submit(measure_card_centering, front)
+        back_centering_future = (
+            centering_pool.submit(measure_card_centering, back) if back else None
+        )
+        try:
+            front_centering = CenteringEvidence.model_validate(
+                front_centering_future.result().as_dict()
             )
-            back_centering_future = (
-                centering_pool.submit(measure_card_centering, back)
-                if back else None
+        except Exception as error:
+            front_evidence = _append_side_error(
+                front_evidence,
+                _bounded_stage_error("front", "centering_measurement_failed", error),
             )
+        if back_centering_future is not None:
             try:
-                front_centering = CenteringEvidence.model_validate(
-                    front_centering_future.result().as_dict()
+                back_centering = CenteringEvidence.model_validate(
+                    back_centering_future.result().as_dict()
                 )
             except Exception as error:
-                front_evidence = _append_side_error(
-                    front_evidence,
-                    _bounded_stage_error(
-                        "front", "centering_measurement_failed", error
-                    ),
-                )
-
-            if back_centering_future is not None:
-                try:
-                    back_centering = CenteringEvidence.model_validate(
-                        back_centering_future.result().as_dict()
+                if back_evidence is not None:
+                    back_evidence = _append_side_error(
+                        back_evidence,
+                        _bounded_stage_error(
+                            "back", "centering_measurement_failed", error
+                        ),
                     )
-                except Exception as error:
-                    if back_evidence is not None:
-                        back_evidence = _append_side_error(
-                            back_evidence,
-                            _bounded_stage_error(
-                                "back",
-                                "centering_measurement_failed",
-                                error,
-                            ),
-                        )
 
     apple_vision_available = False
     if ocr is not None:
@@ -1214,11 +984,6 @@ def analyze_local_vision_sync(
 
     return LocalVisionEvidence(
         schema_version="tcos.instacomp-ai.local-vision.v1",
-        engine_version=(
-            f"{LOCAL_VISION_ENGINE_VERSION}.fast"
-            if fast_ocr or precomputed_ocr is not None
-            else LOCAL_VISION_ENGINE_VERSION
-        ),
         front=front_evidence,
         back=back_evidence,
         front_centering=front_centering,
@@ -1235,18 +1000,8 @@ async def analyze_local_vision(
     front: bytes,
     back: bytes | None,
     settings: Settings,
-    *,
-    fast_ocr: bool = False,
-    precomputed_ocr: dict[str, list[OCRObservation]] | None = None,
 ) -> LocalVisionEvidence:
-    return await asyncio.to_thread(
-        analyze_local_vision_sync,
-        front,
-        back,
-        settings,
-        fast_ocr=fast_ocr,
-        precomputed_ocr=precomputed_ocr,
-    )
+    return await asyncio.to_thread(analyze_local_vision_sync, front, back, settings)
 
 
 def synthetic_text_image(text: str, *, width: int = 800, height: int = 1100) -> bytes:

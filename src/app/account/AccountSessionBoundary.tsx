@@ -17,7 +17,7 @@ const PUBLIC_ACCOUNT_ROUTES = new Set(["/account/login", "/account/signup"]);
 
 function sessionVersion(session: StoredAccountSession | null) {
   if (!session?.access_token) return "guest";
-  return `${session.user?.id || "account"}:${session.expires_at || 0}:${session.access_token.slice(-24)}`;
+  return session.user?.id || "account";
 }
 
 function nextRefreshDelay(session: StoredAccountSession | null) {
@@ -102,6 +102,7 @@ export default function AccountSessionBoundary({
       ACCOUNT_SESSION_CHANGE_EVENT,
       handleSessionChange,
     );
+    window.addEventListener("storage", handleSessionChange);
     window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     void refreshSession(false);
@@ -113,6 +114,7 @@ export default function AccountSessionBoundary({
         ACCOUNT_SESSION_CHANGE_EVENT,
         handleSessionChange,
       );
+      window.removeEventListener("storage", handleSessionChange);
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

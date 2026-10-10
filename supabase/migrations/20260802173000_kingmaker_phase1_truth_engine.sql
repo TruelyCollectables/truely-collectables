@@ -185,7 +185,7 @@ select
   o.decision_at,
   o.purchased_lot_id,
   p.purchase_number,
-  p.purchase_status,
+  p.status as purchase_status,
   p.quantity_purchased,
   p.total_acquisition_cost,
   p.unit_cost_basis,

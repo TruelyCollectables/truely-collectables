@@ -1,0 +1,37 @@
+{
+  "liveLogout": {
+    "sessionCleared": true,
+    "cardsCleared": true,
+    "loginVisible": true
+  },
+  "liveLoginReturn": {
+    "path": "/account/login",
+    "next": "/kingmaker/pending",
+    "formVisible": true
+  },
+  "restoreWaitSeconds": 2.452,
+  "finalSignedIn": {
+    "logoutVisible": true,
+    "cardsRendered": true,
+    "projectionError": false,
+    "nav": [
+      {
+        "ttfbMs": 84.30000000447035,
+        "domReadyMs": 90.20000000298023,
+        "loadMs": 100.70000000298023
+      }
+    ],
+    "api": [
+      {
+        "path": "/api/account/seller/inventory/instacomp-job-status",
+        "durationMs": 2083.2000000029802,
+        "status": 200
+      },
+      {
+        "path": "/api/account/seller/instacomp-pending",
+        "durationMs": 2177.6999999955297,
+        "status": 200
+      }
+    ]
+  }
+}

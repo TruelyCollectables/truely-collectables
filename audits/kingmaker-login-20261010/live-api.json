@@ -1,0 +1,44 @@
+[
+  {
+    "path": "/kingmaker/pending",
+    "authenticated": false,
+    "status": 200,
+    "seconds": 0.043,
+    "bytes": 33049,
+    "items": 0,
+    "queueCounts": null,
+    "loginInHtml": true
+  },
+  {
+    "path": "/api/account/seller/instacomp-pending?queue=verification&surface=kingmaker",
+    "authenticated": false,
+    "status": 401,
+    "seconds": 0.004
+  },
+  {
+    "path": "/api/account/seller/instacomp-pending?queue=verification&surface=kingmaker",
+    "authenticated": true,
+    "status": 200,
+    "seconds": 1.692,
+    "bytes": 222406,
+    "items": 46,
+    "queueCounts": {
+      "listings": 203,
+      "verification": 46
+    },
+    "loginInHtml": null
+  },
+  {
+    "path": "/api/account/seller/instacomp-pending?queue=listings&surface=kingmaker",
+    "authenticated": true,
+    "status": 200,
+    "seconds": 2.474,
+    "bytes": 918032,
+    "items": 184,
+    "queueCounts": {
+      "listings": 203,
+      "verification": 46
+    },
+    "loginInHtml": null
+  }
+]

@@ -84,24 +84,30 @@ def test_bold_black_prizm_back_mark_requires_standalone_dark_print():
     assert bold_black_prizm_back_mark(legal_copy, _back_image(dark=True)) is False
 
 
-def test_missing_back_prizm_mark_does_not_force_base():
+def test_missing_back_prizm_mark_does_not_force_base_from_ocr_absence():
     evidence = _vision(back_text=None, parallel="Silver Prizm")
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
     assert guarded.identity_hints.parallel == "Silver Prizm"
-    assert any("parallel remains unresolved" in value for value in guarded.back.pattern.geometry)
+    assert any("Base-vs-Silver unresolved" in value for value in guarded.back.pattern.geometry)
+
+
+def test_missing_back_prizm_mark_leaves_unknown_parallel_unknown():
+    evidence = _vision(back_text=None, parallel=None)
+    guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
+    assert guarded.identity_hints.parallel is None
 
 
 def test_present_back_prizm_mark_sets_silver_minimum_when_parallel_is_missing():
     evidence = _vision(back_text="PRIZM", parallel=None)
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
-    assert guarded.identity_hints.parallel is None
+    assert guarded.identity_hints.parallel == "Silver Prizm"
     assert any("minimum parallel Silver Prizm" in value for value in guarded.back.pattern.geometry)
 
 
 def test_present_back_prizm_mark_upgrades_base_to_silver_minimum():
     evidence = _vision(back_text="PRIZM", parallel="Base")
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
-    assert guarded.identity_hints.parallel is None
+    assert guarded.identity_hints.parallel == "Silver Prizm"
 
 
 def test_present_back_prizm_mark_preserves_stronger_non_base_evidence():
@@ -110,7 +116,7 @@ def test_present_back_prizm_mark_preserves_stronger_non_base_evidence():
     assert guarded.identity_hints.parallel == "Green Prizm"
 
 
-def test_missing_back_mark_does_not_manufacture_base_in_model_merge():
+def test_model_silver_remains_unresolved_when_ocr_misses_mark():
     evidence = _vision(back_text=None, parallel=None)
     guarded = apply_prizm_back_mark_rule(evidence, back_bytes=_back_image(dark=True))
     merged = merge_local_vision_payload(
@@ -126,6 +132,8 @@ def test_missing_back_mark_does_not_manufacture_base_in_model_merge():
         },
         guarded,
     )
+    # The model's Silver guess is not independently proven by the current
+    # physical evidence, so downstream exact-lock logic must see unresolved.
     assert merged["identity"]["parallel"] is None
 
 
@@ -145,7 +153,7 @@ def test_model_base_is_upgraded_to_silver_when_back_prizm_is_present():
         },
         guarded,
     )
-    assert merged["identity"]["parallel"] is None
+    assert merged["identity"]["parallel"] == "Silver Prizm"
 
 
 def test_model_color_survives_when_back_prizm_is_present():
@@ -167,7 +175,7 @@ def test_model_color_survives_when_back_prizm_is_present():
     assert merged["identity"]["parallel"] == "Green Prizm"
 
 
-def test_ollama_prompt_keeps_back_mark_family_only():
-    assert "positive family evidence only" in SYSTEM_PROMPT
-    assert "absence is not proof of Base" in SYSTEM_PROMPT
-    assert "presence is not proof of Silver" in SYSTEM_PROMPT
+def test_ollama_prompt_uses_fail_closed_back_rule():
+    assert "absence from OCR is NOT proof of Base" in SYSTEM_PROMPT
+    assert "bold black standalone PRIZM word on the BACK" in SYSTEM_PROMPT
+    assert "at least Silver Prizm" in SYSTEM_PROMPT

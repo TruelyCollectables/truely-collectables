@@ -22,6 +22,9 @@ type MacCommercialItem = {
   price: number;
   quantity: number;
   imageUrl: string | null;
+  description?: string | null;
+  category?: string | null;
+  condition?: string | null;
   player?: string | null;
   sport?: string | null;
   metadata?: JsonRecord;
@@ -86,9 +89,12 @@ export function scanIdentity(scan: InstaCompAiLocalScan) {
   const hints = record(localVision.identity_hints);
   const suggestion = record(scan.local_suggestion);
   const suggestionIdentity = record(suggestion.identity);
+  const checklistOutcome = text(scan.checklist?.outcome, 80);
   const exact =
-    scan.pricing_allowed === true &&
-    Boolean(text(scan.checklist?.identity_id, 200));
+    checklistOutcome === "exact_match" &&
+    Boolean(text(scan.checklist?.identity_id, 200)) &&
+    Boolean(registryFingerprint(scan)) &&
+    Object.keys(checklist).length > 0;
 
   // Exact Registry truth always wins. Review-required scans still retain every
   // physical identity fact that Apple Vision/local parsing actually read,
@@ -209,9 +215,35 @@ export async function listMacKingmakerInventory(timeoutMs = 30_000) {
   };
 }
 
-export async function getMacKingmakerInventoryItem(inventoryItemId: string) {
-  const { items } = await listMacKingmakerInventory();
-  return items.find((item) => item.inventoryItemId === inventoryItemId) || null;
+export async function getMacKingmakerInventoryItems(
+  inventoryItemIds: string[],
+  timeoutMs = 10_000,
+) {
+  const ids = [...new Set(inventoryItemIds.map((value) => text(value, 200)).filter(Boolean))];
+  const items: MacCommercialItem[] = [];
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    const response = await postInstaCompMacRegistry(
+      "/v1/kingmaker/accounting/commercial-inventory",
+      {
+        action: "get",
+        items: chunk.map((inventoryItemId) => ({ inventoryItemId })),
+      },
+      timeoutMs,
+    );
+    if (Array.isArray(response.items)) {
+      items.push(...(response.items as MacCommercialItem[]));
+    }
+  }
+  return items;
+}
+
+export async function getMacKingmakerInventoryItem(
+  inventoryItemId: string,
+  timeoutMs = 10_000,
+) {
+  const items = await getMacKingmakerInventoryItems([inventoryItemId], timeoutMs);
+  return items[0] || null;
 }
 
 export async function createMacKingmakerDraft(draft: JsonRecord) {
@@ -240,6 +272,10 @@ export async function updateMacKingmakerDraft(
   const result = results[0] as JsonRecord | undefined;
   if (!result || result.success !== true) {
     throw new Error(String(result?.message || "Mac-local KINGMAKER draft update failed."));
+  }
+  const updatedItem = result.item;
+  if (updatedItem && typeof updatedItem === "object" && !Array.isArray(updatedItem)) {
+    return updatedItem as MacCommercialItem;
   }
   return getMacKingmakerInventoryItem(inventoryItemId);
 }
@@ -352,12 +388,17 @@ function scanMetadata(scan: InstaCompAiLocalScan, market: JsonRecord | null, ima
   const identity = scanIdentity(scan);
   const pricing = suggestedPriceFromMarket(market);
   const localVision = record(scan.local_vision);
+  const canonicalImagePairSha256 =
+    text(scan.image_pair_sha256, 128) || text(imagePairSha256, 128);
   return {
     instacomp: {
       source: "kingmaker_mac_scan",
       scanId: scan.scan_id,
       cardUuid: scan.card_uuid || null,
-      imagePairSha256: imagePairSha256 || null,
+      imagePairSha256: canonicalImagePairSha256,
+      inputImagePairSha256: text(imagePairSha256, 128),
+      frontSha256: text(scan.front_sha256, 128) || null,
+      backSha256: text(scan.back_sha256, 128) || null,
       ai: { ...identity, internalScanId: scan.scan_id, confidence: identity.exact ? 0.99 : 0 },
       imageOrientation: orientationReceipt(scan),
       centering: {
@@ -420,6 +461,10 @@ export async function runKingmakerMacScan(params: {
   inventoryItemId?: string | null;
   imagePairSha256?: string | null;
   searchMarket?: boolean;
+  forceFreshIdentity?: boolean;
+  replaceManualIdentity?: boolean;
+  scanTimeoutMs?: number;
+  identityHint?: Record<string, unknown> | null;
 }) : Promise<KingmakerMacScanResult> {
   // IDENTITY-FIRST FAST LANE:
   // Most seller scans arrive upright. Try the known-fast 0/0 physical scan first.
@@ -430,20 +475,29 @@ export async function runKingmakerMacScan(params: {
     back: params.back,
     frontRotation: 0,
     backRotation: 0,
-    timeoutMs: 30_000,
+    forceFreshIdentity: params.forceFreshIdentity === true,
+    identityHint: params.identityHint || null,
+    timeoutMs:
+      params.scanTimeoutMs ??
+      (params.forceFreshIdentity === true ? 12_000 : 30_000),
   });
   if (!scan.scan_id) throw new Error("Mac-local InstaComp scan returned no scan ID.");
 
   // If the fast upright attempt cannot establish an exact identity, fall back
   // to the Mac's full local orientation/identity pipeline. Upside-down or
   // sideways cards therefore retain the existing recovery path.
-  if (!scanIdentity(scan).exact) {
+  if (
+    !scanIdentity(scan).exact &&
+    params.forceFreshIdentity !== true
+  ) {
     const orientationRecoveryScan = await analyzeWithInstaCompAiLocal({
       front: params.front,
       back: params.back,
       frontRotation: null,
       backRotation: null,
-      timeoutMs: 60_000,
+      forceFreshIdentity: false,
+      identityHint: params.identityHint || null,
+      timeoutMs: params.scanTimeoutMs ?? 60_000,
     });
 
     if (orientationRecoveryScan.scan_id) {
@@ -454,6 +508,7 @@ export async function runKingmakerMacScan(params: {
   // External orientation remains last-resort only, after both local attempts.
   if (
     !scanIdentity(scan).exact &&
+    params.forceFreshIdentity !== true &&
     String(scan.image_orientation?.status || "").trim().toLowerCase() !== "completed"
   ) {
     try {
@@ -471,7 +526,9 @@ export async function runKingmakerMacScan(params: {
           back: params.back,
           frontRotation: normalizedSides.orientation.frontRotation,
           backRotation: normalizedSides.orientation.backRotation,
-          timeoutMs: 60_000,
+          forceFreshIdentity: false,
+          identityHint: params.identityHint || null,
+          timeoutMs: params.scanTimeoutMs ?? 60_000,
         });
 
         if (fallbackScan.scan_id) scan = fallbackScan;
@@ -506,6 +563,12 @@ export async function runKingmakerMacScan(params: {
     metadata,
   };
   const existing = params.inventoryItemId ? await getMacKingmakerInventoryItem(params.inventoryItemId) : null;
+  const manualIdentityLocked = record(record(existing?.metadata).instacomp).manualIdentityLocked === true;
+  if (existing && manualIdentityLocked && params.replaceManualIdentity !== true) {
+    // Fresh pixels were still analyzed above, but a human lock owns the draft
+    // until the caller explicitly authorizes replacement.
+    return { scan, inventoryItem: existing, market: null, pricing: null, ai: record(metadata.instacomp).ai as JsonRecord, identityComplete: identity.exact };
+  }
   const inventoryItem = existing
     ? (await updateMacKingmakerDraft(params.inventoryItemId!, draft)) || existing
     : await createMacKingmakerDraft(draft);
@@ -513,6 +576,18 @@ export async function runKingmakerMacScan(params: {
 }
 
 export async function findMacDuplicateByImagePair(imagePairSha256: string) {
-  const { items } = await listMacKingmakerInventory();
-  return items.find((item) => text(record(item.metadata?.instacomp).imagePairSha256, 100) === imagePairSha256) || null;
+  const pairHash = text(imagePairSha256, 128);
+  if (!pairHash) return null;
+  const response = await postInstaCompMacRegistry(
+    "/v1/kingmaker/accounting/commercial-inventory",
+    {
+      action: "find_image_pair",
+      items: [{ imagePairSha256: pairHash }],
+    },
+    10_000,
+  );
+  const items = Array.isArray(response.items)
+    ? (response.items as MacCommercialItem[])
+    : [];
+  return items[0] || null;
 }

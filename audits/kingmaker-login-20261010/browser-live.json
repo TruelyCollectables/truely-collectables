@@ -1,0 +1,31 @@
+{
+  "origin": "https://truelycollectables.com",
+  "path": "/kingmaker/pending",
+  "logoutVisible": true,
+  "cardsRendered": true,
+  "projectionError": false,
+  "nav": [
+    {
+      "ttfbMs": 427.09999999403954,
+      "domReadyMs": 606.8999999985099,
+      "loadMs": 607.0999999940395
+    }
+  ],
+  "api": [
+    {
+      "path": "/api/account/seller/inventory/instacomp-job-status",
+      "durationMs": 6118.60000000149,
+      "status": 200
+    },
+    {
+      "path": "/api/account/seller/instacomp-pending",
+      "durationMs": 6207.39999999851,
+      "status": 200
+    },
+    {
+      "path": "/api/account/seller/instacomp-purchase-match",
+      "durationMs": 767,
+      "status": 200
+    }
+  ]
+}

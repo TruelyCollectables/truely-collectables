@@ -1,0 +1,15 @@
+{
+  "interface": "en1",
+  "localGatewayPingSummary": " ---\n10 packets transmitted, 10 packets received, 0.0% packet loss\nround-trip min/avg/max/stddev = 3.238/10.425/28.286/8.557 ms\n",
+  "internetProbe": "1.1.1.1",
+  "internetPackets": 10,
+  "internetReceived": 9,
+  "internetLossPercent": 10,
+  "internetRttMs": {
+    "min": 12.144,
+    "average": 603.279,
+    "max": 2801.72
+  },
+  "tunnelProtocol": "http2",
+  "tunnelConnections": 4
+}

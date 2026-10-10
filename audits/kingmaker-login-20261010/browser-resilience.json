@@ -1,0 +1,23 @@
+{
+  "cardsRendered": true,
+  "logoutVisible": true,
+  "gatewayErrorVisible": false,
+  "api": [
+    {
+      "path": "/api/account/seller/instacomp-pending",
+      "status": 502,
+      "durationMs": 151.80000000447035
+    },
+    {
+      "path": "/api/account/seller/instacomp-pending",
+      "status": 200,
+      "durationMs": 3904.60000000149
+    }
+  ],
+  "fixtureStateWhenCardsRendered": {
+    "pendingRequests": 2,
+    "jobStatusCompleted": false
+  },
+  "waitSeconds": 5.618,
+  "logoutClearedSessionAndCards": true
+}

@@ -46,11 +46,6 @@ function lower(value: unknown) {
   return clean(value)?.toLowerCase() ?? null;
 }
 
-function numeric(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function bounded(value: number) {
   return Math.max(0, Math.min(1, value));
 }

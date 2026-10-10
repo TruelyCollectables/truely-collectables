@@ -4,8 +4,14 @@ import {
 } from "../../../../../lib/account-auth";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { runKingmakerMacScan } from "../../../../../lib/kingmaker-mac-scan-server";
+import { resolveInstaCompChecklistFirstFromRegistry } from "../../../../../lib/instacomp-checklist-first-server";
+import { buildPendingListingIdentity } from "../../../../../lib/instacomp-pending-listing-identity";
+import { buildInstaCompCanonicalTitle } from "../../../../../lib/instacomp-canonical-title";
+import type { InstaCompChecklistLookupInput } from "../../../../../lib/instacomp-checklist-first";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -43,6 +49,79 @@ function positiveInteger(...values: unknown[]) {
   return null;
 }
 
+function validCardNumber(value: unknown) {
+  const text = textValue(value);
+  if (!text) return null;
+  const normalized = text.trim().toUpperCase();
+  if (["T", "CREDITS", "NO", "NONE", "N/A", "NA", "UNKNOWN"].includes(normalized)) return null;
+  if (/^\d{4}$/.test(normalized) && Number(normalized) >= 1900 && Number(normalized) <= 2035) return null;
+  return normalized;
+}
+
+function inferSerialRunFromEvidence(texts: string[]) {
+  for (const raw of texts) {
+    const explicit = raw.match(/(?:full\s+serial\s+number|serial(?:\s+number)?|numbered)\s*:?\s*\d{1,5}\s*\/\s*(\d{1,5})/i);
+    if (explicit) return Number(explicit[1]);
+  }
+  for (const raw of texts) {
+    const titleLike = raw.match(/(?:^|\s)\/\s*(\d{1,5})(?:\s|$)/);
+    if (titleLike) return Number(titleLike[1]);
+  }
+  return null;
+}
+
+function inferSubsetFromEvidence(texts: string[]) {
+  const combined = texts.join(" ").toLowerCase().replace(/\s+/g, " ");
+  const patterns: Array<[RegExp, string]> = [
+    [/\bpremier level\b/i, "Premier Level"],
+    [/\bcourtside\b/i, "Courtside"],
+    [/\bconcourse\b/i, "Concourse"],
+    [/\bscore select throwback\b/i, "Score Select Throwback"],
+    [/\bscore select wnba\b/i, "Score Select Throwback"],
+    [/\bselect future\b/i, "Select Future"],
+    [/\bsnapshots\b/i, "Snapshots"],
+    [/\ben fuego\b/i, "En Fuego"],
+    [/\ball-stars?\b/i, "All-Stars"],
+    [/\btop tier\b/i, "Top Tier"],
+    [/\bkaleidoscopic\b/i, "Kaleidoscopic"],
+    [/\bfractal\b/i, "Fractal"],
+    [/\bgroovy\b/i, "Groovy"],
+    [/\bfireworks\b/i, "Fireworks"],
+    [/\bfearless\b/i, "Fearless"],
+  ];
+  for (const [pattern, value] of patterns) if (pattern.test(combined)) return value;
+  return null;
+}
+
+function inferAutoFromEvidence(texts: string[]) {
+  const combined = texts.join(" ").toLowerCase();
+  return /\bautograph(?:ed|s)?\b|\bsignature(?:s)?\b|\bsigned\b/.test(combined) ? true : null;
+}
+
+function inferRelicFromEvidence(texts: string[]) {
+  const combined = texts.join(" ").toLowerCase();
+  return /\brelic\b|\bmemorabilia\b|\bjersey\b|\bpatch\b/.test(combined) ? true : null;
+}
+
+function normalizeCardTypeParallel(value: unknown, isAuto: unknown) {
+  let parallel = textValue(value);
+  if (!parallel) return null;
+  if (isAuto === true) {
+    parallel = parallel
+      .replace(/\b(?:autograph(?:ed)?|auto)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!parallel) return null;
+  }
+  return parallel;
+}
+
+function inferVariationFromEvidence(texts: string[]) {
+  const combined = texts.join(" ").toLowerCase();
+  if (!/\bvariation\b/.test(combined)) return null;
+  return /\brookie\b|\brc\b/.test(combined) ? "Rookie Variation" : "Variation";
+}
+
 function textList(value: unknown, limit = 50) {
   return Array.isArray(value)
     ? value
@@ -52,70 +131,89 @@ function textList(value: unknown, limit = 50) {
     : [];
 }
 
-function buildIdentitySummary(fields: Record<string, unknown>) {
-  const year = textValue(fields.year);
-  const manufacturer = textValue(fields.manufacturer) || textValue(fields.brand);
-  const setName = textValue(fields.setName) || textValue(fields.product);
-  const cardNumber = textValue(fields.cardNumber) || textValue(fields.card_number);
-  const player = textValue(fields.player) || textValue(fields.playerName);
-  const team = textValue(fields.team);
-  const variation =
-    textValue(fields.variation) ||
-    textValue(fields.parallel) ||
-    textValue(fields.checklistParallel) ||
-    textValue(fields.parallelName);
-  const pieces = [
-    year,
-    manufacturer,
-    setName,
-    cardNumber ? `#${cardNumber}` : null,
-    player,
-    team ? `(${team})` : null,
-  ].filter(Boolean);
-  const summary = pieces.join(" ").replace(/\s+/g, " ").trim();
-  return summary
-    ? [
-        `Card read: ${summary}.`,
-        variation ? `Surface variation: ${variation}.` : null,
-      ]
-        .filter(Boolean)
-        .join(" ")
-    : null;
+async function storedImageFile(urlValue: string, side: "front" | "back", requestUrl: string) {
+  const url = new URL(urlValue, requestUrl).toString();
+  const response = await fetch(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Stored ${side} image returned HTTP ${response.status}.`);
+  }
+  const contentType = String(response.headers.get("content-type") || "image/jpeg")
+    .split(";")[0]
+    .trim() || "image/jpeg";
+  if (!contentType.startsWith("image/")) {
+    throw new Error(`Stored ${side} image is not an image response.`);
+  }
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength < 1_000 || bytes.byteLength > 20 * 1024 * 1024) {
+    throw new Error(`Stored ${side} image has an invalid size.`);
+  }
+  return new File([bytes], `pending-${side}.jpg`, { type: contentType });
 }
+
+function storedPairUrls(
+  rows: Array<{ image_url?: string | null; alt_text?: string | null; sort_order?: number | null; is_primary?: boolean | null }>,
+  metadata: JsonRecord,
+) {
+  const ordered = [...rows]
+    .filter((row) => Boolean(textValue(row.image_url)))
+    .sort((left, right) => {
+      if (left.is_primary === true && right.is_primary !== true) return -1;
+      if (right.is_primary === true && left.is_primary !== true) return 1;
+      return Number(left.sort_order || 0) - Number(right.sort_order || 0);
+    });
+  const instacomp = recordValue(metadata.instacomp);
+  const frontRow = ordered.find((row) => /front/i.test(String(row.alt_text || ""))) || ordered[0];
+  const backRow = ordered.find((row) => /back/i.test(String(row.alt_text || ""))) || ordered.find((row) => row !== frontRow);
+  const front = textValue(frontRow?.image_url, instacomp.frontImageUrl);
+  const back = textValue(backRow?.image_url, instacomp.backImageUrl);
+  return front && back && front !== back ? { front, back } : null;
+}
+
+function buildIdentitySummary(fields: Record<string, unknown>) {
+  const canonical = buildInstaCompCanonicalTitle(fields);
+  return canonical ? `Card read: ${canonical}.` : null;
+}
+
+function subsetValue(fields: Record<string, unknown>) {
+  const candidate = textValue(
+    fields.subset,
+    fields.insertName,
+    fields.insert,
+    fields.seriesName,
+    fields.series,
+    fields.parallelName,
+    fields.parallel,
+  );
+  if (!candidate) return null;
+  const normalized = candidate.toLowerCase().replace(/\s+/g, " ").trim();
+  if (/^base$/i.test(normalized)) return null;
+  const canonical =
+    normalized === "all american" || normalized === "all-american"
+      ? "All American"
+      : normalized === "crunch time" || normalized === "crunch-time"
+        ? "Crunch Time"
+        : normalized === "future watch"
+          ? "Future Watch"
+          : normalized === "young guns"
+            ? "Young Guns"
+            : normalized === "spectrum fx"
+              ? "Spectrum FX"
+              : null;
+  return canonical;
+}
+
+const SUBSET_PHRASES = new Map([
+  ["all american", "All American"],
+  ["all-american", "All American"],
+  ["crunch time", "Crunch Time"],
+  ["crunch-time", "Crunch Time"],
+]);
 
 function buildIdentityTitle(fields: Record<string, unknown>) {
-  const year = textValue(fields.year);
-  const manufacturer = textValue(fields.manufacturer) || textValue(fields.brand);
-  const setName = textValue(fields.setName) || textValue(fields.product);
-  const cardNumber = textValue(fields.cardNumber) || textValue(fields.card_number);
-  const player = textValue(fields.player) || textValue(fields.playerName);
-  const team = textValue(fields.team);
-  const parallel =
-    textValue(fields.parallel) ||
-    textValue(fields.checklistParallel) ||
-    textValue(fields.parallelName);
-  const pieces = [
-    year,
-    manufacturer,
-    setName,
-    cardNumber ? `#${cardNumber}` : null,
-    player,
-    parallel,
-    team ? `(${team})` : null,
-  ].filter(Boolean);
-  const title = pieces.join(" ").replace(/\s+/g, " ").trim();
-  return title || null;
-}
-
-function isGenericTitle(value: unknown) {
-  const title = textValue(value)?.toLowerCase() || "";
-  return (
-    !title ||
-    title === "untitled item" ||
-    title === "identity review required" ||
-    title === "review required" ||
-    title.includes("permanent uuid missing")
-  );
+  return buildInstaCompCanonicalTitle(fields) || null;
 }
 
 function collectEvidenceTexts(metadata: JsonRecord) {
@@ -241,6 +339,9 @@ function inferPlayer(texts: string[]) {
     "velocity",
     "cracked",
     "ice",
+    "all",
+    "american",
+    "time",
   ]);
 
   const candidates: Array<{ score: number; value: string }> = [];
@@ -251,6 +352,8 @@ function inferPlayer(texts: string[]) {
     if (words.some((word) => word.length < 2)) continue;
     const lowered = words.map((word) => word.toLowerCase().replace(/^[^a-z]+|[^a-z]+$/g, ""));
     if (lowered.some((word) => banned.has(word))) continue;
+    const normalized = lowered.join(" ");
+    if (SUBSET_PHRASES.has(normalized)) continue;
     if (lowered.every((word) => word.length <= 3)) continue;
     let score = 1;
     if (words.length >= 2 && words.length <= 4) score += 1;
@@ -262,42 +365,126 @@ function inferPlayer(texts: string[]) {
   return candidates[0]?.score >= 1.5 ? candidates[0].value : null;
 }
 
+function inferProduct(texts: string[]) {
+  const combined = texts.join(" ").replace(/\s+/g, " ").trim();
+  const patterns: Array<[RegExp, string]> = [
+    [/\bpanini\s+prizm\s+wnba\b/i, "Panini Prizm WNBA"],
+    [/\bpanini\s+select\s+wnba\b/i, "Select WNBA"],
+    [/\bselect\s+panini\s+select\s+wnba\b/i, "Select WNBA"],
+    [/\bselect\s+wnba\b/i, "Select WNBA"],
+    [/\bpanini\s+prizm\b/i, "Panini Prizm"],
+    [/\bpanini\s+select\b/i, "Panini Select"],
+    [/\bdonruss\s+optic\b/i, "Donruss Optic"],
+    [/\bdonruss\b/i, "Donruss"],
+    [/\bbowman\s+chrome\b/i, "Bowman Chrome"],
+    [/\btopps\s+chrome\b/i, "Topps Chrome"],
+    [/\bupper\s+deck\b/i, "Upper Deck"],
+  ];
+  for (const [pattern, value] of patterns) if (pattern.test(combined)) return value;
+  return null;
+}
+
+function inferBrandFromProduct(product: string | null) {
+  if (!product) return null;
+  if (/^Select(?:\s|$)/i.test(product)) return "Select";
+  if (/Panini Prizm/i.test(product)) return "Prizm";
+  if (/Donruss Optic/i.test(product)) return "Optic";
+  if (/^Donruss(?:\s|$)/i.test(product)) return "Donruss";
+  if (/Bowman Chrome/i.test(product)) return "Bowman";
+  if (/Topps Chrome/i.test(product)) return "Topps";
+  if (/Upper Deck/i.test(product)) return "Upper Deck";
+  return null;
+}
+
+function releaseFamilyCore(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b(?:19|20)\d{2}(?:\s*-\s*\d{2,4})?\b/g, " ")
+    .replace(/\b(?:panini|topps|upper\s+deck|wnba|nba|nfl|nhl|mlb|hockey|basketball|football|baseball|cards?|trading)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isProductFamilyOnlySetName(setName: unknown, product: unknown, brand: unknown) {
+  const setCore = releaseFamilyCore(setName);
+  if (!setCore) return false;
+  return [product, brand].map(releaseFamilyCore).filter(Boolean).includes(setCore);
+}
+
+function inferExplicitParallel(texts: string[]) {
+  const combined = texts.join(" ").toLowerCase();
+  const patterns: Array<[string, string]> = [
+    ["blue cracked ice", "Blue Cracked Ice"],
+    ["orange cracked ice", "Orange Cracked Ice Prizm"],
+    ["silver flash prizm", "Silver Flash Prizm"],
+    ["silver prizm", "Silver Prizm"],
+    ["green prizm", "Green Prizm"],
+    ["orange prizm", "Orange Prizm"],
+    ["pink flash", "Pink Flash Prizm"],
+    ["blue velocity", "Blue Velocity Prizm"],
+    ["white seismic", "White Seismic Prizm"],
+    ["orange ice", "Orange Ice Prizm"],
+    ["pink ice", "Pink Ice"],
+    ["red wave", "Red Wave"],
+  ];
+  for (const [needle, value] of patterns) if (combined.includes(needle)) return value;
+  return null;
+}
+
 function inferParallel(texts: string[]) {
   const combined = texts.join(" ").toLowerCase();
   if (combined.includes("silver flash prizm")) return "Silver Flash Prizm";
   if (combined.includes("silver prizm")) return "Silver Prizm";
+  if (combined.includes("blue cracked ice")) return "Blue Cracked Ice";
+  if (combined.includes("orange cracked ice")) return "Orange Cracked Ice Prizm";
   if (combined.includes("cracked ice")) return "Cracked Ice Prizm";
   if (combined.includes("holo")) return "Holo";
+  if (combined.includes("green prizm")) return "Green Prizm";
+  if (combined.includes("orange prizm")) return "Orange Prizm";
+  if (combined.includes("pink flash")) return "Pink Flash Prizm";
   if (combined.includes("wave")) return "Wave";
   if (combined.includes("concourse")) return "Concourse";
   if (combined.includes("premier level")) return "Premier Level";
   if (combined.includes("courtside")) return "Courtside";
-  if (combined.includes("prizm")) return "Prizm";
-  return "Base";
+  return null;
 }
 
-function visualIdentity(metadata: JsonRecord) {
+function visualIdentity(metadata: JsonRecord, listingTitle?: unknown) {
   const instaComp = recordValue(metadata.instacomp);
   const ai = recordValue(instaComp.ai);
   const collectible = recordValue(metadata.collectible_asset);
   const card = recordValue(metadata.card);
+  const cardIdentity = recordValue(metadata.card_identity);
+  const saleIdentity = recordValue(metadata.sale_identity);
   const verified = recordValue(metadata.verified_reference);
 
-  const year = textValue(ai.year, ai.season, card.year, card.season, verified.year);
+  const year = textValue(
+    ai.year,
+    ai.season,
+    card.year,
+    card.season,
+    cardIdentity.year,
+    saleIdentity.year,
+    verified.year,
+  );
   const manufacturer = textValue(
     ai.manufacturer,
     ai.manufacturerName,
     card.manufacturer,
+    cardIdentity.manufacturer,
     verified.manufacturer,
   );
-  const brand = textValue(ai.brand, card.brand, verified.brand);
-  const product = textValue(ai.product, ai.productName, card.product, verified.product);
+  const brand = textValue(ai.brand, card.brand, cardIdentity.brand, verified.brand);
+  const product = textValue(ai.product, ai.productName, card.product, cardIdentity.product, verified.product);
   const setName = textValue(
     ai.setName,
     ai.set_name,
     ai.set,
     card.setName,
     card.set_name,
+    cardIdentity.setName,
+    cardIdentity.set_name,
     verified.setName,
   );
   const cardNumber = textValue(
@@ -305,6 +492,10 @@ function visualIdentity(metadata: JsonRecord) {
     ai.card_number,
     card.cardNumber,
     card.card_number,
+    cardIdentity.cardNumber,
+    cardIdentity.card_number,
+    saleIdentity.cardNumber,
+    saleIdentity.card_number,
     verified.cardNumber,
     verified.card_number,
   );
@@ -313,20 +504,24 @@ function visualIdentity(metadata: JsonRecord) {
     ai.playerName,
     ai.subject,
     card.player,
+    cardIdentity.player,
+    cardIdentity.playerName,
+    saleIdentity.player,
+    saleIdentity.playerName,
     verified.player,
   );
-  const team = textValue(ai.team, ai.teamName, card.team, verified.team);
-  const sport = textValue(ai.sport, card.sport, verified.sport);
-  const league = textValue(ai.league, card.league, verified.league);
-  const parallel =
-    textValue(ai.checklistParallel, ai.parallelName, ai.parallel, card.parallel, verified.parallel) ||
-    "Base";
-  const variation = textValue(ai.variation, card.variation, verified.variation);
+  const team = textValue(ai.team, ai.teamName, card.team, cardIdentity.team, saleIdentity.team, verified.team);
+  const sport = textValue(ai.sport, card.sport, cardIdentity.sport, verified.sport);
+  const league = textValue(ai.league, card.league, cardIdentity.league, verified.league);
+  const parallel = textValue(ai.checklistParallel, ai.parallelName, ai.parallel, card.parallel, cardIdentity.parallel, saleIdentity.parallel, verified.parallel);
+  const variation = textValue(ai.variation, card.variation, cardIdentity.variation, saleIdentity.variation, verified.variation);
   const serialRun = positiveInteger(
     ai.serialRun,
     ai.printRun,
     collectible.serial_run,
     collectible.title_print_run,
+    cardIdentity.serialRun,
+    saleIdentity.serialRun,
     verified.serialRun,
   );
   const isAuto = booleanValue(
@@ -348,30 +543,22 @@ function visualIdentity(metadata: JsonRecord) {
     ai.checklistFingerprintSha256,
     ai.registryFingerprintSha256,
   );
-  const evidenceTexts = collectEvidenceTexts(metadata);
+  const evidenceTexts = [textValue(listingTitle), ...collectEvidenceTexts(metadata)].filter((value): value is string => Boolean(value));
   const visualYear = year || inferYear(evidenceTexts);
   const visualManufacturer = manufacturer || inferManufacturer(evidenceTexts);
-  const visualCardNumber = cardNumber || inferCardNumber(evidenceTexts);
+  const visualCardNumber = validCardNumber(cardNumber) || validCardNumber(inferCardNumber(evidenceTexts));
   const visualPlayer = player || inferPlayer(evidenceTexts);
-  const visualProduct =
-    product ||
-    (evidenceTexts.some((text) => /silver flash prizm/i.test(text))
-      ? 'Silver Flash Prizm'
-      : evidenceTexts.some((text) => /silver prizm/i.test(text))
-        ? 'Silver Prizm'
-        : evidenceTexts.some((text) => /cracked ice/i.test(text))
-          ? 'Cracked Ice Prizm'
-          : evidenceTexts.some((text) => /\bconcourse\b/i.test(text))
-            ? 'Concourse'
-            : evidenceTexts.some((text) => /\bpremier level\b/i.test(text))
-              ? 'Premier Level'
-              : evidenceTexts.some((text) => /\bcourtside\b/i.test(text))
-                ? 'Courtside'
-                : evidenceTexts.some((text) => /\bprizm\b/i.test(text))
-                  ? 'Prizm'
-                  : null);
+  const visualProduct = product || inferProduct(evidenceTexts);
   const visualSetName = setName || visualProduct;
+  const visualSubset =
+    subsetValue(ai) ||
+    subsetValue(card) ||
+    subsetValue(verified) ||
+    inferSubsetFromEvidence(evidenceTexts);
   const visualParallel = parallel || inferParallel(evidenceTexts);
+  const visualSerialRun = serialRun || inferSerialRunFromEvidence(evidenceTexts);
+  const visualIsAuto = inferAutoFromEvidence(evidenceTexts) === true ? true : isAuto;
+  const visualIsRelic = inferRelicFromEvidence(evidenceTexts) === true ? true : isRelic;
   const visualTitle =
     buildIdentityTitle({
       year: visualYear,
@@ -379,6 +566,7 @@ function visualIdentity(metadata: JsonRecord) {
       brand,
       product: visualProduct,
       setName: visualSetName,
+      subset: visualSubset,
       cardNumber: visualCardNumber,
       player: visualPlayer,
       team,
@@ -392,6 +580,7 @@ function visualIdentity(metadata: JsonRecord) {
       brand,
       product: visualProduct,
       setName: visualSetName,
+      subset: visualSubset,
       cardNumber: visualCardNumber,
       player: visualPlayer,
       team,
@@ -413,7 +602,16 @@ function visualIdentity(metadata: JsonRecord) {
       variation,
       parallel: visualParallel,
     });
-  const identified = Boolean(visualTitle);
+  const identified = Boolean(
+    visualTitle ||
+      visualYear ||
+      visualManufacturer ||
+      visualSetName ||
+      visualCardNumber ||
+      visualPlayer ||
+      team ||
+      visualParallel,
+  );
 
   return {
     status: identified ? ('identified' as const) : ('review_required' as const),
@@ -428,6 +626,7 @@ function visualIdentity(metadata: JsonRecord) {
       brand,
       product: visualProduct,
       setName: visualSetName,
+      subset: visualSubset,
       cardNumber: visualCardNumber || null,
       player: visualPlayer || null,
       team,
@@ -435,14 +634,61 @@ function visualIdentity(metadata: JsonRecord) {
       league,
       parallel: visualParallel,
       variation: variation || null,
-      serialRun: serialRun ?? null,
-      isAuto,
-      isRelic,
+      serialRun: visualSerialRun ?? null,
+      isAuto: visualIsAuto,
+      isRelic: visualIsRelic,
     },
     reasons: identified
       ? ['pending_listing_identity_locked_to_visual_ai_read']
       : ['visual_ai_identity_missing_required_fields'],
     notes: summary,
+  };
+}
+
+export function checklistInputFromMetadata(metadata: JsonRecord, listingTitle?: unknown): InstaCompChecklistLookupInput {
+  const instaComp = recordValue(metadata.instacomp);
+  const ai = recordValue(instaComp.ai);
+  const collectible = recordValue(metadata.collectible_asset);
+  const visual = visualIdentity(metadata, listingTitle);
+  const fields = visual.lockedFields;
+  const titleEvidence = textValue(listingTitle);
+  const titleParallel = titleEvidence ? inferExplicitParallel([titleEvidence]) : null;
+  const storedParallel = textValue(ai.checklistParallel, ai.parallelName, ai.parallel, fields.parallel);
+  const parallel = normalizeCardTypeParallel(titleParallel || storedParallel, fields.isAuto);
+  const titleProduct = titleEvidence ? inferProduct([titleEvidence]) : null;
+  const product = titleProduct || textValue(ai.product, ai.productName, fields.product);
+  const storedSet = textValue(ai.setName, ai.set_name, ai.set);
+  const fieldSet = textValue(fields.setName);
+  const rawSubset = textValue(ai.subset, fields.subset);
+  const subset = rawSubset && textValue(fields.player) && rawSubset.toLowerCase() === textValue(fields.player)!.toLowerCase()
+    ? null
+    : rawSubset;
+  // fields.setName may itself be the inferred product-family fallback from visualIdentity.
+  // Never feed product names (Select WNBA / Panini Prizm WNBA) back into Registry setName.
+  const rawSetCandidate = storedSet || (fieldSet && fieldSet.toLowerCase() !== String(product || "").toLowerCase() ? fieldSet : null);
+  const rawSet = rawSetCandidate && !/^variation$/i.test(rawSetCandidate) && !isProductFamilyOnlySetName(rawSetCandidate, product, inferBrandFromProduct(titleProduct || product) || fields.brand)
+    ? rawSetCandidate
+    : null;
+  const setName = rawSet && rawSet.toLowerCase() !== String(parallel || "").toLowerCase() ? rawSet : null;
+  const variation = textValue(fields.variation) || inferVariationFromEvidence(collectEvidenceTexts(metadata));
+  const serialNumber = textValue(
+    ai.serialNumber, ai.serial_number, instaComp.serialNumber, collectible.exact_serial_number,
+    ai.printRun, collectible.print_run, fields.serialRun ? `/${fields.serialRun}` : null,
+  );
+  return {
+    year: textValue(fields.year),
+    manufacturer: textValue(fields.manufacturer) || (titleProduct?.startsWith("Panini ") ? "Panini" : null),
+    brand: inferBrandFromProduct(titleProduct || product) || textValue(fields.brand),
+    setName,
+    subset,
+    cardNumber: textValue(fields.cardNumber),
+    player: textValue(fields.player),
+    serialNumber,
+    isAuto: typeof fields.isAuto === "boolean" ? fields.isAuto : null,
+    isRelic: typeof fields.isRelic === "boolean" ? fields.isRelic : null,
+    parallel,
+    variation,
+    ocrText: collectEvidenceTexts(metadata).join("\n").slice(0, 12_000) || null,
   };
 }
 
@@ -484,60 +730,255 @@ export async function POST(request: Request) {
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const metadata = recordValue(row.metadata);
-    const instaComp = recordValue(metadata.instacomp);
-    const identity = visualIdentity(metadata);
-    const currentAi = recordValue(instaComp.ai);
-    const currentTitle = textValue((row as { title?: unknown }).title);
-    const nextTitle = identity.title && isGenericTitle(currentTitle) ? identity.title : null;
-    const nextAi = {
-      ...currentAi,
-      year: identity.lockedFields.year,
-      manufacturer: identity.lockedFields.manufacturer,
-      brand: identity.lockedFields.brand,
-      product: identity.lockedFields.product,
-      setName: identity.lockedFields.setName,
-      cardNumber: identity.lockedFields.cardNumber,
-      player: identity.lockedFields.player,
-      team: identity.lockedFields.team,
-      sport: identity.lockedFields.sport,
-      league: identity.lockedFields.league,
-      parallel: identity.lockedFields.parallel,
-      variation: identity.lockedFields.variation,
-      serialRun: identity.lockedFields.serialRun,
-      isAuto: identity.lockedFields.isAuto,
-      isRelic: identity.lockedFields.isRelic,
-      notes: identity.notes || currentAi.notes || null,
-      checklistParallel: identity.lockedFields.parallel,
-    };
+    let metadata = recordValue(row.metadata);
+    let instaComp = recordValue(metadata.instacomp);
 
-    const nextMetadata = {
+    // Recovery must use the physical pixels again, not merely recycle stale
+    // metadata from the original failed/legacy scan. Reuse the stored pair and
+    // bind the recovered Mac-local draft to this same Master Listing ID.
+    const { data: storedImageRows, error: storedImageError } = await supabase
+      .from("inventory_images")
+      .select("image_url,alt_text,sort_order,is_primary")
+      .eq("inventory_item_id", inventoryItemId)
+      .order("sort_order", { ascending: true });
+    if (storedImageError) throw storedImageError;
+    const storedPair = storedPairUrls(storedImageRows || [], metadata);
+    if (storedPair) {
+      try {
+        const [front, back] = await Promise.all([
+          storedImageFile(storedPair.front, "front", request.url),
+          storedImageFile(storedPair.back, "back", request.url),
+        ]);
+        const recovery = await runKingmakerMacScan({
+          front,
+          back,
+          inventoryItemId,
+          searchMarket: true,
+        });
+        const recoveredMetadata = recordValue(recovery.inventoryItem.metadata);
+        const recoveredInstaComp = recordValue(recoveredMetadata.instacomp);
+        const recoveredChecklistIdentity = recordValue(
+          recoveredInstaComp.checklistIdentity,
+        );
+        const recoveryHasCanonicalExactProof = Boolean(
+          recovery.identityComplete === true &&
+            recoveredInstaComp.trustedForIdentity === true &&
+            textValue(recoveredChecklistIdentity.status) === "exact_match" &&
+            textValue(recoveredChecklistIdentity.identityId) &&
+            textValue(recoveredChecklistIdentity.fingerprintSha256),
+        );
+        const priorOrientation = recordValue(instaComp.imageOrientation);
+        const recoveredOrientation = recordValue(recoveredInstaComp.imageOrientation);
+        const preservePriorOrientation =
+          textValue(priorOrientation.status) === "completed" &&
+          instaComp.imageOrientationPersisted === true;
+        const recoveredAt = new Date().toISOString();
+        const recoveredQueue = recoveryHasCanonicalExactProof
+          ? "pending_listings"
+          : "pending_verification";
+        metadata = {
+          ...metadata,
+          ...recoveredMetadata,
+          listingWorkflow: {
+            ...recordValue(metadata.listingWorkflow),
+            queue: recoveredQueue,
+            source: "mac_physical_recovery",
+            updatedAt: recoveredAt,
+          },
+          instacomp: {
+            ...instaComp,
+            ...recoveredInstaComp,
+            imageOrientation: preservePriorOrientation
+              ? priorOrientation
+              : recoveredOrientation,
+            imageOrientationPersisted:
+              instaComp.imageOrientationPersisted === true ||
+              recoveredInstaComp.imageOrientationPersisted === true,
+            imagePersistenceVerified: true,
+            identityComplete: recoveryHasCanonicalExactProof,
+            trustedForIdentity: recoveryHasCanonicalExactProof,
+            identityRefreshRequired: !recoveryHasCanonicalExactProof,
+            lastStatus: recoveryHasCanonicalExactProof
+              ? "identity_complete"
+              : "review_required",
+            lastStage: recoveryHasCanonicalExactProof
+              ? "mac_physical_recovery"
+              : "mac_physical_review",
+            recoveredFromStoredPairAt: recoveredAt,
+          },
+        };
+        instaComp = recordValue(metadata.instacomp);
+        const recoveryUpdate: Record<string, unknown> = { metadata };
+        if (recoveryHasCanonicalExactProof && recovery.inventoryItem.title) {
+          recoveryUpdate.title = recovery.inventoryItem.title;
+        }
+        const { error: recoveryUpdateError } = await supabase
+          .from("inventory_items")
+          .update(recoveryUpdate)
+          .eq("id", inventoryItemId)
+          .eq("store_id", storeId);
+        if (recoveryUpdateError) throw recoveryUpdateError;
+
+        if (recoveryHasCanonicalExactProof) {
+          return Response.json({
+            success: true,
+            identity: {
+              status: "identified",
+              lockedFields: recovery.ai,
+              notes: `Card read: ${recovery.inventoryItem.title}.`,
+              reasons: ["mac_physical_pair_recovered"],
+            },
+            identityComplete: true,
+            title: recovery.inventoryItem.title,
+            scanId: recovery.scan.scan_id,
+            cardUuid: recovery.scan.card_uuid || null,
+            sourceOfTruth: "mac_local",
+            recoveredStoredImages: true,
+          });
+        }
+      } catch (physicalRecoveryError) {
+        const recoveryMessage =
+          physicalRecoveryError instanceof Error
+            ? physicalRecoveryError.message
+            : "Stored physical-pair recovery failed.";
+        metadata = {
+          ...metadata,
+          instacomp: {
+            ...instaComp,
+            lastStage: "physical_recovery_failed",
+            lastError: recoveryMessage,
+            lastErrorCode: "PHYSICAL_RECOVERY_FAILED",
+          },
+        };
+        instaComp = recordValue(metadata.instacomp);
+      }
+    }
+
+    const currentAi = recordValue(instaComp.ai);
+    const input = checklistInputFromMetadata(metadata, row.title);
+    const decision = await resolveInstaCompChecklistFirstFromRegistry(input);
+    let identity = buildPendingListingIdentity({ input, decision });
+    const hasPermanentReceipt = Boolean(
+      identity.status === "identified" &&
+      identity.registryIdentityId &&
+      identity.registryFingerprintSha256,
+    );
+    if (!hasPermanentReceipt && identity.status === "identified") {
+      identity = {
+        ...identity,
+        status: "review_required",
+        aiIdentificationRequired: true,
+        reasons: [...identity.reasons, "registry_exact_match_missing_permanent_receipt"],
+      };
+    }
+
+    const operatorProtected =
+      instaComp.manualIdentityLocked === true ||
+      instaComp.humanVerified === true ||
+      instaComp.operatorReviewProtected === true;
+    const exact = identity.status === "identified" && hasPermanentReceipt;
+    const nextAi = exact && !operatorProtected
+      ? {
+          ...currentAi,
+          year: identity.lockedFields.year,
+          manufacturer: identity.lockedFields.manufacturer,
+          brand: identity.lockedFields.brand,
+          product: identity.lockedFields.product,
+          setName: identity.lockedFields.setName,
+          subset: (decision.match as any)?.subset || currentAi.subset || null,
+          cardNumber: identity.lockedFields.cardNumber,
+          player: identity.lockedFields.player,
+          team: identity.lockedFields.team,
+          sport: identity.lockedFields.sport,
+          league: identity.lockedFields.league,
+          parallel: identity.lockedFields.parallel,
+          checklistParallel: identity.lockedFields.parallel,
+          variation: identity.lockedFields.variation,
+          serialRun: identity.lockedFields.serialRun,
+          isAuto: identity.lockedFields.isAuto,
+          isRelic: identity.lockedFields.isRelic,
+          checklistIdentityId: identity.registryIdentityId,
+          checklistFingerprintSha256: identity.registryFingerprintSha256,
+        }
+      : {
+          ...currentAi,
+          ...(exact
+            ? {
+                checklistIdentityId: identity.registryIdentityId,
+                checklistFingerprintSha256: identity.registryFingerprintSha256,
+              }
+            : {}),
+        };
+
+    const checkedAt = new Date().toISOString();
+    const nextMetadata: Record<string, unknown> = {
       ...metadata,
       instacomp: {
         ...instaComp,
         ai: nextAi,
-        identityComplete: identity.status === 'identified',
-        lastStatus:
-          identity.status === 'identified' ? 'identity_complete' : 'review_required',
-        lastStage: identity.status === 'identified' ? 'complete' : 'core_identity',
+        trustedForIdentity: exact ? true : operatorProtected ? instaComp.trustedForIdentity === true : false,
+        identityComplete: operatorProtected ? instaComp.identityComplete === true : exact,
+        ...(operatorProtected
+          ? {}
+          : {
+              lastStatus: exact ? "identity_complete" : "needs_review",
+              lastStage: exact ? "checklist_registry_exact" : "checklist_registry_review",
+            }),
+        checklistDecision: {
+          status: decision.status,
+          source: "checklist_registry",
+          aiRequired: decision.aiRequired,
+          candidateCount: decision.candidates.length,
+          reasons: decision.reasons,
+          checkedAt,
+        },
         checklistIdentity: {
           status: identity.status,
-          source: identity.source,
+          source: "checklist_registry",
           aiIdentificationRequired: identity.aiIdentificationRequired,
           registryIdentityId: identity.registryIdentityId,
           registryFingerprintSha256: identity.registryFingerprintSha256,
           lockedFields: identity.lockedFields,
           reasons: identity.reasons,
-          checkedAt: new Date().toISOString(),
+          checkedAt,
+          operatorProtected,
         },
       },
     };
 
-    const updatePayload: Record<string, unknown> = { metadata: nextMetadata };
-    if (nextTitle) {
-      updatePayload.title = nextTitle;
-    }
-
+    const canonicalTitle = exact
+      ? buildInstaCompCanonicalTitle(nextAi, { metadata: nextMetadata, rawTitle: row.title })
+      : null;
+    const canonicalRookie = Boolean(canonicalTitle && /(?:^|\s)RC(?:\s|$)/.test(canonicalTitle));
+    const nextInstaComp = recordValue(nextMetadata.instacomp);
+    const normalizedMetadata = canonicalTitle
+      ? {
+          ...nextMetadata,
+          ...(canonicalRookie
+            ? {
+                instacomp: {
+                  ...nextInstaComp,
+                  ai: { ...recordValue(nextInstaComp.ai), isRookie: true },
+                },
+                cardIdentity: { ...recordValue(nextMetadata.cardIdentity), isRookie: true },
+                card_identity: { ...recordValue(nextMetadata.card_identity), isRookie: true },
+              }
+            : {}),
+          titleNormalization: {
+            rule: "instacomp_canonical_title_v2",
+            format: "YEAR PRODUCT [LEVEL/INSERT] #CARD PLAYER [RC] [PARALLEL] [VARIATION] [/N]",
+            teamExcluded: true,
+            genericBaseExcluded: true,
+            leagueSuffixExcluded: true,
+            normalizedAt: checkedAt,
+            previousTitle: row.title,
+            normalizedTitle: canonicalTitle,
+            rookiePersisted: canonicalRookie,
+          },
+        }
+      : nextMetadata;
+    const updatePayload: Record<string, unknown> = { metadata: normalizedMetadata };
+    if (canonicalTitle) updatePayload.title = canonicalTitle;
     const { error: updateError } = await supabase
       .from("inventory_items")
       .update(updatePayload)

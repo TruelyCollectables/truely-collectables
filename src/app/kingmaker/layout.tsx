@@ -11,8 +11,8 @@ export const metadata: Metadata = {
 
 export default function KingmakerLayout({ children }: { children: ReactNode }) {
   return (
-    <AccountSessionBoundary>
-      <KingmakerShell>{children}</KingmakerShell>
-    </AccountSessionBoundary>
+    <KingmakerShell>
+      <AccountSessionBoundary>{children}</AccountSessionBoundary>
+    </KingmakerShell>
   );
 }

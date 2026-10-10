@@ -1,13 +1,16 @@
 import { createHash } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
-import {
-  ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
-} from "../../../../lib/account-auth";
-import { getActiveStoreId } from "../../../../lib/stores";
+import { after, NextRequest, NextResponse } from "next/server";
+import { ensureAccountStoreMembership, getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
-import { POST as runVerifiedPricing } from "../../account/seller/inventory/instacomp-verified/route";
-import { POST as runExactFrontBack } from "../instacomp-front-back-exact/route";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { getInstaCompAiLocalArchivedImage } from "../../../../lib/instacomp-ai-local";
+import { persistNormalizedInstaCompImagePair } from "../../../../lib/instacomp-normalized-image-storage";
+import {
+  findMacDuplicateByImagePair,
+  refreshKingmakerMacMarketForScan,
+  runKingmakerMacScan,
+  sha256File,
+} from "../../../../lib/kingmaker-mac-scan-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,322 +20,238 @@ export const maxDuration = 300;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function validateFile(value: FormDataEntryValue | null, side: "front" | "back") {
-  if (!(value instanceof File) || value.size <= 0) {
-    throw new Error(`${side} image is required.`);
-  }
-  if (value.size > MAX_IMAGE_BYTES) {
-    throw new Error(`${side} image is larger than 12MB.`);
-  }
-  const type = value.type.split(";")[0].trim().toLowerCase();
-  if (!ALLOWED_TYPES.has(type)) {
-    throw new Error(`${side} image must be JPEG, PNG, or WebP.`);
-  }
-  return value;
-}
-
-async function digest(file: File) {
-  return createHash("sha256")
-    .update(Buffer.from(await file.arrayBuffer()))
-    .digest("hex");
-}
-
-function forwardedHeaders(request: NextRequest, contentType?: string) {
-  const headers = new Headers();
-  const authorization = request.headers.get("authorization");
-  const cookie = request.headers.get("cookie");
-  if (authorization) headers.set("authorization", authorization);
-  if (cookie) headers.set("cookie", cookie);
-  if (contentType) headers.set("content-type", contentType);
-  return headers;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
+function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
 }
 
-function text(value: unknown): string | null {
-  const next = String(value ?? "").trim();
-  return next.length ? next : null;
+function textValue(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
 }
 
-function numberValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
+function validateFile(value: FormDataEntryValue | null, side: "front" | "back") {
+  if (!(value instanceof File) || value.size <= 0) throw new Error(`${side} image is required.`);
+  if (value.size > MAX_IMAGE_BYTES) throw new Error(`${side} image is larger than 12MB.`);
+  const type = value.type.split(";")[0].trim().toLowerCase();
+  if (!ALLOWED_TYPES.has(type)) throw new Error(`${side} image must be JPEG, PNG, or WebP.`);
+  return value;
 }
 
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
-  let inventoryItemId: string | null = null;
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
-    if (!account) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 },
-      );
-    }
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
-
+    if (!account) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
     const form = await request.formData();
+    const forceFreshIdentity = form.get("forceFreshIdentity") === "true";
+    const replaceManualIdentity = form.get("replaceManualIdentity") === "true";
     const front = validateFile(form.get("front"), "front");
     const back = validateFile(form.get("back"), "back");
-    const [frontSha256, backSha256] = await Promise.all([
-      digest(front),
-      digest(back),
-    ]);
+    const [frontSha256, backSha256] = await Promise.all([sha256File(front), sha256File(back)]);
     if (frontSha256 === backSha256) {
-      return NextResponse.json(
-        {
-          success: false,
-          code: "FRONT_BACK_IMAGES_DUPLICATE",
-          error: "Front and back photos must be different images.",
-        },
-        { status: 409 },
-      );
+      return NextResponse.json({ success: false, code: "FRONT_BACK_IMAGES_DUPLICATE", error: "Front and back photos must be different images." }, { status: 409 });
     }
-    const imagePairSha256 = createHash("sha256")
-      .update(`${frontSha256}:${backSha256}`, "utf8")
-      .digest("hex");
+    const imagePairSha256 = createHash("sha256").update(`${frontSha256}:${backSha256}`).digest("hex");
+    const duplicate = await findMacDuplicateByImagePair(imagePairSha256);
+    if (duplicate && !forceFreshIdentity) {
+      return NextResponse.json({
+        success: true, stage: "review_required", identityComplete: false,
+        inventoryItemId: duplicate.inventoryItemId, title: duplicate.title,
+        code: "DUPLICATE_SCAN", error: "This exact front/back image pair already exists in Mac-local KINGMAKER inventory.",
+        duplicate: { inventoryItemId: duplicate.inventoryItemId, title: duplicate.title, status: duplicate.status, price: duplicate.price, quantity: duplicate.quantity, matchType: "exact_scan_pair" },
+      }, { status: 202, headers: { "Cache-Control": "no-store" } });
+    }
+    const result = await runKingmakerMacScan({
+      front,
+      back,
+      imagePairSha256,
+      inventoryItemId: forceFreshIdentity ? duplicate?.inventoryItemId || null : null,
+      searchMarket: false,
+      forceFreshIdentity,
+      replaceManualIdentity,
+    });
 
+    // Mac owns identity truth; the website owns listing state. Mirror every scan
+    // into website staging immediately so Pending never depends on a later Mac
+    // inventory projection just to show that the card exists.
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
-    const { data: duplicateRows, error: duplicateError } = await supabase
+    const macMetadata = recordValue(result.inventoryItem.metadata);
+    const macInstaComp = recordValue(macMetadata.instacomp);
+    const scanId = textValue(result.scan.scan_id) || textValue(macInstaComp.scanId);
+    const projectedQueue = result.identityComplete
+      ? "pending_listings"
+      : "pending_verification";
+    const projectedSource = result.identityComplete
+      ? "mac_local_registry_exact"
+      : "mac_local_received_review";
+    const stagedMetadata = {
+      ...macMetadata,
+      listingReviewRequired: !result.identityComplete,
+      listingWorkflow: {
+        ...recordValue(macMetadata.listingWorkflow),
+        queue: projectedQueue,
+        source: "kingmaker_scan_intake_v2_staging_mirror",
+      },
+      pending_verification: {
+        ...recordValue(macMetadata.pending_verification),
+        status: result.identityComplete ? "resolved" : "pending_verification",
+        source: "kingmaker_scan_intake_v2_staging_mirror",
+      },
+      instacomp: {
+        ...macInstaComp,
+        source: projectedSource,
+        scanId,
+        frontImageUrl:
+          textValue(macInstaComp.frontImageUrl) ||
+          (scanId
+            ? "/api/kingmaker/scan-image?scanId=" +
+              encodeURIComponent(scanId) +
+              "&side=front"
+            : null),
+        backImageUrl:
+          textValue(macInstaComp.backImageUrl) ||
+          (scanId
+            ? "/api/kingmaker/scan-image?scanId=" +
+              encodeURIComponent(scanId) +
+              "&side=back"
+            : null),
+        hasBackImage: true,
+        identityComplete: result.identityComplete,
+        trustedForIdentity: result.identityComplete,
+        lastStatus: result.identityComplete ? "identity_complete" : "review_required",
+        lastStage: result.identityComplete ? "registry_exact" : "received_review",
+        pricingStatus: result.identityComplete
+          ? "identity_complete_pricing_pending"
+          : "blocked_identity_review_required",
+      },
+    };
+    const stagingRow = {
+      id: result.inventoryItem.inventoryItemId,
+      store_id: storeId,
+      seller_account_id: account.id,
+      card_uuid: result.scan.card_uuid || null,
+      sku: result.inventoryItem.sku || null,
+      title: result.inventoryItem.title || "Mac-local received card",
+      description: result.inventoryItem.description || null,
+      category: result.inventoryItem.category || "Trading Card Singles",
+      condition: result.inventoryItem.condition || "Near Mint or Better",
+      status: "draft",
+      quantity: Math.max(1, Number(result.inventoryItem.quantity || 1)),
+      price: Math.max(0, Number(result.inventoryItem.price || 0)),
+      metadata: stagedMetadata,
+    };
+    const { error: stagingError } = await supabase
       .from("inventory_items")
-      .select("id,title,status,price,quantity,card_uuid,metadata")
-      .eq("store_id", storeId)
-      .eq("seller_account_id", account.id)
-      .neq("status", "archived")
-      .contains("metadata", { instacomp: { imagePairSha256 } })
-      .limit(1);
-    if (duplicateError) throw duplicateError;
-    const duplicate = duplicateRows?.[0] || null;
-    if (duplicate) {
-      const metadata = objectRecord(duplicate.metadata);
-      const acquisition = objectRecord(metadata.acquisition);
-      const pendingImport = objectRecord(metadata.pendingImport);
-      const instacomp = objectRecord(metadata.instacomp);
-      const purchaseId =
-        text(acquisition.purchaseId) ||
-        text(acquisition.purchase_id) ||
-        text(pendingImport.purchaseId) ||
-        text(pendingImport.purchase_id);
-      const duplicateCardUuid = text(duplicate.card_uuid) || text(instacomp.cardUuid);
-      return NextResponse.json(
-        {
-          success: true,
-          stage: "review_required",
-          identityComplete: false,
-          inventoryItemId: duplicate.id,
-          title: duplicate.title,
-          code: duplicateCardUuid ? "DUPLICATE_PHYSICAL_CARD" : "DUPLICATE_SCAN",
-          error: purchaseId
-            ? duplicateCardUuid
-              ? `This physical card is already in inventory as an existing copy. It appears to belong to Purchase ${purchaseId}.`
-              : `This exact front/back image pair already exists in inventory. It appears to belong to Purchase ${purchaseId}.`
-            : duplicateCardUuid
-              ? "This physical card is already in inventory as an existing copy."
-              : "This exact front/back image pair already exists in inventory.",
-          duplicate: {
-            inventoryItemId: duplicate.id,
-            title: duplicate.title,
-            status: duplicate.status,
-            purchaseId,
-            matchType: duplicateCardUuid ? "physical_card" : "exact_scan_pair",
-            cardUuid: duplicateCardUuid,
-            serialNumber: text(scan.trusted_identity?.serial_number),
-            serialRun:
-              typeof scan.trusted_identity?.serial_run === "number"
-                ? scan.trusted_identity.serial_run
-                : null,
-            price: numberValue(duplicate.price),
-            quantity: Number(duplicate.quantity || 0) || null,
-            addCopyAllowed: true,
-          },
-        },
-        { status: 202, headers: { "Cache-Control": "no-store" } },
-      );
+      .upsert(stagingRow, { onConflict: "id" });
+    if (stagingError) throw stagingError;
+
+    if (scanId) {
+      after(async () => {
+        try {
+          const [frontArchive, backArchive] = await Promise.all([
+            getInstaCompAiLocalArchivedImage({
+              scanId,
+              side: "front",
+              timeoutMs: 30_000,
+            }),
+            getInstaCompAiLocalArchivedImage({
+              scanId,
+              side: "back",
+              timeoutMs: 30_000,
+            }),
+          ]);
+          const orientation = recordValue(macInstaComp.imageOrientation);
+          await persistNormalizedInstaCompImagePair({
+            supabase,
+            storeId,
+            inventoryItemId: result.inventoryItem.inventoryItemId,
+            title: result.inventoryItem.title || "Mac-local received card",
+            frontFile: new File(
+              [frontArchive.bytes],
+              result.inventoryItem.inventoryItemId + "-front.jpg",
+              { type: frontArchive.contentType || "image/jpeg" },
+            ),
+            backFile: new File(
+              [backArchive.bytes],
+              result.inventoryItem.inventoryItemId + "-back.jpg",
+              { type: backArchive.contentType || "image/jpeg" },
+            ),
+            orientation: {
+              status: textValue(orientation.status) || "review_required",
+              model:
+                textValue(orientation.model) ||
+                textValue(orientation.source) ||
+                "mac_local",
+              source:
+                textValue(orientation.source) ||
+                textValue(orientation.model) ||
+                "mac_local",
+              frontRotation: Number(orientation.frontRotation || 0),
+              backRotation: Number(orientation.backRotation || 0),
+              frontConfidence: Number(orientation.frontConfidence || 0),
+              backConfidence: Number(orientation.backConfidence || 0),
+              frontEvidenceText: Array.isArray(orientation.frontEvidenceText)
+                ? orientation.frontEvidenceText.map(String)
+                : [],
+              backEvidenceText: Array.isArray(orientation.backEvidenceText)
+                ? orientation.backEvidenceText.map(String)
+                : [],
+              reason:
+                textValue(orientation.reason) ||
+                (result.identityComplete
+                  ? "Mac-local exact identity received."
+                  : "Identity review pending."),
+            },
+          });
+        } catch (error) {
+          console.error("KINGMAKER staging image persistence failed", {
+            inventoryItemId: result.inventoryItem.inventoryItemId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
     }
 
-    const now = new Date().toISOString();
-    const { data: inserted, error: insertError } = await supabase
-      .from("inventory_items")
-      .insert({
-        store_id: storeId,
-        seller_account_id: account.id,
-        title: "InstaComp scan pending",
-        description:
-          "Front and back are preserved. Automatic orientation and exact checklist identity review are in progress.",
-        category: "Trading Card Singles",
-        condition: "Ungraded",
-        status: "draft",
-        quantity: 1,
-        price: 0,
-        metadata: {
-          instacomp: {
-            source: "kingmaker_exact_scan_intake_v2",
-            imagePairSha256,
-            frontSha256,
-            backSha256,
-            hasBackImage: true,
-            identityComplete: false,
-            identityRefreshRequired: true,
-            pricingStatus: "blocked_identity_scan_in_progress",
-            pricingReason:
-              "Exact identity must be resolved before pricing.",
-            lastStatus: "processing",
-            lastStage: "orientation",
-            lastError: null,
-            lastErrorCode: null,
-            createdAt: now,
-          },
-          seller_review: { identity_confirmed: false },
-        },
-      })
-      .select("id,title")
-      .single();
-    if (insertError) throw insertError;
-    inventoryItemId = String(inserted.id);
-
-    const exactForm = new FormData();
-    exactForm.set("inventoryItemId", inventoryItemId);
-    exactForm.set("frontImage", front);
-    exactForm.set("backImage", back);
-    exactForm.set("replaceManualIdentity", "true");
-    exactForm.set("aiCouncilTier", "adaptive");
-    const exactRequest = new NextRequest(
-      new URL("/api/kingmaker/instacomp-front-back-exact", request.url),
-      {
-        method: "POST",
-        headers: forwardedHeaders(request),
-        body: exactForm,
-      },
-    );
-    const exactResponse = await runExactFrontBack(exactRequest);
-    const exactPayload = await exactResponse.json().catch(() => ({}));
-
-    const { data: updatedItem } = await supabase
-      .from("inventory_items")
-      .select("title,metadata")
-      .eq("id", inventoryItemId)
-      .eq("store_id", storeId)
-      .maybeSingle();
-    const title = String(updatedItem?.title || inserted.title);
-    const identityComplete = exactPayload?.identityComplete === true;
-
-    if (!exactResponse.ok || exactPayload?.success !== true) {
-      return NextResponse.json(
-        {
-          success: true,
-          stage: "review_required",
-          identityComplete: false,
-          inventoryItemId,
-          title,
-          code: exactPayload?.code || `HTTP_${exactResponse.status}`,
-          error:
-            exactPayload?.error ||
-            "The card was saved, but exact identity needs review.",
-          imagesPreserved: true,
-          pricingSucceeded: false,
-          durationMs: Date.now() - startedAt,
-        },
-        { status: 202, headers: { "Cache-Control": "no-store" } },
-      );
+    if (result.identityComplete) {
+      after(async () => {
+        try {
+          await refreshKingmakerMacMarketForScan(
+            result.scan,
+            result.inventoryItem.inventoryItemId,
+          );
+        } catch (error) {
+          console.error("KINGMAKER background market refresh failed", error);
+        }
+      });
     }
-
-    if (!identityComplete) {
-      return NextResponse.json(
-        {
-          success: true,
-          stage: exactPayload?.stage || "parallel_review",
-          identityComplete: false,
-          inventoryItemId,
-          title,
-          ai: exactPayload?.ai || null,
-          checklistDecision: exactPayload?.checklistDecision || null,
-          parallelDecision: exactPayload?.parallelDecision || null,
-          normalizedImages: exactPayload?.normalizedImages || null,
-          pricingSucceeded: false,
-          imagesPreserved: true,
-          durationMs: Date.now() - startedAt,
-        },
-        { status: 202, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-
-    const requestId = `scan-${inventoryItemId}`;
-    const pricingRequest = new NextRequest(
-      new URL(
-        "/api/account/seller/inventory/instacomp-verified",
-        request.url,
-      ),
-      {
-        method: "POST",
-        headers: forwardedHeaders(request, "application/json"),
-        body: JSON.stringify({
-          inventoryItemId,
-          aiCouncilTier: "adaptive",
-          requestId,
-        }),
+    return NextResponse.json({
+      success: true,
+      stage: result.identityComplete ? "complete" : "review_required",
+      identityComplete: result.identityComplete,
+      cardUuid: result.scan.card_uuid || null,
+      inventoryItemId: result.inventoryItem.inventoryItemId,
+      title: result.inventoryItem.title,
+      ai: result.ai,
+      checklistDecision: result.inventoryItem.metadata?.instacomp && (result.inventoryItem.metadata.instacomp as Record<string, unknown>).checklistDecision || null,
+      parallelDecision: result.inventoryItem.metadata?.instacomp && (result.inventoryItem.metadata.instacomp as Record<string, unknown>).parallelDecision || null,
+      normalizedImages: {
+        frontImageUrl: (result.inventoryItem.metadata?.instacomp as Record<string, unknown> | undefined)?.frontImageUrl || null,
+        backImageUrl: (result.inventoryItem.metadata?.instacomp as Record<string, unknown> | undefined)?.backImageUrl || null,
       },
-    );
-    const pricingResponse = await runVerifiedPricing(pricingRequest);
-    const pricing = await pricingResponse.json().catch(() => ({}));
-
-    return NextResponse.json(
-      {
-        success: true,
-        stage: "complete",
-        identityComplete: true,
-        inventoryItemId,
-        title,
-        ai: exactPayload?.ai || null,
-        checklistDecision: exactPayload?.checklistDecision || null,
-        parallelDecision: exactPayload?.parallelDecision || null,
-        normalizedImages: exactPayload?.normalizedImages || null,
-        pricing,
-        pricingSucceeded: pricingResponse.ok,
-        imagesPreserved: true,
-        durationMs: Date.now() - startedAt,
-      },
-      {
-        status: pricingResponse.ok ? 201 : 207,
-        headers: { "Cache-Control": "no-store" },
-      },
-    );
+      pricing: result.identityComplete
+        ? { status: "background_refresh_queued", suggestedPrice: null }
+        : null,
+      pricingSucceeded: false,
+      pricingBackgroundQueued: result.identityComplete,
+      imagesPreserved: true,
+      sourceOfTruth: "mac_local",
+      durationMs: Date.now() - startedAt,
+    }, { status: result.identityComplete ? 201 : 202, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const failure =
-      error instanceof Error ? error.message : "Scanner intake failed.";
-    if (inventoryItemId) {
-      return NextResponse.json(
-        {
-          success: true,
-          stage: "review_required",
-          identityComplete: false,
-          inventoryItemId,
-          error: failure,
-          code: "SCANNER_INTAKE_REVIEW_REQUIRED",
-          imagesPreserved: true,
-          pricingSucceeded: false,
-          durationMs: Date.now() - startedAt,
-        },
-        { status: 202, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    return NextResponse.json(
-      {
-        success: false,
-        code: "SCANNER_INTAKE_FAILED",
-        error: failure,
-        durationMs: Date.now() - startedAt,
-      },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ success: false, code: "SCANNER_INTAKE_FAILED", error: error instanceof Error ? error.message : "Scanner intake failed.", durationMs: Date.now() - startedAt }, { status: 500 });
   }
 }
