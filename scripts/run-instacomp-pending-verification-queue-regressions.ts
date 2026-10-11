@@ -128,6 +128,10 @@ const routeSource = readFileSync(
 );
 const pageSource = readFileSync("src/app/kingmaker/pending/page.tsx", "utf8");
 const clientSource = readFileSync("src/app/kingmaker/pending/PendingClient.tsx", "utf8");
+const acceptVerificationRoute = readFileSync(
+  "src/app/api/account/seller/instacomp-pending/accept-verification/route.ts",
+  "utf8",
+);
 const migrationSource = readFileSync(
   "scripts/move-legacy-instacomp-to-pending-verification.mjs",
   "utf8",
@@ -145,8 +149,17 @@ assert.match(routeSource, /sourceAuthority === "mac_local_sqlite"/);
 assert.match(routeSource, /Mac-local Master Listings inventory is temporarily unavailable/);
 assert.doesNotMatch(routeSource, /createSupabaseServerClient/);
 assert.doesNotMatch(routeSource, /readPendingCandidateInventoryPages/);
+const nl = String.fromCharCode(10);
 assert.match(clientSource, /Resale Pending/);
 assert.match(clientSource, /Pending Verification/);
+assert.ok(clientSource.includes("Verify Selected → Pending Listings"));
+assert.ok(clientSource.includes("/api/account/seller/instacomp-pending-identity"));
+assert.ok(clientSource.includes("/api/account/seller/instacomp-pending/accept-verification"));
+assert.ok(clientSource.includes("identityData.identityComplete !== true"));
+assert.ok(clientSource.includes("acceptData.published !== false"));
+assert.ok(acceptVerificationRoute.includes("const nextMetadata = {" + nl + "      ...metadata,"));
+assert.ok(acceptVerificationRoute.includes("instacomp: {" + nl + "        ...instaComp,"));
+assert.ok(acceptVerificationRoute.includes("updateMacKingmakerDraft(inventoryItemId, {" + nl + "      metadata: nextMetadata," + nl + "      updatedAt: now,"));
 assert.match(pageSource, /instacomp-pending\?queue=\$\{queue\}/);
 assert.doesNotMatch(
   scannerSource,
