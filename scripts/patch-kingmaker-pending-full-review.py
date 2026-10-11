@@ -24,7 +24,13 @@ pending_source = pending_api.read_text("utf-8")
 if (
     "cardUuid:" in pending_source
     and "identity: {" in pending_source
-    and "serialNumber: textValue(ai.serialNumber) || exactSerialNumber" in pending_source
+    and (
+        "serialNumber: textValue(ai.serialNumber) || exactSerialNumber" in pending_source
+        or (
+            "serialNumber: canonicalIdentityLocked" in pending_source
+            and "exactSerialNumber," in pending_source
+        )
+    )
 ):
     print(f"already patched pending API full identity + card UUID: {pending_api}")
 else:
