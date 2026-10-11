@@ -2197,6 +2197,139 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function verifySelectedToPendingListings() {
+    if (queue !== "verification") return;
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) {
+      setPageError("Select one or more cards in Pending Verification first.");
+      return;
+    }
+    const eligible = selected.filter((card) => hasValidPair(card));
+    const skipped = selected.length - eligible.length;
+    if (!eligible.length) {
+      setPageError("None of the selected cards has a distinct stored front and back.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Verify selected cards against exact Checklist Registry identity, then move passing cards to Pending Listings? This also accepts the current orientation of their stored front/back images. Cards without exact identity stay in Pending Verification. Pricing, quantity, card fields, and image records are preserved.",
+      )
+    ) {
+      return;
+    }
+
+    setBusyId("bulk-verify");
+    setPageError("");
+    setNotice(
+      "Verifying " + eligible.length + " selected card" + (eligible.length === 1 ? "" : "s") + "…",
+    );
+    let moved = 0;
+    let review = 0;
+    const failures: string[] = [];
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      for (const card of eligible) {
+        try {
+          const headers = {
+            Authorization: "Bearer " + session.access_token,
+            "Content-Type": "application/json",
+          };
+          const identityResponse = await fetch(
+            "/api/account/seller/instacomp-pending-identity",
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+              cache: "no-store",
+            },
+          );
+          const identityData = await identityResponse.json().catch(() => ({}));
+          const identity =
+            identityData.identity && typeof identityData.identity === "object"
+              ? (identityData.identity as Record<string, unknown>)
+              : {};
+          const registryIdentityId = String(
+            identityData.registryIdentityId || identity.registryIdentityId || "",
+          ).trim();
+          const registryFingerprint = String(
+            identityData.registryFingerprintSha256 ||
+              identity.registryFingerprintSha256 ||
+              "",
+          ).trim();
+          if (
+            !identityResponse.ok ||
+            identityData.success !== true ||
+            identityData.identityComplete !== true ||
+            !registryIdentityId ||
+            !registryFingerprint
+          ) {
+            review += 1;
+            throw new Error(
+              identityData.error ||
+                identityData.code ||
+                "exact Registry identity was not confirmed",
+            );
+          }
+
+          const acceptResponse = await fetch(
+            "/api/account/seller/instacomp-pending/accept-verification",
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+              cache: "no-store",
+            },
+          );
+          const acceptData = await acceptResponse.json().catch(() => ({}));
+          if (
+            !acceptResponse.ok ||
+            acceptData.success !== true ||
+            acceptData.queue !== "listings" ||
+            acceptData.published !== false
+          ) {
+            throw new Error(
+              acceptData.error || "could not move this card to Pending Listings",
+            );
+          }
+          moved += 1;
+        } catch (error) {
+          failures.push(card.title + ": " + message(error));
+        }
+      }
+
+      const nextQueue = moved > 0 ? "listings" : "verification";
+      setSelectedIds(new Set());
+      setQueue(nextQueue);
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("queue", nextQueue);
+      router.replace(nextUrl.pathname + nextUrl.search);
+      await load(nextQueue);
+      const refreshedCounts = (window as unknown as {
+        __kingmakerPendingDebug?: {
+          queueCounts?: { listings?: number; verification?: number };
+        };
+      }).__kingmakerPendingDebug?.queueCounts;
+      const refreshedListingCount = Number(refreshedCounts?.listings || 0);
+      const refreshedVerificationCount = Number(
+        refreshedCounts?.verification || 0,
+      );
+      setNotice(
+        "Bulk verification finished: " + moved +
+          " moved to Pending Listings, " + review +
+          " held for identity review, " + skipped +
+          " skipped for missing image pairs. Counts: " + refreshedListingCount +
+          " Pending Listings, " + refreshedVerificationCount +
+          " Pending Verification.",
+      );
+      if (failures.length) setPageError(failures.slice(0, 4).join(" · "));
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function runSelectedExactIdentity() {
     const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
     const targets = selected.filter(
@@ -2551,6 +2684,14 @@ export default function KingmakerPendingPage({
             {queue === "verification" ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
                 <span className="mr-2 text-sm font-black">Verification actions:</span>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void verifySelectedToPendingListings()}
+                  className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Verify Selected → Pending Listings
+                </button>
                 <button
                   type="button"
                   disabled={!selectedIds.size || Boolean(busyId)}
