@@ -162,6 +162,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if ((result.inventoryItem.metadata?.verifiedCsv as Record<string, unknown> | undefined)?.authority === "seller_verified_csv_v1") {
+      return NextResponse.json({ success: true, stage: "verified_csv_comparison", identityComplete: true, inventoryItemId: result.inventoryItem.inventoryItemId, title: result.inventoryItem.title, verifiedFieldsLocked: true, imagesPreserved: true, lessonCaptured: true, ai: result.ai }, { headers: noStoreHeaders() });
+    }
     if (result.identityComplete) {
       after(async () => {
         try {

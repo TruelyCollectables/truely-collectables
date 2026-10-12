@@ -1,3 +1,4 @@
+import { hasVerifiedCsvAuthority } from "./kingmaker-verified-csv";
 export type InstaCompPendingQueue = "listings" | "verification";
 
 function record(value: unknown): Record<string, unknown> {
@@ -65,6 +66,7 @@ export function instaCompPendingQueueFromMetadata(
   // Only a seller manual lock or the exact Mac Registry UUID+fingerprint receipt may
   // move a card out of Pending Verification.
   if (!orientationVerified) return "verification";
+  if (record(metadata.verifiedCsv).authority === "seller_verified_csv_v1") return hasVerifiedCsvAuthority(metadata) && hasDistinctPair ? "listings" : "verification";
   if (manualIdentityLocked) return "listings";
   if (!exactRegistryIdentity) return "verification";
   return "listings";

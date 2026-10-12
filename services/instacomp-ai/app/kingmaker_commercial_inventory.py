@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Any
 from contextlib import contextmanager
 import base64
+import os
 import json
+import logging
 import sqlite3
 import urllib.error
 import urllib.parse
@@ -249,22 +251,8 @@ def _master_listing_queue(metadata_value: Any) -> str:
         )
         or current_registry_receipt
     )
-    # Exact identity receipts created by the current physical/Registry pipeline
-    # predate the two legacy source-label combinations above.  Do not strand
-    # those already-certified cards in Pending Verification merely because the
-    # provenance label evolved; the hard UUID + fingerprint + trust + exact
-    # decision is the authority.  Orientation is independently proven by a
-    # persisted distinct front/back pair for these archived scans.
-    if not orientation_verified and exact_registry:
-        front = _text(instacomp.get("frontImageUrl"))
-        back = _text(instacomp.get("backImageUrl"))
-        orientation_verified = bool(
-            instacomp.get("imageOrientationPersisted") is True
-            and instacomp.get("imagePersistenceVerified") is True
-            and front
-            and back
-            and front != back
-        )
+    # Registry identity and image orientation require independent receipts.
+    # A persisted front/back pair alone cannot prove that the card is upright.
     if not orientation_verified:
         return "verification"
     if manual_locked:
@@ -369,6 +357,8 @@ def _master_listing_folder(row: dict[str, Any]) -> str:
 
 
 _MASTER_LISTING_COMPACT_METADATA_KEYS = {
+    "verifiedCsv",
+    "identity",
     "collectible_asset",
     "inventory_lifecycle",
     "listingWorkflow",
@@ -510,6 +500,8 @@ def _normalize_local_pending_metadata(
     the same identity instead of rendering an apparently blank card.
     """
     result = dict(metadata or {})
+    if _record(result.get("verifiedCsv")).get("authority") == "seller_verified_csv_v1":
+        return result
     existing = result.get("instacomp") if isinstance(result.get("instacomp"), dict) else {}
     mac_receipt = existing.get("macReceipt") if isinstance(existing.get("macReceipt"), dict) else {}
     receipt_identity = (
@@ -550,25 +542,37 @@ def _normalize_local_pending_metadata(
 
     existing_ai = existing.get("ai") if isinstance(existing.get("ai"), dict) else {}
 
+    # The current nested Checklist lock is the canonical receipt for this
+    # inventory row. Older receiving metadata may still carry a stale top-level
+    # registryIdentityId/fingerprint from a prior visual interpretation; never
+    # let that stale receipt overwrite a newly repaired exact checklist lock.
+    existing_checklist_identity = (
+        existing.get("checklistIdentity")
+        if isinstance(existing.get("checklistIdentity"), dict)
+        else {}
+    )
+    locked_fields = (
+        existing_checklist_identity.get("lockedFields")
+        if isinstance(existing_checklist_identity.get("lockedFields"), dict)
+        else {}
+    )
     registry_identity_id = str(
         first(
-            result.get("registryIdentityId"),
+            existing_checklist_identity.get("identityId"),
+            locked_fields.get("identityId"),
             identity.get("registryIdentityId"),
             identity.get("registry_identity_id"),
-            (existing.get("checklistIdentity") or {}).get("identityId")
-            if isinstance(existing.get("checklistIdentity"), dict)
-            else None,
+            result.get("registryIdentityId"),
         )
         or ""
     ).strip() or None
     registry_fingerprint = str(
         first(
-            result.get("registryFingerprintSha256"),
+            existing_checklist_identity.get("fingerprintSha256"),
+            locked_fields.get("fingerprintSha256"),
             identity.get("registryFingerprintSha256"),
             identity.get("registry_fingerprint_sha256"),
-            (existing.get("checklistIdentity") or {}).get("fingerprintSha256")
-            if isinstance(existing.get("checklistIdentity"), dict)
-            else None,
+            result.get("registryFingerprintSha256"),
         )
         or ""
     ).strip() or None
@@ -674,18 +678,24 @@ def _normalize_local_pending_metadata(
         )
 
     if exact_identity:
-        result["listingReviewRequired"] = False
         listing_workflow = (
             dict(result.get("listingWorkflow"))
             if isinstance(result.get("listingWorkflow"), dict)
             else {}
         )
-        listing_workflow.update(
-            {
-                "queue": "pending_listings",
-                "source": "mac_registry_exact_auto",
-            }
-        )
+        resale_ready = str(listing_workflow.get("queue") or "").strip() == "resale_ready"
+        # Exact identity normally advances a card into Pending Listings, but once
+        # the operator has promoted a priced physical card to Resale Ready that
+        # downstream workflow state is authoritative and must survive later
+        # identity normalization/projection passes.
+        result["listingReviewRequired"] = True if resale_ready else False
+        if not resale_ready:
+            listing_workflow.update(
+                {
+                    "queue": "pending_listings",
+                    "source": "mac_registry_exact_auto",
+                }
+            )
         result["listingWorkflow"] = listing_workflow
         pending_verification = (
             dict(result.get("pending_verification"))
@@ -728,13 +738,31 @@ def _normalize_local_pending_metadata(
         "identityRefreshRequired": not exact_identity,
         "lastStatus": "identity_complete" if exact_identity else "review_required",
         "lastStage": "registry_exact" if exact_identity else "received_review",
+        # Pricing is downstream of identity. Re-normalizing an exact identity
+        # must never erase a completed/no-match market check that was already
+        # persisted on this inventory row.
         "pricingStatus": (
-            "identity_complete_pricing_pending"
+            existing.get("pricingStatus")
+            if exact_identity
+            and existing.get("pricingStatus")
+            in {
+                "priced_from_exact_sold_market",
+                "identity_complete_no_exact_sold_price",
+            }
+            else "identity_complete_pricing_pending"
             if exact_identity
             else "blocked_identity_review_required"
         ),
         "pricingReason": (
-            "Exact Mac Registry identity received; pricing review remains."
+            existing.get("pricingReason")
+            if exact_identity
+            and existing.get("pricingStatus")
+            in {
+                "priced_from_exact_sold_market",
+                "identity_complete_no_exact_sold_price",
+            }
+            and existing.get("pricingReason")
+            else "Exact Mac Registry identity received; pricing review remains."
             if exact_identity
             else "Exact Registry identity is required before pricing."
         ),
@@ -765,10 +793,19 @@ def _read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def _ebay_credential_paths() -> tuple[Path, Path]:
+    # Explicit paths support recovery/migration without duplicating authorization.
+    support = Path.home() / ".config/kingmaker"
+    legacy = Path.home() / "Library/Application Support/TCOS-Current-Review"
+    if not (support / ".env.local").exists() and (legacy / ".env.local").exists():
+        support = legacy
+    env_path = Path(os.environ.get("KINGMAKER_EBAY_ENV_PATH") or support / ".env.local").expanduser()
+    token_path = Path(os.environ.get("KINGMAKER_EBAY_TOKEN_PATH") or support / "ebay-seller-token.json").expanduser()
+    return env_path, token_path
+
+
 def _ebay_access_token() -> str:
-    support = Path.home() / "Library/Application Support/TCOS-Current-Review"
-    env_path = support / ".env.local"
-    token_path = support / "ebay-seller-token.json"
+    env_path, token_path = _ebay_credential_paths()
     if not env_path.exists() or not token_path.exists():
         raise ValueError("Mac-local eBay credentials are not configured")
     env = _read_env_file(env_path)
@@ -795,12 +832,20 @@ def _ebay_access_token() -> str:
         with urllib.request.urlopen(request, timeout=30) as response:
             data = json.load(response)
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        raise ValueError(f"eBay token refresh failed: {detail}") from exc
+        raise ValueError(f"eBay token refresh failed (HTTP {exc.code})") from exc
     access_token = str(data.get("access_token") or "").strip()
     if not access_token:
         raise ValueError("eBay token refresh did not return an access token")
     return access_token
+
+
+def _ebay_snapshot_lifecycle(listing_status: str, available: int) -> tuple[str, int]:
+    state = str(listing_status or "").strip().lower()
+    if state == "active":
+        return "active", max(0, int(available or 0))
+    if state in {"completed", "ended"}:
+        return "archived", 0
+    return "draft", 0
 
 
 def fetch_ebay_seller_snapshot() -> dict[str, Any]:
@@ -858,6 +903,10 @@ def fetch_ebay_seller_snapshot() -> dict[str, Any]:
             quantity = int(float(item.findtext("e:Quantity", default="0", namespaces=namespace) or 0))
             sold = int(float(item.findtext("e:SellingStatus/e:QuantitySold", default="0", namespaces=namespace) or 0))
             available = max(0, quantity - sold)
+            snapshot_status, snapshot_quantity = _ebay_snapshot_lifecycle(
+                listing_status,
+                available,
+            )
             price = float(item.findtext("e:SellingStatus/e:CurrentPrice", default="0", namespaces=namespace) or 0)
             specifics: dict[str, str] = {}
             for nv in item.findall("e:ItemSpecifics/e:NameValueList", namespace):
@@ -880,8 +929,9 @@ def fetch_ebay_seller_snapshot() -> dict[str, Any]:
                 "sport": specifics.get("Sport") or None,
                 "category": category_name or category_id or "other_collectable",
                 "condition": condition or "unknown",
-                "status": "active" if listing_status.lower() == "active" else "draft",
-                "quantity": available, "price": max(0.0, round(price, 2)),
+                "status": snapshot_status,
+                "quantity": snapshot_quantity, "price": max(0.0, round(price, 2)),
+                "listingStatus": listing_status or None,
                 "imageUrl": pictures[0] if pictures else None, "imageUrls": pictures,
                 "authenticity": {}, "under20SellerProtectionOptIn": False,
                 "nativeSku": native_sku or None,
@@ -946,9 +996,9 @@ class KingmakerCommercialInventory:
     def _schema_ready(self) -> bool:
         """Return quickly when the current on-disk schema needs no migration.
 
-        Healthy KINGMAKER restarts should not renegotiate writable WAL/DDL on
-        the external authority volume merely to rediscover an already-current
-        schema.
+        Healthy seller-facing restarts should not open a writable connection or
+        renegotiate WAL just to rediscover schema that is already current on the
+        external authority volume.
         """
         if not self.path.exists():
             return False
@@ -987,14 +1037,10 @@ class KingmakerCommercialInventory:
                 and {
                     "commercial_inventory_image_pair_sha256_idx",
                     "commercial_inventory_card_uuid_idx",
+                    "verified_csv_external_id_idx",
                 }
                 <= inventory_indexes
-                and {
-                    "master_listing_projection_folder_group_idx",
-                    "master_listing_projection_group_idx",
-                    "master_listing_projection_folder_queue_updated_idx",
-                }
-                <= projection_indexes
+                and "master_listing_projection_folder_group_idx" in projection_indexes
             )
         except sqlite3.Error:
             return False
@@ -1067,14 +1113,6 @@ class KingmakerCommercialInventory:
                 "CREATE INDEX IF NOT EXISTS master_listing_projection_folder_group_idx "
                 "ON master_listing_projection(folder,pending_queue,group_key)"
             )
-            db.execute(
-                "CREATE INDEX IF NOT EXISTS master_listing_projection_group_idx "
-                "ON master_listing_projection(group_key)"
-            )
-            db.execute(
-                "CREATE INDEX IF NOT EXISTS master_listing_projection_folder_queue_updated_idx "
-                "ON master_listing_projection(folder,pending_queue,source_updated_at DESC,inventory_item_id)"
-            )
             stale_groups = db.execute(
                 "SELECT inventory_item_id,row_json FROM master_listing_projection "
                 "WHERE group_key IS NULL OR group_key=''"
@@ -1092,6 +1130,9 @@ class KingmakerCommercialInventory:
                     "UPDATE master_listing_projection SET group_key=? WHERE inventory_item_id=?",
                     (_master_listing_group_key(payload), str(stale["inventory_item_id"])),
                 )
+        from .verified_csv_intake import install_guards
+        with self._connect() as db:
+            install_guards(db)
         self._initialized = True
 
     def project_master_listings(
@@ -1105,7 +1146,7 @@ class KingmakerCommercialInventory:
         upserted = 0
         with self._connect() as db:
             if replace:
-                db.execute("DELETE FROM master_listing_projection")
+                db.execute("DELETE FROM master_listing_projection WHERE inventory_item_id NOT IN (SELECT inventory_item_id FROM commercial_inventory WHERE json_extract(raw_json, '$.verifiedCsv.authority')='seller_verified_csv_v1')")
             for raw in items:
                 row = dict(raw or {})
                 inventory_item_id = str(
@@ -1116,11 +1157,13 @@ class KingmakerCommercialInventory:
                 ).strip()
                 if not inventory_item_id:
                     continue
-                # Canonicalize the identifier before storing the projection.
-                # Some upstream callers provide inventoryItemId/inventory_item_id
-                # instead of id; KINGMAKER web consumers require a stable id.
-                row["id"] = inventory_item_id
-                row["inventoryItemId"] = inventory_item_id
+                authoritative = db.execute("SELECT * FROM commercial_inventory WHERE inventory_item_id=?", (inventory_item_id,)).fetchone()
+                if authoritative and _record(json.loads(authoritative["raw_json"])).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1":
+                    # Untrusted bulk scans may not update or remove an
+                    # authoritative projection, even by spoofing archive state.
+                    # The certified row's normal pricing/listing actions remain
+                    # available through dedicated editable price/channel flows.
+                    continue
                 status = str(row.get("status") or "").strip().lower()
                 try:
                     quantity = int(float(row.get("quantity") or 0))
@@ -1316,6 +1359,11 @@ class KingmakerCommercialInventory:
         if current is None:
             return None
 
+        authoritative = self.get_item(item_id)
+        if authoritative and _record(authoritative.get("metadata")).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1":
+            self.apply_local_edit(item_id, edit, False)
+            authoritative = self.get_item(item_id)
+            current["metadata"] = authoritative["metadata"]
         row = dict(current)
         field_map = {
             "title": "title",
@@ -1385,15 +1433,11 @@ class KingmakerCommercialInventory:
                     ),
                 )
 
-        # Keep the channel-side commercial row synchronized when this Master
-        # Listing also exists there. The unified Master projection remains the
-        # edit authority, so a mirror-only validation failure cannot erase the
-        # accepted Master edit.
         if self.get_item(item_id) is not None:
             try:
                 self.apply_local_edit(item_id, edit, False)
             except Exception:
-                pass
+                logging.getLogger(__name__).warning("Local inventory edit failed for item %s", item_id, exc_info=True)
         return self.get_master_listing_projection(item_id, compact=False)
 
     def list_master_listing_projection(
@@ -1489,9 +1533,21 @@ class KingmakerCommercialInventory:
                     continue
                 if int(existing["local_dirty"] or 0):
                     db.execute(
-                        """UPDATE commercial_inventory SET ebay_offer_id=?, last_ebay_sync_at=?, raw_json=?
+                        """UPDATE commercial_inventory
+                           SET ebay_offer_id=?,
+                               status=?,
+                               quantity=CASE WHEN ?='archived' THEN 0 ELSE quantity END,
+                               last_ebay_sync_at=?,
+                               raw_json=?
                            WHERE inventory_item_id=?""",
-                        (payload["ebay_offer_id"], stamp, payload["raw_json"], existing["inventory_item_id"]),
+                        (
+                            payload["ebay_offer_id"],
+                            payload["status"],
+                            payload["status"],
+                            stamp,
+                            payload["raw_json"],
+                            existing["inventory_item_id"],
+                        ),
                     )
                 else:
                     db.execute(
@@ -1508,7 +1564,8 @@ class KingmakerCommercialInventory:
                 updated += 1
             db.execute(
                 """UPDATE commercial_inventory SET status='archived', quantity=0, updated_at=?
-                   WHERE local_dirty=0 AND (last_ebay_sync_at IS NULL OR last_ebay_sync_at<>?)""",
+                   WHERE ebay_listing_id NOT LIKE 'local:%'
+                     AND (last_ebay_sync_at IS NULL OR last_ebay_sync_at<>?)""",
                 (stamp, stamp),
             )
         return {"inserted": inserted, "updated": updated}
@@ -1635,6 +1692,9 @@ class KingmakerCommercialInventory:
         current = self.get_item(inventory_item_id)
         if current is None:
             raise ValueError("Mac-local commercial inventory item was not found")
+        if _record(current.get("metadata")).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1":
+            if "sku" in edit and edit["sku"] != current["sku"]:
+                raise sqlite3.IntegrityError("VERIFIED_CSV_IMMUTABLE: physical SKU cannot change")
         title = str(edit.get("title", current["title"]) or "").strip()[:200]
         if not title:
             raise ValueError("Title is required")

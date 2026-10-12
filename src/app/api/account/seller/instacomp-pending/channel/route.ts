@@ -145,6 +145,7 @@ function uniquePhysical(metadataValue: unknown) {
       : instaComp.ai,
   );
   return Boolean(
+    record(metadata.verifiedCsv).authority === "seller_verified_csv_v1" ||
     text(asset.exact_serial_number) ||
       text(asset.grading_cert_number) ||
       text(identity.serialNumber) ||
@@ -595,7 +596,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const websiteTitle = text(body.websiteTitle, 200) || text(storedWebsite.title, 200) || generated.websiteTitle;
+    const verifiedCsvLocked = record(metadata.verifiedCsv).authority === "seller_verified_csv_v1";
+    const websiteTitle = verifiedCsvLocked ? String(keeper.title) : text(body.websiteTitle, 200) || text(storedWebsite.title, 200) || generated.websiteTitle;
     const websiteDescription =
       text(body.websiteDescription, 100_000) ||
       text(storedWebsite.description, 100_000) ||
@@ -783,6 +785,7 @@ export async function POST(request: Request) {
         },
       };
     }
+    if (verifiedCsvLocked) nextMetadata.instacomp = { ...instaComp, pricingGroupKey: groupKey || effectiveInstaCompPricingGroupKey(metadata), commercialQuantity: totalQuantity, commercialKeeperInventoryItemId: keeperId };
     await updateMacKingmakerDraft(keeperId, {
       sku,
       quantity: totalQuantity,
