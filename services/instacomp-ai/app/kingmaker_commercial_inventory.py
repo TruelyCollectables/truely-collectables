@@ -1384,10 +1384,15 @@ class KingmakerCommercialInventory:
                 row[target_key] = edit.get(source_key)
 
         if isinstance(edit.get("metadata"), dict):
-            row["metadata"] = _normalize_local_pending_metadata(
-                dict(edit["metadata"]),
-                inventory_item_id=item_id,
-            )
+            if authoritative and _record(authoritative.get("metadata")).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1":
+                # Project the canonical protected metadata just written, not a
+                # lossy JavaScript-serialized copy of the verified identity.
+                row["metadata"] = authoritative["metadata"]
+            else:
+                row["metadata"] = _normalize_local_pending_metadata(
+                    dict(edit["metadata"]),
+                    inventory_item_id=item_id,
+                )
         elif not isinstance(row.get("metadata"), dict):
             row["metadata"] = {}
 
@@ -1713,11 +1718,29 @@ class KingmakerCommercialInventory:
         stamp = _now()
         image_url = str(edit.get("imageUrl", current.get("imageUrl") or "")).strip() or None
         metadata = edit.get("metadata") if isinstance(edit.get("metadata"), dict) else current.get("metadata", {})
+        verified = _record(current.get("metadata")).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1"
+        if verified:
+            # Browser JSON round-trips change 1.0 to 1 and object key order.
+            # Canonicalize ONLY permitted pricing fields onto the stored truth.
+            # Immutable identity/image fields retain their original exact bytes.
+            from .verified_csv_intake import PRICING_KEYS, packed
+            existing = _record(current.get("metadata"))
+            requested = _record(metadata)
+            protected = ("verifiedCsv", "verified_reference", "identity", "card_identity", "sale_identity", "collectible_asset", "seller_review")
+            if any(k in requested and requested[k] != existing.get(k) for k in protected):
+                raise sqlite3.IntegrityError("VERIFIED_CSV_IMMUTABLE: verified identity fields cannot change")
+            old_ic = _record(existing.get("instacomp"))
+            requested_ic = _record(requested.get("instacomp"))
+            if any(k not in PRICING_KEYS and v != old_ic.get(k) for k, v in requested_ic.items()):
+                raise sqlite3.IntegrityError("VERIFIED_CSV_IMMUTABLE: InstaComp identity or photo cannot change")
+            merged = {**existing, **{k: v for k, v in requested.items() if k not in protected and k != "instacomp"}}
+            merged["instacomp"] = {**old_ic, **{k: v for k, v in requested_ic.items() if k in PRICING_KEYS}}
+            metadata = merged
         metadata = _normalize_local_pending_metadata(
             metadata if isinstance(metadata, dict) else {},
             inventory_item_id=inventory_item_id,
         )
-        raw_json = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)
+        raw_json = packed(metadata) if verified else json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)
         with self._connect() as db:
             db.execute(
                 """UPDATE commercial_inventory SET title=?,description=?,player=?,sport=?,category=?,condition=?,

@@ -276,3 +276,81 @@ def test_scanner_pair_hash_compatibility(intake):
     ic=item["metadata"]["instacomp"]
     assert ic["imagePairSha256"]==digest(("front:"+ic["frontSha256"]+"|back:"+ic["backSha256"]).encode())
     assert intake.inventory.find_by_image_pair_sha256(ic["imagePairSha256"])["inventoryItemId"]==item_id
+
+@pytest.mark.parametrize("pricing_fields", [
+    {"priceGuideStatus": "no_matches", "priceGuideCheckedAt": "2026-10-12T02:30:00Z", "priceGuideMessage": "No exact guide", "priceGuideCoverage": {"status": "no_matches"}, "providerCoverage": []},
+    {"marketPrice": 0, "suggestedPrice": 0, "pricingStatus": "seller_price_required", "pricingReason": "No exact sold comps", "pricingAnalysis": {"sold": 0}, "reliableSoldCompCount": 0, "trustedForPricing": False, "soldCompEvidence": [], "activeCompetition": [], "activePricingEvidenceCount": 0, "providerCoverage": [], "exactMarketQueries": ["verified card"], "fastMarketLane": {"source": "ebay"}, "pricingCheckedAt": "2026-10-12T02:30:00Z"},
+])
+def test_verified_card_price_guide_and_fast_market_updates_preserve_truth(intake, pricing_fields):
+    item_id = imported(intake)
+    original = intake.inventory.get_item(item_id)
+    before = original["metadata"]["verifiedCsv"]
+    metadata = json.loads(json.dumps(original["metadata"]))
+    metadata["instacomp"].update(pricing_fields)
+    updated = intake.inventory.apply_master_listing_edit(item_id, {"metadata": metadata})
+    assert updated is not None
+    saved = intake.inventory.get_item(item_id)
+    assert saved["metadata"]["verifiedCsv"] == before
+    for field, value in pricing_fields.items():
+        assert saved["metadata"]["instacomp"][field] == value
+    assert updated["metadata"]["instacomp"]["manualIdentity"] == original["metadata"]["instacomp"]["manualIdentity"]
+    assert updated["metadata"]["instacomp"]["frontSha256"] == original["metadata"]["instacomp"]["frontSha256"]
+    assert updated["metadata"]["instacomp"]["backSha256"] == original["metadata"]["instacomp"]["backSha256"]
+
+
+def test_verified_card_trigger_upgrade_allows_new_pricing_only_fields(intake):
+    item_id = imported(intake)
+    with intake.inventory._connect() as db:
+        db.execute("DROP TRIGGER verified_csv_inventory_lock")
+        db.execute("CREATE TRIGGER verified_csv_inventory_lock BEFORE UPDATE ON commercial_inventory WHEN json_extract(OLD.raw_json,'$.verifiedCsv.authority')='seller_verified_csv_v1' AND json_extract(NEW.raw_json,'$.instacomp') IS NOT json_extract(OLD.raw_json,'$.instacomp') BEGIN SELECT RAISE(ABORT,'VERIFIED_CSV_IMMUTABLE: legacy protection'); END")
+    from app.verified_csv_intake import install_guards
+    with intake.inventory._connect() as db:
+        install_guards(db)
+    item = intake.inventory.get_item(item_id)
+    m = json.loads(json.dumps(item["metadata"]))
+    m["instacomp"]["priceGuideCoverage"] = {"status":"no_matches"}
+    updated = intake.inventory.apply_master_listing_edit(item_id, {"metadata":m})
+    assert updated["metadata"]["instacomp"]["priceGuideCoverage"]["status"] == "no_matches"
+    m["instacomp"]["frontSha256"] = "0" * 64
+    with pytest.raises(sqlite3.IntegrityError, match="VERIFIED_CSV_IMMUTABLE"):
+        intake.inventory.apply_master_listing_edit(item_id, {"metadata":m})
+
+
+def test_browser_json_roundtrip_pricing_preserves_exact_authoritative_bytes(intake):
+    item_id = imported(intake)
+    authoritative_before = intake.inventory.get_item(item_id)
+    metadata = json.loads(json.dumps(authoritative_before["metadata"]))
+    # JavaScript JSON.stringify turns 1.0 into 1, even inside locked identity.
+    def as_browser(value):
+        if isinstance(value, dict):
+            return {k: as_browser(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [as_browser(x) for x in value]
+        return int(value) if isinstance(value, float) and value.is_integer() else value
+    browser_copy = as_browser(metadata)
+    browser_copy["instacomp"]["pricingCheckedAt"] = "2026-10-12T03:00:00Z"
+    browser_copy["instacomp"]["pricingStatus"] = "seller_price_required"
+    browser_copy["instacomp"]["priceGuideCoverage"] = {"status": "no_matches"}
+    result = intake.inventory.apply_master_listing_edit(item_id, {"metadata": browser_copy, "updatedAt": "2026-10-12T03:00:00Z"})
+    assert result["metadata"]["instacomp"]["pricingStatus"] == "seller_price_required"
+    after = intake.inventory.get_item(item_id)
+    assert after["metadata"]["verifiedCsv"] == authoritative_before["metadata"]["verifiedCsv"]
+    assert after["metadata"]["instacomp"]["manualIdentity"] == authoritative_before["metadata"]["instacomp"]["manualIdentity"]
+    assert after["metadata"]["instacomp"]["manualIdentity"]["confidence"] == 1.0
+    assert result["metadata"]["instacomp"]["ai"] == authoritative_before["metadata"]["instacomp"]["ai"]
+
+
+def test_automatic_pricing_queue_only_contains_unpriced_verified_cards(intake):
+    import importlib.util
+    script = Path(__file__).resolve().parents[1]/"scripts/kingmaker_verified_pricing_worker.py"
+    spec = importlib.util.spec_from_file_location("kingmaker_verified_worker_test", script)
+    worker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(worker)
+    worker.DB = intake.inventory.path
+    item_id = imported(intake)
+    assert worker.queue() == [item_id]
+    data = intake.inventory.get_item(item_id)
+    metadata = json.loads(json.dumps(data["metadata"]))
+    metadata["instacomp"]["pricingStatus"] = "seller_price_required"
+    intake.inventory.apply_local_edit(item_id, {"metadata": metadata}, False)
+    assert worker.queue() == []

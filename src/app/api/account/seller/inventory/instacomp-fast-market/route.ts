@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+import { hasVerifiedCsvAuthority } from "../../../../../../lib/kingmaker-verified-csv";
 import { NextRequest, NextResponse } from "next/server";
 import {
   ensureAccountStoreMembership,
@@ -27,6 +29,16 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
+
+// The Mac pricing employee may only price seller-certified CSV cards. The
+// same high-entropy Mac key already secures the Worker -> Mac bridge.
+function trustedVerifiedCsvPricingWorker(request: NextRequest) {
+  const supplied = request.headers.get("x-kingmaker-verified-pricing-key") || "";
+  const configured = getConfiguredInstaCompMacKey();
+  if (!supplied || !configured) return false;
+  const hash = (value: string) => createHash("sha256").update(value).digest();
+  return timingSafeEqual(hash(supplied), hash(configured));
+}
 
 const MIN_EXACT_SOLD = Math.max(
   1,
@@ -226,9 +238,10 @@ async function macSoldOnly(params: {
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
-    if (!account) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
+    const automaticVerifiedPricing = trustedVerifiedCsvPricingWorker(request);
+    const account = automaticVerifiedPricing ? null : await getAuthenticatedAccountFromRequest(request);
+    if (!account && !automaticVerifiedPricing) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    if (account) await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
 
     const body = await request.json().catch(() => ({}));
     const inventoryItemId = String(body?.inventoryItemId || "").trim();
@@ -236,13 +249,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Choose a pending card to price." }, { status: 400 });
     }
 
-    const owner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
+    const owner = Boolean(account && ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
       String(account.email || "").toLowerCase(),
-    );
+    ));
     const item = await getMacMasterListingRow(inventoryItemId);
     if (!item) return NextResponse.json({ success: false, error: "Pending card was not found." }, { status: 404 });
+    if (automaticVerifiedPricing && !hasVerifiedCsvAuthority(item.metadata)) {
+      return NextResponse.json({ success: false, error: "Automated pricing only permits seller-certified CSV cards." }, { status: 403 });
+    }
     const sellerAccountId = String(item.seller_account_id ?? item.sellerAccountId ?? "").trim();
-    if (!owner && sellerAccountId && sellerAccountId !== account.id) {
+    if (!automaticVerifiedPricing && !owner && sellerAccountId && sellerAccountId !== account?.id) {
       return NextResponse.json({ success: false, error: "Pending card was not found." }, { status: 404 });
     }
 
@@ -321,7 +337,7 @@ export async function POST(request: NextRequest) {
     const fastPricing = record(nextMetadata.instacomp);
     const groupKey = effectiveInstaCompPricingGroupKey(nextMetadata) || "";
     const autoPrice = suggestedPrice > 0 && Number(item.price || 0) <= 0;
-    const applyGroup = autoPrice && Boolean(groupKey) && !uniquePhysicalCopy(nextMetadata);
+    const applyGroup = !automaticVerifiedPricing && autoPrice && Boolean(groupKey) && !uniquePhysicalCopy(nextMetadata);
     let priceUpdatedCount = 0;
     let grouped = false;
 
@@ -332,7 +348,7 @@ export async function POST(request: NextRequest) {
         candidates = masterRows.filter((candidate) => {
           const candidateSeller = String(candidate.seller_account_id ?? candidate.sellerAccountId ?? "").trim();
           return (
-            (owner || !candidateSeller || candidateSeller === account.id) &&
+            (owner || !candidateSeller || candidateSeller === account?.id) &&
             effectiveInstaCompPricingGroupKey(candidate.metadata) === groupKey
           );
         });
