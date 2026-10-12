@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from .kingmaker_accounting import KingmakerAccounting
 from .kingmaker_manual_purchases import KingmakerManualPurchases
-from .kingmaker_commercial_inventory import KingmakerCommercialInventory, fetch_ebay_seller_snapshot
+from .kingmaker_commercial_inventory import KingmakerCommercialInventory, fetch_ebay_seller_snapshot, _ebay_credential_paths, _read_env_file
 
 
 class PurchaseMatchRequest(BaseModel):
@@ -40,7 +40,7 @@ class PurchaseLinkExistingRequest(BaseModel):
 
 
 class EbayBridgeRequest(BaseModel):
-    mode: str = Field(default="readiness", pattern="^(readiness|publish|revise|verify|oauth_exchange|inventory_snapshot)$")
+    mode: str = Field(default="readiness", pattern="^(readiness|publish|revise|end|verify|oauth_exchange|inventory_snapshot)$")
     item: dict[str, Any] | None = None
     revision: dict[str, Any] | None = None
     verification: dict[str, Any] | None = None
@@ -50,8 +50,9 @@ class EbayBridgeRequest(BaseModel):
 
 
 class MercariBridgeRequest(BaseModel):
-    mode: str = Field(default="status", pattern="^(status|draft|publish)$")
+    mode: str = Field(default="status", pattern="^(status|verify|deactivate|draft|publish)$")
     item: dict[str, Any] | None = None
+    confirmation: str | None = Field(default=None, max_length=64)
 
 
 def _run_local_mercari_bridge(payload: dict[str, Any]) -> dict[str, Any]:
@@ -89,15 +90,17 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     if str(payload.get("mode") or "").strip() == "inventory_snapshot":
         snapshot = fetch_ebay_seller_snapshot()
         return {"ok": True, "mode": "inventory_snapshot", "snapshot": snapshot}
-    repo_root = Path(__file__).resolve().parents[3]
+    local_env, token_path = _ebay_credential_paths()
+    local_config = _read_env_file(local_env) if local_env.exists() else {}
+    repo_root = Path(os.environ.get("KINGMAKER_REPO_ROOT") or local_config.get("KINGMAKER_REPO_ROOT") or Path(__file__).resolve().parents[3]).expanduser()
     runner = repo_root / "services/instacomp-ai/scripts/kingmaker_ebay_publish.ts"
-    local_env = Path.home() / "Library/Application Support/TCOS-Current-Review/.env.local"
     node_shims = repo_root / "services/instacomp-ai/node-shims"
     if not runner.exists():
         raise ValueError("The Mac-local KINGMAKER eBay runner is missing")
     if not local_env.exists():
         raise ValueError("The Mac-local TCOS production environment is unavailable")
     env = os.environ.copy()
+    env["KINGMAKER_EBAY_TOKEN_PATH"] = str(token_path)
     env["NODE_PATH"] = os.pathsep.join(
         [str(node_shims), str(repo_root / "node_modules"), str(env.get("NODE_PATH") or "")]
     ).rstrip(os.pathsep)
@@ -224,6 +227,8 @@ def build_kingmaker_accounting_router(
     manual_purchases.initialize()
     commercial_inventory = KingmakerCommercialInventory(database_path.with_name("kingmaker_commercial_inventory.sqlite3"))
     commercial_inventory.initialize()
+    from .verified_csv_intake import attach_verified_csv_routes
+    attach_verified_csv_routes(router, commercial_inventory)
 
 
     @router.post("/pending-purchases")
@@ -402,6 +407,7 @@ def build_kingmaker_accounting_router(
             required_confirmation = {
                 "publish": "PUBLISH_LIVE",
                 "revise": "REVISE_LIVE",
+                "end": "END_LIVE",
             }.get(request.mode)
             if required_confirmation and request.confirmation != required_confirmation:
                 raise HTTPException(
@@ -418,6 +424,8 @@ def build_kingmaker_accounting_router(
                 "confirmation": request.confirmation,
             })
             return {"ok": True, **result}
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -425,8 +433,17 @@ def build_kingmaker_accounting_router(
     @router.post("/mercari-bridge")
     def mercari_bridge(request: MercariBridgeRequest):
         try:
-            result = _run_local_mercari_bridge({"mode": request.mode, "item": request.item})
+            if request.mode == "deactivate":
+                expected_confirmation = "DEACTIVATE_LIVE"
+                if request.confirmation != expected_confirmation:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Explicit {expected_confirmation} confirmation is required for live Mercari deactivation.",
+                    )
+            result = _run_local_mercari_bridge({"mode": request.mode, "item": request.item, "confirmation": request.confirmation})
             return {"ok": True, **result}
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -598,7 +615,7 @@ def build_kingmaker_accounting_router(
             if request.action in {"list", "refresh"}:
                 items = commercial_inventory.list_items()
                 snapshot: dict[str, Any] | None = None
-                if request.action == "refresh" or not items:
+                if request.action == "refresh":
                     snapshot = fetch_ebay_seller_snapshot()
                     listings = snapshot.get("listings") if isinstance(snapshot.get("listings"), list) else []
                     commercial_inventory.absorb_ebay_snapshot(

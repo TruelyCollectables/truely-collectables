@@ -763,6 +763,20 @@ export async function runKingmakerMacScan(params: {
     metadata,
   };
   const existing = params.inventoryItemId ? await getMacKingmakerInventoryItem(params.inventoryItemId) : null;
+  const verifiedCsv = record(record(existing?.metadata).verifiedCsv);
+  if (existing && verifiedCsv.authority === "seller_verified_csv_v1") {
+    const prediction = {
+      year: identity.year, manufacturer: identity.manufacturer, product: identity.product,
+      card_number: identity.cardNumber, player: identity.player, parallel: identity.checklistParallel,
+      serial_number: identity.serialNumber, print_run: identity.serialRun,
+      autograph: identity.isAuto, memorabilia: identity.isRelic, sport: identity.sport, team: identity.team,
+    };
+    await postInstaCompMacRegistry("/v1/kingmaker/accounting/verified-csv/feedback", {
+      owner_id: verifiedCsv.ownerId, inventory_item_id: existing.inventoryItemId,
+      prediction, model_version: "instacomp-local-scan-v1", source_event_id: scan.scan_id,
+    }, 10_000);
+    return { scan, inventoryItem: existing, market: null, pricing: null, ai: record(metadata.instacomp).ai as JsonRecord, identityComplete: true };
+  }
   const manualIdentityLocked = record(record(existing?.metadata).instacomp).manualIdentityLocked === true;
   if (existing && manualIdentityLocked && params.replaceManualIdentity !== true) {
     // Fresh pixels were still analyzed above, but a human lock owns the draft

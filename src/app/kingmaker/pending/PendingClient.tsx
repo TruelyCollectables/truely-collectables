@@ -169,6 +169,7 @@ type PendingCard = {
     scanId?: string | null;
   } | null;
   instaComp: {
+    verifiedCsvLocked?: boolean;
     scanId?: string | null;
     cardUuid?: string | null;
     pricingGroupKey?: string | null;
@@ -2934,6 +2935,7 @@ export default function KingmakerPendingPage({
                     <input type="checkbox" aria-label={`Select ${card.title}`} checked={selectedIds.has(card.inventoryItemId)} onChange={() => toggleSelected(card.inventoryItemId)} className="mt-1 h-5 w-5 accent-emerald-400" />
                     <div className="min-w-0">
                     <h2 className="font-black">{card.title}</h2>
+                    {card.instaComp.verifiedCsvLocked && <p className="mt-1 text-xs font-bold text-emerald-300">100% VERIFIED CSV · Identity and both images locked · Price and list</p>}
                     <p className="mt-1 text-xs font-semibold text-emerald-200">
                       Exact Checklist Registry match · no title rewriting
                     </p>

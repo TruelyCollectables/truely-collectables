@@ -895,6 +895,7 @@ export async function GET(request: Request) {
       const collectibleAsset = recordValue(metadata.collectible_asset);
       const ai = recordValue(instaComp.ai);
       const uniquePhysicalCopy = Boolean(
+        recordValue(metadata.verifiedCsv).authority === "seller_verified_csv_v1" ||
         textValue(collectibleAsset.exact_serial_number) ||
           textValue(collectibleAsset.grading_cert_number) ||
           textValue(ai.gradingCertNumber) ||
@@ -1503,6 +1504,7 @@ export async function GET(request: Request) {
           source: textValue(instaComp.source),
           scanId: textValue(instaComp.scanId),
           humanVerified: instaComp.humanVerified === true,
+          verifiedCsvLocked: recordValue(metadata.verifiedCsv).authority === "seller_verified_csv_v1",
           cardUuid:
             textValue(row.card_uuid) ||
             textValue(product?.card_uuid) ||

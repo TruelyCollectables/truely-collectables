@@ -1,3 +1,4 @@
+import { hasVerifiedCsvAuthority } from "./kingmaker-verified-csv";
 import {
   checklistRegistryReceiptBlockers,
   readChecklistRegistryReceipt,
@@ -95,7 +96,8 @@ export function buildKingmakerListingReadiness(params: {
   const staleReviewStatusOnly =
     registryBlockers.length === 1 &&
     registryBlockers[0] === "checklist_identity_review_required";
-  const exactIdentity =
+  const verifiedCsv = hasVerifiedCsvAuthority(metadata);
+  const exactIdentity = verifiedCsv ||
     (registryBlockers.length === 0 &&
       ["identified", "exact_match"].includes(receipt.status)) ||
     (staleReviewStatusOnly &&
@@ -103,7 +105,7 @@ export function buildKingmakerListingReadiness(params: {
       instaComp.trustedForIdentity === true);
   const frontImage = text(params.frontImageUrl);
   const backImage = text(params.backImageUrl);
-  const acquisitionSource = text(params.acquisitionSource);
+  const acquisitionSource = text(params.acquisitionSource) || (verifiedCsv ? "Verified CSV" : null);
   const rawEbayConditionReady =
     params.graded === true || Boolean(text(params.ebayCardCondition));
 
@@ -112,7 +114,7 @@ export function buildKingmakerListingReadiness(params: {
     {
       code: "price_guide_not_checked_1_year",
       label: "1-year eBay Price Guide checked",
-      ready: priceGuideOneYearComplete(params.metadata),
+      ready: verifiedCsv || priceGuideOneYearComplete(params.metadata),
     },
     { code: "missing_front_image", label: "Front photo", ready: Boolean(frontImage) },
     { code: "missing_back_image", label: "Back photo", ready: Boolean(backImage) },

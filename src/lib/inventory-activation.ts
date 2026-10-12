@@ -1,3 +1,4 @@
+import { hasVerifiedCsvAuthority } from "./kingmaker-verified-csv";
 import {
   extractAuthenticityProfile,
   type AuthenticityProfile,
@@ -188,7 +189,8 @@ export function getInventoryActivationBlockers(params: {
   ) {
     if (
       authenticity.status === "not_applicable" &&
-      !registryConfirmedCardAutograph
+      !registryConfirmedCardAutograph &&
+      !hasVerifiedCsvAuthority(metadata)
     ) {
       blockers.push("missing_authenticity_disclosure");
     }
