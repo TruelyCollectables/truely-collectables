@@ -32,7 +32,7 @@ def execute(limit):
         state={'startedAt':datetime.now(timezone.utc).isoformat(),'finishedAt':None,'queued':len(rows),'completed':0,'priced':0,'sellerPriceRequired':0,'errors':[],'pending':len(rows),'mode':'pricing_only_no_publication'}
         write(state)
         for item in rows[:limit]:
-            req=Request(URL,data=json.dumps({'inventoryItemId':item}).encode(),headers={'Content-Type':'application/json','Accept':'application/json','X-Kingmaker-Verified-Pricing-Key':settings.api_key},method='POST')
+            req=Request(URL,data=json.dumps({'inventoryItemId':item}).encode(),headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'curl/8.7.1','X-Kingmaker-Verified-Pricing-Key':settings.api_key},method='POST')
             try:
                 with urlopen(req,timeout=100) as response:payload=json.load(response)
                 if payload.get('success') is not True:raise ValueError(str(payload.get('error') or 'Pricing rejected')[:200])
