@@ -25,7 +25,7 @@ BOOLS = {"autograph","memorabilia","patch","rookie"}
 MAX_IMAGE = 12 * 1024 * 1024
 MAX_BATCH = 200
 MAX_TOTAL = 256 * 1024 * 1024
-PRICING_KEYS = ["price","marketPrice","listingPrice","listingPriceSource","suggestedPrice","marketSummary","priceGuide","soldCompEvidence","activeCompetition","providerCoverage","pricingCheckedAt","pricingStatus","pricingReason","pricing","market","compEvidence","marketComp","marketSearch","pricingWorkOrder","pricingAnalysis","pricingGroupBasePrice","pricingChosenAt","pricingGroupKey","commercialQuantity","commercialKeeperInventoryItemId","priceGuideStatus","priceGuideCheckedAt","priceGuideMessage","reliableSoldCompCount"]
+PRICING_KEYS = ["price","marketPrice","listingPrice","listingPriceSource","suggestedPrice","marketSummary","priceGuide","priceGuideCoverage","soldCompEvidence","activeCompetition","activePricingEvidenceCount","providerCoverage","exactMarketQueries","fastMarketLane","trustedForPricing","pricingCheckedAt","pricingStatus","pricingReason","pricing","market","compEvidence","marketComp","marketSearch","pricingWorkOrder","pricingAnalysis","pricingGroupBasePrice","pricingChosenAt","pricingGroupKey","commercialQuantity","commercialKeeperInventoryItemId","priceGuideStatus","priceGuideCheckedAt","priceGuideMessage","reliableSoldCompCount"]
 
 def stamp():
     return datetime.now(timezone.utc).isoformat()
@@ -102,6 +102,12 @@ def install_guards(db):
     remove = lambda x: "json_remove("+x+","+",".join("'$."+k+"'" for k in PRICING_KEYS)+")"
     tests.append(remove(new_ic) + " IS NOT " + remove(old_ic))
     tests.extend("NEW."+key+" IS NOT OLD."+key for key in ["inventory_item_id","sku","title","player","sport","category","condition","image_url"])
+    # An existing installation may have the original strict trigger. Update the
+    # guard in place when the pricing-only key allowlist expands; preserving the
+    # existing trigger would reject legitimate Price Guide and comp results.
+    old_guard = db.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='verified_csv_inventory_lock'").fetchone()
+    if old_guard and "'$.priceGuideCoverage'" not in str(old_guard[0]):
+        db.execute("DROP TRIGGER verified_csv_inventory_lock")
     db.executescript("""
     CREATE TRIGGER IF NOT EXISTS verified_csv_inventory_lock BEFORE UPDATE ON commercial_inventory
     WHEN json_extract(OLD.raw_json,'$.verifiedCsv.authority')='seller_verified_csv_v1' AND (
