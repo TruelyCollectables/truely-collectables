@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
@@ -62,6 +63,58 @@ function record(value: unknown): UnknownRecord {
 function text(value: unknown, max = 500) {
   const result = String(value ?? "").trim();
   return result ? result.slice(0, max) : null;
+}
+
+// The Mac's signed scan endpoint can be unavailable after a drive migration even
+// when the original oriented front/back JPEGs are durably hosted in Supabase.
+// Accept that fallback only after re-downloading both exact bytes and matching
+// the scanner's SHA-256 receipts. Never relax the identity/receiving gates.
+function trustedPublicCardImageUrl(raw: unknown): string | null {
+  const value = text(raw, 2000);
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return null;
+    if (!/^[a-z0-9-]+\.supabase\.co$/i.test(parsed.hostname)) return null;
+    if (!parsed.pathname.startsWith("/storage/v1/object/public/tcos-product-images/")) return null;
+    if (parsed.username || parsed.password) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+async function verifiedPersistedImagePair(instaComp: UnknownRecord): Promise<[string, string] | null> {
+  if (instaComp.imagePersistenceVerified !== true) return null;
+  if (!["kingmaker_exact_scan_intake_v2", "mac_registry_scanner"].includes(text(instaComp.source) || "")) {
+    return null;
+  }
+  const front = trustedPublicCardImageUrl(instaComp.frontImageUrl);
+  const back = trustedPublicCardImageUrl(instaComp.backImageUrl);
+  const frontSha = text(instaComp.frontSha256, 64)?.toLowerCase();
+  const backSha = text(instaComp.backSha256, 64)?.toLowerCase();
+  if (
+    !front || !back || front === back ||
+    !frontSha || !backSha || frontSha === backSha ||
+    !/^[0-9a-f]{64}$/.test(frontSha) || !/^[0-9a-f]{64}$/.test(backSha)
+  ) return null;
+  try {
+    const digests = await Promise.all([front, back].map(async (url) => {
+      const response = await fetch(url, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok || !String(response.headers.get("content-type") || "").toLowerCase().startsWith("image/")) {
+        return null;
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.byteLength < 128 || bytes.byteLength > 12 * 1024 * 1024) return null;
+      return createHash("sha256").update(bytes).digest("hex");
+    }));
+    return digests[0] === frontSha && digests[1] === backSha ? [front, back] : null;
+  } catch {
+    return null;
+  }
 }
 
 function hasDurablePhysicalScanReceipt(row: any) {
@@ -507,17 +560,24 @@ export async function POST(request: Request) {
         imageUrls = [signed.front, signed.back];
       } catch (error) {
         if (action !== "save") {
-          return Response.json(
-            {
-              success: false,
-              code: "MAC_LISTING_IMAGES_UNAVAILABLE",
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Mac-local listing images could not be authorized.",
-            },
-            { status: 503 },
-          );
+          const persistedPair = await verifiedPersistedImagePair(instaComp);
+          if (persistedPair) {
+            // No regenerated photographs or identity changes: the public originals
+            // exactly match the Mac's immutable front/back scanner receipts.
+            imageUrls = persistedPair;
+          } else {
+            return Response.json(
+              {
+                success: false,
+                code: "MAC_LISTING_IMAGES_UNAVAILABLE",
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Mac-local listing images could not be authorized.",
+              },
+              { status: 503 },
+            );
+          }
         }
       }
     }
