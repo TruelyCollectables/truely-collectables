@@ -199,6 +199,11 @@ def _master_listing_queue(metadata_value: Any) -> str:
     checklist_identity = _record(instacomp.get("checklistIdentity"))
     mac_receipt = _record(instacomp.get("macReceipt"))
     seller_review = _record(metadata.get("seller_review"))
+    # Seller-deferred photo recovery must survive queue reprojection.
+    if (instacomp.get("manualHoldBucket") == "missing_picture"
+            and instacomp.get("listingPublishBlocked") is True
+            and metadata.get("listingReviewRequired") is True):
+        return "missing_picture"
 
     front = _text(instacomp.get("frontImageUrl"))
     back = _text(instacomp.get("backImageUrl"))
@@ -1227,7 +1232,7 @@ class KingmakerCommercialInventory:
             "investment",
         )
         folder_counts = {folder: 0 for folder in folder_names}
-        queue_counts = {"listings": 0, "verification": 0}
+        queue_counts = {"listings": 0, "verification": 0, "missing_picture": 0}
         with self._read_connect() as db:
             total = int(
                 db.execute("SELECT COUNT(*) FROM master_listing_projection").fetchone()[0]

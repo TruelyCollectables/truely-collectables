@@ -657,7 +657,7 @@ export async function GET(request: Request) {
     const requestedFolder = requestUrl.searchParams.get("folder");
     const requestedFocus = String(requestUrl.searchParams.get("focus") || "").trim();
     const queue: InstaCompPendingQueue =
-      requestedQueue === "verification" ? "verification" : "listings";
+      requestedQueue === "missing_picture" ? "missing_picture" : requestedQueue === "verification" ? "verification" : "listings";
     const folder: InstaCompListingFolder =
       requestedFolder === "website" ||
       requestedFolder === "ebay" ||
@@ -670,10 +670,10 @@ export async function GET(request: Request) {
         ? requestedFolder
         : "pending";
     const macProjection = await loadMacMasterListingProjection({
-      folder: queue === "verification" ? "pending" : folder,
+      folder: queue !== "listings" ? "pending" : folder,
       pendingQueue:
-        queue === "verification"
-          ? "verification"
+        queue !== "listings"
+          ? queue
           : folder === "pending"
             ? "listings"
             : undefined,
@@ -875,12 +875,18 @@ export async function GET(request: Request) {
           instaCompPendingQueueFromMetadata(row.metadata) === "verification" &&
           rowIsUnlistedEverywhere(row),
       ).length,
+      missing_picture: scopedInstaCompRows.filter(
+        (row: any) =>
+          row.status === "draft" &&
+          instaCompPendingQueueFromMetadata(row.metadata) === "missing_picture",
+      ).length,
     };
     const queueCounts =
       useMacListingProjection && macProjection?.queueCounts
         ? {
             listings: Number(macProjection.queueCounts.listings || 0),
             verification: Number(macProjection.queueCounts.verification || 0),
+            missing_picture: Number(macProjection.queueCounts.missing_picture || 0),
           }
         : computedQueueCounts;
     const listingRows = scopedInstaCompRows.filter(
@@ -956,6 +962,9 @@ export async function GET(request: Request) {
       ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)
       : scopedInstaCompRows.filter((row: any) => {
           const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
+          if (queue === "missing_picture") {
+            return row.status === "draft" && rowQueue === "missing_picture";
+          }
           if (queue === "verification") {
             return (
               row.status === "draft" &&
@@ -1036,7 +1045,7 @@ export async function GET(request: Request) {
     }
 
     const includeDetailedMarketEvidence =
-      !compactKingmaker || queue === "verification" || folder === "pending";
+      !compactKingmaker || queue !== "listings" || folder === "pending";
 
     const items = rows.map((row: any) => {
       const metadata = recordValue(row.metadata);
