@@ -14,6 +14,7 @@ const navigation = [
   { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
   { href: "/kingmaker/verified-csv", label: "Verified CSV Intake", exact: false },
   { href: "/kingmaker/listings", label: "Master Listings", exact: false },
+  { href: "/kingmaker/missing-picture", label: "Missing Picture", exact: false },
   { href: "/kingmaker/resale-ready", label: "Resale Ready", exact: false },
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
   { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },

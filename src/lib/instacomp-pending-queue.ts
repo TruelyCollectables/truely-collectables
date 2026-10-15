@@ -1,5 +1,5 @@
 import { hasVerifiedCsvAuthority } from "./kingmaker-verified-csv";
-export type InstaCompPendingQueue = "listings" | "verification";
+export type InstaCompPendingQueue = "listings" | "verification" | "missing_picture";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -17,6 +17,9 @@ export function instaCompPendingQueueFromMetadata(
 ): InstaCompPendingQueue {
   const metadata = record(metadataValue);
   const instacomp = record(metadata.instacomp);
+  if (instacomp.manualHoldBucket === "missing_picture" &&
+      instacomp.listingPublishBlocked === true &&
+      metadata.listingReviewRequired === true) return "missing_picture";
   const imageOrientation = record(instacomp.imageOrientation);
   const checklistDecision = record(instacomp.checklistDecision);
   const checklistIdentity = record(instacomp.checklistIdentity);
