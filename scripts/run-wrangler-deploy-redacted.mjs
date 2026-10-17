@@ -134,6 +134,15 @@ async function ensureProductionRoutes(configPath) {
     `Cloudflare production routes verified for ${worker}: ${desired.map((route) => route.pattern).join(", ")}`,
   );
 
+  // The apex and www hosts are already served by the verified Worker routes.
+  // Attaching them again as Custom Domains can cause Cloudflare HTTP 409 and
+  // prevent critical post-deploy credential sync. Avoid redundant DNS changes.
+  // Opt in explicitly only if a separate Custom Domain migration is requested.
+  if (process.env.TCOS_RECONCILE_CUSTOM_DOMAINS !== "1") {
+    console.log("Verified production Worker routes are active; optional Custom Domain reconciliation skipped.");
+    return;
+  }
+
   const hostnames = Array.from(
     new Set(
       desired
