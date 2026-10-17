@@ -147,6 +147,11 @@ async function ensureProductionRoutes(configPath) {
 
   for (const hostname of hostnames) {
     const current = attachedDomains.find((domain) => domain?.hostname === hostname);
+    // Re-applying an already-correct custom domain can return HTTP 409.
+    // Keep the verified binding instead of treating an idempotent deploy as a failure.
+    if (current && String(current.service || "") === worker) {
+      continue;
+    }
     const dnsBase = `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`;
     const removedRecords = [];
     if (!current) {
