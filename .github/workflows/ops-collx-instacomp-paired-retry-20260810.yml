@@ -1,0 +1,90 @@
+name: Ops CollX InstaComp Paired Retry 20260810
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-instacomp-paired-retry-20260810.yml"
+      - "src/app/api/instacomp/ops/collx-paired-retry/route.ts"
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: instacomp-production-acceptance-global
+  cancel-in-progress: false
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  CANDIDATE_ARTIFACT: "9088498879"
+  OWNED_ARTIFACT: "9090085452"
+  FIRST_ARTIFACT: "9090847746"
+  TEMP_DIR: /tmp/collx-instacomp-paired-retry
+jobs:
+  retry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: "${{ github.event.pull_request.head.sha }}", fetch-depth: 1}
+      - uses: actions/setup-node@v4
+        with: {node-version: "22", cache: npm}
+      - name: Validate and prepare
+        shell: bash
+        run: |
+          set -euo pipefail; mkdir -p "$TEMP_DIR"/{candidates,owned,first,results}; npm ci >/dev/null; npx tsc --noEmit
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Download evidence and isolate failed unused pairs
+        shell: bash
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          for spec in "$CANDIDATE_ARTIFACT:candidates" "$OWNED_ARTIFACT:owned" "$FIRST_ARTIFACT:first"; do id="${spec%%:*}"; d="${spec##*:}"; gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$TEMP_DIR/$d.zip"; unzip -q "$TEMP_DIR/$d.zip" -d "$TEMP_DIR/$d"; done
+          ROOT="$TEMP_DIR" node - <<'NODE'
+          const fs=require('node:fs'),p=require('node:path'),r=process.env.ROOT;
+          const c=JSON.parse(fs.readFileSync(p.join(r,'candidates/candidate-owned-map.json'),'utf8')).candidates;
+          const o=JSON.parse(fs.readFileSync(p.join(r,'owned/owned-image-map.json'),'utf8')).rows;
+          const first=JSON.parse(fs.readFileSync(p.join(r,'first/results/instacomp-identifications.json'),'utf8')).results;
+          const used=new Set(o.map(x=>String(x.image_url||''))), cm=new Map(c.map(x=>[String(x.collx_id),x]));
+          const rows=first.filter(x=>x.ok!==true).map(x=>cm.get(String(x.collx_id))).filter(x=>x&&x.front_owned&&x.back_owned&&!used.has(x.front_owned));
+          if(rows.length!==38) throw new Error(`expected 38 retry rows, got ${rows.length}`);
+          fs.writeFileSync(p.join(r,'retry.json'),JSON.stringify(rows,null,2)); console.log({retry:rows.length});
+          NODE
+      - name: Provision isolated credential
+        shell: bash
+        run: |
+          set -euo pipefail; list="$TEMP_DIR/env.txt"; npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"; if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true; fi
+          openssl rand -hex 32 > "$TEMP_DIR/token"; chmod 600 "$TEMP_DIR/token"; s="$(cat "$TEMP_DIR/token")"; echo "::add-mask::$s"; npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/token" >/dev/null; touch "$TEMP_DIR/token-provisioned"
+      - name: Deploy retry bridge
+        shell: bash
+        run: |
+          set -euo pipefail; npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/deploy.log" 2>&1; touch "$TEMP_DIR/deployed"
+      - name: Retry 38 paired scans
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from'node:fs';import path from'node:path';import{setTimeout as sleep}from'node:timers/promises';const root=process.env.TEMP_DIR,token=fs.readFileSync(path.join(root,'token'),'utf8').trim(),rows=JSON.parse(fs.readFileSync(path.join(root,'retry.json'),'utf8')),url=`${process.env.PRODUCTION_ORIGIN}/api/instacomp/ops/collx-paired-retry`;
+          async function call(c){let last='';for(let a=1;a<=4;a++){try{const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json','x-tcos-instacomp-service-token':token},body:JSON.stringify({collx_id:String(c.collx_id),front_url:c.front_owned,back_url:c.back_owned}),signal:AbortSignal.timeout(285000)}),t=await r.text();let b={};try{b=t?JSON.parse(t):{}}catch{b={raw:t.slice(0,500)}}if(r.ok&&b.ok===true)return{ok:true,body:b};last=`HTTP ${r.status}: ${String(b.error||b.code||t).slice(0,400)}`}catch(e){last=String(e?.message||e)}if(a<4)await sleep(a*1500)}return{ok:false,error:last}}
+          const out=new Array(rows.length);let n=0,ok=0,fail=0;async function w(){while(true){const i=n++;if(i>=rows.length)return;const c=rows[i],r=await call(c);out[i]={collx_id:String(c.collx_id),front_owned:c.front_owned,back_owned:c.back_owned,...r};r.ok?ok++:fail++;console.log(`done=${ok+fail}/${rows.length} ok=${ok} fail=${fail}`)}}await Promise.all([w(),w(),w()]);const summary={requested:rows.length,ok,failed:fail,generated_at:new Date().toISOString(),inventoryMutation:false};fs.writeFileSync(path.join(root,'results/retry-identifications.json'),JSON.stringify({summary,results:out},null,2));fs.writeFileSync(path.join(root,'results/receipt.json'),JSON.stringify(summary,null,2));if(ok===0)throw new Error('zero successful retries');
+          NODE
+      - name: Cleanup credential
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail; if [ -f "$TEMP_DIR/token-provisioned" ]; then npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true; touch "$TEMP_DIR/token-removed"; fi
+      - name: Restore main
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail; if [ -f "$TEMP_DIR/deployed" ]; then test -f "$TEMP_DIR/token-removed"; git fetch --no-tags --depth=1 origin main; git checkout --detach origin/main; npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/clean.log" 2>&1; code="$(curl -sS --max-time 30 -o "$TEMP_DIR/route-after-cleanup.txt" -w '%{http_code}' -X POST "$PRODUCTION_ORIGIN/api/instacomp/ops/collx-paired-retry")"; test "$code" = "404"; fi
+      - name: Upload retry results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collx-instacomp-paired-retry
+          path: |
+            ${{ env.TEMP_DIR }}/results/retry-identifications.json
+            ${{ env.TEMP_DIR }}/results/receipt.json
+            ${{ env.TEMP_DIR }}/route-after-cleanup.txt
+          retention-days: 7
+          if-no-files-found: warn
