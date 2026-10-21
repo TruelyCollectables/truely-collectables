@@ -1,0 +1,343 @@
+name: Checklist Recovery Wave 2 Transport Missing 20260814
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-recovery-wave2-transport-missing-20260814.yml'
+      - 'evidence/checklist-recovery-wave2-transport-missing-20260814.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checklist-recovery-wave2-transport-missing-20260814
+  cancel-in-progress: true
+
+env:
+  MASTER_CHECKLIST_CORPUS_ROOT: .master-checklist-corpus
+  MASTER_CHECKLIST_EXTRACTED_ROOT: .master-checklist-extracted
+  MASTER_CHECKLIST_APPLY: 'true'
+  MASTER_CHECKLIST_BATCH_COUNT: '16'
+  MASTER_CHECKLIST_WORKERS: '6'
+  MASTER_CHECKLIST_SKIP_CATALOG_WRITES: 'true'
+  MASTER_CHECKLIST_CATALOG_RETRY_ATTEMPTS: '10'
+  MASTER_CHECKLIST_CATALOG_RETRY_BASE_MS: '750'
+  MASTER_CHECKLIST_FETCH_TIMEOUT_MS: '60000'
+  TARGET_MANIFEST: evidence/checklist-recovery-wave2-transport-missing-20260814.json
+
+jobs:
+  apply:
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        batch: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 180
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      MASTER_CHECKLIST_BATCH_INDEX: ${{ matrix.batch }}
+      MASTER_CHECKLIST_OUTPUT: evidence/checklist-recovery-wave2-transport/batch-${{ matrix.batch }}-receipt.json
+
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Prove recovery-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          base="$(git merge-base HEAD origin/main)"
+          bad="$(git diff --name-only "$base"...HEAD | grep -Ev '^(\.github/workflows/checklist-full-corpus-recovery-4944-20260811\.yml|\.github/workflows/checklist-recovery-wave2-transport-missing-20260814\.yml|evidence/checklist-recovery-wave2-transport-missing-20260814\.json|scripts/checklist-catalog-retry-prepatch\.mjs|scripts/ingest-master-checklist-archive\.mjs|scripts/mainstream-checklist/global-fetch-timeout-prepatch\.mjs)$' || true)"
+          test -z "$bad" || { echo "$bad"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - name: Install parser dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+
+      - name: Test unchanged fail-closed recovery guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs
+          node --check scripts/checklist-catalog-retry-prepatch.mjs
+          node --check scripts/ingest-master-checklist-archive.mjs
+          grep -q 'safeCatalogUpsert' scripts/ingest-master-checklist-archive.mjs
+          grep -q 'persistPlanSerial' scripts/ingest-master-checklist-archive.mjs
+          grep -q 'registryWriter=serialized' scripts/ingest-master-checklist-archive.mjs
+          grep -q 'MASTER_CHECKLIST_SKIP_CATALOG_WRITES' scripts/ingest-master-checklist-archive.mjs
+          jq -e '.schema=="tcos.checklist.recoveryWave2TransportMissing.v1" and .selectedCount==505 and (.exactSetKeys|length)==505' "$TARGET_MANIFEST" >/dev/null
+
+      - name: Download immutable sanitized full corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: master-checklist-sanitized-safe-v4-final-31200568510
+          path: .master-checklist-sanitized-bundle
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '31200568510'
+
+      - name: Verify corpus and isolate this batch's still-missing transport targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .master-checklist-sanitized-bundle
+          sha256sum -c master-checklist-sanitized-safe-v4-final.sha256
+          tar -xzf master-checklist-sanitized-safe-v4-final.tar.gz -C ..
+          cd ..
+          jq -e '.ok == true and .canonicalImportSets == 5098 and .runnableCandidates == 5782 and .uniqueRunnableSourceUrls == 5782 and .crossCanonicalDirectShaCollisions == 0 and .duplicateEvidenceReferencesRemaining == 0' .checklist-discovery/sanitized-master-corpus-proof-v4.json >/dev/null
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          idx=int(os.environ['MASTER_CHECKLIST_BATCH_INDEX'])
+          manifest=json.loads(Path(os.environ['TARGET_MANIFEST']).read_text())
+          wanted=set(manifest['exactSetKeys'])
+          p=Path(os.environ['MASTER_CHECKLIST_CORPUS_ROOT'])/f'batch-{idx}.json'
+          batch=json.loads(p.read_text())
+          original=batch.get('sets',[])
+          selected=[r for r in original if r.get('exactSetKey') in wanted]
+          expected=int(manifest['byBatch'][str(idx)])
+          assert len(selected)==expected, (idx,len(selected),expected)
+          assert all(r.get('disposition')=='import' for r in selected)
+          batch['sets']=selected
+          batch['wave2OriginalSelected']=len(original)
+          batch['wave2Selected']=len(selected)
+          p.write_text(json.dumps(batch,indent=2)+'\n')
+          print(json.dumps({'batch':idx,'original':len(original),'wave2Selected':len(selected),'expected':expected}))
+          PY
+
+      - name: Resolve Production Supabase directly through Management API
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-wave2-${{ matrix.batch }}"
+          mkdir -p "$root"
+          projects="$root/projects.json"
+          for n in 1 2 3 4 5; do
+            if curl --silent --show-error --fail --max-time 45 \
+              --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              --output "$projects" \
+              "https://api.supabase.com/v1/projects"; then break; fi
+            test "$n" -lt 5 || exit 1
+            sleep $((n * 3))
+          done
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$projects")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          proof="$root/registry-proof.json"
+          body="$root/registry-proof-body.json"
+          jq -nc --arg query "select exists(select 1 from information_schema.tables where table_schema='public' and table_name='checklist_source_catalog') as has_catalog, exists(select 1 from storage.buckets where id='tcos-checklist-source-files') as has_source_bucket;" '{query:$query,parameters:[],read_only:true}' > "$body"
+          for n in 1 2 3 4 5; do
+            code="$(curl --silent --show-error --max-time 60 \
+              --output "$proof" --write-out '%{http_code}' --request POST \
+              --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$body" \
+              "https://api.supabase.com/v1/projects/$project_ref/database/query" || true)"
+            if { [ "$code" = "200" ] || [ "$code" = "201" ]; } && jq -e 'type=="array" and length==1 and .[0].has_catalog==true and .[0].has_source_bucket==true' "$proof" >/dev/null 2>&1; then break; fi
+            test "$n" -lt 5 || { cat "$proof" >&2 || true; exit 1; }
+            sleep $((n * 3))
+          done
+          keys="$root/api-keys.json"
+          for n in 1 2 3 4 5; do
+            if curl --silent --show-error --fail --max-time 45 \
+              --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+              --output "$keys" \
+              "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"; then break; fi
+            test "$n" -lt 5 || exit 1
+            sleep $((n * 3))
+          done
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          printf 'NEXT_PUBLIC_SUPABASE_URL=https://%s.supabase.co\n' "$project_ref" > "$root/production.env"
+          chmod 600 "$root/production.env"
+          echo "PRODUCTION_ENV_PATH=$root/production.env" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Retry only this batch's transport-blocked missing releases in turbo mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          mkdir -p "$(dirname "$MASTER_CHECKLIST_OUTPUT")"
+          node \
+            --import ./scripts/mainstream-checklist/global-fetch-timeout-prepatch.mjs \
+            --import ./scripts/checklist-catalog-retry-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/html-semantic-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/tcdb-complete-fetch.mjs \
+            --import ./scripts/mainstream-checklist/reader-retry-prepatch.mjs \
+            --import ./scripts/mainstream-checklist/remaining-source-fallbacks.mjs \
+            --import ./scripts/mainstream-checklist/prefer-complete-reader.mjs \
+            --import ./scripts/mainstream-checklist/fetch-patch.mjs \
+            --import tsx scripts/ingest-master-checklist-archive.mjs
+
+      - name: Require complete wave receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$MASTER_CHECKLIST_OUTPUT"
+          expected="$(jq -r --arg b "$MASTER_CHECKLIST_BATCH_INDEX" '.byBatch[$b]' "$TARGET_MANIFEST")"
+          actual="$(jq -r '.batch.selected' "$MASTER_CHECKLIST_OUTPUT")"
+          test "$actual" = "$expected"
+          jq '{batch,statuses,normalizedTotals,workers,registryWriter,catalogWrites,catalog}' "$MASTER_CHECKLIST_OUTPUT"
+
+      - name: Upload wave receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-recovery-wave2-transport-batch-${{ matrix.batch }}
+          path: evidence/checklist-recovery-wave2-transport/batch-${{ matrix.batch }}-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/checklist-wave2-${{ matrix.batch }}" .env.local .env.production.local .vercel
+
+  readback:
+    needs: apply
+    if: always()
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 30
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Production Supabase directly
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-wave2-readback"
+          mkdir -p "$root"
+          projects="$root/projects.json"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$projects" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$projects")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          keys="$root/api-keys.json"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 45 \
+            --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            --output "$keys" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$keys")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Read back all 505 wave targets against active live Production
+        shell: bash
+        env:
+          NEEDS_APPLY_RESULT: ${{ needs.apply.result }}
+        run: |
+          set -euo pipefail
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          mkdir -p evidence/checklist-recovery-wave2-transport
+          python - <<'PY'
+          import json, os, re, time, urllib.parse, urllib.request
+          from pathlib import Path
+          root=os.environ['NEXT_PUBLIC_SUPABASE_URL'].rstrip('/')
+          key=os.environ['SUPABASE_SERVICE_ROLE_KEY']
+          headers={'apikey':key,'Authorization':'Bearer '+key,'Accept':'application/json'}
+          def get(path,attempts=8):
+              last=None
+              for i in range(attempts):
+                  try:
+                      req=urllib.request.Request(root+'/rest/v1/'+path,headers=headers)
+                      with urllib.request.urlopen(req,timeout=30) as r:
+                          return json.loads(r.read().decode())
+                  except Exception as e:
+                      last=e
+                      if i+1<attempts: time.sleep(min(2**i,15))
+              raise last
+          def pages(table,select,filters=''):
+              out=[]; offset=0; limit=1000
+              while True:
+                  q=f'{table}?select={urllib.parse.quote(select,safe=",.*()")}&limit={limit}&offset={offset}'
+                  if filters:q+='&'+filters
+                  b=get(q); out.extend(b)
+                  if len(b)<limit:break
+                  offset+=limit
+              return out
+          def slug(v):
+              s=str(v or '').strip().lower().replace('&',' and ')
+              s=re.sub(r"[’']",'',s)
+              return re.sub(r'[^a-z0-9]+','-',s).strip('-')
+          manifest=json.loads(Path(os.environ['TARGET_MANIFEST']).read_text())
+          targets=set(k.lower() for k in manifest['exactSetKeys'])
+          manufacturers=pages('checklist_manufacturers','id,name,slug')
+          sports=pages('checklist_sports','id,name,slug')
+          releases=pages('checklist_releases','id,manufacturer_id,sport_id,product_name,release_year,season,metadata')
+          versions=pages('checklist_versions','release_id,status,is_active,normalized_card_count','is_active=eq.true&status=eq.live')
+          man={r['id']:slug(r.get('slug') or r.get('name')) for r in manufacturers}
+          sport={r['id']:slug(r.get('slug') or r.get('name')) for r in sports}
+          live={v['release_id'] for v in versions if v.get('is_active') and v.get('status')=='live' and int(v.get('normalized_card_count') or 0)>0}
+          def strings(x):
+              if isinstance(x,str): yield x
+              elif isinstance(x,dict):
+                  for v in x.values(): yield from strings(v)
+              elif isinstance(x,list):
+                  for v in x: yield from strings(v)
+          matched=set()
+          for r in releases:
+              if r['id'] not in live: continue
+              for s in strings(r.get('metadata') or {}):
+                  k=s.strip().lower()
+                  if k in targets: matched.add(k)
+              derived='|'.join([
+                  sport.get(r.get('sport_id'),''),
+                  str(r.get('season') or r.get('release_year') or '').strip().lower(),
+                  man.get(r.get('manufacturer_id'),''),
+                  slug(r.get('product_name'))
+              ])
+              if derived in targets: matched.add(derived)
+          missing=targets-matched
+          receipt={
+              'schema':'tcos.checklist.recoveryWave2TransportReadback.v1',
+              'generatedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
+              'selected':len(targets),
+              'activeLiveAfterWave':len(matched),
+              'stillMissingAfterWave':len(missing),
+              'coveragePercent':round(len(matched)*100/len(targets),4),
+              'matchedExactSetKeys':sorted(matched),
+              'missingExactSetKeys':sorted(missing),
+              'applyMatrixResult':os.environ.get('NEEDS_APPLY_RESULT','unknown')
+          }
+          out=Path('evidence/checklist-recovery-wave2-transport/readback.json')
+          out.write_text(json.dumps(receipt,indent=2)+'\n')
+          print(json.dumps({k:v for k,v in receipt.items() if not k.endswith('ExactSetKeys')},indent=2))
+          PY
+
+      - name: Upload final wave readback
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-recovery-wave2-transport-readback-${{ github.run_id }}
+          path: evidence/checklist-recovery-wave2-transport/readback.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/checklist-wave2-readback" .env.local .env.production.local .vercel

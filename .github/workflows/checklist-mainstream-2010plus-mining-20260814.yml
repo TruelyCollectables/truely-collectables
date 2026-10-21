@@ -1,0 +1,233 @@
+name: Checklist Mainstream 2010 Plus Mining 20260814
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-mainstream-2010plus-mining-20260814.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: checklist-mainstream-2010plus-mining-20260814
+  cancel-in-progress: true
+
+jobs:
+  mine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    env:
+      SHARD_COUNT: '32'
+      SHARD_INDEX: ${{ matrix.shard }}
+      READBACK_RUN_ID: '31823530515'
+      READBACK_ARTIFACT: checklist-recovery-corpus-production-readback-31823530515
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install existing Sentinel search dependency
+        run: python -m pip install --disable-pip-version-check 'httpx>=0.27,<1'
+
+      - name: Download authoritative Production missing-set readback
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/readback"
+          gh run download "$READBACK_RUN_ID" -n "$READBACK_ARTIFACT" -D "$RUNNER_TEMP/readback"
+          test -s "$RUNNER_TEMP/readback/production-readback.json"
+
+      - name: Mine this shard with the existing Sentinel source engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          export READBACK_FILE="$RUNNER_TEMP/readback/production-readback.json"
+          export OUT_DIR="$RUNNER_TEMP/mainstream-2010plus-mining/shard-$SHARD_INDEX"
+          mkdir -p "$OUT_DIR/files"
+          python - <<'PY'
+          import asyncio
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          import time
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          sys.path.insert(0, str(Path('services/instacomp-ai').resolve()))
+          from app.sentinel_sources import DEFAULT_SOURCES, SentinelSourceClient
+
+          shard_index = int(os.environ['SHARD_INDEX'])
+          shard_count = int(os.environ['SHARD_COUNT'])
+          readback = json.loads(Path(os.environ['READBACK_FILE']).read_text('utf-8'))
+          out_dir = Path(os.environ['OUT_DIR'])
+
+          keys = []
+          for value in readback.get('missingExactSetKeys') or []:
+              parts = str(value).split('|')
+              if len(parts) != 4:
+                  continue
+              match = re.match(r'^(\d{4})', parts[1])
+              if not match or int(match.group(1)) < 2010:
+                  continue
+              keys.append(str(value))
+
+          def start_year(key):
+              return int(re.match(r'^(\d{4})', key.split('|')[1]).group(1))
+
+          keys.sort(key=lambda value: (-start_year(value), value))
+          if len(keys) != 4705:
+              raise SystemExit(f'Expected 4705 authoritative 2010+ missing exact-set keys, got {len(keys)}')
+          selected = [key for index, key in enumerate(keys) if index % shard_count == shard_index]
+
+          source_by_id = {str(source['source_id']): source for source in DEFAULT_SOURCES}
+          reference_ids = [
+              'beckett',
+              'cardboardconnection',
+              'breakninja',
+              'gogts',
+              'cardboardchecklist',
+              'internet_archive',
+          ]
+
+          def target_for(key):
+              sport, season, manufacturer_slug, product_slug = key.split('|')
+              year = int(re.match(r'^(\d{4})', season).group(1))
+              return {
+                  'target_key': key,
+                  'exactSetKey': key,
+                  'sport': sport,
+                  'year': year,
+                  'season': season,
+                  'manufacturer': manufacturer_slug.replace('-', ' '),
+                  'product': product_slug.replace('-', ' '),
+                  'scope': 'mainstream-2010plus-mining',
+                  'priority': 1,
+              }
+
+          def source_ids_for(target):
+              manufacturer = str(target['manufacturer']).lower()
+              ids = ['psa']
+              if any(token in manufacturer for token in ['topps', 'bowman']):
+                  ids.append('topps')
+              elif any(token in manufacturer for token in ['upper deck', 'o pee chee', 'parkhurst', 'fleer']):
+                  ids.append('upperdeck')
+              elif any(token in manufacturer for token in ['panini', 'donruss', 'playoff', 'score']):
+                  ids.append('panini')
+              elif 'leaf' in manufacturer:
+                  ids.append('leaf')
+              if target['sport'] == 'baseball':
+                  ids.append('baseballcardpedia')
+              ids.extend(reference_ids)
+              # One broad search lane is last. Existing exact-match gates still apply.
+              ids.append('google')
+              seen = set()
+              return [source_by_id[x] for x in ids if x in source_by_id and not (x in seen or seen.add(x))]
+
+          def serial_candidate(candidate):
+              return {
+                  'url': candidate.url,
+                  'title': candidate.title,
+                  'sourceId': candidate.source_id,
+                  'domain': candidate.domain,
+                  'trustScore': candidate.trust_score,
+                  'importPolicy': candidate.import_policy,
+                  'exactMatch': candidate.exact_match,
+                  'reason': candidate.reason,
+              }
+
+          def document_like(url):
+              path = urlparse(url).path.lower()
+              return any(path.endswith(ext) for ext in ('.pdf', '.xlsx', '.xls', '.csv', '.zip'))
+
+          async def main():
+              client = SentinelSourceClient(timeout_seconds=35.0, max_download_bytes=50_000_000)
+              results = []
+              exact_count = 0
+              downloaded_count = 0
+              started = time.time()
+              for position, key in enumerate(selected, 1):
+                  target = target_for(key)
+                  exact = []
+                  errors = []
+                  searched = []
+                  saved_file = None
+                  for source in source_ids_for(target):
+                      searched.append(source['source_id'])
+                      try:
+                          candidates = await client.search(source, target)
+                      except Exception as exc:
+                          errors.append({'sourceId': source['source_id'], 'error': str(exc)[:500]})
+                          await asyncio.sleep(0.35)
+                          continue
+                      exact_here = [candidate for candidate in candidates if candidate.exact_match]
+                      exact.extend(serial_candidate(candidate) for candidate in exact_here[:5])
+                      auto = next((candidate for candidate in exact_here if candidate.import_policy == 'auto_import' and candidate.trust_score >= 75), None)
+                      if auto:
+                          exact_count += 1
+                          if document_like(auto.url):
+                              try:
+                                  downloaded = await client.download(auto.url)
+                                  digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+                                  file_path = out_dir / 'files' / f'{digest}{downloaded.extension}'
+                                  file_path.write_bytes(downloaded.content)
+                                  saved_file = {
+                                      'path': str(file_path.relative_to(out_dir)),
+                                      'url': downloaded.url,
+                                      'sha256': downloaded.sha256,
+                                      'contentType': downloaded.content_type,
+                                      'bytes': len(downloaded.content),
+                                  }
+                                  downloaded_count += 1
+                              except Exception as exc:
+                                  errors.append({'sourceId': source['source_id'], 'downloadError': str(exc)[:500]})
+                          break
+                      await asyncio.sleep(0.35)
+                  results.append({
+                      'exactSetKey': key,
+                      'target': target,
+                      'searchedSources': searched,
+                      'exactCandidates': exact[:20],
+                      'savedFile': saved_file,
+                      'errors': errors[:20],
+                  })
+                  if position % 10 == 0 or position == len(selected):
+                      print(f'[mining] shard={shard_index} completed={position}/{len(selected)} exact={exact_count} documents={downloaded_count}', flush=True)
+
+              receipt = {
+                  'schema': 'tcos.checklist.mainstream2010plusMiningShard.v1',
+                  'productionReadbackRunId': 31823530515,
+                  'authoritative2010PlusMissing': len(keys),
+                  'shard': {'index': shard_index, 'count': shard_count, 'selected': len(selected)},
+                  'sourceEngine': 'services/instacomp-ai/app/sentinel_sources.py',
+                  'sourcePolicy': 'PSA first-party -> matching official manufacturer -> trusted references -> one generic Google lane; exact identity gate unchanged',
+                  'exactCandidateTargets': exact_count,
+                  'downloadedDirectDocuments': downloaded_count,
+                  'elapsedSeconds': round(time.time() - started, 2),
+                  'results': results,
+              }
+              (out_dir / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', 'utf-8')
+              print(json.dumps({k: v for k, v in receipt.items() if k != 'results'}, indent=2))
+
+          asyncio.run(main())
+          PY
+
+      - name: Upload mined source evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainstream-2010plus-mining-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/mainstream-2010plus-mining/shard-${{ matrix.shard }}
+          if-no-files-found: error
+          retention-days: 90

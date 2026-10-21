@@ -1,0 +1,66 @@
+name: Checklist Mainstream 2010 Plus Deep Mining 20260814
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checklist-mainstream-2010plus-deep-mining-20260814.yml'
+      - 'scripts/mine-mainstream-2010plus-deep-existing-sentinel.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: checklist-mainstream-2010plus-deep-mining-20260814
+  cancel-in-progress: true
+
+jobs:
+  deep-mine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+    env:
+      SHARD_COUNT: '64'
+      SHARD_INDEX: ${{ matrix.shard }}
+      PREVIOUS_RUN_ID: '31832269843'
+      PREVIOUS_PATTERN: 'mainstream-2010plus-mining-v2-shard-*'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Sentinel search dependency only
+        run: python -m pip install --disable-pip-version-check 'httpx>=0.27,<1'
+
+      - name: Download all V2 mining receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/v2"
+          gh run download "$PREVIOUS_RUN_ID" -p "$PREVIOUS_PATTERN" -D "$RUNNER_TEMP/v2"
+          count="$(find "$RUNNER_TEMP/v2" -name receipt.json -type f | wc -l | tr -d ' ')"
+          test "$count" = '32'
+
+      - name: Deep-mine unresolved shard
+        run: |
+          set -euo pipefail
+          export PREVIOUS_DIR="$RUNNER_TEMP/v2"
+          export OUT_DIR="$RUNNER_TEMP/mainstream-2010plus-deep/shard-$SHARD_INDEX"
+          python scripts/mine-mainstream-2010plus-deep-existing-sentinel.py
+
+      - name: Upload deep-mining evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainstream-2010plus-deep-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/mainstream-2010plus-deep/shard-${{ matrix.shard }}
+          if-no-files-found: error
+          retention-days: 90
