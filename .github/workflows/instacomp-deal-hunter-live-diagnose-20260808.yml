@@ -1,0 +1,91 @@
+name: InstaComp Deal Hunter Live Diagnose 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-live-diagnose-20260808.marker'
+      - '.github/workflows/instacomp-deal-hunter-live-diagnose-20260808.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy exact current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch origin main
+          git checkout --detach origin/main
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Capture live Deal Hunter status before run
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" > pre-status.json
+          cat pre-status.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('pre-status.json','utf8'));
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(!p.physicalMacHealthy) throw new Error('Physical Mac is unhealthy: '+JSON.stringify(p));
+          if(!p.scheduler?.enabled) throw new Error('Deal Hunter scheduler is disabled: '+JSON.stringify(p.scheduler));
+          if(!p.scheduler?.evaluationKeyConfigured) throw new Error('Deal Hunter evaluation key is not configured: '+JSON.stringify(p.scheduler));
+          fs.appendFileSync(process.env.GITHUB_ENV,`PRE_COMPLETED=${p.scheduler.lastCompletedAt||''}\n`);
+          console.log('PRE_STATUS_OK');
+          NODE
+
+      - name: Force a real Deal Hunter run now
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --max-time 285 -o trigger.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=1" || true)"
+          echo "trigger_http=$code"
+          test -s trigger.json && cat trigger.json || true
+
+      - name: Poll for durable Deal Hunter completion
+        shell: bash
+        run: |
+          set -euo pipefail
+          completed=''
+          for i in $(seq 1 45); do
+            code="$(curl -sS --max-time 45 -o status.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              cat status.json
+              completed="$(node -e "const p=require('./status.json'); process.stdout.write(String(p.scheduler?.lastCompletedAt||''))")"
+              running="$(node -e "const p=require('./status.json'); process.stdout.write(String(Boolean(p.scheduler?.running)))")"
+              if [ -n "$completed" ] && [ "$completed" != "$PRE_COMPLETED" ] && [ "$running" = false ]; then break; fi
+            fi
+            sleep 15
+          done
+          node - <<'NODE'
+          const p=require('./status.json');
+          const runs=Array.isArray(p.runs)?p.runs:[];
+          const latest=runs[0]||null;
+          console.log('DEAL_HUNTER_FINAL_RECEIPT='+JSON.stringify({scheduler:p.scheduler,latestRun:latest,runs:runs.slice(0,5)}));
+          if(!latest) throw new Error('No Deal Hunter run receipt returned.');
+          if(latest.status!=='completed') throw new Error('Latest Deal Hunter run did not complete: '+JSON.stringify(latest));
+          if(Number(latest.discoveryCount||0)<=0) throw new Error('Deal Hunter discovered zero listings: '+JSON.stringify(latest));
+          if(Number(latest.evaluatedCount||0)<=0) throw new Error('Deal Hunter evaluated zero listings: '+JSON.stringify(latest));
+          NODE

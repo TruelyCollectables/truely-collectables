@@ -1,0 +1,63 @@
+name: Deal Hunter Legacy Sold Comp Census 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/deal-hunter-legacy-sold-census-20260808.marker'
+      - '.github/workflows/deal-hunter-legacy-sold-census-20260808.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pull Production env without printing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull .env.census --environment=production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Count verified legacy exact-card sold comps
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createClient } from '@supabase/supabase-js';
+          const env={};
+          for(const raw of fs.readFileSync('.env.census','utf8').split(/\r?\n/)){
+            const line=raw.trim(); if(!line||line.startsWith('#')||!line.includes('=')) continue;
+            const i=line.indexOf('='); let v=line.slice(i+1).trim();
+            if((v.startsWith('"')&&v.endsWith('"'))||(v.startsWith("'")&&v.endsWith("'"))) v=v.slice(1,-1);
+            env[line.slice(0,i).trim()]=v.replace(/\\n/g,'\n');
+          }
+          const url=env.NEXT_PUBLIC_SUPABASE_URL;
+          const key=env.SUPABASE_SERVICE_ROLE_KEY;
+          if(!url||!key) throw new Error('Production Supabase service role missing');
+          const sb=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
+          const cutoff=new Date(Date.now()-90*86400000).toISOString();
+          const [all, recent, identities]=await Promise.all([
+            sb.from('tcos_mi_sold_comps').select('id',{count:'exact',head:true}).eq('verified',true).eq('excluded',false).eq('outlier_flag',false),
+            sb.from('tcos_mi_sold_comps').select('id,collectible_identity_id,sold_at,unit_delivered_price,match_confidence').eq('verified',true).eq('excluded',false).eq('outlier_flag',false).gte('sold_at',cutoff).gte('match_confidence',95).order('sold_at',{ascending:false}).limit(1000),
+            sb.from('tcos_mi_collectible_identities').select('id',{count:'exact',head:true}).eq('active',true),
+          ]);
+          for(const x of [all,recent,identities]) if(x.error) throw new Error(x.error.message);
+          const rows=recent.data||[];
+          const ids=new Set(rows.map(r=>r.collectible_identity_id));
+          console.log('LEGACY_EXACT_SOLD_CENSUS='+JSON.stringify({verifiedIncludedAllTime:Number(all.count||0),verifiedHighConfidenceLast90Days:rows.length,identitiesWithRecentSold:ids.size,activeLegacyIdentities:Number(identities.count||0),newestSold:rows[0]?.sold_at||null,oldestReturnedSold:rows[rows.length-1]?.sold_at||null}));
+          NODE
+          rm -f .env.census
