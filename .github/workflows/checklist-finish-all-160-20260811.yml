@@ -1,0 +1,169 @@
+name: Checklist Finish All 160 20260811
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/checklist-finish-all-160-20260811.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checklist-finish-all-160-20260811
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        batch: [1, 4, 5, 6, 7, 8, 9, 10]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PINNED_MAIN: c8e9637f25251fbc243d85672f290fffe7670768
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      CHECKLIST_RECOVERY_BATCH_INDEX: ${{ matrix.batch }}
+      CHECKLIST_RECOVERY_BATCH_SIZE: "15"
+      CHECKLIST_RECOVERY_WORKERS: "1"
+      CHECKLIST_RECOVERY_APPLY: "true"
+      CHECKLIST_RECOVERY_OUTPUT_ROOT: evidence/checklist-finish-all-160-20260811
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove pinned source and operations-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PINNED_MAIN" HEAD)" = "$PINNED_MAIN"
+          bad="$(git diff --name-only "$PINNED_MAIN"...HEAD | grep -Ev '^\.github/workflows/checklist-finish-all-160-20260811\.yml$' || true)"
+          test -z "$bad" || { echo "$bad"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install extraction dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python3 -m pip install --user --quiet openpyxl xlrd
+
+      - name: Prove parser and complete inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'minimumCardRows: 25' scripts/run-verified-checklist-recovery-production.mjs >/dev/null
+          grep -F 'reference_card_number_subject_conflict' scripts/mainstream-checklist/source-tools.mjs >/dev/null
+          node --import tsx --input-type=module <<'NODE'
+          import { runParserSelfTest } from './scripts/mainstream-checklist/source-tools.mjs';
+          const r=runParserSelfTest();
+          if (!r.multiSubjectCardsSupported) throw new Error('multi-subject parser not active');
+          NODE
+          python3 - <<'PY'
+          import ast, pathlib
+          total=0
+          for f in ['services/instacomp-ai/app/verified_checklist_sources.py','services/instacomp-ai/app/verified_checklist_sources_modern_extra.py']:
+              tree=ast.parse(pathlib.Path(f).read_text())
+              total += sum(1 for n in ast.walk(tree) if isinstance(n,ast.Call) and getattr(n.func,'id',None)=='VerifiedChecklistSource')
+          assert total == 160, total
+          print('verified inventory entries=160')
+          PY
+
+      - name: Keep direct files out of browser fallback
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          p=Path('scripts/run-verified-checklist-recovery-production.mjs')
+          t=p.read_text('utf-8')
+          old='''  const browserCaptureHost = host.endsWith("beckett.com") || host.endsWith("checklistinsider.com");\n  if (!browserCaptureHost) return false;'''
+          new='''  const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)(?:$|[?#])/i.test(String(source.url || ""));\n  const browserCaptureHost = !directFile && (host.endsWith("beckett.com") || host.endsWith("checklistinsider.com"));\n  if (!browserCaptureHost) return false;'''
+          if old in t:
+              t=t.replace(old,new,1)
+              p.write_text(t,'utf-8')
+          elif 'const directFile = /\\.(?:pdf|csv|tsv|txt|xls|xlsx)' not in t:
+              raise SystemExit('browser fallback guard anchor changed')
+
+      - name: Resolve protected Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/checklist-finish-${{ matrix.batch }}"
+          mkdir -p .vercel "$root"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          fi
+          npx vercel@56.2.0 env pull "$root/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          chmod 600 "$root/production.env"
+          echo "PRODUCTION_ENV_PATH=$root/production.env" >> "$GITHUB_ENV"
+          echo "KEYS_FILE=$root/api-keys.json" >> "$GITHUB_ENV"
+
+      - name: Resolve protected Supabase service role
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          project_ref="$(node -e 'const u=new URL(process.argv[1]);process.stdout.write(u.hostname.split(".")[0])' "$NEXT_PUBLIC_SUPABASE_URL")"
+          for n in 1 2 3 4 5; do
+            if curl --silent --show-error --fail --header "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" --output "$KEYS_FILE" "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"; then break; fi
+            test "$n" -lt 5 || exit 1
+            sleep $((n*5))
+          done
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$KEYS_FILE")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "RESOLVED_SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+
+      - name: Apply batch to Production with transient retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source "$PRODUCTION_ENV_PATH"; set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          ok=0
+          for n in 1 2 3 4 5; do
+            echo "Production apply attempt $n/5"
+            if node --import tsx scripts/run-verified-checklist-recovery-production.mjs; then ok=1; break; fi
+            rm -rf "evidence/checklist-finish-all-160-20260811/batch-${{ matrix.batch }}"* || true
+            sleep $((n*10))
+          done
+          test "$ok" = 1
+
+      - name: Require fail-closed receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="evidence/checklist-finish-all-160-20260811/batch-${{ matrix.batch }}-receipt.json"
+          test -s "$receipt"
+          node - "$receipt" <<'NODE'
+          const fs=require('node:fs');
+          const r=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if(r.mode!=='apply') throw new Error('not Production apply');
+          const accepted=(r.results||[]).filter(x=>['imported','already_live'].includes(x.status));
+          if(accepted.some(x=>Number(x.counts?.cards||0)<25)) throw new Error('sub-25 checklist escaped gate');
+          console.log(JSON.stringify({batch:r.batch,statuses:r.statuses,normalizedTotals:r.normalizedTotals,results:(r.results||[]).map(x=>({targetKey:x.targetKey,status:x.status,counts:x.counts||null,failures:(x.failures||[]).slice(0,4)}))},null,2));
+          NODE
+
+      - name: Upload receipt and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checklist-finish-all-160-batch-${{ matrix.batch }}
+          path: evidence/checklist-finish-all-160-20260811/
+          retention-days: 90
+
+      - name: Cleanup
+        if: always()
+        run: rm -f "$PRODUCTION_ENV_PATH" "$KEYS_FILE" .env.local .env.production.local
