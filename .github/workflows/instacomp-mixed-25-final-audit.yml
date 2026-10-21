@@ -1,0 +1,292 @@
+name: InstaComp Mixed 25 Final Audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-mixed-25-final-audit.yml"
+      - "audits/instacomp-live-25-mixed-input.tsv"
+      - "src/app/api/instacomp/benchmark/mixed-25-hydrate/route.ts"
+      - "scripts/ops/run-instacomp-mixed-25-direct-audit.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-mixed-25-final-audit
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: test/instacomp-current-25-ebay-20260807
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_PROJECT: truely-collectables
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  PANEL_PATH: audits/instacomp-live-25-mixed-input.tsv
+  TEMP_DIR: /tmp/instacomp-mixed-25-final-audit
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out exact audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Fail closed on audit-only scope and panel composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = "$EXPECTED_BRANCH"
+          mkdir -p "$TEMP_DIR" reports
+          git fetch origin main --quiet
+          base="$(git merge-base HEAD origin/main)"
+          mapfile -t changed < <(git diff --name-only "$base"...HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          expected=(
+            '.github/workflows/instacomp-mixed-25-final-audit.yml'
+            'audits/instacomp-live-25-mixed-input.tsv'
+            'scripts/ops/run-instacomp-mixed-25-direct-audit.mjs'
+            'src/app/api/instacomp/benchmark/mixed-25-hydrate/route.ts'
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do test "${changed[$i]}" = "${expected[$i]}"; done
+          git diff --check "$base"...HEAD
+          PANEL_PATH="$PANEL_PATH" node <<'NODE'
+          const fs=require('node:fs');
+          const lines=fs.readFileSync(process.env.PANEL_PATH,'utf8').trim().split(/\r?\n/);
+          const header=lines.shift().split('\t');
+          const rows=lines.filter(Boolean).map(line=>Object.fromEntries(line.split('\t').map((v,i)=>[header[i],v])));
+          if(rows.length!==25) throw new Error(`Panel has ${rows.length}; expected 25.`);
+          const ids=new Set(rows.map(r=>r.legacy_item_id));
+          if(ids.size!==25) throw new Error(`Panel has ${ids.size} unique listing IDs; expected 25.`);
+          const sports=[...new Set(rows.map(r=>r.sport))];
+          for(const required of ['Hockey','Basketball','Baseball','Football']) if(!sports.includes(required)) throw new Error(`Missing ${required}.`);
+          const positives={auto:rows.filter(r=>r.is_auto==='true').length,relic:rows.filter(r=>r.is_relic==='true').length,serial:rows.filter(r=>Number(r.serial_denominator)>0).length,rookie:rows.filter(r=>r.is_rookie==='true').length};
+          if(positives.auto<2||positives.relic<1||positives.serial<2) throw new Error(`Special-card mix too weak: ${JSON.stringify(positives)}`);
+          console.log('PANEL='+JSON.stringify({count:rows.length,uniqueListings:ids.size,sports,positives}));
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies and verify current scanner safety gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run verify:instacomp
+          npx tsx scripts/run-instacomp-identity-firewall-regressions.ts
+          npx tsx scripts/run-instacomp-serial-color-gate-regressions.ts
+
+      - name: Link Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npx --yes vercel@56.2.0 link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Prove certified Production InstaComp healthy before audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$TEMP_DIR/readiness-before.json"
+          code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=final-before&ts=$(date +%s)")"
+          test "$code" = "200"
+          node - "$out" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) throw new Error(`${k}=${b[k]}`);
+          console.log('READINESS_BEFORE='+JSON.stringify({ok:b.ok,configured:b.configured,reachable:b.reachable,version:b.version||null,runtimeSourceFingerprint:b.runtimeSourceFingerprint||null}));
+          NODE
+
+      - name: Generate one-run preview hydration token
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          echo "INSTACOMP_BENCHMARK_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Deploy protected preview hydrator
+        id: preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 deploy --yes --force --no-color --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" \
+            --env "INSTACOMP_BENCHMARK_TOKEN=$INSTACOMP_BENCHMARK_TOKEN" \
+            > "$TEMP_DIR/preview-deploy.log"
+          preview_url="$(tail -n 1 "$TEMP_DIR/preview-deploy.log" | tr -d '\r\n')"
+          test -n "$preview_url"
+          echo "preview_url=$preview_url" >> "$GITHUB_OUTPUT"
+          echo "PREVIEW_URL=$preview_url" >> "$GITHUB_ENV"
+
+      - name: Hydrate current eBay listing images inside protected preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PANEL_PATH="$PANEL_PATH" REQUEST_PATH="$TEMP_DIR/hydrate-request.json" node <<'NODE'
+          const fs=require('node:fs');
+          const lines=fs.readFileSync(process.env.PANEL_PATH,'utf8').trim().split(/\r?\n/);const h=lines.shift().split('\t');const rows=lines.filter(Boolean).map(line=>Object.fromEntries(line.split('\t').map((v,i)=>[h[i],v])));
+          fs.writeFileSync(process.env.REQUEST_PATH,JSON.stringify({itemIds:rows.map(r=>r.item_id)}));
+          NODE
+          payload="$(cat "$TEMP_DIR/hydrate-request.json")"
+          npx --yes vercel@56.2.0 curl /api/instacomp/benchmark/mixed-25-hydrate \
+            --deployment "$PREVIEW_URL" \
+            -X POST \
+            -H "Authorization: Bearer $INSTACOMP_BENCHMARK_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            > "$TEMP_DIR/hydrated.json"
+          PANEL_PATH="$PANEL_PATH" HYDRATED_PATH="$TEMP_DIR/hydrated.json" PAIRS_OUT="$TEMP_DIR/live-pairs.json" node <<'NODE'
+          const fs=require('node:fs');
+          const hydrated=JSON.parse(fs.readFileSync(process.env.HYDRATED_PATH,'utf8'));
+          if(hydrated?.ok!==true||!Array.isArray(hydrated.items)||hydrated.items.length!==25) throw new Error(`Hydration failed: ${JSON.stringify(hydrated).slice(0,1800)}`);
+          const lines=fs.readFileSync(process.env.PANEL_PATH,'utf8').trim().split(/\r?\n/);const h=lines.shift().split('\t');const rows=lines.filter(Boolean).map(line=>Object.fromEntries(line.split('\t').map((v,i)=>[h[i],v])));
+          const pairs=rows.map((row,index)=>{const item=hydrated.items[index];if(!item?.frontImageUrl||!item?.backImageUrl||item.frontImageUrl===item.backImageUrl)throw new Error(`No distinct front/back pair for ${row.legacy_item_id}`);return {caseId:row.case_id,expected:{player:row.player,year:row.year,brand:row.brand,setName:row.set_name,cardNumber:row.card_number,parallel:row.parallel||'Base',serialDenominator:row.serial_denominator?Number(row.serial_denominator):null,team:row.team,sport:row.sport,isRookie:row.is_rookie==='true',isAuto:row.is_auto==='true',isRelic:row.is_relic==='true'},listing:{itemId:item.itemId||row.item_id,legacyItemId:item.legacyItemId||row.legacy_item_id,title:item.title||row.title,url:item.itemWebUrl||`https://www.ebay.com/itm/${row.legacy_item_id}`,frontImageUrl:item.frontImageUrl,backImageUrl:item.backImageUrl,imageCount:Number(item.imageCount||2),imageRoleSelection:item.imageRoleSelection||null}};});
+          if(new Set(pairs.map(x=>x.listing.legacyItemId)).size!==25) throw new Error('Hydrated panel lost listing uniqueness.');
+          fs.writeFileSync(process.env.PAIRS_OUT,JSON.stringify(pairs,null,2));
+          const bySport={};for(const p of pairs)bySport[p.expected.sport]=(bySport[p.expected.sport]||0)+1;
+          console.log('HYDRATED='+JSON.stringify({count:pairs.length,sports:bySport,openaiImageRolePairs:pairs.filter(p=>p.listing.imageRoleSelection?.method==='openai').length,fallbackPairs:pairs.filter(p=>p.listing.imageRoleSelection?.method==='fallback').length}));
+          NODE
+
+      - name: Preserve audit runner then switch to exact main for Production scan runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/ops/run-instacomp-mixed-25-direct-audit.mjs "$TEMP_DIR/audit.mjs"
+          git fetch origin main --quiet
+          git checkout --force --detach origin/main
+
+      - name: Provision isolated Production scan credential
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$TEMP_DIR/env-list.txt"
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$list"
+          if grep -Eq '(^|[[:space:]])INSTACOMP_ACCEPTANCE_SERVICE_TOKEN([[:space:]]|$)' "$list"; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          fi
+          openssl rand -hex 32 > "$TEMP_DIR/acceptance-token"
+          chmod 600 "$TEMP_DIR/acceptance-token"
+          secret="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$secret"
+          npx --yes vercel@56.2.0 env add INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --force --sensitive --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" < "$TEMP_DIR/acceptance-token" >/dev/null
+          touch "$TEMP_DIR/token-provisioned"
+
+      - name: Deploy exact main with one-run scan credential and prove auth path
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/acceptance-deploy.log" 2>&1
+          touch "$TEMP_DIR/acceptance-deployed"
+          ready=0
+          for attempt in $(seq 1 18); do
+            out="$TEMP_DIR/readiness-before-scans.json"
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=final-scans&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node - "$out" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) process.exit(1);
+          NODE
+            then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          token="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$token"
+          body="$TEMP_DIR/auth-heartbeat.json"
+          code="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $token" -F 'aiCouncilTier=basic' "$PRODUCTION_ORIGIN/api/instacomp/scan")"
+          test "$code" = "400"
+          grep -Fq 'Upload a front card image.' "$body"
+
+      - name: Scan and independently grade all 25 cards
+        id: scan
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$token"
+          PAIRS_PATH="$TEMP_DIR/live-pairs.json" \
+          REPORT_PATH="$GITHUB_WORKSPACE/reports/instacomp-direct-25-production.json" \
+          INSTACOMP_ACCEPTANCE_SERVICE_TOKEN="$token" \
+          INSTACOMP_AUDIT_ORIGIN="$PRODUCTION_ORIGIN" \
+          node "$TEMP_DIR/audit.mjs"
+
+      - name: Print and upload full 25-card evidence
+        if: always()
+        shell: bash
+        run: |
+          if [ -s reports/instacomp-direct-25-production.json ]; then
+            echo 'INSTACOMP_DIRECT_25_REPORT_START'
+            cat reports/instacomp-direct-25-production.json
+            echo 'INSTACOMP_DIRECT_25_REPORT_END'
+          else
+            echo 'NO_DIRECT_25_REPORT'
+          fi
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-mixed-25-final-audit
+          path: reports/instacomp-direct-25-production.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove one-run Production credential and clean redeploy exact main
+        if: always()
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "$TEMP_DIR/token-provisioned" ]; then
+            npx --yes vercel@56.2.0 env rm INSTACOMP_ACCEPTANCE_SERVICE_TOKEN production --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          fi
+          git fetch origin main --quiet
+          git checkout --force --detach origin/main
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$TEMP_DIR/clean-deploy.log" 2>&1
+          ready=0
+          for attempt in $(seq 1 18); do
+            out="$TEMP_DIR/readiness-clean.json"
+            code="$(curl -sS --max-time 30 -o "$out" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?audit25=final-clean&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ] && node - "$out" <<'NODE'
+          const fs=require('node:fs');const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) if(b[k]!==true) process.exit(1);
+          NODE
+            then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          if [ -s "$TEMP_DIR/acceptance-token" ]; then
+            dead="$(cat "$TEMP_DIR/acceptance-token")"; echo "::add-mask::$dead"
+            body="$TEMP_DIR/dead-token.json"
+            auth_code="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -X POST -H "x-tcos-instacomp-service-token: $dead" -F 'aiCouncilTier=basic' "$PRODUCTION_ORIGIN/api/instacomp/scan")"
+            test "$auth_code" = "401" -o "$auth_code" = "403"
+          fi
+
+      - name: Final completeness gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s reports/instacomp-direct-25-production.json
+          node - <<'NODE'
+          const fs=require('node:fs');const r=JSON.parse(fs.readFileSync('reports/instacomp-direct-25-production.json','utf8'));console.log('FINAL_SUMMARY='+JSON.stringify(r.summary||{}));if(Number(r.summary?.completed||0)!==25)throw new Error(`Incomplete: ${r.summary?.completed||0}/25`);
+          NODE
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: rm -rf "$TEMP_DIR"
