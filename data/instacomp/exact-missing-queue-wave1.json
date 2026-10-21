@@ -1,0 +1,146 @@
+{
+  "schema": "tcos.instacomp.exactMissingChecklistQueue.wave1.v1",
+  "sourceWorkbook": "instacomp_missing_checklists_master_queue_search_pass8_complete.xlsx",
+  "queueFacts": {
+    "knownExactMissingSets": 375,
+    "individualSearchAttemptsReviewed": 405,
+    "queuedSearchRows": 332,
+    "automaticNonBeckettEligibleTargets": 243
+  },
+  "hardLock": "Only these exact reviewed queue targets may be processed; active live Production targets must be skipped.",
+  "wavePurpose": "Third exact Production wave using reviewed missing-set keys with public Cardboard Connection, Topps, or BaseballCardPedia sources.",
+  "targets": [
+    {
+      "searchId": "SR-0228",
+      "exactSetKey": "baseball|2016|topps|heritage",
+      "year": 2016,
+      "sport": "baseball",
+      "season": "2016",
+      "manufacturer": "Topps",
+      "product": "Heritage",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2016-topps-heritage-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0229",
+      "exactSetKey": "baseball|2018|leaf|perfect-game-draft-day-bonus",
+      "year": 2018,
+      "sport": "baseball",
+      "season": "2018",
+      "manufacturer": "Leaf",
+      "product": "Perfect Game Draft Day Bonus",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2018-leaf-perfect-game-draft-day-bonus-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0230",
+      "exactSetKey": "football|2018|leaf|all-american-vault",
+      "year": 2018,
+      "sport": "football",
+      "season": "2018",
+      "manufacturer": "Leaf",
+      "product": "All-American Vault",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2018-leaf-all-american-football-vault-cards"}]
+    },
+    {
+      "searchId": "SR-0231",
+      "exactSetKey": "football|2019|leaf|all-american-vault",
+      "year": 2019,
+      "sport": "football",
+      "season": "2019",
+      "manufacturer": "Leaf",
+      "product": "All-American Vault",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2019-leaf-all-american-football-vault-cards"}]
+    },
+    {
+      "searchId": "SR-0233",
+      "exactSetKey": "wrestling|2020|topps|wwe-raw-vs-smackdown",
+      "year": 2020,
+      "sport": "wrestling",
+      "season": "2020",
+      "manufacturer": "Topps",
+      "product": "WWE Raw vs. Smackdown",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2020-topps-wwe-raw-vs-smackdown-wrestling-cards"}]
+    },
+    {
+      "searchId": "SR-0332",
+      "exactSetKey": "basketball|2010-11|donruss|donruss",
+      "year": 2010,
+      "sport": "basketball",
+      "season": "2010-11",
+      "manufacturer": "Donruss",
+      "product": "Donruss",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2010-11-donruss-basketball"}]
+    },
+    {
+      "searchId": "SR-0334",
+      "exactSetKey": "hockey|2010-11|donruss|donruss",
+      "year": 2010,
+      "sport": "hockey",
+      "season": "2010-11",
+      "manufacturer": "Donruss",
+      "product": "Donruss",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2010-11-donruss-hockey"}]
+    },
+    {
+      "searchId": "SR-0343",
+      "exactSetKey": "multi-sport|2019|upper-deck|cfl",
+      "year": 2019,
+      "sport": "multi-sport",
+      "season": "2019",
+      "manufacturer": "Upper Deck",
+      "product": "CFL",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2019-upper-deck-cfl-football-cards"}]
+    },
+    {
+      "searchId": "SR-0019",
+      "exactSetKey": "baseball|2004|topps|traded-set",
+      "year": 2004,
+      "sport": "baseball",
+      "season": "2004",
+      "manufacturer": "Topps",
+      "product": "Traded Set",
+      "classification": "Public full checklist",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2004-topps-traded-rookies-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0022",
+      "exactSetKey": "baseball|2005|topps|update-set",
+      "year": 2005,
+      "sport": "baseball",
+      "season": "2005",
+      "manufacturer": "Topps",
+      "product": "Update Set",
+      "classification": "Public full checklist",
+      "sources": [{"name": "Cardboard Connection", "url": "https://www.cardboardconnection.com/2005-topps-updates-and-highlights-baseball-cards"}]
+    },
+    {
+      "searchId": "SR-0305",
+      "exactSetKey": "soccer|2024-25|topps|uefa-club-competitions",
+      "year": 2024,
+      "sport": "soccer",
+      "season": "2024-25",
+      "manufacturer": "Topps",
+      "product": "UEFA Club Competitions",
+      "classification": "Standalone checklist found",
+      "sources": [{"name": "Topps", "url": "https://www.topps.com/pages/topps-uefa-club-competitions"}]
+    },
+    {
+      "searchId": "SR-0010",
+      "exactSetKey": "baseball|2002|topps|traded-set",
+      "year": 2002,
+      "sport": "baseball",
+      "season": "2002",
+      "manufacturer": "Topps",
+      "product": "Traded Set",
+      "classification": "Public full checklist",
+      "sources": [{"name": "BaseballCardPedia", "url": "https://www.baseballcardpedia.com/index.php/2002_Topps_Traded_%26_Rookies"}]
+    }
+  ]
+}
