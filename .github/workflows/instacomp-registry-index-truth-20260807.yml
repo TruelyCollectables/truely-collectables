@@ -1,0 +1,132 @@
+name: InstaComp Registry Index Truth 20260807
+
+on:
+  push:
+    branches:
+      - ops/instacomp-registry-index-truth-20260807
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/instacomp-registry-index-truth-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/instacomp-registry-index-truth-20260807
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect exact Production Registry indexes and planner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$VERCEL_TOKEN"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          mkdir -p .vercel "$RUNNER_TEMP/instacomp-registry-index-truth" evidence/instacomp-registry-index-truth-20260807
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-registry-index-truth/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          PROD_ENV="$RUNNER_TEMP/instacomp-registry-index-truth/production.env" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const parsed = {};
+          for (const raw of fs.readFileSync(process.env.PROD_ENV, 'utf8').split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const i = line.indexOf('=');
+            if (i < 1) continue;
+            const key = line.slice(0, i).trim();
+            let value = line.slice(i + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) { try { value = JSON.parse(value); } catch { value = value.slice(1,-1); } }
+            else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1,-1);
+            parsed[key] = value;
+          }
+          const supabaseUrl = String(parsed.NEXT_PUBLIC_SUPABASE_URL || '');
+          if (!supabaseUrl) throw new Error('Missing Production Supabase URL');
+          const projectRef = new URL(supabaseUrl).hostname.split('.')[0];
+          async function query(label, sql) {
+            const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${process.env.GH_SUPABASE_ACCESS_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query: sql, read_only: true }),
+              signal: AbortSignal.timeout(45000),
+            });
+            const raw = await response.text();
+            if (!response.ok) throw new Error(`${label} HTTP ${response.status}: ${raw.slice(0,500)}`);
+            try { return raw ? JSON.parse(raw) : []; } catch { return raw; }
+          }
+          const expected = [
+            'checklist_cards_instacomp_number_lookup_idx',
+            'checklist_card_identities_instacomp_card_idx',
+            'checklist_card_players_instacomp_card_idx',
+            'checklist_card_teams_instacomp_card_idx',
+            'checklist_sets_instacomp_id_lookup_idx',
+          ];
+          const indexes = await query('indexes', `
+            select tablename, indexname, indexdef
+            from pg_indexes
+            where schemaname = 'public'
+              and indexname = any(array[${expected.map((v)=>`'${v}'`).join(',')}])
+            order by indexname;
+          `);
+          const stats = await query('stats', `
+            select relname, n_live_tup, n_dead_tup, last_analyze, last_autoanalyze
+            from pg_stat_user_tables
+            where schemaname = 'public'
+              and relname = any(array['checklist_cards','checklist_card_identities','checklist_card_players','checklist_card_teams','checklist_sets'])
+            order by relname;
+          `);
+          const counts = await query('counts', `
+            select normalized_card_number, count(*)::int as rows
+            from public.checklist_cards
+            where normalized_card_number = any(array['5','13','116','118','122'])
+            group by normalized_card_number
+            order by normalized_card_number;
+          `);
+          const explain = await query('planner', `
+            explain (format json, costs true, verbose false)
+            select id, release_id, version_id, set_id, card_number, normalized_card_number, variation, autograph_status, memorabilia_status
+            from public.checklist_cards
+            where normalized_card_number = '5'
+            limit 250;
+          `);
+          const present = new Set(Array.isArray(indexes) ? indexes.map((row)=>String(row.indexname)) : []);
+          const missing = expected.filter((name)=>!present.has(name));
+          const receipt = {
+            schema: 'tcos.instacomp.registryIndexTruth.v1',
+            capturedAt: new Date().toISOString(),
+            expectedIndexes: expected,
+            presentIndexes: [...present].sort(),
+            missingIndexes: missing,
+            allExpectedIndexesPresent: missing.length === 0,
+            indexes,
+            tableStats: stats,
+            acceptanceCardNumberCounts: counts,
+            cardNumber5Plan: explain,
+          };
+          fs.writeFileSync('evidence/instacomp-registry-index-truth-20260807/receipt.json', JSON.stringify(receipt, null, 2));
+          console.log(JSON.stringify(receipt, null, 2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-registry-index-truth-20260807
+          path: evidence/instacomp-registry-index-truth-20260807/receipt.json
+          if-no-files-found: error
+          retention-days: 30
