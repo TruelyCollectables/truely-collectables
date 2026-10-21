@@ -1,0 +1,182 @@
+name: Exhaustive Hockey WNBA Census Harvest Apply 20260815
+
+on:
+  pull_request:
+    paths:
+      - "scripts/discover-exhaustive-hockey-wnba.mjs"
+      - "scripts/harvest-gogts-coordinate-direct.mjs"
+      - "scripts/recover-held-workbook-checklists.mjs"
+      - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
+  push:
+    branches:
+      - ops/checklist-public-web-registry-promotion-20260814
+    paths:
+      - "scripts/discover-exhaustive-hockey-wnba.mjs"
+      - "scripts/harvest-gogts-coordinate-direct.mjs"
+      - "scripts/recover-held-workbook-checklists.mjs"
+      - ".github/workflows/checklist-exhaustive-hockey-wnba-20260815.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  census-harvest:
+    if: ${{ !contains(github.event.head_commit.message || '', '[held-recovery]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      EXHAUSTIVE_CHECKLIST_ROOT: /home/runner/work/_temp/exhaustive-hockey-wnba
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install parser runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Exhaustive GoGTS census
+        run: |
+          set -euo pipefail
+          node scripts/discover-exhaustive-hockey-wnba.mjs
+          jq '{uniqueTargets,hockeyTargets,wnbaTargets,seasonCounts}' "$EXHAUSTIVE_CHECKLIST_ROOT/census.json"
+      - name: Download and validate every discovered checklist
+        run: |
+          set -o pipefail
+          PUBLIC_WEB_MINIMUM_CARD_ROWS=20 \
+          GOGTS_COORDINATE_TARGETS="$EXHAUSTIVE_CHECKLIST_ROOT/targets.json" \
+          GOGTS_COORDINATE_OUTPUT="$EXHAUSTIVE_CHECKLIST_ROOT/output" \
+          node --import tsx scripts/harvest-gogts-coordinate-direct.mjs
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities}' "$EXHAUSTIVE_CHECKLIST_ROOT/output/summary.json"
+      - name: Upload exhaustive harvest bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-${{ github.run_id }}
+          path: /home/runner/work/_temp/exhaustive-hockey-wnba
+          if-no-files-found: error
+          retention-days: 90
+
+  production-apply:
+    needs: census-harvest
+    if: ${{ always() && needs.census-harvest.result == 'success' && !contains(github.event.head_commit.message || '', '[held-recovery]') }}
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 120
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      COORDINATE_HARVEST_ROOT: /home/runner/work/_temp/exhaustive-hockey-wnba
+      COORDINATE_APPLY_RECEIPT: /home/runner/work/_temp/exhaustive-hockey-wnba/production-apply-receipt.json
+      COORDINATE_APPLY_MAX_SETS: "250"
+      COORDINATE_DB_HEALTH_ATTEMPTS: "12"
+      COORDINATE_DB_HEALTH_DELAY_MS: "10000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download exhaustive harvest bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-${{ github.run_id }}
+          path: /home/runner/work/_temp/exhaustive-hockey-wnba
+      - name: Resolve Production Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/exhaustive-production"
+          mkdir -p "$root"
+          test -n "$GH_SUPABASE_ACCESS_TOKEN"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/projects.json" \
+            "https://api.supabase.com/v1/projects"
+          mapfile -t candidates < <(jq -r '.[] | select((.name // "" | ascii_downcase | contains("truely")) or (.name // "" | ascii_downcase | contains("collect"))) | (.id // .ref // empty)' "$root/projects.json")
+          test "${#candidates[@]}" -eq 1
+          project_ref="${candidates[0]}"
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --retry-delay 2 --max-time 45 \
+            -H "Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN" \
+            -o "$root/api-keys.json" \
+            "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true"
+          service_key="$(jq -r 'map(select((((.name // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role") or (((.id // "") | ascii_downcase | gsub("[^a-z0-9]+"; "_")) == "service_role"))) | .[0].api_key // empty' "$root/api-keys.json")"
+          test -n "$service_key"
+          echo "::add-mask::$service_key"
+          echo "NEXT_PUBLIC_SUPABASE_URL=https://$project_ref.supabase.co" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$service_key" >> "$GITHUB_ENV"
+      - name: Apply every clean plan to Production Registry
+        run: |
+          set -o pipefail
+          node --import tsx scripts/apply-coordinate-harvest-plans.mjs
+      - name: Print Production receipt
+        if: always()
+        run: |
+          receipt="$COORDINATE_APPLY_RECEIPT"
+          if [ -s "$receipt" ]; then
+            jq '{requestedCount,attemptedCount,persistedCount,persistedCards,persistedParallels,persistedIdentities,results:[.results[]|{exactSetKey,status,counts,error}]}' "$receipt"
+          else
+            echo 'No Production apply receipt was created.'
+          fi
+      - name: Upload Production receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-production-${{ github.run_id }}
+          path: /home/runner/work/_temp/exhaustive-hockey-wnba/production-apply-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/exhaustive-production" .env.local .env.production.local .vercel
+
+  held-recovery:
+    if: ${{ contains(github.event.head_commit.message || '', '[held-recovery]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXHAUSTIVE_CHECKLIST_ROOT: /home/runner/work/_temp/held-recovery
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install structured parser runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir openpyxl==3.1.5 xlrd==2.0.1
+          npm ci
+      - name: Rebuild target census
+        run: |
+          set -euo pipefail
+          node scripts/discover-exhaustive-hockey-wnba.mjs
+          jq '{uniqueTargets,hockeyTargets,wnbaTargets,seasonCounts}' "$EXHAUSTIVE_CHECKLIST_ROOT/census.json"
+      - name: Recover held sets from structured workbooks
+        run: |
+          set -o pipefail
+          PUBLIC_WEB_MINIMUM_CARD_ROWS=20 \
+          GOGTS_COORDINATE_TARGETS="$EXHAUSTIVE_CHECKLIST_ROOT/targets.json" \
+          GOGTS_COORDINATE_OUTPUT="$EXHAUSTIVE_CHECKLIST_ROOT/output" \
+          node --import tsx scripts/recover-held-workbook-checklists.mjs
+          jq '{targetCount,resultCount,readyCount,validationFailedCount,failedCount,totalCards,totalParallels,totalIdentities}' "$EXHAUSTIVE_CHECKLIST_ROOT/output/summary.json"
+      - name: Upload held recovery bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: held-recovery-${{ github.run_id }}
+          path: /home/runner/work/_temp/held-recovery
+          if-no-files-found: error
+          retention-days: 90
