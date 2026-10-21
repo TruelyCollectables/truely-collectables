@@ -1,0 +1,1 @@
+This branch exists only to run the fail-closed Production checklist repair workflow against exact current main. Preserve all prior evidence and Registry rows.
