@@ -1,0 +1,219 @@
+name: Audit Storefront Taxonomy V5 20260728
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/audit-storefront-taxonomy-v5-20260728.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-storefront-taxonomy-v5-20260728
+  cancel-in-progress: true
+
+jobs:
+  audit-production:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/audit-storefront-taxonomy-v5-20260728'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      PRODUCTION_ORIGIN: https://truelycollectables.com
+      CRON_NOT_BEFORE_UTC: 2026-07-29T02:31:30Z
+      CRON_COMPLETION_TARGET_UTC: 2026-07-29T02:42:00Z
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/audit-storefront-taxonomy-v5-20260728
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Link Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p .vercel taxonomy-audit/logs taxonomy-audit/pages
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > taxonomy-audit/logs/vercel-link.log 2>&1
+          fi
+
+      - name: Wait for taxonomy v5 recatalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$(date -u -d "$CRON_COMPLETION_TARGET_UTC" +%s)"
+          now="$(date -u +%s)"
+          if [ "$target" -gt "$now" ]; then sleep "$((target - now))"; fi
+
+      - name: Capture taxonomy v5 sync receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=''
+          for attempt in $(seq 1 16); do
+            raw="taxonomy-audit/logs/runtime-${attempt}.jsonl"
+            npx vercel@56.2.0 logs \
+              --project truely-collectables \
+              --environment production \
+              --since "$CRON_NOT_BEFORE_UTC" \
+              --no-branch \
+              --json \
+              --expand \
+              --limit 1000 \
+              --query "ebay_store_fixed_price_sync_completed" \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" \
+              > "$raw" 2> "taxonomy-audit/logs/runtime-${attempt}.stderr" || true
+            ATTEMPT="$attempt" RAW_FILE="$raw" node <<'NODE'
+          const fs = require('node:fs');
+          const rows = fs.readFileSync(process.env.RAW_FILE, 'utf8').split(/\r?\n/).filter(Boolean);
+          const receipts = [];
+          const inspect = (value) => {
+            if (!value) return;
+            if (typeof value === 'object') {
+              if (value.event === 'ebay_store_fixed_price_sync_completed') receipts.push(value);
+              for (const nested of Object.values(value)) inspect(nested);
+              return;
+            }
+            if (typeof value !== 'string') return;
+            const prefix = '[ebay-store-fixed-price-sync] ';
+            const index = value.indexOf(prefix);
+            if (index >= 0) {
+              try {
+                const parsed = JSON.parse(value.slice(index + prefix.length));
+                if (parsed?.event === 'ebay_store_fixed_price_sync_completed') receipts.push(parsed);
+              } catch {}
+            }
+          };
+          for (const line of rows) {
+            try { inspect(JSON.parse(line)); } catch {}
+          }
+          const latest = receipts.sort((a, b) => Date.parse(a.completedAt || 0) - Date.parse(b.completedAt || 0)).at(-1) || null;
+          fs.writeFileSync(`taxonomy-audit/logs/receipt-${process.env.ATTEMPT}.json`, `${JSON.stringify({ rowsRead: rows.length, receipt: latest }, null, 2)}\n`);
+          NODE
+            if grep -Fq '"receipt": {' "taxonomy-audit/logs/receipt-${attempt}.json"; then
+              cp "taxonomy-audit/logs/receipt-${attempt}.json" taxonomy-audit/receipt.json
+              found="$attempt"
+              break
+            fi
+            sleep 30
+          done
+          test -n "$found"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync('taxonomy-audit/receipt.json', 'utf8')).receipt;
+          const fail = (message) => { throw new Error(message); };
+          if (!receipt?.success || (receipt.errors || []).length) fail(`Taxonomy recatalog failed: ${JSON.stringify(receipt?.errors || [])}`);
+          const first = receipt.authoritative;
+          const final = receipt.finalAuthoritative || (receipt.convergencePasses || []).at(-1);
+          const images = (receipt.imagePasses || []).at(-1);
+          if (!first?.cycleComplete || Number(first.failed || 0) !== 0) fail('Initial taxonomy recatalog was incomplete or failed.');
+          if (!final?.cycleComplete || Number(final.failed || 0) !== 0) fail('Final taxonomy convergence failed.');
+          if (Number(final.inserted || 0) || Number(final.updated || 0) || Number(final.deactivated || 0)) fail(`Taxonomy did not converge: ${JSON.stringify(final)}`);
+          if (Number(final.unchanged || 0) !== Number(final.representedInventoryRows || 0)) fail('Final unchanged rows did not equal represented inventory rows.');
+          if (!images?.cycleComplete || Number(images.failed || 0) || Number(images.remainingCandidates || 0)) fail('Image reconciliation failed during taxonomy recatalog.');
+          if (Number(receipt.quantities?.failed || 0)) fail('Quantity reconciliation failed during taxonomy recatalog.');
+          fs.writeFileSync('taxonomy-audit/sync-summary.json', `${JSON.stringify({
+            success: true,
+            completedAt: receipt.completedAt,
+            remoteFixedPriceTotal: Number(final.remoteFixedPriceTotal || 0),
+            eligibleCollectibles: Number(final.eligibleCollectibles || 0),
+            mergedAliasListings: Number(final.mergedAliasListings || 0),
+            representedInventoryRows: Number(final.representedInventoryRows || 0),
+            firstPass: {
+              inserted: Number(first.inserted || 0),
+              updated: Number(first.updated || 0),
+              deactivated: Number(first.deactivated || 0),
+            },
+          }, null, 2)}\n`);
+          NODE
+
+      - name: Audit live sections and autograph results
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_page() {
+            key="$1"; path="$2"; body="taxonomy-audit/pages/${key}.html"
+            code="$(curl --location --silent --show-error --connect-timeout 15 --max-time 120 --header 'Cache-Control: no-cache' --output "$body" --write-out '%{http_code}' "${PRODUCTION_ORIGIN}${path}" || true)"
+            test "$code" = '200'
+          }
+          fetch_page all '/shop'
+          fetch_page nba '/shop?section=NBA'
+          fetch_page wnba '/shop?section=WNBA'
+          fetch_page basketball '/shop?section=Basketball'
+          fetch_page autographs '/shop?feature=autograph'
+          fetch_page pucks '/shop?section=Pucks'
+          fetch_page jerseys '/shop?section=Jerseys'
+          fetch_page music '/shop?section=Music'
+          fetch_page racing '/shop?section=Racing%20%2F%20NASCAR'
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const decode = (value) => value
+            .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+            .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+            .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          const html = (key) => fs.readFileSync(`taxonomy-audit/pages/${key}.html`, 'utf8');
+          const text = (key) => decode(html(key).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' '));
+          const count = (key) => {
+            const match = text(key).match(/([\d,]+) active cards & collectibles/i);
+            return match ? Number(match[1].replaceAll(',', '')) : null;
+          };
+          const titles = (key) => Array.from(html(key).matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi), (match) => decode(match[1]));
+          const summary = JSON.parse(fs.readFileSync('taxonomy-audit/sync-summary.json', 'utf8'));
+          const counts = {
+            all: count('all'), nba: count('nba'), wnba: count('wnba'), basketball: count('basketball'),
+            autographs: count('autographs'), pucks: count('pucks'), jerseys: count('jerseys'),
+            music: count('music'), racing: count('racing'),
+          };
+          const autographTitles = titles('autographs');
+          const negativeAutographs = autographTitles.filter((title) => /\b(?:facsimile|pre[- ]?printed|printed signature|unsigned|not signed|not autographed|auto racing|automotive)\b/i.test(title));
+          const suspiciousAutographs = autographTitles.filter((title) => !/\b(?:autograph(?:ed)?|signed|auto|signature|jsa|beckett|psa\/?dna|coa)\b/i.test(title));
+          const puckCardLeaks = titles('pucks').filter((title) => /\b(?:card|topps|panini|upper deck|donruss|prizm|bowman)\b/i.test(title));
+          const jerseyCardLeaks = titles('jerseys').filter((title) => /\b(?:card|topps|panini|upper deck|donruss|prizm|bowman)\b/i.test(title));
+          const musicLeaks = titles('music').filter((title) => !/\b(?:cd|compact disc|booklet|album|liner|vinyl|record)\b/i.test(title));
+          const allText = text('all');
+          if (counts.all !== summary.representedInventoryRows) throw new Error(`All storefront count ${counts.all} != represented rows ${summary.representedInventoryRows}.`);
+          if (!allText.includes('NBA') || !allText.includes('WNBA') || !allText.includes('Basketball')) throw new Error('NBA/WNBA/Basketball section controls are not all present.');
+          if (allText.includes('View Card / Item')) throw new Error('Old View Card / Item CTA is still visible.');
+          if (negativeAutographs.length) throw new Error(`Negative autograph items leaked: ${JSON.stringify(negativeAutographs.slice(0, 20))}`);
+          if (puckCardLeaks.length) throw new Error(`Card listings leaked into Pucks: ${JSON.stringify(puckCardLeaks.slice(0, 20))}`);
+          if (jerseyCardLeaks.length) throw new Error(`Card listings leaked into Jerseys: ${JSON.stringify(jerseyCardLeaks.slice(0, 20))}`);
+          if (musicLeaks.length) throw new Error(`Non-music listings leaked into Music: ${JSON.stringify(musicLeaks.slice(0, 20))}`);
+          const audit = {
+            success: true,
+            counts,
+            samples: {
+              autographs: autographTitles.slice(0, 25),
+              suspiciousAutographs: suspiciousAutographs.slice(0, 25),
+              pucks: titles('pucks').slice(0, 25),
+              jerseys: titles('jerseys').slice(0, 25),
+              music: titles('music').slice(0, 25),
+            },
+            leaks: { negativeAutographs, puckCardLeaks, jerseyCardLeaks, musicLeaks },
+          };
+          fs.writeFileSync('taxonomy-audit/live-audit.json', `${JSON.stringify(audit, null, 2)}\n`);
+          console.log(JSON.stringify(audit));
+          NODE
+
+      - name: Upload taxonomy v5 audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storefront-taxonomy-v5-audit-${{ github.run_number }}
+          path: taxonomy-audit
+          if-no-files-found: warn
+          retention-days: 30
