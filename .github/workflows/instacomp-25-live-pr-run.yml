@@ -1,0 +1,82 @@
+name: InstaComp 25 Live PR Run
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-25-live-pr-run.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pull Production coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          mkdir -p "$RUNNER_TEMP/instacomp-25-pr" .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/instacomp-25-pr/production.env" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          echo "PRODUCTION_ENV_FILE=$RUNNER_TEMP/instacomp-25-pr/production.env" >> "$GITHUB_ENV"
+      - name: Run real 25-listing front/back stress test
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('fs');
+          const text=fs.readFileSync(process.env.PRODUCTION_ENV_FILE,'utf8');
+          function env(k){const m=text.match(new RegExp(`^${k}=(?:\"([^\"]*)\"|'([^']*)'|([^\\r\\n]*))`,'m'));return String(m?.[1]??m?.[2]??m?.[3]??'').trim();}
+          const base=env('INSTACOMP_AI_LOCAL_URL').replace(/\/+$/,'');
+          const key=env('INSTACOMP_AI_LOCAL_KEY');
+          if(!/^https:\/\/[^/]+\.truelycollectables\.com$/i.test(base)||!key) throw new Error('Physical Mac coordinates unavailable');
+          const headers={'X-InstaComp-AI-Key':key,Accept:'application/json'};
+          async function req(p,opt={},timeout=1200000){const r=await fetch(base+p,{...opt,headers:{...headers,...(opt.headers||{})},signal:AbortSignal.timeout(timeout)});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j={raw:t.slice(0,1000)}}if(!r.ok)throw new Error(`${p} HTTP ${r.status}: ${JSON.stringify(j).slice(0,1200)}`);return j;}
+          async function idle(){for(let i=0;i<180;i++){const s=await req('/v1/deal-hunter/status',{},30000);if(s.enabled!==true)throw new Error('Deal Hunter disabled');if(s.running!==true)return;sawait(5000)}throw new Error('Deal Hunter stayed busy')}
+          function sawait(ms){return new Promise(r=>setTimeout(r,ms))}
+          function norm(v){return String(v||'').toLowerCase().replace(/[^a-z0-9/]+/g,' ').replace(/\s+/g,' ').trim()}
+          function hasTokens(h,n){const H=norm(h),T=norm(n).split(' ').filter(x=>x.length>1);return T.length&&T.every(x=>H.includes(x))}
+          function cardNo(t){const m=String(t||'').match(/(?:#|card\s*(?:no\.?|number)?\s*[:#-]?\s*)([a-z0-9-]{1,16})/i);return m?m[1].toLowerCase():null}
+          function sellerSerial(t){const m=String(t||'').match(/\b(\d{1,5})\s*\/\s*(\d{1,6})\b/);if(m)return {exact:`${+m[1]}/${+m[2]}`,den:String(+m[2])};const r=String(t||'').match(/(?:^|\s)\/\s*(\d{1,6})\b/);return r?{exact:null,den:String(+r[1])}:null}
+          function aiSerial(v){const m=String(v||'').match(/(\d{1,5})\s*\/\s*(\d{1,6})/);return m?{exact:`${+m[1]}/${+m[2]}`,den:String(+m[2])}:null}
+          function grade(r){const a=r.identity||{},t=String(r.title||''),checks=[];const add=(n,ap,p,d)=>checks.push({name:n,applicable:ap,pass:ap?!!p:null,detail:d});add('front_back',true,Array.isArray(r.image_urls)&&r.image_urls.length>=2,`${r.image_urls?.length||0} images`);add('identity',true,!!r.identity,null);if(r.identity){add('player',!!a.player,hasTokens(t,a.player),a.player);add('year',!!a.year&&/(?:19|20)\d{2}/.test(t),norm(t).includes(norm(a.year)),a.year);const n=cardNo(t);add('card_number',!!n,!!n&&!!a.cardNumber&&norm(n)===norm(a.cardNumber),`listing=${n||'-'} ai=${a.cardNumber||'-'}`);const au=/\b(auto|autograph|autographed|signed)\b/i.test(t);add('auto',au,a.isAuto===true,`ai=${a.isAuto}`);const re=/\b(relic|patch|jersey|memorabilia|game[- ]used|swatch)\b/i.test(t);add('relic',re,a.isRelic===true,`ai=${a.isRelic}`);const ss=sellerSerial(t),as=aiSerial(a.serialNumber);add('serial',!!ss,!!ss&&!!as&&ss.den===as.den,`listing=${ss?.exact||ss?.den||'-'} ai=${a.serialNumber||'-'}`);const rc=/\b(rc|rookie)\b/i.test(t);add('rookie',rc,a.isRookie===true,`ai=${a.isRookie}`)}const ap=checks.filter(c=>c.applicable);return {passed:ap.filter(c=>c.pass).length,total:ap.length,pct:ap.length?+(100*ap.filter(c=>c.pass).length/ap.length).toFixed(1):0,checks}}
+          (async()=>{
+            const health=await req('/health',{},30000);if(health.ok!==true)throw new Error('Mac health failed');await idle();
+            const plans=[['wnba',14,'basketball'],['baseball_prospects',14,'baseball'],['ivan_demidov',12,'hockey'],['matvei_michkov_opc_platinum',12,'hockey']];
+            const runs=[];
+            for(const [lane,limit,sport] of plans){await idle();const x=await req(`/v1/deal-hunter/run-targeted?lane=${encodeURIComponent(lane)}&force=true&limit=${limit}`,{method:'POST'});runs.push({lane,sport,runId:x.run_id,status:x.status,discovery:+(x.discovery||0),evaluated:+(x.evaluated||0),manualReview:+(x.manual_review||0),failure:+(x.failure||0)});if(x.accepted!==true||x.status!=='completed'||!x.run_id)throw new Error(`Lane ${lane} failed: ${JSON.stringify(x).slice(0,1500)}`)}
+            const p=await req('/v1/deal-hunter/candidates?limit=500',{},60000),all=Array.isArray(p.candidates)?p.candidates:[];
+            const runMap=new Map(runs.map(x=>[String(x.runId),x]));const pools=new Map(plans.map(([l])=>[l,[]]));const seen=new Set();
+            for(const r of all){const run=runMap.get(String(r.run_id||''));if(!run||!Array.isArray(r.image_urls)||r.image_urls.length<2)continue;const k=String(r.candidate_key||r.listing_url||'');if(!k||seen.has(k))continue;seen.add(k);pools.get(run.lane).push({...r,requestedSport:run.sport,requestedLane:run.lane})}
+            const quotas={wnba:7,baseball_prospects:7,ivan_demidov:6,matvei_michkov_opc_platinum:5};let picked=[];for(const [lane] of plans){picked.push(...pools.get(lane).slice(0,quotas[lane]))}if(picked.length<25){const used=new Set(picked.map(r=>String(r.candidate_key||r.listing_url)));for(const [lane] of plans){for(const r of pools.get(lane)){const k=String(r.candidate_key||r.listing_url);if(used.has(k))continue;picked.push(r);used.add(k);if(picked.length===25)break}if(picked.length===25)break}}
+            picked=picked.slice(0,25).map((r,i)=>({number:i+1,lane:r.requestedLane,sport:r.requestedSport,title:r.title||null,url:r.listing_url||null,imageCount:r.image_urls.length,identity:r.identity||null,status:r.status||null,errorCode:r.error_code||null,errorMessage:r.error_message||null,grade:grade(r)}));
+            const applicable=picked.reduce((s,r)=>s+r.grade.total,0),passed=picked.reduce((s,r)=>s+r.grade.passed,0);
+            const claims={auto:picked.filter(r=>/\b(auto|autograph|autographed|signed)\b/i.test(r.title||'')),relic:picked.filter(r=>/\b(relic|patch|jersey|memorabilia|game[- ]used|swatch)\b/i.test(r.title||'')),serial:picked.filter(r=>sellerSerial(r.title))};
+            const result={schema:'instacomp-25-real-live-pr-v1',checkedAt:new Date().toISOString(),health:{ok:health.ok===true,version:health.version||null},requested:25,qualified:picked.length,identityReturned:picked.filter(r=>r.identity).length,coreComplete:picked.filter(r=>{const a=r.identity||{};return a.player&&a.year&&(a.brand||a.manufacturer)&&a.setName&&a.cardNumber}).length,concordancePercent:applicable?+(100*passed/applicable).toFixed(1):0,specials:{autoClaimed:claims.auto.length,autoCaught:claims.auto.filter(r=>r.identity?.isAuto===true).length,relicClaimed:claims.relic.length,relicCaught:claims.relic.filter(r=>r.identity?.isRelic===true).length,serialClaimed:claims.serial.length,serialCaught:claims.serial.filter(r=>{const s=sellerSerial(r.title),a=aiSerial(r.identity?.serialNumber);return s&&a&&s.den===a.den}).length},runs,cards:picked};
+            console.log('INSTACOMP_25_RESULT_START');console.log(JSON.stringify(result,null,2));console.log('INSTACOMP_25_RESULT_END');
+            fs.writeFileSync(process.env.RUNNER_TEMP+'/instacomp-25-live-pr.json',JSON.stringify(result,null,2));
+            if(picked.length<25)throw new Error(`Only ${picked.length} unique front/back listings qualified; refusing to score 25.`)
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-25-live-pr
+          path: ${{ runner.temp }}/instacomp-25-live-pr.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove Production env
+        if: always()
+        run: rm -f "$RUNNER_TEMP/instacomp-25-pr/production.env"
