@@ -1,0 +1,67 @@
+name: InstaComp Candidate Diagnostic Ops
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/instacomp-live-learning-proof-20260807'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      SITE_URL: https://truelycollectables.com
+      RUN_ID: 3046a009-85ec-4a07-a6c2-613c330a66a5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail closed on one-file ops scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          mapfile -t changed < <(git diff --name-only origin/main...HEAD | sort)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = ".github/workflows/instacomp-candidate-diagnostic-ops.yml"
+      - name: Deploy exact current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          git fetch origin main
+          git checkout --detach origin/main
+          npx vercel@56.2.0 --prod --yes --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+      - name: Query completed run candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="$SITE_URL/api/release/instacomp-deal-hunter-history-status?since=2026-08-07T18:39:00Z&runId=$RUN_ID"
+          for i in $(seq 1 30); do
+            code="$(curl -sS -o "$RUNNER_TEMP/probe.json" -w '%{http_code}' --max-time 15 -X POST "$endpoint" || true)"
+            if [ "$code" = "401" ]; then break; fi
+            sleep 4
+          done
+          code="$(curl -sS --max-time 60 -o candidates.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$endpoint" || true)"
+          cat candidates.json
+          test "$code" = "200"
+          node - <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('candidates.json','utf8'));
+          if(p.success!==true) throw new Error(JSON.stringify(p));
+          const c=p.completedRunCandidates;
+          if(!c || !Array.isArray(c.candidates)) throw new Error('Candidate diagnostics missing');
+          const summary={
+            runId:c.runId,
+            count:c.count,
+            totalHistory:p.totalObservationCount,
+            candidates:c.candidates.map(x=>({title:x.title,identity:x.identity,exactMarket:x.exactMarket,evaluation:x.evaluation}))
+          };
+          console.log(JSON.stringify(summary,null,2));
+          if(c.count===0) throw new Error('No central candidate rows found for completed run.');
+          NODE
