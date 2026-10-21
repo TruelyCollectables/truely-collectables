@@ -1,0 +1,172 @@
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
+import { createClient } from "@supabase/supabase-js";
+import { persistPlanStaged } from "./staged-registry-writer.mjs";
+
+function dbClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey) throw new Error("Production Supabase credentials are required.");
+  return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+const ROOT = resolve(process.env.VERIFIED_HARVEST_ROOT || "");
+const OUTPUT = resolve(process.env.VERIFIED_APPLY_RECEIPT || `${ROOT}/selected-production-apply-receipt.json`);
+const MAX_SETS = Math.max(1, Number(process.env.VERIFIED_APPLY_MAX_SETS || 250));
+const TARGET_ATTEMPTS = Math.max(1, Number(process.env.VERIFIED_TARGET_ATTEMPTS || 5));
+const TARGET_RETRY_DELAY_MS = Math.max(2_000, Number(process.env.VERIFIED_TARGET_RETRY_DELAY_MS || 10_000));
+const TARGET_SUCCESS_DELAY_MS = Math.max(0, Number(process.env.VERIFIED_TARGET_SUCCESS_DELAY_MS || 2_000));
+const SELECTED_HOCKEY = new Set(["2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]);
+const SELECTED_WNBA = new Set(["2024", "2025"]);
+
+if (!ROOT || !existsSync(ROOT)) throw new Error(`Verified harvest root is missing: ${ROOT}`);
+const summaryPath = resolve(ROOT, "output/summary.json");
+const plansDir = resolve(ROOT, "output/plans");
+const sourcesDir = resolve(ROOT, "output/sources");
+if (!existsSync(summaryPath) || !existsSync(plansDir) || !existsSync(sourcesDir)) {
+  throw new Error(`Verified harvest bundle is incomplete under ${ROOT}`);
+}
+
+function selectedScope(exactSetKey) {
+  const [sport, season] = String(exactSetKey || "").split("|");
+  if (sport === "hockey") return SELECTED_HOCKEY.has(season);
+  if (sport === "basketball") return SELECTED_WNBA.has(season) && /\|wnba(?:$|-)/i.test(exactSetKey);
+  return false;
+}
+
+const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+const ready = (Array.isArray(summary.ready) ? summary.ready : [])
+  .filter((row) => selectedScope(row.exactSetKey))
+  .sort((a, b) => Number(a?.counts?.identities || 0) - Number(b?.counts?.identities || 0))
+  .slice(0, MAX_SETS);
+if (!ready.length) throw new Error("Verified harvest bundle has no clean targets in the selected Hockey/WNBA scope.");
+
+const selectedValidationFailures = (Array.isArray(summary.validationFailed) ? summary.validationFailed : [])
+  .filter((row) => selectedScope(row.exactSetKey));
+const selectedHardFailures = (Array.isArray(summary.failed) ? summary.failed : [])
+  .filter((row) => selectedScope(row.exactSetKey));
+const safeSlug = (value) => String(value || "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "target";
+const sourceFiles = readdirSync(sourcesDir);
+const db = dbClient();
+const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+
+function transientMessage(message) {
+  return /timeout|timed out|too many connections|connection terminated|connection reset|connection refused|could not query the database|web server is down|ssl handshake|\b52[125]\b|\b544\b|fetch failed|network/i.test(String(message || ""));
+}
+
+async function proveDatabase() {
+  const maxAttempts = Math.max(1, Number(process.env.VERIFIED_DB_HEALTH_ATTEMPTS || 18));
+  const delayMs = Math.max(1_000, Number(process.env.VERIFIED_DB_HEALTH_DELAY_MS || 5_000));
+  let last = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const started = Date.now();
+    try {
+      const { data, error } = await db.from("checklist_releases").select("id").limit(1);
+      if (!error) {
+        console.log(`Database health check passed on attempt ${attempt} in ${Date.now() - started}ms.`);
+        return { attempt, sampleRows: Array.isArray(data) ? data.length : null };
+      }
+      last = error;
+      console.warn(`Database health attempt ${attempt}/${maxAttempts} failed: ${error.message}`);
+    } catch (error) {
+      last = error;
+      console.warn(`Database health attempt ${attempt}/${maxAttempts} threw: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (attempt < maxAttempts) await sleep(delayMs);
+  }
+  throw new Error(`Production database never became healthy: ${last instanceof Error ? last.message : String(last?.message || last || "unknown")}`);
+}
+
+async function persistWithRecovery(plan, sourceBytes, exactSetKey) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= TARGET_ATTEMPTS; attempt += 1) {
+    try {
+      const transaction = await persistPlanStaged(db, plan, sourceBytes);
+      if (attempt > 1) console.log(`${exactSetKey} recovered on target attempt ${attempt}/${TARGET_ATTEMPTS}.`);
+      return transaction;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`${exactSetKey} target attempt ${attempt}/${TARGET_ATTEMPTS} failed: ${lastError.message}`);
+      if (!transientMessage(lastError.message) || attempt >= TARGET_ATTEMPTS) break;
+      await sleep(Math.min(60_000, TARGET_RETRY_DELAY_MS * attempt));
+      try { await proveDatabase(); }
+      catch (healthError) {
+        console.warn(`${exactSetKey} recovery health probe failed: ${healthError instanceof Error ? healthError.message : String(healthError)}`);
+      }
+    }
+  }
+  throw lastError || new Error(`Unknown staged persistence failure for ${exactSetKey}`);
+}
+
+const health = await proveDatabase();
+const results = [];
+for (let index = 0; index < ready.length; index += 1) {
+  const target = ready[index];
+  const exactSetKey = target.exactSetKey;
+  const slug = safeSlug(exactSetKey);
+  const planPath = resolve(plansDir, `${slug}.json`);
+  if (!existsSync(planPath)) {
+    results.push({ exactSetKey, status: "failed", error: `Missing plan artifact ${basename(planPath)}` });
+    continue;
+  }
+  const plan = JSON.parse(readFileSync(planPath, "utf8"));
+  if (plan?.validation?.status !== "passed") {
+    results.push({ exactSetKey, status: "blocked", error: `Plan validation status is ${plan?.validation?.status || "missing"}` });
+    continue;
+  }
+  const sourcePrefix = `${slug}__`;
+  const sourceName = sourceFiles.find((name) => name.startsWith(sourcePrefix));
+  if (!sourceName) {
+    results.push({ exactSetKey, status: "failed", error: `Missing source artifact prefix ${sourcePrefix}` });
+    continue;
+  }
+  const sourceBytes = readFileSync(resolve(sourcesDir, sourceName));
+  const expectedSize = Number(plan?.source?.storage?.sizeBytes || 0);
+  if (expectedSize && sourceBytes.byteLength !== expectedSize) {
+    results.push({ exactSetKey, status: "failed", error: `Source byte mismatch ${sourceBytes.byteLength} != ${expectedSize}` });
+    continue;
+  }
+
+  console.log(`=== SELECTED PRODUCTION APPLY ${index + 1}/${ready.length}: ${exactSetKey} ===`);
+  try {
+    const transaction = await persistWithRecovery(plan, sourceBytes, exactSetKey);
+    const row = { exactSetKey, status: "persisted", counts: plan.validation.counts, transaction, source: plan.source.storage };
+    results.push(row);
+    console.log(JSON.stringify({ exactSetKey, status: row.status, counts: row.counts, transactionCounts: transaction?.counts }));
+    if (TARGET_SUCCESS_DELAY_MS) await sleep(TARGET_SUCCESS_DELAY_MS);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    results.push({ exactSetKey, status: "failed", counts: plan.validation.counts, error: message });
+    console.error(JSON.stringify({ exactSetKey, status: "failed", error: message }));
+    if (transientMessage(message)) await sleep(Math.min(60_000, TARGET_RETRY_DELAY_MS * 2));
+  }
+}
+
+const persisted = results.filter((row) => row.status === "persisted");
+const failed = results.filter((row) => row.status !== "persisted");
+const receipt = {
+  schema: "tcos.checklist.selectedVerifiedProductionApply.v1",
+  sourceHarvestRunId: Number(process.env.VERIFIED_SOURCE_RUN_ID || 0) || null,
+  selectedScope: { hockey: [...SELECTED_HOCKEY], wnba: [...SELECTED_WNBA] },
+  health,
+  sourceSummary: {
+    targetCount: summary.targetCount,
+    readyCount: summary.readyCount,
+    validationFailedCount: summary.validationFailedCount,
+    failedCount: summary.failedCount,
+  },
+  selectedReadyCount: ready.length,
+  selectedValidationFailedCount: selectedValidationFailures.length,
+  selectedHardFailureCount: selectedHardFailures.length,
+  requestedCount: ready.length,
+  attemptedCount: results.length,
+  persistedCount: persisted.length,
+  failedCount: failed.length,
+  persistedCards: persisted.reduce((sum, row) => sum + Number(row.counts?.cards || 0), 0),
+  persistedParallels: persisted.reduce((sum, row) => sum + Number(row.counts?.parallels || 0), 0),
+  persistedIdentities: persisted.reduce((sum, row) => sum + Number(row.counts?.identities || 0), 0),
+  results,
+};
+writeFileSync(OUTPUT, `${JSON.stringify(receipt, null, 2)}\n`);
+console.log(JSON.stringify({ selectedReadyCount: receipt.selectedReadyCount, selectedValidationFailedCount: receipt.selectedValidationFailedCount, persistedCount: receipt.persistedCount, failedCount: receipt.failedCount, attemptedCount: receipt.attemptedCount, persistedCards: receipt.persistedCards, persistedParallels: receipt.persistedParallels, persistedIdentities: receipt.persistedIdentities }, null, 2));
+if (!persisted.length || failed.length || results.length !== ready.length) process.exitCode = 2;
