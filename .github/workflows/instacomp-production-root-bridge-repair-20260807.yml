@@ -1,0 +1,199 @@
+name: InstaComp Production Root Bridge Repair 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-production-root-bridge-repair-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-production-root-bridge-repair-20260807
+  cancel-in-progress: true
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  PRODUCTION_ORIGIN: https://truelycollectables.com
+  EXPECTED_MAC_FINGERPRINT: dfc2dc241f61cd615b0811c68f7b843dd44c19e22fd29adc7d839ee1e62289cb
+  SCANNER_REPAIR_COMMIT: 2249ce075d32c0cac9e074d8e4e5656830d05b79
+
+jobs:
+  repair-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Prove current main still carries fingerprinted scanner runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$SCANNER_REPAIR_COMMIT" HEAD
+          if git diff --name-only "$SCANNER_REPAIR_COMMIT"..HEAD -- \
+            services/instacomp-ai/app/local_vision.py \
+            services/instacomp-ai/app/ollama.py | grep -q .; then
+            echo "Mac runtime source changed after scanner repair; expected fingerprint is stale." >&2
+            exit 2
+          fi
+          echo "main_source=$(git rev-parse HEAD)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install and link Production project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          npm ci
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+
+      - name: Repair only known invalid Vercel repository-root setting
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r project_id org_id < <(node - <<'NODE'
+          const fs = require('node:fs');
+          const p = JSON.parse(fs.readFileSync('.vercel/project.json','utf8'));
+          if (!String(p.projectId||'').startsWith('prj_')) throw new Error('Invalid projectId');
+          if (!/^(team_|user_)/.test(String(p.orgId||''))) throw new Error('Invalid orgId');
+          console.log(p.projectId, p.orgId);
+          NODE
+          )
+          endpoint="/v9/projects/${project_id}?teamId=${org_id}"
+          before="$RUNNER_TEMP/vercel-project-before.json"
+          after="$RUNNER_TEMP/vercel-project-after.json"
+          npx --yes vercel@58.8.0 api "$endpoint" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$before"
+          status=0
+          ROOT_FILE="$before" python - <<'PY' || status=$?
+          import json, os
+          p=json.load(open(os.environ['ROOT_FILE']))
+          root=p.get('rootDirectory')
+          print(f"rootDirectory_before={root!r}")
+          if root in (None,''): raise SystemExit(0)
+          if str(root).strip() in ('.','./'): raise SystemExit(10)
+          raise SystemExit(20)
+          PY
+          case "$status" in
+            0) echo "PASS  Root Directory already represents repository root." ;;
+            10)
+              echo "Repairing invalid Root Directory to repository root."
+              npx --yes vercel@58.8.0 api "$endpoint" -X PATCH -F rootDirectory= --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$after"
+              ;;
+            *) echo "Refusing to alter unexpected non-root Vercel Root Directory." >&2; exit 2 ;;
+          esac
+          npx --yes vercel@58.8.0 api "$endpoint" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > "$after"
+          ROOT_FILE="$after" python - <<'PY'
+          import json, os
+          p=json.load(open(os.environ['ROOT_FILE']))
+          root=p.get('rootDirectory')
+          print(f"rootDirectory_after={root!r}")
+          if root not in (None,''):
+              raise SystemExit(f"Root Directory repair failed: {root!r}")
+          PY
+
+      - name: Deploy current main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/vercel-deploy.log"
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" 2>&1 | tee "$log"
+          url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$log" | tail -n 1)"
+          test -n "$url"
+          echo "deployment_url=$url"
+
+      - name: Prove Production sees repaired Mac fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          readiness="$RUNNER_TEMP/readiness.json"
+          code=""
+          for attempt in $(seq 1 24); do
+            code="$(curl -sS --max-time 30 -o "$readiness" -w '%{http_code}' -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/internal-readiness?rootrepair=1&attempt=$attempt&ts=$(date +%s)")"
+            if [ "$code" = "200" ]; then
+              if node - "$readiness" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+              const fs=require('node:fs');
+              const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+              const expected=process.argv[3];
+              for (const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) {
+                if (b[k] !== true) process.exit(1);
+              }
+              if (b.runtimeSourceFingerprint !== expected) process.exit(1);
+              NODE
+              then break; fi
+            fi
+            sleep 5
+          done
+          test "$code" = "200"
+          cat "$readiness"
+          node - "$readiness" "$EXPECTED_MAC_FINGERPRINT" <<'NODE'
+          const fs=require('node:fs');
+          const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if (b.runtimeSourceFingerprint !== process.argv[3]) throw new Error('Wrong Mac fingerprint');
+          for (const k of ['ok','configured','reachable','internalMemoryReady','checklistReady','localModelReady']) {
+            if (b[k] !== true) throw new Error(`Readiness failed: ${k}`);
+          }
+          NODE
+
+      - name: Prove Production Sentinel proxy authenticates to Mac
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/production.env"
+          npx --yes vercel@56.2.0 env pull "$env_file" --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          archive_token="$(ENV_FILE="$env_file" node - <<'NODE'
+          const fs=require('node:fs');
+          const lines=fs.readFileSync(process.env.ENV_FILE,'utf8').split(/\r?\n/);
+          let value='';
+          for (const raw of lines) {
+            const i=raw.indexOf('='); if (i<1) continue;
+            if (raw.slice(0,i).trim() !== 'INSTACOMP_SENTINEL_ARCHIVE_TOKEN') continue;
+            let v=raw.slice(i+1).trim();
+            if (v.startsWith('"') && v.endsWith('"')) { try { v=JSON.parse(v); } catch {} }
+            else if (v.startsWith("'") && v.endsWith("'")) v=v.slice(1,-1);
+            value=v; break;
+          }
+          process.stdout.write(value);
+          NODE
+          )"
+          test "${#archive_token}" -ge 32
+          echo "::add-mask::$archive_token"
+          body="$RUNNER_TEMP/sentinel.json"
+          code="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' -H "x-instacomp-sentinel-archive-token: $archive_token" -H 'Cache-Control: no-cache' "$PRODUCTION_ORIGIN/api/instacomp/checklist-sentinel?view=status&ts=$(date +%s)")"
+          test "$code" = "200"
+          cat "$body"
+          node - "$body" <<'NODE'
+          const fs=require('node:fs');
+          const b=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          if (b.ok !== true || b.data?.name !== 'InstaComp AI Checklist Sentinel™') {
+            throw new Error('Production Sentinel proxy did not authenticate to Mac');
+          }
+          NODE
+
+      - name: Write repair receipt
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence/instacomp-production-root-bridge-repair-20260807
+          cp "$RUNNER_TEMP/vercel-project-before.json" evidence/instacomp-production-root-bridge-repair-20260807/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/vercel-project-after.json" evidence/instacomp-production-root-bridge-repair-20260807/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/readiness.json" evidence/instacomp-production-root-bridge-repair-20260807/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/sentinel.json" evidence/instacomp-production-root-bridge-repair-20260807/ 2>/dev/null || true
+          printf '{"expectedMacFingerprint":"%s","mainSource":"%s"}\n' "$EXPECTED_MAC_FINGERPRINT" "$(git rev-parse HEAD)" > evidence/instacomp-production-root-bridge-repair-20260807/receipt.json
+
+      - name: Upload repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-production-root-bridge-repair-20260807
+          path: evidence/instacomp-production-root-bridge-repair-20260807
+          retention-days: 90
