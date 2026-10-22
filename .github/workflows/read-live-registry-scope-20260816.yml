@@ -1,0 +1,87 @@
+name: Read Exact Requested Checklist Gap 20260816
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/read-live-registry-scope-20260816.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  read-live-registry-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: rfdzsoykhnngzdnvzlhz
+    steps:
+      - name: Count exact requested checklist gap through targeted REST
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          node <<'NODE'
+          const fs = require('node:fs');
+          const accessToken = String(process.env.GH_SUPABASE_ACCESS_TOKEN || '');
+          const projectRef = String(process.env.SUPABASE_PROJECT_REF || '');
+          const targets = ["2024-panini-origins-wnba-basketball","2024-panini-prizm-wnba-basketball","2024-panini-select-wnba-basketball","2025-panini-donruss-wnba-basketball","2025-panini-impeccable-wnba-basketball","2025-panini-one-and-one-wnba-basketball","2025-panini-prizm-wnba-basketball","2025-panini-select-wnba-basketball","2021-22-leaf-lumber-hockey","2021-22-topps-sticker-collection-nhl-hockey","2021-22-upper-deck-allure-nhl-hockey","2021-22-upper-deck-black-diamond-nhl-hockey","2021-22-upper-deck-credentials-nhl-hockey","2021-22-upper-deck-ice-nhl-hockey","2021-22-upper-deck-mvp-nhl-hockey","2021-22-upper-deck-o-pee-chee-nhl-hockey","2021-22-upper-deck-o-pee-chee-platinum-nhl-hockey","2021-22-upper-deck-premier-nhl-hockey","2021-22-upper-deck-series-one-nhl-hockey","2021-22-upper-deck-series-two-nhl-hockey","2021-22-upper-deck-skybox-metal-universe-nhl-hockey","2021-22-upper-deck-sp-authentic-nhl-hockey","2021-22-upper-deck-sp-game-used-nhl-hockey","2021-22-upper-deck-stature-nhl-hockey","2021-22-upper-deck-synergy-nhl-hockey","2021-22-upper-deck-the-cup-nhl-hockey","2021-22-upper-deck-ultimate-collection-nhl-hockey","2022-23-leaf-used-hockey","2022-23-upper-deck-ahl-hockey","2022-23-upper-deck-allure-nhl-hockey","2022-23-upper-deck-artifacts-nhl-hockey","2022-23-upper-deck-black-diamond-nhl-hockey","2022-23-upper-deck-credentials-nhl-hockey","2022-23-upper-deck-extended-series-nhl-hockey","2022-23-upper-deck-o-pee-chee-nhl-hockey","2022-23-upper-deck-o-pee-chee-platinum-nhl-hockey","2022-23-upper-deck-parkhurst-champions-nhl-hockey","2022-23-upper-deck-premier-nhl-hockey","2022-23-upper-deck-series-two-nhl-hockey","2022-23-upper-deck-skybox-metal-universe-nhl-hockey","2022-23-upper-deck-sp-authentic-nhl-hockey","2022-23-upper-deck-sp-game-used-nhl-hockey","2022-23-upper-deck-spx-nhl-hockey","2022-23-upper-deck-stature-nhl-hockey","2022-23-upper-deck-synergy-nhl-hockey","2022-23-upper-deck-the-cup-nhl-hockey","2022-23-upper-deck-trilogy-nhl-hockey","2022-23-upper-deck-ultimate-collection-nhl-hockey","2022-leaf-art-of-hockey","2023-24-upper-deck-ahl-hockey","2023-24-upper-deck-allure-nhl-hockey","2023-24-upper-deck-artifacts-nhl-hockey","2023-24-upper-deck-black-diamond-nhl-hockey","2023-24-upper-deck-chl-hockey","2023-24-upper-deck-clear-cut-nhl-hockey","2023-24-upper-deck-credentials-nhl-hockey","2023-24-upper-deck-engrained-nhl-hockey","2023-24-upper-deck-extended-series-nhl-hockey","2023-24-upper-deck-ice-nhl-hockey","2023-24-upper-deck-mvp-nhl-hockey","2023-24-upper-deck-o-pee-chee-nhl-hockey","2023-24-upper-deck-o-pee-chee-platinum-nhl-hockey","2023-24-upper-deck-parkhurst-champions-nhl-hockey","2023-24-upper-deck-premier-nhl-hockey","2023-24-upper-deck-series-one-nhl-hockey","2023-24-upper-deck-series-two-nhl-hockey","2023-24-upper-deck-skybox-e-x-2000-nhl-hockey","2023-24-upper-deck-skybox-metal-universe-nhl-hockey","2023-24-upper-deck-sp-authentic-nhl-hockey","2023-24-upper-deck-sp-game-used-nhl-hockey","2023-24-upper-deck-spx-nhl-hockey","2023-24-upper-deck-synergy-nhl-hockey","2023-24-upper-deck-the-cup-nhl-hockey","2023-24-upper-deck-trilogy-nhl-hockey","2023-24-upper-deck-ultimate-collection-nhl-hockey","2023-leaf-ultimate-hockey","2024-25-upper-deck-ahl-hockey","2024-25-upper-deck-allure-nhl-hockey","2024-25-upper-deck-artifacts-nhl-hockey","2024-25-upper-deck-black-diamond-nhl-hockey","2024-25-upper-deck-clear-cut-nhl-hockey","2024-25-upper-deck-credentials-nhl-hockey","2024-25-upper-deck-engrained-icons-nhl-hockey","2024-25-upper-deck-extended-series-nhl-hockey","2024-25-upper-deck-ice-nhl-hockey","2024-25-upper-deck-mvp-nhl-hockey","2024-25-upper-deck-o-pee-chee-nhl-hockey","2024-25-upper-deck-o-pee-chee-platinum-nhl-hockey","2024-25-upper-deck-parkhurst-champions-nhl-hockey","2024-25-upper-deck-premier-nhl-hockey","2024-25-upper-deck-series-one-nhl-hockey","2024-25-upper-deck-series-two-nhl-hockey","2024-25-upper-deck-skybox-metal-universe-nhl-hockey","2024-25-upper-deck-sp-authentic-nhl-hockey","2024-25-upper-deck-sp-game-used-nhl-hockey","2024-25-upper-deck-spx-nhl-hockey","2024-25-upper-deck-stature-nhl-hockey","2024-25-upper-deck-synergy-nhl-hockey","2024-25-upper-deck-the-cup-nhl-hockey","2024-25-upper-deck-ultimate-collection-nhl-hockey","2024-leaf-metal-legends-hockey","2024-upper-deck-professional-womens-league-pwhl-hockey","2025-26-upper-deck-allure-nhl-hockey","2025-26-upper-deck-artifacts-nhl-hockey","2025-26-upper-deck-black-diamond-nhl-hockey","2025-26-upper-deck-chicago-blackhawks-centennial-hockey","2025-26-upper-deck-clear-cut-nhl-hockey","2025-26-upper-deck-credentials-nhl-hockey","2025-26-upper-deck-detroit-red-wings-centennial-hockey","2025-26-upper-deck-flair-nhl-hockey","2025-26-upper-deck-mvp-nhl-hockey","2025-26-upper-deck-new-york-rangers-centennial-hockey","2025-26-upper-deck-o-pee-chee-nhl-hockey","2025-26-upper-deck-series-one-nhl-hockey","2025-26-upper-deck-series-two-nhl-hockey","2025-26-upper-deck-skybox-metal-universe-nhl-hockey","2025-26-upper-deck-sp-cards-retail-nhl-hockey","2025-26-upper-deck-sp-game-used-nhl-hockey","2025-leaf-metal-legends-hockey","2025-upper-deck-national-hockey-card-day-hockey","2025-upper-deck-professional-womens-league-pwhl-hockey","2026-upper-deck-national-hockey-card-day-hockey"];
+          if (!accessToken || !projectRef) throw new Error('Supabase credentials unavailable');
+          if (targets.length !== 122 || new Set(targets).size !== 122) throw new Error(`Expected 122 unique targets, got ${targets.length}`);
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          const chunks=(a,n)=>Array.from({length:Math.ceil(a.length/n)},(_,i)=>a.slice(i*n,i*n+n));
+          async function fetchJson(url, options={}, attempts=4) {
+            let last;
+            for(let i=1;i<=attempts;i++){
+              try{
+                const res=await fetch(url,{...options,signal:AbortSignal.timeout(15000)});
+                const text=await res.text();
+                if(res.ok) return text?JSON.parse(text):[];
+                last=new Error(`HTTP ${res.status}: ${text.slice(0,250)}`);
+              }catch(e){last=e;}
+              if(i<attempts) await sleep(i*1000);
+            }
+            throw last;
+          }
+          (async()=>{
+            const keys=await fetchJson(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${accessToken}`,Accept:'application/json'}});
+            const role=keys.find(k=>String(k.name||k.id||'').toLowerCase().replace(/[^a-z0-9]+/g,'_')==='service_role');
+            const serviceKey=role?.api_key;
+            if(!serviceKey) throw new Error('No service_role key returned');
+            console.log('::add-mask::'+serviceKey);
+            const headers={apikey:serviceKey,Authorization:`Bearer ${serviceKey}`,Accept:'application/json'};
+            const releases=[];
+            for(const group of chunks(targets,10)){
+              const filter=`in.(${group.join(',')})`;
+              const url=`https://${projectRef}.supabase.co/rest/v1/checklist_releases?select=id,slug&slug=${encodeURIComponent(filter)}`;
+              releases.push(...await fetchJson(url,{headers}));
+            }
+            const releaseIds=[...new Set(releases.map(r=>r.id))];
+            const versions=[];
+            for(const group of chunks(releaseIds,20)){
+              const filter=`in.(${group.join(',')})`;
+              const url=`https://${projectRef}.supabase.co/rest/v1/checklist_versions?select=release_id,status,is_active,normalized_card_count,normalized_identity_count&is_active=eq.true&release_id=${encodeURIComponent(filter)}`;
+              versions.push(...await fetchJson(url,{headers}));
+            }
+            const readyIds=new Set(versions.filter(v=>['live','revised'].includes(v.status)&&Number(v.normalized_card_count||0)>0&&Number(v.normalized_identity_count||0)>0).map(v=>v.release_id));
+            const readySlugs=new Set(releases.filter(r=>readyIds.has(r.id)).map(r=>r.slug));
+            const hockeyTargets=targets.filter(s=>s.endsWith('-hockey'));
+            const wnbaTargets=targets.filter(s=>s.endsWith('-basketball'));
+            const wnba2024=wnbaTargets.filter(s=>s.startsWith('2024-'));
+            const wnba2025=wnbaTargets.filter(s=>s.startsWith('2025-'));
+            const missing=targets.filter(s=>!readySlugs.has(s));
+            const result={schema:'tcos.requestedChecklistGap.v3',checkedAt:new Date().toISOString(),requestedTotal:122,readyTotal:122-missing.length,missingTotal:missing.length,hockey:{total:114,ready:hockeyTargets.filter(s=>readySlugs.has(s)).length,missing:hockeyTargets.filter(s=>!readySlugs.has(s)).length},wnba:{total:8,ready:wnbaTargets.filter(s=>readySlugs.has(s)).length,missing:wnbaTargets.filter(s=>!readySlugs.has(s)).length,y2024:{total:3,ready:wnba2024.filter(s=>readySlugs.has(s)).length,missing:wnba2024.filter(s=>!readySlugs.has(s)).length},y2025:{total:5,ready:wnba2025.filter(s=>readySlugs.has(s)).length,missing:wnba2025.filter(s=>!readySlugs.has(s)).length}},matchedReleaseRows:releases.length,matchedActiveVersions:versions.length,missing,safety:{readOnly:true,transport:'targeted-supabase-rest'}};
+            fs.writeFileSync('evidence/requested-checklist-gap.json',JSON.stringify(result,null,2)+'\n');
+            console.log(JSON.stringify(result,null,2));
+          })().catch(e=>{console.error(e.stack||e.message);process.exit(1);});
+          NODE
+
+      - name: Upload exact gap receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-requested-checklist-gap-20260816
+          path: evidence/requested-checklist-gap.json
+          if-no-files-found: error
+          retention-days: 30
