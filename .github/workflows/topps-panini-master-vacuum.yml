@@ -1,12 +1,23 @@
 name: Topps Panini Master Vacuum
 
 on:
+  pull_request:
+    paths:
+      - "scripts/discover-topps-panini-master-indexes.ts"
+      - "scripts/discover-panini-checklists-via-public-indexes.ts"
+      - "scripts/archive-topps-seed-sets.ts"
+      - "scripts/archive-panini-seed-sets.ts"
+      - "scripts/validate-topps-panini-master-registry.ts"
+      - "data/topps-checklist-seeds.json"
+      - "data/panini-checklist-seeds.json"
+      - ".github/workflows/topps-panini-master-vacuum.yml"
   push:
     paths:
       - "scripts/discover-topps-panini-master-indexes.ts"
       - "scripts/discover-panini-checklists-via-public-indexes.ts"
       - "scripts/archive-topps-seed-sets.ts"
       - "scripts/archive-panini-seed-sets.ts"
+      - "scripts/validate-topps-panini-master-registry.ts"
       - "data/topps-checklist-seeds.json"
       - "data/panini-checklist-seeds.json"
       - ".github/workflows/topps-panini-master-vacuum.yml"
@@ -28,6 +39,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Install deterministic PDF text extractor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
       - run: npm ci
       - name: Master index sweep pass 1
         continue-on-error: true
@@ -57,10 +73,13 @@ jobs:
         continue-on-error: true
         timeout-minutes: 90
         run: node --import tsx scripts/archive-panini-seed-sets.ts
+      - name: Validate Registry-ready files and classify adapter backlog
+        timeout-minutes: 60
+        run: node --import tsx scripts/validate-topps-panini-master-registry.ts
       - name: Package archive
         if: always()
         run: |
-          mkdir -p .topps-panini-master/manifests .topps-panini-master/discovery .topps-panini-master/seeds
+          mkdir -p .topps-panini-master/manifests .topps-panini-master/discovery .topps-panini-master/seeds .topps-panini-master/validation
           test ! -d .topps-seed-archive || cp -a .topps-seed-archive/Topps .topps-panini-master/
           test ! -d .panini-seed-archive || cp -a .panini-seed-archive/Panini .topps-panini-master/
           test ! -f .topps-seed-archive/manifest.json || cp .topps-seed-archive/manifest.json .topps-panini-master/manifests/topps.json
@@ -84,5 +103,6 @@ jobs:
             .topps-panini-master/manifests/*.json
             .topps-panini-master/discovery/*.json
             .topps-panini-master/seeds/*.json
+            .topps-panini-master/validation/*.json
           if-no-files-found: error
           retention-days: 90
