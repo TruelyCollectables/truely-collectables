@@ -1,0 +1,149 @@
+name: Recover Supabase DB and REST 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/recover-supabase-db-rest-20260810.yml"
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve protected Production Supabase credentials
+        run: bash scripts/resolve-mainstream-checklist-production-env.sh
+
+      - name: Prove restart preconditions
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN"
+          base="https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF"
+
+          curl --silent --show-error --fail --max-time 15 \
+            --header "$auth" "$base" > "$RUNNER_TEMP/project.json"
+          jq '{ref,name,status,region}' "$RUNNER_TEMP/project.json"
+          jq -e '.status == "ACTIVE_HEALTHY"' "$RUNNER_TEMP/project.json" >/dev/null
+
+          for service in rest db; do
+            status=$(curl --silent --show-error --max-time 15 \
+              --output "$RUNNER_TEMP/${service}.json" \
+              --write-out '%{http_code}' \
+              --header "$auth" "$base/health?services=$service" || true)
+            echo "${service}_health_http=$status"
+            jq . "$RUNNER_TEMP/${service}.json" 2>/dev/null || cat "$RUNNER_TEMP/${service}.json" || true
+            test "$status" = "200"
+            jq -e --arg service "$service" 'length == 1 and .[0].name == $service and (.[0].healthy | type == "boolean")' "$RUNNER_TEMP/${service}.json" >/dev/null
+          done
+
+          rest_healthy=$(jq -r '.[0].healthy' "$RUNNER_TEMP/rest.json")
+          db_healthy=$(jq -r '.[0].healthy' "$RUNNER_TEMP/db.json")
+          echo "rest_healthy=$rest_healthy"
+          echo "db_healthy=$db_healthy"
+
+          if [[ "$rest_healthy" == "true" && "$db_healthy" == "true" ]]; then
+            echo "restart_needed=false" >> "$GITHUB_OUTPUT"
+            echo "Both required services are already healthy; restart will be skipped."
+          else
+            echo "restart_needed=true" >> "$GITHUB_OUTPUT"
+            echo "At least one required service is unhealthy; guarded restart is authorized."
+          fi
+
+      - name: Restart Supabase project once
+        if: steps.preflight.outputs.restart_needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN"
+          base="https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF"
+          status=$(curl --silent --show-error --max-time 30 \
+            --output "$RUNNER_TEMP/restart.json" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "$auth" \
+            --header 'Content-Type: application/json' \
+            "$base/restart" || true)
+          echo "restart_http=$status"
+          cat "$RUNNER_TEMP/restart.json" || true
+          test "$status" = "200"
+
+      - name: Require DB and REST to recover
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $GH_SUPABASE_ACCESS_TOKEN"
+          base="https://api.supabase.com/v1/projects/$RESOLVED_SUPABASE_PROJECT_REF"
+          recovered=false
+
+          for attempt in $(seq 1 30); do
+            rest_http=$(curl --silent --show-error --max-time 10 \
+              --output "$RUNNER_TEMP/rest-after.json" \
+              --write-out '%{http_code}' \
+              --header "$auth" "$base/health?services=rest" || true)
+            db_http=$(curl --silent --show-error --max-time 10 \
+              --output "$RUNNER_TEMP/db-after.json" \
+              --write-out '%{http_code}' \
+              --header "$auth" "$base/health?services=db" || true)
+            rest_healthy=$(jq -r '.[0].healthy // false' "$RUNNER_TEMP/rest-after.json" 2>/dev/null || echo false)
+            db_healthy=$(jq -r '.[0].healthy // false' "$RUNNER_TEMP/db-after.json" 2>/dev/null || echo false)
+            rest_status=$(jq -r '.[0].status // "unknown"' "$RUNNER_TEMP/rest-after.json" 2>/dev/null || echo unknown)
+            db_status=$(jq -r '.[0].status // "unknown"' "$RUNNER_TEMP/db-after.json" 2>/dev/null || echo unknown)
+            echo "attempt=$attempt rest_http=$rest_http rest_healthy=$rest_healthy rest_status=$rest_status db_http=$db_http db_healthy=$db_healthy db_status=$db_status"
+
+            if [[ "$rest_http" == "200" && "$db_http" == "200" && "$rest_healthy" == "true" && "$db_healthy" == "true" ]]; then
+              recovered=true
+              break
+            fi
+            sleep 10
+          done
+
+          test "$recovered" = "true"
+
+      - name: Prove Production Registry REST is responsive
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "$PRODUCTION_ENV_PATH"
+          set +a
+          export SUPABASE_SERVICE_ROLE_KEY="$RESOLVED_SUPABASE_SERVICE_ROLE_KEY"
+          node --input-type=module <<'NODE'
+          const base = String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+          const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+          if (!base || !key) throw new Error('Missing Production Supabase credentials.');
+          const started = Date.now();
+          const response = await fetch(`${base}/rest/v1/checklist_source_catalog?select=*&limit=1`, {
+            method: 'GET',
+            headers: {
+              apikey: key,
+              Authorization: `Bearer ${key}`,
+              Accept: 'application/json',
+              'X-Client-Info': 'tcos-supabase-recovery-proof-v2',
+            },
+            signal: AbortSignal.timeout(15_000),
+          });
+          const text = await response.text();
+          console.log(JSON.stringify({status: response.status,ok: response.ok,elapsedMs: Date.now()-started,bodyPrefix:text.slice(0,300)}));
+          if (!response.ok) throw new Error(`Registry REST proof failed with HTTP ${response.status}`);
+          NODE
+
+      - name: Remove protected Production files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/mainstream-checklist-ingestion" .env.local .env.production.local "$RUNNER_TEMP"/project.json "$RUNNER_TEMP"/rest*.json "$RUNNER_TEMP"/db*.json "$RUNNER_TEMP"/restart.json
