@@ -1,0 +1,135 @@
+name: Ops Deal Hunter Groq Qwen Live 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-deal-hunter-groq-qwen-live-20260810.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-deal-hunter-groq-qwen-live-20260810
+  cancel-in-progress: false
+
+env:
+  REQUIRED_FIX: c031654f0a56efce58e37873faebff8f7115ed77
+  GROQ_VISION_MODEL: qwen/qwen3.6-27b
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  SITE_URL: https://truelycollectables.com
+
+jobs:
+  configure-deploy-hunt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lock latest main containing multi-provider repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$REQUIRED_FIX" origin/main
+          git checkout --detach origin/main
+          deployed_sha="$(git rev-parse HEAD)"
+          echo "DEPLOYED_SHA=$deployed_sha" >> "$GITHUB_ENV"
+          grep -Fq 'from "./multi-provider-core"' src/app/api/instacomp/deal-hunter/evaluate/route.ts
+          grep -Fq 'process.env.INSTACOMP_GROQ_MODEL' src/app/api/instacomp/deal-hunter/evaluate/multi-provider-core.ts
+
+      - name: Set current Groq vision model in Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          printf '%s' "$GROQ_VISION_MODEL" | npx --yes vercel@56.2.0 env add INSTACOMP_GROQ_MODEL production --force --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > env-names.txt
+          grep -Eq '(^|[[:space:]])INSTACOMP_GROQ_MODEL([[:space:]]|$)' env-names.txt
+          rm -f env-names.txt
+          echo "configured_groq_model=$GROQ_VISION_MODEL"
+
+      - name: Deploy latest repaired main to Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 deploy --prod --yes --force --archive=tgz --no-color --cwd "$GITHUB_WORKSPACE" --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" | tee deploy.log
+          grep -Fq 'https://' deploy.log
+
+      - name: Capture idle Deal Hunter baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > pre.json
+          for i in $(seq 1 80); do
+            code="$(curl -sS --max-time 45 -o pre.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              running="$(node -e "const p=require('./pre.json'); process.stdout.write(String(Boolean(p.scheduler?.running)))")"
+              if [ "$running" = false ]; then break; fi
+            fi
+            sleep 15
+          done
+          cat pre.json
+          node - <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('pre.json','utf8'));
+          if(!p.success) throw new Error(JSON.stringify(p));
+          if(!p.physicalMacHealthy) throw new Error('Physical Mac unhealthy');
+          if(!p.scheduler?.enabled) throw new Error('Deal Hunter scheduler disabled');
+          if(!p.scheduler?.evaluationKeyConfigured) throw new Error('Deal Hunter evaluation key missing');
+          if(p.scheduler?.running) throw new Error('Deal Hunter never became idle');
+          fs.appendFileSync(process.env.GITHUB_ENV,`PRE_COMPLETED=${p.scheduler.lastCompletedAt||''}\n`);
+          NODE
+
+      - name: Force one real card Deal Hunter run
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --max-time 300 -o trigger.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?pass=1" || true)"
+          echo "trigger_http=$code"
+          test -s trigger.json && cat trigger.json || true
+
+      - name: Poll durable run receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > status.json
+          for i in $(seq 1 160); do
+            code="$(curl -sS --max-time 45 -o status.json -w '%{http_code}' -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-learning-self-test?mode=status" || true)"
+            if [ "$code" = 200 ]; then
+              completed="$(node -e "const p=require('./status.json'); process.stdout.write(String(p.scheduler?.lastCompletedAt||''))")"
+              running="$(node -e "const p=require('./status.json'); process.stdout.write(String(Boolean(p.scheduler?.running)))")"
+              if [ -n "$completed" ] && [ "$completed" != "$PRE_COMPLETED" ] && [ "$running" = false ]; then break; fi
+            fi
+            sleep 15
+          done
+          cat status.json
+          node - <<'NODE'
+          const fs=require('fs'); const p=require('./status.json'); const latest=Array.isArray(p.runs)?p.runs[0]:null;
+          console.log('DEAL_HUNTER_FINAL_RUN='+JSON.stringify(latest));
+          if(!p.success||!latest) throw new Error('No durable run receipt');
+          if(latest.status!=='completed') throw new Error('Latest run not completed: '+JSON.stringify(latest));
+          if(Number(latest.discoveryCount||0)<=0||Number(latest.evaluatedCount||0)<=0) throw new Error('Discovery/evaluation empty');
+          fs.appendFileSync(process.env.GITHUB_ENV,'RUN_ID='+String(latest.runId||'')+'\n');
+          NODE
+
+      - name: Read exact candidate outcomes and fail if identity layer is still dead
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" > diagnostics.json
+          node - <<'NODE'
+          const p=require('./diagnostics.json'); if(!p.success) throw new Error(JSON.stringify(p));
+          const runId=process.env.RUN_ID;
+          const rows=(Array.isArray(p.macCandidates)?p.macCandidates:[]).filter(r=>r.runId===runId);
+          const errors={}; const labels={};
+          for(const r of rows){const e=r.errorCode||'NONE'; errors[e]=(errors[e]||0)+1; const l=r.dealLabel||'NONE'; labels[l]=(labels[l]||0)+1;}
+          const uniqueErrors=[...new Set(rows.map(r=>String(r.errorMessage||'').trim()).filter(Boolean))];
+          const actionable=rows.filter(r=>r.actionable||r.alertworthy);
+          console.log('DEAL_HUNTER_QWEN_RECEIPT='+JSON.stringify({deployedSha:process.env.DEPLOYED_SHA,groqModel:process.env.GROQ_VISION_MODEL,runId,count:rows.length,errorCounts:errors,dealLabelCounts:labels,uniqueErrors,actionable,candidates:rows}));
+          if(rows.length===0) throw new Error('No candidate receipts for current run');
+          const evalFailures=rows.filter(r=>r.errorCode==='DEAL_HUNTER_EVALUATION_FAILED');
+          if(evalFailures.length===rows.length) throw new Error('All evaluated cards still failed at the evaluation layer');
+          NODE
