@@ -1,0 +1,42 @@
+name: InstaComp Final Runtime Fingerprint 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-final-runtime-fingerprint-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fingerprint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/instacomp-final-runtime-fingerprint-20260807
+          fetch-depth: 0
+      - name: Compute exact merged Mac runtime fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 89307c8f19b631f69f9dadbe522f1d696f87f442 HEAD
+          if git diff --name-only 89307c8f19b631f69f9dadbe522f1d696f87f442..HEAD -- services/instacomp-ai/app/local_vision.py services/instacomp-ai/app/ollama.py | grep -q .; then
+            echo "Runtime source changed after merged final repair." >&2
+            exit 2
+          fi
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          root = Path('services/instacomp-ai')
+          digest = sha256()
+          for relative in ('app/local_vision.py', 'app/ollama.py'):
+              digest.update(relative.encode('utf-8'))
+              digest.update(b'\0')
+              digest.update((root / relative).read_bytes())
+              digest.update(b'\0')
+          print(f'FINAL_MAC_RUNTIME_FINGERPRINT={digest.hexdigest()}')
+          PY
