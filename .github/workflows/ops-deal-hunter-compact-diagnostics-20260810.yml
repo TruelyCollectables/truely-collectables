@@ -1,0 +1,60 @@
+name: Ops Deal Hunter Compact Diagnostics 20260810
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-deal-hunter-compact-diagnostics-20260810.yml'
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_SCOPE: truelycollectables-projects
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  SITE_URL: https://truelycollectables.com
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Read provider configuration names and latest candidate failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          npx --yes vercel@56.2.0 env ls production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" > env-names.txt
+          gemini=false
+          groq=false
+          openai=false
+          if grep -Eq '(^|[[:space:]])(GEMINI_API_KEY|GOOGLE_GEMINI_API_KEY)([[:space:]]|$)' env-names.txt; then gemini=true; fi
+          if grep -Eq '(^|[[:space:]])GROQ_API_KEY([[:space:]]|$)' env-names.txt; then groq=true; fi
+          if grep -Eq '(^|[[:space:]])OPENAI_API_KEY([[:space:]]|$)' env-names.txt; then openai=true; fi
+          rm -f env-names.txt
+          curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $VERCEL_TOKEN" "$SITE_URL/api/release/instacomp-deal-hunter-candidate-diagnostics" > diagnostics.json
+          GEMINI_CONFIGURED="$gemini" GROQ_CONFIGURED="$groq" OPENAI_CONFIGURED="$openai" node - <<'NODE'
+          const p=require('./diagnostics.json');
+          if(!p.success) throw new Error(JSON.stringify(p));
+          const latest=(Array.isArray(p.latestRuns)?p.latestRuns:[])[0]||null;
+          const runId=latest?.run_id||latest?.runId||null;
+          const rows=(Array.isArray(p.macCandidates)?p.macCandidates:[]).filter(r=>!runId||r.runId===runId);
+          const errorCounts={}; const labelCounts={};
+          for(const r of rows){
+            const e=r.errorCode||'NONE'; errorCounts[e]=(errorCounts[e]||0)+1;
+            const l=r.dealLabel||'NONE'; labelCounts[l]=(labelCounts[l]||0)+1;
+          }
+          const uniqueErrors=[...new Set(rows.map(r=>String(r.errorMessage||'').trim()).filter(Boolean))];
+          const compact={
+            providers:{openai:process.env.OPENAI_CONFIGURED==='true',gemini:process.env.GEMINI_CONFIGURED==='true',groq:process.env.GROQ_CONFIGURED==='true'},
+            latestRun:latest,
+            runId,
+            candidateCount:rows.length,
+            errorCounts,
+            dealLabelCounts:labelCounts,
+            uniqueErrors,
+            sample:rows.slice(0,5).map(r=>({title:r.title,lane:r.lane,status:r.status,errorCode:r.errorCode,errorMessage:r.errorMessage,identity:r.identity,exactMarket:r.exactMarket})),
+            checkedAt:p.checkedAt||null
+          };
+          console.log('COMPACT_DEAL_HUNTER_DIAGNOSTICS='+JSON.stringify(compact));
+          NODE
