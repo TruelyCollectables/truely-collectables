@@ -1,0 +1,222 @@
+name: Verify Recently Sold Gallery Final 20260730
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-recently-sold-gallery-final-20260730.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-final-live:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'ops/verify-recently-sold-gallery-final-20260730'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 62185767fb910e2e0ba05a1e5a373994cc251987
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: truelycollectables-projects
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Check out exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: 62185767fb910e2e0ba05a1e5a373994cc251987
+          fetch-depth: 0
+
+      - name: Validate exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${GH_SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$GH_SUPABASE_ACCESS_TOKEN"
+          grep -Fq 'href: "/recently-sold", label: "Recently Sold"' src/app/components/Navbar.tsx
+          grep -Fq 'Recently Sold — See What You Missed' src/app/recently-sold/page.tsx
+          grep -Fq 'ProductImageGallery' src/app/product/'[id]'/page.tsx
+          grep -Fq 'ProductImageGallery' src/app/product/'[id]'/layout.tsx
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Pull Production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel "$RUNNER_TEMP/final-gallery-verify"
+          if [ -n "${VERCEL_ORG_ID:-}" ] && [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+            printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          else
+            npx vercel@56.2.0 link --yes --project truely-collectables --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN"
+          fi
+          npx vercel@56.2.0 env pull "$RUNNER_TEMP/final-gallery-verify/production.env" \
+            --yes --environment production --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" >/dev/null
+          test -s "$RUNNER_TEMP/final-gallery-verify/production.env"
+
+      - name: Retrieve verified Production server key
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const workDir = path.join(process.env.RUNNER_TEMP, 'final-gallery-verify');
+          const text = fs.readFileSync(path.join(workDir, 'production.env'), 'utf8');
+          const parsed = {};
+          for (const rawLine of text.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) continue;
+            const index = line.indexOf('=');
+            if (index < 1) continue;
+            const key = line.slice(0, index).trim();
+            let value = line.slice(index + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.slice(1, -1);
+            }
+            parsed[key] = value;
+          }
+          const productionUrl = parsed.NEXT_PUBLIC_SUPABASE_URL;
+          if (!productionUrl) throw new Error('Production Supabase URL missing.');
+          const projectRef = new URL(productionUrl).hostname.split('.')[0];
+          const token = process.env.GH_SUPABASE_ACCESS_TOKEN;
+          const response = await fetch(
+            `https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          const body = await response.text();
+          if (!response.ok) throw new Error(`Supabase key retrieval failed: HTTP ${response.status}: ${body.slice(0, 1000)}`);
+          const keys = JSON.parse(body);
+          const elevated = Array.isArray(keys)
+            ? keys.find((entry) => typeof entry?.api_key === 'string' && entry.api_key.startsWith('sb_secret_'))
+              || keys.find((entry) => typeof entry?.api_key === 'string' && String(entry?.name || '').toLowerCase().includes('service'))
+            : null;
+          const serviceKey = elevated?.api_key;
+          if (!serviceKey) throw new Error('No Production server key returned.');
+          console.log('::add-mask::' + serviceKey);
+          const check = await fetch(`${productionUrl}/rest/v1/products?select=id&limit=1`, {
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+          });
+          if (!check.ok) throw new Error(`Production server key REST check failed: HTTP ${check.status}`);
+          fs.writeFileSync(path.join(workDir, 'service-role-key'), serviceKey, { mode: 0o600 });
+          NODE
+
+      - name: Select a real public listing with front and back images
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_key="$(cat "$RUNNER_TEMP/final-gallery-verify/service-role-key")"
+          echo "::add-mask::$service_key"
+          SUPABASE_SERVICE_ROLE_KEY="$service_key" \
+            node --env-file="$RUNNER_TEMP/final-gallery-verify/production.env" --import tsx --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createServerInventoryEngine } from './src/lib/server-inventory-engine.ts';
+          import { createSupabaseServerClient } from './src/lib/supabase-server.ts';
+
+          const engine = createServerInventoryEngine();
+          const products = await engine.listAvailable({ sort: 'newest' });
+          if (!products.length) throw new Error('Public storefront returned no available products.');
+          const supabase = createSupabaseServerClient({ admin: true });
+          let selected = null;
+          let withTwo = 0;
+          for (let offset = 0; offset < products.length; offset += 20) {
+            const batch = products.slice(offset, offset + 20).filter((item) => item.inventoryItemId);
+            const ids = batch.map((item) => String(item.inventoryItemId));
+            if (!ids.length) continue;
+            const { data, error } = await supabase
+              .from('inventory_images')
+              .select('inventory_item_id,image_url,sort_order')
+              .in('inventory_item_id', ids)
+              .order('inventory_item_id', { ascending: true })
+              .order('sort_order', { ascending: true });
+            if (error) throw error;
+            const imageSets = new Map();
+            for (const row of data || []) {
+              const id = String(row.inventory_item_id);
+              if (!imageSets.has(id)) imageSets.set(id, new Set());
+              imageSets.get(id).add(String(row.image_url || '').trim());
+            }
+            for (const product of batch) {
+              const count = imageSets.get(String(product.inventoryItemId))?.size || 0;
+              if (count >= 2) {
+                withTwo += 1;
+                if (!selected) selected = product;
+              }
+            }
+          }
+          if (!selected) throw new Error('No public product with two distinct photos was found.');
+          const receipt = {
+            publicProducts: products.length,
+            publicProductsWithTwoPhotosObserved: withTwo,
+            productId: selected.legacyProductId,
+            title: selected.title,
+          };
+          fs.writeFileSync(
+            path.join(process.env.RUNNER_TEMP, 'final-gallery-verify', 'sample.json'),
+            JSON.stringify(receipt, null, 2),
+          );
+          console.log(JSON.stringify(receipt, null, 2));
+          NODE
+
+      - name: Verify live routes and image captions
+        shell: bash
+        run: |
+          set -euo pipefail
+          product_id="$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.productId))' "$RUNNER_TEMP/final-gallery-verify/sample.json")"
+          for attempt in $(seq 1 12); do
+            shop_file="$RUNNER_TEMP/final-gallery-verify/shop.html"
+            sold_file="$RUNNER_TEMP/final-gallery-verify/sold.html"
+            product_file="$RUNNER_TEMP/final-gallery-verify/product.html"
+            shop_status="$(curl -sS -L --max-time 60 -o "$shop_file" -w '%{http_code}' "https://truelycollectables.com/shop?final_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            sold_status="$(curl -sS -L --max-time 60 -o "$sold_file" -w '%{http_code}' "https://truelycollectables.com/recently-sold?final_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            product_status="$(curl -sS -L --max-time 60 -o "$product_file" -w '%{http_code}' "https://truelycollectables.com/product/${product_id}?final_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            route_status="$(curl -sS -L --max-time 60 -o /dev/null -w '%{http_code}' -X POST "https://truelycollectables.com/api/internal/recently-sold-gallery-sync?final_verify=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+
+            shop_ok=false
+            sold_ok=false
+            product_ok=false
+            if [ "$shop_status" = "200" ] \
+              && grep -Fq '/recently-sold' "$shop_file" \
+              && ! grep -Fq 'Error loading products' "$shop_file"; then shop_ok=true; fi
+            if [ "$sold_status" = "200" ] \
+              && grep -Fq 'Recently Sold' "$sold_file" \
+              && grep -Fq 'See What You Missed' "$sold_file"; then sold_ok=true; fi
+            if [ "$product_status" = "200" ] \
+              && grep -Fq 'Front photo' "$product_file" \
+              && grep -Fq 'Back photo' "$product_file"; then product_ok=true; fi
+
+            echo "attempt=${attempt} shop=${shop_status}/${shop_ok} sold=${sold_status}/${sold_ok} product=${product_status}/${product_ok} route=${route_status} product_id=${product_id}"
+            if [ "$shop_ok" = true ] \
+              && [ "$sold_ok" = true ] \
+              && [ "$product_ok" = true ] \
+              && [ "$route_status" != "200" ] \
+              && [ "$route_status" != "401" ]; then
+              echo "Final live Recently Sold and front/back gallery verification passed."
+              cat "$RUNNER_TEMP/final-gallery-verify/sample.json"
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/final-gallery-verify"
