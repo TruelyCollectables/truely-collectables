@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { selectFrontBackListingImages } from "../../../../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../../../../lib/server-inventory-engine";
+import { listStorefrontProductImages } from "../../../../../lib/storefront-product-images";
+import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -30,24 +31,14 @@ export async function GET(
     return NextResponse.json({ error: "Product not available." }, { status: 404 });
   }
 
-  const supabase = createSupabaseServerClient({ admin: true });
-  const { data, error } = await supabase
-    .from("inventory_images")
-    .select("image_url,sort_order,is_primary")
-    .eq("inventory_item_id", product.inventoryItemId)
-    .order("sort_order", { ascending: true });
-
-  if (error) throw error;
-
-  const imageRows = data || [];
-  const orderedRows = [
-    ...imageRows.filter((image: any) => image.is_primary === true),
-    ...imageRows.filter((image: any) => image.is_primary !== true),
-  ];
-  const images = selectFrontBackListingImages([
-    ...orderedRows.map((image: any) => image.image_url),
-    product.imageUrl,
-  ]);
+  const images = await listStorefrontProductImages({
+    supabase: createSupabaseServerClient({ admin: true }),
+    storeId: getActiveStoreId(),
+    legacyProductId,
+    sku: product.sku,
+    preferredInventoryItemId: product.inventoryItemId,
+    primaryImageUrl: product.imageUrl,
+  });
 
   return NextResponse.json(
     {
