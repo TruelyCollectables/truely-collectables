@@ -75,7 +75,9 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Storefront publication subsystem failed.",
+            : typeof record(error).message === "string"
+              ? String(record(error).message).slice(0, 300)
+              : "Storefront publication subsystem failed.",
         code: typed.code || null,
         productIds: Array.isArray(typed.productIds) ? typed.productIds : [],
       },
