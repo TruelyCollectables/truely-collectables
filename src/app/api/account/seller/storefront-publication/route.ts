@@ -1,4 +1,4 @@
-import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
+import { getAuthenticatedAccountFromRequest } from "../../../../../lib/kingmaker-local-auth";
 import {
   ensureStorefrontProduct,
   findStorefrontProductsBySku,
