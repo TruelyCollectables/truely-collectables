@@ -98,6 +98,7 @@ async function verifiedPersistedImagePair(instaComp: UnknownRecord): Promise<[st
     "mac_registry_scanner",
     "mac_local_registry_exact",
     "operator_verified_registry_exact",
+    "kingmaker_mac_scan", // Legacy Mac scan; image bytes still validated before fallback.
   ];
   if (!allowedSources.includes(text(instaComp.source) || "")) return null;
   const front = trustedPublicCardImageUrl(instaComp.frontImageUrl);
