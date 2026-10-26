@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { getAuthenticatedAccountFromRequest as getCanonicalSellerAccount } from "../../../../../../lib/account-auth";
 import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
@@ -817,7 +818,11 @@ export async function POST(request: Request) {
     if (needsWebsitePublication && !linkedProductId) {
       try {
         linkedProduct = await ensureStorefrontProduct(request, {
-          sellerAccountId: text(keeper.seller_account_id, 200) || account.id,
+          sellerAccountId: (
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(keeper.seller_account_id || ""))
+              ? String(keeper.seller_account_id)
+              : (await getCanonicalSellerAccount(request))?.id || account.id
+          ),
           sku,
           title: websiteTitle,
           description: websiteDescription,
@@ -854,7 +859,7 @@ export async function POST(request: Request) {
         },
       };
     }
-    if (verifiedCsvLocked) nextMetadata.instacomp = { ...instaComp, pricingGroupKey: groupKey || effectiveInstaCompPricingGroupKey(metadata), commercialQuantity: totalQuantity, commercialKeeperInventoryItemId: keeperId };
+    if (verifiedCsvLocked) nextMetadata.instacomp = { ...instaComp }; // CSV-locked identity/photos are immutable; channel state lives in dual_marketplace.
     await updateMacKingmakerDraft(keeperId, {
       sku,
       quantity: totalQuantity,
