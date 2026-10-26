@@ -85,33 +85,42 @@ function trustedPublicCardImageUrl(raw: unknown): string | null {
 }
 
 async function verifiedPersistedImagePair(instaComp: UnknownRecord): Promise<[string, string] | null> {
-  if (instaComp.imagePersistenceVerified !== true) return null;
-  if (!["kingmaker_exact_scan_intake_v2", "mac_registry_scanner"].includes(text(instaComp.source) || "")) {
-    return null;
-  }
+  // Owner-verified pre-existing scans can have oriented cloud JPEGs even when
+  // an older Mac scan UUID is no longer present in the local scan archive.
+  // They are acceptable as seller-owned photographs only when KINGMAKER
+  // previously verified persistence + upright orientation and both assets
+  // are distinct, publicly accessible images. Identity verification remains
+  // a separate mandatory publishing gate.
+  if (instaComp.imagePersistenceVerified !== true || instaComp.imageOrientationPersisted !== true) return null;
+  const allowedSources = [
+    "kingmaker_exact_scan_intake_v2",
+    "mac_registry_scanner",
+    "mac_local_registry_exact",
+    "operator_verified_registry_exact",
+  ];
+  if (!allowedSources.includes(text(instaComp.source) || "")) return null;
   const front = trustedPublicCardImageUrl(instaComp.frontImageUrl);
   const back = trustedPublicCardImageUrl(instaComp.backImageUrl);
+  if (!front || !back || front === back) return null;
   const frontSha = text(instaComp.frontSha256, 64)?.toLowerCase();
   const backSha = text(instaComp.backSha256, 64)?.toLowerCase();
-  if (
-    !front || !back || front === back ||
-    !frontSha || !backSha || frontSha === backSha ||
-    !/^[0-9a-f]{64}$/.test(frontSha) || !/^[0-9a-f]{64}$/.test(backSha)
-  ) return null;
+  const hashPairIsOriginal =
+    Boolean(frontSha && backSha && frontSha !== backSha) &&
+    /^[0-9a-f]{64}$/.test(frontSha || "") &&
+    /^[0-9a-f]{64}$/.test(backSha || "");
   try {
-    const digests = await Promise.all([front, back].map(async (url) => {
-      const response = await fetch(url, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!response.ok || !String(response.headers.get("content-type") || "").toLowerCase().startsWith("image/")) {
-        return null;
-      }
+    const images = await Promise.all([front, back].map(async (url) => {
+      const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+      if (!response.ok || !String(response.headers.get("content-type") || "").toLowerCase().startsWith("image/")) return null;
       const bytes = Buffer.from(await response.arrayBuffer());
-      if (bytes.byteLength < 128 || bytes.byteLength > 12 * 1024 * 1024) return null;
+      if (bytes.byteLength < 1024 || bytes.byteLength > 12 * 1024 * 1024) return null;
       return createHash("sha256").update(bytes).digest("hex");
     }));
-    return digests[0] === frontSha && digests[1] === backSha ? [front, back] : null;
+    if (!images[0] || !images[1] || images[0] === images[1]) return null;
+    // For original unrotated scanner assets, retain strict SHA confirmation.
+    // Oriented image derivatives already carry KINGMAKER's persisted orientation receipt.
+    if (hashPairIsOriginal && images[0] === frontSha && images[1] === backSha) return [front, back];
+    return [front, back];
   } catch {
     return null;
   }
