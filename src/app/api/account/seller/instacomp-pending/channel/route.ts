@@ -859,7 +859,15 @@ export async function POST(request: Request) {
         },
       };
     }
-    if (verifiedCsvLocked) nextMetadata.instacomp = { ...instaComp }; // CSV-locked identity/photos are immutable; channel state lives in dual_marketplace.
+    if (verifiedCsvLocked) nextMetadata.instacomp = {
+      // The Mac's canonical CSV record can differ from a legacy Master Listings
+      // projection (e.g. manualListingTitle*). Supply ONLY the explicit pricing
+      // fields permitted by the verified CSV guard. The Mac merges them with
+      // its unchanged canonical identity and photos.
+      pricingGroupKey: groupKey || effectiveInstaCompPricingGroupKey(metadata),
+      commercialQuantity: totalQuantity,
+      commercialKeeperInventoryItemId: keeperId,
+    };
     await updateMacKingmakerDraft(keeperId, {
       sku,
       quantity: totalQuantity,
