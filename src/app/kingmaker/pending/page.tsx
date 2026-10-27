@@ -61,6 +61,17 @@ export default async function KingmakerPendingPage({
   const dataFolder = folder === "receipt" ? "pending" : folder;
   const batch = typeof resolvedSearchParams.batch === "string" ? resolvedSearchParams.batch.trim() : "";
   const focus = typeof resolvedSearchParams.focus === "string" ? resolvedSearchParams.focus.trim() : "";
+  // A large SSR payload stalled React hydration. Always fetch normal
+  // queues through the authenticated browser API (24 cards rendered at once).
+  // Do not hide cards awaiting photo review.
+  if (!batch && !focus) {
+    return <KingmakerPendingClient
+      initialQueue={queue}
+      initialFolder={folder}
+      initialCards={[]}
+      initialLoaded={false}
+    />;
+  }
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.getAll().map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   const response = await getPendingCards(
@@ -69,11 +80,8 @@ export default async function KingmakerPendingPage({
     }),
   ).catch(() => null);
   const data = response ? await response.json().catch(() => ({})) : {};
-  const items = Array.isArray(data.items)
-    ? focus
-      ? (data.items as PendingCard[])
-      : (data.items as PendingCard[]).filter(hasValidPair)
-    : [];
+  // Keep every received row visible; image issues are readiness warnings.
+  const items = Array.isArray(data.items) ? (data.items as PendingCard[]) : [];
   void frontBackRoute;
   return (
     <KingmakerPendingClient
