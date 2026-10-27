@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { supabase } from "../../../../lib/supabase";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -116,6 +116,9 @@ function groupEbayAttributes(rows: AttributeRow[]) {
 }
 
 async function loadReviewRows() {
+  // This route is protected by the admin request gate; private inventory data
+  // must only be queried from the server-side service-role client.
+  const supabase = createSupabaseServerClient({ admin: true });
   const tcosAttributes = await supabase
     .from("inventory_attributes")
     .select("inventory_item_id,attribute_name,attribute_value")
