@@ -983,16 +983,9 @@ export async function GET(request: Request) {
             ) !== folder
           )
             return false;
-          if (row.status === "active") return true;
-          const metadata = recordValue(row.metadata);
-          const instaComp = recordValue(metadata.instacomp);
-          return (
-            instaComp.identityComplete === true ||
-            textValue(instaComp.lastStatus) === "identity_complete" ||
-            textValue(instaComp.lastStatus) === "review_required" ||
-            textValue(instaComp.pricingStatus) ===
-              "identity_complete_pricing_pending"
-          );
+          // Readiness is separate from queue membership. Keep every pending
+          // physical card visible with its explicit validation/comp blockers.
+          return true;
         });
 
     const localCertifiedPricingRows = loadLocalCertifiedPricingRows();
@@ -1795,119 +1788,9 @@ export async function GET(request: Request) {
       };
     });
 
-    const commercialItems =
-      queue === "listings"
-        ? Array.from(
-            items.reduce((groups, item) => {
-              const groupKey =
-                item.uniquePhysicalCopy !== true
-                  ? item.instaComp.pricingGroupKey
-                  : null;
-              const key = groupKey || `physical:${item.inventoryItemId}`;
-              const existing = groups.get(key);
-              if (!existing) {
-                groups.set(key, {
-                  ...item,
-                  commercialGroup: {
-                    mergeable: Boolean(groupKey),
-                    memberInventoryItemIds: [item.inventoryItemId],
-                    members: [
-                      {
-                        inventoryItemId: item.inventoryItemId,
-                        scanId: item.instaComp.scanId || null,
-                        cardUuid: item.instaComp.cardUuid || null,
-                        inventoryLifecycle: item.inventoryLifecycle || null,
-                      },
-                    ],
-                    pendingRows: 1,
-                    pendingQuantity: Math.max(1, Number(item.quantity || 1)),
-                    activeRows: Number(
-                      item.instaComp.duplicateGroup?.activeRows || 0,
-                    ),
-                    totalQuantity: Number(
-                      item.instaComp.duplicateGroup?.totalQuantity ||
-                        item.quantity ||
-                        1,
-                    ),
-                  },
-                });
-                return groups;
-              }
-
-              existing.commercialGroup.memberInventoryItemIds.push(
-                item.inventoryItemId,
-              );
-              existing.commercialGroup.members.push({
-                inventoryItemId: item.inventoryItemId,
-                scanId: item.instaComp.scanId || null,
-                cardUuid: item.instaComp.cardUuid || null,
-                inventoryLifecycle: item.inventoryLifecycle || null,
-              });
-              existing.commercialGroup.pendingRows += 1;
-              existing.commercialGroup.pendingQuantity += Math.max(
-                1,
-                Number(item.quantity || 1),
-              );
-              existing.quantity = existing.commercialGroup.pendingQuantity;
-              existing.activationReadiness = {
-                ready:
-                  existing.activationReadiness.ready &&
-                  item.activationReadiness.ready,
-                blockers: Array.from(
-                  new Set([
-                    ...existing.activationReadiness.blockers,
-                    ...item.activationReadiness.blockers,
-                  ]),
-                ),
-              };
-              existing.listingReadiness = {
-                ...existing.listingReadiness,
-                ready:
-                  existing.listingReadiness.ready &&
-                  item.listingReadiness.ready,
-                coreReady:
-                  existing.listingReadiness.coreReady &&
-                  item.listingReadiness.coreReady,
-                websiteReady:
-                  existing.listingReadiness.websiteReady &&
-                  item.listingReadiness.websiteReady,
-                ebayReady:
-                  existing.listingReadiness.ebayReady &&
-                  item.listingReadiness.ebayReady,
-                mercariReady:
-                  existing.listingReadiness.mercariReady &&
-                  item.listingReadiness.mercariReady,
-                blockers: Array.from(
-                  new Set([
-                    ...existing.listingReadiness.blockers,
-                    ...item.listingReadiness.blockers,
-                  ]),
-                ),
-                checks: existing.listingReadiness.checks.map(
-                  (check: { code: string; label: string; ready: boolean }) => {
-                    const peer = item.listingReadiness.checks.find(
-                      (candidate: { code: string; ready: boolean }) =>
-                        candidate.code === check.code,
-                    );
-                    return {
-                      ...check,
-                      ready: check.ready && Boolean(peer?.ready),
-                    };
-                  },
-                ),
-                acquisitionSource:
-                  existing.listingReadiness.acquisitionSource &&
-                  item.listingReadiness.acquisitionSource
-                    ? existing.listingReadiness.acquisitionSource ===
-                      item.listingReadiness.acquisitionSource
-                      ? existing.listingReadiness.acquisitionSource
-                      : "Mixed"
-                    : null,
-              };
-              return groups;
-            }, new Map<string, any>()),
-          ).map(([, item]) => item)
-        : items.map((item) => ({
+    // Do not merge distinct physical scanned cards into a single UI row.
+    // The pricingGroupKey remains on each card for comparative analysis.
+    const commercialItems = items.map((item) => ({
             ...item,
             commercialGroup: {
               mergeable: false,
