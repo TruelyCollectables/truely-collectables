@@ -891,10 +891,11 @@ export async function GET(request: Request) {
             missing_picture: Number(macProjection.queueCounts.missing_picture || 0),
           }
         : computedQueueCounts;
+    // This data is ALREADY selected by the Mac accounting projection for the
+    // requested folder/queue. Do not recategorize it using a separate stricter
+    // website classifier: doing so made 230 seller-received rows disappear.
     const listingRows = scopedInstaCompRows.filter(
-      (row: any) =>
-        row.status === "active" ||
-        instaCompPendingQueueFromMetadata(row.metadata) === "listings",
+      (row: any) => row.status === "active" || row.status === "draft",
     );
 
     const commercialFolderGroupKey = (row: any) => {
@@ -974,7 +975,10 @@ export async function GET(request: Request) {
               rowIsUnlistedEverywhere(row)
             );
           }
-          if (row.status !== "active" && rowQueue !== "listings") return false;
+          // The Mac authoritative master_list already filtered its own
+          // pendingQueue. Recomputing web-only Registry proof here is a DISPLAY
+          // bug. Publication readiness below still remains fail-closed.
+          if (row.status !== "active" && row.status !== "draft") return false;
           if (
             listingFolderFromMetadata(
               row.metadata,
