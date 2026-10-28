@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { postInstaCompMacAccounting } from "../../../../lib/instacomp-mac-accounting-client";
 
 export const dynamic = "force-dynamic";
 
@@ -52,16 +53,30 @@ export async function GET() {
     }
   }
 
+  let sellerReady = false;
+  try {
+    const bridge = await postInstaCompMacAccounting(
+      "/v1/kingmaker/accounting/ebay-bridge",
+      { mode: "readiness" },
+      45_000,
+    );
+    sellerReady = bridge?.readiness?.ready === true;
+  } catch {
+    sellerReady = false;
+  }
+
+  const healthy = authenticated && sellerReady;
   return NextResponse.json(
     {
-      success: authenticated,
+      success: healthy,
       applicationAuthenticated: authenticated,
-      userAuthorized: false,
-      message: authenticated
-        ? "eBay application credentials verified. Seller OAuth authorization is a separate check."
-        : "eBay application credentials could not be verified. Seller authorization was not tested.",
+      userAuthorized: sellerReady,
+      sellerReadiness: sellerReady,
+      message: healthy
+        ? "eBay app credentials and the Mac-local KINGMAKER seller authorization are verified."
+        : "At least one independent eBay credential or Mac-local seller readiness check failed.",
       upstreamStatus: response.status,
     },
-    { status: authenticated ? 200 : 502, headers: { "Cache-Control": "no-store" } },
+    { status: healthy ? 200 : 503, headers: { "Cache-Control": "no-store" } },
   );
 }
