@@ -4,6 +4,7 @@ import {
   parseSellerMarketplaceOAuthState,
 } from "../../../../lib/marketplace-token-crypto";
 import { fetchSellerEbayIdentity } from "../../../../lib/seller-ebay";
+import { readEbayAuthorizationCode } from "../../../../lib/ebay-oauth-code";
 import { postInstaCompMacAccounting } from "../../../../lib/instacomp-mac-accounting-client";
 import { configuredSiteOrigin } from "../../../../lib/site-origin";
 import { getActiveStoreId } from "../../../../lib/stores";
@@ -163,7 +164,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const code = url.searchParams.get("code");
+  const code = readEbayAuthorizationCode(request.url);
   const state = url.searchParams.get("state");
   const callbackError =
     url.searchParams.get("error_description") ||
