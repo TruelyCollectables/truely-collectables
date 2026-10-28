@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { readEbayAuthorizationCode } from "../src/lib/ebay-oauth-code";
 import {
   createAdminMarketplaceOAuthState,
   createSellerMarketplaceOAuthState,
@@ -87,5 +88,24 @@ assert.match(callbackRoute, /preserveExistingSellerConnectionAfterOAuthFailure/)
 assert.match(callbackRoute, /sellerState\.storeId !== activeStoreId/);
 assert.match(callbackRoute, /adminState\.storeId !== activeStoreId/);
 assert.match(callbackRoute, /store_id:\s*actor\.state\.storeId/);
+
+
+assert.equal(
+  readEbayAuthorizationCode("https://truelycollectables.com/api/ebay/callback?state=dummy&code=v%5E1.1%23abc%2Bdef"),
+  "v^1.1#abc+def",
+);
+assert.equal(
+  readEbayAuthorizationCode("https://truelycollectables.com/api/ebay/callback?code=v%5E1%23abc+def"),
+  "v^1#abc+def",
+);
+assert.equal(readEbayAuthorizationCode("https://truelycollectables.com/api/ebay/callback?code=%ZZ"), null);
+assert.equal(readEbayAuthorizationCode("https://truelycollectables.com/api/ebay/callback?code="), null);
+assert.equal(readEbayAuthorizationCode("https://truelycollectables.com/api/ebay/callback?state=abc"), null);
+assert.match(callbackRoute, /readEbayAuthorizationCode\(request\.url\)/);
+
+const connectionTestRoute = fs.readFileSync("src/app/api/ebay/test/route.ts", "utf8");
+assert.match(connectionTestRoute, /grant_type: "client_credentials"/);
+assert.match(connectionTestRoute, /applicationAuthenticated: authenticated/);
+assert.doesNotMatch(connectionTestRoute, /test route works/);
 
 console.log("eBay OAuth state security simulations passed: signed state, Mac-local exchange ordering, no cloud token storage, and reconnect preservation verified");
