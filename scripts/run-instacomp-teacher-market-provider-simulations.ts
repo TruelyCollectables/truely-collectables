@@ -23,7 +23,10 @@ async function main() {
     identityEvidence: "Exact year, product, set, player and card number matched.",
   };
 
-  const expectedDomains = ["ebay.com", "sales-history.fanaticscollect.com", "fanaticscollect.com", "psacard.com", "goldin.co"];
+  // Keep the independent teachers' mocked domain contract aligned with the
+  // approved market domains. Mercari is allowed for active listings only;
+  // 130point remains excluded from automated teacher browsing.
+  const expectedDomains = ["ebay.com", "mercari.com", "sales-history.fanaticscollect.com", "fanaticscollect.com", "psacard.com", "goldin.co"];
   let disagreement = false;
   let xaiContractChecked = false;
   let groqContractChecked = false;
