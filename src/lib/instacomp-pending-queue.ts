@@ -16,6 +16,12 @@ export function instaCompPendingQueueFromMetadata(
   metadataValue: unknown,
 ): InstaCompPendingQueue {
   const metadata = record(metadataValue);
+  const workflow = record(metadata.listingWorkflow);
+  // Explicitly restored resale-review cards stay in the seller review queue.
+  // Per-card identity/orientation blockers still prevent publication.
+  if (workflow.queue === "pending_listings" || workflow.label === "Resale Pending") {
+    return "listings";
+  }
   const instacomp = record(metadata.instacomp);
   if (instacomp.manualHoldBucket === "missing_picture" &&
       instacomp.listingPublishBlocked === true &&
