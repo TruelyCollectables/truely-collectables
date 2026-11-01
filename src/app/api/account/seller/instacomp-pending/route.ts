@@ -38,6 +38,7 @@ import {
   normalizeDualMarketplaceFeeProfile,
 } from "../../../../../lib/dual-marketplace-pricing";
 import { buildKingmakerListingReadiness } from "../../../../../lib/kingmaker-listing-readiness";
+import { kingmakerPendingDisplayTitle } from "../../../../../lib/kingmaker-redo-display-title";
 
 export const dynamic = "force-dynamic";
 
@@ -1192,15 +1193,16 @@ export async function GET(request: Request) {
         buildIdentityReadout(recordValue(metadata.collectible_asset)) ||
         buildIdentityReadout(metadata) ||
         null;
-      const displayTitle =
-        manualListingTitle ||
-        registryExactTitle ||
-        generatedTitle ||
-        (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
-        identityReadout ||
-        identitySummary ||
-        rawTitle ||
-        "Untitled item";
+      const displayTitle = kingmakerPendingDisplayTitle({
+        queue,
+        rawTitle,
+        rawIsGeneric: isGenericTitle(rawTitle),
+        manualListingTitle,
+        registryExactTitle,
+        generatedTitle,
+        identityReadout,
+        identitySummary,
+      });
 
       const websiteAnchor = websiteInventoryAnchorKey(metadata, displayTitle);
       const websiteCandidates = websiteAnchor
