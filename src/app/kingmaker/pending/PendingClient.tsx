@@ -341,7 +341,7 @@ type EditState = {
 };
 
 type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
-type PendingQueue = "listings" | "verification";
+type PendingQueue = "listings" | "verification" | "redo_pending_resale";
 type ListingFolder =
   | "receipt"
   | "pending"
@@ -355,7 +355,7 @@ type ListingFolder =
   | "investment";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
 type MasterListingsCountSnapshot = {
-  queueCounts: { listings: number; verification: number };
+  queueCounts: { listings: number; verification: number; redo_pending_resale: number };
   folderCounts: Record<CountedListingFolder, number>;
   savedAt: number;
 };
@@ -402,7 +402,7 @@ type MergeEbayStrategy = "keep_one" | "increase_existing";
 function queueFromLocation(): PendingQueue | null {
   if (typeof window === "undefined") return "listings";
   const queue = new URLSearchParams(window.location.search).get("queue");
-  if (queue === "verification" || queue === "listings") return queue;
+  if (queue === "verification" || queue === "listings" || queue === "redo_pending_resale") return queue;
   return null;
 }
 
@@ -773,7 +773,7 @@ export default function KingmakerPendingPage({
   initialFolder = "pending",
   initialCards = [],
   initialLoaded = false,
-  initialQueueCounts = { listings: 0, verification: 0 },
+  initialQueueCounts = { listings: 0, verification: 0, redo_pending_resale: 0 },
   initialFolderCounts = {
     pending: 0,
     website: 0,
@@ -790,7 +790,7 @@ export default function KingmakerPendingPage({
   initialFolder?: ListingFolder;
   initialCards?: PendingCard[];
   initialLoaded?: boolean;
-  initialQueueCounts?: { listings: number; verification: number };
+  initialQueueCounts?: { listings: number; verification: number; redo_pending_resale: number };
   initialFolderCounts?: Record<CountedListingFolder, number>;
 }) {
   const [cards, setCards] = useState<PendingCard[]>(initialCards);
@@ -919,13 +919,13 @@ export default function KingmakerPendingPage({
     if (initialLoaded) return;
     const cached = readMasterListingsCountCache();
     if (!cached) return;
-    setQueueCounts(cached.queueCounts);
+    setQueueCounts({ ...cached.queueCounts, redo_pending_resale: Number(cached.queueCounts.redo_pending_resale || 0) });
     setFolderCounts(cached.folderCounts);
     setCountsLoaded(true);
   }, [initialLoaded]);
 
   const load = useCallback(async (activeQueue: PendingQueue, activeFolder: ListingFolder = folderFromLocation()) => {
-    const requestedFolder = activeQueue === "verification" || activeFolder === "receipt" ? "pending" : activeFolder;
+    const requestedFolder = activeQueue === "verification" || activeQueue === "redo_pending_resale" || activeFolder === "receipt" ? "pending" : activeFolder;
     setLoading(true);
     setPageError("");
     let accessTokenHint: string | null = null;
@@ -983,6 +983,7 @@ export default function KingmakerPendingPage({
       const nextQueueCounts = {
         listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
+        redo_pending_resale: Math.max(0, Number(cardsData.queueCounts?.redo_pending_resale || 0)),
       };
       const nextFolderCounts: Record<CountedListingFolder, number> = {
         pending: Math.max(0, Number(cardsData.folderCounts?.pending || 0)),
@@ -1008,6 +1009,7 @@ export default function KingmakerPendingPage({
           queueCounts: {
             listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
             verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
+            redo_pending_resale: Math.max(0, Number(cardsData.queueCounts?.redo_pending_resale || 0)),
           },
           accessTokenHint,
         };
@@ -1044,10 +1046,7 @@ export default function KingmakerPendingPage({
   useEffect(() => {
     if (skipInitialCardsReloadRef.current) {
       skipInitialCardsReloadRef.current = false;
-      const initialQueueCount =
-        queue === "verification"
-          ? initialQueueCounts.verification
-          : initialQueueCounts.listings;
+      const initialQueueCount = initialQueueCounts[queue];
       const hydrationMismatch =
         initialLoaded && initialCards.length === 0 && initialQueueCount > 0;
 
@@ -1092,6 +1091,7 @@ export default function KingmakerPendingPage({
     initialLoaded,
     initialQueueCounts.listings,
     initialQueueCounts.verification,
+    initialQueueCounts.redo_pending_resale,
     load,
     queue,
   ]);
@@ -1887,6 +1887,10 @@ export default function KingmakerPendingPage({
   }
 
   async function publishChannels(targets: PendingCard[], action: ChannelAction) {
+    if (queue === "redo_pending_resale") {
+      setPageError("REDO review cards cannot be published until their identity, photos, pricing, and seller approval are independently cleared.");
+      return;
+    }
     if (!targets.length) {
       setPageError("Select one or more exact-card groups first.");
       return;
@@ -2455,6 +2459,8 @@ export default function KingmakerPendingPage({
             <h1 className="mt-1 text-3xl font-black">
               {queue === "verification"
                 ? "Pending verification"
+                : queue === "redo_pending_resale"
+                  ? "REDO Resale Pending — seller review"
                 : folder === "receipt"
                   ? "Pending receipt — matched purchases"
                   : folder === "pending"
@@ -2478,6 +2484,8 @@ export default function KingmakerPendingPage({
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
               {queue === "verification"
                 ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify them."
+                : queue === "redo_pending_resale"
+                  ? "All recovered physical card drafts remain here with their original scans. Review identity, orientation, comps, and price before moving them to a publishable listing."
                 : folder === "receipt"
                   ? "Only scanned physical cards with a real Mac-local pending purchase reservation appear here. Receive each one into Resale Inventory or Investment Stash."
                   : folder === "investment"
@@ -2555,6 +2563,18 @@ export default function KingmakerPendingPage({
           >
             Pending Verification · {countsLoaded ? queueCounts.verification : "—"}
           </button>
+          <button type="button" onClick={() => {
+            setSelectedIds(new Set()); setEditingId(null); setFolder("pending");
+            const nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.set("queue", "redo_pending_resale");
+            nextUrl.searchParams.set("folder", "pending");
+            nextUrl.searchParams.delete("focus");
+            router.replace(`${nextUrl.pathname}${nextUrl.search}`);
+            setQueue("redo_pending_resale");
+          }} aria-pressed={queue === "redo_pending_resale"}
+            className={`rounded-xl border-2 px-4 py-3 font-black ${queue === "redo_pending_resale" ? "border-neutral-950 bg-neutral-950 text-white" : "border-neutral-400 bg-white text-neutral-950"}`}>
+            REDO Resale Pending · {countsLoaded ? queueCounts.redo_pending_resale : "—"}
+          </button>
         </nav>
 
         {pageError ? <div className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 p-4 font-bold text-red-900">{pageError}</div> : null}
@@ -2562,11 +2582,7 @@ export default function KingmakerPendingPage({
 
         {!loading && !cards.length && !pageError ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
-            {(
-              queue === "verification"
-                ? queueCounts.verification
-                : queueCounts.listings
-            ) > 0 ? (
+            {queueCounts[queue] > 0 ? (
               <>
                 <p className="text-xl font-black">Queue data is refreshing</p>
                 <p className="mt-2 text-neutral-600">
@@ -2578,6 +2594,8 @@ export default function KingmakerPendingPage({
             <p className="text-xl font-black">
               {queue === "verification"
                 ? "No cards pending verification"
+                : queue === "redo_pending_resale"
+                  ? "No REDO resale cards awaiting review"
                 : folder === "pending"
                   ? "No resale cards waiting to be listed"
                   : folder === "website"
@@ -2599,6 +2617,8 @@ export default function KingmakerPendingPage({
             <p className="mt-2 text-neutral-600">
               {queue === "verification"
                 ? "Held cards will remain available here without crowding inventory."
+                : queue === "redo_pending_resale"
+                  ? "REDO cards remain separated until reviewed; nothing publishes automatically."
                 : folder === "investment"
                   ? "Receive a scanned purchase into Investment Stash to hold it here."
                   : "Cards move between these folders automatically as their channel status changes."}
