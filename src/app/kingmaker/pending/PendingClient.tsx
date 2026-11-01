@@ -2203,10 +2203,10 @@ export default function KingmakerPendingPage({
   }
 
   async function verifySelectedToPendingListings() {
-    if (queue !== "verification") return;
+    if (queue !== "verification" && queue !== "redo_pending_resale") return;
     const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
     if (!selected.length) {
-      setPageError("Select one or more cards in Pending Verification first.");
+      setPageError("Select one or more cards in Pending Verification or REDO Resale Pending first.");
       return;
     }
     const eligible = selected.filter((card) => hasValidPair(card));
@@ -2303,7 +2303,7 @@ export default function KingmakerPendingPage({
         }
       }
 
-      const nextQueue = moved > 0 ? "listings" : "verification";
+      const nextQueue = moved > 0 ? "listings" : queue;
       setSelectedIds(new Set());
       setQueue(nextQueue);
       const nextUrl = new URL(window.location.href);
@@ -2702,7 +2702,7 @@ export default function KingmakerPendingPage({
                 Never creates a duplicate eBay listing. Mercari remains one active listing.
               </span>
             </div>
-            {queue === "verification" ? (
+            {(queue === "verification" || queue === "redo_pending_resale") ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
                 <span className="mr-2 text-sm font-black">Verification actions:</span>
                 <button
