@@ -44,7 +44,7 @@ export default async function KingmakerPendingPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const resolvedSearchParams = (await searchParams) || {};
-  const queue = resolvedSearchParams.queue === "verification" ? "verification" : "listings";
+  const queue = resolvedSearchParams.queue === "redo_pending_resale" ? "redo_pending_resale" : resolvedSearchParams.queue === "verification" ? "verification" : "listings";
   const rawFolder = typeof resolvedSearchParams.folder === "string" ? resolvedSearchParams.folder : "pending";
   const folder =
     rawFolder === "receipt" ||
@@ -92,6 +92,7 @@ export default async function KingmakerPendingPage({
       initialQueueCounts={{
         listings: Math.max(0, Number(data.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(data.queueCounts?.verification || 0)),
+        redo_pending_resale: Math.max(0, Number(data.queueCounts?.redo_pending_resale || 0)),
       }}
       initialFolderCounts={{
         pending: Math.max(0, Number(data.folderCounts?.pending || 0)),
