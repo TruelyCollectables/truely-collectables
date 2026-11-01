@@ -1192,8 +1192,22 @@ export async function GET(request: Request) {
         buildIdentityReadout(recordValue(metadata.collectible_asset)) ||
         buildIdentityReadout(metadata) ||
         null;
+      // REDO is a seller review surface: show the corrected title saved in
+      // the Mac-authoritative Master Listing instead of regenerating it from
+      // older InstaComp/Registry identity text (which can retain team names
+      // and abbreviated parallels like "Green" or "White Seismic").
+      // Respect later explicit seller manual title locks and leave all other
+      // queues' identity precedence unchanged. Never elevate a placeholder.
+      const savedRedoReviewTitle =
+        queue === "redo_pending_resale" &&
+        rawTitle &&
+        !isGenericTitle(rawTitle) &&
+        !/^REDO PENDING RESALE\\b/i.test(rawTitle)
+          ? rawTitle
+          : null;
       const displayTitle =
         manualListingTitle ||
+        savedRedoReviewTitle ||
         registryExactTitle ||
         generatedTitle ||
         (rawTitle && !isGenericTitle(rawTitle) ? rawTitle : null) ||
