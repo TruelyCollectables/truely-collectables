@@ -12,7 +12,7 @@ export default async function KingmakerListingsRedirect({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const query = (await searchParams) || {};
-  const queue = query.queue === "verification" ? "verification" : "listings";
+  const queue = query.queue === "redo_pending_resale" ? "redo_pending_resale" : query.queue === "verification" ? "verification" : "listings";
   const supportedFolders = new Set([
     "pending", "receipt", "website", "ebay", "mercari", "both",
     "website_mercari", "ebay_mercari", "all3", "investment",
