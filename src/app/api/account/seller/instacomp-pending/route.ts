@@ -659,7 +659,7 @@ export async function GET(request: Request) {
     const requestedFolder = requestUrl.searchParams.get("folder");
     const requestedFocus = String(requestUrl.searchParams.get("focus") || "").trim();
     const queue: InstaCompPendingQueue =
-      requestedQueue === "missing_picture" ? "missing_picture" : requestedQueue === "verification" ? "verification" : "listings";
+      requestedQueue === "redo_pending_resale" ? "redo_pending_resale" : requestedQueue === "missing_picture" ? "missing_picture" : requestedQueue === "verification" ? "verification" : "listings";
     const folder: InstaCompListingFolder =
       requestedFolder === "website" ||
       requestedFolder === "ebay" ||
@@ -776,6 +776,9 @@ export async function GET(request: Request) {
         textValue(recordValue(metadata.listingWorkflow).queue) ||
         textValue(recordValue(metadata.listing_workflow).queue) ||
         textValue(recordValue(metadata.pending_verification).status);
+      // Review-only REDO records remain visible even after identity/pricing reset.
+      // Publication is still gated downstream; this is display membership only.
+      if (queueHint === "redo_pending_resale" && row.status === "draft") return true;
       const hasScanPairReceipt = Boolean(textValue(instaComp.imagePairSha256));
       const hasStoredImageHint =
         textValue(
@@ -882,6 +885,9 @@ export async function GET(request: Request) {
           row.status === "draft" &&
           instaCompPendingQueueFromMetadata(row.metadata) === "missing_picture",
       ).length,
+      redo_pending_resale: scopedInstaCompRows.filter(
+        (row: any) => row.status === "draft" && instaCompPendingQueueFromMetadata(row.metadata) === "redo_pending_resale",
+      ).length,
     };
     const queueCounts =
       useMacListingProjection && macProjection?.queueCounts
@@ -889,6 +895,7 @@ export async function GET(request: Request) {
             listings: Number(macProjection.queueCounts.listings || 0),
             verification: Number(macProjection.queueCounts.verification || 0),
             missing_picture: Number(macProjection.queueCounts.missing_picture || 0),
+            redo_pending_resale: Number(macProjection.queueCounts.redo_pending_resale || computedQueueCounts.redo_pending_resale || 0),
           }
         : computedQueueCounts;
     // This data is ALREADY selected by the Mac accounting projection for the
@@ -965,6 +972,10 @@ export async function GET(request: Request) {
       ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)
       : scopedInstaCompRows.filter((row: any) => {
           const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
+          if (queue === "redo_pending_resale") {
+            // Each physical card remains separate. Review gate != publish readiness.
+            return row.status === "draft" && rowQueue === "redo_pending_resale";
+          }
           if (queue === "missing_picture") {
             return row.status === "draft" && rowQueue === "missing_picture";
           }
